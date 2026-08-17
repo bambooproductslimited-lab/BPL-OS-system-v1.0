@@ -17,6 +17,11 @@ var notificationsRoutes = require('./routes/notifications.routes');
 var auditRoutes = require('./routes/audit.routes');
 var settingsRoutes = require('./routes/settings.routes');
 var dashboardRoutes = require('./routes/dashboard.routes');
+var tasksRoutes = require('./routes/tasks.routes');
+var projectsRoutes = require('./routes/projects.routes');
+var announcementsRoutes = require('./routes/announcements.routes');
+var documentsRoutes = require('./routes/documents.routes');
+var messagesRoutes = require('./routes/messages.routes');
 
 var app = express();
 
@@ -39,6 +44,11 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/tasks', tasksRoutes);
+app.use('/api/projects', projectsRoutes);
+app.use('/api/announcements', announcementsRoutes);
+app.use('/api/documents', documentsRoutes);
+app.use('/api/messages', messagesRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });
