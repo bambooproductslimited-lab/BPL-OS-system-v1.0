@@ -273,6 +273,60 @@ async function run() {
       }
     }
 
+    console.log('Seeding operations demo data (warehouses, suppliers, raw batches, products)...');
+    var relDate = function (offset) { return new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10); };
+    var whIds = { wh_1: uuid(), wh_2: uuid(), wh_3: uuid() };
+    var warehouseDefs = [
+      { key: 'wh_1', code: 'WH-RAW', name: 'Tema Raw Materials Store', location: 'Tema Plant' },
+      { key: 'wh_2', code: 'WH-FG', name: 'Tema Finished Goods Warehouse', location: 'Tema Plant' },
+      { key: 'wh_3', code: 'WH-ACC', name: 'Accra Distribution Store', location: 'Accra Office' }
+    ];
+    for (i = 0; i < warehouseDefs.length; i++) {
+      var wd = warehouseDefs[i];
+      await client.query('INSERT INTO warehouses (id, code, name, location) VALUES ($1,$2,$3,$4)', [whIds[wd.key], wd.code, wd.name, wd.location]);
+    }
+
+    var supIds = { sup_1: uuid(), sup_2: uuid(), sup_3: uuid() };
+    var supplierDefs = [
+      { key: 'sup_1', name: 'Ashanti Bamboo Growers Co-op', contactPerson: 'James Owusu', phone: '+233 24 210 0200', email: 'sales@ashantibamboo.com.gh', address: 'Ejisu, Ashanti Region', materialsSupplied: 'Raw bamboo poles (Bambusa vulgaris)' },
+      { key: 'sup_2', name: 'Volta Bamboo Suppliers Ltd', contactPerson: 'Grace Adjei', phone: '+233 20 344 5566', email: 'info@voltabamboo.com.gh', address: 'Ho, Volta Region', materialsSupplied: 'Raw bamboo poles (Oxytenanthera abyssinica)' },
+      { key: 'sup_3', name: 'GhanaPoly Packaging Ltd', contactPerson: 'Peter Owusu', phone: '+233 27 199 8877', email: 'orders@ghanapoly.com.gh', address: 'Tema Industrial Area', materialsSupplied: 'Packaging materials, shrink wrap' }
+    ];
+    for (i = 0; i < supplierDefs.length; i++) {
+      var sd = supplierDefs[i];
+      await client.query(
+        "INSERT INTO suppliers (id, name, contact_person, phone, email, address, materials_supplied, payment_terms, status) VALUES ($1,$2,$3,$4,$5,$6,$7,'Net 30','active')",
+        [supIds[sd.key], sd.name, sd.contactPerson, sd.phone, sd.email, sd.address, sd.materialsSupplied]
+      );
+    }
+
+    var rawBatchDefs = [
+      { batchNo: 'RB-2026-041', species: 'Bambusa vulgaris', supplierKey: 'sup_1', dateReceived: relDate(-12), quantity: 3000, unit: 'kg', qualityGrade: 'A', cost: 210000, warehouseKey: 'wh_1' },
+      { batchNo: 'RB-2026-042', species: 'Oxytenanthera abyssinica', supplierKey: 'sup_2', dateReceived: relDate(-6), quantity: 2500, unit: 'kg', qualityGrade: 'B', cost: 124000, warehouseKey: 'wh_1' },
+      { batchNo: 'RB-2026-043', species: 'Bambusa vulgaris', supplierKey: 'sup_1', dateReceived: relDate(-2), quantity: 2800, unit: 'kg', qualityGrade: 'A', cost: 140000, warehouseKey: 'wh_1' }
+    ];
+    for (i = 0; i < rawBatchDefs.length; i++) {
+      var rbd = rawBatchDefs[i];
+      await client.query(
+        "INSERT INTO raw_batches (batch_no, species, supplier_id, date_received, quantity, unit, quality_grade, cost, warehouse_id, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'in_stock')",
+        [rbd.batchNo, rbd.species, supIds[rbd.supplierKey], rbd.dateReceived, rbd.quantity, rbd.unit, rbd.qualityGrade, rbd.cost, whIds[rbd.warehouseKey]]
+      );
+    }
+
+    var productDefs = [
+      { sku: 'BPL-FLR-001', name: 'Bamboo Flooring Plank 1.2m', category: 'Flooring', unit: 'plank', costPrice: 850, sellingPrice: 1400, currentStock: 640, reorderLevel: 200 },
+      { sku: 'BPL-FUR-010', name: 'Bamboo Bar Stool', category: 'Furniture', unit: 'piece', costPrice: 1800, sellingPrice: 3200, currentStock: 38, reorderLevel: 50 },
+      { sku: 'BPL-SKW-100', name: 'BBQ Skewer Pack (50pc)', category: 'Kitchenware', unit: 'pack', costPrice: 90, sellingPrice: 180, currentStock: 1250, reorderLevel: 300 },
+      { sku: 'BPL-PNL-020', name: 'Woven Bamboo Wall Panel', category: 'Décor', unit: 'panel', costPrice: 1200, sellingPrice: 2100, currentStock: 22, reorderLevel: 40 }
+    ];
+    for (i = 0; i < productDefs.length; i++) {
+      var pd = productDefs[i];
+      await client.query(
+        'INSERT INTO products (sku, name, category, unit, cost_price, selling_price, current_stock, reorder_level) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [pd.sku, pd.name, pd.category, pd.unit, pd.costPrice, pd.sellingPrice, pd.currentStock, pd.reorderLevel]
+      );
+    }
+
     console.log('Seeding company settings...');
     var integrations = [
       { id: 'timestation', name: 'TimeStation', category: 'Attendance', description: 'Sync biometric/kiosk clock-in data into Attendance.', connected: false, apiKey: '' },

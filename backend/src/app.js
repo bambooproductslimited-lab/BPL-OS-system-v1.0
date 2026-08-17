@@ -22,6 +22,14 @@ var projectsRoutes = require('./routes/projects.routes');
 var announcementsRoutes = require('./routes/announcements.routes');
 var documentsRoutes = require('./routes/documents.routes');
 var messagesRoutes = require('./routes/messages.routes');
+var warehousesRoutes = require('./routes/warehouses.routes');
+var suppliersRoutes = require('./routes/suppliers.routes');
+var rawBatchesRoutes = require('./routes/rawBatches.routes');
+var productsRoutes = require('./routes/products.routes');
+var productionRoutes = require('./routes/production.routes');
+var procurementRoutes = require('./routes/procurement.routes');
+var assetsRoutes = require('./routes/assets.routes');
+var maintenanceRoutes = require('./routes/maintenance.routes');
 
 var app = express();
 
@@ -49,6 +57,14 @@ app.use('/api/projects', projectsRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/warehouses', warehousesRoutes);
+app.use('/api/suppliers', suppliersRoutes);
+app.use('/api/raw-batches', rawBatchesRoutes);
+app.use('/api/products', productsRoutes);
+app.use('/api/production', productionRoutes);
+app.use('/api/procurement', procurementRoutes);
+app.use('/api/assets', assetsRoutes);
+app.use('/api/maintenance', maintenanceRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });
