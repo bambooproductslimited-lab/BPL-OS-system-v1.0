@@ -30,6 +30,17 @@ var productionRoutes = require('./routes/production.routes');
 var procurementRoutes = require('./routes/procurement.routes');
 var assetsRoutes = require('./routes/assets.routes');
 var maintenanceRoutes = require('./routes/maintenance.routes');
+var customersRoutes = require('./routes/customers.routes');
+var catalogRoutes = require('./routes/catalog.routes');
+var quotationsRoutes = require('./routes/quotations.routes');
+var estimatesRoutes = require('./routes/estimates.routes');
+var salesOrdersRoutes = require('./routes/salesOrders.routes');
+var invoicesRoutes = require('./routes/invoices.routes');
+var paymentsRoutes = require('./routes/payments.routes');
+var receiptsRoutes = require('./routes/receipts.routes');
+var expensesRoutes = require('./routes/expenses.routes');
+var commercialSettingsRoutes = require('./routes/commercialSettings.routes');
+var reportsRoutes = require('./routes/reports.routes');
 
 var app = express();
 
@@ -65,6 +76,17 @@ app.use('/api/production', productionRoutes);
 app.use('/api/procurement', procurementRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/customers', customersRoutes);
+app.use('/api/catalog', catalogRoutes);
+app.use('/api/quotations', quotationsRoutes);
+app.use('/api/estimates', estimatesRoutes);
+app.use('/api/sales-orders', salesOrdersRoutes);
+app.use('/api/invoices', invoicesRoutes);
+app.use('/api/payments', paymentsRoutes);
+app.use('/api/receipts', receiptsRoutes);
+app.use('/api/expenses', expensesRoutes);
+app.use('/api/commercial-settings', commercialSettingsRoutes);
+app.use('/api/reports', reportsRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });

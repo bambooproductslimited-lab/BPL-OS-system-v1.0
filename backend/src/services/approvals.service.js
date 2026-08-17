@@ -3,9 +3,9 @@ var { fail } = require('../utils/errors');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 
 // kernel.js: handlers['approvals.queue']
-// Ported in full for the polymorphic shape (subject_type gates which detail
-// query runs), but only 'leave_request' has a real detail lookup wired up in
-// this pass — procurement_request/expense enrichment lands with those modules.
+// Ported in full for the polymorphic shape — subject_type gates which detail
+// query runs, one branch per approval-backed workflow (leave, procurement,
+// expense).
 async function queue(ctx) {
   if (!ctx.can('approval.act')) fail('forbidden', 'Your role does not allow this action (approval.act).');
 
@@ -36,6 +36,20 @@ async function queue(ctx) {
       if (lr) {
         entry.detail = lr.days + ' day(s) · ' + lr.type_name + ' · ' + lr.start_date + ' → ' + lr.end_date;
         entry.reason = lr.reason;
+      }
+    } else if (a.subject_type === 'procurement_request') {
+      var prRes = await pool.query('SELECT * FROM procurement_requests WHERE id = $1', [a.subject_id]);
+      var pr = prRes.rows[0];
+      if (pr) {
+        entry.detail = pr.item + ' × ' + Number(pr.quantity) + ' · est. GHS ' + Number(pr.estimated_price).toLocaleString();
+        entry.reason = pr.reason;
+      }
+    } else if (a.subject_type === 'expense') {
+      var exRes = await pool.query('SELECT * FROM expenses WHERE id = $1', [a.subject_id]);
+      var ex = exRes.rows[0];
+      if (ex) {
+        entry.detail = ex.category + ' · GHS ' + Number(ex.amount).toLocaleString() + ' · ' + ex.date;
+        entry.reason = ex.description;
       }
     }
 
