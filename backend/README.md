@@ -5,13 +5,15 @@ Company OS, replacing the design prototype's `core/kernel.js` (which ran
 entirely client-side against `localStorage`, with a non-cryptographic
 password digest standing in for real auth).
 
-This first pass implements **auth + the leave request resource end-to-end**
-as a proof of concept, plus the **full database schema** for every module in
-the original data model (see [`PROJECT_NOTES.md`](../design_handoff_bamboo_company_os/PROJECT_NOTES.md)
+Every kernel.js handler group has a real route now — auth, people/governance,
+work/comms, operations, and the full commercial (quotation-to-cash) module —
+except `ai.context` (needs a real Claude API key proxied server-side) and
+`dev.reset` (a browser-only convenience superseded by `npm run db:reset`
+here). See [`PROJECT_NOTES.md`](../design_handoff_bamboo_company_os/PROJECT_NOTES.md)
 and [`README.md`](../design_handoff_bamboo_company_os/README.md) in
 `design_handoff_bamboo_company_os/` for the prototype's own account of the
-system). Every file here is commented with which part of `kernel.js` it
-ports from, so this can be extended module-by-module.
+system. Every service/route file is commented with which kernel.js handler
+it ports from.
 
 ## Stack
 
@@ -69,13 +71,12 @@ npm run migrate:down     # roll back the most recent one
 npm run migrate:status   # show applied / pending
 ```
 
-`0001`–`0005` cover everything the auth + leave PoC actually uses
-(extensions, departments/employees, roles/permissions/users, leave/attendance/
-approvals, audit/notifications/settings). `0006`–`0008` create the tables for
-every other module in the prototype's data model (tasks/projects/announcements/
-documents/messages, production/inventory/procurement/assets, and the
-commercial quotation/invoice/payment stack) so the schema is ready ahead of
-those modules' routes — see "Extending to the rest" below.
+- `0001` — pgcrypto extension (`gen_random_uuid()`).
+- `0002`–`0005` — core people/governance/leave schema.
+- `0006`–`0008` — work/comms, operations, and commercial schema.
+- `0009` — CHECK constraint corrections found while porting the routes for
+  `0006`–`0008` (see below) plus two columns the handlers needed
+  (`warehouses.capacity`, `quotations.from_estimate_id`).
 
 Two schema decisions worth flagging since they depart from the prototype's
 raw JS-object shape by necessity of being a real relational schema:
@@ -88,49 +89,91 @@ raw JS-object shape by necessity of being a real relational schema:
   employees referencing each other (a department's manager is an employee;
   an employee's manager can be an employee inserted later in seed order), so
   the constraint is checked at transaction commit rather than per-statement.
+- Quotations/estimates/sales orders/invoices share one
+  `document_line_items` table (`document_type` + `document_id`), matching
+  `PROJECT_NOTES.md`'s note that these four document types share one
+  line-item shape with snapshot pricing.
 
 ## Seeding
 
 `npm run seed` ports `kernel.js`'s `seed()` **plus** the parts of its
 `MIGRATIONS` array that shape the final dataset (the Information Technology
 department + Emmanuel Chang from migration 17, the final 12-role permission
-grants after migrations 3/4/11's additive grants are folded in, etc.) — see
-the comments at the top of `src/db/seed.js` for exactly which permissions
-came from which migration. It is **destructive**: it `TRUNCATE`s every table
-first, exactly like the prototype's `BambooKernel.call('dev.reset')`. Don't
-point it at anything with real data.
+grants after migrations 3/4/11's additive grants are folded in, Phase 2
+operations demo data, commercial settings/integrations from migrations 10/18,
+etc.) — see the comments at the top of `src/db/seed.js` for exactly which
+permissions came from which migration. It is **destructive**: it `TRUNCATE`s
+every table first, exactly like the prototype's `BambooKernel.call('dev.reset')`.
+Don't point it at anything with real data.
 
-Not currently seeded (out of scope for this pass, tracked as a gap rather
-than silently dropped): the 10-working-day attendance history `seed()`
-generates. Add it to `src/db/seed.js` alongside `leave_balances` when the
-attendance routes are built.
+Not currently seeded (tracked as a gap, not silently dropped): the
+10-working-day attendance history `seed()` generates, and the Phase 3
+customers/quotations/invoices/expenses demo records (the commercial routes
+are fully implemented and tested — just exercised against data created
+through the API in tests rather than pre-seeded).
 
 ## RBAC
 
 `src/middleware/rbac.js` ports `require_(ctx, perm)` → `requirePermission(perm)`
 middleware, and `visibleEmployee(ctx, emp)` verbatim (self → department →
 whole reporting subtree via a walk up `manager_id` → `employee.read.all`
-escapes all of it). `src/services/context.service.js` ports `ctxFor(user)` /
-`permissionsOf(user)` — every authenticated request gets a `req.ctx` with
+escapes all of it). The same pattern is ported per-module for the other
+record-level scope functions: `taskVisible`/`projectVisible`
+(`tasks.service.js`/`projects.service.js`), `documentVisible`/
+`announcementVisible` (`documents.service.js`/`announcements.service.js`),
+`procurementVisible` (`procurement.service.js`), `expenseVisible`
+(`expenses.service.js`). `src/services/context.service.js` ports `ctxFor(user)`
+/ `permissionsOf(user)` — every authenticated request gets a `req.ctx` with
 `.can(perm)`, exactly like the kernel's per-call `ctx`. **Permissions are
 resolved server-side on every request from the roles in the database**, never
 trusted from the client, matching `PROJECT_NOTES.md`'s explicit warning not
 to treat the frontend's `can()` checks as a security boundary.
 
-## Endpoints (this pass)
+## Endpoints
 
-| Kernel method | Route |
-|---|---|
-| `auth.login` | `POST /api/auth/login` |
-| `auth.logout` | `POST /api/auth/logout` |
-| `api.currentContext()` | `GET /api/me` |
-| `me.summary` | `GET /api/me/summary` |
-| `leave.types` | `GET /api/leave/types` |
-| `leave.list` | `GET /api/leave?status=` |
-| `leave.request` | `POST /api/leave` |
-| `leave.decide` | `POST /api/leave/:id/decision` |
-| `leave.cancel` | `POST /api/leave/:id/cancel` |
-| `approvals.queue` | `GET /api/approvals/queue` (leave requests only for now — see below) |
+Base path `/api`. Every route requires `Authorization: Bearer <token>` except
+`POST /auth/login` and `GET /roles/permissions` (the kernel exempts exactly
+these two from its `needsAuth` check).
+
+| Module | Kernel methods | Routes |
+|---|---|---|
+| Auth | `auth.login`, `auth.logout` | `POST /auth/login`, `POST /auth/logout` |
+| Me | `api.currentContext()`, `me.summary` | `GET /me`, `GET /me/summary` |
+| Leave | `leave.types/list/request/decide/cancel` | `GET /leave/types`, `GET /leave`, `POST /leave`, `POST /leave/:id/decision`, `POST /leave/:id/cancel` |
+| Approvals | `approvals.queue` | `GET /approvals/queue` (leave / procurement / expense — fully polymorphic) |
+| Employees | `employees.list/get/create/update/terminate/purgeTerminated/profile` | `GET /employees`, `POST /employees`, `POST /employees/purge-terminated`, `GET /employees/:id`, `GET /employees/:id/profile`, `PATCH /employees/:id`, `POST /employees/:id/terminate` |
+| Departments | `departments.list/save/delete` | `GET /departments`, `POST /departments`, `PUT /departments/:id`, `DELETE /departments/:id` |
+| Roles | `roles.list/permissionCatalogue/setPermission` | `GET /roles`, `GET /roles/permissions`, `POST /roles/:roleId/permissions` |
+| Users | `users.list/setRole/setStatus` | `GET /users`, `POST /users/:id/role`, `POST /users/:id/status` |
+| Attendance | `attendance.clockIn/clockOut/list/adjust/delete` | `POST /attendance/clock-in`, `POST /attendance/clock-out`, `GET /attendance`, `POST /attendance/adjust`, `DELETE /attendance/:id` |
+| Notifications | `notifications.mine/markRead` | `GET /notifications`, `POST /notifications/read` |
+| Audit | `audit.list` | `GET /audit` |
+| Settings | `settings.get/save`, `integrations.list/connect/disconnect` | `GET /settings`, `PATCH /settings`, `GET /settings/integrations`, `POST /settings/integrations/:id/connect`, `POST /settings/integrations/:id/disconnect` |
+| Dashboard | `dashboard.load` | `GET /dashboard` |
+| Tasks | `tasks.list/get/create/update/delete/setStatus/addComment` | `GET /tasks`, `POST /tasks`, `GET /tasks/:id`, `PATCH /tasks/:id`, `DELETE /tasks/:id`, `POST /tasks/:id/status`, `POST /tasks/:id/comments` |
+| Projects | `projects.list/create/setStatus` | `GET /projects`, `POST /projects`, `POST /projects/:id/status` |
+| Announcements | `announcements.list/publish` | `GET /announcements`, `POST /announcements` |
+| Documents | `documents.list/upload/delete` | `GET /documents`, `POST /documents`, `DELETE /documents/:id` |
+| Messages | `messages.inbox/directory/thread/send/unreadCount` | `GET /messages`, `GET /messages/directory`, `GET /messages/unread-count`, `GET /messages/:peerId`, `POST /messages/:peerId` |
+| Warehouses | `warehouses.list/create/update/delete` | `GET /warehouses`, `POST /warehouses`, `PUT /warehouses/:id`, `DELETE /warehouses/:id` |
+| Suppliers | `suppliers.list/create/update/delete` | `GET /suppliers`, `POST /suppliers`, `PUT /suppliers/:id`, `DELETE /suppliers/:id` |
+| Raw batches | `rawBatches.list/create/update` | `GET /raw-batches`, `POST /raw-batches`, `PUT /raw-batches/:id` |
+| Products | `products.list/create/update` | `GET /products`, `POST /products`, `PUT /products/:id` |
+| Production | `production.list/create` | `GET /production`, `POST /production` |
+| Procurement | `procurement.list/request/decide` | `GET /procurement`, `POST /procurement`, `POST /procurement/:id/decision` |
+| Assets | `assets.list/create` | `GET /assets`, `POST /assets` |
+| Maintenance | `maintenance.list/create` | `GET /maintenance`, `POST /maintenance` |
+| Customers | `customers.list/create/update/setCategory/delete` | `GET /customers`, `POST /customers`, `PUT /customers/:id`, `POST /customers/:id/category`, `DELETE /customers/:id` |
+| Catalog | `catalog.list/create/update/setActive/delete` | `GET /catalog`, `POST /catalog`, `PUT /catalog/:id`, `POST /catalog/:id/active`, `DELETE /catalog/:id` |
+| Quotations | `quotations.list/create/setStatus` | `GET /quotations`, `POST /quotations`, `POST /quotations/:id/status` |
+| Estimates | `estimates.list/create/update/delete/setStatus/convertToQuotation` | `GET /estimates`, `POST /estimates`, `PUT /estimates/:id`, `DELETE /estimates/:id`, `POST /estimates/:id/status`, `POST /estimates/:id/convert` |
+| Sales orders | `salesOrders.list/createFromQuotation/setStatus` | `GET /sales-orders`, `POST /sales-orders`, `POST /sales-orders/:id/status` |
+| Invoices | `invoices.list/createFromOrder/createFromQuotation/createManual/update/delete/void/markPaid/recordPayment` | `GET /invoices`, `POST /invoices`, `POST /invoices/from-order`, `POST /invoices/from-quotation`, `PATCH /invoices/:id`, `DELETE /invoices/:id`, `POST /invoices/:id/void`, `POST /invoices/:id/mark-paid`, `POST /invoices/:id/payments` |
+| Payments | `payments.list/delete` | `GET /payments`, `DELETE /payments/:id` |
+| Receipts | `receipts.list` | `GET /receipts` |
+| Expenses | `expenses.list/request/decide/update/delete/markPaid` | `GET /expenses`, `POST /expenses`, `PATCH /expenses/:id`, `DELETE /expenses/:id`, `POST /expenses/:id/decision`, `POST /expenses/:id/mark-paid` |
+| Commercial settings | `commercialSettings.get/save/addTaxRate` | `GET /commercial-settings`, `PATCH /commercial-settings`, `POST /commercial-settings/tax-rates` |
+| Reports | `reports.summary`, `marketing.dashboard`, `finance.dashboard`, `commercial.dashboard` | `GET /reports/summary`, `GET /reports/marketing`, `GET /reports/finance`, `GET /reports/commercial` |
 
 Errors use the kernel's own error codes (`invalid` / `auth` / `forbidden` /
 `notfound` / `conflict`) mapped to real HTTP status codes (400/401/403/404/409)
@@ -165,15 +208,23 @@ Same params in, same shaped record out — the field names inside each record
 are the kernel's own `camelCase` field names (e.g. `startDate`, `decidedBy`),
 not the database's `snake_case` columns; each service module maps rows back
 to that shape before returning (see `rowToLeaveRequest` in
-`src/services/leave.service.js`).
+`src/services/leave.service.js`, and the equivalent `rowTo*` mapper in every
+other service).
 
 ## Testing
 
-`test/smoke.test.js` is an end-to-end integration test (Node's built-in test
-runner + `fetch`, no extra dependencies) covering login success/failure,
-the 401/403/404/409 paths, the full leave request → approve/reject/cancel
-lifecycle, balance updates, and record-level visibility scoping. It runs the
-real Express app against a real Postgres connection:
+Six integration test files (Node's built-in test runner + `fetch`, no extra
+dependencies), one per batch, all running the real Express app against a
+real Postgres connection:
+
+- `test/smoke.test.js` — auth + leave end-to-end (the original PoC).
+- `test/people-governance.test.js` — employees/departments/roles/users/
+  attendance/audit/settings/dashboard.
+- `test/work-comms.test.js` — tasks/projects/announcements/documents/messages.
+- `test/operations.test.js` — warehouses/suppliers/raw batches/products/
+  production/procurement/assets/maintenance.
+- `test/commercial.test.js` — the full quote-to-cash flow, expense approvals
+  through the shared queue, estimate conversion, reports, commercial settings.
 
 ```bash
 npm run migrate
@@ -181,30 +232,19 @@ npm run seed    # tests depend on the seeded demo accounts
 npm test
 ```
 
-## Extending to the rest
-
-The tables already exist (migrations `0006`–`0008`). For each remaining
-kernel method group:
-
-1. Add a `src/services/<module>.service.js` porting that group's handlers
-   from `kernel.js`, same pattern as `leave.service.js`: validate with `V.*`
-   from `src/utils/validate.js`, run mutations through `withTransaction`
-   when more than one table changes, call `audit()` and `notify()` at the
-   same points the kernel does.
-2. Add a `src/routes/<module>.routes.js`, `requireAuth` + `requirePermission()`
-   at the same permission gates the kernel's `require_()` calls used.
-3. Mount it in `src/app.js`.
-
-`approvals.service.js` is deliberately generic over `subject_type` already —
-extending `procurement_request` and `expense` approvals is adding their
-detail-lookup branch there, not restructuring the queue.
-
-## Known gaps in this pass
+## Known gaps
 
 - Logout is stateless (JWT expiry-bounded, `JWT_EXPIRES_IN`); there's no
   server-side revocation list. Add one if immediate forced-logout is a
   requirement.
-- File storage (Documents module), the AI Assistant proxy, and the real
-  TimeStation/Square/Slack/QuickBooks integrations are all still
-  architecture-only, same as the prototype — `PROJECT_NOTES.md` items 5–6
-  weren't in scope for this pass.
+- File storage (Documents module — currently stores a filename string, no
+  actual upload), the AI Assistant proxy (`ai.context` needs a server-side
+  Claude API key instead of the prototype's in-browser `window.claude.complete`
+  bridge), and real TimeStation/Square/Slack/QuickBooks sync (currently
+  credential storage only, matching the prototype's own scope) are all still
+  architecture-only — `PROJECT_NOTES.md` items 5, 6 and 8.
+- No frontend changes yet — `Bamboo OS.dc.html` still calls
+  `BambooKernel.call()` against `localStorage`. Swapping each screen over to
+  `fetch()` against these routes (see above) is the next real step toward
+  going live, along with production secrets/deployment and replacing the
+  seed data with real company data per `PROJECT_NOTES.md`'s launch checklist.
