@@ -8,6 +8,15 @@ var authRoutes = require('./routes/auth.routes');
 var meRoutes = require('./routes/me.routes');
 var leaveRoutes = require('./routes/leave.routes');
 var approvalsRoutes = require('./routes/approvals.routes');
+var employeesRoutes = require('./routes/employees.routes');
+var departmentsRoutes = require('./routes/departments.routes');
+var rolesRoutes = require('./routes/roles.routes');
+var usersRoutes = require('./routes/users.routes');
+var attendanceRoutes = require('./routes/attendance.routes');
+var notificationsRoutes = require('./routes/notifications.routes');
+var auditRoutes = require('./routes/audit.routes');
+var settingsRoutes = require('./routes/settings.routes');
+var dashboardRoutes = require('./routes/dashboard.routes');
 
 var app = express();
 
@@ -21,6 +30,15 @@ app.use('/api/auth', authRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/approvals', approvalsRoutes);
+app.use('/api/employees', employeesRoutes);
+app.use('/api/departments', departmentsRoutes);
+app.use('/api/roles', rolesRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });

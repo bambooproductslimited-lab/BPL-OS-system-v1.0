@@ -274,9 +274,46 @@ async function run() {
     }
 
     console.log('Seeding company settings...');
+    var integrations = [
+      { id: 'timestation', name: 'TimeStation', category: 'Attendance', description: 'Sync biometric/kiosk clock-in data into Attendance.', connected: false, apiKey: '' },
+      { id: 'squareup', name: 'Square', category: 'Payments & POS', description: 'Sync Square payments and orders with Invoices & Payments.', connected: false, apiKey: '' },
+      { id: 'slack', name: 'Slack', category: 'Notifications', description: 'Send approval and announcement alerts to a Slack channel.', connected: false, apiKey: '' },
+      { id: 'quickbooks', name: 'QuickBooks', category: 'Accounting', description: 'Sync invoices and expenses with QuickBooks.', connected: false, apiKey: '' }
+    ];
+    var commercial = {
+      currencies: ['GHS', 'USD', 'EUR', 'GBP'],
+      taxRates: [
+        { id: 'tx_vat', name: 'VAT', rate: 15 },
+        { id: 'tx_nhil', name: 'NHIL', rate: 2.5 },
+        { id: 'tx_getfund', name: 'GETFund', rate: 2.5 },
+        { id: 'tx_wht', name: 'Withholding Tax', rate: 5 },
+        { id: 'tx_zero', name: 'Zero-rated', rate: 0 }
+      ],
+      numbering: {
+        estimate: { prefix: 'EST', padding: 4, includeYear: true, nextNumber: 1 },
+        quotation: { prefix: 'QT', padding: 4, includeYear: true, nextNumber: 1 },
+        invoice: { prefix: 'INV', padding: 4, includeYear: true, nextNumber: 1 },
+        receipt: { prefix: 'RCT', padding: 4, includeYear: true, nextNumber: 1 }
+      },
+      templates: {
+        quotationIntro: 'Thank you for the opportunity to quote for your requirements.',
+        quotationFooter: 'This quotation is valid until the date shown above. Prices are in the stated currency and exclude any taxes not itemised.',
+        invoiceFooter: 'Thank you for your business. Please make payment by the due date using the details provided.',
+        paymentTerms: 'Net 30 days from invoice date.',
+        termsAndConditions: 'Goods and services remain the property of Bamboo Products Limited until paid in full.',
+        validityDays: 14,
+        invoiceDueDays: 30
+      },
+      paymentDetails: {
+        bankName: 'Ghana Commercial Bank', accountName: 'Bamboo Products Limited', accountNumber: '1021304050607',
+        branch: 'Tema Branch', swift: 'GHCBGHAC', momoProvider: 'MTN Mobile Money', momoNumber: '024 700 1122',
+        instructions: 'Please quote the invoice number as payment reference.'
+      }
+    };
     await client.query(
-      'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain) ' +
-      "VALUES (1, 'Bamboo Products Limited', 'BPL', 'Ghana', 'GHS', 'Africa/Accra', '01-01', 'Mon–Sat', 8, '08:15', ARRAY['Tema Plant','Accra Office'], ARRAY['department_manager','hr_manager'])"
+      'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial) ' +
+      "VALUES (1, 'Bamboo Products Limited', 'BPL', 'Ghana', 'GHS', 'Africa/Accra', '01-01', 'Mon–Sat', 8, '08:15', ARRAY['Tema Plant','Accra Office'], ARRAY['department_manager','hr_manager'], $1, $2)",
+      [JSON.stringify(integrations), JSON.stringify(commercial)]
     );
 
     console.log('Writing seed audit log entry...');
