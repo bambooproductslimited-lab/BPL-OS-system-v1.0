@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS maintenance_records;
+DROP TABLE IF EXISTS assets;
+DROP TABLE IF EXISTS procurement_requests;
+DROP TABLE IF EXISTS inventory_tx;
+DROP TABLE IF EXISTS production_batch_employees;
+DROP TABLE IF EXISTS production_batches;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS raw_batches;
+DROP TABLE IF EXISTS suppliers;
+DROP TABLE IF EXISTS warehouses;

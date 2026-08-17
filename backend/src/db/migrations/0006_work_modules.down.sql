@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS announcements;
+DROP TABLE IF EXISTS task_comments;
+DROP TABLE IF EXISTS task_assignees;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS project_members;
+DROP TABLE IF EXISTS projects;

@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS expenses;
+DROP TABLE IF EXISTS receipts;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS document_line_items;
+DROP TABLE IF EXISTS invoices;
+DROP TABLE IF EXISTS sales_orders;
+DROP TABLE IF EXISTS estimates;
+DROP TABLE IF EXISTS quotations;
+DROP TABLE IF EXISTS catalog_items;
+DROP TABLE IF EXISTS customers;
