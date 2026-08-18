@@ -9,7 +9,7 @@ types.setTypeParser(types.builtins.DATE, function (val) { return val; });
 
 var pool = new Pool(
   config.databaseUrl
-    ? { connectionString: config.databaseUrl }
+    ? { connectionString: config.databaseUrl, ssl: config.pgSsl ? { rejectUnauthorized: false } : undefined }
     : config.pg
 );
 

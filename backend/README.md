@@ -64,6 +64,9 @@ setup, but every reply is a fixed "not configured" message until you set
 [console.anthropic.com](https://console.anthropic.com/)). See "AI
 Assistant" below.
 
+For a real deployment rather than local dev, use `npm run bootstrap`
+instead of `npm run seed` — see [`../DEPLOYMENT.md`](../DEPLOYMENT.md).
+
 ## Migrations
 
 `src/db/migrations/*.up.sql` / `*.down.sql`, tracked in a `schema_migrations`
@@ -280,9 +283,12 @@ npm test
   though it needs an operator-supplied `ANTHROPIC_API_KEY` to answer for
   real rather than returning its "not configured" fallback.
 - The real frontend (`../frontend`, React + Vite) now covers every screen
-  in the prototype's nav except the rest of Intelligence beyond the AI
-  Assistant — see `../frontend/README.md`. `Bamboo OS.dc.html` itself is
-  unchanged and remains the design/behavior reference, not something this
-  backend serves. Production secrets/deployment and replacing the seed
-  data with real company data are still open, per `PROJECT_NOTES.md`'s
-  launch checklist.
+  in the prototype's nav — see `../frontend/README.md`. `Bamboo OS.dc.html`
+  itself is unchanged and remains the design/behavior reference, not
+  something this backend serves.
+- Production deployment: see [`../DEPLOYMENT.md`](../DEPLOYMENT.md) and
+  `src/db/bootstrap.js` (`npm run bootstrap` — creates the reference data
+  and one real admin account on a fresh database without ever touching it
+  destructively, unlike `npm run seed`, which is dev/demo-only and
+  TRUNCATEs everything). Backups aren't set up by that guide — do that
+  before real company data lives here.

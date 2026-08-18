@@ -1,0 +1,66 @@
+# Render Blueprint — provisions the backend (Node/Express) and its Postgres
+# database in one shot. In the Render dashboard: New > Blueprint > point at
+# this repo. See DEPLOYMENT.md for the full walkthrough (including why the
+# frontend is NOT here — it's a static build meant to go on your existing
+# web host, e.g. Hostinger, not on Render).
+#
+# The database plan below is "starter" (~$6/mo at time of writing), not
+# "free" — Render's free Postgres tier auto-deletes the database 30 days
+# after creation, which would silently wipe a real company's data. Change
+# it only if you understand and accept that trade-off (e.g. a short-lived
+# demo, not real use).
+
+databases:
+  - name: bamboo-os-db
+    databaseName: bamboo_os
+    user: bamboo
+    plan: starter
+
+services:
+  - type: web
+    name: bamboo-os-backend
+    runtime: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install && npm run migrate && npm run bootstrap
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bamboo-os-db
+          property: connectionString
+      - key: PGSSLMODE
+        value: require
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: BCRYPT_ROUNDS
+        value: '12'
+      # Set this to your real Hostinger domain (e.g. https://bpl-os.yourdomain.com)
+      # once you know it — see DEPLOYMENT.md step 4. Login and every API call
+      # will be rejected by CORS until this matches the frontend's real origin.
+      - key: CORS_ORIGIN
+        value: http://localhost:5173
+      # Fill these in on the Render dashboard before the first deploy — the
+      # build's `npm run bootstrap` step reads them to create your one real
+      # admin account. They are never stored anywhere after that first run
+      # (bootstrap.js skips admin creation on every run after the first),
+      # so you can blank ADMIN_PASSWORD out again afterward if you want.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_FIRST_NAME
+        sync: false
+      - key: ADMIN_LAST_NAME
+        sync: false
+      # Optional — leave unset and the AI Assistant works but always
+      # returns its "not configured" message. Get a key at
+      # https://console.anthropic.com/ to enable real answers.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5

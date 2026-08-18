@@ -13,6 +13,11 @@ module.exports = {
   port: Number(process.env.PORT || 4000),
   nodeEnv: process.env.NODE_ENV || 'development',
   databaseUrl: process.env.DATABASE_URL || null,
+  // Managed Postgres (Render, Railway, Neon, Supabase, ...) requires TLS and
+  // typically presents a cert `pg` won't validate against a default CA
+  // bundle; PGSSLMODE=require opts in without pinning a specific CA, fine
+  // for these providers' own infra. Leave unset for a local/self-hosted DB.
+  pgSsl: process.env.PGSSLMODE === 'require',
   pg: {
     host: process.env.PGHOST || 'localhost',
     port: Number(process.env.PGPORT || 5432),

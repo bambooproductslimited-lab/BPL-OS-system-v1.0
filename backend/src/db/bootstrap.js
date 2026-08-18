@@ -1,0 +1,134 @@
+#!/usr/bin/env node
+/*
+ * Production-safe alternative to seed.js. seed.js TRUNCATEs every table and
+ * fills it with fake demo people/customers/quotations — exactly what you
+ * want for local dev, and exactly what you must never point at a real
+ * company's database. This script never deletes anything: it only inserts
+ * the reference data every deployment needs to function at all (the
+ * permission catalogue, the 12 role definitions, one default company
+ * settings row — see referenceData.js) if that data isn't there yet, then
+ * creates exactly one real administrator account from the ADMIN_* env vars
+ * below. Safe to run on every deploy: each step checks first and skips
+ * anything already present, so re-running it after the first real deploy
+ * is a no-op.
+ *
+ * Required env vars: ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_FIRST_NAME, ADMIN_LAST_NAME.
+ * Run with: npm run bootstrap
+ */
+var bcrypt = require('bcrypt');
+var crypto = require('crypto');
+var config = require('../config');
+var { pool, withTransaction } = require('./pool');
+var { PERMISSIONS, ROLE_DEFS, defaultSettingsRow } = require('./referenceData');
+
+function uuid() { return crypto.randomUUID(); }
+
+async function ensurePermissionsAndRoles(client) {
+  var existing = await client.query('SELECT count(*)::int AS n FROM permissions');
+  if (existing.rows[0].n > 0) {
+    console.log('Permission catalogue already present — skipping.');
+  } else {
+    console.log('Seeding permission catalogue...');
+    for (var i = 0; i < PERMISSIONS.length; i++) {
+      var p = PERMISSIONS[i];
+      await client.query('INSERT INTO permissions (key, "group", label) VALUES ($1, $2, $3)', [p.key, p.group, p.label]);
+    }
+  }
+
+  var roleRes = await client.query('SELECT key, id FROM roles');
+  var roleIds = {};
+  roleRes.rows.forEach(function (r) { roleIds[r.key] = r.id; });
+  if (roleRes.rows.length > 0) {
+    console.log('Roles already present — skipping.');
+  } else {
+    console.log('Seeding roles...');
+    for (var j = 0; j < ROLE_DEFS.length; j++) {
+      var r = ROLE_DEFS[j];
+      var id = uuid();
+      roleIds[r.key] = id;
+      await client.query('INSERT INTO roles (id, key, name, is_system, description) VALUES ($1, $2, $3, true, $4)', [id, r.key, r.name, r.description]);
+      for (var k = 0; k < r.permissions.length; k++) {
+        await client.query('INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2)', [id, r.permissions[k]]);
+      }
+    }
+  }
+  return roleIds;
+}
+
+async function ensureSettings(client) {
+  var existing = await client.query('SELECT id FROM settings WHERE id = 1');
+  if (existing.rows[0]) {
+    console.log('Company settings row already present — skipping.');
+    return;
+  }
+  console.log('Inserting default company settings...');
+  var s = defaultSettingsRow();
+  await client.query(
+    'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial) ' +
+    'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+    [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial)]
+  );
+}
+
+async function ensureAdminDepartment(client) {
+  var existing = await client.query("SELECT id FROM departments WHERE code = 'ADM'");
+  if (existing.rows[0]) return existing.rows[0].id;
+  console.log('Creating Administration department...');
+  var id = uuid();
+  await client.query(
+    "INSERT INTO departments (id, code, name, manager_id, status) VALUES ($1, 'ADM', 'Administration', NULL, 'active')",
+    [id]
+  );
+  return id;
+}
+
+async function ensureAdminUser(client, deptId, roleIds) {
+  var email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  var password = process.env.ADMIN_PASSWORD || '';
+  var firstName = (process.env.ADMIN_FIRST_NAME || '').trim();
+  var lastName = (process.env.ADMIN_LAST_NAME || '').trim();
+  if (!email || !password || !firstName || !lastName) {
+    throw new Error('Set ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_FIRST_NAME and ADMIN_LAST_NAME to create the first real admin account.');
+  }
+  if (password.length < 8) {
+    throw new Error('ADMIN_PASSWORD must be at least 8 characters.');
+  }
+
+  var existing = await client.query('SELECT id FROM users WHERE email = $1', [email]);
+  if (existing.rows[0]) {
+    console.log('A user with email ' + email + ' already exists — skipping admin creation.');
+    return;
+  }
+
+  console.log('Creating admin account for ' + email + '...');
+  var empId = uuid();
+  await client.query(
+    'INSERT INTO employees (id, code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift) ' +
+    "VALUES ($1,'ADM-001',$2,$3,$4,'',$5,'System Administrator',NULL,'permanent',$6,'active','','')",
+    [empId, firstName, lastName, email, deptId, new Date().toISOString().slice(0, 10)]
+  );
+
+  await client.query("UPDATE departments SET manager_id = $1 WHERE id = $2 AND manager_id IS NULL", [empId, deptId]);
+
+  var passwordHash = await bcrypt.hash(password, config.bcryptRounds);
+  var userId = uuid();
+  await client.query(
+    'INSERT INTO users (id, employee_id, email, password_hash, status, must_change_password) VALUES ($1,$2,$3,$4,$5,false)',
+    [userId, empId, email, passwordHash, 'active']
+  );
+  await client.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)', [userId, roleIds.administrator]);
+  console.log('Admin account created. Sign in with ' + email + ' and the password you set in ADMIN_PASSWORD.');
+}
+
+async function run() {
+  await withTransaction(async function (client) {
+    var roleIds = await ensurePermissionsAndRoles(client);
+    await ensureSettings(client);
+    var deptId = await ensureAdminDepartment(client);
+    await ensureAdminUser(client, deptId, roleIds);
+  });
+}
+
+run()
+  .then(function () { console.log('Bootstrap complete.'); pool.end(); })
+  .catch(function (err) { console.error('Bootstrap failed:', err.message); pool.end(); process.exit(1); });
