@@ -57,6 +57,15 @@ implementation of that design, built screen by screen against the real API.
   the backend's `taskVisible()`), while start/due date edits and delete
   stay manager-only. Clicking a title opens a detail dialog with the full
   record, an edit form, and a comment thread anyone in scope can post to.
+- **Projects** — a card grid (code, department, status tag, owner,
+  deadline, and a task-completion progress bar), with a "New project"
+  dialog for `project.manage`. Deliberately read-only otherwise: the
+  prototype defines a `setProjectStatus` handler but never wires it to
+  any control on this screen, so this screen doesn't add one either, even
+  though the backend's `POST /projects/:id/status` endpoint exists and
+  works. Visibility is department-scoped — a project shows up if it's in
+  your department, you own it, or you're a member, which the frontend
+  doesn't compute; it just renders whatever cards the API returns.
 
 Everything else in the nav (the whole Operations and Commercial modules,
 governance screens, etc.) is still a placeholder — the backend routes
@@ -154,7 +163,12 @@ dialog; as an employee with a task assigned to her but no `task.manage`,
 confirmed the create form and delete are absent, the start/due date
 inputs are disabled, but the status dropdown still works — matching the
 backend's split between "can manage this task" and "can see this task".
-No automated browser test suite is checked in yet — the
+For Projects: as an admin, creating projects in two different
+departments; as the same employee (in the Production department, no
+`project.manage`), confirmed she sees the Production project but not the
+one created in Finance, and the "New project" button is absent — the
+department-scoped visibility and the create gate both enforced
+server-side. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -162,8 +176,8 @@ worthwhile.
 ## Known gaps
 
 - Login, the shell, Leave, Employee directory, Departments, Attendance,
-  My space, and Tasks are built; every other nav item is still a
-  placeholder.
+  My space, Tasks, and Projects are built; every other nav item is still
+  a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
