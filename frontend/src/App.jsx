@@ -1,0 +1,39 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider } from './auth/AuthContext';
+import ProtectedRoute from './auth/ProtectedRoute';
+import AppShell from './layout/AppShell';
+import { ALL_NAV_ITEMS } from './layout/navModel';
+import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
+import PlaceholderPage from './pages/PlaceholderPage';
+
+// Every nav item gets a route so the shell is fully navigable now — screens
+// not yet built (everything except the dashboard landing) render a
+// placeholder rather than a dead link, matching the intended full nav
+// structure (see layout/navModel.js). Built once at module scope so route
+// elements stay referentially stable across renders.
+const BUILT_SCREENS = { dashboard: DashboardPage };
+const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
+  const Screen = BUILT_SCREENS[item.key];
+  return { key: item.key, element: Screen ? <Screen /> : <PlaceholderPage title={item.label} /> };
+});
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            {SCREEN_ROUTES.map((route) => (
+              <Route key={route.key} path={route.key} element={route.element} />
+            ))}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Route>
+        </Route>
+      </Routes>
+    </AuthProvider>
+  );
+}

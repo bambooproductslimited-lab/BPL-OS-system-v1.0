@@ -1,6 +1,7 @@
 var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var { pool } = require('../db/pool');
+var { serializeEmployee } = require('../services/context.service');
 
 var router = express.Router();
 
@@ -8,7 +9,7 @@ function serializeCtx(ctx) {
   return {
     userId: ctx.user.id,
     email: ctx.user.email,
-    employee: ctx.employee,
+    employee: serializeEmployee(ctx.employee),
     roleNames: ctx.roleNames,
     permissions: ctx.permissions
   };
@@ -42,7 +43,7 @@ router.get('/summary', requireAuth, async function (req, res, next) {
     );
 
     res.json({
-      employee: ctx.employee,
+      employee: serializeEmployee(ctx.employee),
       roleNames: ctx.roleNames,
       permissions: ctx.permissions,
       todayAttendance: attendanceRes.rows[0] || null,

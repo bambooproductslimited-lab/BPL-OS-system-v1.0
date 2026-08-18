@@ -1,0 +1,138 @@
+/*
+ * Design tokens approximating the prototype design system described in
+ * design_handoff_bamboo_company_os/PROJECT_NOTES.md ("Modernist"): flat,
+ * high-contrast, Archivo typeface, zero border-radius, strong 2px dividers,
+ * a single accent color. The prototype design tool's actual CSS bundle
+ * (under _ds/modernist in that tool's own runtime) is not available outside
+ * it, so these tokens are a fresh implementation of the same visual
+ * language, not a port of that file.
+ */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-subtle: #f7f7f5;
+  --color-text: #201e1d;
+  --color-text-muted: color-mix(in srgb, var(--color-text) 60%, transparent);
+  --color-text-faint: color-mix(in srgb, var(--color-text) 40%, transparent);
+  --color-divider: #e4e2df;
+  --color-border: #d9d6d1;
+
+  --color-accent: #3f7d3b;
+  --color-accent-700: #2f5f2c;
+  --color-accent-800: #244a22;
+  --color-accent-100: #e8f1e7;
+
+  --color-danger: #b3261e;
+  --color-danger-100: #fbeae9;
+  --color-warning: #9a6700;
+  --color-warning-100: #fdf3db;
+
+  --font-heading: 'Archivo', system-ui, sans-serif;
+  --font-body: 'Archivo', system-ui, sans-serif;
+
+  --radius: 0;
+  --divider-width: 2px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+body { font-size: 14px; line-height: 1.5; }
+
+#root { min-height: 100vh; }
+
+a { color: var(--color-accent-700); text-decoration: none; }
+a:hover { color: var(--color-accent); text-decoration: underline; }
+
+::placeholder { color: var(--color-text-faint); }
+
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+
+button { font-family: inherit; }
+
+.hr { height: var(--divider-width); background: var(--color-divider); border: none; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+
+.input {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 12px;
+  border: var(--divider-width) solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+}
+.input:focus { border-color: var(--color-accent); }
+
+.btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  border: var(--divider-width) solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: opacity 0.12s ease;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-block { width: 100%; }
+
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+.btn-primary:hover:not(:disabled) { background: var(--color-accent-700); border-color: var(--color-accent-700); }
+
+.btn-secondary {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.btn-secondary:hover:not(:disabled) { border-color: var(--color-text); }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+}
+
+.card {
+  background: var(--color-bg);
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 20px;
+}
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.error-banner {
+  border-left: var(--divider-width) solid var(--color-danger);
+  background: var(--color-danger-100);
+  color: var(--color-danger);
+  padding: 10px 14px;
+  font-size: 13px;
+}

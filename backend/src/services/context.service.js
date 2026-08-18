@@ -37,4 +37,19 @@ async function buildContext(userId) {
   };
 }
 
-module.exports = { buildContext: buildContext };
+// ctx.employee is kept snake_case (matching the DB columns) because it's
+// used internally throughout every service/RBAC check as ctx.employee.department_id
+// etc. — changing its shape would touch every service file. This is the
+// client-facing DTO mapper for the one place ctx.employee is actually sent
+// over the wire (GET /api/me, POST /api/auth/login, GET /api/me/summary),
+// matching the camelCase shape every other endpoint returns.
+function serializeEmployee(employee) {
+  if (!employee) return null;
+  return {
+    id: employee.id, code: employee.code, firstName: employee.first_name, lastName: employee.last_name,
+    departmentId: employee.department_id, managerId: employee.manager_id,
+    positionTitle: employee.position_title, status: employee.status
+  };
+}
+
+module.exports = { buildContext: buildContext, serializeEmployee: serializeEmployee };
