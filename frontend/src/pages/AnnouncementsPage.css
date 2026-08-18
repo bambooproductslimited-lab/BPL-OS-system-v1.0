@@ -1,0 +1,38 @@
+.announcements-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.announcements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--color-divider);
+  border: var(--divider-width) solid var(--color-divider);
+  max-width: 820px;
+}
+
+.announcements-item {
+  background: var(--color-bg);
+  padding: 18px 20px;
+}
+
+.announcements-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.announcements-title {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 18px;
+  margin: 6px 0;
+}
+
+.announcements-body { margin: 0; font-size: 13px; line-height: 1.5; }
+
+.announcements-dialog { max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
+.announcements-dialog h2 { margin: 0; font-size: 20px; }

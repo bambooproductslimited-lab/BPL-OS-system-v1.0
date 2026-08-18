@@ -66,6 +66,14 @@ implementation of that design, built screen by screen against the real API.
   works. Visibility is department-scoped — a project shows up if it's in
   your department, you own it, or you're a member, which the frontend
   doesn't compute; it just renders whatever cards the API returns.
+- **Announcements** — a feed (audience · date · publisher eyebrow, title,
+  body) with a "Publish announcement" dialog for `announcement.publish`,
+  audience defaulting to all staff or scoped to one department. `pinned`
+  is always published as `false`, matching the prototype, which hardcodes
+  it on publish and never renders a pin control or badge anywhere.
+  Visibility follows the backend's `announcementVisible()`: all-staff
+  posts show for everyone, department-scoped posts show for that
+  department or for anyone with `employee.read.all`.
 
 Everything else in the nav (the whole Operations and Commercial modules,
 governance screens, etc.) is still a placeholder — the backend routes
@@ -168,7 +176,12 @@ departments; as the same employee (in the Production department, no
 `project.manage`), confirmed she sees the Production project but not the
 one created in Finance, and the "New project" button is absent — the
 department-scoped visibility and the create gate both enforced
-server-side. No automated browser test suite is checked in yet — the
+server-side. For Announcements: publishing one all-staff and one
+Production-only notice as an admin, then confirming an employee in
+Production sees both, while a Finance department manager with no
+`employee.read.all` sees only the all-staff one — the same
+`employeeReadAll`-widens-visibility rule the backend documents. No
+automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -176,8 +189,8 @@ worthwhile.
 ## Known gaps
 
 - Login, the shell, Leave, Employee directory, Departments, Attendance,
-  My space, Tasks, and Projects are built; every other nav item is still
-  a placeholder.
+  My space, Tasks, Projects, and Announcements are built; every other
+  nav item is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
