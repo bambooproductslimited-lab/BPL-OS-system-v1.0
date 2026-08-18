@@ -1,0 +1,47 @@
+.assistant-intro { margin: 0 0 16px; font-size: 13px; max-width: 70ch; color: var(--color-text-muted); }
+
+.assistant-panel {
+  border: var(--divider-width) solid var(--color-divider);
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+}
+.assistant-history {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.assistant-suggestions { display: flex; flex-direction: column; gap: 8px; }
+.assistant-suggestions-label { font-size: 13px; color: var(--color-text-muted); }
+.assistant-suggestion-btn { text-align: left; font-size: 13px; width: fit-content; }
+
+.assistant-bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.assistant-bubble-user {
+  align-self: flex-end;
+  background: var(--color-accent);
+  color: #ffffff;
+}
+.assistant-bubble-reply {
+  align-self: flex-start;
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
+}
+.assistant-thinking { font-size: 12px; color: var(--color-text-muted); }
+
+.assistant-form {
+  display: flex;
+  gap: 8px;
+  padding: 14px;
+  border-top: var(--divider-width) solid var(--color-divider);
+}
+.assistant-input { flex: 1; }

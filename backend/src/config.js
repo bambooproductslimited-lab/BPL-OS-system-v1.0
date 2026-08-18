@@ -25,5 +25,10 @@ module.exports = {
     expiresIn: process.env.JWT_EXPIRES_IN || '8h'
   },
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
-  bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12)
+  bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
+  ai: {
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
+    baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+  }
 };

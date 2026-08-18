@@ -58,6 +58,12 @@ curl -X POST localhost:4000/api/auth/login -H 'Content-Type: application/json' \
 curl localhost:4000/api/leave -H "Authorization: Bearer <token>"
 ```
 
+The AI Assistant (`POST /api/ai/chat`) is optional — it works with no
+setup, but every reply is a fixed "not configured" message until you set
+`ANTHROPIC_API_KEY` in `.env` (get one at
+[console.anthropic.com](https://console.anthropic.com/)). See "AI
+Assistant" below.
+
 ## Migrations
 
 `src/db/migrations/*.up.sql` / `*.down.sql`, tracked in a `schema_migrations`
@@ -174,6 +180,7 @@ these two from its `needsAuth` check).
 | Expenses | `expenses.list/request/decide/update/delete/markPaid` | `GET /expenses`, `POST /expenses`, `PATCH /expenses/:id`, `DELETE /expenses/:id`, `POST /expenses/:id/decision`, `POST /expenses/:id/mark-paid` |
 | Commercial settings | `commercialSettings.get/save/addTaxRate` | `GET /commercial-settings`, `PATCH /commercial-settings`, `POST /commercial-settings/tax-rates` |
 | Reports | `reports.summary`, `marketing.dashboard`, `finance.dashboard`, `commercial.dashboard` | `GET /reports/summary`, `GET /reports/marketing`, `GET /reports/finance`, `GET /reports/commercial` |
+| AI Assistant | `ai.chat` — no kernel equivalent, see below | `POST /ai/chat` |
 
 Errors use the kernel's own error codes (`invalid` / `auth` / `forbidden` /
 `notfound` / `conflict`) mapped to real HTTP status codes (400/401/403/404/409)
@@ -211,6 +218,34 @@ to that shape before returning (see `rowToLeaveRequest` in
 `src/services/leave.service.js`, and the equivalent `rowTo*` mapper in every
 other service).
 
+## AI Assistant
+
+`POST /api/ai/chat` has no kernel equivalent — the design prototype's own
+AI Assistant screen calls `window.claude.complete`, a bridge that only
+exists inside that design tool's own preview runtime. This is a real
+implementation instead: `src/services/ai.service.js`'s `chat(ctx, message,
+history)` assembles a permission-scoped JSON snapshot of company data
+(`buildContext`, reusing `dashboard.service.js`'s already-permission-gated
+`load()` plus a few detail lists — low-stock products, the caller's own
+approval queue, this month's/year's revenue — each included only if
+`ctx.can(...)` allows it, mirroring the prototype's own "nulls mean they
+lack that permission" intent), then proxies to Anthropic's Messages API
+with that snapshot as system context.
+
+Requires `ANTHROPIC_API_KEY` in `.env` (get one at
+[console.anthropic.com](https://console.anthropic.com/)); optionally
+`ANTHROPIC_MODEL` (default `claude-sonnet-5`) and `ANTHROPIC_BASE_URL`
+(default `https://api.anthropic.com`) — see `.env.example`. Left unset,
+the endpoint still returns `200` with a normal chat reply — "The AI
+assistant needs an ANTHROPIC_API_KEY configured on the server, which is
+not set for this environment." — rather than an error, since the frontend
+renders it as an ordinary message bubble, matching the prototype's own
+`sendAi()`, which turns both the missing-bridge case and any API error
+into an assistant-role chat message instead of a thrown error. No
+permission gate beyond `requireAuth` — the nav entry itself is ungated in
+`navModel.js`, and every reply is already scoped by what `buildContext`
+included for that caller.
+
 ## Testing
 
 Six integration test files (Node's built-in test runner + `fetch`, no extra
@@ -238,13 +273,16 @@ npm test
   server-side revocation list. Add one if immediate forced-logout is a
   requirement.
 - File storage (Documents module — currently stores a filename string, no
-  actual upload), the AI Assistant proxy (`ai.context` needs a server-side
-  Claude API key instead of the prototype's in-browser `window.claude.complete`
-  bridge), and real TimeStation/Square/Slack/QuickBooks sync (currently
-  credential storage only, matching the prototype's own scope) are all still
-  architecture-only — `PROJECT_NOTES.md` items 5, 6 and 8.
-- No frontend changes yet — `Bamboo OS.dc.html` still calls
-  `BambooKernel.call()` against `localStorage`. Swapping each screen over to
-  `fetch()` against these routes (see above) is the next real step toward
-  going live, along with production secrets/deployment and replacing the
-  seed data with real company data per `PROJECT_NOTES.md`'s launch checklist.
+  actual upload) and real TimeStation/Square/Slack/QuickBooks sync
+  (currently credential storage only, matching the prototype's own scope)
+  are still architecture-only — `PROJECT_NOTES.md` items 5 and 8. The AI
+  Assistant proxy (item 6) is implemented — see "AI Assistant" above —
+  though it needs an operator-supplied `ANTHROPIC_API_KEY` to answer for
+  real rather than returning its "not configured" fallback.
+- The real frontend (`../frontend`, React + Vite) now covers every screen
+  in the prototype's nav except the rest of Intelligence beyond the AI
+  Assistant — see `../frontend/README.md`. `Bamboo OS.dc.html` itself is
+  unchanged and remains the design/behavior reference, not something this
+  backend serves. Production secrets/deployment and replacing the seed
+  data with real company data are still open, per `PROJECT_NOTES.md`'s
+  launch checklist.

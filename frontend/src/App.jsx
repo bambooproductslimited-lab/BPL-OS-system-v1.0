@@ -40,6 +40,7 @@ import UsersPage from './pages/UsersPage';
 import AuditPage from './pages/AuditPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
 import IntegrationsPage from './pages/IntegrationsPage';
+import AssistantPage from './pages/AssistantPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
@@ -55,7 +56,7 @@ const BUILT_SCREENS = {
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
   marketing: MarketingDashboardPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
-  audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage
+  audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];

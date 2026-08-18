@@ -41,6 +41,7 @@ var receiptsRoutes = require('./routes/receipts.routes');
 var expensesRoutes = require('./routes/expenses.routes');
 var commercialSettingsRoutes = require('./routes/commercialSettings.routes');
 var reportsRoutes = require('./routes/reports.routes');
+var aiRoutes = require('./routes/ai.routes');
 
 var app = express();
 
@@ -87,6 +88,7 @@ app.use('/api/receipts', receiptsRoutes);
 app.use('/api/expenses', expensesRoutes);
 app.use('/api/commercial-settings', commercialSettingsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });

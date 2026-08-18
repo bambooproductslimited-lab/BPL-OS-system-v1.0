@@ -363,9 +363,26 @@ Insights group and are still placeholders):
   secret back once it's been saved, even though the backend's response
   technically includes the real value.
 
-Everything else in the nav (Intelligence) is still a placeholder — the
-backend routes exist and are tested, they just don't have a frontend
-screen yet.
+**Intelligence group:**
+
+- **AI Assistant** (`assistant`) — a chat panel (message history, four
+  suggested starter prompts shown until the first message, a "Thinking…"
+  indicator while waiting) backed by `POST /api/ai/chat`. Ungated, same
+  as the nav entry — every signed-in user can ask, and the backend scopes
+  what it's answered with to that user's own permissions, not the
+  frontend. **This screen is not a literal port**: the prototype's own
+  `sendAi()` calls `window.claude.complete`, a bridge that exists only
+  inside the design tool's own preview runtime, with no equivalent
+  available to a real deployed app — so this build adds a real backend
+  proxy instead (`backend/src/services/ai.service.js`, see its own
+  README's "AI Assistant" section) rather than porting a call that could
+  never work outside that tool. Without an operator-supplied
+  `ANTHROPIC_API_KEY` on the backend, every reply is the same
+  "not configured" message — the backend's own graceful fallback,
+  returned as a normal chat message (200, not an error), exactly like
+  the prototype's own fallback for when its bridge is unavailable. This
+  page doesn't special-case that in any way; it just renders whatever
+  reply text comes back.
 
 ## Setup
 
@@ -587,18 +604,30 @@ and `approval.act`, but no `role.manage`/`user.manage`/`audit.read`/
 log, and Integrations are all absent from the nav, while Company
 settings is present but fully read-only — every field and the Save
 button disabled, with the "your role cannot change company settings"
-note shown. No automated browser test suite is checked in yet — the
+note shown. For the AI Assistant: confirmed it's reachable and identical
+for both an admin and a Line Supervisor (it's ungated) — the suggested
+prompts render until the first message, clicking one sends it
+immediately, a typed message round-trips correctly, the message list
+accumulates across multiple turns, and the input re-enables after each
+reply. This sandbox has no `ANTHROPIC_API_KEY` configured, so every
+reply observed was the backend's own "not configured" fallback rather
+than a real answer — the chat mechanics (history, suggestions, loading
+state) are fully verified; a live answer against real company data
+would need a real key, which is an operator/deployment concern, not
+something this test environment can supply. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural
 fit to extend to this app once there are enough real screens to make it
 worthwhile.
 
 ## Known gaps
 
-- Every screen in every nav group is now built except Intelligence
-  (the AI Assistant): Overview, People, Work, Operations, Quotations &
-  Invoicing, Insights, Finance, and the full Governance group (Approval
-  centre, Roles & permissions, User accounts, Audit log, Company
-  settings, Integrations).
+- Every screen in every nav group is built: Overview, People, Work,
+  Operations, Quotations & Invoicing, Insights, Finance, Intelligence
+  (AI Assistant), and Governance.
+- The AI Assistant needs `ANTHROPIC_API_KEY` set on the backend to give
+  real answers — see `../backend/README.md`'s "AI Assistant" section and
+  `.env.example`. Without it, every reply is a fixed "not configured"
+  message, which is the intended fallback, not a bug.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
