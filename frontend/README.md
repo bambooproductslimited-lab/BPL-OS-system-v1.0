@@ -82,6 +82,13 @@ implementation of that design, built screen by screen against the real API.
   only" visibility scopes to the *uploader's* department at upload time —
   there's no department picker in the dialog, because the prototype
   doesn't have one either.
+- **Messages** — a two-pane inbox: a conversation list (peer name, date,
+  a "You: " preview prefix on your own last message, an unread-count
+  badge) on the left, and the active thread's bubbles (yours right-aligned
+  in accent green, theirs left-aligned neutral) with a compose box on the
+  right. A "New message" dialog picks a recipient from the active-employee
+  directory (self excluded) and opens a thread. Opening a thread marks it
+  read server-side, same as the prototype.
 
 Everything else in the nav (the whole Operations and Commercial modules,
 governance screens, etc.) is still a placeholder — the backend routes
@@ -195,7 +202,12 @@ tags render correctly and delete works; as the same Production employee
 with no `document.manage`, confirmed she sees neither the
 department-only doc (scoped to the uploader's own department, Human
 Resources & Admin, not hers) nor the managers-only doc, and no add/remove
-controls. No automated browser test suite is checked in yet — the
+controls. For Messages: starting a new conversation from the directory,
+sending a message, confirming it appears in the recipient's inbox with an
+unread badge and the correct "You: " preview prefix, replying, and
+confirming the badge clears once the thread is opened (the backend marks
+messages read on GET /messages/:peerId). No automated browser test suite
+is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -203,8 +215,9 @@ worthwhile.
 ## Known gaps
 
 - Login, the shell, Leave, Employee directory, Departments, Attendance,
-  My space, Tasks, Projects, Announcements, and Documents are built;
-  every other nav item is still a placeholder.
+  My space, Tasks, Projects, Announcements, Documents, and Messages are
+  built; every other nav item is still a placeholder. That completes the
+  full Work module (Tasks, Projects, Messages, Announcements, Documents).
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
