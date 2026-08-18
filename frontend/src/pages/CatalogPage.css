@@ -1,0 +1,18 @@
+.catalog-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.catalog-description { font-size: 12px; color: var(--color-text-muted); }
+.catalog-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.catalog-dialog {
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.catalog-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
+.catalog-dialog-span { grid-column: 1 / -1; }

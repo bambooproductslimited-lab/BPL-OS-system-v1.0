@@ -1,0 +1,28 @@
+.invoices-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.invoices-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.invoices-order-form {
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.invoices-dialog {
+  max-width: 900px;
+  gap: 14px;
+}
+.invoices-dialog-title { margin: 0; font-size: 20px; }
+.invoices-dialog-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+.invoices-pay-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}

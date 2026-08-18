@@ -1,0 +1,18 @@
+.customers-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.customers-contact-cell { font-size: 12px; }
+.customers-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.customers-dialog {
+  max-width: 600px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.customers-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
+.customers-dialog-span { grid-column: 1 / -1; }

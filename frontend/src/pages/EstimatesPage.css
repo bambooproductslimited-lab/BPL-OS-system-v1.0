@@ -1,0 +1,14 @@
+.estimates-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.estimates-items-line { font-size: 13px; }
+.estimates-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.estimates-dialog {
+  max-width: 900px;
+  gap: 14px;
+}
+.estimates-dialog-title { margin: 0; font-size: 20px; }
+.estimates-dialog-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}

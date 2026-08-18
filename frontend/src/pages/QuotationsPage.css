@@ -1,0 +1,14 @@
+.quotations-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.quotations-items-line { font-size: 13px; }
+.quotations-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.quotations-dialog {
+  max-width: 900px;
+  gap: 14px;
+}
+.quotations-dialog-title { margin: 0; font-size: 20px; }
+.quotations-dialog-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}

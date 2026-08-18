@@ -183,10 +183,116 @@ Overview group.
   yet, invoices/payments stay at zero in a fresh database — the KPIs and
   tables are still live and correct, just quiet until that module exists.
 
-Everything else in the nav (Quotations & Invoicing, Insights, and the
-rest of Governance — Roles & permissions, User accounts, Audit log,
-Company settings) is still a placeholder — the backend routes exist and
-are tested, they just don't have a frontend screen yet.
+**Quotations & Invoicing group** (all nine screens, completing this nav
+group — Sales orders and the Marketing dashboard live in the separate
+Insights group and are still placeholders):
+
+- **Clients** (`customers`) — table with quoted/invoiced/paid/outstanding
+  totals per customer, plus create/edit/delete dialogs gated on
+  `customer.manage`. Delete is only offered when a customer has no
+  quoted or invoiced total, matching the backend's own linked-records
+  guard (it also blocks on linked estimates, which the frontend doesn't
+  duplicate — it just surfaces the backend's error if that edge is hit).
+- **Products & Services** (`catalog`) — table + add/edit dialog +
+  archive/unarchive toggle + delete, all gated on `catalog.manage`.
+  **Deliberate deviations**: (1) the prototype shows every write control
+  here to anyone with `catalog.read`, no `catalog.manage` check at all —
+  unlike every other CRUD screen in this app, and real seeded roles
+  (supervisor, marketing_manager) have `catalog.read` without
+  `catalog.manage`, so literal fidelity would show buttons that always
+  403. Gated on `catalog.manage` instead for consistency with the rest
+  of the app and the backend's actual enforcement. (2) the tax-rate
+  dropdown needs `GET /commercial-settings`, which requires
+  `settings.manage` — a narrower permission than `catalog.manage`
+  (`department_manager` has the former without the latter in this
+  app's seed). That fetch, and the field itself, are skipped entirely
+  when the viewer lacks `settings.manage`; the backend already defaults
+  an omitted `taxRateId` to its zero-rated tax.
+- **Estimates** and **Quotations** — both use a shared line-item editor
+  (`src/components/DocItemsEditor.jsx`, extracted once rather than
+  tripled across the New Quotation/New Estimate/New Manual Invoice
+  dialogs, which are near-identical in the prototype): catalogue-picker
+  + description/qty/unit/price/discount/discount-type/tax-rate columns
+  per line, an "+ Add line" button, and a live subtotal/discount/tax/
+  total footer computed client-side with the same formula as the
+  backend's `computeDocTotals`. Picking a catalogue item sets
+  description/unit/price/qty but deliberately leaves tax rate untouched
+  — a real quirk in the prototype's own `applyCatalogItem`, reproduced
+  rather than "fixed", since it's intentional-looking dead code, not a
+  crash. Estimates additionally support Finalize → Convert to quotation
+  → Edit (draft only) → Delete (blocked once converted) and a
+  print-style Preview; Quotations support Send → Accept/Reject →
+  Convert to invoice and Preview, with no edit/delete (the backend
+  doesn't expose them for quotations — once created, a quotation only
+  moves through its status lifecycle). **Deviation**: the prototype's
+  estimate row has an ungated `canFinalize` (unlike its sibling
+  `canConvert`/`canEdit`/`canDelete`, which all check
+  `can('quotation.manage')`) — gated the same way here for consistency
+  and to match the backend's actual `estimates.setStatus` enforcement.
+  Both "New …" buttons are additionally gated on `customer.read`, since
+  the dialog's customer picker can't function without it — in this
+  app's seed every `quotation.manage` role also has `customer.read`, so
+  this never removes the button today, but it's a real dependency the
+  code shouldn't silently assume holds forever.
+- **Invoices** — manual creation (same shared line-item editor) plus an
+  "issue invoice for a sales order" form, a print-style Preview, Record
+  payment (a dialog pre-filled with the outstanding balance, method/
+  date/reference/notes, generating a receipt server-side), Edit
+  (due date/PO reference only — the only two fields the backend's
+  `invoices.update` accepts), Void, and Delete (both blocked once any
+  payment is recorded, matching the backend's guards). **Deviation,
+  same shape as Catalog's tax-rate gap**: this app's seed has
+  `invoice.manage` roles (`finance_manager`, `finance_hr_manager`) that
+  lack `customer.read` and `sales.read` — unlike `quotation.manage`
+  roles, which always carry `customer.read` here. So "New manual
+  invoice" additionally needs `customer.read` (its dialog can't
+  function without a customer list) and the sales-order form
+  additionally needs `sales.read` (its dropdown is populated from
+  `GET /sales-orders`) — both simply don't render for a role that can't
+  populate the picker they need, verified end-to-end as
+  `finance_hr_manager` (see Testing). Preview degrades gracefully too:
+  without `customer.read` it still opens, using the invoice's own
+  `customerName` from the list join and leaving the email blank instead
+  of crashing.
+- **Payments** — a read-only ledger (invoice, customer, amount, date,
+  method, reference, received by) with one action: Delete, gated on
+  `invoice.manage`. Deleting a payment also removes its linked receipt
+  and rolls the invoice's `amountPaid`/`balanceDue`/`status` back
+  server-side (`payments.service.js`'s `remove`) — verified end-to-end
+  that a deleted payment correctly reverts a `paid` invoice to
+  `unpaid` with its full balance restored.
+- **Receipts** — a read-only ledger plus a print-style Preview dialog
+  (ported from `dialog.receiptPreview`, including its "Print" button —
+  `window.print()`, same as the prototype). Receipts have no create or
+  delete of their own anywhere in the app; they're a pure byproduct of
+  `invoices.recordPayment`.
+- **Overview** (`qioverview`) — 14 KPI tiles (quotation counts by
+  status, conversion rate, invoice totals, outstanding/overdue,
+  revenue this month/year), a 6-month invoiced-vs-collected bar table,
+  and four "recent/upcoming" tables (quotations, invoices, due dates,
+  overdue, payments), all from `GET /reports/commercial`. Fixed a real
+  backend gap while wiring this up: `reportsService.commercialDashboard`
+  mapped `recentInvoices` through the same lean `invRow` helper used for
+  `upcomingDue`/`overdueInvoices` (invoice number/customer/balance/due
+  date only), but this screen's "Recent invoices" table needs the
+  invoice's total and status — added a small `recentInvoiceRow` mapper
+  for that one field instead of touching the other two, which were
+  already correct for what they render.
+- **Settings** (`billingsettings`) — document templates/defaults
+  (quotation intro/footer, invoice footer, payment terms, terms &
+  conditions, default validity/due-date windows), payment details shown
+  on invoices (bank/mobile money details, instructions), a read-only
+  document-numbering table (next number per doc kind, computed
+  client-side the same way the prototype does), and a tax-rate table +
+  add form. All gated on `settings.manage`, same permission the nav
+  entry itself requires, so — unlike Catalog's tax-rate field — there's
+  no viewer who can reach this screen without also being able to load
+  its data.
+
+Everything else in the nav (Insights, and the rest of Governance — Roles
+& permissions, User accounts, Audit log, Company settings) is still a
+placeholder — the backend routes exist and are tested, they just don't
+have a frontend screen yet.
 
 ## Setup
 
@@ -342,7 +448,44 @@ claim with no decision controls. Reports and the Finance dashboard both
 render their full KPI sets and tables cleanly against a database with no
 invoices/payments yet (all real zeros, not broken empty states), and the
 dashboard's Months/Years period toggle correctly re-fetches and
-re-renders the trend chart. No automated browser test suite is checked in yet — the
+re-renders the trend chart. For Clients and Products & Services: as an
+admin (full access, including the tax-rate field), creating and editing
+a customer and a catalogue item and archiving the item; as a
+`department_manager` (`catalog.manage` without `settings.manage`),
+confirmed the tax-rate field is absent from the item dialog and
+creation still succeeds. For the full Quotations & Invoicing document
+chain, as an admin: created a customer and a catalogue item, then an
+estimate (picking the catalogue item to verify the description/unit/
+price/qty prefill and the tax-rate-left-untouched quirk, plus a second
+manual line), previewed it, finalized it, converted it to a quotation
+(status and total carried through unchanged), sent and accepted the
+quotation, converted it to an invoice, recorded a full payment (a
+receipt was generated and shown in the toast), and confirmed the
+invoice's status/balance and its Preview dialog (subtotal, items, "Total
+Due GHS 0", not marked partial) all reflect the paid state correctly.
+Also verified, separately: creating a manual invoice and voiding it
+(Void/Delete controls correctly disappear once voided); creating another
+manual invoice, recording a payment, then deleting that payment from the
+Payments screen and confirming the invoice correctly reverts to
+`unpaid` with its full balance restored and the receipt disappears from
+Receipts; the Overview screen's 14 KPI tiles and recent-activity tables
+reflecting all of the above (including the voided and rolled-back
+invoices) correctly; and Billing settings — editing and saving a field,
+confirming it persists across a reload, and adding a new tax rate that
+then appears in its table. As `finance_hr_manager` (`invoice.manage`,
+`report.read`, `settings.manage`, but no `customer.read`/`catalog.read`/
+`sales.read`/`quotation.read`): confirmed Invoices/Payments/Receipts/
+Overview/Settings are all reachable and functional (Edit and Delete
+visible on invoice/payment rows, Preview opens without crashing despite
+the missing customer email, Overview and Settings both load fully),
+while "New manual invoice" and the sales-order invoice form are both
+correctly absent, and Estimates/Quotations/Clients/Products & Services
+don't appear in the nav at all. As a Line Supervisor (`quotation.read`/
+`sales.read`/`customer.read`/`catalog.read` only, no `*.manage`, no
+`invoice.read`): confirmed Estimates and Quotations render read-only —
+no "New …" button, only a Preview action on each row — and
+Invoices/Payments/Receipts/Overview/Settings are all absent from the
+nav. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural
 fit to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -353,12 +496,14 @@ worthwhile.
   Attendance, My space, Tasks, Projects, Announcements, Documents,
   Messages, Suppliers, Products & inventory, Assets & maintenance, Raw
   bamboo & production, Procurement, the Approval centre, Expenses,
-  Reports, and the Finance dashboard are built — every screen in the
-  Overview, People, Work, and Operations nav groups, plus all of Finance
-  and Governance's Approval centre. Every other nav item (Quotations &
-  Invoicing, Insights, Intelligence, and the rest of Governance — Roles &
-  permissions, User accounts, Audit log, Company settings) is still a
-  placeholder.
+  Reports, the Finance dashboard, and the full Quotations & Invoicing
+  group (Clients, Products & Services, Estimates, Quotations, Invoices,
+  Payments, Receipts, Overview, Settings) are built — every screen in
+  the Overview, People, Work, Operations, and Quotations & Invoicing nav
+  groups, plus all of Finance and Governance's Approval centre. Every
+  other nav item (Insights, Intelligence, and the rest of Governance —
+  Roles & permissions, User accounts, Audit log, Company settings) is
+  still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

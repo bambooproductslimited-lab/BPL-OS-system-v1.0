@@ -177,6 +177,7 @@ async function commercialDashboard(ctx) {
   );
 
   function invRow(r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, balanceDue: Number(r.balance_due), dueDate: r.due_date }; }
+  function recentInvoiceRow(r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, grandTotal: Number(r.grand_total), status: r.status }; }
   function quoteRow(r) { return { quoteNo: r.quote_no, customerName: r.customer_name, grandTotal: Number(r.grand_total), status: r.status }; }
 
   return {
@@ -186,7 +187,7 @@ async function commercialDashboard(ctx) {
     overdueCount: inv.overdue_count, overdueAmount: Number(inv.overdue_amount),
     revenueThisMonth: Number(inv.revenue_month), revenueThisYear: Number(inv.revenue_year),
     monthly: months, upcomingDue: upcomingRes.rows.map(invRow), overdueInvoices: overdueListRes.rows.map(invRow),
-    recentQuotes: recentQuotesRes.rows.map(quoteRow), recentInvoices: recentInvoicesRes.rows.map(invRow),
+    recentQuotes: recentQuotesRes.rows.map(quoteRow), recentInvoices: recentInvoicesRes.rows.map(recentInvoiceRow),
     recentPayments: recentPaymentsRes.rows.map(function (r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, amount: Number(r.amount), date: r.date, method: r.method }; })
   };
 }

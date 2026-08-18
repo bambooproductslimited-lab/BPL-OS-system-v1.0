@@ -1,0 +1,17 @@
+.bs { display: flex; flex-direction: column; gap: 20px; max-width: 900px; }
+.bs-form { display: flex; flex-direction: column; gap: 20px; }
+.bs-section {
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.bs-section-title { grid-column: 1 / -1; margin: 0; font-size: 15px; }
+.bs-span { grid-column: 1 / -1; }
+.bs-save { width: fit-content; }
+.bs-narrow { max-width: 900px; }
+.bs-numbering-format { font-variant-numeric: tabular-nums; }
+.bs-tax-form { display: flex; gap: 10px; align-items: end; margin-top: 12px; max-width: 400px; }
+.bs-tax-name { flex: 1; }
+.bs-tax-rate { width: 100px; }

@@ -24,6 +24,15 @@ import ApprovalsPage from './pages/ApprovalsPage';
 import ExpensesPage from './pages/ExpensesPage';
 import ReportsPage from './pages/ReportsPage';
 import FinanceDashboardPage from './pages/FinanceDashboardPage';
+import CustomersPage from './pages/CustomersPage';
+import CatalogPage from './pages/CatalogPage';
+import EstimatesPage from './pages/EstimatesPage';
+import QuotationsPage from './pages/QuotationsPage';
+import InvoicesPage from './pages/InvoicesPage';
+import PaymentsPage from './pages/PaymentsPage';
+import ReceiptsPage from './pages/ReceiptsPage';
+import QIOverviewPage from './pages/QIOverviewPage';
+import BillingSettingsPage from './pages/BillingSettingsPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
@@ -35,7 +44,9 @@ const BUILT_SCREENS = {
   myspace: MySpacePage, tasks: TasksPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage,
   assets: AssetsPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
-  expenses: ExpensesPage, reports: ReportsPage, financedash: FinanceDashboardPage
+  expenses: ExpensesPage, reports: ReportsPage, financedash: FinanceDashboardPage, customers: CustomersPage,
+  catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
+  payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];
