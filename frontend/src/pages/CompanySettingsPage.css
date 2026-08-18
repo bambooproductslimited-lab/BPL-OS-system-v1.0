@@ -1,0 +1,11 @@
+.cs-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  max-width: 760px;
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 24px;
+}
+.cs-form-footer { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; }
+.cs-note { font-size: 12px; color: var(--color-text-muted); }
+.cs-meta { margin-top: 16px; font-size: 12px; color: var(--color-text-muted); }

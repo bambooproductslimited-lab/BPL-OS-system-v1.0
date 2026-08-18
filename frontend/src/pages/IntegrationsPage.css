@@ -1,0 +1,21 @@
+.integrations-intro { margin: 0 0 16px; font-size: 13px; max-width: 70ch; color: var(--color-text-muted); }
+
+.integrations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 2px;
+  background: var(--color-divider);
+  border: var(--divider-width) solid var(--color-divider);
+}
+.integrations-card {
+  background: var(--color-bg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.integrations-card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.integrations-card-name { font-family: var(--font-heading); font-weight: 800; font-size: 16px; }
+.integrations-card-category { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); }
+.integrations-card-desc { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.integrations-action { width: fit-content; }

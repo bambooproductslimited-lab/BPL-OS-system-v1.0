@@ -314,10 +314,58 @@ Insights group and are still placeholders):
   app's seed also has `quotation.read` today, but the code shouldn't
   silently assume that holds forever.
 
-Everything else in the nav (Intelligence, and the rest of Governance —
-Roles & permissions, User accounts, Audit log, Company settings) is
-still a placeholder — the backend routes exist and are tested, they
-just don't have a frontend screen yet.
+**Governance group** (the rest of it — Approval centre was built earlier):
+
+- **Roles & permissions** (`roles`) — a permission × role matrix (one
+  checkbox per permission/role pair), backed by `GET /api/roles`,
+  `GET /api/roles/permissions` (the static catalogue), and
+  `POST /api/roles/:roleId/permissions`. The System Administrator
+  column is always disabled — the backend rejects any change to it
+  ("must always retain full access") — and, beyond what the prototype
+  itself locks, every checkbox is also disabled for a viewer without
+  `role.manage`: `roles.list` only requires `employee.read`, so unlike
+  most other screens here the read and write gates genuinely differ,
+  even though the nav entry itself is gated on `role.manage` today.
+- **User accounts** (`users`) — one row per login with an inline role
+  select and an Enable/Disable action, backed by `GET /api/users`,
+  `POST /api/users/:id/role`, and `POST /api/users/:id/status`. The
+  signed-in user's own row has no role select or status button at all
+  (the backend rejects changing your own role or disabling your own
+  account), rather than showing controls that would round-trip into a
+  403.
+- **Audit log** (`audit`) — a debounced text filter (matches
+  action/summary/actor name server-side) over the most recent 120
+  entries, from `GET /api/audit?q=`.
+- **Company settings** (`settings`) — company name/short name/country/
+  currency/work week/late-cutoff fields plus a read-only "leave approval
+  chain" line, from `GET/PATCH /api/settings`. **Viewing and saving use
+  different permissions**: the nav entry (and `settings.get`) only need
+  `employee.read`, which nearly every role has, but `settings.save`
+  needs the much narrower `settings.manage` (e.g. `hr_manager` has the
+  former without the latter in this app's seed) — so unlike Billing
+  settings in Quotations & Invoicing, where both permissions always
+  match, this screen genuinely needs a read-only mode: every field and
+  the Save button are disabled with an explanatory note for anyone
+  without `settings.manage`, matching the prototype's own
+  `settingsLocked`/`settingsNote`. Deliberately omitted: the prototype
+  also shows "Data schema v{{ schemaVersion }}" next to the approval
+  chain — `schemaVersion` is a property of the design tool's own
+  in-memory kernel with no equivalent in this Postgres-backed backend,
+  so it's left out rather than inventing a fake version number.
+- **Integrations** (`integrations`) — a card grid (TimeStation, Square,
+  Slack, QuickBooks) with an API-key field and Connect/Disconnect,
+  backed by `GET /api/settings/integrations` and its connect/disconnect
+  endpoints (all three require `settings.manage`, matching the nav
+  gate, so there's no read-only case to handle here). Once connected,
+  the key field always shows a masked placeholder rather than
+  re-displaying the stored value — ported from the prototype's own
+  `keyValue: i.connected ? '••••••••••••' : draft`, which never shows a
+  secret back once it's been saved, even though the backend's response
+  technically includes the real value.
+
+Everything else in the nav (Intelligence) is still a placeholder — the
+backend routes exist and are tested, they just don't have a frontend
+screen yet.
 
 ## Setup
 
@@ -521,26 +569,36 @@ button correctly disappearing once delivered; as a Line Supervisor
 confirmed both screens appear in the nav and the Marketing dashboard
 loads fully (it's read-only regardless of role), while on Sales orders
 both the "create order" form and every row's advance button are
-correctly absent. No automated browser test suite is checked in yet — the
+correctly absent. For the rest of Governance: as an admin, on Roles &
+permissions confirmed the System Administrator column's checkboxes are
+all disabled and toggling a permission on then off for another role's
+row round-trips correctly; on User accounts confirmed the signed-in
+user's own row has neither a role select nor an Enable/Disable button,
+disabling and re-enabling a different account's status round-trips
+correctly, and changing another account's role does too; on the Audit
+log confirmed entries from those actions appear and the filter narrows
+correctly; on Company settings confirmed the form is editable, a saved
+change persists across a reload, and the leave approval chain line
+renders; on Integrations confirmed all four cards render, connecting
+one with an API key marks it "Connected" with the key field masked, and
+disconnecting reverts it. As a `department_manager` (`employee.read`
+and `approval.act`, but no `role.manage`/`user.manage`/`audit.read`/
+`settings.manage`): confirmed Roles & permissions, User accounts, Audit
+log, and Integrations are all absent from the nav, while Company
+settings is present but fully read-only — every field and the Save
+button disabled, with the "your role cannot change company settings"
+note shown. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural
 fit to extend to this app once there are enough real screens to make it
 worthwhile.
 
 ## Known gaps
 
-- Login, the shell, Dashboard, Leave, Employee directory, Departments,
-  Attendance, My space, Tasks, Projects, Announcements, Documents,
-  Messages, Suppliers, Products & inventory, Assets & maintenance, Raw
-  bamboo & production, Procurement, the Approval centre, Expenses,
-  Reports, the Finance dashboard, the full Quotations & Invoicing group
-  (Clients, Products & Services, Estimates, Quotations, Invoices,
-  Payments, Receipts, Overview, Settings), and the full Insights group
-  (Marketing dashboard, Sales orders) are built — every screen in the
-  Overview, People, Work, Operations, Quotations & Invoicing, and
-  Insights nav groups, plus all of Finance and Governance's Approval
-  centre. Every other nav item (Intelligence, and the rest of
-  Governance — Roles & permissions, User accounts, Audit log, Company
-  settings) is still a placeholder.
+- Every screen in every nav group is now built except Intelligence
+  (the AI Assistant): Overview, People, Work, Operations, Quotations &
+  Invoicing, Insights, Finance, and the full Governance group (Approval
+  centre, Roles & permissions, User accounts, Audit log, Company
+  settings, Integrations).
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

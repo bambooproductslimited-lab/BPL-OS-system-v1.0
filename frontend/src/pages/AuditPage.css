@@ -1,0 +1,7 @@
+.audit-filter { max-width: 320px; margin-bottom: 16px; }
+.audit-when-col { width: 170px; }
+.audit-actor-col { width: 180px; }
+.audit-action-col { width: 180px; }
+.audit-when { font-size: 12px; font-variant-numeric: tabular-nums; }
+.audit-actor { font-size: 13px; }
+.audit-summary { font-size: 13px; }
