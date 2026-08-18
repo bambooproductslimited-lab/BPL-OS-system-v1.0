@@ -155,10 +155,38 @@ Overview group.
   would make procurement/expense approvals silently fail against a real
   backend, which is a worse outcome than the one specific deviation.
 
-Everything else in the nav (Quotations & Invoicing, Finance, Insights,
-and the rest of Governance — Roles & permissions, User accounts, Audit
-log, Company settings) is still a placeholder — the backend routes exist
-and are tested, they just don't have a frontend screen yet.
+**Finance group** (all three screens, completing this nav group):
+
+- **Expenses** — a submit-claim form gated on `expense.request`, and a
+  table with the fullest action surface of any list screen yet:
+  Approve/Reject (pending, `expense.approve`, not your own claim),
+  "Mark paid" (approved claims, `expense.approve`), and Edit/Delete (any
+  pending claim you either own or can approve) — Edit opens the same
+  "Edit expense claim" dialog for both the requester and an approver,
+  and Delete goes through the app's shared confirm-delete dialog, since
+  the prototype uses that generic pattern here (unlike Procurement's
+  single-click Approve/Reject, which has no such dialog because it
+  carries no note field).
+- **Reports** — six KPI tiles (invoiced/collected/outstanding/orders/
+  quotations-accepted/expenses-approved) plus two breakdown tables
+  (expenses by category, sales by customer), all read from
+  `GET /reports/summary` — no forms, purely a read view.
+- **Finance dashboard** — six more KPI tiles (cash collected, net
+  position, outstanding, overdue, pending claims, approved this month),
+  a revenue-vs-expenses bar chart with a Months/Years period toggle and a
+  count selector (3/6/9/12) that re-fetches `GET /reports/finance` with
+  the new `periodType`/`periodCount` query params, recent payments,
+  overdue invoices, and expense claims awaiting a decision. "Download
+  CSV" is a client-side export (an in-browser `Blob` + `<a download>`,
+  no server endpoint), ported line-for-line from the prototype's own
+  `downloadFinanceCsv` handler. Since Quotations & Invoicing isn't built
+  yet, invoices/payments stay at zero in a fresh database — the KPIs and
+  tables are still live and correct, just quiet until that module exists.
+
+Everything else in the nav (Quotations & Invoicing, Insights, and the
+rest of Governance — Roles & permissions, User accounts, Audit log,
+Company settings) is still a placeholder — the backend routes exist and
+are tested, they just don't have a frontend screen yet.
 
 ## Setup
 
@@ -303,7 +331,18 @@ rejected the purchase request — each decision correctly hit its own
 endpoint (confirmed by re-checking the Leave and Procurement screens
 afterward, which showed "approved" and "rejected" respectively) rather
 than every decision going through `leave.decide` the way the prototype's
-buggy dialog wiring would have. No automated browser test suite is checked in yet — the
+buggy dialog wiring would have. For the Finance group: as an admin,
+submitting two claims, editing and deleting one, confirming self-service
+Edit/Delete works without `expense.approve` and that Approve/Reject
+never appears on your own claims; as a Finance & HR Manager, approving
+the edited claim (the amended amount carried through correctly) and then
+marking it paid, watching the status tag move pending → approved → paid;
+as a plain employee, confirming she's scoped to just her own submitted
+claim with no decision controls. Reports and the Finance dashboard both
+render their full KPI sets and tables cleanly against a database with no
+invoices/payments yet (all real zeros, not broken empty states), and the
+dashboard's Months/Years period toggle correctly re-fetches and
+re-renders the trend chart. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural
 fit to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -313,12 +352,13 @@ worthwhile.
 - Login, the shell, Dashboard, Leave, Employee directory, Departments,
   Attendance, My space, Tasks, Projects, Announcements, Documents,
   Messages, Suppliers, Products & inventory, Assets & maintenance, Raw
-  bamboo & production, Procurement, and the Approval centre are built —
-  every screen in the Overview, People, Work, and Operations nav groups,
-  plus Governance's Approval centre. Every other nav item (Quotations &
-  Invoicing, Finance, Insights, Intelligence, and the rest of Governance
-  — Roles & permissions, User accounts, Audit log, Company settings) is
-  still a placeholder.
+  bamboo & production, Procurement, the Approval centre, Expenses,
+  Reports, and the Finance dashboard are built — every screen in the
+  Overview, People, Work, and Operations nav groups, plus all of Finance
+  and Governance's Approval centre. Every other nav item (Quotations &
+  Invoicing, Insights, Intelligence, and the rest of Governance — Roles &
+  permissions, User accounts, Audit log, Company settings) is still a
+  placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
