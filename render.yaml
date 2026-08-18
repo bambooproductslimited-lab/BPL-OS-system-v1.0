@@ -4,17 +4,19 @@
 # frontend is NOT here — it's a static build meant to go on your existing
 # web host, e.g. Hostinger, not on Render).
 #
-# The database plan below is "starter" (~$6/mo at time of writing), not
-# "free" — Render's free Postgres tier auto-deletes the database 30 days
-# after creation, which would silently wipe a real company's data. Change
-# it only if you understand and accept that trade-off (e.g. a short-lived
-# demo, not real use).
+# The database plan below is "basic-256mb" (Render's smallest paid Postgres
+# tier, ~$6/mo at time of writing), not "free" — Render's free Postgres tier
+# auto-deletes the database 30 days after creation, which would silently
+# wipe a real company's data. Change it only if you understand and accept
+# that trade-off (e.g. a short-lived demo, not real use). Render renames
+# these plan identifiers occasionally — if this value is rejected again,
+# the dashboard's own database-creation screen shows the current names.
 
 databases:
   - name: bamboo-os-db
     databaseName: bamboo_os
     user: bamboo
-    plan: starter
+    plan: basic-256mb
 
 services:
   - type: web
