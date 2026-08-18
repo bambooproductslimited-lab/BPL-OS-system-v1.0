@@ -49,10 +49,18 @@ implementation of that design, built screen by screen against the real API.
   current year, and your own leave requests with self-service cancel on
   pending ones — the same `GET /api/me/summary` endpoint the Leave screen
   reads balances from.
+- **Tasks** — scope toggle (my tasks / everything in scope), status and
+  text search filters, an inline create form for `task.manage`, and a
+  table with self-service inline editing: anyone who can see a task can
+  change its status from the row (status changes aren't gated on
+  `task.manage` — only who's *allowed to see the task* controls that, per
+  the backend's `taskVisible()`), while start/due date edits and delete
+  stay manager-only. Clicking a title opens a detail dialog with the full
+  record, an edit form, and a comment thread anyone in scope can post to.
 
-Everything else in the nav (tasks, the whole Operations and Commercial
-modules, governance screens, etc.) is still a placeholder — the backend
-routes exist and are tested, they just don't have a frontend screen yet.
+Everything else in the nav (the whole Operations and Commercial modules,
+governance screens, etc.) is still a placeholder — the backend routes
+exist and are tested, they just don't have a frontend screen yet.
 
 ## Setup
 
@@ -140,6 +148,12 @@ scoped to just her own row with no Correct/Delete controls. For My space:
 clocking in (headline and button states updating live, status correctly
 computed as "late" against the configured cutoff), clocking out, and the
 leave balances/requests tables rendering real data from the same account.
+For Tasks: as an admin, create/edit/comment/delete and a self-service
+inline status change, all round-tripping correctly through the detail
+dialog; as an employee with a task assigned to her but no `task.manage`,
+confirmed the create form and delete are absent, the start/due date
+inputs are disabled, but the status dropdown still works — matching the
+backend's split between "can manage this task" and "can see this task".
 No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
@@ -148,7 +162,8 @@ worthwhile.
 ## Known gaps
 
 - Login, the shell, Leave, Employee directory, Departments, Attendance,
-  and My space are built; every other nav item is still a placeholder.
+  My space, and Tasks are built; every other nav item is still a
+  placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

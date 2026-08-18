@@ -10,6 +10,7 @@ import EmployeesPage from './pages/EmployeesPage';
 import DepartmentsPage from './pages/DepartmentsPage';
 import AttendancePage from './pages/AttendancePage';
 import MySpacePage from './pages/MySpacePage';
+import TasksPage from './pages/TasksPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
@@ -18,7 +19,7 @@ import PlaceholderPage from './pages/PlaceholderPage';
 // module scope so route elements stay referentially stable across renders.
 const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
-  myspace: MySpacePage
+  myspace: MySpacePage, tasks: TasksPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];

@@ -1,0 +1,85 @@
+.tasks-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.tasks-status-filter { min-width: 160px; }
+.tasks-search { max-width: 220px; }
+
+.tasks-create-form {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+  .tasks-create-form { grid-template-columns: 1fr 1fr; }
+}
+
+.tasks-title-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.tasks-comment-count { font-size: 11px; color: var(--color-text-muted); }
+.tasks-date-input { font-size: 12px; padding: 4px 6px; }
+.tasks-status-select { font-size: 12px; padding: 4px 8px; }
+.tasks-overdue { font-size: 11px; color: var(--color-accent); margin-top: 2px; font-weight: 600; }
+.tasks-row-btn { font-size: 12px; padding: 6px 10px; }
+
+.tasks-detail-dialog { max-width: 600px; max-height: 88vh; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+
+.tasks-detail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.tasks-detail-header h2 { margin: 0; font-size: 18px; }
+
+.tasks-detail-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.tasks-detail-desc { margin: 0; font-size: 13px; line-height: 1.5; }
+
+.tasks-comments { display: flex; flex-direction: column; gap: 10px; }
+.tasks-comments h3 { margin: 0; font-size: 14px; }
+
+.tasks-comment { border: 1px solid var(--color-divider); padding: 10px 12px; }
+.tasks-comment-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.tasks-comment-head span:first-child { font-weight: 600; }
+.tasks-comment-body { font-size: 13px; margin-top: 4px; }
+.tasks-no-comments { margin: 0; font-size: 12px; color: var(--color-text-muted); }
+
+.tasks-comment-form { display: flex; gap: 8px; }
+.tasks-comment-form .input { flex: 1; }
+
+.tasks-edit-form { display: flex; flex-direction: column; gap: 12px; }
+.tasks-edit-form h2 { margin: 0; font-size: 18px; }
+
+.tasks-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .tasks-edit-grid { grid-template-columns: 1fr; }
+}
