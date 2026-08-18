@@ -289,10 +289,35 @@ Insights group and are still placeholders):
   no viewer who can reach this screen without also being able to load
   its data.
 
-Everything else in the nav (Insights, and the rest of Governance — Roles
-& permissions, User accounts, Audit log, Company settings) is still a
-placeholder — the backend routes exist and are tested, they just don't
-have a frontend screen yet.
+**Insights group** (both screens):
+
+- **Marketing dashboard** (`marketing`) — customer pipeline by category
+  with share bars, a quotation funnel (sent/accepted/rejected-expired/
+  conversion rate), top customers by sales value, recent quotations, and
+  a leads-and-prospects follow-up table, all from
+  `GET /api/reports/marketing` (requires `customer.read`, same
+  permission the nav entry is gated on). Purely a read view — no forms.
+- **Sales orders** (`salesorders`) — a "create order from an accepted
+  quotation" form plus a table with a single status-advance action per
+  row ("Start processing" then "Mark delivered"), backed by
+  `GET/POST /api/sales-orders` and `POST /api/sales-orders/:id/status`.
+  **Deviation**: the prototype's advance action (`hasNext`/`advance`)
+  has no permission check at all, unlike the create form above it, which
+  is wrapped in `can.salesManage` — real seeded roles have `sales.read`
+  without `sales.manage` (supervisor), so literal fidelity would show a
+  button that always 403s. Gated on `sales.manage` here too, matching
+  `salesOrders.service.js`'s actual enforcement. The create form is
+  additionally gated on `quotation.read` (its dropdown needs
+  `GET /quotations` filtered to `accepted`) — same reasoning as the
+  `customer.read`/`catalog.read`/`sales.read` gates added throughout the
+  Quotations & Invoicing screens: every `sales.manage` role in this
+  app's seed also has `quotation.read` today, but the code shouldn't
+  silently assume that holds forever.
+
+Everything else in the nav (Intelligence, and the rest of Governance —
+Roles & permissions, User accounts, Audit log, Company settings) is
+still a placeholder — the backend routes exist and are tested, they
+just don't have a frontend screen yet.
 
 ## Setup
 
@@ -485,7 +510,18 @@ don't appear in the nav at all. As a Line Supervisor (`quotation.read`/
 `invoice.read`): confirmed Estimates and Quotations render read-only —
 no "New …" button, only a Preview action on each row — and
 Invoices/Payments/Receipts/Overview/Settings are all absent from the
-nav. No automated browser test suite is checked in yet — the
+nav. For the Insights group: as an admin, creating a lead-category
+customer, then a quotation for them (sent, accepted), confirming the
+Marketing dashboard's pipeline table, funnel tiles, leads-to-follow-up
+table, and recent quotations all reflect it correctly, then creating a
+sales order from that accepted quotation and walking it pending →
+processing → delivered on the Sales orders screen, with the advance
+button correctly disappearing once delivered; as a Line Supervisor
+(`customer.read`/`quotation.read`/`sales.read`, no `sales.manage`):
+confirmed both screens appear in the nav and the Marketing dashboard
+loads fully (it's read-only regardless of role), while on Sales orders
+both the "create order" form and every row's advance button are
+correctly absent. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural
 fit to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -496,14 +532,15 @@ worthwhile.
   Attendance, My space, Tasks, Projects, Announcements, Documents,
   Messages, Suppliers, Products & inventory, Assets & maintenance, Raw
   bamboo & production, Procurement, the Approval centre, Expenses,
-  Reports, the Finance dashboard, and the full Quotations & Invoicing
-  group (Clients, Products & Services, Estimates, Quotations, Invoices,
-  Payments, Receipts, Overview, Settings) are built — every screen in
-  the Overview, People, Work, Operations, and Quotations & Invoicing nav
-  groups, plus all of Finance and Governance's Approval centre. Every
-  other nav item (Insights, Intelligence, and the rest of Governance —
-  Roles & permissions, User accounts, Audit log, Company settings) is
-  still a placeholder.
+  Reports, the Finance dashboard, the full Quotations & Invoicing group
+  (Clients, Products & Services, Estimates, Quotations, Invoices,
+  Payments, Receipts, Overview, Settings), and the full Insights group
+  (Marketing dashboard, Sales orders) are built — every screen in the
+  Overview, People, Work, Operations, Quotations & Invoicing, and
+  Insights nav groups, plus all of Finance and Governance's Approval
+  centre. Every other nav item (Intelligence, and the rest of
+  Governance — Roles & permissions, User accounts, Audit log, Company
+  settings) is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

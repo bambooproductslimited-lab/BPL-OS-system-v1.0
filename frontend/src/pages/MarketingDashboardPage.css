@@ -1,0 +1,28 @@
+.mkt { display: flex; flex-direction: column; gap: 24px; }
+.mkt-top { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; align-items: start; }
+
+.mkt-section-title { margin: 0 0 10px; font-size: 15px; }
+.mkt-section-title-spaced { margin-top: 20px; }
+.mkt-capitalize { text-transform: capitalize; }
+.mkt-contact-cell { font-size: 12px; }
+
+.mkt-share-col { width: 140px; }
+.mkt-bar-track { height: 6px; background: var(--color-bg-subtle); }
+.mkt-bar-fill { height: 6px; background: var(--color-accent); }
+
+.mkt-funnel { display: flex; flex-wrap: wrap; gap: 2px; border: var(--divider-width) solid var(--color-divider); }
+.mkt-funnel-tile {
+  flex: 1 1 150px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mkt-funnel-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
+.mkt-funnel-value { font-family: var(--font-heading); font-weight: 800; font-size: 24px; }
+
+@media (max-width: 900px) {
+  .mkt-top { grid-template-columns: 1fr; }
+}

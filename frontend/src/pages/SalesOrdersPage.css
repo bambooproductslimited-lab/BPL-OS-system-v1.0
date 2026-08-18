@@ -1,0 +1,10 @@
+.salesorders-form {
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+.salesorders-row-btn { font-size: 12px; padding: 6px 10px; }
