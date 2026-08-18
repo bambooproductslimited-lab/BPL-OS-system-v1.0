@@ -1,0 +1,15 @@
+.departments-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.departments-form {
+  display: grid;
+  grid-template-columns: 120px 1fr 1fr auto auto;
+  gap: 12px;
+  align-items: end;
+  max-width: 960px;
+}
+
+@media (max-width: 720px) {
+  .departments-form { grid-template-columns: 1fr; }
+}
+
+.departments-form-code, .departments-form-name, .departments-form-manager { min-width: 0; }

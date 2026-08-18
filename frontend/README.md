@@ -23,11 +23,22 @@ implementation of that design, built screen by screen against the real API.
   confirm-with-note dialog for decisions, and self-service cancel on your
   own pending requests. This is the reference implementation for what a
   "real" screen looks like here — see "Adding the next screen" below.
+- **Employee directory** — search (debounced) by name/code/job title,
+  department filter, a show-terminated toggle, and (for `employee.write`)
+  add/edit/terminate dialogs plus a permanent-purge action gated on
+  `role.manage`. Visibility is entirely server-driven: an admin sees every
+  employee with a "company-wide access" footnote, while an ungranted
+  employee sees only themself with a "limited to your department and
+  reporting line" footnote — the frontend doesn't compute this, it just
+  renders whatever rows and footnote the API returns.
+- **Departments** — a list plus an inline (non-modal) create/edit form,
+  visible only with `department.manage`. Delete is only offered on
+  departments with zero headcount, matching the backend's own guard.
 
-Everything else in the nav (employee directory, attendance, tasks, the
-whole Operations and Commercial modules, governance screens, etc.) is still
-a placeholder — the backend routes exist and are tested, they just don't
-have a frontend screen yet.
+Everything else in the nav (attendance, tasks, the whole Operations and
+Commercial modules, governance screens, etc.) is still a placeholder — the
+backend routes exist and are tested, they just don't have a frontend
+screen yet.
 
 ## Setup
 
@@ -99,15 +110,24 @@ unauthenticated, sign-out, and for Leave specifically — submitting a
 request, the manager-approve and manager-reject flows (with the note
 dialog), self-service cancel, the "no read-all -> only your own requests"
 scoping, and a real validation-error round trip (end date before start
-date) rendering the backend's exact message instead of crashing. No
-automated browser test suite is checked in yet — the backend's Node test
-runner pattern (`../backend/test/`) is the natural fit to extend to this
-app once there are enough real screens to make it worthwhile.
+date) rendering the backend's exact message instead of crashing. For the
+Employee directory and Departments screens: as an admin, search filtering,
+create/edit/terminate/purge on employees and create/edit/delete on
+departments (including the zero-headcount delete guard, checked both ways —
+allowed on an empty department, hidden on one with staff); as an
+unprivileged employee (no `employee.write`/`department.manage`), confirmed
+the directory is scoped to just that person's own record, all write
+buttons and the department form are absent, and none of that is a
+frontend-only restriction — it mirrors what the backend actually returns
+and allows. No automated browser test suite is checked in yet — the
+backend's Node test runner pattern (`../backend/test/`) is the natural fit
+to extend to this app once there are enough real screens to make it
+worthwhile.
 
 ## Known gaps
 
-- Login, the shell, and Leave are built; every other nav item is still a
-  placeholder.
+- Login, the shell, Leave, Employee directory, and Departments are built;
+  every other nav item is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
