@@ -48,7 +48,7 @@ function serializeEmployee(employee) {
   return {
     id: employee.id, code: employee.code, firstName: employee.first_name, lastName: employee.last_name,
     departmentId: employee.department_id, managerId: employee.manager_id,
-    positionTitle: employee.position_title, status: employee.status
+    positionTitle: employee.position_title, status: employee.status, shift: employee.shift
   };
 }
 

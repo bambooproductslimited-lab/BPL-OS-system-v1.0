@@ -42,11 +42,17 @@ implementation of that design, built screen by screen against the real API.
   and, once a real record exists, a "Delete" action. Clock in/out for
   yourself lives on "My space", not here — this screen is read-only plus
   corrections, matching the prototype's split between the two screens.
+- **My space** — the self-service home screen: your own clock in/out with
+  a live headline ("Not clocked in" / "On duty since 07:55" / a completed
+  "07:55 → 17:00" range) and buttons that disable themselves correctly
+  once you've clocked in or out for the day, your leave balances for the
+  current year, and your own leave requests with self-service cancel on
+  pending ones — the same `GET /api/me/summary` endpoint the Leave screen
+  reads balances from.
 
-Everything else in the nav ("My space", tasks, the whole Operations and
-Commercial modules, governance screens, etc.) is still a placeholder — the
-backend routes exist and are tested, they just don't have a frontend
-screen yet.
+Everything else in the nav (tasks, the whole Operations and Commercial
+modules, governance screens, etc.) is still a placeholder — the backend
+routes exist and are tested, they just don't have a frontend screen yet.
 
 ## Setup
 
@@ -130,16 +136,19 @@ frontend-only restriction — it mirrors what the backend actually returns
 and allows. For Attendance: as an admin, the roster and summary tiles for
 the full company scope, plus a correction saved through the dialog and
 reflected immediately; as the same unprivileged employee, the roster
-scoped to just her own row with no Correct/Delete controls. No automated
-browser test suite is checked in yet — the
+scoped to just her own row with no Correct/Delete controls. For My space:
+clocking in (headline and button states updating live, status correctly
+computed as "late" against the configured cutoff), clocking out, and the
+leave balances/requests tables rendering real data from the same account.
+No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
 worthwhile.
 
 ## Known gaps
 
-- Login, the shell, Leave, Employee directory, Departments, and Attendance
-  are built; every other nav item is still a placeholder.
+- Login, the shell, Leave, Employee directory, Departments, Attendance,
+  and My space are built; every other nav item is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

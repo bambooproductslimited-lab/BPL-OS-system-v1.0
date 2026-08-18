@@ -183,4 +183,4 @@ async function cancel(ctx, requestId) {
   });
 }
 
-module.exports = { listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel };
+module.exports = { listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest };

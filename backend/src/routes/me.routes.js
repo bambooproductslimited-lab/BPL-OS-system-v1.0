@@ -2,6 +2,8 @@ var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var { pool } = require('../db/pool');
 var { serializeEmployee } = require('../services/context.service');
+var { rowToLeaveRequest } = require('../services/leave.service');
+var { rowToAttendance } = require('../services/attendance.service');
 
 var router = express.Router();
 
@@ -46,11 +48,11 @@ router.get('/summary', requireAuth, async function (req, res, next) {
       employee: serializeEmployee(ctx.employee),
       roleNames: ctx.roleNames,
       permissions: ctx.permissions,
-      todayAttendance: attendanceRes.rows[0] || null,
+      todayAttendance: attendanceRes.rows[0] ? rowToAttendance(attendanceRes.rows[0]) : null,
       balances: balancesRes.rows.map(function (b) {
         return { name: b.name, entitled: b.entitled, used: b.used, left: b.entitled - b.used };
       }),
-      myLeave: myLeaveRes.rows
+      myLeave: myLeaveRes.rows.map(rowToLeaveRequest)
     });
   } catch (e) { next(e); }
 });

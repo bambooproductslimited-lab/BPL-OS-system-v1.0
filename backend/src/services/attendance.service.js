@@ -133,4 +133,4 @@ function rowToAttendance(r) {
   };
 }
 
-module.exports = { clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove };
+module.exports = { clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance };

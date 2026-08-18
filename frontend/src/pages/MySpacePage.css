@@ -1,0 +1,40 @@
+.myspace-top {
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 720px) {
+  .myspace-top { grid-template-columns: 1fr; }
+}
+
+.myspace-clock { padding: 20px; }
+
+.myspace-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.myspace-headline {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 40px;
+  line-height: 1;
+  margin: 10px 0 4px;
+}
+
+.myspace-detail { font-size: 13px; color: var(--color-text-muted); }
+
+.myspace-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.myspace-section-title { margin: 0 0 10px; font-size: 15px; }
+.myspace-note { color: var(--color-text-muted); }
+.myspace-row-btn { font-size: 12px; padding: 6px 10px; }
