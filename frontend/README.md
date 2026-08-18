@@ -14,6 +14,16 @@ implementation of that design, built screen by screen against the real API.
 
 - **Login** — the split-screen sign-in matching the prototype's design, with
   one-click demo-account fill.
+- **Dashboard** — KPI tiles (headcount, attendance, leave, plus five more
+  that only appear when the signed-in role has the matching permission —
+  low stock, pending purchase requests, assets due service, outstanding
+  invoices, pending expense claims), an attendance-by-department table
+  with progress bars, an unpermission-gated "Needs your attention" panel
+  that links into Leave/Attendance/Approval centre, and a "Latest
+  activity" audit feed visible only with `audit.read`. The prototype's
+  `dashboardFocus` prop (a design-tool-only "operations vs executive" KPI
+  filter with no in-app control) always resolves to its "operations"
+  default here, i.e. the full KPI set.
 - **App shell** — permission-scoped sidebar nav (ported from the prototype's
   `navModel()`), header, session handling. Every nav item routes somewhere;
   screens not built yet render a "Coming soon" placeholder.
@@ -90,9 +100,11 @@ implementation of that design, built screen by screen against the real API.
   directory (self excluded) and opens a thread. Opening a thread marks it
   read server-side, same as the prototype.
 
-Everything else in the nav (the whole Operations and Commercial modules,
-governance screens, etc.) is still a placeholder — the backend routes
-exist and are tested, they just don't have a frontend screen yet.
+Also built: **Dashboard** — see its own entry above, at the top of the
+Overview group. Everything else in the nav (the whole Operations,
+Quotations & Invoicing, Finance, Insights, and Governance groups) is
+still a placeholder — the backend routes exist and are tested, they just
+don't have a frontend screen yet.
 
 ## Setup
 
@@ -206,18 +218,25 @@ controls. For Messages: starting a new conversation from the directory,
 sending a message, confirming it appears in the recipient's inbox with an
 unread badge and the correct "You: " preview prefix, replying, and
 confirming the badge clears once the thread is opened (the backend marks
-messages read on GET /messages/:peerId). No automated browser test suite
-is checked in yet — the
-backend's Node test runner pattern (`../backend/test/`) is the natural fit
-to extend to this app once there are enough real screens to make it
-worthwhile.
+messages read on GET /messages/:peerId). For the Dashboard: as an admin,
+the full 10-tile KPI set, a 10-row department table, and both
+attention-row links navigating correctly to `/leave` and `/attendance`;
+as the same Production employee, confirmed only the 5 permission-free
+KPIs render, the department table is scoped to just her own department,
+and the "Latest activity" feed is absent (no `audit.read`) while the
+attention panel still shows — it's not gated on any permission in the
+prototype either, just informational. No automated browser test suite is
+checked in yet — the backend's Node test runner pattern
+(`../backend/test/`) is the natural fit to extend to this app once there
+are enough real screens to make it worthwhile.
 
 ## Known gaps
 
-- Login, the shell, Leave, Employee directory, Departments, Attendance,
-  My space, Tasks, Projects, Announcements, Documents, and Messages are
-  built; every other nav item is still a placeholder. That completes the
-  full Work module (Tasks, Projects, Messages, Announcements, Documents).
+- Login, the shell, Dashboard, Leave, Employee directory, Departments,
+  Attendance, My space, Tasks, Projects, Announcements, Documents, and
+  Messages are built — every screen in the Overview, People, and Work
+  nav groups. Every other nav item (Operations, Quotations & Invoicing,
+  Finance, Insights, Intelligence, Governance) is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
