@@ -5,14 +5,14 @@ import AppShell from './layout/AppShell';
 import { ALL_NAV_ITEMS } from './layout/navModel';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import LeavePage from './pages/LeavePage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
-// not yet built (everything except the dashboard landing) render a
-// placeholder rather than a dead link, matching the intended full nav
-// structure (see layout/navModel.js). Built once at module scope so route
-// elements stay referentially stable across renders.
-const BUILT_SCREENS = { dashboard: DashboardPage };
+// not yet built render a placeholder rather than a dead link, matching the
+// intended full nav structure (see layout/navModel.js). Built once at
+// module scope so route elements stay referentially stable across renders.
+const BUILT_SCREENS = { dashboard: DashboardPage, leave: LeavePage };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];
   return { key: item.key, element: Screen ? <Screen /> : <PlaceholderPage title={item.label} /> };

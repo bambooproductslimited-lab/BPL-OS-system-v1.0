@@ -10,15 +10,24 @@ That file is the **design/behavior reference** — screens, copy, workflows,
 the sidebar structure — not code to edit in place. This app is a fresh
 implementation of that design, built screen by screen against the real API.
 
-## This pass: app shell + login only
+## Screens built so far
 
-Per the prototype's own permission-gated navigation model, this first slice
-proves out the architecture — auth, session handling, routing, the
-permission-scoped sidebar — against the real backend, with one working
-screen (login) and a full but mostly-placeholder navigation shell. No
-feature screens (employee directory, leave, dashboard data, etc.) are built
-yet; each nav item routes somewhere real, but most render "Coming soon"
-until their turn.
+- **Login** — the split-screen sign-in matching the prototype's design, with
+  one-click demo-account fill.
+- **App shell** — permission-scoped sidebar nav (ported from the prototype's
+  `navModel()`), header, session handling. Every nav item routes somewhere;
+  screens not built yet render a "Coming soon" placeholder.
+- **Leave** — the full request → approve/reject/cancel lifecycle: a request
+  form with a live remaining-balance hint, a filterable list (pending/
+  approved/rejected/all) scoped to what the signed-in user can see, a
+  confirm-with-note dialog for decisions, and self-service cancel on your
+  own pending requests. This is the reference implementation for what a
+  "real" screen looks like here — see "Adding the next screen" below.
+
+Everything else in the nav (employee directory, attendance, tasks, the
+whole Operations and Commercial modules, governance screens, etc.) is still
+a placeholder — the backend routes exist and are tested, they just don't
+have a frontend screen yet.
 
 ## Setup
 
@@ -62,7 +71,12 @@ screen has one-click quick-fill buttons for all seven.
   border-radius, strong 2px dividers, single accent color) per
   `design_handoff_bamboo_company_os/PROJECT_NOTES.md`. The prototype's own
   CSS bundle isn't available outside its design tool, so this is a fresh
-  implementation of the same visual language, not a port of that file.
+  implementation of the same visual language, not a port of that file. Also
+  holds the shared component primitives every list-style screen will reuse:
+  `.table`, `.tag`/`.tag-neutral`/`.tag-outline`/`.tag-accent` (status
+  colors, ported from the prototype's `tag(status)` mapping), `.seg`/
+  `.seg-opt` (segmented filter control), `.dialog-backdrop`/`.dialog`
+  (confirm/edit modals), `.toast`.
 
 ## Adding the next screen
 
@@ -78,16 +92,22 @@ screen has one-click quick-fill buttons for all seven.
 ## Testing
 
 Verified end-to-end with a real browser (Playwright) against the real
-backend: login success/failure, demo account fill, permission-scoped nav
-differing by role, session persistence across a page reload (JWT
-rehydration), protected-route redirect when unauthenticated, and sign-out.
-No automated browser test suite is checked in yet — the backend's Node
-test runner pattern (`../backend/test/`) is the natural fit to extend to
-this app once there are enough real screens to make it worthwhile.
+backend for each screen as it's built: login success/failure, demo account
+fill, permission-scoped nav differing by role, session persistence across a
+page reload (JWT rehydration), protected-route redirect when
+unauthenticated, sign-out, and for Leave specifically — submitting a
+request, the manager-approve and manager-reject flows (with the note
+dialog), self-service cancel, the "no read-all -> only your own requests"
+scoping, and a real validation-error round trip (end date before start
+date) rendering the backend's exact message instead of crashing. No
+automated browser test suite is checked in yet — the backend's Node test
+runner pattern (`../backend/test/`) is the natural fit to extend to this
+app once there are enough real screens to make it worthwhile.
 
 ## Known gaps
 
-- Only login + the shell are built; every other nav item is a placeholder.
+- Login, the shell, and Leave are built; every other nav item is still a
+  placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

@@ -1,0 +1,278 @@
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import './LeavePage.css';
+
+// Ported from Bamboo OS.dc.html's leave screen (screens.leave block + the
+// leaveRows/leaveFilters/leaveHint computed values around its render()).
+
+const STATUS_FILTERS = ['pending', 'approved', 'rejected', 'all'];
+
+// Ported from kernel.js's UI helper tag(status).
+function tagClass(status) {
+  if (status === 'approved') return 'tag-neutral';
+  if (status === 'pending') return 'tag-outline';
+  if (status === 'rejected' || status === 'cancelled') return 'tag-accent';
+  return 'tag-neutral';
+}
+
+// Ported from Bamboo OS.dc.html's fmtDate().
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+const EMPTY_FORM = { leaveTypeId: '', startDate: '', endDate: '', reason: '' };
+
+export default function LeavePage() {
+  const { session, can } = useAuth();
+  const employeeId = session && session.employee && session.employee.id;
+
+  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [balances, setBalances] = useState([]);
+  const [filter, setFilter] = useState('pending');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [decisionDialog, setDecisionDialog] = useState(null);
+  const [decisionNote, setDecisionNote] = useState('');
+  const [dialogError, setDialogError] = useState(null);
+  const [deciding, setDeciding] = useState(false);
+
+  const loadAll = useCallback(async () => {
+    setError(null);
+    try {
+      const [types, requests, me] = await Promise.all([
+        api.get('/leave/types'),
+        api.get('/leave'),
+        api.get('/me/summary')
+      ]);
+      setLeaveTypes(types);
+      setLeaveRequests(requests);
+      setBalances(me.balances || []);
+      setForm((f) => (f.leaveTypeId ? f : { ...f, leaveTypeId: (types[0] && types[0].id) || '' }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  async function handleSubmitRequest(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await api.post('/leave', form);
+      setToast('Request submitted for approval (' + created.days + ' day(s)).');
+      setForm({ ...EMPTY_FORM, leaveTypeId: form.leaveTypeId });
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function openDecision(row, decision) {
+    setDialogError(null);
+    setDecisionNote('');
+    setDecisionDialog({
+      id: row.id, decision, employeeName: row.employeeName, typeName: row.typeName,
+      days: row.days, startDate: row.startDate, endDate: row.endDate
+    });
+  }
+
+  async function confirmDecision(e) {
+    e.preventDefault();
+    if (!decisionDialog) return;
+    setDeciding(true);
+    setDialogError(null);
+    try {
+      await api.post('/leave/' + decisionDialog.id + '/decision', { decision: decisionDialog.decision, note: decisionNote });
+      setToast('Leave ' + decisionDialog.decision + '.');
+      setDecisionDialog(null);
+      await loadAll();
+    } catch (err) {
+      setDialogError(err.message);
+    } finally {
+      setDeciding(false);
+    }
+  }
+
+  async function handleCancel(row) {
+    setError(null);
+    try {
+      await api.post('/leave/' + row.id + '/cancel');
+      setToast('Request cancelled.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (loading) return <div className="eyebrow">Loading…</div>;
+
+  const rows = leaveRequests.filter((l) => filter === 'all' || l.status === filter);
+  const listTitle = can('leave.read.all') ? 'Leave requests in your scope' : 'My leave requests';
+  const selectedType = leaveTypes.find((t) => t.id === form.leaveTypeId);
+  const balance = selectedType && balances.find((b) => b.name === selectedType.name);
+  const hint = balance
+    ? balance.left + ' of ' + balance.entitled + ' days remaining. Sundays are not counted.'
+    : 'Sundays are not counted as leave days.';
+
+  return (
+    <div>
+      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <div className="leave-grid">
+        {can('leave.request') && (
+          <form className="card leave-form" onSubmit={handleSubmitRequest}>
+            <h2 className="leave-form-title">Request leave</h2>
+
+            <div className="field">
+              <label htmlFor="leave-type">Type</label>
+              <select
+                id="leave-type"
+                className="input"
+                value={form.leaveTypeId}
+                onChange={(e) => setForm({ ...form, leaveTypeId: e.target.value })}
+                required
+              >
+                {leaveTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+
+            <div className="leave-form-dates">
+              <div className="field">
+                <label htmlFor="leave-start">From</label>
+                <input
+                  id="leave-start" className="input" type="date" value={form.startDate}
+                  onChange={(e) => setForm({ ...form, startDate: e.target.value })} required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="leave-end">To</label>
+                <input
+                  id="leave-end" className="input" type="date" value={form.endDate}
+                  onChange={(e) => setForm({ ...form, endDate: e.target.value })} required
+                />
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="leave-reason">Reason</label>
+              <textarea
+                id="leave-reason" className="input" value={form.reason}
+                onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                placeholder="Kept on the record for HR." required
+              />
+            </div>
+
+            <div className="leave-hint">{hint}</div>
+
+            <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
+              {submitting ? 'Submitting…' : 'Submit request'}
+            </button>
+          </form>
+        )}
+
+        <section className="leave-list-section">
+          <div className="leave-list-header">
+            <h2 className="leave-list-title">{listTitle}</h2>
+            <div className="seg">
+              {STATUS_FILTERS.map((k) => (
+                <label className="seg-opt" key={k}>
+                  <input type="radio" name="leave-filter" checked={filter === k} onChange={() => setFilter(k)} />
+                  <span>{k.charAt(0).toUpperCase() + k.slice(1)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table">
+              <thead>
+                <tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th /></tr>
+              </thead>
+              <tbody>
+                {rows.map((l) => {
+                  const decidable = l.status === 'pending' && can('leave.approve') && l.employeeId !== employeeId;
+                  const cancellable = l.status === 'pending' && l.employeeId === employeeId;
+                  return (
+                    <tr key={l.id}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{l.employeeName}</div>
+                        <div className="leave-dept">{l.department}</div>
+                      </td>
+                      <td>{l.typeName}</td>
+                      <td style={{ fontSize: 13 }}>{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</td>
+                      <td>{l.days}</td>
+                      <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
+                      <td className="table-actions">
+                        {decidable && (
+                          <>
+                            <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'approved')}>Approve</button>
+                            <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'rejected')}>Reject</button>
+                          </>
+                        )}
+                        {cancellable && (
+                          <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => handleCancel(l)}>Cancel</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {!rows.length && <p className="table-empty">Nothing matches this filter.</p>}
+        </section>
+      </div>
+
+      {decisionDialog && (
+        <div className="dialog-backdrop" onClick={() => setDecisionDialog(null)}>
+          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmDecision}>
+            <h2>{decisionDialog.decision === 'approved' ? 'Approve' : 'Reject'} leave</h2>
+            <p className="dialog-body">
+              {decisionDialog.employeeName} · {decisionDialog.typeName} · {decisionDialog.days} day(s),{' '}
+              {fmtDate(decisionDialog.startDate)} → {fmtDate(decisionDialog.endDate)}
+            </p>
+            <div className="field">
+              <label htmlFor="decision-note">Note for the record</label>
+              <textarea
+                id="decision-note" className="input" value={decisionNote}
+                onChange={(e) => setDecisionNote(e.target.value)}
+                placeholder="Optional for approval, expected for a rejection."
+              />
+            </div>
+            {dialogError && <div className="error-banner">{dialogError}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setDecisionDialog(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={deciding}>
+                {deciding ? 'Saving…' : (decisionDialog.decision === 'approved' ? 'Approve request' : 'Reject request')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
