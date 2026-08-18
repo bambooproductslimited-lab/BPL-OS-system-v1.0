@@ -135,9 +135,30 @@ Overview group.
   Leave's decision dialog, because procurement decisions carry no note
   field) gated on `procurement.approve` and excluding your own requests.
 
+**Governance group:**
+
+- **Approval centre** — a single unified queue of everything with
+  `approval.act` routed to you: leave requests, purchase requests, and
+  expense claims, each rendered from the polymorphic
+  `GET /approvals/queue` response (see `approvals.service.js`'s
+  `subjectType`-gated detail query) with single-click Approve/Reject.
+  **Deliberate deviation from the prototype**: its Approve/Reject buttons
+  always call `leave.decide` regardless of subject type — a latent bug in
+  the design that only works for leave requests, since procurement and
+  expense approvals were added to the backend's queue after that dialog
+  wiring was drawn (see `../backend/README.md`'s endpoint table, which
+  marks `GET /approvals/queue` as "fully polymorphic" across all three
+  subject types). This port dispatches each decision to the
+  real endpoint for its `subjectType` (`POST /leave/:id/decision`,
+  `POST /procurement/:id/decision`, `POST /expenses/:id/decision`)
+  instead of carrying that bug forward — matching the buggy behavior here
+  would make procurement/expense approvals silently fail against a real
+  backend, which is a worse outcome than the one specific deviation.
+
 Everything else in the nav (Quotations & Invoicing, Finance, Insights,
-and Governance) is still a placeholder — the backend routes exist and
-are tested, they just don't have a frontend screen yet.
+and the rest of Governance — Roles & permissions, User accounts, Audit
+log, Company settings) is still a placeholder — the backend routes exist
+and are tested, they just don't have a frontend screen yet.
 
 ## Setup
 
@@ -274,7 +295,15 @@ appear, and — this caught a real bug — the raw batches and warehouses
 tables render correctly instead of both going blank behind a permission
 error, which is what happened before fixing `ProductionPage` to stop
 fetching suppliers/products for a viewer whose form for them will never
-render. No automated browser test suite is checked in yet — the
+render. For the Approval centre: submitted one of each subject type
+(leave, procurement, expense) as one account, then as a second account
+whose `employee.read.all` and matching `*.approve` grants make all three
+visible and decidable, approved the leave request and expense claim and
+rejected the purchase request — each decision correctly hit its own
+endpoint (confirmed by re-checking the Leave and Procurement screens
+afterward, which showed "approved" and "rejected" respectively) rather
+than every decision going through `leave.decide` the way the prototype's
+buggy dialog wiring would have. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural
 fit to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -284,10 +313,12 @@ worthwhile.
 - Login, the shell, Dashboard, Leave, Employee directory, Departments,
   Attendance, My space, Tasks, Projects, Announcements, Documents,
   Messages, Suppliers, Products & inventory, Assets & maintenance, Raw
-  bamboo & production, and Procurement are built — every screen in the
-  Overview, People, Work, and Operations nav groups. Every other nav
-  item (Quotations & Invoicing, Finance, Insights, Intelligence,
-  Governance) is still a placeholder.
+  bamboo & production, Procurement, and the Approval centre are built —
+  every screen in the Overview, People, Work, and Operations nav groups,
+  plus Governance's Approval centre. Every other nav item (Quotations &
+  Invoicing, Finance, Insights, Intelligence, and the rest of Governance
+  — Roles & permissions, User accounts, Audit log, Company settings) is
+  still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
