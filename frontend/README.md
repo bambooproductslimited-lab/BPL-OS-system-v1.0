@@ -34,8 +34,16 @@ implementation of that design, built screen by screen against the real API.
 - **Departments** — a list plus an inline (non-modal) create/edit form,
   visible only with `department.manage`. Delete is only offered on
   departments with zero headcount, matching the backend's own guard.
+- **Attendance** — the manager/HR roster view for a given day: a date
+  picker, four summary tiles (in scope / present / late / no record), and
+  a table of everyone in the signed-in user's scope for that date. With
+  `attendance.adjust`, each row gets a "Correct" action (a dialog for
+  clock in/out, status, and a required reason logged to the audit trail)
+  and, once a real record exists, a "Delete" action. Clock in/out for
+  yourself lives on "My space", not here — this screen is read-only plus
+  corrections, matching the prototype's split between the two screens.
 
-Everything else in the nav (attendance, tasks, the whole Operations and
+Everything else in the nav ("My space", tasks, the whole Operations and
 Commercial modules, governance screens, etc.) is still a placeholder — the
 backend routes exist and are tested, they just don't have a frontend
 screen yet.
@@ -119,15 +127,19 @@ unprivileged employee (no `employee.write`/`department.manage`), confirmed
 the directory is scoped to just that person's own record, all write
 buttons and the department form are absent, and none of that is a
 frontend-only restriction — it mirrors what the backend actually returns
-and allows. No automated browser test suite is checked in yet — the
+and allows. For Attendance: as an admin, the roster and summary tiles for
+the full company scope, plus a correction saved through the dialog and
+reflected immediately; as the same unprivileged employee, the roster
+scoped to just her own row with no Correct/Delete controls. No automated
+browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
 worthwhile.
 
 ## Known gaps
 
-- Login, the shell, Leave, Employee directory, and Departments are built;
-  every other nav item is still a placeholder.
+- Login, the shell, Leave, Employee directory, Departments, and Attendance
+  are built; every other nav item is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
