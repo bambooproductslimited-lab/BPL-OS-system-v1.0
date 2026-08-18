@@ -1,0 +1,12 @@
+.documents-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.documents-filename { font-size: 12px; color: var(--color-text-muted); }
+.documents-row-btn { font-size: 12px; padding: 6px 10px; }
+
+.documents-dialog { max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
+.documents-dialog h2 { margin: 0; font-size: 20px; }
+.documents-dialog-note { margin: 0; font-size: 12px; color: var(--color-text-muted); }

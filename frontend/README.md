@@ -74,6 +74,14 @@ implementation of that design, built screen by screen against the real API.
   Visibility follows the backend's `announcementVisible()`: all-staff
   posts show for everyone, department-scoped posts show for that
   department or for anyone with `employee.read.all`.
+- **Documents** — a table (title, category, file name, visibility tag,
+  uploaded date, uploader) with an "Add document" dialog for
+  `document.manage`. Metadata only — there's no real file upload, matching
+  both the prototype's own note in the dialog ("file storage is not wired
+  up in this prototype") and the backend's known gaps. "My department
+  only" visibility scopes to the *uploader's* department at upload time —
+  there's no department picker in the dialog, because the prototype
+  doesn't have one either.
 
 Everything else in the nav (the whole Operations and Commercial modules,
 governance screens, etc.) is still a placeholder — the backend routes
@@ -180,8 +188,14 @@ server-side. For Announcements: publishing one all-staff and one
 Production-only notice as an admin, then confirming an employee in
 Production sees both, while a Finance department manager with no
 `employee.read.all` sees only the all-staff one — the same
-`employeeReadAll`-widens-visibility rule the backend documents. No
-automated browser test suite is checked in yet — the
+`employeeReadAll`-widens-visibility rule the backend documents. For
+Documents: uploading one doc at each visibility level (all staff,
+department-only, managers-only) as an admin, confirming the visibility
+tags render correctly and delete works; as the same Production employee
+with no `document.manage`, confirmed she sees neither the
+department-only doc (scoped to the uploader's own department, Human
+Resources & Admin, not hers) nor the managers-only doc, and no add/remove
+controls. No automated browser test suite is checked in yet — the
 backend's Node test runner pattern (`../backend/test/`) is the natural fit
 to extend to this app once there are enough real screens to make it
 worthwhile.
@@ -189,8 +203,8 @@ worthwhile.
 ## Known gaps
 
 - Login, the shell, Leave, Employee directory, Departments, Attendance,
-  My space, Tasks, Projects, and Announcements are built; every other
-  nav item is still a placeholder.
+  My space, Tasks, Projects, Announcements, and Documents are built;
+  every other nav item is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.
