@@ -15,6 +15,11 @@ import ProjectsPage from './pages/ProjectsPage';
 import AnnouncementsPage from './pages/AnnouncementsPage';
 import DocumentsPage from './pages/DocumentsPage';
 import MessagesPage from './pages/MessagesPage';
+import SuppliersPage from './pages/SuppliersPage';
+import InventoryPage from './pages/InventoryPage';
+import AssetsPage from './pages/AssetsPage';
+import ProductionPage from './pages/ProductionPage';
+import ProcurementPage from './pages/ProcurementPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
@@ -24,7 +29,8 @@ import PlaceholderPage from './pages/PlaceholderPage';
 const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: TasksPage, projects: ProjectsPage, announcements: AnnouncementsPage,
-  documents: DocumentsPage, messages: MessagesPage
+  documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage,
+  assets: AssetsPage, production: ProductionPage, procurement: ProcurementPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];

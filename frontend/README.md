@@ -101,10 +101,43 @@ implementation of that design, built screen by screen against the real API.
   read server-side, same as the prototype.
 
 Also built: **Dashboard** — see its own entry above, at the top of the
-Overview group. Everything else in the nav (the whole Operations,
-Quotations & Invoicing, Finance, Insights, and Governance groups) is
-still a placeholder — the backend routes exist and are tested, they just
-don't have a frontend screen yet.
+Overview group.
+
+**Operations group** (all five screens, completing this nav group):
+
+- **Suppliers** — table + create/edit/delete dialog gated on
+  `supplier.manage`; delete only offered when `batchCount === 0`.
+- **Products & inventory** — table + create/edit dialog gated on
+  `inventory.manage`, with a low-stock tag driven by the backend's own
+  `currentStock <= reorderLevel` check.
+- **Assets & maintenance** — asset registry (register-only — the
+  prototype's asset rows have no edit/delete action, just the two
+  toolbar buttons) plus a maintenance history log, both gated on
+  `asset.manage`.
+- **Raw bamboo & production** — the largest screen in the app: a raw
+  bamboo receiving form + stock table (inline edit, not a dialog — matches
+  the prototype's own top-of-page edit pattern), a warehouses table +
+  dialog, and a production-batch recording form + table. All three forms
+  are gated on `production.manage`; two fields the prototype tracks but
+  never exposes a control for (raw batch unit, always `'kg'`; production
+  line, always `'Weaving Line'`) are reproduced exactly rather than given
+  new UI. The supplier and output-product `+ New` buttons inline in the
+  forms open the same create dialogs as the Suppliers and
+  Products & inventory screens, matching the prototype's shared-dialog
+  pattern. Suppliers/products are only fetched when `production.manage`
+  is present — a read-only viewer (e.g. a Line Supervisor) may hold
+  `production.read` without `supplier.read`, and fetching a dropdown
+  dataset the create form won't render for them just to 403 was a real
+  bug caught while testing (see Testing section).
+- **Procurement** — a purchase-request form gated on
+  `procurement.request`, and a table with single-click Approve/Reject
+  (no confirmation dialog — the prototype doesn't have one here, unlike
+  Leave's decision dialog, because procurement decisions carry no note
+  field) gated on `procurement.approve` and excluding your own requests.
+
+Everything else in the nav (Quotations & Invoicing, Finance, Insights,
+and Governance) is still a placeholder — the backend routes exist and
+are tested, they just don't have a frontend screen yet.
 
 ## Setup
 
@@ -225,18 +258,36 @@ as the same Production employee, confirmed only the 5 permission-free
 KPIs render, the department table is scoped to just her own department,
 and the "Latest activity" feed is absent (no `audit.read`) while the
 attention panel still shows — it's not gated on any permission in the
-prototype either, just informational. No automated browser test suite is
-checked in yet — the backend's Node test runner pattern
-(`../backend/test/`) is the natural fit to extend to this app once there
-are enough real screens to make it worthwhile.
+prototype either, just informational. For the five Operations screens:
+as an admin, the full create/edit/delete lifecycle on each (suppliers,
+products, assets, maintenance records, warehouses, raw batches,
+production batches, purchase requests), including the inline
+"+ New supplier" and "+ New product" dialogs reachable from inside the
+Raw bamboo & production form, and a purchase request approved by a
+second account (a Finance & HR Manager with `employee.read.all`, so the
+requester — in a different department — is both visible and decidable to
+them); as a Line Supervisor (read-only: `production.read`/
+`inventory.read`/`asset.read` but no `*.manage`, and no `supplier.read`
+or `procurement.request` at all), confirmed every create form and
+edit/delete control is absent, the Procurement nav item doesn't even
+appear, and — this caught a real bug — the raw batches and warehouses
+tables render correctly instead of both going blank behind a permission
+error, which is what happened before fixing `ProductionPage` to stop
+fetching suppliers/products for a viewer whose form for them will never
+render. No automated browser test suite is checked in yet — the
+backend's Node test runner pattern (`../backend/test/`) is the natural
+fit to extend to this app once there are enough real screens to make it
+worthwhile.
 
 ## Known gaps
 
 - Login, the shell, Dashboard, Leave, Employee directory, Departments,
-  Attendance, My space, Tasks, Projects, Announcements, Documents, and
-  Messages are built — every screen in the Overview, People, and Work
-  nav groups. Every other nav item (Operations, Quotations & Invoicing,
-  Finance, Insights, Intelligence, Governance) is still a placeholder.
+  Attendance, My space, Tasks, Projects, Announcements, Documents,
+  Messages, Suppliers, Products & inventory, Assets & maintenance, Raw
+  bamboo & production, and Procurement are built — every screen in the
+  Overview, People, Work, and Operations nav groups. Every other nav
+  item (Quotations & Invoicing, Finance, Insights, Intelligence,
+  Governance) is still a placeholder.
 - Fonts load from Google Fonts (`Archivo`); if that's unreachable (offline,
   restricted network) the app falls back to `system-ui` — visually fine,
   just not pixel-identical to the prototype's typeface.

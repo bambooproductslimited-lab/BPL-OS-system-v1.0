@@ -1,0 +1,39 @@
+.production-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.production-rb-form, .production-pb-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding: 16px;
+}
+
+.production-rb-form .field, .production-pb-form .field { min-width: 0; }
+.production-inline-select { display: flex; gap: 6px; min-width: 0; }
+.production-inline-select select { flex: 1; min-width: 0; }
+.production-inline-btn { flex: none; white-space: nowrap; }
+
+.production-submit-btn { white-space: nowrap; flex: none; }
+.production-section-title { margin: 8px 0 0; font-size: 15px; }
+.production-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.production-wh-dialog {
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.production-2col-dialog {
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.production-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
+.production-dialog-span { grid-column: 1 / -1; }

@@ -1,0 +1,17 @@
+.inventory-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.inventory-row-btn { font-size: 12px; padding: 6px 10px; }
+
+.inventory-dialog {
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.inventory-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
+.inventory-dialog-span { grid-column: 1 / -1; }

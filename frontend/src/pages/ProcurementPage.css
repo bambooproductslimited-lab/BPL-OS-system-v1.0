@@ -1,0 +1,11 @@
+.procurement-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.procurement-submit-btn { white-space: nowrap; flex: none; }
+.procurement-reason { grid-column: 1 / -1; }
+.procurement-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
