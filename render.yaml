@@ -41,11 +41,15 @@ services:
         value: 8h
       - key: BCRYPT_ROUNDS
         value: '12'
-      # Set this to your real Hostinger domain (e.g. https://bpl-os.yourdomain.com)
-      # once you know it — see DEPLOYMENT.md step 4. Login and every API call
-      # will be rejected by CORS until this matches the frontend's real origin.
+      # Set this on the Render dashboard to your real frontend origin (e.g.
+      # https://bpl-os.yourdomain.com) — see DEPLOYMENT.md step 4. Login and
+      # every API call are rejected by CORS until this matches exactly.
+      # sync: false (not a fixed value:) so a future Blueprint sync — e.g.
+      # triggered by an unrelated render.yaml edit — can never silently
+      # overwrite it back to a placeholder, which is exactly what happened
+      # the first time this had a literal value here.
       - key: CORS_ORIGIN
-        value: http://localhost:5173
+        sync: false
       # Fill these in on the Render dashboard before the first deploy — the
       # build's `npm run bootstrap` step reads them to create your one real
       # admin account. They are never stored anywhere after that first run

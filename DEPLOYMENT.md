@@ -110,12 +110,13 @@ homepage will 404. Add a `.htaccess` file in the same folder as
 ## Step 4 — Point the backend's CORS at your real domain
 
 Back in the Render dashboard, open the `bamboo-os-backend` service →
-**Environment**, and change `CORS_ORIGIN` from the `render.yaml` default
-(`http://localhost:5173`) to your actual Hostinger domain, e.g.
-`https://yourdomain.com` (no trailing slash; comma-separate if you're
-serving from more than one origin). Save — Render redeploys automatically.
-Until this matches, the browser will block every API call from the
-frontend with a CORS error even though both sides are individually up.
+**Environment**, and set `CORS_ORIGIN` (empty by default — it's `sync: false`
+in `render.yaml`, deliberately so a later Blueprint sync can never overwrite
+it) to your actual Hostinger domain, e.g. `https://yourdomain.com` (no
+trailing slash; comma-separate if you're serving from more than one origin).
+Save — Render redeploys automatically. Until this matches, the browser will
+block every API call from the frontend with a CORS error even though both
+sides are individually up.
 
 ## Step 5 — Verify
 
