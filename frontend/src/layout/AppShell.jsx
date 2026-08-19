@@ -24,6 +24,7 @@ export default function AppShell() {
     <div className="shell">
       <aside className="shell-sidebar">
         <div className="shell-brand">
+          <img src="/logo.png" alt="" className="shell-brand-logo" />
           <div>
             <div className="shell-brand-name">Bamboo Products</div>
             <div className="shell-brand-sub">Company OS · Phase 1</div>

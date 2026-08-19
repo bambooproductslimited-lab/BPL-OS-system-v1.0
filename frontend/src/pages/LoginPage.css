@@ -18,10 +18,10 @@
   background-color: var(--color-accent);
 }
 
-.login-brand-name {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 18px;
+.login-logo {
+  width: 140px;
+  height: auto;
+  border-radius: 8px;
 }
 
 .login-brand-heading {

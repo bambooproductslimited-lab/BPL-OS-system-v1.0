@@ -50,7 +50,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-brand">
-        <div className="login-brand-name">Bamboo Products Limited</div>
+        <img src="/logo.png" alt="Bamboo Products Limited" className="login-logo" />
         <div>
           <h1 className="login-brand-heading">Company<br />Operating<br />System</h1>
           <p className="login-brand-sub">
