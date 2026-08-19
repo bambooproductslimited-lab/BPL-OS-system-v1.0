@@ -11,6 +11,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
       <div className="doc-preview" onClick={(e) => e.stopPropagation()}>
         <div className="doc-preview-head">
           <div className="doc-preview-brand">
+            <img src="/logo.png" alt="" className="doc-preview-logo" />
             <div className="doc-preview-brand-name">Bamboo Products Limited</div>
           </div>
           <div className="doc-preview-headright">

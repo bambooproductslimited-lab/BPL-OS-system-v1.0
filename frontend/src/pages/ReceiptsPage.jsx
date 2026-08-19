@@ -67,8 +67,11 @@ export default function ReceiptsPage() {
           <div className="dialog receipt-preview" onClick={(e) => e.stopPropagation()}>
             <div className="receipt-preview-head">
               <div className="receipt-preview-brand">
-                <div className="receipt-preview-brand-name">Bamboo Products Limited</div>
-                <div className="receipt-preview-brand-address">Poki House, GT-191-1859 (GhanaPostGPS)<br />35 J K Siaw St, Community 9, Tema, Ghana</div>
+                <img src="/logo.png" alt="" className="receipt-preview-logo" />
+                <div>
+                  <div className="receipt-preview-brand-name">Bamboo Products Limited</div>
+                  <div className="receipt-preview-brand-address">Poki House, GT-191-1859 (GhanaPostGPS)<br />35 J K Siaw St, Community 9, Tema, Ghana</div>
+                </div>
               </div>
               <div className="receipt-preview-headright">
                 <div className="receipt-preview-eyebrow">Receipt</div>
