@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { shareOrDownloadPdf } from '../lib/documentShare';
 import './ReceiptsPage.css';
 
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
@@ -19,6 +20,22 @@ export default function ReceiptsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [previewR, setPreviewR] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState(null);
+  const previewRef = useRef(null);
+
+  async function handleShare() {
+    setShareError(null);
+    setSharing(true);
+    try {
+      const filename = 'Receipt-' + previewR.receiptNo + '.pdf';
+      await shareOrDownloadPdf(previewRef.current, filename, 'Receipt ' + previewR.receiptNo, 'Receipt for ' + previewR.customerName);
+    } catch (err) {
+      if (err.name !== 'AbortError') setShareError(err.message || 'Could not share this receipt.');
+    } finally {
+      setSharing(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setError(null);
@@ -54,7 +71,7 @@ export default function ReceiptsPage() {
               <td className="receipts-method">{r.method.replace('_', ' ')}</td>
               <td>GHS {r.balanceAfter.toLocaleString()}</td>
               <td className="table-actions">
-                <button type="button" className="btn btn-secondary receipts-row-btn" onClick={() => setPreviewR(r)}>Preview</button>
+                <button type="button" className="btn btn-secondary receipts-row-btn" onClick={() => { setShareError(null); setPreviewR(r); }}>Preview</button>
               </td>
             </tr>
           ))}
@@ -64,7 +81,7 @@ export default function ReceiptsPage() {
 
       {previewR && (
         <div className="dialog-backdrop" onClick={() => setPreviewR(null)}>
-          <div className="dialog receipt-preview" onClick={(e) => e.stopPropagation()}>
+          <div className="dialog receipt-preview" ref={previewRef} onClick={(e) => e.stopPropagation()}>
             <div className="receipt-preview-head">
               <div className="receipt-preview-brand">
                 <img src="/logo.png" alt="" className="receipt-preview-logo" />
@@ -94,9 +111,13 @@ export default function ReceiptsPage() {
               <div>Remaining balance &nbsp; <strong>GHS {previewR.balanceAfter.toLocaleString()}</strong></div>
               <div className="receipt-preview-amount-received">Amount received &nbsp; <strong>GHS {previewR.amount.toLocaleString()}</strong></div>
             </div>
-            <div className="dialog-actions">
+            {shareError && <div className="error-banner no-print">{shareError}</div>}
+            <div className="dialog-actions no-print">
               <button type="button" className="btn btn-secondary" onClick={() => setPreviewR(null)}>Close</button>
-              <button type="button" className="btn btn-primary" onClick={() => window.print()}>Print</button>
+              <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+              <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
+                {sharing ? 'Preparing…' : 'Share'}
+              </button>
             </div>
           </div>
         </div>

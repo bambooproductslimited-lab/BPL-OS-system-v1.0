@@ -1,3 +1,5 @@
+import { useRef, useState } from 'react';
+import { shareOrDownloadPdf } from '../lib/documentShare';
 import './DocPreview.css';
 
 // Shared print-style preview modal for Estimates/Quotations/Invoices,
@@ -6,9 +8,26 @@ import './DocPreview.css';
 // label text and the third detail column differ per document kind).
 
 export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, onClose }) {
+  const nodeRef = useRef(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState(null);
+
+  async function handleShare() {
+    setShareError(null);
+    setSharing(true);
+    try {
+      const filename = (docLabel || 'Document').replace(/[^a-zA-Z0-9-]+/g, '-') + '.pdf';
+      await shareOrDownloadPdf(nodeRef.current, filename, docLabel, heading);
+    } catch (err) {
+      if (err.name !== 'AbortError') setShareError(err.message || 'Could not share this document.');
+    } finally {
+      setSharing(false);
+    }
+  }
+
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="doc-preview" onClick={(e) => e.stopPropagation()}>
+      <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
         <div className="doc-preview-head">
           <div className="doc-preview-brand">
             <img src="/logo.png" alt="" className="doc-preview-logo" />
@@ -62,8 +81,13 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
             <p className="doc-preview-terms-body">{termsValue}</p>
           </div>
         )}
-        <div className="doc-preview-actions">
+        {shareError && <div className="error-banner no-print">{shareError}</div>}
+        <div className="doc-preview-actions no-print">
           <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+          <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
+            {sharing ? 'Preparing…' : 'Share'}
+          </button>
         </div>
       </div>
     </div>
