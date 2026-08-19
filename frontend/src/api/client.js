@@ -46,12 +46,31 @@ async function request(method, path, body) {
   return data;
 }
 
+async function upload(path, formData) {
+  var headers = {};
+  var token = getToken();
+  if (token) headers.Authorization = 'Bearer ' + token;
+
+  var res = await fetch(API_URL + path, { method: 'POST', headers: headers, body: formData });
+  var text = await res.text();
+  var data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = null; }
+  }
+  if (!res.ok) {
+    var err = data && data.error;
+    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : 'Something went wrong.');
+  }
+  return data;
+}
+
 export const api = {
   get: function (path) { return request('GET', path); },
   post: function (path, body) { return request('POST', path, body === undefined ? {} : body); },
   patch: function (path, body) { return request('PATCH', path, body === undefined ? {} : body); },
   put: function (path, body) { return request('PUT', path, body === undefined ? {} : body); },
-  del: function (path) { return request('DELETE', path); }
+  del: function (path) { return request('DELETE', path); },
+  upload: upload
 };
 
 // kernel.js: handlers['auth.login']

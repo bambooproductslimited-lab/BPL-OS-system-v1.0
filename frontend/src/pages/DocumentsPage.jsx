@@ -4,9 +4,11 @@ import { useAuth } from '../auth/AuthContext';
 import './DocumentsPage.css';
 
 // Ported from Bamboo OS.dc.html's documents screen (screens.documents
-// block + the "Add document" dialog around its render()). This records
-// metadata only — file storage isn't wired up, matching the prototype's
-// own note in the upload dialog and the backend's known gaps.
+// block + the "Add document" dialog around its render()), extended with
+// real file upload/download against Cloudflare R2 (see
+// backend/src/lib/storage.js) — the prototype's version recorded metadata
+// only. Documents created before storage was wired up have no file
+// (hasFile: false) and show a plain, non-clickable filename.
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -15,7 +17,7 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const EMPTY_FORM = { title: '', category: '', fileName: '', visibility: 'all' };
+const EMPTY_FORM = { title: '', category: '', visibility: 'all' };
 
 export default function DocumentsPage() {
   const { can } = useAuth();
@@ -29,11 +31,13 @@ export default function DocumentsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [file, setFile] = useState(null);
   const [dialogError, setDialogError] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -70,15 +74,22 @@ export default function DocumentsPage() {
   function openNew() {
     setDialogError(null);
     setForm(EMPTY_FORM);
+    setFile(null);
     setDialogOpen(true);
   }
 
   async function handleUpload(e) {
     e.preventDefault();
+    if (!file) { setDialogError('Choose a file to upload.'); return; }
     setUploading(true);
     setDialogError(null);
     try {
-      await api.post('/documents', form);
+      const body = new FormData();
+      body.append('title', form.title);
+      body.append('category', form.category);
+      body.append('visibility', form.visibility);
+      body.append('file', file);
+      await api.upload('/documents', body);
       setToast('Document added.');
       setDialogOpen(false);
       await load();
@@ -86,6 +97,19 @@ export default function DocumentsPage() {
       setDialogError(err.message);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleDownload(doc) {
+    setDownloadingId(doc.id);
+    setError(null);
+    try {
+      const { url } = await api.get('/documents/' + doc.id + '/download');
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDownloadingId(null);
     }
   }
 
@@ -124,7 +148,15 @@ export default function DocumentsPage() {
             <tr key={dc.id}>
               <td style={{ fontWeight: 600 }}>{dc.title}</td>
               <td>{dc.category}</td>
-              <td className="documents-filename">{dc.fileName}</td>
+              <td className="documents-filename">
+                {dc.hasFile ? (
+                  <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handleDownload(dc)}>
+                    {downloadingId === dc.id ? 'Preparing…' : dc.fileName}
+                  </button>
+                ) : (
+                  <span title="Uploaded before file storage was set up — no file on record.">{dc.fileName}</span>
+                )}
+              </td>
               <td><span className="tag tag-neutral">{visLabel(dc)}</span></td>
               <td>{fmtDate((dc.uploadedAt || '').slice(0, 10))}</td>
               <td>{dc.uploaderName}</td>
@@ -141,7 +173,6 @@ export default function DocumentsPage() {
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog documents-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleUpload}>
             <h2>Add document</h2>
-            <p className="documents-dialog-note">This records document metadata only — file storage is not wired up in this prototype.</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="field">
               <label htmlFor="doc-title">Title</label>
@@ -152,8 +183,8 @@ export default function DocumentsPage() {
               <input id="doc-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Policy, Production, HR…" required />
             </div>
             <div className="field">
-              <label htmlFor="doc-filename">File name</label>
-              <input id="doc-filename" className="input" value={form.fileName} onChange={(e) => setForm({ ...form, fileName: e.target.value })} placeholder="filename.pdf" required />
+              <label htmlFor="doc-file">File</label>
+              <input id="doc-file" className="input" type="file" onChange={(e) => setFile(e.target.files[0] || null)} required />
             </div>
             <div className="field">
               <label htmlFor="doc-visibility">Visibility</label>

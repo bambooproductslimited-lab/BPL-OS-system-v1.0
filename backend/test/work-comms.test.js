@@ -5,7 +5,19 @@
  */
 var test = require('node:test');
 var assert = require('node:assert/strict');
+
+// Fake R2 credentials so storage.configured is true and documents.service
+// exercises its real upload/download code paths — set before requiring the
+// app, since config.js reads these at module-load time. The actual network
+// call is stubbed below (S3Client.prototype.send), so nothing hits real R2.
+process.env.R2_ACCOUNT_ID = 'test-account';
+process.env.R2_ACCESS_KEY_ID = 'test-key';
+process.env.R2_SECRET_ACCESS_KEY = 'test-secret';
+process.env.R2_BUCKET = 'test-bucket';
+
 var app = require('../src/app');
+var { S3Client } = require('@aws-sdk/client-s3');
+S3Client.prototype.send = async function () { return {}; };
 
 var server;
 var base;
@@ -119,14 +131,22 @@ test('documents: upload requires document.manage, visibility scoping to "all"', 
   });
   assert.equal(denied.status, 403);
 
-  var uploaded = await fetch(base + '/api/documents', {
-    method: 'POST', headers: jsonAuthed(admin),
-    body: JSON.stringify({ title: 'Test Handbook', category: 'Policy', fileName: 'handbook.pdf', visibility: 'all' })
-  });
+  var form = new FormData();
+  form.append('title', 'Test Handbook');
+  form.append('category', 'Policy');
+  form.append('visibility', 'all');
+  form.append('file', new Blob(['fake pdf content'], { type: 'application/pdf' }), 'handbook.pdf');
+  var uploaded = await fetch(base + '/api/documents', { method: 'POST', headers: authed(admin), body: form });
   assert.equal(uploaded.status, 201);
+  var doc = await uploaded.json();
+  assert.equal(doc.hasFile, true);
 
   var list = await (await fetch(base + '/api/documents', { headers: authed(alice) })).json();
   assert.ok(list.some(function (d) { return d.title === 'Test Handbook'; }));
+
+  var download = await fetch(base + '/api/documents/' + doc.id + '/download', { headers: authed(alice) });
+  assert.equal(download.status, 200);
+  assert.ok((await download.json()).url.startsWith('https://'));
 });
 
 test('messages: send, inbox, thread marks read, cannot message self', async function () {

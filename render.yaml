@@ -66,3 +66,15 @@ services:
         sync: false
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-5
+      # Optional — leave unset and Documents uploads are refused with a
+      # clear error (everything else still works). Create a free R2 bucket
+      # + API token at https://dash.cloudflare.com/ (R2 > Manage API tokens)
+      # to enable real file storage.
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false

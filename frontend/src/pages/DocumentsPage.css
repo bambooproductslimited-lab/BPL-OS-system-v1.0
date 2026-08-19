@@ -9,4 +9,15 @@
 
 .documents-dialog { max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
 .documents-dialog h2 { margin: 0; font-size: 20px; }
-.documents-dialog-note { margin: 0; font-size: 12px; color: var(--color-text-muted); }
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-button:disabled { color: var(--color-text-muted); cursor: default; text-decoration: none; }

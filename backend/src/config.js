@@ -35,5 +35,18 @@ module.exports = {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
     baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
-  }
+  },
+  // Cloudflare R2 (S3-compatible) storage for real Documents uploads — see
+  // src/lib/storage.js. All four must be set or uploads are refused with a
+  // clear "not configured" error instead of a confusing SDK crash.
+  r2: (function () {
+    var accountId = process.env.R2_ACCOUNT_ID || '';
+    var accessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+    var secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+    var bucket = process.env.R2_BUCKET || '';
+    return {
+      accountId: accountId, accessKeyId: accessKeyId, secretAccessKey: secretAccessKey, bucket: bucket,
+      configured: !!(accountId && accessKeyId && secretAccessKey && bucket)
+    };
+  }())
 };
