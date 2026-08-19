@@ -14,6 +14,7 @@ var PERMISSIONS = [
   { key: 'department.manage', group: 'People', label: 'Manage departments' },
   { key: 'role.manage', group: 'Access', label: 'Manage roles & permissions' },
   { key: 'user.manage', group: 'Access', label: 'Manage user accounts' },
+  { key: 'user.create', group: 'Access', label: 'Create user accounts & set passwords' },
   { key: 'attendance.self', group: 'Attendance', label: 'Clock in / out' },
   { key: 'attendance.read.all', group: 'Attendance', label: 'View all attendance' },
   { key: 'attendance.adjust', group: 'Attendance', label: 'Correct attendance records' },

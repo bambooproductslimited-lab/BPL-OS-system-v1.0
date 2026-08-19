@@ -10,6 +10,21 @@ router.get('/', async function (req, res, next) {
   try { res.json(await usersService.list(req.ctx)); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['users.availableEmployees'] -> GET /api/users/available-employees
+router.get('/available-employees', async function (req, res, next) {
+  try { res.json(await usersService.availableEmployees(req.ctx)); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['users.create'] -> POST /api/users
+router.post('/', async function (req, res, next) {
+  try { res.json(await usersService.create(req.ctx, req.body)); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['users.setPassword'] -> POST /api/users/:id/password
+router.post('/:id/password', async function (req, res, next) {
+  try { res.json(await usersService.setPassword(req.ctx, req.params.id, req.body.password)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['users.setRole'] -> POST /api/users/:id/role
 router.post('/:id/role', async function (req, res, next) {
   try { res.json(await usersService.setRole(req.ctx, req.params.id, req.body.roleId)); } catch (e) { next(e); }

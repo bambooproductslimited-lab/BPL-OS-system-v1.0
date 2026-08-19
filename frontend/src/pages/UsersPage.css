@@ -2,3 +2,14 @@
 .users-role-select { min-width: 190px; }
 .users-lastlogin { font-size: 12px; }
 .users-row-btn { font-size: 12px; padding: 6px 10px; }
+
+.field-hint { margin: 0; font-size: 12px; color: var(--color-text-muted); }
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 4px 0 16px;
+}
+
+.users-dialog-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }

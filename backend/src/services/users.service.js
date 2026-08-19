@@ -1,3 +1,6 @@
+var bcrypt = require('bcrypt');
+var crypto = require('crypto');
+var config = require('../config');
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
@@ -55,4 +58,76 @@ async function setStatus(ctx, userId, status) {
   return updated.filter(function (u) { return u.id === userId; })[0];
 }
 
-module.exports = { list: list, setRole: setRole, setStatus: setStatus };
+// kernel.js: handlers['users.create'] — new: admin-only account creation,
+// so a login account no longer has to come from the one seed/bootstrap admin.
+async function create(ctx, p) {
+  if (!ctx.can('user.create')) fail('forbidden', 'Your role does not allow this action (user.create).');
+
+  var empRes = await pool.query('SELECT id, email, first_name, last_name FROM employees WHERE id = $1', [p.employeeId]);
+  var emp = empRes.rows[0];
+  if (!emp) fail('invalid', 'Employee not found.');
+
+  var already = await pool.query('SELECT id FROM users WHERE employee_id = $1', [emp.id]);
+  if (already.rows[0]) fail('invalid', 'This employee already has a login account.');
+
+  var roleRes = await pool.query('SELECT id, name FROM roles WHERE id = $1', [p.roleId]);
+  var role = roleRes.rows[0];
+  if (!role) fail('invalid', 'Unknown role.');
+
+  var password = String(p.password || '');
+  if (password.length < 8) fail('invalid', 'Password must be at least 8 characters.');
+
+  var passwordHash = await bcrypt.hash(password, config.bcryptRounds);
+  var userId = crypto.randomUUID();
+  await withTransaction(async function (client) {
+    await client.query(
+      'INSERT INTO users (id, employee_id, email, password_hash, status, must_change_password) VALUES ($1,$2,$3,$4,$5,$6)',
+      [userId, emp.id, emp.email, passwordHash, 'active', p.mustChangePassword !== false]
+    );
+    await client.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1,$2)', [userId, role.id]);
+    await audit(client, ctx, 'user.create', 'user', userId, 'Created login account for ' + emp.first_name + ' ' + emp.last_name + ' (' + emp.email + '), role ' + role.name + '.');
+  });
+
+  var updated = await list(ctx);
+  return updated.filter(function (u) { return u.id === userId; })[0];
+}
+
+// kernel.js: handlers['users.setPassword'] — new: admin-only password reset
+// for an existing account. Forces a change at next sign-in.
+async function setPassword(ctx, userId, password) {
+  if (!ctx.can('user.create')) fail('forbidden', 'Your role does not allow this action (user.create).');
+
+  var password2 = String(password || '');
+  if (password2.length < 8) fail('invalid', 'Password must be at least 8 characters.');
+
+  var userRes = await pool.query('SELECT id, email FROM users WHERE id = $1', [userId]);
+  if (!userRes.rows[0]) fail('notfound', 'Account not found.');
+
+  var passwordHash = await bcrypt.hash(password2, config.bcryptRounds);
+  await pool.query(
+    'UPDATE users SET password_hash = $1, must_change_password = true, failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $2',
+    [passwordHash, userId]
+  );
+  await audit(pool, ctx, 'user.setPassword', 'user', userId, 'Reset password for ' + userRes.rows[0].email + '.');
+  var updated = await list(ctx);
+  return updated.filter(function (u) { return u.id === userId; })[0];
+}
+
+// kernel.js: handlers['users.availableEmployees'] — employees with no login
+// account yet, to populate the "New user" form's employee picker.
+async function availableEmployees(ctx) {
+  if (!ctx.can('user.create')) fail('forbidden', 'Your role does not allow this action (user.create).');
+  var res = await pool.query(
+    "SELECT e.id, e.first_name, e.last_name, e.email, e.code FROM employees e " +
+    'LEFT JOIN users u ON u.employee_id = e.id ' +
+    "WHERE u.id IS NULL AND e.status != 'terminated' ORDER BY e.first_name, e.last_name"
+  );
+  return res.rows.map(function (r) {
+    return { id: r.id, name: r.first_name + ' ' + r.last_name, email: r.email, code: r.code };
+  });
+}
+
+module.exports = {
+  list: list, setRole: setRole, setStatus: setStatus,
+  create: create, setPassword: setPassword, availableEmployees: availableEmployees
+};

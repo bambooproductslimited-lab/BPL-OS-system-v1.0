@@ -24,34 +24,52 @@ var { PERMISSIONS, ROLE_DEFS, defaultSettingsRow } = require('./referenceData');
 function uuid() { return crypto.randomUUID(); }
 
 async function ensurePermissionsAndRoles(client) {
-  var existing = await client.query('SELECT count(*)::int AS n FROM permissions');
-  if (existing.rows[0].n > 0) {
-    console.log('Permission catalogue already present — skipping.');
-  } else {
-    console.log('Seeding permission catalogue...');
-    for (var i = 0; i < PERMISSIONS.length; i++) {
-      var p = PERMISSIONS[i];
-      await client.query('INSERT INTO permissions (key, "group", label) VALUES ($1, $2, $3)', [p.key, p.group, p.label]);
-    }
+  // Per-row idempotent (not just "skip if the table isn't empty"), so that
+  // adding a new entry to PERMISSIONS/ROLE_DEFS later and redeploying picks
+  // it up on an already-bootstrapped database instead of being silently
+  // ignored forever.
+  var existingPerms = await client.query('SELECT key FROM permissions');
+  var knownPermKeys = {};
+  existingPerms.rows.forEach(function (r) { knownPermKeys[r.key] = true; });
+  for (var i = 0; i < PERMISSIONS.length; i++) {
+    var p = PERMISSIONS[i];
+    if (knownPermKeys[p.key]) continue;
+    console.log('Adding new permission to catalogue: ' + p.key);
+    await client.query('INSERT INTO permissions (key, "group", label) VALUES ($1, $2, $3)', [p.key, p.group, p.label]);
   }
 
   var roleRes = await client.query('SELECT key, id FROM roles');
   var roleIds = {};
   roleRes.rows.forEach(function (r) { roleIds[r.key] = r.id; });
-  if (roleRes.rows.length > 0) {
-    console.log('Roles already present — skipping.');
-  } else {
-    console.log('Seeding roles...');
-    for (var j = 0; j < ROLE_DEFS.length; j++) {
-      var r = ROLE_DEFS[j];
-      var id = uuid();
-      roleIds[r.key] = id;
-      await client.query('INSERT INTO roles (id, key, name, is_system, description) VALUES ($1, $2, $3, true, $4)', [id, r.key, r.name, r.description]);
-      for (var k = 0; k < r.permissions.length; k++) {
-        await client.query('INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2)', [id, r.permissions[k]]);
-      }
+  for (var j = 0; j < ROLE_DEFS.length; j++) {
+    var def = ROLE_DEFS[j];
+    if (roleIds[def.key]) continue;
+    console.log('Creating new role: ' + def.key);
+    var id = uuid();
+    roleIds[def.key] = id;
+    await client.query('INSERT INTO roles (id, key, name, is_system, description) VALUES ($1, $2, $3, true, $4)', [id, def.key, def.name, def.description]);
+    for (var k = 0; k < def.permissions.length; k++) {
+      await client.query('INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2)', [id, def.permissions[k]]);
     }
   }
+
+  // The administrator role must always carry every permission in the
+  // catalogue — roles.service.js's setPermission refuses to touch it for
+  // exactly this reason — so unlike other roles (which an admin may have
+  // deliberately customized via Roles & Permissions), it's always safe to
+  // top it up with anything new in PERMISSIONS without clobbering a
+  // deliberate customization.
+  var adminId = roleIds.administrator;
+  var adminPerms = await client.query('SELECT permission_key FROM role_permissions WHERE role_id = $1', [adminId]);
+  var adminHas = {};
+  adminPerms.rows.forEach(function (r) { adminHas[r.permission_key] = true; });
+  for (var m = 0; m < PERMISSIONS.length; m++) {
+    var key = PERMISSIONS[m].key;
+    if (adminHas[key]) continue;
+    console.log('Granting new permission to administrator role: ' + key);
+    await client.query('INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2)', [adminId, key]);
+  }
+
   return roleIds;
 }
 
