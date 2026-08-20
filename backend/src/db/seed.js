@@ -55,7 +55,10 @@ var E = [
 
 var LEAVE_TYPE_DEFS = [
   { key: 'lt_annual', name: 'Annual staff leave', daysPerYear: 21, paid: true },
-  { key: 'lt_sick', name: 'Sick leave', daysPerYear: 14, paid: true }
+  { key: 'lt_sick', name: 'Sick leave', daysPerYear: 14, paid: true },
+  { key: 'lt_comp', name: 'Compassionate leave', daysPerYear: 5, paid: true },
+  { key: 'lt_unpaid', name: 'Unpaid leave', daysPerYear: 0, paid: false },
+  { key: 'lt_mat', name: 'Maternity / paternity', daysPerYear: 90, paid: true }
 ];
 
 function ds(offset) { return new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10); }
@@ -184,7 +187,7 @@ async function run() {
       { key: 'lr_1', empKey: 'e_013', typeKey: 'lt_annual', start: ds(6), end: ds(10), days: 5, reason: 'Family visit upcountry.', status: 'pending', createdAt: ds(-1) + 'T09:12', decidedByKey: null, decisionNote: '' },
       { key: 'lr_2', empKey: 'e_015', typeKey: 'lt_sick', start: ds(-2), end: ds(-1), days: 2, reason: 'Medical certificate attached.', status: 'approved', createdAt: ds(-3) + 'T16:40', decidedByKey: 'e_007', decisionNote: 'Approved, get well.' },
       { key: 'lr_3', empKey: 'e_017', typeKey: 'lt_annual', start: ds(14), end: ds(20), days: 7, reason: 'Annual break.', status: 'pending', createdAt: ds(0) + 'T08:02', decidedByKey: null, decisionNote: '' },
-      { key: 'lr_4', empKey: 'e_014', typeKey: 'lt_annual', start: ds(3), end: ds(4), days: 2, reason: 'Personal matters.', status: 'rejected', createdAt: ds(-4) + 'T11:20', decidedByKey: 'e_005', decisionNote: 'Line is short-staffed that week.' }
+      { key: 'lr_4', empKey: 'e_014', typeKey: 'lt_unpaid', start: ds(3), end: ds(4), days: 2, reason: 'Personal matters.', status: 'rejected', createdAt: ds(-4) + 'T11:20', decidedByKey: 'e_005', decisionNote: 'Line is short-staffed that week.' }
     ];
     var leaveRequestIds = {};
     for (i = 0; i < leaveRequestDefs.length; i++) {
