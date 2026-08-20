@@ -1,18 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import WaybillPreview from '../components/WaybillPreview';
 import './WaybillsPage.css';
 
 // Waybills document goods leaving the factory or showroom — a delivery
-// note, not a sales document (no pricing on the line items).
+// note, not a sales document (no pricing on the line items). The printed
+// document (WaybillPreview.jsx) carries the full company letterhead, a
+// "shipped to" contact block, and three sign-off lines.
 
 function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
 
 function blankItem() { return { description: '', qty: 1, unit: 'each' }; }
-const EMPTY_FORM = { origin: 'factory', destination: '', customerId: '', driverName: '', vehicleNo: '', receivedBy: '', notes: '', items: [blankItem()] };
+const EMPTY_FORM = {
+  origin: 'factory', destination: '', customerId: '', driverName: '', vehicleNo: '', receivedBy: '',
+  shippedToName: '', shippedToAddress: '', shippedToPhone: '', shippedToEmail: '', shippingDate: todayISO(),
+  salesRepId: '', packagedBy: '', approvedBy: '', notes: '', items: [blankItem()]
+};
 
 function tagClass(status) {
   if (status === 'delivered') return 'tag-neutral';
@@ -26,10 +34,12 @@ export default function WaybillsPage() {
 
   const [waybills, setWaybills] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [previewWb, setPreviewWb] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -39,9 +49,14 @@ export default function WaybillsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [wbs, custs] = await Promise.all([api.get('/waybills'), can('customer.read') ? api.get('/customers') : Promise.resolve([])]);
+      const [wbs, custs, emps] = await Promise.all([
+        api.get('/waybills'),
+        can('customer.read') ? api.get('/customers') : Promise.resolve([]),
+        can('employee.read') ? api.get('/employees') : Promise.resolve([])
+      ]);
       setWaybills(wbs);
       setCustomers(custs);
+      setEmployees(emps);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -63,6 +78,15 @@ export default function WaybillsPage() {
     setDialogOpen(true);
   }
 
+  function pickCustomer(customerId) {
+    const c = customers.find((x) => x.id === customerId);
+    const autoFill = c && !form.shippedToName && !form.shippedToAddress && !form.shippedToPhone && !form.shippedToEmail;
+    setForm({
+      ...form, customerId,
+      ...(autoFill ? { shippedToName: c.name, shippedToAddress: c.address || '', shippedToPhone: c.phone || '', shippedToEmail: c.email || '' } : {})
+    });
+  }
+
   function setItem(idx, key, value) {
     setForm({ ...form, items: form.items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)) });
   }
@@ -79,7 +103,7 @@ export default function WaybillsPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      const body = { ...form, customerId: form.customerId || null };
+      const body = { ...form, customerId: form.customerId || null, salesRepId: form.salesRepId || null };
       const created = await api.post('/waybills', body);
       setToast(created.waybillNo + ' dispatched.');
       setDialogOpen(false);
@@ -131,6 +155,7 @@ export default function WaybillsPage() {
               <td>{fmtDate(wb.createdAt)}</td>
               <td><span className={'tag ' + tagClass(wb.status)}>{wb.status}</span></td>
               <td className="table-actions">
+                <button type="button" className="btn btn-secondary waybills-row-btn" onClick={() => setPreviewWb(wb)}>Preview</button>
                 {canManage && wb.status === 'dispatched' && (
                   <>
                     <button type="button" className="btn btn-secondary waybills-row-btn" disabled={busyId === wb.id} onClick={() => setStatus(wb, 'delivered')}>Mark delivered</button>
@@ -163,11 +188,42 @@ export default function WaybillsPage() {
             </div>
             <div className="field">
               <label htmlFor="wb-customer">Customer (optional)</label>
-              <select id="wb-customer" className="input" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
+              <select id="wb-customer" className="input" value={form.customerId} onChange={(e) => pickCustomer(e.target.value)}>
                 <option value="">None</option>
                 {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+            <div className="field">
+              <label htmlFor="wb-shipping-date">Shipping date</label>
+              <input id="wb-shipping-date" className="input" type="date" value={form.shippingDate} onChange={(e) => setForm({ ...form, shippingDate: e.target.value })} />
+            </div>
+
+            <div className="waybills-dialog-span waybills-section-title">Shipped to</div>
+            <div className="field">
+              <label htmlFor="wb-ship-name">Name</label>
+              <input id="wb-ship-name" className="input" value={form.shippedToName} onChange={(e) => setForm({ ...form, shippedToName: e.target.value })} required />
+            </div>
+            <div className="field">
+              <label htmlFor="wb-ship-phone">Phone</label>
+              <input id="wb-ship-phone" className="input" value={form.shippedToPhone} onChange={(e) => setForm({ ...form, shippedToPhone: e.target.value })} />
+            </div>
+            <div className="field waybills-dialog-span">
+              <label htmlFor="wb-ship-address">Address</label>
+              <input id="wb-ship-address" className="input" value={form.shippedToAddress} onChange={(e) => setForm({ ...form, shippedToAddress: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="wb-ship-email">Email</label>
+              <input id="wb-ship-email" className="input" type="email" value={form.shippedToEmail} onChange={(e) => setForm({ ...form, shippedToEmail: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="wb-salesrep">Sales rep</label>
+              <select id="wb-salesrep" className="input" value={form.salesRepId} onChange={(e) => setForm({ ...form, salesRepId: e.target.value })}>
+                <option value="">None</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
+              </select>
+            </div>
+
+            <div className="waybills-dialog-span waybills-section-title">Shipment</div>
             <div className="field">
               <label htmlFor="wb-driver">Driver name</label>
               <input id="wb-driver" className="input" value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })} />
@@ -175,10 +231,6 @@ export default function WaybillsPage() {
             <div className="field">
               <label htmlFor="wb-vehicle">Vehicle number</label>
               <input id="wb-vehicle" className="input" value={form.vehicleNo} onChange={(e) => setForm({ ...form, vehicleNo: e.target.value })} />
-            </div>
-            <div className="field">
-              <label htmlFor="wb-received">Received by</label>
-              <input id="wb-received" className="input" value={form.receivedBy} onChange={(e) => setForm({ ...form, receivedBy: e.target.value })} />
             </div>
 
             <div className="waybills-dialog-span">
@@ -201,6 +253,20 @@ export default function WaybillsPage() {
               <button type="button" className="btn btn-secondary" onClick={addItem}>Add item</button>
             </div>
 
+            <div className="waybills-dialog-span waybills-section-title">Sign-off (optional — printed with a signature line)</div>
+            <div className="field">
+              <label htmlFor="wb-packaged">Packaged by</label>
+              <input id="wb-packaged" className="input" value={form.packagedBy} onChange={(e) => setForm({ ...form, packagedBy: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="wb-received">Received by</label>
+              <input id="wb-received" className="input" value={form.receivedBy} onChange={(e) => setForm({ ...form, receivedBy: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="wb-approved">Approved by</label>
+              <input id="wb-approved" className="input" value={form.approvedBy} onChange={(e) => setForm({ ...form, approvedBy: e.target.value })} />
+            </div>
+
             <div className="field waybills-dialog-span">
               <label htmlFor="wb-notes">Notes</label>
               <textarea id="wb-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -213,6 +279,8 @@ export default function WaybillsPage() {
           </form>
         </div>
       )}
+
+      {previewWb && <WaybillPreview waybill={previewWb} onClose={() => setPreviewWb(null)} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

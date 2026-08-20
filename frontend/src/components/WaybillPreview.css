@@ -1,0 +1,73 @@
+.waybill-preview {
+  background: #fff;
+  color: #111;
+  padding: 40px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 90vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  font-family: Arial, sans-serif;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.waybill-preview-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.waybill-preview-brand { display: flex; align-items: flex-start; gap: 10px; }
+.waybill-preview-logo { width: 44px; height: 44px; object-fit: contain; border-radius: 5px; flex-shrink: 0; }
+.waybill-preview-brand-name { font-weight: 700; font-size: 15px; }
+.waybill-preview-brand-web { font-size: 11px; color: #4a4a4a; margin-top: 2px; }
+.waybill-preview-brand-address { font-size: 11px; color: #4a4a4a; line-height: 1.5; margin-top: 6px; }
+
+.waybill-preview-headright { text-align: right; flex-shrink: 0; }
+.waybill-preview-eyebrow { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #4a4a4a; }
+.waybill-preview-no { font-weight: 700; font-size: 18px; margin-top: 2px; }
+.waybill-preview-date { font-size: 12px; margin-top: 6px; }
+.waybill-preview-origin { font-size: 12px; margin-top: 2px; text-transform: capitalize; }
+
+.waybill-preview-rule { height: 6px; background: #bbb; margin: 18px 0; }
+
+.waybill-preview-blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.waybill-preview-block-title { border-top: 2px solid #ccc; padding-top: 6px; font-weight: 700; font-size: 12px; margin-bottom: 4px; }
+.waybill-preview-block-line { font-size: 12px; color: #333; margin-top: 3px; }
+.waybill-preview-shipto-name { font-weight: 700; color: #111; font-size: 13px; }
+
+.waybill-preview-table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 12px; }
+.waybill-preview-table thead tr { border-bottom: 2px solid #ccc; }
+.waybill-preview-table th { text-align: left; padding: 6px 0; font-weight: 700; }
+.waybill-preview-table tbody tr { border-bottom: 1px solid #eee; }
+.waybill-preview-table td { padding: 8px 0; }
+.waybill-preview-desc { color: #333; }
+.waybill-preview-num { text-align: right; }
+
+.waybill-preview-notes { margin-top: 20px; }
+.waybill-preview-notes-body { margin: 0; font-size: 12px; color: #4a4a4a; }
+
+.waybill-preview-signoff {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  margin-top: 48px;
+}
+.waybill-preview-sign-name { font-size: 12px; min-height: 16px; }
+.waybill-preview-sign-line { border-top: 1px solid #333; margin-top: 20px; }
+.waybill-preview-sign-label { font-size: 10px; color: #4a4a4a; margin-top: 4px; }
+
+.waybill-preview-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 28px; }
+
+@media print {
+  body * { visibility: hidden; }
+  .waybill-preview, .waybill-preview * { visibility: visible; }
+  .no-print, .no-print * { visibility: hidden; }
+  .waybill-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+    padding: 0;
+  }
+}
