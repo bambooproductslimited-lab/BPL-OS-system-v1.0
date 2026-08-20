@@ -1,6 +1,10 @@
 var express = require('express');
+var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
+var employeeDocumentsService = require('../services/employeeDocuments.service');
+
+var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 var router = express.Router();
 router.use(requireAuth);
@@ -42,6 +46,19 @@ router.patch('/:id', async function (req, res, next) {
 // kernel.js: handlers['employees.terminate'] -> POST /api/employees/:id/terminate
 router.post('/:id/terminate', async function (req, res, next) {
   try { res.json(await employeesService.terminate(req.ctx, req.params.id, req.body.reason)); } catch (e) { next(e); }
+});
+
+// ID/passport document slots (front of ID, back of ID, passport) -> GET/POST/GET download
+router.get('/:id/id-documents', async function (req, res, next) {
+  try { res.json(await employeeDocumentsService.list(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+router.post('/:id/id-documents/:kind', upload.single('file'), async function (req, res, next) {
+  try { res.status(201).json(await employeeDocumentsService.upload(req.ctx, req.params.id, req.params.kind, req.file)); } catch (e) { next(e); }
+});
+
+router.get('/:id/id-documents/:kind/download', async function (req, res, next) {
+  try { res.json(await employeeDocumentsService.getDownloadUrl(req.ctx, req.params.id, req.params.kind)); } catch (e) { next(e); }
 });
 
 module.exports = router;

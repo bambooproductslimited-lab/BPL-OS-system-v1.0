@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import './EmployeesPage.css';
 
 // Ported from Bamboo OS.dc.html's employee directory screen (screens.people
@@ -60,6 +61,7 @@ export default function EmployeesPage() {
   const [termReason, setTermReason] = useState('');
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [idDocsTarget, setIdDocsTarget] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -250,6 +252,7 @@ export default function EmployeesPage() {
                 <td><span className={'tag ' + tagClass(p.status)}>{p.status}</span></td>
                 <td className="table-actions">
                   {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openEdit(p)}>Edit</button>}
+                  {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setIdDocsTarget(p)}>ID docs</button>}
                   {canDelete && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openTerminate(p)}>Delete</button>}
                 </td>
               </tr>
@@ -385,6 +388,8 @@ export default function EmployeesPage() {
           </div>
         </div>
       )}
+
+      {idDocsTarget && <EmployeeIdDocsDialog employee={idDocsTarget} onClose={() => setIdDocsTarget(null)} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

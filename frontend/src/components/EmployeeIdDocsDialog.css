@@ -1,0 +1,29 @@
+.id-docs-dialog { max-width: 560px; }
+
+.id-docs-list { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+
+.id-docs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: var(--divider-width) solid var(--color-divider);
+}
+.id-docs-row:last-child { border-bottom: none; }
+
+.id-docs-row-label { font-weight: 600; font-size: 13px; }
+.id-docs-row-file { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.id-docs-row-date { opacity: 0.8; }
+.id-docs-row-empty { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; font-style: italic; }
+
+.id-docs-row-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.id-docs-btn { font-size: 12px; padding: 6px 10px; }
+
+.id-docs-upload-btn { position: relative; cursor: pointer; overflow: hidden; }
+.id-docs-upload-btn input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
