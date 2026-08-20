@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS payslips;
+DROP TABLE IF EXISTS pay_runs;
+ALTER TABLE settings DROP COLUMN IF EXISTS payroll;
+ALTER TABLE employees DROP COLUMN IF EXISTS daily_rate;
+ALTER TABLE employees DROP COLUMN IF EXISTS pay_cycle;

@@ -15,6 +15,8 @@ var PERMISSIONS = [
   { key: 'role.manage', group: 'Access', label: 'Manage roles & permissions' },
   { key: 'user.manage', group: 'Access', label: 'Manage user accounts' },
   { key: 'user.create', group: 'Access', label: 'Create user accounts & set passwords' },
+  { key: 'payroll.read', group: 'Finance', label: 'View pay runs & payslips' },
+  { key: 'payroll.manage', group: 'Finance', label: 'Set employee pay rates, run & approve payroll' },
   { key: 'attendance.self', group: 'Attendance', label: 'Clock in / out' },
   { key: 'attendance.read.all', group: 'Attendance', label: 'View all attendance' },
   { key: 'attendance.adjust', group: 'Attendance', label: 'Correct attendance records' },
@@ -69,17 +71,17 @@ var ALL = PERMISSIONS.map(function (p) { return p.key; });
 // ── roles (verbatim from kernel.js seed(), final state incl. all 12 roles) ──
 var ROLE_DEFS = [
   { key: 'administrator', name: 'System Administrator', description: 'Full access to every module and setting.', permissions: ALL.slice() },
-  { key: 'executive', name: 'Executive (MD)', description: 'Company-wide read access plus final approvals.', permissions: ['employee.read', 'employee.read.all', 'attendance.read.all', 'leave.read.all', 'leave.approve', 'task.read', 'project.read', 'project.manage', 'announcement.publish', 'document.read', 'approval.act', 'audit.read', 'settings.manage', 'production.read', 'inventory.read', 'supplier.read', 'procurement.read.all', 'asset.read', 'customer.read', 'quotation.read', 'sales.read', 'invoice.read', 'expense.read.all', 'report.read', 'catalog.read', 'waybill.read', 'toolroom.read', 'itdevice.read'] },
-  { key: 'hr_manager', name: 'HR Manager', description: 'Owns people data, attendance and the leave process.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'department.manage', 'user.manage', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'announcement.publish', 'document.read', 'document.manage', 'audit.read', 'asset.read'] },
+  { key: 'executive', name: 'Executive (MD)', description: 'Company-wide read access plus final approvals.', permissions: ['employee.read', 'employee.read.all', 'attendance.read.all', 'leave.read.all', 'leave.approve', 'task.read', 'project.read', 'project.manage', 'announcement.publish', 'document.read', 'approval.act', 'audit.read', 'settings.manage', 'production.read', 'inventory.read', 'supplier.read', 'procurement.read.all', 'asset.read', 'customer.read', 'quotation.read', 'sales.read', 'invoice.read', 'expense.read.all', 'report.read', 'catalog.read', 'waybill.read', 'toolroom.read', 'itdevice.read', 'payroll.read'] },
+  { key: 'hr_manager', name: 'HR Manager', description: 'Owns people data, attendance and the leave process.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'department.manage', 'user.manage', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'announcement.publish', 'document.read', 'document.manage', 'audit.read', 'asset.read', 'payroll.read', 'payroll.manage'] },
   { key: 'department_manager', name: 'Department Manager', description: 'Manages one department: its people, attendance, leave and work.', permissions: ['employee.read', 'attendance.self', 'attendance.read.all', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'project.manage', 'document.read', 'document.manage', 'catalog.read', 'catalog.manage', 'customer.read', 'customer.manage', 'quotation.read', 'quotation.manage', 'sales.read', 'sales.manage', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'production.read', 'production.manage', 'inventory.read', 'inventory.manage', 'warehouse.manage', 'supplier.read', 'supplier.manage', 'procurement.request', 'procurement.approve', 'asset.read', 'asset.manage', 'waybill.read', 'waybill.manage', 'toolroom.read', 'toolroom.manage'] },
   { key: 'supervisor', name: 'Line Supervisor', description: 'Shift-floor supervision: attendance visibility and task assignment.', permissions: ['employee.read', 'attendance.self', 'attendance.read.all', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'catalog.read', 'customer.read', 'quotation.read', 'sales.read', 'expense.request', 'production.read', 'inventory.read', 'asset.read', 'waybill.read', 'toolroom.read'] },
   { key: 'employee', name: 'Employee', description: 'Self-service only: own record, attendance, leave and tasks.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'project.read', 'document.read', 'expense.request', 'procurement.request'] },
   { key: 'marketing_manager', name: 'Marketing Manager', description: 'Owns customers, quotations, sales pipeline and marketing insights.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'customer.read', 'customer.manage', 'quotation.read', 'quotation.manage', 'sales.read', 'sales.manage', 'catalog.read', 'report.read'] },
-  { key: 'finance_manager', name: 'Finance Manager', description: 'Owns invoicing, payments, expense approvals and financial reporting.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'project.read', 'document.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'procurement.approve', 'settings.manage'] },
+  { key: 'finance_manager', name: 'Finance Manager', description: 'Owns invoicing, payments, expense approvals and financial reporting.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'project.read', 'document.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'procurement.approve', 'settings.manage', 'payroll.read', 'payroll.manage'] },
   { key: 'customer_service_manager', name: 'Customer Service Manager', description: 'Owns customer relationships and order/service follow-up.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'customer.read', 'customer.manage', 'quotation.read', 'sales.read', 'invoice.read'] },
   { key: 'it_manager', name: 'IT Manager', description: 'Owns company assets, user accounts and system administration support.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'document.manage', 'asset.read', 'asset.manage', 'user.manage', 'audit.read', 'catalog.read', 'itdevice.read', 'itdevice.manage'] },
-  { key: 'finance_hr_manager', name: 'Finance & HR Manager', description: 'Combined Finance Manager and HR Manager responsibilities.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'department.manage', 'user.manage', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'announcement.publish', 'document.read', 'document.manage', 'audit.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'procurement.approve', 'settings.manage'] },
-  { key: 'general_manager', name: 'General Manager', description: 'Company-wide operational oversight across all departments — broader than a department manager, more hands-on than the MD.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'project.manage', 'announcement.publish', 'document.read', 'document.manage', 'production.read', 'inventory.read', 'supplier.read', 'procurement.approve', 'asset.read', 'customer.read', 'quotation.read', 'sales.read', 'invoice.read', 'expense.approve', 'expense.read.all', 'report.read', 'audit.read', 'catalog.read', 'waybill.read', 'toolroom.read', 'itdevice.read'] }
+  { key: 'finance_hr_manager', name: 'Finance & HR Manager', description: 'Combined Finance Manager and HR Manager responsibilities.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'department.manage', 'user.manage', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'announcement.publish', 'document.read', 'document.manage', 'audit.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'procurement.approve', 'settings.manage', 'payroll.read', 'payroll.manage'] },
+  { key: 'general_manager', name: 'General Manager', description: 'Company-wide operational oversight across all departments — broader than a department manager, more hands-on than the MD.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'project.manage', 'announcement.publish', 'document.read', 'document.manage', 'production.read', 'inventory.read', 'supplier.read', 'procurement.approve', 'asset.read', 'customer.read', 'quotation.read', 'sales.read', 'invoice.read', 'expense.approve', 'expense.read.all', 'report.read', 'audit.read', 'catalog.read', 'waybill.read', 'toolroom.read', 'itdevice.read', 'payroll.read'] }
 ];
 
 // ── default company settings row (id=1) — Bamboo Products Limited's real
@@ -110,7 +112,8 @@ function defaultCommercial() {
       quotation: { prefix: 'QT', padding: 4, includeYear: true, nextNumber: 1 },
       invoice: { prefix: 'INV', padding: 4, includeYear: true, nextNumber: 1 },
       receipt: { prefix: 'RCT', padding: 4, includeYear: true, nextNumber: 1 },
-      waybill: { prefix: 'WB', padding: 4, includeYear: true, nextNumber: 1 }
+      waybill: { prefix: 'WB', padding: 4, includeYear: true, nextNumber: 1 },
+      payrun: { prefix: 'PR', padding: 4, includeYear: true, nextNumber: 1 }
     },
     templates: {
       quotationIntro: 'Thank you for the opportunity to quote for your requirements.',
@@ -128,12 +131,37 @@ function defaultCommercial() {
     }
   };
 }
+// Starting Ghana statutory payroll rates — SSNIT contribution split
+// (5.5% employee / 13% employer of gross) and monthly PAYE income tax
+// bands (the standard GRA "first X @0%, next Y @5%, ..." table, stored as
+// band widths so a shorter pay period can prorate them — see
+// payroll.service.js's computePaye()). These are a starting configuration,
+// NOT guaranteed current law — verify against the latest GRA/SSNIT
+// circulars (rates and bands are revised periodically) before relying on
+// this for real statutory filings, and correct them here via Company
+// Settings if they've changed; nothing else needs to change.
+function defaultPayroll() {
+  return {
+    ssnitEmployeeRate: 5.5,
+    ssnitEmployerRate: 13,
+    payeBands: [
+      { width: 490, rate: 0 },
+      { width: 110, rate: 5 },
+      { width: 130, rate: 10 },
+      { width: 3166.67, rate: 17.5 },
+      { width: 16000, rate: 25 },
+      { width: 30520, rate: 30 },
+      { width: null, rate: 35 }
+    ]
+  };
+}
+
 function defaultSettingsRow() {
   return {
     companyName: 'Bamboo Products Limited', shortName: 'BPL', country: 'Ghana', currency: 'GHS',
     timezone: 'Africa/Accra', fiscalYearStart: '01-01', workWeek: 'Mon–Sat', standardHours: 8, lateAfter: '08:15',
     plants: ['Tema Plant', 'Accra Office'], leaveApprovalChain: ['department_manager', 'hr_manager'],
-    integrations: defaultIntegrations(), commercial: defaultCommercial()
+    integrations: defaultIntegrations(), commercial: defaultCommercial(), payroll: defaultPayroll()
   };
 }
 

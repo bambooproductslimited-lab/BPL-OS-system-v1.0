@@ -74,7 +74,7 @@ async function ensurePermissionsAndRoles(client) {
 }
 
 async function ensureSettings(client) {
-  var existing = await client.query('SELECT id, commercial FROM settings WHERE id = 1');
+  var existing = await client.query('SELECT id, commercial, payroll FROM settings WHERE id = 1');
   if (existing.rows[0]) {
     // Additive sync only, same reasoning as ensurePermissionsAndRoles: a
     // later referenceData.js adding a new document type (e.g. 'waybill')
@@ -82,28 +82,33 @@ async function ensureSettings(client) {
     // an operator's edits to existing keys (tax rates, templates, etc. via
     // Company Settings) must never be overwritten.
     var commercial = existing.rows[0].commercial;
-    var defaults = defaultSettingsRow().commercial;
+    var payroll = existing.rows[0].payroll || {};
+    var defaults = defaultSettingsRow();
     var changed = false;
-    Object.keys(defaults.numbering).forEach(function (kind) {
+    Object.keys(defaults.commercial.numbering).forEach(function (kind) {
       if (!commercial.numbering[kind]) {
         console.log('Adding missing document numbering config: ' + kind);
-        commercial.numbering[kind] = defaults.numbering[kind];
+        commercial.numbering[kind] = defaults.commercial.numbering[kind];
         changed = true;
       }
     });
-    if (changed) {
-      await client.query('UPDATE settings SET commercial = $1 WHERE id = 1', [JSON.stringify(commercial)]);
-    } else {
-      console.log('Company settings row already present — skipping.');
+    var payrollChanged = false;
+    if (!payroll.payeBands) {
+      console.log('Adding default payroll rates (SSNIT/PAYE) — verify these against current GRA/SSNIT circulars.');
+      payroll = defaults.payroll;
+      payrollChanged = true;
     }
+    if (changed) await client.query('UPDATE settings SET commercial = $1 WHERE id = 1', [JSON.stringify(commercial)]);
+    if (payrollChanged) await client.query('UPDATE settings SET payroll = $1 WHERE id = 1', [JSON.stringify(payroll)]);
+    if (!changed && !payrollChanged) console.log('Company settings row already present — skipping.');
     return;
   }
   console.log('Inserting default company settings...');
   var s = defaultSettingsRow();
   await client.query(
-    'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial) ' +
-    'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
-    [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial)]
+    'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial, payroll) ' +
+    'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
+    [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll)]
   );
 }
 

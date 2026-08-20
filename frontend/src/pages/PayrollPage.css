@@ -1,0 +1,16 @@
+.payroll-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.payroll-row-btn { font-size: 12px; padding: 6px 10px; }
+
+.payroll-run-dialog { max-width: 820px; max-height: 90vh; overflow: auto; }
+.payroll-run-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.payroll-run-title { margin: 0; font-size: 20px; }
+.payroll-run-sub { font-size: 12px; color: var(--color-text-muted); margin-top: 4px; text-transform: capitalize; }
+
+.payroll-slip-table { font-size: 13px; margin-bottom: 8px; }
+.payroll-slip-code { font-size: 11px; color: var(--color-text-muted); }
+.payroll-days-input { width: 70px; }

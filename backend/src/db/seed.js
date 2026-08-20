@@ -151,6 +151,18 @@ async function run() {
       }
     }
 
+    // Demo pay rates so the Payroll screen has something realistic to show:
+    // production/harvest staff paid biweekly (factory-floor convention),
+    // everyone else monthly (paid on the 5th, per Company Settings).
+    await client.query(
+      "UPDATE employees SET pay_cycle = 'biweekly', daily_rate = 150 WHERE department_id IN " +
+      "(SELECT id FROM departments WHERE code IN ('PRD', 'RAW'))"
+    );
+    await client.query(
+      "UPDATE employees SET pay_cycle = 'monthly', daily_rate = 350 WHERE department_id NOT IN " +
+      "(SELECT id FROM departments WHERE code IN ('PRD', 'RAW'))"
+    );
+
     console.log('Seeding leave types + balances...');
     var leaveTypeIds = {}; LEAVE_TYPE_DEFS.forEach(function (t) { leaveTypeIds[t.key] = uuid(); });
     for (i = 0; i < LEAVE_TYPE_DEFS.length; i++) {
@@ -262,9 +274,9 @@ async function run() {
     console.log('Seeding company settings...');
     var s = defaultSettingsRow();
     await client.query(
-      'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial) ' +
-      'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
-      [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial)]
+      'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial, payroll) ' +
+      'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
+      [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll)]
     );
 
     console.log('Writing seed audit log entry...');

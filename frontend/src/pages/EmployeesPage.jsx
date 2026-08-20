@@ -24,13 +24,14 @@ const EMPLOYMENT_TYPES = [
 const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   departmentId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
-  employmentType: 'permanent', status: 'active', roleId: ''
+  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0
 };
 
 export default function EmployeesPage() {
   const { session, can } = useAuth();
   const canWrite = can('employee.write');
   const canPurge = can('role.manage');
+  const canManagePayroll = can('payroll.manage');
 
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -116,7 +117,7 @@ export default function EmployeesPage() {
       firstName: emp.firstName, lastName: emp.lastName, email: emp.email, phone: emp.phone,
       positionTitle: emp.positionTitle, departmentId: emp.departmentId, managerId: emp.managerId || '',
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
-      roleId: ''
+      roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0
     });
     setDialog('employee');
   }
@@ -127,11 +128,16 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       if (editId) {
-        const updated = await api.patch('/employees/' + editId, {
+        const body = {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status
-        });
+        };
+        if (canManagePayroll) {
+          body.payCycle = form.payCycle;
+          body.dailyRate = form.dailyRate;
+        }
+        const updated = await api.patch('/employees/' + editId, body);
         setToast('Updated ' + updated.firstName + ' ' + updated.lastName + '.');
       } else {
         const created = await api.post('/employees', {
@@ -311,6 +317,19 @@ export default function EmployeesPage() {
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
+            )}
+            {editId && canManagePayroll && (
+              <>
+                <div className="field"><label htmlFor="emp-pay-cycle">Pay cycle</label>
+                  <select id="emp-pay-cycle" className="input" value={form.payCycle} onChange={(e) => setForm({ ...form, payCycle: e.target.value })}>
+                    <option value="monthly">Monthly (5th)</option>
+                    <option value="biweekly">Biweekly</option>
+                  </select>
+                </div>
+                <div className="field"><label htmlFor="emp-daily-rate">Daily rate (GHS)</label>
+                  <input id="emp-daily-rate" className="input" type="number" min="0" step="0.01" value={form.dailyRate} onChange={(e) => setForm({ ...form, dailyRate: e.target.value })} />
+                </div>
+              </>
             )}
 
             {dialogError && <div className="error-banner employees-dialog-span">{dialogError}</div>}

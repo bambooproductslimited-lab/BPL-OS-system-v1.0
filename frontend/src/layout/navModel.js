@@ -45,6 +45,7 @@ export const NAV_GROUPS = [
   ] },
   { label: 'Finance', items: [
     { key: 'financedash', label: 'Finance dashboard', perm: 'report.read' },
+    { key: 'payroll', label: 'Payroll', perm: 'payroll.read' },
     { key: 'expenses', label: 'Expenses', perm: 'expense.request' },
     { key: 'reports', label: 'Reports', perm: 'report.read' }
   ] },

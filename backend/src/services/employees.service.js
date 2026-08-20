@@ -6,12 +6,21 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 
-function rowToEmployee(r) {
-  return {
+// ctx is optional (some callers, e.g. profile(), only need it to decide
+// whether to include payCycle/dailyRate — compensation data, which stays
+// out of the payload entirely for anyone without payroll.manage, rather
+// than being sent and merely hidden client-side).
+function rowToEmployee(r, ctx) {
+  var out = {
     id: r.id, code: r.code, firstName: r.first_name, lastName: r.last_name, email: r.email, phone: r.phone,
     departmentId: r.department_id, positionTitle: r.position_title, managerId: r.manager_id,
     employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location, shift: r.shift
   };
+  if (ctx && ctx.can('payroll.manage')) {
+    out.payCycle = r.pay_cycle;
+    out.dailyRate = Number(r.daily_rate);
+  }
+  return out;
 }
 
 // kernel.js: handlers['employees.list']
@@ -31,7 +40,7 @@ async function list(ctx, params) {
       var haystack = (r.first_name + ' ' + r.last_name + ' ' + r.code + ' ' + r.position_title + ' ' + r.email).toLowerCase();
       if (haystack.indexOf(q) < 0) continue;
     }
-    out.push(rowToEmployee(r));
+    out.push(rowToEmployee(r, ctx));
   }
   return out;
 }
@@ -42,7 +51,7 @@ async function get(ctx, id) {
   var res = await pool.query('SELECT * FROM employees WHERE id = $1', [id]);
   var e = res.rows[0];
   if (!(await visibleEmployee(ctx, e))) fail('forbidden', 'You do not have access to that employee record.');
-  return rowToEmployee(e);
+  return rowToEmployee(e, ctx);
 }
 
 // kernel.js: handlers['employees.create']
@@ -104,7 +113,7 @@ async function create(ctx, p) {
     }
 
     await audit(client, ctx, 'employee.create', 'employee', e.id, 'Added employee ' + e.code + ' — ' + e.first_name + ' ' + e.last_name + '.');
-    return rowToEmployee(e);
+    return rowToEmployee(e, ctx);
   });
 }
 
@@ -118,6 +127,13 @@ var COLUMN_BY_FIELD = {
 // kernel.js: handlers['employees.update']
 async function update(ctx, id, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  // Pay rate/cycle are compensation data — gated separately behind
+  // payroll.manage so a department manager with plain employee.write
+  // (who can otherwise edit this same record) can't set someone's pay.
+  if ((p.payCycle !== undefined || p.dailyRate !== undefined) && !ctx.can('payroll.manage')) {
+    fail('forbidden', 'Your role does not allow this action (payroll.manage).');
+  }
+
   var res = await pool.query('SELECT * FROM employees WHERE id = $1', [id]);
   var e = res.rows[0];
   if (!e) fail('notfound', 'Employee not found.');
@@ -132,6 +148,14 @@ async function update(ctx, id, p) {
   });
   if (p.status !== undefined) V.oneOf(p.status, ['active', 'inactive', 'terminated'], 'Status');
   if (p.employmentType !== undefined) V.oneOf(p.employmentType, ['permanent', 'contract', 'casual', 'intern'], 'Employment type');
+  if (p.payCycle !== undefined) {
+    V.oneOf(p.payCycle, ['monthly', 'biweekly'], 'Pay cycle');
+    if (p.payCycle !== e.pay_cycle) { changed.push('payCycle'); values.push(p.payCycle); sets.push('pay_cycle = $' + values.length); }
+  }
+  if (p.dailyRate !== undefined) {
+    var dailyRate = Math.max(0, Number(p.dailyRate) || 0);
+    if (dailyRate !== Number(e.daily_rate)) { changed.push('dailyRate'); values.push(dailyRate); sets.push('daily_rate = $' + values.length); }
+  }
 
   var newEmail = null;
   if (p.email !== undefined) {
@@ -146,7 +170,7 @@ async function update(ctx, id, p) {
 
   await audit(pool, ctx, 'employee.update', 'employee', id, 'Updated ' + e.first_name + ' ' + e.last_name + ' (' + (changed.join(', ') || 'no change') + ').');
   var updated = await pool.query('SELECT * FROM employees WHERE id = $1', [id]);
-  return rowToEmployee(updated.rows[0]);
+  return rowToEmployee(updated.rows[0], ctx);
 }
 
 // kernel.js: handlers['employees.terminate']
@@ -163,7 +187,7 @@ async function terminate(ctx, id, reason) {
     var updated = await client.query("UPDATE employees SET status = 'terminated', updated_at = now() WHERE id = $1 RETURNING *", [id]);
     await client.query("UPDATE users SET status = 'disabled' WHERE employee_id = $1", [id]);
     await audit(client, ctx, 'employee.terminate', 'employee', id, 'Terminated ' + e.first_name + ' ' + e.last_name + ' — ' + (reason || 'no reason given') + '.');
-    return rowToEmployee(updated.rows[0]);
+    return rowToEmployee(updated.rows[0], ctx);
   });
 }
 
@@ -201,7 +225,7 @@ async function profile(ctx, id) {
   );
 
   return {
-    employee: rowToEmployee(e),
+    employee: rowToEmployee(e, ctx),
     departmentName: (deptRes.rows[0] && deptRes.rows[0].name) || '—',
     managerName: mgrRes.rows[0] ? mgrRes.rows[0].first_name + ' ' + mgrRes.rows[0].last_name : '—',
     attendance: attRes.rows,
