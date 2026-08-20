@@ -20,7 +20,7 @@ const EMPLOYMENT_TYPES = [
   { value: 'permanent', label: 'Permanent' },
   { value: 'contract', label: 'Contract' },
   { value: 'casual', label: 'Casual' },
-  { value: 'intern', label: 'Intern' }
+  { value: 'day_rate', label: 'By day' }
 ];
 
 const EMPTY_EMPLOYEE_FORM = {

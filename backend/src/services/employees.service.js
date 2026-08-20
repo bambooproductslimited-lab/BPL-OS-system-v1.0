@@ -65,7 +65,7 @@ async function create(ctx, p) {
   var deptRes = await pool.query('SELECT id FROM departments WHERE id = $1', [departmentId]);
   if (!deptRes.rows[0]) fail('invalid', 'Department is not a valid option.');
   var positionTitle = V.text(p.positionTitle, 'Job title', 60);
-  var employmentType = V.oneOf(p.employmentType || 'permanent', ['permanent', 'contract', 'casual', 'intern'], 'Employment type');
+  var employmentType = V.oneOf(p.employmentType || 'permanent', ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
   var hireDate = V.date(p.hireDate || new Date().toISOString().slice(0, 10), 'Hire date');
 
   var existing = await pool.query('SELECT id FROM employees WHERE email = $1', [email]);
@@ -147,7 +147,7 @@ async function update(ctx, id, p) {
     }
   });
   if (p.status !== undefined) V.oneOf(p.status, ['active', 'inactive', 'terminated'], 'Status');
-  if (p.employmentType !== undefined) V.oneOf(p.employmentType, ['permanent', 'contract', 'casual', 'intern'], 'Employment type');
+  if (p.employmentType !== undefined) V.oneOf(p.employmentType, ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
   if (p.payCycle !== undefined) {
     V.oneOf(p.payCycle, ['monthly', 'biweekly'], 'Pay cycle');
     if (p.payCycle !== e.pay_cycle) { changed.push('payCycle'); values.push(p.payCycle); sets.push('pay_cycle = $' + values.length); }

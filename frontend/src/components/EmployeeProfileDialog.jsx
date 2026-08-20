@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import './EmployeeProfileDialog.css';
+
+const ID_SLOT_LABELS = { id_front: 'ID — front', id_back: 'ID — back', passport: 'Passport' };
+const EMPLOYMENT_TYPE_LABELS = { permanent: 'Permanent', contract: 'Contract', casual: 'Casual', day_rate: 'By day' };
+function isPdf(fileName) { return /\.pdf$/i.test(fileName || ''); }
 
 // Full-detail read-only preview for one employee — profile fields, recent
 // attendance, leave history, and open tasks — via the existing
@@ -28,9 +33,12 @@ function tagClass(status) {
 }
 
 export default function EmployeeProfileDialog({ employeeId, onClose }) {
+  const { can } = useAuth();
+  const canViewIdDocs = can('employee.write');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [idSlots, setIdSlots] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +50,27 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [employeeId]);
+
+  useEffect(() => {
+    if (!canViewIdDocs) return;
+    let cancelled = false;
+    setIdSlots(null);
+    api.get('/employees/' + employeeId + '/id-documents')
+      .then(async (slots) => {
+        const withUrls = await Promise.all(slots.map(async (s) => {
+          if (!s.fileName) return s;
+          try {
+            const { url } = await api.get('/employees/' + employeeId + '/id-documents/' + s.kind + '/download');
+            return { ...s, url: url };
+          } catch {
+            return s;
+          }
+        }));
+        if (!cancelled) setIdSlots(withUrls);
+      })
+      .catch(() => { if (!cancelled) setIdSlots([]); });
+    return () => { cancelled = true; };
+  }, [employeeId, canViewIdDocs]);
 
   const e = data && data.employee;
 
@@ -66,7 +95,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
               <div><div className="employee-profile-label">Reports to</div><div>{data.managerName}</div></div>
               <div><div className="employee-profile-label">Work email</div><div>{e.email}</div></div>
               <div><div className="employee-profile-label">Phone</div><div>{e.phone || '—'}</div></div>
-              <div><div className="employee-profile-label">Employment type</div><div style={{ textTransform: 'capitalize' }}>{e.employmentType}</div></div>
+              <div><div className="employee-profile-label">Employment type</div><div>{EMPLOYMENT_TYPE_LABELS[e.employmentType] || e.employmentType}</div></div>
               <div><div className="employee-profile-label">Hire date</div><div>{fmtDate(e.hireDate)}</div></div>
               <div><div className="employee-profile-label">Location</div><div>{e.location || '—'}</div></div>
               <div><div className="employee-profile-label">Shift</div><div>{e.shift || '—'}</div></div>
@@ -77,6 +106,34 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                 </>
               )}
             </div>
+
+            {canViewIdDocs && (
+              <div className="employee-profile-section">
+                <div className="employee-profile-section-title">ID &amp; passport</div>
+                {idSlots === null ? (
+                  <div className="eyebrow">Loading…</div>
+                ) : (
+                  <div className="employee-profile-iddocs">
+                    {idSlots.map((s) => (
+                      <div className="employee-profile-iddoc" key={s.kind}>
+                        <div className="employee-profile-label">{ID_SLOT_LABELS[s.kind]}</div>
+                        {s.fileName && s.url ? (
+                          isPdf(s.fileName) ? (
+                            <a href={s.url} target="_blank" rel="noopener noreferrer" className="employee-profile-iddoc-pdf">View PDF — {s.fileName}</a>
+                          ) : (
+                            <a href={s.url} target="_blank" rel="noopener noreferrer">
+                              <img src={s.url} alt={ID_SLOT_LABELS[s.kind]} className="employee-profile-iddoc-img" />
+                            </a>
+                          )
+                        ) : (
+                          <div className="employee-profile-iddoc-empty">Not uploaded</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="employee-profile-section">
               <div className="employee-profile-section-title">Recent attendance</div>
