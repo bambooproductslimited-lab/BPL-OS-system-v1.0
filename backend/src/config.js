@@ -32,7 +32,10 @@ module.exports = {
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
   ai: {
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    // .trim() guards against a trailing newline/space from copy-pasting the
+    // key into Render's environment UI — Anthropic rejects the key outright
+    // (invalid x-api-key) rather than trimming it for you.
+    apiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
     baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
   },
