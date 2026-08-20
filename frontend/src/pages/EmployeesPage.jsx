@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
+import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
 import './EmployeesPage.css';
 
 // Ported from Bamboo OS.dc.html's employee directory screen (screens.people
@@ -62,6 +63,7 @@ export default function EmployeesPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [idDocsTarget, setIdDocsTarget] = useState(null);
+  const [profileTarget, setProfileTarget] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -251,6 +253,7 @@ export default function EmployeesPage() {
                 <td className="employees-shift">{p.shift}</td>
                 <td><span className={'tag ' + tagClass(p.status)}>{p.status}</span></td>
                 <td className="table-actions">
+                  <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setProfileTarget(p.id)}>View</button>
                   {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openEdit(p)}>Edit</button>}
                   {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setIdDocsTarget(p)}>ID docs</button>}
                   {canDelete && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openTerminate(p)}>Delete</button>}
@@ -390,6 +393,7 @@ export default function EmployeesPage() {
       )}
 
       {idDocsTarget && <EmployeeIdDocsDialog employee={idDocsTarget} onClose={() => setIdDocsTarget(null)} />}
+      {profileTarget && <EmployeeProfileDialog employeeId={profileTarget} onClose={() => setProfileTarget(null)} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>
