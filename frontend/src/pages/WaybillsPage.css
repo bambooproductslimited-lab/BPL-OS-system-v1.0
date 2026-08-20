@@ -1,0 +1,23 @@
+.waybills-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.waybills-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+
+.waybills-dialog {
+  max-width: 640px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.waybills-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
+.waybills-dialog-span { grid-column: 1 / -1; }
+
+.waybills-items-label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 6px; }
+.waybills-items-table { margin-bottom: 10px; }
+.waybills-items-table input { min-width: 0; }

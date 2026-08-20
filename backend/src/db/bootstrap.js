@@ -74,9 +74,28 @@ async function ensurePermissionsAndRoles(client) {
 }
 
 async function ensureSettings(client) {
-  var existing = await client.query('SELECT id FROM settings WHERE id = 1');
+  var existing = await client.query('SELECT id, commercial FROM settings WHERE id = 1');
   if (existing.rows[0]) {
-    console.log('Company settings row already present — skipping.');
+    // Additive sync only, same reasoning as ensurePermissionsAndRoles: a
+    // later referenceData.js adding a new document type (e.g. 'waybill')
+    // shouldn't require deleting the live settings row to pick it up, but
+    // an operator's edits to existing keys (tax rates, templates, etc. via
+    // Company Settings) must never be overwritten.
+    var commercial = existing.rows[0].commercial;
+    var defaults = defaultSettingsRow().commercial;
+    var changed = false;
+    Object.keys(defaults.numbering).forEach(function (kind) {
+      if (!commercial.numbering[kind]) {
+        console.log('Adding missing document numbering config: ' + kind);
+        commercial.numbering[kind] = defaults.numbering[kind];
+        changed = true;
+      }
+    });
+    if (changed) {
+      await client.query('UPDATE settings SET commercial = $1 WHERE id = 1', [JSON.stringify(commercial)]);
+    } else {
+      console.log('Company settings row already present — skipping.');
+    }
     return;
   }
   console.log('Inserting default company settings...');

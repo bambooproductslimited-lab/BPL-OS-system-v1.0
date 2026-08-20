@@ -27,7 +27,10 @@ export const NAV_GROUPS = [
     { key: 'inventory', label: 'Products & inventory', perm: 'inventory.read' },
     { key: 'suppliers', label: 'Suppliers', perm: 'supplier.read' },
     { key: 'procurement', label: 'Procurement', perm: 'procurement.request' },
-    { key: 'assets', label: 'Assets & maintenance', perm: 'asset.read' }
+    { key: 'assets', label: 'Assets & maintenance', perm: 'asset.read' },
+    { key: 'waybills', label: 'Waybills', perm: 'waybill.read' },
+    { key: 'toolroom', label: 'Tool room inventory', perm: 'toolroom.read' },
+    { key: 'itdevices', label: 'IT device inventory', perm: 'itdevice.read' }
   ] },
   { label: 'Quotations & Invoicing', items: [
     { key: 'qioverview', label: 'Overview', perm: 'report.read' },
