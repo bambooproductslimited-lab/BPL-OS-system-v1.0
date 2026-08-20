@@ -7,7 +7,7 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 
 // kernel.js: handlers['leave.types']
 async function listTypes() {
-  var res = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types ORDER BY name');
+  var res = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active ORDER BY name');
   return res.rows;
 }
 
@@ -58,7 +58,7 @@ async function requestLeave(ctx, p) {
   var end = V.date(p.endDate, 'End date');
   if (end < start) fail('invalid', 'The end date cannot be before the start date.');
 
-  var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [p.leaveTypeId]);
+  var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1 AND active', [p.leaveTypeId]);
   var type = typeRes.rows[0];
   if (!type) fail('invalid', 'Choose a leave type.');
 

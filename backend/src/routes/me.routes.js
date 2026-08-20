@@ -36,7 +36,7 @@ router.get('/summary', requireAuth, async function (req, res, next) {
     var balancesRes = await pool.query(
       'SELECT lb.entitled, lb.used, lt.name FROM leave_balances lb ' +
       'JOIN leave_types lt ON lt.id = lb.leave_type_id ' +
-      'WHERE lb.employee_id = $1 AND lb.year = $2 ORDER BY lt.name',
+      'WHERE lb.employee_id = $1 AND lb.year = $2 AND lt.active ORDER BY lt.name',
       [ctx.employee.id, year]
     );
     var myLeaveRes = await pool.query(

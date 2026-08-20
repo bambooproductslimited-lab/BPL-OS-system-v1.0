@@ -85,7 +85,7 @@ async function create(ctx, p) {
     );
     var e = insertRes.rows[0];
 
-    var typesRes = await client.query('SELECT id, days_per_year FROM leave_types');
+    var typesRes = await client.query('SELECT id, days_per_year FROM leave_types WHERE active');
     var year = new Date().getFullYear();
     for (var i = 0; i < typesRes.rows.length; i++) {
       await client.query(

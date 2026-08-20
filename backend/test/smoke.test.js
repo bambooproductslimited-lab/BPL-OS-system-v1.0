@@ -119,11 +119,11 @@ test('leave.cancel: only the requester can cancel, only while pending', async fu
   var john = (await login('john.sitati@bplghana.com', 'bamboo123')).body;
 
   var types = await (await fetch(base + '/api/leave/types', { headers: authed(alice.token) })).json();
-  var comp = types.find(function (t) { return t.name === 'Compassionate leave'; });
+  var annual = types.find(function (t) { return t.name === 'Annual staff leave'; });
 
   var createRes = await fetch(base + '/api/leave', {
     method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, authed(alice.token)),
-    body: JSON.stringify({ leaveTypeId: comp.id, startDate: '2027-03-01', endDate: '2027-03-01', reason: 'Smoke test cancel' })
+    body: JSON.stringify({ leaveTypeId: annual.id, startDate: '2027-03-01', endDate: '2027-03-01', reason: 'Smoke test cancel' })
   });
   var created = await createRes.json();
 
@@ -141,7 +141,7 @@ test('leave.cancel: only the requester can cancel, only while pending', async fu
 test('leave.request validation: bad date format and end-before-start are rejected', async function () {
   var alice = (await login('alice.kamau@bplghana.com', 'bamboo123')).body;
   var types = await (await fetch(base + '/api/leave/types', { headers: authed(alice.token) })).json();
-  var annual = types.find(function (t) { return t.name === 'Annual leave'; });
+  var annual = types.find(function (t) { return t.name === 'Annual staff leave'; });
 
   var badDate = await fetch(base + '/api/leave', {
     method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, authed(alice.token)),

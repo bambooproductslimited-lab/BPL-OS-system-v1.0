@@ -112,6 +112,26 @@ async function ensureSettings(client) {
   );
 }
 
+var LEAVE_TYPE_DEFS = [
+  { name: 'Annual staff leave', daysPerYear: 21, paid: true },
+  { name: 'Sick leave', daysPerYear: 14, paid: true }
+];
+
+async function ensureLeaveTypes(client) {
+  // Same additive-insert-if-missing pattern as permissions/roles: the two
+  // leave types the company actually uses are guaranteed to exist without
+  // ever deleting a type (and the history tied to it) that's already there.
+  var existing = await client.query('SELECT name FROM leave_types');
+  var known = {};
+  existing.rows.forEach(function (r) { known[r.name] = true; });
+  for (var i = 0; i < LEAVE_TYPE_DEFS.length; i++) {
+    var t = LEAVE_TYPE_DEFS[i];
+    if (known[t.name]) continue;
+    console.log('Adding leave type: ' + t.name);
+    await client.query('INSERT INTO leave_types (name, days_per_year, paid, active) VALUES ($1, $2, $3, true)', [t.name, t.daysPerYear, t.paid]);
+  }
+}
+
 async function ensureAdminDepartment(client) {
   var existing = await client.query("SELECT id FROM departments WHERE code = 'ADM'");
   if (existing.rows[0]) return existing.rows[0].id;
@@ -166,6 +186,7 @@ async function run() {
   await withTransaction(async function (client) {
     var roleIds = await ensurePermissionsAndRoles(client);
     await ensureSettings(client);
+    await ensureLeaveTypes(client);
     var deptId = await ensureAdminDepartment(client);
     await ensureAdminUser(client, deptId, roleIds);
   });
