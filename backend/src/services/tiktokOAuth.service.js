@@ -16,7 +16,14 @@ var AUTHORIZE_URL = 'https://www.tiktok.com/v2/auth/authorize/';
 var TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';
 var USER_INFO_URL = 'https://open.tiktokapis.com/v2/user/info/';
 var VIDEO_LIST_URL = 'https://open.tiktokapis.com/v2/video/list/';
-var SCOPES = 'user.info.basic,video.list,video.insights';
+// Must exactly match real TikTok Display API scope names, and each one
+// must be individually enabled for the app (and, in Sandbox mode, for the
+// target user) in the TikTok Developer Portal — an unrecognized or
+// unenabled scope makes the whole authorize request fail with a generic
+// "we couldn't log in with TikTok" / "correct: scope" error page.
+// user.info.stats (not user.info.basic) is what actually grants
+// follower_count on the user/info endpoint used by sync() below.
+var SCOPES = 'user.info.basic,user.info.stats,video.list';
 
 function requireManage(ctx) {
   if (!ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (marketing.manage).');
