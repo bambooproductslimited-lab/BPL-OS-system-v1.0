@@ -51,5 +51,20 @@ module.exports = {
       accountId: accountId, accessKeyId: accessKeyId, secretAccessKey: secretAccessKey, bucket: bucket,
       configured: !!(accountId && accessKeyId && secretAccessKey && bucket)
     };
+  }()),
+  // TikTok Login Kit + Content Posting API (see services/tiktokOAuth.service.js).
+  // clientKey is not secret (it's sent to the browser as part of the
+  // authorize URL, same as any OAuth client id); clientSecret never leaves
+  // the server — it's only used server-side in the authorization-code and
+  // refresh-token exchanges.
+  tiktok: (function () {
+    var clientKey = (process.env.TIKTOK_CLIENT_KEY || '').trim();
+    var clientSecret = (process.env.TIKTOK_CLIENT_SECRET || '').trim();
+    return {
+      clientKey: clientKey,
+      clientSecret: clientSecret,
+      redirectUri: process.env.TIKTOK_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/tiktok/callback',
+      configured: !!(clientKey && clientSecret)
+    };
   }())
 };

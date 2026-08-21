@@ -47,6 +47,7 @@ var commercialSettingsRoutes = require('./routes/commercialSettings.routes');
 var reportsRoutes = require('./routes/reports.routes');
 var aiRoutes = require('./routes/ai.routes');
 var marketingRoutes = require('./routes/marketing.routes');
+var oauthRoutes = require('./routes/oauth.routes');
 
 var app = express();
 
@@ -98,6 +99,11 @@ app.use('/api/expenses', expensesRoutes);
 app.use('/api/commercial-settings', commercialSettingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
+// oauthRoutes is mounted first and at a more specific prefix than
+// marketingRoutes so its public (non-requireAuth) callback route is
+// reached before marketingRoutes' router.use(requireAuth) can intercept it
+// — Express matches mounts in registration order, not by specificity.
+app.use('/api/marketing/oauth', oauthRoutes);
 app.use('/api/marketing', marketingRoutes);
 
 app.use(function (req, res) {

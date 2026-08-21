@@ -108,6 +108,7 @@ export default function SocialTrackerPage() {
   const [replyDrafts, setReplyDrafts] = useState({});
   const [busyInboxId, setBusyInboxId] = useState(null);
   const [allPosts, setAllPosts] = useState([]);
+  const [syncingTikTok, setSyncingTikTok] = useState(false);
 
   const loadAll = useCallback(async () => {
     setError(null);
@@ -148,6 +149,35 @@ export default function SocialTrackerPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Landing back here after the TikTok OAuth redirect (oauth.routes.js's
+  // callback sends the browser to /socialtracker?tiktok=connected|error).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tiktok = params.get('tiktok');
+    if (!tiktok) return;
+    if (tiktok === 'connected') {
+      setToast('TikTok connected.');
+      setTab('channels');
+    } else if (tiktok === 'error') {
+      setError(params.get('message') || 'TikTok connection failed.');
+    }
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
+  async function syncTikTok() {
+    setSyncingTikTok(true);
+    setError(null);
+    try {
+      const r = await api.post('/marketing/tiktok/sync', {});
+      setToast('Synced ' + r.synced + ' TikTok video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingTikTok(false);
+    }
+  }
 
   // ── Content calendar ──────────────────────────────────────────────
   function openNewPost() {
@@ -571,6 +601,12 @@ export default function SocialTrackerPage() {
                   </div>
                   <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? 'Connected' : 'Not connected'}</span>
                 </div>
+
+                {c.key === 'tiktok' && c.connected && canManage && (
+                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTikTok} onClick={syncTikTok}>
+                    {syncingTikTok ? 'Syncing…' : 'Sync now'}
+                  </button>
+                )}
 
                 {canManage ? (
                   <div className="soctrack-channel-fields">

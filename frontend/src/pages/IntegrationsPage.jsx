@@ -62,6 +62,18 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function connectTikTok() {
+    setBusyId('tiktok');
+    setError(null);
+    try {
+      const { url } = await api.post('/marketing/oauth/tiktok/start', {});
+      window.location.href = url;
+    } catch (err) {
+      setError(err.message);
+      setBusyId(null);
+    }
+  }
+
   async function disconnect(item) {
     setBusyId(item.id);
     setError(null);
@@ -99,21 +111,41 @@ export default function IntegrationsPage() {
               <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? 'Connected' : 'Not connected'}</span>
             </div>
             <p className="integrations-card-desc">{i.description}</p>
-            <div className="field">
-              <label htmlFor={'int-key-' + i.id}>API key</label>
-              <input
-                id={'int-key-' + i.id}
-                className="input"
-                value={i.connected ? MASK : (drafts[i.id] || '')}
-                disabled={i.connected}
-                onChange={(e) => setDrafts({ ...drafts, [i.id]: e.target.value })}
-                placeholder="Paste API key"
-              />
-            </div>
-            {i.connected ? (
-              <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+            {i.id === 'tiktok' ? (
+              <>
+                {i.connected && (
+                  <div className="field">
+                    <label htmlFor="int-key-tiktok">Status</label>
+                    <input id="int-key-tiktok" className="input" value={i.apiKey || MASK} disabled />
+                  </div>
+                )}
+                {i.connected ? (
+                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+                ) : (
+                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === 'tiktok'} onClick={connectTikTok}>
+                    {busyId === 'tiktok' ? 'Redirecting…' : 'Connect with TikTok'}
+                  </button>
+                )}
+              </>
             ) : (
-              <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connect(i)}>Connect</button>
+              <>
+                <div className="field">
+                  <label htmlFor={'int-key-' + i.id}>API key</label>
+                  <input
+                    id={'int-key-' + i.id}
+                    className="input"
+                    value={i.connected ? MASK : (drafts[i.id] || '')}
+                    disabled={i.connected}
+                    onChange={(e) => setDrafts({ ...drafts, [i.id]: e.target.value })}
+                    placeholder="Paste API key"
+                  />
+                </div>
+                {i.connected ? (
+                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+                ) : (
+                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connect(i)}>Connect</button>
+                )}
+              </>
             )}
           </div>
         ))}

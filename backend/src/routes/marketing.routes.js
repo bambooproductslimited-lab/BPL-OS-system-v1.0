@@ -1,9 +1,14 @@
 var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var marketingService = require('../services/marketing.service');
+var tiktokOAuthService = require('../services/tiktokOAuth.service');
 
 var router = express.Router();
 router.use(requireAuth);
+
+router.post('/tiktok/sync', async function (req, res, next) {
+  try { res.json(await tiktokOAuthService.sync(req.ctx)); } catch (e) { next(e); }
+});
 
 router.get('/dashboard', async function (req, res, next) {
   try { res.json(await marketingService.dashboard(req.ctx)); } catch (e) { next(e); }
