@@ -169,7 +169,11 @@ async function sync(ctx) {
       await pool.query(
         'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, published_at, status, likes, comments, shares, reach, source, created_by) ' +
         "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,$9,$10,'synced',$11) " +
-        'ON CONFLICT (channel_id, external_id) DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, shares = $9, reach = $10, updated_at = now()',
+        // idx_marketing_posts_channel_external is a partial unique index
+        // (WHERE external_id IS NOT NULL) — Postgres only matches a
+        // partial index as the ON CONFLICT arbiter if that same predicate
+        // is restated here; naming just the columns isn't enough.
+        'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, shares = $9, reach = $10, updated_at = now()',
         [channelId, v.id, (v.title || v.video_description || 'TikTok video').slice(0, 160), (v.video_description || '').slice(0, 2000), v.share_url || '',
           publishedAt, v.like_count || 0, v.comment_count || 0, v.share_count || 0, v.view_count || 0, ctx.employee.id]
       );
