@@ -17,6 +17,7 @@ const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'calendar', label: 'Content calendar' },
   { key: 'campaigns', label: 'Campaigns' },
+  { key: 'inbox', label: 'Inbox' },
   { key: 'channels', label: 'Channels' }
 ];
 
@@ -31,6 +32,15 @@ const CAMPAIGN_STATUSES = [
   { value: 'active', label: 'Active' },
   { value: 'completed', label: 'Completed' }
 ];
+const INBOX_KINDS = [
+  { value: 'comment', label: 'Comment' },
+  { value: 'message', label: 'Message / DM' }
+];
+const INBOX_STATUSES = [
+  { value: 'open', label: 'Open' },
+  { value: 'replied', label: 'Replied' },
+  { value: 'archived', label: 'Archived' }
+];
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -39,7 +49,7 @@ function fmtDate(iso) {
 function num(n) { return Number(n || 0).toLocaleString(); }
 
 function statusTagClass(status) {
-  if (status === 'published' || status === 'active' || status === 'completed') return 'tag-neutral';
+  if (status === 'published' || status === 'active' || status === 'completed' || status === 'replied') return 'tag-neutral';
   if (status === 'failed') return 'tag-accent';
   return 'tag-outline';
 }
@@ -52,6 +62,9 @@ function blankPostForm() {
 }
 function blankCampaignForm() {
   return { name: '', description: '', startDate: '', endDate: '', status: 'planned' };
+}
+function blankInboxForm() {
+  return { channelId: '', postId: '', kind: 'comment', authorName: '', authorHandle: '', body: '' };
 }
 
 export default function SocialTrackerPage() {
@@ -86,6 +99,16 @@ export default function SocialTrackerPage() {
   const [statHistory, setStatHistory] = useState({});
   const [busyChannelId, setBusyChannelId] = useState(null);
 
+  const [inboxItems, setInboxItems] = useState([]);
+  const [inboxFilter, setInboxFilter] = useState({ channelId: '', status: '', kind: '' });
+  const [inboxDialogOpen, setInboxDialogOpen] = useState(false);
+  const [inboxForm, setInboxForm] = useState(blankInboxForm());
+  const [inboxError, setInboxError] = useState(null);
+  const [savingInbox, setSavingInbox] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState({});
+  const [busyInboxId, setBusyInboxId] = useState(null);
+  const [allPosts, setAllPosts] = useState([]);
+
   const loadAll = useCallback(async () => {
     setError(null);
     try {
@@ -94,22 +117,29 @@ export default function SocialTrackerPage() {
       if (calendarFilter.campaignId) query.set('campaignId', calendarFilter.campaignId);
       if (calendarFilter.status) query.set('status', calendarFilter.status);
       const qs = query.toString();
-      const [d, p, c, camp] = await Promise.all([
+      const inboxQuery = new URLSearchParams();
+      if (inboxFilter.channelId) inboxQuery.set('channelId', inboxFilter.channelId);
+      if (inboxFilter.status) inboxQuery.set('status', inboxFilter.status);
+      if (inboxFilter.kind) inboxQuery.set('kind', inboxFilter.kind);
+      const inboxQs = inboxQuery.toString();
+      const [d, p, c, camp, inbox] = await Promise.all([
         api.get('/marketing/dashboard'),
         api.get('/marketing/posts' + (qs ? '?' + qs : '')),
         api.get('/marketing/channels'),
-        api.get('/marketing/campaigns')
+        api.get('/marketing/campaigns'),
+        api.get('/marketing/inbox' + (inboxQs ? '?' + inboxQs : ''))
       ]);
       setDash(d);
       setPosts(p);
       setChannels(c);
       setCampaigns(camp);
+      setInboxItems(inbox);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [calendarFilter.channelId, calendarFilter.campaignId, calendarFilter.status]);
+  }, [calendarFilter.channelId, calendarFilter.campaignId, calendarFilter.status, inboxFilter.channelId, inboxFilter.status, inboxFilter.kind]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -250,6 +280,75 @@ export default function SocialTrackerPage() {
     }
   }
 
+  // ── Inbox ──────────────────────────────────────────────────────────
+  async function openNewInboxItem() {
+    setInboxError(null);
+    setInboxForm({ ...blankInboxForm(), channelId: (channels[0] && channels[0].id) || '' });
+    setInboxDialogOpen(true);
+    try {
+      setAllPosts(await api.get('/marketing/posts'));
+    } catch (err) {
+      setInboxError(err.message);
+    }
+  }
+  async function submitInboxItem(e) {
+    e.preventDefault();
+    setSavingInbox(true);
+    setInboxError(null);
+    try {
+      await api.post('/marketing/inbox', { ...inboxForm, postId: inboxForm.postId || null });
+      setToast('Logged.');
+      setInboxDialogOpen(false);
+      await loadAll();
+    } catch (err) {
+      setInboxError(err.message);
+    } finally {
+      setSavingInbox(false);
+    }
+  }
+  async function sendReply(item) {
+    const replyBody = (replyDrafts[item.id] || '').trim();
+    if (!replyBody) {
+      setToast('Write a reply first.');
+      return;
+    }
+    setBusyInboxId(item.id);
+    try {
+      await api.post('/marketing/inbox/' + item.id + '/reply', { replyBody });
+      setToast('Reply recorded.');
+      setReplyDrafts({ ...replyDrafts, [item.id]: '' });
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyInboxId(null);
+    }
+  }
+  async function archiveInboxItem(item) {
+    setBusyInboxId(item.id);
+    try {
+      await api.post('/marketing/inbox/' + item.id + '/status', { status: 'archived' });
+      setToast('Archived.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyInboxId(null);
+    }
+  }
+  async function reopenInboxItem(item) {
+    setBusyInboxId(item.id);
+    try {
+      await api.post('/marketing/inbox/' + item.id + '/status', { status: 'open' });
+      setToast('Reopened.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyInboxId(null);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   return (
@@ -283,6 +382,11 @@ export default function SocialTrackerPage() {
                   </div>
                   <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? 'Connected' : 'Not connected'}</span>
                 </div>
+                {c.openInboxCount > 0 && (
+                  <button type="button" className="soctrack-inbox-badge" onClick={() => { setInboxFilter({ channelId: c.id, status: 'open', kind: '' }); setTab('inbox'); }}>
+                    {c.openInboxCount} awaiting reply
+                  </button>
+                )}
                 {c.followers !== null && (
                   <div className="soctrack-followers">
                     {num(c.followers)} followers
@@ -391,6 +495,64 @@ export default function SocialTrackerPage() {
             </tbody>
           </table>
           {!campaigns.length && <p className="table-empty">No campaigns yet.</p>}
+        </div>
+      )}
+
+      {tab === 'inbox' && (
+        <div>
+          <p className="soctrack-inbox-note">
+            Comments and messages logged here are tracked in Bamboo OS — a reply you send below is recorded as the
+            reply, but doesn't post back to Facebook/Instagram/TikTok/WhatsApp itself yet (that needs the channel's
+            live API connected first). Until then, send your reply on the actual platform and record it here.
+          </p>
+          <div className="soctrack-filters">
+            <select className="input" value={inboxFilter.channelId} onChange={(e) => setInboxFilter({ ...inboxFilter, channelId: e.target.value })}>
+              <option value="">All channels</option>
+              {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className="input" value={inboxFilter.kind} onChange={(e) => setInboxFilter({ ...inboxFilter, kind: e.target.value })}>
+              <option value="">Comments &amp; messages</option>
+              {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+            </select>
+            <select className="input" value={inboxFilter.status} onChange={(e) => setInboxFilter({ ...inboxFilter, status: e.target.value })}>
+              <option value="">All statuses</option>
+              {INBOX_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewInboxItem}>Log incoming</button>}
+          </div>
+
+          <div className="soctrack-inbox-list">
+            {inboxItems.map((item) => (
+              <div key={item.id} className="soctrack-inbox-item">
+                <div className="soctrack-inbox-item-top">
+                  <div>
+                    <span className="soctrack-inbox-kind">{item.kind === 'comment' ? 'Comment' : 'Message'}</span> on <strong>{item.channelName}</strong>
+                    {item.postTitle && <span> · {item.postTitle}</span>}
+                    <div className="soctrack-inbox-author">{item.authorName || 'Unknown'} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
+                  </div>
+                  <span className={'tag ' + statusTagClass(item.status)}>{item.status}</span>
+                </div>
+                <p className="soctrack-inbox-body">{item.body}</p>
+
+                {item.status === 'replied' ? (
+                  <div className="soctrack-inbox-reply">
+                    <div className="soctrack-inbox-reply-label">Reply · {item.repliedByName} · {fmtDate(item.repliedAt)}</div>
+                    <p className="soctrack-inbox-reply-body">{item.replyBody}</p>
+                    {canManage && <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => reopenInboxItem(item)}>Reopen</button>}
+                  </div>
+                ) : item.status === 'open' && canManage ? (
+                  <div className="soctrack-inbox-reply-form">
+                    <textarea className="input" placeholder="Write a reply…" value={replyDrafts[item.id] || ''} onChange={(e) => setReplyDrafts({ ...replyDrafts, [item.id]: e.target.value })} />
+                    <div className="soctrack-inbox-reply-actions">
+                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => sendReply(item)}>Reply</button>
+                      <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => archiveInboxItem(item)}>Archive</button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {!inboxItems.length && <p className="table-empty">Nothing logged yet.</p>}
         </div>
       )}
 
@@ -551,6 +713,54 @@ export default function SocialTrackerPage() {
             <div className="dialog-actions soctrack-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setCampaignDialogOpen(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={savingCampaign}>{savingCampaign ? 'Saving…' : 'Save campaign'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {inboxDialogOpen && (
+        <div className="dialog-backdrop" onClick={() => setInboxDialogOpen(false)}>
+          <form className="dialog soctrack-campaign-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitInboxItem}>
+            <h2 className="soctrack-dialog-title">Log an incoming comment or message</h2>
+            {inboxError && <div className="error-banner soctrack-dialog-span">{inboxError}</div>}
+
+            <div className="field">
+              <label htmlFor="ib-channel">Channel</label>
+              <select id="ib-channel" className="input" value={inboxForm.channelId} onChange={(e) => setInboxForm({ ...inboxForm, channelId: e.target.value, postId: '' })} required>
+                {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="ib-kind">Type</label>
+              <select id="ib-kind" className="input" value={inboxForm.kind} onChange={(e) => setInboxForm({ ...inboxForm, kind: e.target.value, postId: e.target.value === 'message' ? '' : inboxForm.postId })}>
+                {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+              </select>
+            </div>
+            {inboxForm.kind === 'comment' && (
+              <div className="field soctrack-dialog-span">
+                <label htmlFor="ib-post">On which post (optional)</label>
+                <select id="ib-post" className="input" value={inboxForm.postId} onChange={(e) => setInboxForm({ ...inboxForm, postId: e.target.value })}>
+                  <option value="">Not tied to a specific post</option>
+                  {allPosts.filter((p) => p.channelId === inboxForm.channelId).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="ib-author-name">From (name)</label>
+              <input id="ib-author-name" className="input" value={inboxForm.authorName} onChange={(e) => setInboxForm({ ...inboxForm, authorName: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="ib-author-handle">Handle / phone</label>
+              <input id="ib-author-handle" className="input" value={inboxForm.authorHandle} onChange={(e) => setInboxForm({ ...inboxForm, authorHandle: e.target.value })} />
+            </div>
+            <div className="field soctrack-dialog-span">
+              <label htmlFor="ib-body">What they wrote</label>
+              <textarea id="ib-body" className="input" value={inboxForm.body} onChange={(e) => setInboxForm({ ...inboxForm, body: e.target.value })} required />
+            </div>
+
+            <div className="dialog-actions soctrack-dialog-span">
+              <button type="button" className="btn btn-secondary" onClick={() => setInboxDialogOpen(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={savingInbox}>{savingInbox ? 'Saving…' : 'Log it'}</button>
             </div>
           </form>
         </div>

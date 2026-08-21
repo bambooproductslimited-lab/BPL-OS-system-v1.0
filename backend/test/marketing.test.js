@@ -138,3 +138,64 @@ test('marketing.channels/campaigns/posts: permission-gated, seeded channels pres
   var delRes = await fetch(base + '/api/marketing/posts/' + post.id, { method: 'DELETE', headers: authed(admin) });
   assert.equal(delRes.status, 200);
 });
+
+test('marketing.inbox: log an incoming comment, reply, reopen, archive, dashboard open-count, permission-gated', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var alice = await login('alice.kamau@bplghana.com'); // plain employee — no marketing.manage
+
+  var channels = await (await fetch(base + '/api/marketing/channels', { headers: authed(admin) })).json();
+  var facebookId = channels.find(function (c) { return c.key === 'facebook'; }).id;
+
+  var createDenied = await fetch(base + '/api/marketing/inbox', {
+    method: 'POST', headers: jsonAuthed(alice), body: JSON.stringify({ channelId: facebookId, kind: 'comment', body: 'x' })
+  });
+  assert.equal(createDenied.status, 403);
+
+  var createRes = await fetch(base + '/api/marketing/inbox', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ channelId: facebookId, kind: 'comment', authorName: 'Test Customer', body: 'Is this in stock?' })
+  });
+  assert.equal(createRes.status, 201);
+  var item = await createRes.json();
+  assert.equal(item.status, 'open');
+  assert.equal(item.channelName, 'Facebook');
+
+  var dashBefore = await (await fetch(base + '/api/marketing/dashboard', { headers: authed(admin) })).json();
+  var fbOpenBefore = dashBefore.channels.find(function (c) { return c.key === 'facebook'; }).openInboxCount;
+
+  // Replying is permission-gated and marks the item replied.
+  var replyDenied = await fetch(base + '/api/marketing/inbox/' + item.id + '/reply', {
+    method: 'POST', headers: jsonAuthed(alice), body: JSON.stringify({ replyBody: 'x' })
+  });
+  assert.equal(replyDenied.status, 403);
+
+  var replyRes = await fetch(base + '/api/marketing/inbox/' + item.id + '/reply', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ replyBody: 'Yes, in stock!' })
+  });
+  assert.equal(replyRes.status, 200);
+  var replied = await replyRes.json();
+  assert.equal(replied.status, 'replied');
+  assert.equal(replied.replyBody, 'Yes, in stock!');
+  assert.equal(replied.repliedByName, 'Kelvin Duho');
+
+  var dashAfterReply = await (await fetch(base + '/api/marketing/dashboard', { headers: authed(admin) })).json();
+  assert.equal(dashAfterReply.channels.find(function (c) { return c.key === 'facebook'; }).openInboxCount, fbOpenBefore - 1);
+
+  // Reopening puts it back in the open queue.
+  var reopenRes = await fetch(base + '/api/marketing/inbox/' + item.id + '/status', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ status: 'open' })
+  });
+  assert.equal((await reopenRes.json()).status, 'open');
+
+  var dashAfterReopen = await (await fetch(base + '/api/marketing/dashboard', { headers: authed(admin) })).json();
+  assert.equal(dashAfterReopen.channels.find(function (c) { return c.key === 'facebook'; }).openInboxCount, fbOpenBefore);
+
+  // Archiving takes it out of the open queue too, without needing a reply.
+  var archiveRes = await fetch(base + '/api/marketing/inbox/' + item.id + '/status', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ status: 'archived' })
+  });
+  assert.equal((await archiveRes.json()).status, 'archived');
+
+  var filteredByStatus = await (await fetch(base + '/api/marketing/inbox?status=archived', { headers: authed(admin) })).json();
+  assert.ok(filteredByStatus.some(function (i) { return i.id === item.id; }));
+});

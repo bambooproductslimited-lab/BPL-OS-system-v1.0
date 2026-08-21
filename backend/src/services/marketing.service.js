@@ -245,6 +245,98 @@ async function deletePost(ctx, id) {
   return { ok: true };
 }
 
+function rowToInboxItem(r) {
+  return {
+    id: r.id, channelId: r.channel_id, channelName: r.channel_name, channelKey: r.channel_key,
+    postId: r.post_id, postTitle: r.post_title,
+    kind: r.kind, authorName: r.author_name, authorHandle: r.author_handle, body: r.body,
+    receivedAt: r.received_at, status: r.status,
+    replyBody: r.reply_body, repliedByName: r.replied_by_name, repliedAt: r.replied_at,
+    createdAt: r.created_at
+  };
+}
+
+var INBOX_SELECT =
+  'SELECT i.*, c.name AS channel_name, c.key AS channel_key, p.title AS post_title, ' +
+  "(rb.first_name || ' ' || rb.last_name) AS replied_by_name " +
+  'FROM marketing_inbox_items i JOIN marketing_channels c ON c.id = i.channel_id ' +
+  'LEFT JOIN marketing_posts p ON p.id = i.post_id ' +
+  'LEFT JOIN employees rb ON rb.id = i.replied_by ';
+
+var INBOX_KINDS = ['comment', 'message'];
+var INBOX_STATUSES = ['open', 'replied', 'archived'];
+
+// kernel.js-style handler: marketing.inbox.list — optional channelId/
+// postId/status/kind filters for the tracker's Inbox tab.
+async function listInboxItems(ctx, filters) {
+  requireRead(ctx);
+  filters = filters || {};
+  var clauses = [];
+  var params = [];
+  if (filters.channelId) { params.push(filters.channelId); clauses.push('i.channel_id = $' + params.length); }
+  if (filters.postId) { params.push(filters.postId); clauses.push('i.post_id = $' + params.length); }
+  if (filters.status) { params.push(filters.status); clauses.push('i.status = $' + params.length); }
+  if (filters.kind) { params.push(filters.kind); clauses.push('i.kind = $' + params.length); }
+  var where = clauses.length ? ' WHERE ' + clauses.join(' AND ') : '';
+  var res = await pool.query(INBOX_SELECT + where + ' ORDER BY i.received_at DESC', params);
+  return res.rows.map(rowToInboxItem);
+}
+
+// marketing.inbox.create — logs an incoming comment/message. Nothing here
+// is auto-synced from the real platform yet (see the module comment above),
+// so this is how one gets recorded in the meantime: paste in what the
+// customer actually wrote, same as this app's other manually-tracked data.
+async function createInboxItem(ctx, p) {
+  requireManage(ctx);
+  var kind = V.oneOf(p.kind || 'comment', INBOX_KINDS, 'Kind');
+  var body = V.text(p.body, 'Message', 2000);
+  var chanRes = await pool.query('SELECT id FROM marketing_channels WHERE id = $1', [p.channelId]);
+  if (!chanRes.rows[0]) fail('invalid', 'Choose a channel.');
+  if (p.postId) {
+    var postRes = await pool.query('SELECT id FROM marketing_posts WHERE id = $1', [p.postId]);
+    if (!postRes.rows[0]) fail('invalid', 'Unknown post.');
+  }
+  var res = await pool.query(
+    'INSERT INTO marketing_inbox_items (channel_id, post_id, kind, author_name, author_handle, body, received_at, created_by) ' +
+    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
+    [p.channelId, p.postId || null, kind, (p.authorName || '').trim().slice(0, 120), (p.authorHandle || '').trim().slice(0, 120),
+      body, p.receivedAt || new Date(), ctx.employee.id]
+  );
+  await audit(pool, ctx, 'marketing.inbox.create', 'marketing_inbox_item', res.rows[0].id, 'Logged an incoming ' + kind + '.');
+  var final = await pool.query(INBOX_SELECT + ' WHERE i.id = $1', [res.rows[0].id]);
+  return rowToInboxItem(final.rows[0]);
+}
+
+// marketing.inbox.reply — records the reply text against the item and
+// marks it replied. This is the record of what staff sent back on the
+// actual platform (by hand, for now) — it does not itself deliver
+// anything to Facebook/Instagram/TikTok/WhatsApp; that needs the real
+// platform API connected first (see the module comment above).
+async function replyInboxItem(ctx, id, p) {
+  requireManage(ctx);
+  var replyBody = V.text(p.replyBody, 'Reply', 2000);
+  var res = await pool.query(
+    "UPDATE marketing_inbox_items SET reply_body = $1, status = 'replied', replied_by = $2, replied_at = now() WHERE id = $3 RETURNING id",
+    [replyBody, ctx.employee.id, id]
+  );
+  if (!res.rows[0]) fail('notfound', 'Inbox item not found.');
+  await audit(pool, ctx, 'marketing.inbox.reply', 'marketing_inbox_item', id, 'Replied to an incoming item.');
+  var final = await pool.query(INBOX_SELECT + ' WHERE i.id = $1', [id]);
+  return rowToInboxItem(final.rows[0]);
+}
+
+// marketing.inbox.setStatus — reopen a replied item, or archive one that
+// doesn't need a reply.
+async function setInboxStatus(ctx, id, status) {
+  requireManage(ctx);
+  status = V.oneOf(status, INBOX_STATUSES, 'Status');
+  var res = await pool.query('UPDATE marketing_inbox_items SET status = $1 WHERE id = $2 RETURNING id', [status, id]);
+  if (!res.rows[0]) fail('notfound', 'Inbox item not found.');
+  await audit(pool, ctx, 'marketing.inbox.status', 'marketing_inbox_item', id, 'Set status to ' + status + '.');
+  var final = await pool.query(INBOX_SELECT + ' WHERE i.id = $1', [id]);
+  return rowToInboxItem(final.rows[0]);
+}
+
 // marketing.dashboard — per-channel totals (posts, engagement, latest
 // follower count + change since the previous snapshot) and campaign
 // rollups, for the tracker's Overview tab.
@@ -277,6 +369,12 @@ async function dashboard(ctx) {
     else if (Number(r.rn) === 2) prevByChannel[r.channel_id] = r.followers;
   });
 
+  var openInboxRes = await pool.query(
+    "SELECT channel_id, count(*) AS n FROM marketing_inbox_items WHERE status = 'open' GROUP BY channel_id"
+  );
+  var openInboxByChannel = {};
+  openInboxRes.rows.forEach(function (r) { openInboxByChannel[r.channel_id] = Number(r.n); });
+
   var channelSummaries = channels.map(function (c) {
     var totals = totalsByChannel[c.id] || { posts: 0, likes: 0, comments: 0, shares: 0, reach: 0, clicks: 0, leads: 0 };
     var latest = latestByChannel[c.id];
@@ -284,7 +382,8 @@ async function dashboard(ctx) {
       totals: totals,
       followers: latest ? latest.followers : null,
       followersAsOf: latest ? latest.capturedOn : null,
-      followerChange: latest && prevByChannel[c.id] !== undefined ? latest.followers - prevByChannel[c.id] : null
+      followerChange: latest && prevByChannel[c.id] !== undefined ? latest.followers - prevByChannel[c.id] : null,
+      openInboxCount: openInboxByChannel[c.id] || 0
     });
   });
 
@@ -313,5 +412,6 @@ module.exports = {
   listChannelStats: listChannelStats, logChannelStat: logChannelStat,
   listCampaigns: listCampaigns, createCampaign: createCampaign, updateCampaign: updateCampaign,
   listPosts: listPosts, createPost: createPost, updatePost: updatePost, deletePost: deletePost,
+  listInboxItems: listInboxItems, createInboxItem: createInboxItem, replyInboxItem: replyInboxItem, setInboxStatus: setInboxStatus,
   dashboard: dashboard
 };

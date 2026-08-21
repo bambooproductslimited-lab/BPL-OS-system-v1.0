@@ -68,6 +68,34 @@
 .soctrack-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
 .soctrack-dialog-span { grid-column: 1 / -1; }
 
+.soctrack-inbox-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-danger);
+  background: var(--color-danger-100);
+  border: var(--divider-width) solid var(--color-danger);
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.soctrack-inbox-badge:hover { opacity: 0.85; }
+
+.soctrack-inbox-note { font-size: 12px; color: var(--color-text-muted); max-width: 760px; margin: 0 0 14px; }
+.soctrack-inbox-list { display: flex; flex-direction: column; gap: 12px; }
+.soctrack-inbox-item { border: var(--divider-width) solid var(--color-divider); padding: 14px; }
+.soctrack-inbox-item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.soctrack-inbox-kind { font-weight: 700; }
+.soctrack-inbox-author { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.soctrack-inbox-body { margin: 10px 0; font-size: 13px; }
+
+.soctrack-inbox-reply { border-top: var(--divider-width) solid var(--color-divider); padding-top: 10px; }
+.soctrack-inbox-reply-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 4px; }
+.soctrack-inbox-reply-body { margin: 0 0 8px; font-size: 13px; }
+
+.soctrack-inbox-reply-form { border-top: var(--divider-width) solid var(--color-divider); padding-top: 10px; }
+.soctrack-inbox-reply-form textarea { width: 100%; min-height: 60px; }
+.soctrack-inbox-reply-actions { margin-top: 8px; }
+
 @media (max-width: 700px) {
   .soctrack-channel-fields { grid-template-columns: 1fr; }
 }

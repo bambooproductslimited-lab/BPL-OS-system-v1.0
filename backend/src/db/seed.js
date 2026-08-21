@@ -297,20 +297,22 @@ async function run() {
     );
 
     var mktPostDefs = [
-      { channelKey: 'facebook', title: 'New bamboo bar stools', status: 'published', publishedOffset: -10, likes: 214, comments: 18, shares: 22, reach: 4300, impressions: 5100, clicks: 96, leads: 0 },
-      { channelKey: 'instagram', title: 'Bamboo furniture reel', status: 'published', publishedOffset: -8, likes: 512, comments: 41, shares: 63, reach: 8900, impressions: 11200, clicks: 210, leads: 0 },
-      { channelKey: 'tiktok', title: 'Workshop tour', status: 'published', publishedOffset: -5, likes: 1340, comments: 88, shares: 176, reach: 21000, impressions: 26000, clicks: 340, leads: 0 },
-      { channelKey: 'website', title: 'Furniture line landing page', status: 'published', publishedOffset: -14, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 640, leads: 12 },
-      { channelKey: 'instagram', title: 'Behind the scenes', status: 'scheduled', publishedOffset: 3, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 0, leads: 0 }
+      { key: 'mp_fb', channelKey: 'facebook', title: 'New bamboo bar stools', status: 'published', publishedOffset: -10, likes: 214, comments: 18, shares: 22, reach: 4300, impressions: 5100, clicks: 96, leads: 0 },
+      { key: 'mp_ig1', channelKey: 'instagram', title: 'Bamboo furniture reel', status: 'published', publishedOffset: -8, likes: 512, comments: 41, shares: 63, reach: 8900, impressions: 11200, clicks: 210, leads: 0 },
+      { key: 'mp_tt', channelKey: 'tiktok', title: 'Workshop tour', status: 'published', publishedOffset: -5, likes: 1340, comments: 88, shares: 176, reach: 21000, impressions: 26000, clicks: 340, leads: 0 },
+      { key: 'mp_web', channelKey: 'website', title: 'Furniture line landing page', status: 'published', publishedOffset: -14, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 640, leads: 12 },
+      { key: 'mp_ig2', channelKey: 'instagram', title: 'Behind the scenes', status: 'scheduled', publishedOffset: 3, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 0, leads: 0 }
     ];
+    var mktPostIds = {};
     for (i = 0; i < mktPostDefs.length; i++) {
       var mpd = mktPostDefs[i];
       var isPublished = mpd.status === 'published';
+      mktPostIds[mpd.key] = uuid();
       await client.query(
-        'INSERT INTO marketing_posts (channel_id, campaign_id, title, status, ' +
+        'INSERT INTO marketing_posts (id, channel_id, campaign_id, title, status, ' +
         (isPublished ? 'published_at' : 'scheduled_at') + ', likes, comments, shares, reach, impressions, clicks, leads, created_by) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
-        [mktChannelIds[mpd.channelKey], mktCampaignId, mpd.title, mpd.status, relDate(mpd.publishedOffset),
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
+        [mktPostIds[mpd.key], mktChannelIds[mpd.channelKey], mktCampaignId, mpd.title, mpd.status, relDate(mpd.publishedOffset),
           mpd.likes, mpd.comments, mpd.shares, mpd.reach, mpd.impressions, mpd.clicks, mpd.leads, empIds.e_008]
       );
     }
@@ -326,6 +328,32 @@ async function run() {
         'INSERT INTO marketing_channel_stats (channel_id, captured_on, followers, created_by) VALUES ($1,$2,$3,$4)',
         [mktChannelIds[msd.channelKey], relDate(msd.offset), msd.followers, empIds.e_008]
       );
+    }
+
+    var mktInboxDefs = [
+      { channelKey: 'facebook', postKey: 'mp_fb', kind: 'comment', authorName: 'Kwabena Asante', authorHandle: 'kwabena.a', body: 'Do these bar stools come in a taller size for a kitchen island?', status: 'open' },
+      { channelKey: 'instagram', postKey: 'mp_ig1', kind: 'comment', authorName: 'Efua Mensah', authorHandle: '@efua.mensah', body: 'Beautiful work! How much for the 3-seater in the reel?', status: 'replied',
+        replyBody: 'Thank you Efua! The 3-seater bamboo sofa is GHS 4,200 — DM us your location for a delivery quote.' },
+      { channelKey: 'whatsapp', postKey: null, kind: 'message', authorName: 'Yaw Boateng', authorHandle: '+233 24 555 1212', body: 'Hi, is the bamboo flooring in stock for a 40sqm room?', status: 'open' }
+    ];
+    for (i = 0; i < mktInboxDefs.length; i++) {
+      var mid = mktInboxDefs[i];
+      var inboxId = uuid();
+      if (mid.status === 'replied') {
+        await client.query(
+          'INSERT INTO marketing_inbox_items (id, channel_id, post_id, kind, author_name, author_handle, body, received_at, status, reply_body, replied_by, replied_at, created_by) ' +
+          "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'replied',$9,$10,$11,$12)",
+          [inboxId, mktChannelIds[mid.channelKey], mid.postKey ? mktPostIds[mid.postKey] : null, mid.kind, mid.authorName, mid.authorHandle, mid.body,
+            relDate(-3) + 'T09:00', mid.replyBody, empIds.e_008, relDate(-2) + 'T14:00', empIds.e_008]
+        );
+      } else {
+        await client.query(
+          'INSERT INTO marketing_inbox_items (id, channel_id, post_id, kind, author_name, author_handle, body, received_at, status, created_by) ' +
+          "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9)",
+          [inboxId, mktChannelIds[mid.channelKey], mid.postKey ? mktPostIds[mid.postKey] : null, mid.kind, mid.authorName, mid.authorHandle, mid.body,
+            relDate(-1) + 'T11:00', empIds.e_008]
+        );
+      }
     }
 
     console.log('Seeding company settings...');

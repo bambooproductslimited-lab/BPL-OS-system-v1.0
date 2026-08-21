@@ -45,4 +45,17 @@ router.delete('/posts/:id', async function (req, res, next) {
   try { res.json(await marketingService.deletePost(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
+router.get('/inbox', async function (req, res, next) {
+  try { res.json(await marketingService.listInboxItems(req.ctx, req.query)); } catch (e) { next(e); }
+});
+router.post('/inbox', async function (req, res, next) {
+  try { res.status(201).json(await marketingService.createInboxItem(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.post('/inbox/:id/reply', async function (req, res, next) {
+  try { res.json(await marketingService.replyInboxItem(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/inbox/:id/status', async function (req, res, next) {
+  try { res.json(await marketingService.setInboxStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
+});
+
 module.exports = router;
