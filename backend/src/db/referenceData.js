@@ -159,7 +159,7 @@ function defaultPayroll() {
 function defaultSettingsRow() {
   return {
     companyName: 'Bamboo Products Limited', shortName: 'BPL', country: 'Ghana', currency: 'GHS',
-    timezone: 'Africa/Accra', fiscalYearStart: '01-01', workWeek: 'Mon–Sat', standardHours: 8, lateAfter: '08:15',
+    timezone: 'Africa/Accra', fiscalYearStart: '01-01', workWeek: 'Mon–Sat', standardHours: 8, lateAfter: '07:20',
     plants: ['Tema Plant', 'Accra Office'], leaveApprovalChain: ['department_manager', 'hr_manager'],
     integrations: defaultIntegrations(), commercial: defaultCommercial(), payroll: defaultPayroll()
   };

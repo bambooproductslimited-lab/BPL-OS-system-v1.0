@@ -97,7 +97,7 @@ export default function CompanySettingsPage() {
         </div>
         <div className="field">
           <label htmlFor="cs-la">Counted late after</label>
-          <input id="cs-la" className="input" value={form.lateAfter} disabled={locked} onChange={(e) => setForm({ ...form, lateAfter: e.target.value })} placeholder="08:15" />
+          <input id="cs-la" className="input" value={form.lateAfter} disabled={locked} onChange={(e) => setForm({ ...form, lateAfter: e.target.value })} placeholder="07:20" />
         </div>
         <div className="cs-form-footer">
           <button className="btn btn-primary" type="submit" disabled={locked || saving}>Save settings</button>

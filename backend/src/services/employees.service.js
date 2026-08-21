@@ -81,7 +81,7 @@ async function create(ctx, p) {
       'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift) ' +
       "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
-        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 08:00–17:00']
+        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00']
     );
     var e = insertRes.rows[0];
 

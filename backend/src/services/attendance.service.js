@@ -16,7 +16,7 @@ async function clockIn(ctx) {
 
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
   var now = nowHM();
-  var lateAfter = settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '08:15';
+  var lateAfter = settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20';
   var status = now > lateAfter ? 'late' : 'present';
 
   var res = await pool.query(

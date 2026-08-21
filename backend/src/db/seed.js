@@ -127,7 +127,7 @@ async function run() {
       var email = (firstName + '.' + lastName).toLowerCase() + '@bplghana.com';
       var phone = '+233 24' + (1000000 + i * 4321).toString().slice(0, 7);
       var location = 'Tema Plant';
-      var shift = deptKey === 'd_prod' ? 'Shift A · 06:00–14:00' : 'Day · 08:00–17:00';
+      var shift = deptKey === 'd_prod' ? 'Shift A · 06:00–14:00' : 'Day · 07:00–16:00';
       await client.query(
         'INSERT INTO employees (id, code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift) ' +
         'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
