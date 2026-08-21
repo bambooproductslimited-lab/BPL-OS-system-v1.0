@@ -74,11 +74,11 @@ export default function WaybillPreview({ waybill, onClose }) {
         </div>
 
         <table className="waybill-preview-table">
-          <thead><tr><th>Item #</th><th>Description</th><th className="waybill-preview-num">Quantity</th></tr></thead>
+          <thead><tr><th>S/N</th><th>Description</th><th className="waybill-preview-num">Quantity</th></tr></thead>
           <tbody>
             {waybill.items.map((it, i) => (
               <tr key={i}>
-                <td>{i + 1}</td>
+                <td>{it.itemNo || i + 1}</td>
                 <td className="waybill-preview-desc">{it.description}</td>
                 <td className="waybill-preview-num">{it.qty} {it.unit !== 'each' ? it.unit : ''}</td>
               </tr>

@@ -64,9 +64,9 @@ async function insertLineItems(client, documentType, documentId, items) {
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     await client.query(
-      'INSERT INTO document_line_items (document_type, document_id, sort_order, description, qty, unit, unit_price, discount, discount_type, tax_rate) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [documentType, documentId, i, it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate]
+      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate]
     );
   }
 }
@@ -77,7 +77,7 @@ async function loadLineItems(db, documentType, documentId) {
     [documentType, documentId]
   );
   return res.rows.map(function (r) {
-    return { description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate) };
+    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate) };
   });
 }
 

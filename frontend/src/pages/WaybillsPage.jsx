@@ -15,7 +15,7 @@ function fmtDate(iso) {
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
-function blankItem() { return { description: '', qty: 1, unit: 'each' }; }
+function blankItem() { return { itemNo: '', description: '', qty: 1, unit: 'each' }; }
 const EMPTY_FORM = {
   origin: 'factory', destination: '', customerId: '', driverName: '', vehicleNo: '', receivedBy: '',
   shippedToName: '', shippedToAddress: '', shippedToPhone: '', shippedToEmail: '', shippingDate: todayISO(),
@@ -35,6 +35,7 @@ export default function WaybillsPage() {
   const [waybills, setWaybills] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -49,14 +50,16 @@ export default function WaybillsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [wbs, custs, emps] = await Promise.all([
+      const [wbs, custs, emps, cat] = await Promise.all([
         api.get('/waybills'),
         can('customer.read') ? api.get('/customers') : Promise.resolve([]),
-        can('employee.read') ? api.get('/employees') : Promise.resolve([])
+        can('employee.read') ? api.get('/employees') : Promise.resolve([]),
+        can('catalog.read') ? api.get('/catalog') : Promise.resolve([])
       ]);
       setWaybills(wbs);
       setCustomers(custs);
       setEmployees(emps);
+      setCatalog(cat.filter((c) => c.active));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -89,6 +92,14 @@ export default function WaybillsPage() {
 
   function setItem(idx, key, value) {
     setForm({ ...form, items: form.items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)) });
+  }
+  function pickCatalogItem(idx, catalogId) {
+    const c = catalog.find((x) => x.id === catalogId);
+    if (!c) return;
+    setForm({
+      ...form,
+      items: form.items.map((it, i) => (i === idx ? { ...it, itemNo: c.code || it.itemNo, description: c.name, unit: c.unit } : it))
+    });
   }
   function addItem() {
     setForm({ ...form, items: form.items.concat([blankItem()]) });
@@ -236,11 +247,20 @@ export default function WaybillsPage() {
             <div className="waybills-dialog-span">
               <label className="waybills-items-label">Items</label>
               <table className="table waybills-items-table">
-                <thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th /></tr></thead>
+                <thead><tr><th>S/N</th><th>Description</th><th>Qty</th><th>Unit</th><th /></tr></thead>
                 <tbody>
                   {form.items.map((it, idx) => (
                     <tr key={idx}>
-                      <td><input className="input" value={it.description} onChange={(e) => setItem(idx, 'description', e.target.value)} required /></td>
+                      <td><input className="input waybills-items-sn" value={it.itemNo} placeholder={String(idx + 1)} onChange={(e) => setItem(idx, 'itemNo', e.target.value)} /></td>
+                      <td className="waybills-items-desc-cell">
+                        {catalog.length > 0 && (
+                          <select className="input waybills-items-catalog-picker" value="" onChange={(e) => pickCatalogItem(idx, e.target.value)}>
+                            <option value="">From products &amp; services…</option>
+                            {catalog.map((c) => <option key={c.id} value={c.id}>{c.name}{c.code ? ' (' + c.code + ')' : ''}</option>)}
+                          </select>
+                        )}
+                        <input className="input" value={it.description} placeholder="Or type a custom item" onChange={(e) => setItem(idx, 'description', e.target.value)} required />
+                      </td>
                       <td><input className="input" type="number" min="0.01" step="0.01" value={it.qty} onChange={(e) => setItem(idx, 'qty', e.target.value)} required /></td>
                       <td><input className="input" value={it.unit} onChange={(e) => setItem(idx, 'unit', e.target.value)} /></td>
                       <td>

@@ -44,13 +44,14 @@ test('waybills: create is permission-gated, dispatch + status flow, numbering', 
 
   var created = await fetch(base + '/api/waybills', {
     method: 'POST', headers: jsonAuthed(isreal),
-    body: JSON.stringify({ origin: 'factory', destination: 'Showroom - Accra', shippedToName: 'Showroom - Accra', driverName: 'Kwame', vehicleNo: 'GT-1', items: [{ description: 'Bamboo Chair', qty: 5, unit: 'each' }] })
+    body: JSON.stringify({ origin: 'factory', destination: 'Showroom - Accra', shippedToName: 'Showroom - Accra', driverName: 'Kwame', vehicleNo: 'GT-1', items: [{ itemNo: 'SN-001', description: 'Bamboo Chair', qty: 5, unit: 'each' }] })
   });
   assert.equal(created.status, 201);
   var wb = await created.json();
   assert.match(wb.waybillNo, /^WB-\d{4}-\d{4}$/);
   assert.equal(wb.status, 'dispatched');
   assert.equal(wb.items.length, 1);
+  assert.equal(wb.items[0].itemNo, 'SN-001');
 
   var delivered = await fetch(base + '/api/waybills/' + wb.id + '/status', {
     method: 'POST', headers: jsonAuthed(isreal), body: JSON.stringify({ status: 'delivered' })

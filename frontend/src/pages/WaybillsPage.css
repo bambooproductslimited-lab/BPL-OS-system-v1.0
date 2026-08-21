@@ -21,6 +21,9 @@
 .waybills-items-label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 6px; }
 .waybills-items-table { margin-bottom: 10px; }
 .waybills-items-table input { min-width: 0; }
+.waybills-items-sn { width: 64px; }
+.waybills-items-desc-cell { min-width: 220px; }
+.waybills-items-catalog-picker { margin-bottom: 4px; font-size: 12px; }
 
 .waybills-section-title {
   font-size: 11px;

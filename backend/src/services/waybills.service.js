@@ -21,7 +21,7 @@ async function rowToWaybill(db, r, extra) {
     shippedToEmail: r.shipped_to_email, shippingDate: r.shipping_date, salesRepId: r.sales_rep_id,
     packagedBy: r.packaged_by, approvedBy: r.approved_by,
     status: r.status, notes: r.notes, createdAt: r.created_at, deliveredAt: r.delivered_at, items: items.map(function (it) {
-      return { description: it.description, qty: it.qty, unit: it.unit };
+      return { itemNo: it.itemNo, description: it.description, qty: it.qty, unit: it.unit };
     })
   }, extra || {});
 }
@@ -54,6 +54,10 @@ async function create(ctx, p) {
   var destination = V.text(p.destination, 'Destination', 160);
   var shippedToName = V.text(p.shippedToName, 'Shipped-to name', 120);
   var items = buildLineItems(p.items);
+  var rawItems = Array.isArray(p.items) ? p.items : [];
+  items = items.map(function (it, i) {
+    return Object.assign({}, it, { itemNo: String((rawItems[i] && rawItems[i].itemNo) || '').trim().slice(0, 40) });
+  });
 
   if (p.customerId) {
     var custRes = await pool.query('SELECT id FROM customers WHERE id = $1', [p.customerId]);
