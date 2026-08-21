@@ -38,6 +38,7 @@ import ReceiptsPage from './pages/ReceiptsPage';
 import QIOverviewPage from './pages/QIOverviewPage';
 import BillingSettingsPage from './pages/BillingSettingsPage';
 import MarketingDashboardPage from './pages/MarketingDashboardPage';
+import SocialTrackerPage from './pages/SocialTrackerPage';
 import SalesOrdersPage from './pages/SalesOrdersPage';
 import RolesPage from './pages/RolesPage';
 import UsersPage from './pages/UsersPage';
@@ -59,7 +60,7 @@ const BUILT_SCREENS = {
   expenses: ExpensesPage, reports: ReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
-  marketing: MarketingDashboardPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
+  marketing: MarketingDashboardPage, socialtracker: SocialTrackerPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
   audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {

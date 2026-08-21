@@ -271,6 +271,63 @@ async function run() {
       );
     }
 
+    console.log('Seeding social & campaign tracker demo data...');
+    var mktChannelDefs = [
+      { key: 'facebook', name: 'Facebook', kind: 'social', integrationKey: 'facebook', handle: 'facebook.com/bplghana' },
+      { key: 'instagram', name: 'Instagram', kind: 'social', integrationKey: 'instagram', handle: '@bplghana' },
+      { key: 'tiktok', name: 'TikTok', kind: 'social', integrationKey: 'tiktok', handle: '@bplghana' },
+      { key: 'whatsapp', name: 'WhatsApp Business', kind: 'social', integrationKey: 'whatsappbusiness', handle: '+233 59 193 3925' },
+      { key: 'website', name: 'Website', kind: 'web', integrationKey: 'googleanalytics', handle: 'www.bplghana.com' },
+      { key: 'thomasnet', name: 'ThomasNet', kind: 'directory', integrationKey: null, handle: 'thomasnet.com/bplghana' }
+    ];
+    var mktChannelIds = {};
+    for (i = 0; i < mktChannelDefs.length; i++) {
+      var mcd = mktChannelDefs[i];
+      mktChannelIds[mcd.key] = uuid();
+      await client.query(
+        'INSERT INTO marketing_channels (id, key, name, kind, integration_key, handle) VALUES ($1,$2,$3,$4,$5,$6)',
+        [mktChannelIds[mcd.key], mcd.key, mcd.name, mcd.kind, mcd.integrationKey, mcd.handle]
+      );
+    }
+
+    var mktCampaignId = uuid();
+    await client.query(
+      "INSERT INTO marketing_campaigns (id, name, description, start_date, end_date, status, created_by) VALUES ($1,$2,$3,$4,$5,'active',$6)",
+      [mktCampaignId, 'Bamboo Furniture Launch', 'Push for the new bamboo furniture line across social and the website.', relDate(-14), relDate(14), empIds.e_008]
+    );
+
+    var mktPostDefs = [
+      { channelKey: 'facebook', title: 'New bamboo bar stools', status: 'published', publishedOffset: -10, likes: 214, comments: 18, shares: 22, reach: 4300, impressions: 5100, clicks: 96, leads: 0 },
+      { channelKey: 'instagram', title: 'Bamboo furniture reel', status: 'published', publishedOffset: -8, likes: 512, comments: 41, shares: 63, reach: 8900, impressions: 11200, clicks: 210, leads: 0 },
+      { channelKey: 'tiktok', title: 'Workshop tour', status: 'published', publishedOffset: -5, likes: 1340, comments: 88, shares: 176, reach: 21000, impressions: 26000, clicks: 340, leads: 0 },
+      { channelKey: 'website', title: 'Furniture line landing page', status: 'published', publishedOffset: -14, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 640, leads: 12 },
+      { channelKey: 'instagram', title: 'Behind the scenes', status: 'scheduled', publishedOffset: 3, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 0, leads: 0 }
+    ];
+    for (i = 0; i < mktPostDefs.length; i++) {
+      var mpd = mktPostDefs[i];
+      var isPublished = mpd.status === 'published';
+      await client.query(
+        'INSERT INTO marketing_posts (channel_id, campaign_id, title, status, ' +
+        (isPublished ? 'published_at' : 'scheduled_at') + ', likes, comments, shares, reach, impressions, clicks, leads, created_by) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+        [mktChannelIds[mpd.channelKey], mktCampaignId, mpd.title, mpd.status, relDate(mpd.publishedOffset),
+          mpd.likes, mpd.comments, mpd.shares, mpd.reach, mpd.impressions, mpd.clicks, mpd.leads, empIds.e_008]
+      );
+    }
+
+    var mktStatsDefs = [
+      { channelKey: 'facebook', offset: -30, followers: 3120 }, { channelKey: 'facebook', offset: 0, followers: 3410 },
+      { channelKey: 'instagram', offset: -30, followers: 2480 }, { channelKey: 'instagram', offset: 0, followers: 2960 },
+      { channelKey: 'tiktok', offset: -30, followers: 1150 }, { channelKey: 'tiktok', offset: 0, followers: 1890 }
+    ];
+    for (i = 0; i < mktStatsDefs.length; i++) {
+      var msd = mktStatsDefs[i];
+      await client.query(
+        'INSERT INTO marketing_channel_stats (channel_id, captured_on, followers, created_by) VALUES ($1,$2,$3,$4)',
+        [mktChannelIds[msd.channelKey], relDate(msd.offset), msd.followers, empIds.e_008]
+      );
+    }
+
     console.log('Seeding company settings...');
     var s = defaultSettingsRow();
     await client.query(

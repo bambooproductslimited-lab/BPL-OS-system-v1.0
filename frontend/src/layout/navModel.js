@@ -51,6 +51,7 @@ export const NAV_GROUPS = [
   ] },
   { label: 'Insights', items: [
     { key: 'marketing', label: 'Marketing dashboard', perm: 'customer.read' },
+    { key: 'socialtracker', label: 'Social & campaign tracker', perm: 'marketing.read' },
     { key: 'salesorders', label: 'Sales orders', perm: 'sales.read' }
   ] },
   { label: 'Intelligence', items: [

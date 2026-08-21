@@ -74,7 +74,7 @@ async function ensurePermissionsAndRoles(client) {
 }
 
 async function ensureSettings(client) {
-  var existing = await client.query('SELECT id, commercial, payroll FROM settings WHERE id = 1');
+  var existing = await client.query('SELECT id, commercial, payroll, integrations FROM settings WHERE id = 1');
   if (existing.rows[0]) {
     // Additive sync only, same reasoning as ensurePermissionsAndRoles: a
     // later referenceData.js adding a new document type (e.g. 'waybill')
@@ -83,6 +83,7 @@ async function ensureSettings(client) {
     // Company Settings) must never be overwritten.
     var commercial = existing.rows[0].commercial;
     var payroll = existing.rows[0].payroll || {};
+    var integrations = existing.rows[0].integrations || [];
     var defaults = defaultSettingsRow();
     var changed = false;
     Object.keys(defaults.commercial.numbering).forEach(function (kind) {
@@ -98,9 +99,20 @@ async function ensureSettings(client) {
       payroll = defaults.payroll;
       payrollChanged = true;
     }
+    var integrationsChanged = false;
+    var knownIntegrationIds = {};
+    integrations.forEach(function (i) { knownIntegrationIds[i.id] = true; });
+    defaults.integrations.forEach(function (i) {
+      if (!knownIntegrationIds[i.id]) {
+        console.log('Adding new integration to the catalogue: ' + i.name);
+        integrations.push(i);
+        integrationsChanged = true;
+      }
+    });
     if (changed) await client.query('UPDATE settings SET commercial = $1 WHERE id = 1', [JSON.stringify(commercial)]);
     if (payrollChanged) await client.query('UPDATE settings SET payroll = $1 WHERE id = 1', [JSON.stringify(payroll)]);
-    if (!changed && !payrollChanged) console.log('Company settings row already present — skipping.');
+    if (integrationsChanged) await client.query('UPDATE settings SET integrations = $1 WHERE id = 1', [JSON.stringify(integrations)]);
+    if (!changed && !payrollChanged && !integrationsChanged) console.log('Company settings row already present — skipping.');
     return;
   }
   console.log('Inserting default company settings...');
@@ -138,6 +150,30 @@ async function ensureLeaveTypes(client) {
       console.log('Reactivating leave type: ' + t.name);
       await client.query('UPDATE leave_types SET active = true WHERE id = $1', [row.id]);
     }
+  }
+}
+
+var MARKETING_CHANNEL_DEFS = [
+  { key: 'facebook', name: 'Facebook', kind: 'social', integrationKey: 'facebook' },
+  { key: 'instagram', name: 'Instagram', kind: 'social', integrationKey: 'instagram' },
+  { key: 'tiktok', name: 'TikTok', kind: 'social', integrationKey: 'tiktok' },
+  { key: 'whatsapp', name: 'WhatsApp Business', kind: 'social', integrationKey: 'whatsappbusiness' },
+  { key: 'website', name: 'Website', kind: 'web', integrationKey: 'googleanalytics' },
+  // ThomasNet is a B2B directory listing, not a platform with a public
+  // analytics API — no integration_key to connect; inquiries/leads from it
+  // are logged manually like everything else here until that changes.
+  { key: 'thomasnet', name: 'ThomasNet', kind: 'directory', integrationKey: null }
+];
+
+async function ensureMarketingChannels(client) {
+  var existing = await client.query('SELECT key FROM marketing_channels');
+  var known = {};
+  existing.rows.forEach(function (r) { known[r.key] = true; });
+  for (var i = 0; i < MARKETING_CHANNEL_DEFS.length; i++) {
+    var c = MARKETING_CHANNEL_DEFS[i];
+    if (known[c.key]) continue;
+    console.log('Adding marketing channel: ' + c.name);
+    await client.query('INSERT INTO marketing_channels (key, name, kind, integration_key) VALUES ($1, $2, $3, $4)', [c.key, c.name, c.kind, c.integrationKey]);
   }
 }
 
@@ -196,6 +232,7 @@ async function run() {
     var roleIds = await ensurePermissionsAndRoles(client);
     await ensureSettings(client);
     await ensureLeaveTypes(client);
+    await ensureMarketingChannels(client);
     var deptId = await ensureAdminDepartment(client);
     await ensureAdminUser(client, deptId, roleIds);
   });
