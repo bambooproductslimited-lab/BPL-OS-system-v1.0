@@ -152,33 +152,44 @@ async function sync(ctx) {
   var videoCount = 0;
   var videoError = null;
   try {
-    var videoRes = await fetch(VIDEO_LIST_URL + '?fields=id,title,video_description,create_time,share_url,view_count,like_count,comment_count,share_count', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_count: 20 })
-    });
-    var videoData = await videoRes.json();
-    if (!videoRes.ok || (videoData.error && videoData.error.code && videoData.error.code !== 'ok')) {
-      throw new Error((videoData.error && (videoData.error.message || videoData.error.code)) || ('HTTP ' + videoRes.status));
-    }
-    var videos = (videoData.data && videoData.data.videos) || [];
+    var cursor = 0;
+    var hasMore = true;
+    var pagesFetched = 0;
+    // TikTok returns at most 20 videos per call; page through with the
+    // cursor it hands back until has_more is false. Capped at 50 pages
+    // (1000 videos) as a sanity limit against an API bug looping forever.
+    while (hasMore && pagesFetched < 50) {
+      var videoRes = await fetch(VIDEO_LIST_URL + '?fields=id,title,video_description,create_time,share_url,view_count,like_count,comment_count,share_count', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_count: 20, cursor: cursor })
+      });
+      var videoData = await videoRes.json();
+      if (!videoRes.ok || (videoData.error && videoData.error.code && videoData.error.code !== 'ok')) {
+        throw new Error((videoData.error && (videoData.error.message || videoData.error.code)) || ('HTTP ' + videoRes.status));
+      }
+      var videos = (videoData.data && videoData.data.videos) || [];
 
-    for (var i = 0; i < videos.length; i++) {
-      var v = videos[i];
-      var publishedAt = v.create_time ? new Date(v.create_time * 1000) : null;
-      await pool.query(
-        'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, published_at, status, likes, comments, shares, reach, source, created_by) ' +
-        "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,$9,$10,'synced',$11) " +
-        // idx_marketing_posts_channel_external is a partial unique index
-        // (WHERE external_id IS NOT NULL) — Postgres only matches a
-        // partial index as the ON CONFLICT arbiter if that same predicate
-        // is restated here; naming just the columns isn't enough.
-        'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, shares = $9, reach = $10, updated_at = now()',
-        [channelId, v.id, (v.title || v.video_description || 'TikTok video').slice(0, 160), (v.video_description || '').slice(0, 2000), v.share_url || '',
-          publishedAt, v.like_count || 0, v.comment_count || 0, v.share_count || 0, v.view_count || 0, ctx.employee.id]
-      );
+      for (var i = 0; i < videos.length; i++) {
+        var v = videos[i];
+        var publishedAt = v.create_time ? new Date(v.create_time * 1000) : null;
+        await pool.query(
+          'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, published_at, status, likes, comments, shares, reach, source, created_by) ' +
+          "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,$9,$10,'synced',$11) " +
+          // idx_marketing_posts_channel_external is a partial unique index
+          // (WHERE external_id IS NOT NULL) — Postgres only matches a
+          // partial index as the ON CONFLICT arbiter if that same predicate
+          // is restated here; naming just the columns isn't enough.
+          'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, shares = $9, reach = $10, updated_at = now()',
+          [channelId, v.id, (v.title || v.video_description || 'TikTok video').slice(0, 160), (v.video_description || '').slice(0, 2000), v.share_url || '',
+            publishedAt, v.like_count || 0, v.comment_count || 0, v.share_count || 0, v.view_count || 0, ctx.employee.id]
+        );
+      }
+      videoCount += videos.length;
+      pagesFetched++;
+      hasMore = !!(videoData.data && videoData.data.has_more);
+      cursor = (videoData.data && videoData.data.cursor) || cursor;
     }
-    videoCount = videos.length;
   } catch (err) {
     videoError = err.message;
     console.error('TikTok video sync failed:', err);
