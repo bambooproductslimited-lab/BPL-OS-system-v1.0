@@ -145,29 +145,43 @@ async function sync(ctx) {
     );
   }
 
-  var videoRes = await fetch(VIDEO_LIST_URL + '?fields=id,title,video_description,create_time,share_url,view_count,like_count,comment_count,share_count', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ max_count: 20 })
-  });
-  var videoData = await videoRes.json();
-  if (!videoRes.ok) fail('invalid', 'Could not read your TikTok videos.');
-  var videos = (videoData.data && videoData.data.videos) || [];
+  // Follower count is already saved above at this point — fetching/
+  // inserting videos is a separate, independently-failable step, so a
+  // problem here (bad scope, TikTok outage, unexpected response shape)
+  // must not turn an otherwise-successful follower sync into a 500.
+  var videoCount = 0;
+  var videoError = null;
+  try {
+    var videoRes = await fetch(VIDEO_LIST_URL + '?fields=id,title,video_description,create_time,share_url,view_count,like_count,comment_count,share_count', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_count: 20 })
+    });
+    var videoData = await videoRes.json();
+    if (!videoRes.ok || (videoData.error && videoData.error.code && videoData.error.code !== 'ok')) {
+      throw new Error((videoData.error && (videoData.error.message || videoData.error.code)) || ('HTTP ' + videoRes.status));
+    }
+    var videos = (videoData.data && videoData.data.videos) || [];
 
-  for (var i = 0; i < videos.length; i++) {
-    var v = videos[i];
-    var publishedAt = v.create_time ? new Date(v.create_time * 1000) : null;
-    await pool.query(
-      'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, published_at, status, likes, comments, shares, reach, source, created_by) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,$9,$10,'synced',$11) " +
-      'ON CONFLICT (channel_id, external_id) DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, shares = $9, reach = $10, updated_at = now()',
-      [channelId, v.id, (v.title || v.video_description || 'TikTok video').slice(0, 160), (v.video_description || '').slice(0, 2000), v.share_url || '',
-        publishedAt, v.like_count || 0, v.comment_count || 0, v.share_count || 0, v.view_count || 0, ctx.employee.id]
-    );
+    for (var i = 0; i < videos.length; i++) {
+      var v = videos[i];
+      var publishedAt = v.create_time ? new Date(v.create_time * 1000) : null;
+      await pool.query(
+        'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, published_at, status, likes, comments, shares, reach, source, created_by) ' +
+        "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,$9,$10,'synced',$11) " +
+        'ON CONFLICT (channel_id, external_id) DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, shares = $9, reach = $10, updated_at = now()',
+        [channelId, v.id, (v.title || v.video_description || 'TikTok video').slice(0, 160), (v.video_description || '').slice(0, 2000), v.share_url || '',
+          publishedAt, v.like_count || 0, v.comment_count || 0, v.share_count || 0, v.view_count || 0, ctx.employee.id]
+      );
+    }
+    videoCount = videos.length;
+  } catch (err) {
+    videoError = err.message;
+    console.error('TikTok video sync failed:', err);
   }
 
-  await audit(pool, ctx, 'marketing.tiktok.sync', 'marketing_channel', channelId, 'Synced ' + videos.length + ' TikTok video(s).');
-  return { synced: videos.length, followers: followerCount };
+  await audit(pool, ctx, 'marketing.tiktok.sync', 'marketing_channel', channelId, 'Synced ' + videoCount + ' TikTok video(s).');
+  return { synced: videoCount, followers: followerCount, videoError: videoError };
 }
 
 module.exports = { startAuth: startAuth, handleCallback: handleCallback, sync: sync };

@@ -170,7 +170,11 @@ export default function SocialTrackerPage() {
     setError(null);
     try {
       const r = await api.post('/marketing/tiktok/sync', {});
-      setToast('Synced ' + r.synced + ' TikTok video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      if (r.videoError) {
+        setToast('Synced followers (' + num(r.followers) + '), but video sync failed: ' + r.videoError);
+      } else {
+        setToast('Synced ' + r.synced + ' TikTok video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      }
       await loadAll();
     } catch (err) {
       setError(err.message);
