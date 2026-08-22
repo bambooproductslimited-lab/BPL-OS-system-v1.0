@@ -47,5 +47,8 @@ router.get('/ar-aging', async function (req, res, next) {
 router.get('/expense-detail', async function (req, res, next) {
   try { res.json(await reportsService.expenseDetail(req.ctx, req.query)); } catch (e) { next(e); }
 });
+router.get('/tax-summary', async function (req, res, next) {
+  try { res.json(await reportsService.taxSummary(req.ctx, req.query)); } catch (e) { next(e); }
+});
 
 module.exports = router;

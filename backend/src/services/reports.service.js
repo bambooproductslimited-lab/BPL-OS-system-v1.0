@@ -381,8 +381,80 @@ async function expenseDetail(ctx, params) {
   };
 }
 
+// kernel.js: handlers['reports.taxSummary']
+// Tax is recorded per line item as a plain percentage (document_line_items.
+// tax_rate) — there's no link back to which named tax (VAT/NHIL/GETFund/
+// WHT) was intended, since the line-item editor is a free-form % field,
+// not a picker tied to commercial.taxRates. This groups by the exact rate
+// found in the data and labels it with whichever configured tax(es) share
+// that same percentage — ambiguous when two taxes have the same rate
+// (e.g. NHIL and GETFund both default to 2.5%), which is disclosed via the
+// label rather than guessed at. Also cross-checks the sum of line-item tax
+// against each invoice's own recorded tax_total, since a document-level
+// tax rate (a separate, currently-unused code path in invoices.service.js)
+// would show up as a gap here rather than being silently missed.
+async function taxSummary(ctx, params) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var period = defaultPeriod(params);
+
+  var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
+  var taxRates = (settingsRes.rows[0].commercial && settingsRes.rows[0].commercial.taxRates) || [];
+  var nameByRate = {};
+  taxRates.forEach(function (t) {
+    var key = Number(t.rate).toFixed(3);
+    nameByRate[key] = nameByRate[key] ? nameByRate[key] + ' / ' + t.name : t.name;
+  });
+
+  var linesRes = await pool.query(
+    "SELECT li.tax_rate, li.qty, li.unit_price, li.discount, li.discount_type, i.id AS invoice_id " +
+    "FROM document_line_items li JOIN invoices i ON i.id = li.document_id " +
+    "WHERE li.document_type = 'invoice' AND i.status != 'void' AND i.issued_at BETWEEN $1 AND $2",
+    [period.from, period.to]
+  );
+
+  var byRate = {};
+  var totalTaxFromLineItems = 0;
+  linesRes.rows.forEach(function (r) {
+    var line = Number(r.qty) * Number(r.unit_price);
+    var lineDiscount = r.discount_type === 'percent' ? (line * Number(r.discount)) / 100 : Number(r.discount);
+    var afterDiscount = Math.max(0, line - lineDiscount);
+    var rate = Number(r.tax_rate);
+    var tax = (afterDiscount * rate) / 100;
+    var key = rate.toFixed(3);
+    if (!byRate[key]) byRate[key] = { rate: rate, taxableBase: 0, taxCollected: 0, invoiceIds: {} };
+    byRate[key].taxableBase += afterDiscount;
+    byRate[key].taxCollected += tax;
+    byRate[key].invoiceIds[r.invoice_id] = true;
+    totalTaxFromLineItems += tax;
+  });
+
+  var recordedRes = await pool.query(
+    "SELECT coalesce(sum(tax_total),0) AS s FROM invoices WHERE status != 'void' AND issued_at BETWEEN $1 AND $2",
+    [period.from, period.to]
+  );
+  var recordedTaxTotal = Number(recordedRes.rows[0].s);
+
+  var byRateArr = Object.keys(byRate)
+    .sort(function (a, b) { return Number(b) - Number(a); })
+    .map(function (key) {
+      var r = byRate[key];
+      return {
+        rate: r.rate, label: nameByRate[key] || (r.rate === 0 ? 'Zero-rated / no tax' : 'Custom (' + r.rate + '%)'),
+        taxableBase: Math.round(r.taxableBase * 100) / 100, taxCollected: Math.round(r.taxCollected * 100) / 100,
+        invoiceCount: Object.keys(r.invoiceIds).length
+      };
+    });
+
+  return {
+    from: period.from, to: period.to, byRate: byRateArr,
+    totalTaxFromLineItems: Math.round(totalTaxFromLineItems * 100) / 100,
+    recordedTaxTotal: recordedTaxTotal,
+    reconciliationDiff: Math.round((recordedTaxTotal - totalTaxFromLineItems) * 100) / 100
+  };
+}
+
 module.exports = {
   summary: summary, marketingDashboard: marketingDashboard, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
   profitAndLoss: profitAndLoss, cashFlow: cashFlow, balanceSheet: balanceSheet, arAging: arAging, expenseDetail: expenseDetail,
-  getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs
+  getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs, taxSummary: taxSummary
 };

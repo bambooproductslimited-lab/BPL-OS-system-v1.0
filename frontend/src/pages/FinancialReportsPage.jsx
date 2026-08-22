@@ -17,9 +17,10 @@ const TABS = [
   { key: 'cashflow', label: 'Cash Flow' },
   { key: 'balancesheet', label: 'Balance Sheet' },
   { key: 'araging', label: 'AR Aging' },
-  { key: 'expensedetail', label: 'Expense Detail' }
+  { key: 'expensedetail', label: 'Expense Detail' },
+  { key: 'taxsummary', label: 'Tax Summary' }
 ];
-const PERIOD_TABS = { pnl: true, cashflow: true, expensedetail: true };
+const PERIOD_TABS = { pnl: true, cashflow: true, expensedetail: true, taxsummary: true };
 const BUCKET_LABELS = { current: 'Current', d1_30: '1–30 days', d31_60: '31–60 days', d61_90: '61–90 days', d90_plus: '90+ days' };
 
 function fmtDate(iso) {
@@ -47,6 +48,7 @@ export default function FinancialReportsPage() {
   const [balanceSheet, setBalanceSheet] = useState(null);
   const [arAging, setArAging] = useState(null);
   const [expenseDetail, setExpenseDetail] = useState(null);
+  const [taxSummary, setTaxSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -61,14 +63,15 @@ export default function FinancialReportsPage() {
     setError(null);
     try {
       const qs = '?from=' + from + '&to=' + to;
-      const [p, c, b, a, e] = await Promise.all([
+      const [p, c, b, a, e, t] = await Promise.all([
         api.get('/reports/pnl' + qs),
         api.get('/reports/cashflow' + qs),
         api.get('/reports/balance-sheet'),
         api.get('/reports/ar-aging'),
-        api.get('/reports/expense-detail' + qs)
+        api.get('/reports/expense-detail' + qs),
+        api.get('/reports/tax-summary' + qs)
       ]);
-      setPnl(p); setCashFlow(c); setBalanceSheet(b); setArAging(a); setExpenseDetail(e);
+      setPnl(p); setCashFlow(c); setBalanceSheet(b); setArAging(a); setExpenseDetail(e); setTaxSummary(t);
       setBsForm({
         cashAndBank: b.manualInputs.cashAndBank, accountsPayable: b.manualInputs.accountsPayable,
         loansPayable: b.manualInputs.loansPayable, otherLiabilities: b.manualInputs.otherLiabilities,
@@ -183,6 +186,20 @@ export default function FinancialReportsPage() {
     ];
     downloadCsv('ar-aging-' + arAging.asOf + '.csv', rowsToCsv(rows));
   }
+  function exportTaxSummaryCsv() {
+    if (!taxSummary) return;
+    const rows = [
+      ['Tax Summary', from + ' to ' + to],
+      [],
+      ['Rate', 'Tax(es)', 'Taxable base (GHS)', 'Tax collected (GHS)', 'Invoices'],
+      ...taxSummary.byRate.map((r) => [r.rate + '%', r.label, r.taxableBase, r.taxCollected, r.invoiceCount]),
+      [],
+      ['Total tax (from line items)', taxSummary.totalTaxFromLineItems],
+      ['Total tax (recorded on invoices)', taxSummary.recordedTaxTotal],
+      ['Reconciliation difference', taxSummary.reconciliationDiff]
+    ];
+    downloadCsv('tax-summary-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
+  }
   function exportExpenseDetailCsv() {
     if (!expenseDetail) return;
     const rows = [
@@ -232,6 +249,7 @@ export default function FinancialReportsPage() {
           {tab === 'balancesheet' && <button type="button" className="btn btn-secondary" onClick={exportBalanceSheetCsv}>Download CSV</button>}
           {tab === 'araging' && <button type="button" className="btn btn-secondary" onClick={exportArAgingCsv}>Download CSV</button>}
           {tab === 'expensedetail' && <button type="button" className="btn btn-secondary" onClick={exportExpenseDetailCsv}>Download CSV</button>}
+          {tab === 'taxsummary' && <button type="button" className="btn btn-secondary" onClick={exportTaxSummaryCsv}>Download CSV</button>}
         </div>
       </div>
 
@@ -401,6 +419,32 @@ export default function FinancialReportsPage() {
               </tbody>
             </table>
             {!expenseDetail.items.length && <p className="table-empty">No expenses recognized in this period.</p>}
+          </div>
+        )}
+
+        {tab === 'taxsummary' && taxSummary && (
+          <div>
+            <p className="finreport-tax-note">
+              Grouped by the exact tax rate found on each invoice line — where two configured taxes share a rate
+              (e.g. NHIL and GETFund both default to 2.5%), the label shows both rather than guessing which applies.
+            </p>
+            <table className="table">
+              <thead><tr><th>Rate</th><th>Tax(es)</th><th>Taxable base</th><th>Tax collected</th><th>Invoices</th></tr></thead>
+              <tbody>
+                {taxSummary.byRate.map((r) => (
+                  <tr key={r.rate}>
+                    <td>{r.rate}%</td><td>{r.label}</td><td>{money(r.taxableBase)}</td><td>{money(r.taxCollected)}</td><td>{r.invoiceCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!taxSummary.byRate.length && <p className="table-empty">No invoices issued in this period.</p>}
+
+            <div className={'finreport-balance-banner' + (Math.abs(taxSummary.reconciliationDiff) < 0.01 ? ' finreport-balanced' : ' finreport-unbalanced')} style={{ marginTop: 16 }}>
+              {Math.abs(taxSummary.reconciliationDiff) < 0.01
+                ? 'Reconciled — line-item tax matches each invoice’s recorded total.'
+                : 'Off by ' + money(Math.abs(taxSummary.reconciliationDiff)) + ' vs. invoices’ recorded tax totals — likely a document-level tax rate applied outside the line items.'}
+            </div>
           </div>
         )}
       </div>
