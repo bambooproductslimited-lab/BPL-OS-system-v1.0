@@ -18,7 +18,12 @@ var config = require('../config');
 
 var GRAPH = 'https://graph.facebook.com/v21.0';
 var AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth';
-var SCOPES = 'pages_show_list,pages_read_engagement,read_insights,instagram_basic,instagram_manage_insights';
+// read_insights isn't requested — this app only reads fan_count and posts
+// (both covered by pages_read_engagement, whose own permission description
+// includes Page insights), never a dedicated Page Insights endpoint. Newer
+// Graph API versions appear to have folded standalone Page insight access
+// into pages_read_engagement rather than keeping read_insights separate.
+var SCOPES = 'pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_insights';
 var PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 
 function requireManage(ctx) {
