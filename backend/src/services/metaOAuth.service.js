@@ -103,30 +103,7 @@ async function loadPending(pendingToken) {
 
 async function fetchPages(userAccessToken) {
   var data = await graphGet('/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&limit=100', userAccessToken);
-  var pages = data.data || [];
-  if (!pages.length) {
-    // TEMPORARY diagnostic (see conversation) — /me/accounts came back
-    // empty despite the user granting Page access in the consent screen,
-    // and being confirmed Full control on the Page in Business Settings.
-    // Testing whether tokens from Facebook Login for Business need Page
-    // access enumerated through the Business Portfolio itself instead of
-    // /me/accounts (which may only reflect classic, non-Business-managed
-    // Page roles).
-    var businesses = await graphGet('/me/businesses?fields=id,name', userAccessToken).catch(function (e) { return { error: e.message }; });
-    var ownedPagesByBusiness = [];
-    if (businesses && businesses.data) {
-      for (var i = 0; i < businesses.data.length; i++) {
-        var biz = businesses.data[i];
-        var owned = await graphGet('/' + biz.id + '/owned_pages?fields=id,name,access_token,instagram_business_account{id,username}&limit=100', userAccessToken).catch(function (e) { return { error: e.message }; });
-        ownedPagesByBusiness.push({ business: biz, owned: owned });
-      }
-    }
-    var me = await graphGet('/me?fields=id,name', userAccessToken).catch(function (e) { return { error: e.message }; });
-    var perms = await graphGet('/me/permissions', userAccessToken).catch(function (e) { return { error: e.message }; });
-    fail('invalid', 'DEBUG: /me/accounts returned 0 pages. Identity: ' + JSON.stringify(me) + '. Granted permissions: ' + JSON.stringify(perms) +
-      '. Raw accounts response: ' + JSON.stringify(data) + '. Businesses: ' + JSON.stringify(businesses) + '. Owned pages by business: ' + JSON.stringify(ownedPagesByBusiness));
-  }
-  return pages;
+  return data.data || [];
 }
 
 // metaOAuth.listPages — for the frontend's "choose a Page" step. Never
