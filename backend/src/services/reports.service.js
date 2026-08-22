@@ -1,5 +1,6 @@
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
+var { audit } = require('../utils/audit');
 var quotationsService = require('./quotations.service');
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -192,4 +193,196 @@ async function commercialDashboard(ctx) {
   };
 }
 
-module.exports = { summary: summary, marketingDashboard: marketingDashboard, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard };
+// ── Financial Reports ────────────────────────────────────────────────────
+// Built entirely from existing transactional tables (invoices, payments,
+// expenses, payslips, products, assets) — there's no general ledger, so
+// "approved"/"paid" expense and pay-run statuses are treated as the
+// recognized-expense moment throughout, matching the convention the rest
+// of this file already uses (see financeDashboard above).
+
+function requireReportManage(ctx) {
+  if (!ctx.can('report.manage')) fail('forbidden', 'Your role does not allow this action (report.manage).');
+}
+
+function defaultPeriod(params) {
+  var to = (params && params.to) || todayISO();
+  var from = (params && params.from) || (to.slice(0, 8) + '01'); // month-to-date by default
+  return { from: from, to: to };
+}
+
+// kernel.js: handlers['reports.profitAndLoss']
+async function profitAndLoss(ctx, params) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var period = defaultPeriod(params);
+
+  var revRes = await pool.query(
+    "SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'void' AND issued_at BETWEEN $1 AND $2",
+    [period.from, period.to]
+  );
+  var expByCatRes = await pool.query(
+    "SELECT category, sum(amount) AS amount FROM expenses WHERE status IN ('approved','paid') AND date BETWEEN $1 AND $2 GROUP BY category ORDER BY amount DESC",
+    [period.from, period.to]
+  );
+  var payrollRes = await pool.query(
+    "SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id " +
+    "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $1 AND $2",
+    [period.from, period.to]
+  );
+
+  var revenue = Number(revRes.rows[0].s);
+  var expenseByCategory = expByCatRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; });
+  var totalExpenses = expenseByCategory.reduce(function (s, r) { return s + r.amount; }, 0);
+  var payrollCost = Number(payrollRes.rows[0].s);
+
+  return {
+    from: period.from, to: period.to,
+    revenue: revenue, expenseByCategory: expenseByCategory, totalExpenses: totalExpenses,
+    payrollCost: payrollCost, totalCosts: totalExpenses + payrollCost,
+    netProfit: revenue - totalExpenses - payrollCost
+  };
+}
+
+// kernel.js: handlers['reports.cashFlow']
+async function cashFlow(ctx, params) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var period = defaultPeriod(params);
+
+  var cashInRes = await pool.query('SELECT coalesce(sum(amount),0) AS s FROM payments WHERE date BETWEEN $1 AND $2', [period.from, period.to]);
+  var expensesOutRes = await pool.query(
+    "SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid') AND date BETWEEN $1 AND $2",
+    [period.from, period.to]
+  );
+  var payrollOutRes = await pool.query(
+    "SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id " +
+    "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $1 AND $2",
+    [period.from, period.to]
+  );
+  var byMethodRes = await pool.query(
+    'SELECT method, sum(amount) AS s FROM payments WHERE date BETWEEN $1 AND $2 GROUP BY method ORDER BY s DESC',
+    [period.from, period.to]
+  );
+
+  var cashIn = Number(cashInRes.rows[0].s);
+  var expensesOut = Number(expensesOutRes.rows[0].s);
+  var payrollOut = Number(payrollOutRes.rows[0].s);
+  var cashOut = expensesOut + payrollOut;
+
+  return {
+    from: period.from, to: period.to,
+    cashIn: cashIn, cashInByMethod: byMethodRes.rows.map(function (r) { return { method: r.method, amount: Number(r.s) }; }),
+    expensesOut: expensesOut, payrollOut: payrollOut, cashOut: cashOut,
+    netCashFlow: cashIn - cashOut
+  };
+}
+
+// kernel.js: handlers['reports.balanceSheet']
+async function balanceSheet(ctx) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var manualRes = await pool.query('SELECT balance_sheet FROM settings WHERE id = 1');
+  var manual = manualRes.rows[0].balance_sheet || {};
+
+  var arRes = await pool.query("SELECT coalesce(sum(balance_due),0) AS s FROM invoices WHERE status != 'void' AND balance_due > 0");
+  var invRes = await pool.query('SELECT coalesce(sum(cost_price * current_stock),0) AS s FROM products');
+  var assetsRes = await pool.query('SELECT coalesce(sum(purchase_price),0) AS s FROM assets');
+  var revRes = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'void'");
+  var expRes = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid')");
+  var payrollRes = await pool.query("SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id WHERE pr.status IN ('approved','paid')");
+
+  var cashAndBank = Number(manual.cashAndBank || 0);
+  var accountsReceivable = Number(arRes.rows[0].s);
+  var inventoryValue = Number(invRes.rows[0].s);
+  var fixedAssets = Number(assetsRes.rows[0].s);
+  var totalAssets = cashAndBank + accountsReceivable + inventoryValue + fixedAssets;
+
+  var accountsPayable = Number(manual.accountsPayable || 0);
+  var loansPayable = Number(manual.loansPayable || 0);
+  var otherLiabilities = Number(manual.otherLiabilities || 0);
+  var totalLiabilities = accountsPayable + loansPayable + otherLiabilities;
+
+  // Retained earnings = all-time net profit, the same recognition rules as
+  // profitAndLoss() above but with no date bound (since inception).
+  var retainedEarnings = Number(revRes.rows[0].s) - Number(expRes.rows[0].s) - Number(payrollRes.rows[0].s);
+  var ownersEquity = Number(manual.ownersEquity || 0);
+  var totalEquity = ownersEquity + retainedEarnings;
+
+  return {
+    asOf: todayISO(),
+    assets: { cashAndBank: cashAndBank, accountsReceivable: accountsReceivable, inventoryValue: inventoryValue, fixedAssets: fixedAssets, total: totalAssets },
+    liabilities: { accountsPayable: accountsPayable, loansPayable: loansPayable, otherLiabilities: otherLiabilities, total: totalLiabilities },
+    equity: { ownersEquity: ownersEquity, retainedEarnings: retainedEarnings, total: totalEquity },
+    // Zero when the manual inputs (cash & bank, above all) are accurate; a
+    // nonzero balanceCheck is a live prompt to correct them, since cash is
+    // this system's usual "plug" figure absent a real cash book.
+    balanceCheck: totalAssets - (totalLiabilities + totalEquity),
+    manualInputs: { cashAndBank: cashAndBank, accountsPayable: accountsPayable, loansPayable: loansPayable, otherLiabilities: otherLiabilities, ownersEquity: ownersEquity, notes: manual.notes || '' }
+  };
+}
+
+// kernel.js: handlers['reports.balanceSheetInputs.get']
+async function getBalanceSheetInputs(ctx) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var res = await pool.query('SELECT balance_sheet FROM settings WHERE id = 1');
+  return res.rows[0].balance_sheet || {};
+}
+
+// kernel.js: handlers['reports.balanceSheetInputs.save']
+async function saveBalanceSheetInputs(ctx, p) {
+  requireReportManage(ctx);
+  var res = await pool.query('SELECT balance_sheet FROM settings WHERE id = 1');
+  var current = res.rows[0].balance_sheet || {};
+  ['cashAndBank', 'accountsPayable', 'loansPayable', 'otherLiabilities', 'ownersEquity'].forEach(function (f) {
+    if (p[f] !== undefined) current[f] = Number(p[f]) || 0;
+  });
+  if (p.notes !== undefined) current.notes = String(p.notes).slice(0, 2000);
+  await pool.query('UPDATE settings SET balance_sheet = $1, updated_at = now() WHERE id = 1', [JSON.stringify(current)]);
+  await audit(pool, ctx, 'report.balanceSheetInputs', 'settings', 'balance_sheet', 'Updated balance sheet manual inputs.');
+  return current;
+}
+
+// kernel.js: handlers['reports.arAging']
+async function arAging(ctx) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var t = todayISO();
+  var res = await pool.query(
+    "SELECT i.invoice_no, i.balance_due, i.due_date, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id " +
+    "WHERE i.status != 'void' AND i.balance_due > 0 ORDER BY i.due_date NULLS LAST"
+  );
+  var buckets = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90_plus: 0 };
+  var rows = res.rows.map(function (r) {
+    var daysOverdue = r.due_date ? Math.floor((new Date(t) - new Date(r.due_date)) / 86400000) : -1;
+    var bucket = daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? 'd1_30' : daysOverdue <= 60 ? 'd31_60' : daysOverdue <= 90 ? 'd61_90' : 'd90_plus';
+    buckets[bucket] += Number(r.balance_due);
+    return { invoiceNo: r.invoice_no, customerName: r.customer_name, balanceDue: Number(r.balance_due), dueDate: r.due_date, daysOverdue: Math.max(0, daysOverdue), bucket: bucket };
+  });
+  return { asOf: t, invoices: rows, buckets: buckets, total: rows.reduce(function (s, r) { return s + r.balanceDue; }, 0) };
+}
+
+// kernel.js: handlers['reports.expenseDetail']
+async function expenseDetail(ctx, params) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var period = defaultPeriod(params);
+  var res = await pool.query(
+    "SELECT e.category, e.amount, e.date, e.description, e.status, emp.first_name, emp.last_name, d.name AS dept_name " +
+    "FROM expenses e JOIN employees emp ON emp.id = e.requester_id JOIN departments d ON d.id = e.department_id " +
+    "WHERE e.status IN ('approved','paid') AND e.date BETWEEN $1 AND $2 ORDER BY e.date DESC",
+    [period.from, period.to]
+  );
+  var byCategory = {}, byDept = {};
+  var rows = res.rows.map(function (r) {
+    byCategory[r.category] = (byCategory[r.category] || 0) + Number(r.amount);
+    byDept[r.dept_name] = (byDept[r.dept_name] || 0) + Number(r.amount);
+    return { category: r.category, amount: Number(r.amount), date: r.date, description: r.description, requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name };
+  });
+  return {
+    from: period.from, to: period.to, items: rows,
+    total: rows.reduce(function (s, r) { return s + r.amount; }, 0),
+    byCategory: Object.keys(byCategory).map(function (k) { return { category: k, amount: byCategory[k] }; }).sort(function (a, b) { return b.amount - a.amount; }),
+    byDepartment: Object.keys(byDept).map(function (k) { return { department: k, amount: byDept[k] }; }).sort(function (a, b) { return b.amount - a.amount; })
+  };
+}
+
+module.exports = {
+  summary: summary, marketingDashboard: marketingDashboard, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
+  profitAndLoss: profitAndLoss, cashFlow: cashFlow, balanceSheet: balanceSheet, arAging: arAging, expenseDetail: expenseDetail,
+  getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs
+};

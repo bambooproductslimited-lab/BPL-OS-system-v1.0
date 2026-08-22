@@ -74,7 +74,7 @@ async function ensurePermissionsAndRoles(client) {
 }
 
 async function ensureSettings(client) {
-  var existing = await client.query('SELECT id, commercial, payroll, integrations FROM settings WHERE id = 1');
+  var existing = await client.query('SELECT id, commercial, payroll, integrations, balance_sheet FROM settings WHERE id = 1');
   if (existing.rows[0]) {
     // Additive sync only, same reasoning as ensurePermissionsAndRoles: a
     // later referenceData.js adding a new document type (e.g. 'waybill')
@@ -109,18 +109,26 @@ async function ensureSettings(client) {
         integrationsChanged = true;
       }
     });
+    var balanceSheet = existing.rows[0].balance_sheet || {};
+    var balanceSheetChanged = false;
+    if (!Object.prototype.hasOwnProperty.call(balanceSheet, 'cashAndBank')) {
+      console.log('Adding default balance sheet manual inputs (all zero — set real figures from Financial Reports).');
+      balanceSheet = defaults.balanceSheet;
+      balanceSheetChanged = true;
+    }
     if (changed) await client.query('UPDATE settings SET commercial = $1 WHERE id = 1', [JSON.stringify(commercial)]);
     if (payrollChanged) await client.query('UPDATE settings SET payroll = $1 WHERE id = 1', [JSON.stringify(payroll)]);
     if (integrationsChanged) await client.query('UPDATE settings SET integrations = $1 WHERE id = 1', [JSON.stringify(integrations)]);
-    if (!changed && !payrollChanged && !integrationsChanged) console.log('Company settings row already present — skipping.');
+    if (balanceSheetChanged) await client.query('UPDATE settings SET balance_sheet = $1 WHERE id = 1', [JSON.stringify(balanceSheet)]);
+    if (!changed && !payrollChanged && !integrationsChanged && !balanceSheetChanged) console.log('Company settings row already present — skipping.');
     return;
   }
   console.log('Inserting default company settings...');
   var s = defaultSettingsRow();
   await client.query(
-    'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial, payroll) ' +
-    'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
-    [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll)]
+    'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial, payroll, balance_sheet) ' +
+    'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)',
+    [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll), JSON.stringify(s.balanceSheet)]
   );
 }
 

@@ -63,6 +63,7 @@ var PERMISSIONS = [
   { key: 'expense.approve', group: 'Finance', label: 'Approve expense claims' },
   { key: 'expense.read.all', group: 'Finance', label: 'View all expenses' },
   { key: 'report.read', group: 'Finance', label: 'View financial & operations reports' },
+  { key: 'report.manage', group: 'Finance', label: 'Edit balance sheet manual inputs (cash, loans, equity)' },
   { key: 'catalog.read', group: 'Commercial', label: 'View products & services catalogue' },
   { key: 'catalog.manage', group: 'Commercial', label: 'Manage products & services catalogue' },
   { key: 'marketing.read', group: 'Marketing', label: 'View the social & campaign tracker' },
@@ -79,10 +80,10 @@ var ROLE_DEFS = [
   { key: 'supervisor', name: 'Line Supervisor', description: 'Shift-floor supervision: attendance visibility and task assignment.', permissions: ['employee.read', 'attendance.self', 'attendance.read.all', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'catalog.read', 'customer.read', 'quotation.read', 'sales.read', 'expense.request', 'production.read', 'inventory.read', 'asset.read', 'waybill.read', 'toolroom.read'] },
   { key: 'employee', name: 'Employee', description: 'Self-service only: own record, attendance, leave and tasks.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'project.read', 'document.read', 'expense.request', 'procurement.request'] },
   { key: 'marketing_manager', name: 'Marketing Manager', description: 'Owns customers, quotations, sales pipeline and marketing insights.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'customer.read', 'customer.manage', 'quotation.read', 'quotation.manage', 'sales.read', 'sales.manage', 'catalog.read', 'report.read', 'marketing.read', 'marketing.manage'] },
-  { key: 'finance_manager', name: 'Finance Manager', description: 'Owns invoicing, payments, expense approvals and financial reporting.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'project.read', 'document.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'procurement.approve', 'settings.manage', 'payroll.read', 'payroll.manage'] },
+  { key: 'finance_manager', name: 'Finance Manager', description: 'Owns invoicing, payments, expense approvals and financial reporting.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'project.read', 'document.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'report.manage', 'procurement.approve', 'settings.manage', 'payroll.read', 'payroll.manage'] },
   { key: 'customer_service_manager', name: 'Customer Service Manager', description: 'Owns customer relationships and order/service follow-up.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'customer.read', 'customer.manage', 'quotation.read', 'sales.read', 'invoice.read'] },
   { key: 'it_manager', name: 'IT Manager', description: 'Owns company assets, user accounts and system administration support.', permissions: ['employee.read', 'attendance.self', 'leave.request', 'task.read', 'task.manage', 'project.read', 'document.read', 'document.manage', 'asset.read', 'asset.manage', 'user.manage', 'audit.read', 'catalog.read', 'itdevice.read', 'itdevice.manage'] },
-  { key: 'finance_hr_manager', name: 'Finance & HR Manager', description: 'Combined Finance Manager and HR Manager responsibilities.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'department.manage', 'user.manage', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'announcement.publish', 'document.read', 'document.manage', 'audit.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'procurement.approve', 'settings.manage', 'payroll.read', 'payroll.manage'] },
+  { key: 'finance_hr_manager', name: 'Finance & HR Manager', description: 'Combined Finance Manager and HR Manager responsibilities.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'department.manage', 'user.manage', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'announcement.publish', 'document.read', 'document.manage', 'audit.read', 'invoice.read', 'invoice.manage', 'expense.request', 'expense.approve', 'expense.read.all', 'report.read', 'report.manage', 'procurement.approve', 'settings.manage', 'payroll.read', 'payroll.manage'] },
   { key: 'general_manager', name: 'General Manager', description: 'Company-wide operational oversight across all departments — broader than a department manager, more hands-on than the MD.', permissions: ['employee.read', 'employee.read.all', 'employee.write', 'attendance.self', 'attendance.read.all', 'attendance.adjust', 'leave.request', 'leave.read.all', 'leave.approve', 'approval.act', 'task.read', 'task.manage', 'project.read', 'project.manage', 'announcement.publish', 'document.read', 'document.manage', 'production.read', 'inventory.read', 'supplier.read', 'procurement.approve', 'asset.read', 'customer.read', 'quotation.read', 'sales.read', 'invoice.read', 'expense.approve', 'expense.read.all', 'report.read', 'audit.read', 'catalog.read', 'waybill.read', 'toolroom.read', 'itdevice.read', 'payroll.read', 'marketing.read'] }
 ];
 
@@ -163,12 +164,22 @@ function defaultPayroll() {
   };
 }
 
+// Manual inputs for the Balance Sheet's Cash & bank / Liabilities / Equity
+// lines — there's no general ledger or cash book in this system, so these
+// can't be computed from transactional data the way Accounts Receivable,
+// inventory value and fixed assets (at cost) are. Finance enters/updates
+// these from Company Settings; everything else on the Balance Sheet is
+// computed live. See reports.service.js's balanceSheet().
+function defaultBalanceSheet() {
+  return { cashAndBank: 0, accountsPayable: 0, loansPayable: 0, otherLiabilities: 0, ownersEquity: 0, notes: '' };
+}
+
 function defaultSettingsRow() {
   return {
     companyName: 'Bamboo Products Limited', shortName: 'BPL', country: 'Ghana', currency: 'GHS',
     timezone: 'Africa/Accra', fiscalYearStart: '01-01', workWeek: 'Mon–Sat', standardHours: 8, lateAfter: '07:20',
     plants: ['Tema Plant', 'Accra Office'], leaveApprovalChain: ['department_manager', 'hr_manager'],
-    integrations: defaultIntegrations(), commercial: defaultCommercial(), payroll: defaultPayroll()
+    integrations: defaultIntegrations(), commercial: defaultCommercial(), payroll: defaultPayroll(), balanceSheet: defaultBalanceSheet()
   };
 }
 

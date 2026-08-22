@@ -359,9 +359,9 @@ async function run() {
     console.log('Seeding company settings...');
     var s = defaultSettingsRow();
     await client.query(
-      'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial, payroll) ' +
-      'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
-      [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll)]
+      'INSERT INTO settings (id, company_name, short_name, country, currency, timezone, fiscal_year_start, work_week, standard_hours, late_after, plants, leave_approval_chain, integrations, commercial, payroll, balance_sheet) ' +
+      'VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)',
+      [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll), JSON.stringify(s.balanceSheet)]
     );
 
     console.log('Writing seed audit log entry...');

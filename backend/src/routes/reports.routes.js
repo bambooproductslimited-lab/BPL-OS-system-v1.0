@@ -25,4 +25,27 @@ router.get('/commercial', async function (req, res, next) {
   try { res.json(await reportsService.commercialDashboard(req.ctx)); } catch (e) { next(e); }
 });
 
+// ── Financial Reports ──
+router.get('/pnl', async function (req, res, next) {
+  try { res.json(await reportsService.profitAndLoss(req.ctx, req.query)); } catch (e) { next(e); }
+});
+router.get('/cashflow', async function (req, res, next) {
+  try { res.json(await reportsService.cashFlow(req.ctx, req.query)); } catch (e) { next(e); }
+});
+router.get('/balance-sheet', async function (req, res, next) {
+  try { res.json(await reportsService.balanceSheet(req.ctx)); } catch (e) { next(e); }
+});
+router.get('/balance-sheet/inputs', async function (req, res, next) {
+  try { res.json(await reportsService.getBalanceSheetInputs(req.ctx)); } catch (e) { next(e); }
+});
+router.patch('/balance-sheet/inputs', async function (req, res, next) {
+  try { res.json(await reportsService.saveBalanceSheetInputs(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.get('/ar-aging', async function (req, res, next) {
+  try { res.json(await reportsService.arAging(req.ctx)); } catch (e) { next(e); }
+});
+router.get('/expense-detail', async function (req, res, next) {
+  try { res.json(await reportsService.expenseDetail(req.ctx, req.query)); } catch (e) { next(e); }
+});
+
 module.exports = router;
