@@ -23,7 +23,10 @@ var AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth';
 // includes Page insights), never a dedicated Page Insights endpoint. Newer
 // Graph API versions appear to have folded standalone Page insight access
 // into pages_read_engagement rather than keeping read_insights separate.
-var SCOPES = 'pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_insights';
+// business_management is temporary, for the /me/businesses diagnostic
+// below — drop it once the actual page-enumeration path is confirmed and
+// this app doesn't otherwise need broad business-asset management access.
+var SCOPES = 'pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_insights,business_management';
 var PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 
 function requireManage(ctx) {
@@ -103,12 +106,25 @@ async function fetchPages(userAccessToken) {
   var pages = data.data || [];
   if (!pages.length) {
     // TEMPORARY diagnostic (see conversation) — /me/accounts came back
-    // empty despite the user granting Page access in the consent screen.
-    // Surface what the token actually reports instead of a silent empty
-    // state, since there's no other way to see Render's server logs here.
+    // empty despite the user granting Page access in the consent screen,
+    // and being confirmed Full control on the Page in Business Settings.
+    // Testing whether tokens from Facebook Login for Business need Page
+    // access enumerated through the Business Portfolio itself instead of
+    // /me/accounts (which may only reflect classic, non-Business-managed
+    // Page roles).
+    var businesses = await graphGet('/me/businesses?fields=id,name', userAccessToken).catch(function (e) { return { error: e.message }; });
+    var ownedPagesByBusiness = [];
+    if (businesses && businesses.data) {
+      for (var i = 0; i < businesses.data.length; i++) {
+        var biz = businesses.data[i];
+        var owned = await graphGet('/' + biz.id + '/owned_pages?fields=id,name,access_token,instagram_business_account{id,username}&limit=100', userAccessToken).catch(function (e) { return { error: e.message }; });
+        ownedPagesByBusiness.push({ business: biz, owned: owned });
+      }
+    }
     var me = await graphGet('/me?fields=id,name', userAccessToken).catch(function (e) { return { error: e.message }; });
     var perms = await graphGet('/me/permissions', userAccessToken).catch(function (e) { return { error: e.message }; });
-    fail('invalid', 'DEBUG: /me/accounts returned 0 pages. Identity: ' + JSON.stringify(me) + '. Granted permissions: ' + JSON.stringify(perms) + '. Raw accounts response: ' + JSON.stringify(data));
+    fail('invalid', 'DEBUG: /me/accounts returned 0 pages. Identity: ' + JSON.stringify(me) + '. Granted permissions: ' + JSON.stringify(perms) +
+      '. Raw accounts response: ' + JSON.stringify(data) + '. Businesses: ' + JSON.stringify(businesses) + '. Owned pages by business: ' + JSON.stringify(ownedPagesByBusiness));
   }
   return pages;
 }
