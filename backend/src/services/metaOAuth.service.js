@@ -245,8 +245,13 @@ async function syncFacebook(ctx) {
   }
 
   try {
+    // `shares` is a restricted field on Page posts in current Graph API
+    // versions — requesting it alongside the rest throws a permission
+    // error (#10) for the whole call rather than omitting just that
+    // field, so it's left out; share counts aren't shown for Facebook
+    // posts as a result (Instagram media has no share count either).
     var posts = await followPaging(
-      GRAPH + '/' + token.open_id + '/posts?fields=id,message,permalink_url,created_time,likes.summary(true),comments.summary(true),shares&limit=25',
+      GRAPH + '/' + token.open_id + '/posts?fields=id,message,permalink_url,created_time,likes.summary(true),comments.summary(true)&limit=25',
       token.access_token, 10
     );
     for (var i = 0; i < posts.length; i++) {
