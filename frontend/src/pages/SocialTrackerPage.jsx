@@ -109,6 +109,15 @@ export default function SocialTrackerPage() {
   const [busyInboxId, setBusyInboxId] = useState(null);
   const [allPosts, setAllPosts] = useState([]);
   const [syncingTikTok, setSyncingTikTok] = useState(false);
+  const [syncingFacebook, setSyncingFacebook] = useState(false);
+  const [syncingInstagram, setSyncingInstagram] = useState(false);
+
+  const [pagePickerOpen, setPagePickerOpen] = useState(false);
+  const [pagePickerPending, setPagePickerPending] = useState(null);
+  const [pagePickerPages, setPagePickerPages] = useState([]);
+  const [pagePickerLoading, setPagePickerLoading] = useState(false);
+  const [pagePickerError, setPagePickerError] = useState(null);
+  const [connectingPageId, setConnectingPageId] = useState(null);
 
   const loadAll = useCallback(async () => {
     setError(null);
@@ -165,6 +174,24 @@ export default function SocialTrackerPage() {
     window.history.replaceState({}, '', window.location.pathname);
   }, []);
 
+  // Landing back here after the Meta OAuth redirect. A connected Page (not
+  // necessarily with Instagram linked) needs picking before the connection
+  // is real — oauth.routes.js's callback sends the browser here with a
+  // pending token rather than connecting outright, since the logged-in
+  // account may admin more than one Facebook Page.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const meta = params.get('meta');
+    if (!meta) return;
+    if (meta === 'choose-page') {
+      openPagePicker(params.get('pending'));
+    } else if (meta === 'error') {
+      setError(params.get('message') || 'Facebook/Instagram connection failed.');
+    }
+    window.history.replaceState({}, '', window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function syncTikTok() {
     setSyncingTikTok(true);
     setError(null);
@@ -180,6 +207,72 @@ export default function SocialTrackerPage() {
       setError(err.message);
     } finally {
       setSyncingTikTok(false);
+    }
+  }
+
+  async function syncFacebook() {
+    setSyncingFacebook(true);
+    setError(null);
+    try {
+      const r = await api.post('/marketing/facebook/sync', {});
+      if (r.syncError) {
+        setToast('Facebook: partially synced (' + r.synced + ' post(s)) — ' + r.syncError);
+      } else {
+        setToast('Synced ' + r.synced + ' Facebook post(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingFacebook(false);
+    }
+  }
+
+  async function syncInstagram() {
+    setSyncingInstagram(true);
+    setError(null);
+    try {
+      const r = await api.post('/marketing/instagram/sync', {});
+      if (r.syncError) {
+        setToast('Instagram: partially synced (' + r.synced + ' post(s)) — ' + r.syncError);
+      } else {
+        setToast('Synced ' + r.synced + ' Instagram post(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingInstagram(false);
+    }
+  }
+
+  async function openPagePicker(pending) {
+    setPagePickerPending(pending);
+    setPagePickerOpen(true);
+    setPagePickerLoading(true);
+    setPagePickerError(null);
+    try {
+      setPagePickerPages(await api.get('/marketing/meta/pages?pending=' + encodeURIComponent(pending)));
+    } catch (err) {
+      setPagePickerError(err.message);
+    } finally {
+      setPagePickerLoading(false);
+    }
+  }
+
+  async function connectPage(page) {
+    setConnectingPageId(page.id);
+    setPagePickerError(null);
+    try {
+      const r = await api.post('/marketing/meta/pages/' + page.id + '/connect', { pending: pagePickerPending });
+      setPagePickerOpen(false);
+      setToast('Connected "' + r.pageName + '"' + (r.instagramConnected ? ' and its linked Instagram account.' : ' (no Instagram account linked).'));
+      setTab('channels');
+      await loadAll();
+    } catch (err) {
+      setPagePickerError(err.message);
+    } finally {
+      setConnectingPageId(null);
     }
   }
 
@@ -611,6 +704,16 @@ export default function SocialTrackerPage() {
                     {syncingTikTok ? 'Syncing…' : 'Sync now'}
                   </button>
                 )}
+                {c.key === 'facebook' && c.connected && canManage && (
+                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingFacebook} onClick={syncFacebook}>
+                    {syncingFacebook ? 'Syncing…' : 'Sync now'}
+                  </button>
+                )}
+                {c.key === 'instagram' && c.connected && canManage && (
+                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingInstagram} onClick={syncInstagram}>
+                    {syncingInstagram ? 'Syncing…' : 'Sync now'}
+                  </button>
+                )}
 
                 {canManage ? (
                   <div className="soctrack-channel-fields">
@@ -803,6 +906,40 @@ export default function SocialTrackerPage() {
               <button type="submit" className="btn btn-primary" disabled={savingInbox}>{savingInbox ? 'Saving…' : 'Log it'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {pagePickerOpen && (
+        <div className="dialog-backdrop" onClick={() => setPagePickerOpen(false)}>
+          <div className="dialog soctrack-page-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2 className="soctrack-dialog-title">Choose a Facebook Page to connect</h2>
+            <p className="soctrack-dialog-note">
+              This account manages more than one Page — pick the one for Bamboo Products Limited. Its linked
+              Instagram account (if any) connects automatically at the same time.
+            </p>
+            {pagePickerError && <div className="error-banner">{pagePickerError}</div>}
+            {pagePickerLoading ? (
+              <div className="eyebrow">Loading pages…</div>
+            ) : (
+              <div className="soctrack-page-list">
+                {pagePickerPages.map((p) => (
+                  <div key={p.id} className="soctrack-page-row">
+                    <div>
+                      <div className="soctrack-channel-name">{p.name}</div>
+                      <div className="soctrack-channel-handle">{p.hasInstagram ? 'Instagram linked: @' + p.instagramUsername : 'No Instagram account linked'}</div>
+                    </div>
+                    <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!connectingPageId} onClick={() => connectPage(p)}>
+                      {connectingPageId === p.id ? 'Connecting…' : 'Connect'}
+                    </button>
+                  </div>
+                ))}
+                {!pagePickerPages.length && <p className="table-empty">No Facebook Pages found for this account.</p>}
+              </div>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setPagePickerOpen(false)}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 

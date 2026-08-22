@@ -19,3 +19,4 @@
 .integrations-card-category { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); }
 .integrations-card-desc { margin: 0; font-size: 13px; color: var(--color-text-muted); }
 .integrations-action { width: fit-content; }
+.integrations-card-note { margin: 0; font-size: 11px; color: var(--color-text-muted); }

@@ -79,11 +79,12 @@ async function disconnect(ctx, id) {
   found.list[found.index].connected = false;
   found.list[found.index].apiKey = '';
   await pool.query('UPDATE settings SET integrations = $1, updated_at = now() WHERE id = 1', [JSON.stringify(found.list)]);
-  // TikTok's real OAuth tokens live in a dedicated table (see
-  // tiktokOAuth.service.js), not the generic apiKey field above — clear
-  // those out too so a "disconnected" TikTok can't still sync.
-  if (id === 'tiktok') {
-    await pool.query('DELETE FROM marketing_oauth_tokens WHERE channel_key = $1', ['tiktok']);
+  // TikTok/Facebook/Instagram's real OAuth tokens live in a dedicated
+  // table (see tiktokOAuth.service.js / metaOAuth.service.js), not the
+  // generic apiKey field above — clear those out too so a "disconnected"
+  // channel can't still sync.
+  if (id === 'tiktok' || id === 'facebook' || id === 'instagram') {
+    await pool.query('DELETE FROM marketing_oauth_tokens WHERE channel_key = $1', [id]);
   }
   await audit(pool, ctx, 'integration.disconnect', 'integration', id, 'Disconnected ' + found.list[found.index].name + '.');
   return found.list[found.index];

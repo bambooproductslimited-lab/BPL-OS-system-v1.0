@@ -68,6 +68,18 @@
 .soctrack-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
 .soctrack-dialog-span { grid-column: 1 / -1; }
 
+.soctrack-page-dialog { max-width: 480px; display: flex; flex-direction: column; gap: 14px; }
+.soctrack-dialog-note { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.soctrack-page-list { display: flex; flex-direction: column; gap: 2px; border: var(--divider-width) solid var(--color-divider); }
+.soctrack-page-row {
+  background: var(--color-bg);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
 .soctrack-inbox-badge {
   align-self: flex-start;
   font-size: 11px;

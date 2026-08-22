@@ -2,12 +2,26 @@ var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var marketingService = require('../services/marketing.service');
 var tiktokOAuthService = require('../services/tiktokOAuth.service');
+var metaOAuthService = require('../services/metaOAuth.service');
 
 var router = express.Router();
 router.use(requireAuth);
 
 router.post('/tiktok/sync', async function (req, res, next) {
   try { res.json(await tiktokOAuthService.sync(req.ctx)); } catch (e) { next(e); }
+});
+
+router.get('/meta/pages', async function (req, res, next) {
+  try { res.json(await metaOAuthService.listPages(req.ctx, req.query.pending)); } catch (e) { next(e); }
+});
+router.post('/meta/pages/:pageId/connect', async function (req, res, next) {
+  try { res.json(await metaOAuthService.connectPage(req.ctx, req.body.pending, req.params.pageId)); } catch (e) { next(e); }
+});
+router.post('/facebook/sync', async function (req, res, next) {
+  try { res.json(await metaOAuthService.syncFacebook(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/instagram/sync', async function (req, res, next) {
+  try { res.json(await metaOAuthService.syncInstagram(req.ctx)); } catch (e) { next(e); }
 });
 
 router.get('/dashboard', async function (req, res, next) {

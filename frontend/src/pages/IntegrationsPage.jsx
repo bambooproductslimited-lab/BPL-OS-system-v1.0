@@ -74,6 +74,18 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function connectMeta(id) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const { url } = await api.post('/marketing/oauth/meta/start', {});
+      window.location.href = url;
+    } catch (err) {
+      setError(err.message);
+      setBusyId(null);
+    }
+  }
+
   async function disconnect(item) {
     setBusyId(item.id);
     setError(null);
@@ -125,6 +137,25 @@ export default function IntegrationsPage() {
                   <button type="button" className="btn btn-primary integrations-action" disabled={busyId === 'tiktok'} onClick={connectTikTok}>
                     {busyId === 'tiktok' ? 'Redirecting…' : 'Connect with TikTok'}
                   </button>
+                )}
+              </>
+            ) : (i.id === 'facebook' || i.id === 'instagram') ? (
+              <>
+                {i.connected && (
+                  <div className="field">
+                    <label htmlFor={'int-key-' + i.id}>Status</label>
+                    <input id={'int-key-' + i.id} className="input" value={i.apiKey || MASK} disabled />
+                  </div>
+                )}
+                {i.connected ? (
+                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+                ) : (
+                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectMeta(i.id)}>
+                    {busyId === i.id ? 'Redirecting…' : 'Connect with Facebook'}
+                  </button>
+                )}
+                {i.id === 'instagram' && !i.connected && (
+                  <p className="integrations-card-note">Connects via your Facebook Page login — you'll pick the Page, and its linked Instagram account (if any) connects automatically.</p>
                 )}
               </>
             ) : (

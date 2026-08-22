@@ -66,5 +66,20 @@ module.exports = {
       redirectUri: process.env.TIKTOK_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/tiktok/callback',
       configured: !!(clientKey && clientSecret)
     };
+  }()),
+  // Meta (Facebook + Instagram) Login — one app/one OAuth flow covers both,
+  // since an Instagram professional account is only ever reachable via its
+  // linked Facebook Page. appId is not secret (sent to the browser as part
+  // of the authorize URL); appSecret never leaves the server — only used in
+  // the code/long-lived-token exchanges in services/metaOAuth.service.js.
+  meta: (function () {
+    var appId = (process.env.META_APP_ID || '').trim();
+    var appSecret = (process.env.META_APP_SECRET || '').trim();
+    return {
+      appId: appId,
+      appSecret: appSecret,
+      redirectUri: process.env.META_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/meta/callback',
+      configured: !!(appId && appSecret)
+    };
   }())
 };
