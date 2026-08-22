@@ -100,7 +100,17 @@ async function loadPending(pendingToken) {
 
 async function fetchPages(userAccessToken) {
   var data = await graphGet('/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&limit=100', userAccessToken);
-  return data.data || [];
+  var pages = data.data || [];
+  if (!pages.length) {
+    // TEMPORARY diagnostic (see conversation) — /me/accounts came back
+    // empty despite the user granting Page access in the consent screen.
+    // Surface what the token actually reports instead of a silent empty
+    // state, since there's no other way to see Render's server logs here.
+    var me = await graphGet('/me?fields=id,name', userAccessToken).catch(function (e) { return { error: e.message }; });
+    var perms = await graphGet('/me/permissions', userAccessToken).catch(function (e) { return { error: e.message }; });
+    fail('invalid', 'DEBUG: /me/accounts returned 0 pages. Identity: ' + JSON.stringify(me) + '. Granted permissions: ' + JSON.stringify(perms) + '. Raw accounts response: ' + JSON.stringify(data));
+  }
+  return pages;
 }
 
 // metaOAuth.listPages — for the frontend's "choose a Page" step. Never
