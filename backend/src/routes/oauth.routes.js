@@ -2,6 +2,8 @@ var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var tiktokOAuthService = require('../services/tiktokOAuth.service');
 var metaOAuthService = require('../services/metaOAuth.service');
+var youtubeOAuthService = require('../services/youtubeOAuth.service');
+var twitchOAuthService = require('../services/twitchOAuth.service');
 var config = require('../config');
 
 // OAuth redirect endpoints, mounted at /api/marketing/oauth in app.js (a
@@ -11,8 +13,10 @@ var config = require('../config');
 // calling the API with a Bearer token), so it can't sit behind requireAuth.
 // Each path must match the Redirect URI saved in that platform's app
 // dashboard exactly:
-//   TikTok: https://bamboo-os-backend.onrender.com/api/marketing/oauth/tiktok/callback
-//   Meta:   https://bamboo-os-backend.onrender.com/api/marketing/oauth/meta/callback
+//   TikTok:  https://bamboo-os-backend.onrender.com/api/marketing/oauth/tiktok/callback
+//   Meta:    https://bamboo-os-backend.onrender.com/api/marketing/oauth/meta/callback
+//   YouTube: https://bamboo-os-backend.onrender.com/api/marketing/oauth/youtube/callback
+//   Twitch:  https://bamboo-os-backend.onrender.com/api/marketing/oauth/twitch/callback
 
 var router = express.Router();
 
@@ -46,6 +50,36 @@ router.get('/meta/callback', async function (req, res) {
     res.redirect(target + '/socialtracker?meta=choose-page&pending=' + encodeURIComponent(result.pendingToken));
   } catch (e) {
     res.redirect(target + '/socialtracker?meta=error&message=' + encodeURIComponent(e.message || 'Connection failed.'));
+  }
+});
+
+router.post('/youtube/start', requireAuth, async function (req, res, next) {
+  try { res.json(await youtubeOAuthService.startAuth(req.ctx)); } catch (e) { next(e); }
+});
+
+router.get('/youtube/callback', async function (req, res) {
+  var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+  try {
+    if (req.query.error) throw new Error(req.query.error_description || req.query.error);
+    await youtubeOAuthService.handleCallback(req.query.code, req.query.state);
+    res.redirect(target + '/socialtracker?youtube=connected');
+  } catch (e) {
+    res.redirect(target + '/socialtracker?youtube=error&message=' + encodeURIComponent(e.message || 'Connection failed.'));
+  }
+});
+
+router.post('/twitch/start', requireAuth, async function (req, res, next) {
+  try { res.json(await twitchOAuthService.startAuth(req.ctx)); } catch (e) { next(e); }
+});
+
+router.get('/twitch/callback', async function (req, res) {
+  var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+  try {
+    if (req.query.error) throw new Error(req.query.error_description || req.query.error);
+    await twitchOAuthService.handleCallback(req.query.code, req.query.state);
+    res.redirect(target + '/socialtracker?twitch=connected');
+  } catch (e) {
+    res.redirect(target + '/socialtracker?twitch=error&message=' + encodeURIComponent(e.message || 'Connection failed.'));
   }
 });
 

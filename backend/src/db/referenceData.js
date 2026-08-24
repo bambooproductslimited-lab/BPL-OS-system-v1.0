@@ -102,7 +102,10 @@ function defaultIntegrations() {
     { id: 'instagram', name: 'Instagram', category: 'Marketing', description: 'Pull post/reel engagement and follower counts into the social tracker (requires a Meta developer app + Instagram professional account link).', connected: false, apiKey: '' },
     { id: 'tiktok', name: 'TikTok', category: 'Marketing', description: 'Pull video views and engagement into the social tracker (requires a TikTok for Business developer app).', connected: false, apiKey: '' },
     { id: 'whatsappbusiness', name: 'WhatsApp Business', category: 'Marketing', description: 'Track broadcast/catalogue activity in the social tracker (requires the WhatsApp Business Cloud API).', connected: false, apiKey: '' },
-    { id: 'googleanalytics', name: 'Google Analytics', category: 'Marketing', description: 'Pull website visits into the social tracker’s Website channel (requires a GA4 property + service account).', connected: false, apiKey: '' }
+    { id: 'googleanalytics', name: 'Google Analytics', category: 'Marketing', description: 'Pull website visits into the social tracker’s Website channel (requires a GA4 property + service account).', connected: false, apiKey: '' },
+    { id: 'youtube', name: 'YouTube', category: 'Marketing', description: 'Pull video views and engagement into the social tracker (requires a Google Cloud project with the YouTube Data API enabled).', connected: false, apiKey: '' },
+    { id: 'twitch', name: 'Twitch', category: 'Marketing', description: 'Pull follower counts and recent VODs into the social tracker (requires a Twitch developer application).', connected: false, apiKey: '' },
+    { id: 'linkedin', name: 'LinkedIn Page', category: 'Marketing', description: 'Track Company Page follower counts and posts (requires LinkedIn Community Management API partner access — application/approval required, not self-serve).', connected: false, apiKey: '' }
   ];
 }
 function defaultCommercial() {

@@ -62,11 +62,15 @@ export default function IntegrationsPage() {
     }
   }
 
-  async function connectTikTok() {
-    setBusyId('tiktok');
+  // Single-step OAuth platforms (one account = one channel, no page-picker
+  // step like Meta's) — TikTok, YouTube and Twitch all follow this same
+  // "start -> redirect -> land back connected" shape.
+  const SINGLE_STEP_PLATFORMS = { tiktok: 'TikTok', youtube: 'YouTube', twitch: 'Twitch' };
+  async function connectSingleStep(id) {
+    setBusyId(id);
     setError(null);
     try {
-      const { url } = await api.post('/marketing/oauth/tiktok/start', {});
+      const { url } = await api.post('/marketing/oauth/' + id + '/start', {});
       window.location.href = url;
     } catch (err) {
       setError(err.message);
@@ -123,19 +127,19 @@ export default function IntegrationsPage() {
               <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? 'Connected' : 'Not connected'}</span>
             </div>
             <p className="integrations-card-desc">{i.description}</p>
-            {i.id === 'tiktok' ? (
+            {SINGLE_STEP_PLATFORMS[i.id] ? (
               <>
                 {i.connected && (
                   <div className="field">
-                    <label htmlFor="int-key-tiktok">Status</label>
-                    <input id="int-key-tiktok" className="input" value={i.apiKey || MASK} disabled />
+                    <label htmlFor={'int-key-' + i.id}>Status</label>
+                    <input id={'int-key-' + i.id} className="input" value={i.apiKey || MASK} disabled />
                   </div>
                 )}
                 {i.connected ? (
                   <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
                 ) : (
-                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === 'tiktok'} onClick={connectTikTok}>
-                    {busyId === 'tiktok' ? 'Redirecting…' : 'Connect with TikTok'}
+                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectSingleStep(i.id)}>
+                    {busyId === i.id ? 'Redirecting…' : 'Connect with ' + SINGLE_STEP_PLATFORMS[i.id]}
                   </button>
                 )}
               </>

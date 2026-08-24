@@ -81,5 +81,31 @@ module.exports = {
       redirectUri: process.env.META_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/meta/callback',
       configured: !!(appId && appSecret)
     };
+  }()),
+  // YouTube (Google OAuth) — clientId is not secret; clientSecret never
+  // leaves the server, used only in services/youtubeOAuth.service.js's
+  // code/refresh-token exchanges.
+  youtube: (function () {
+    var clientId = (process.env.YOUTUBE_CLIENT_ID || '').trim();
+    var clientSecret = (process.env.YOUTUBE_CLIENT_SECRET || '').trim();
+    return {
+      clientId: clientId,
+      clientSecret: clientSecret,
+      redirectUri: process.env.YOUTUBE_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/youtube/callback',
+      configured: !!(clientId && clientSecret)
+    };
+  }()),
+  // Twitch — clientId is not secret; clientSecret never leaves the server,
+  // used only in services/twitchOAuth.service.js's code/refresh-token
+  // exchanges.
+  twitch: (function () {
+    var clientId = (process.env.TWITCH_CLIENT_ID || '').trim();
+    var clientSecret = (process.env.TWITCH_CLIENT_SECRET || '').trim();
+    return {
+      clientId: clientId,
+      clientSecret: clientSecret,
+      redirectUri: process.env.TWITCH_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/twitch/callback',
+      configured: !!(clientId && clientSecret)
+    };
   }())
 };

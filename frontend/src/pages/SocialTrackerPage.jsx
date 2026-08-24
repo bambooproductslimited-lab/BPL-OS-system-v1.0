@@ -111,6 +111,8 @@ export default function SocialTrackerPage() {
   const [syncingTikTok, setSyncingTikTok] = useState(false);
   const [syncingFacebook, setSyncingFacebook] = useState(false);
   const [syncingInstagram, setSyncingInstagram] = useState(false);
+  const [syncingYouTube, setSyncingYouTube] = useState(false);
+  const [syncingTwitch, setSyncingTwitch] = useState(false);
 
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [pagePickerPending, setPagePickerPending] = useState(null);
@@ -192,6 +194,25 @@ export default function SocialTrackerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Landing back here after the YouTube or Twitch OAuth redirect — same
+  // single-step connected|error shape as TikTok's, for both platforms.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+    [['youtube', 'YouTube'], ['twitch', 'Twitch']].forEach(([key, label]) => {
+      const value = params.get(key);
+      if (!value) return;
+      changed = true;
+      if (value === 'connected') {
+        setToast(label + ' connected.');
+        setTab('channels');
+      } else if (value === 'error') {
+        setError(params.get('message') || (label + ' connection failed.'));
+      }
+    });
+    if (changed) window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
   async function syncTikTok() {
     setSyncingTikTok(true);
     setError(null);
@@ -243,6 +264,34 @@ export default function SocialTrackerPage() {
       setError(err.message);
     } finally {
       setSyncingInstagram(false);
+    }
+  }
+
+  async function syncYouTube() {
+    setSyncingYouTube(true);
+    setError(null);
+    try {
+      const r = await api.post('/marketing/youtube/sync', {});
+      setToast('Synced ' + r.synced + ' YouTube video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' subscribers' : '') + '.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingYouTube(false);
+    }
+  }
+
+  async function syncTwitch() {
+    setSyncingTwitch(true);
+    setError(null);
+    try {
+      const r = await api.post('/marketing/twitch/sync', {});
+      setToast('Synced ' + r.synced + ' Twitch video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingTwitch(false);
     }
   }
 
@@ -712,6 +761,16 @@ export default function SocialTrackerPage() {
                 {c.key === 'instagram' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingInstagram} onClick={syncInstagram}>
                     {syncingInstagram ? 'Syncing…' : 'Sync now'}
+                  </button>
+                )}
+                {c.key === 'youtube' && c.connected && canManage && (
+                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingYouTube} onClick={syncYouTube}>
+                    {syncingYouTube ? 'Syncing…' : 'Sync now'}
+                  </button>
+                )}
+                {c.key === 'twitch' && c.connected && canManage && (
+                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTwitch} onClick={syncTwitch}>
+                    {syncingTwitch ? 'Syncing…' : 'Sync now'}
                   </button>
                 )}
 

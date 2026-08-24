@@ -166,6 +166,9 @@ var MARKETING_CHANNEL_DEFS = [
   { key: 'instagram', name: 'Instagram', kind: 'social', integrationKey: 'instagram' },
   { key: 'tiktok', name: 'TikTok', kind: 'social', integrationKey: 'tiktok' },
   { key: 'whatsapp', name: 'WhatsApp Business', kind: 'social', integrationKey: 'whatsappbusiness' },
+  { key: 'youtube', name: 'YouTube', kind: 'social', integrationKey: 'youtube' },
+  { key: 'twitch', name: 'Twitch', kind: 'social', integrationKey: 'twitch' },
+  { key: 'linkedin', name: 'LinkedIn Page', kind: 'social', integrationKey: 'linkedin' },
   { key: 'website', name: 'Website', kind: 'web', integrationKey: 'googleanalytics' },
   // ThomasNet is a B2B directory listing, not a platform with a public
   // analytics API — no integration_key to connect; inquiries/leads from it

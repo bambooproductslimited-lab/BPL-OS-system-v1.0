@@ -277,6 +277,9 @@ async function run() {
       { key: 'instagram', name: 'Instagram', kind: 'social', integrationKey: 'instagram', handle: '@bplghana' },
       { key: 'tiktok', name: 'TikTok', kind: 'social', integrationKey: 'tiktok', handle: '@bplghana' },
       { key: 'whatsapp', name: 'WhatsApp Business', kind: 'social', integrationKey: 'whatsappbusiness', handle: '+233 59 193 3925' },
+      { key: 'youtube', name: 'YouTube', kind: 'social', integrationKey: 'youtube', handle: '@bplghana' },
+      { key: 'twitch', name: 'Twitch', kind: 'social', integrationKey: 'twitch', handle: 'bplghana' },
+      { key: 'linkedin', name: 'LinkedIn Page', kind: 'social', integrationKey: 'linkedin', handle: 'linkedin.com/company/bplghana' },
       { key: 'website', name: 'Website', kind: 'web', integrationKey: 'googleanalytics', handle: 'www.bplghana.com' },
       { key: 'thomasnet', name: 'ThomasNet', kind: 'directory', integrationKey: null, handle: 'thomasnet.com/bplghana' }
     ];
