@@ -286,12 +286,23 @@ async function syncInstagram(ctx) {
     );
     for (var i = 0; i < media.length; i++) {
       var m = media[i];
+      // 'reach' is a separate Insights API call per media item (not part
+      // of the /media list fields above) — instagram_manage_insights is
+      // already in this app's requested scope, so this doesn't need a
+      // reconnect. Best-effort per item: some media types/ages don't
+      // support the reach metric, and one failure shouldn't drop the post.
+      var reach = 0;
+      try {
+        var insights = await graphGet('/' + m.id + '/insights?metric=reach', token.access_token);
+        var reachMetric = insights.data && insights.data.find(function (d) { return d.name === 'reach'; });
+        reach = reachMetric && reachMetric.values && reachMetric.values[0] ? Number(reachMetric.values[0].value) || 0 : 0;
+      } catch (insightsErr) { /* leave reach at 0 for this item */ }
       await pool.query(
         'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, published_at, status, likes, comments, shares, reach, source, created_by) ' +
-        "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,0,0,'synced',$9) " +
-        'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, updated_at = now()',
+        "VALUES ($1,$2,$3,$4,$5,$6,'published',$7,$8,0,$9,'synced',$10) " +
+        'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET title = $3, caption = $4, media_url = $5, likes = $7, comments = $8, reach = $9, updated_at = now()',
         [channelId, m.id, (m.caption || 'Instagram post').slice(0, 160), (m.caption || '').slice(0, 2000), m.permalink || m.media_url || '',
-          m.timestamp ? new Date(m.timestamp) : null, m.like_count || 0, m.comments_count || 0, ctx.employee.id]
+          m.timestamp ? new Date(m.timestamp) : null, m.like_count || 0, m.comments_count || 0, reach, ctx.employee.id]
       );
     }
     mediaCount = media.length;
