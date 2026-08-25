@@ -7,6 +7,7 @@ var STATUS_BY_CODE = {
   forbidden: 403,
   notfound: 404,
   conflict: 409,
+  ratelimited: 429,
   error: 500
 };
 

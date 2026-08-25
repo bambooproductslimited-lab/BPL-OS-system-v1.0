@@ -29,6 +29,10 @@ module.exports = {
     secret: required('JWT_SECRET', 'dev-only-insecure-secret-change-me'),
     expiresIn: process.env.JWT_EXPIRES_IN || '8h'
   },
+  // HMAC key for kiosk.service.js's PIN hashing — see migration 0025's
+  // comment for why a keyed hash rather than bcrypt. Never stored in the
+  // database; a DB dump alone can't be used to reverse a PIN without it.
+  kioskPinPepper: required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
   ai: {

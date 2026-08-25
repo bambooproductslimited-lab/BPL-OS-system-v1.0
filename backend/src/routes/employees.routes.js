@@ -3,6 +3,7 @@ var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
 var employeeDocumentsService = require('../services/employeeDocuments.service');
+var kioskService = require('../services/kiosk.service');
 
 var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -59,6 +60,15 @@ router.post('/:id/id-documents/:kind', upload.single('file'), async function (re
 
 router.get('/:id/id-documents/:kind/download', async function (req, res, next) {
   try { res.json(await employeeDocumentsService.getDownloadUrl(req.ctx, req.params.id, req.params.kind)); } catch (e) { next(e); }
+});
+
+// Kiosk PIN — admin-set/reset only (see kiosk.service.js's module comment
+// for why there's no employee self-service path for this one).
+router.post('/:id/kiosk-pin', async function (req, res, next) {
+  try { res.json(await kioskService.setPin(req.ctx, req.params.id, req.body.pin)); } catch (e) { next(e); }
+});
+router.delete('/:id/kiosk-pin', async function (req, res, next) {
+  try { res.json(await kioskService.clearPin(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
 module.exports = router;

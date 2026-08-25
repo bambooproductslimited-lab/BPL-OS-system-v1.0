@@ -4,6 +4,7 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import AppShell from './layout/AppShell';
 import { ALL_NAV_ITEMS } from './layout/navModel';
 import LoginPage from './pages/LoginPage';
+import KioskPage from './pages/KioskPage';
 import DashboardPage from './pages/DashboardPage';
 import LeavePage from './pages/LeavePage';
 import EmployeesPage from './pages/EmployeesPage';
@@ -74,6 +75,7 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/kiosk" element={<KioskPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>

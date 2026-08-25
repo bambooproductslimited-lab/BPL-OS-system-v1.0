@@ -64,6 +64,8 @@ export default function EmployeesPage() {
   const [saving, setSaving] = useState(false);
   const [idDocsTarget, setIdDocsTarget] = useState(null);
   const [profileTarget, setProfileTarget] = useState(null);
+  const [kioskPinTarget, setKioskPinTarget] = useState(null);
+  const [kioskPinValue, setKioskPinValue] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -184,6 +186,42 @@ export default function EmployeesPage() {
     }
   }
 
+  function openKioskPin(emp) {
+    setDialogError(null);
+    setKioskPinValue('');
+    setKioskPinTarget(emp);
+    setDialog('kioskPin');
+  }
+
+  async function submitKioskPin(e) {
+    e.preventDefault();
+    setSaving(true);
+    setDialogError(null);
+    try {
+      await api.post('/employees/' + kioskPinTarget.id + '/kiosk-pin', { pin: kioskPinValue });
+      setToast('Kiosk PIN set for ' + kioskPinTarget.firstName + ' ' + kioskPinTarget.lastName + '.');
+      setDialog(null);
+    } catch (err) {
+      setDialogError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearKioskPin() {
+    setSaving(true);
+    setDialogError(null);
+    try {
+      await api.del('/employees/' + kioskPinTarget.id + '/kiosk-pin');
+      setToast('Kiosk PIN cleared for ' + kioskPinTarget.firstName + ' ' + kioskPinTarget.lastName + '.');
+      setDialog(null);
+    } catch (err) {
+      setDialogError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function confirmPurge() {
     setSaving(true);
     setDialogError(null);
@@ -256,6 +294,7 @@ export default function EmployeesPage() {
                   <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setProfileTarget(p.id)}>View</button>
                   {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openEdit(p)}>Edit</button>}
                   {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setIdDocsTarget(p)}>ID docs</button>}
+                  {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openKioskPin(p)}>Kiosk PIN</button>}
                   {canDelete && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openTerminate(p)}>Delete</button>}
                 </td>
               </tr>
@@ -389,6 +428,35 @@ export default function EmployeesPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {dialog === 'kioskPin' && kioskPinTarget && (
+        <div className="dialog-backdrop" onClick={() => setDialog(null)}>
+          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitKioskPin}>
+            <h2>Kiosk PIN — {kioskPinTarget.firstName} {kioskPinTarget.lastName}</h2>
+            <p className="dialog-body">
+              This 4-digit PIN is what {kioskPinTarget.firstName} taps in at the clock-in/out kiosk — no name or
+              employee code is entered there, the PIN alone identifies them, so it must be unique across everyone.
+            </p>
+            <div className="field">
+              <label htmlFor="kiosk-pin-input">New PIN (4 digits)</label>
+              <input
+                id="kiosk-pin-input" className="input" inputMode="numeric" pattern="\d{4}" maxLength={4}
+                value={kioskPinValue}
+                onChange={(e) => setKioskPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="e.g. 4471" required
+              />
+            </div>
+            {dialogError && <div className="error-banner">{dialogError}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={clearKioskPin} disabled={saving}>Clear PIN</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || kioskPinValue.length !== 4}>
+                {saving ? 'Saving…' : 'Save PIN'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

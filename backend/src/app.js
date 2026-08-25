@@ -49,8 +49,15 @@ var aiRoutes = require('./routes/ai.routes');
 var marketingRoutes = require('./routes/marketing.routes');
 var oauthRoutes = require('./routes/oauth.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
+var kioskRoutes = require('./routes/kiosk.routes');
 
 var app = express();
+
+// Render sits its own proxy in front of this app — without trust proxy,
+// req.ip would be that proxy's address for every request, not the real
+// client's, which would put every kiosk/API caller in the same bucket for
+// kiosk.routes.js's per-IP PIN-attempt rate limiting.
+app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
@@ -110,6 +117,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/marketing/oauth', oauthRoutes);
 app.use('/api/marketing/whatsapp', whatsappRoutes);
 app.use('/api/marketing', marketingRoutes);
+app.use('/api/kiosk', kioskRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });

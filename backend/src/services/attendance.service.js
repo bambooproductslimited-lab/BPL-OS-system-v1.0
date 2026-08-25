@@ -7,12 +7,17 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function nowHM() { return new Date().toTimeString().slice(0, 5); }
 
-// kernel.js: handlers['attendance.clockIn']
-async function clockIn(ctx) {
-  if (!ctx.can('attendance.self')) fail('forbidden', 'Your role does not allow this action (attendance.self).');
+// clockInEmployee/clockOutEmployee — the actual attendance-row logic,
+// factored out from clockIn/clockOut below (which are the ctx-based, "I am
+// clocking myself in from the web app" handlers) so the kiosk service can
+// drive the exact same business rules for a PIN-identified employee,
+// tagged with source='kiosk' instead of 'web'. Neither takes ctx or does a
+// permission check — that's the caller's job (clockIn/clockOut check
+// attendance.self; kiosk.service.js's PIN match is its own gate).
+async function clockInEmployee(employeeId, source) {
   var t = todayISO();
-  var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [ctx.employee.id, t]);
-  if (existing.rows[0]) fail('conflict', 'You have already clocked in today.');
+  var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, t]);
+  if (existing.rows[0]) fail('conflict', 'Already clocked in today.');
 
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
   var now = nowHM();
@@ -20,27 +25,38 @@ async function clockIn(ctx) {
   var status = now > lateAfter ? 'late' : 'present';
 
   var res = await pool.query(
-    "INSERT INTO attendance (employee_id, date, clock_in, status, source) VALUES ($1,$2,$3,$4,'web') RETURNING *",
-    [ctx.employee.id, t, now, status]
+    'INSERT INTO attendance (employee_id, date, clock_in, status, source) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [employeeId, t, now, status, source]
   );
+  return res.rows[0];
+}
+
+async function clockOutEmployee(employeeId) {
+  var t = todayISO();
+  var res = await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, t]);
   var rec = res.rows[0];
-  await audit(pool, ctx, 'attendance.clockIn', 'attendance', rec.id, 'Clocked in at ' + now + (status === 'late' ? ' (late).' : '.'));
+  if (!rec) fail('conflict', 'Not clocked in today.');
+  if (rec.clock_out) fail('conflict', 'Already clocked out today.');
+
+  var now = nowHM();
+  var updated = await pool.query('UPDATE attendance SET clock_out = $1 WHERE id = $2 RETURNING *', [now, rec.id]);
+  return updated.rows[0];
+}
+
+// kernel.js: handlers['attendance.clockIn']
+async function clockIn(ctx) {
+  if (!ctx.can('attendance.self')) fail('forbidden', 'Your role does not allow this action (attendance.self).');
+  var rec = await clockInEmployee(ctx.employee.id, 'web');
+  await audit(pool, ctx, 'attendance.clockIn', 'attendance', rec.id, 'Clocked in at ' + rec.clock_in.slice(0, 5) + (rec.status === 'late' ? ' (late).' : '.'));
   return rowToAttendance(rec);
 }
 
 // kernel.js: handlers['attendance.clockOut']
 async function clockOut(ctx) {
   if (!ctx.can('attendance.self')) fail('forbidden', 'Your role does not allow this action (attendance.self).');
-  var t = todayISO();
-  var res = await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [ctx.employee.id, t]);
-  var rec = res.rows[0];
-  if (!rec) fail('conflict', 'You have not clocked in today.');
-  if (rec.clock_out) fail('conflict', 'You have already clocked out today.');
-
-  var now = nowHM();
-  var updated = await pool.query('UPDATE attendance SET clock_out = $1 WHERE id = $2 RETURNING *', [now, rec.id]);
-  await audit(pool, ctx, 'attendance.clockOut', 'attendance', rec.id, 'Clocked out at ' + now + '.');
-  return rowToAttendance(updated.rows[0]);
+  var rec = await clockOutEmployee(ctx.employee.id);
+  await audit(pool, ctx, 'attendance.clockOut', 'attendance', rec.id, 'Clocked out at ' + rec.clock_out.slice(0, 5) + '.');
+  return rowToAttendance(rec);
 }
 
 // kernel.js: handlers['attendance.list']
@@ -133,4 +149,7 @@ function rowToAttendance(r) {
   };
 }
 
-module.exports = { clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance };
+module.exports = {
+  clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
+  clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee
+};
