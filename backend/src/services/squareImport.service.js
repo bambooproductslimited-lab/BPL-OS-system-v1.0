@@ -288,6 +288,7 @@ async function runImport(ctx) {
     var sqInvoices = await square.listAllInvoices(locationIds[li]);
     for (var ii = 0; ii < sqInvoices.length; ii++) {
       var inv = sqInvoices[ii];
+      if (inv.status === 'DRAFT' || inv.status === 'CANCELED') continue; // never sent, or withdrawn — not a real sale
       try {
         var invCustId = (inv.primary_recipient && inv.primary_recipient.customer_id && customerIdByExternal[inv.primary_recipient.customer_id]) || walkinId;
         var resultId = await upsertInvoiceFromSquareInvoice(ctx, inv, invoiceIdByExternal, invCustId);

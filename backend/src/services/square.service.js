@@ -79,11 +79,18 @@ function listAllCatalogItems() {
   return paginateGet('/v2/catalog/list', { types: 'ITEM' }, 'objects');
 }
 
+// OPEN as well as COMPLETED: an order stays OPEN until its invoice is paid
+// in full, so a still-outstanding Square invoice's order — which is exactly
+// the kind of real, currently-unpaid invoice this import needs to bring
+// over correctly — would otherwise be skipped, losing its real line items
+// (the Square Invoice object itself never carries them; only the Order
+// does). CANCELED orders are deliberately excluded — those aren't real
+// sales.
 function searchAllOrders(locationIds) {
   return paginatePost('/v2/orders/search', {
     location_ids: locationIds,
     limit: 500,
-    query: { filter: { state_filter: { states: ['COMPLETED'] } } }
+    query: { filter: { state_filter: { states: ['OPEN', 'COMPLETED'] } } }
   }, 'orders');
 }
 
