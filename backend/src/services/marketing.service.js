@@ -424,13 +424,13 @@ async function dashboard(ctx) {
 }
 
 // marketing.dashboardMetrics — the Overview tab's date-range-scoped,
-// Metricool-style metric rows: for each of Followers / Impressions /
+// Metricool-style metric rows: for each of Followers / Reach /
 // Interactions / Posts, a per-channel current-period value + an up/down
 // delta against the immediately preceding period of equal length, plus a
 // day-by-day series to chart.
 //
 // Followers is a genuine daily account-wide trend, since channel_stats is
-// snapshotted once a day per channel. Impressions/Interactions/Posts are
+// snapshotted once a day per channel. Reach/Interactions/Posts are
 // NOT — this app only syncs each post's current cumulative totals, not a
 // day-by-day platform-insights history, so those three are built from
 // each post's own published_at date instead: "what was published, and its
@@ -479,19 +479,25 @@ async function dashboardMetrics(ctx, from, to) {
     if (inRange.length) followersSeries.push({ channelKey: c.key, name: c.name, points: inRange });
   });
 
-  // ── Impressions / Interactions / Posts (built from post publish dates) ──
+  // ── Reach / Interactions / Posts (built from post publish dates) ──
+  // Reach, not Impressions: no platform sync populates the `impressions`
+  // column — it requires each platform's separate post-level Insights API
+  // (extra calls per post, extra permissions), not implemented yet. `reach`
+  // IS populated (TikTok/YouTube/Twitch view counts, Website page views),
+  // so that's the real metric to chart rather than a column that's always
+  // zero everywhere it isn't a manually-logged post.
   var curRes = await pool.query(
-    "SELECT channel_id, coalesce(sum(impressions),0) AS impressions, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
+    "SELECT channel_id, coalesce(sum(reach),0) AS reach, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
     "FROM marketing_posts WHERE status = 'published' AND published_at IS NOT NULL AND published_at::date BETWEEN $1 AND $2 GROUP BY channel_id",
     [from, to]
   );
   var prevRes = await pool.query(
-    "SELECT channel_id, coalesce(sum(impressions),0) AS impressions, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
+    "SELECT channel_id, coalesce(sum(reach),0) AS reach, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
     "FROM marketing_posts WHERE status = 'published' AND published_at IS NOT NULL AND published_at::date BETWEEN $1 AND $2 GROUP BY channel_id",
     [prevFrom, prevTo]
   );
   var dailyRes = await pool.query(
-    "SELECT channel_id, published_at::date AS day, coalesce(sum(impressions),0) AS impressions, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
+    "SELECT channel_id, published_at::date AS day, coalesce(sum(reach),0) AS reach, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
     "FROM marketing_posts WHERE status = 'published' AND published_at IS NOT NULL AND published_at::date BETWEEN $1 AND $2 GROUP BY channel_id, day ORDER BY channel_id, day",
     [from, to]
   );
@@ -523,7 +529,7 @@ async function dashboardMetrics(ctx, from, to) {
     from: from, to: to,
     metrics: {
       followers: { byChannel: followersByChannel, series: followersSeries },
-      impressions: buildPostMetric('impressions'),
+      reach: buildPostMetric('reach'),
       interactions: buildPostMetric('interactions'),
       posts: buildPostMetric('posts')
     }

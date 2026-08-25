@@ -215,7 +215,7 @@ test('marketing.dashboardMetrics: permission-gated, rejects an inverted range, r
   var body = await res.json();
   assert.equal(body.from, '2020-01-01');
   assert.equal(body.to, '2030-01-01');
-  ['followers', 'impressions', 'interactions', 'posts'].forEach(function (metric) {
+  ['followers', 'reach', 'interactions', 'posts'].forEach(function (metric) {
     assert.ok(Array.isArray(body.metrics[metric].byChannel), metric + '.byChannel should be an array');
     assert.ok(Array.isArray(body.metrics[metric].series), metric + '.series should be an array');
   });
@@ -223,6 +223,6 @@ test('marketing.dashboardMetrics: permission-gated, rejects an inverted range, r
   // should show up with real, non-null figures across a range this wide.
   var fbFollowers = body.metrics.followers.byChannel.find(function (c) { return c.channelKey === 'facebook'; });
   assert.ok(fbFollowers && fbFollowers.value > 0);
-  var fbImpressions = body.metrics.impressions.byChannel.find(function (c) { return c.channelKey === 'facebook'; });
-  assert.ok(fbImpressions && fbImpressions.value > 0);
+  var fbReach = body.metrics.reach.byChannel.find(function (c) { return c.channelKey === 'facebook'; });
+  assert.ok(fbReach && fbReach.value > 0);
 });

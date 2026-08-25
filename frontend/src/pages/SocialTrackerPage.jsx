@@ -587,7 +587,7 @@ export default function SocialTrackerPage() {
           {metrics && (
             <div className="soc-metrics-stack">
               <MetricSection title="Followers" metric={metrics.metrics.followers} />
-              <MetricSection title="Impressions (by post publish date)" metric={metrics.metrics.impressions} />
+              <MetricSection title="Reach (by post publish date)" metric={metrics.metrics.reach} />
               <MetricSection title="Interactions — likes, comments & shares (by post publish date)" metric={metrics.metrics.interactions} />
               <MetricSection title="Number of posts (by publish date)" metric={metrics.metrics.posts} />
             </div>
