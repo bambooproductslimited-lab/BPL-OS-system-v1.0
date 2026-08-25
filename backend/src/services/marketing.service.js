@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var whatsappService = require('./whatsapp.service');
+var { withLiveConfigState } = require('./envConfiguredIntegrations');
 
 // Social & campaign tracker (Metricool-style): channels, campaigns, a
 // content calendar of posts with their engagement numbers, and periodic
@@ -33,7 +34,7 @@ function rowToChannel(r, integrationsById) {
 
 async function integrationsById() {
   var res = await pool.query('SELECT integrations FROM settings WHERE id = 1');
-  var list = (res.rows[0] && res.rows[0].integrations) || [];
+  var list = withLiveConfigState((res.rows[0] && res.rows[0].integrations) || []);
   var byId = {};
   list.forEach(function (i) { byId[i.id] = i; });
   return byId;
