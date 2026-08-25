@@ -5,6 +5,7 @@ var tiktokOAuthService = require('../services/tiktokOAuth.service');
 var metaOAuthService = require('../services/metaOAuth.service');
 var youtubeOAuthService = require('../services/youtubeOAuth.service');
 var twitchOAuthService = require('../services/twitchOAuth.service');
+var googleAnalyticsService = require('../services/googleAnalytics.service');
 
 var router = express.Router();
 router.use(requireAuth);
@@ -30,6 +31,9 @@ router.post('/youtube/sync', async function (req, res, next) {
 });
 router.post('/twitch/sync', async function (req, res, next) {
   try { res.json(await twitchOAuthService.sync(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/website/sync', async function (req, res, next) {
+  try { res.json(await googleAnalyticsService.sync(req.ctx)); } catch (e) { next(e); }
 });
 
 router.get('/dashboard', async function (req, res, next) {

@@ -66,6 +66,16 @@ export default function IntegrationsPage() {
   // step like Meta's) — TikTok, YouTube and Twitch all follow this same
   // "start -> redirect -> land back connected" shape.
   const SINGLE_STEP_PLATFORMS = { tiktok: 'TikTok', youtube: 'YouTube', twitch: 'Twitch' };
+
+  // WhatsApp Business and Google Analytics have no OAuth redirect and no
+  // pasted API key at all — both are set up entirely as server env vars
+  // (see backend/src/config.js), so there's nothing to click here. Status
+  // is read straight off the live server config (see settings.service.js's
+  // withLiveConfigState) rather than a DB flag.
+  const ENV_CONFIGURED_PLATFORMS = {
+    whatsappbusiness: 'Set WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN and WHATSAPP_VERIFY_TOKEN on the server to enable.',
+    googleanalytics: 'Set GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL and GA4_SERVICE_ACCOUNT_PRIVATE_KEY on the server to enable.'
+  };
   async function connectSingleStep(id) {
     setBusyId(id);
     setError(null);
@@ -127,7 +137,11 @@ export default function IntegrationsPage() {
               <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? 'Connected' : 'Not connected'}</span>
             </div>
             <p className="integrations-card-desc">{i.description}</p>
-            {SINGLE_STEP_PLATFORMS[i.id] ? (
+            {ENV_CONFIGURED_PLATFORMS[i.id] ? (
+              <p className="integrations-card-note">
+                {i.connected ? 'Configured on the server — live and syncing automatically.' : ENV_CONFIGURED_PLATFORMS[i.id]}
+              </p>
+            ) : SINGLE_STEP_PLATFORMS[i.id] ? (
               <>
                 {i.connected && (
                   <div className="field">

@@ -2,6 +2,24 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var config = require('../config');
+
+// WhatsApp Business and Google Analytics (Website) have no "Connect"
+// button — both are configured entirely via server env vars (see
+// config.js), so their connected status has to reflect that live config
+// rather than a DB flag toggled by an OAuth callback like every other
+// marketing integration. apiKey is blanked too since nothing is ever
+// stored in settings.integrations for either of them.
+var ENV_CONFIGURED_INTEGRATIONS = {
+  whatsappbusiness: function () { return config.whatsapp.configured; },
+  googleanalytics: function () { return config.website.configured; }
+};
+function withLiveConfigState(list) {
+  return list.map(function (i) {
+    var isConfigured = ENV_CONFIGURED_INTEGRATIONS[i.id];
+    return isConfigured ? Object.assign({}, i, { connected: isConfigured(), apiKey: '' }) : i;
+  });
+}
 
 function rowToSettings(r) {
   return {
@@ -49,7 +67,7 @@ async function save(ctx, p) {
 async function listIntegrations(ctx) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
   var res = await pool.query('SELECT integrations FROM settings WHERE id = 1');
-  return res.rows[0].integrations || [];
+  return withLiveConfigState(res.rows[0].integrations || []);
 }
 
 async function findIntegration(id) {

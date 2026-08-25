@@ -2,6 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var whatsappService = require('./whatsapp.service');
 
 // Social & campaign tracker (Metricool-style): channels, campaigns, a
 // content calendar of posts with their engagement numbers, and periodic
@@ -308,13 +309,27 @@ async function createInboxItem(ctx, p) {
 }
 
 // marketing.inbox.reply — records the reply text against the item and
-// marks it replied. This is the record of what staff sent back on the
-// actual platform (by hand, for now) — it does not itself deliver
-// anything to Facebook/Instagram/TikTok/WhatsApp; that needs the real
-// platform API connected first (see the module comment above).
+// marks it replied. For every channel except WhatsApp this is only ever a
+// record of what staff sent back on the actual platform by hand — Meta's
+// other APIs (Facebook/Instagram/TikTok) aren't wired for posting replies
+// yet. WhatsApp is the one channel where this actually delivers: it's sent
+// through the Cloud API first, and only recorded here once that succeeds,
+// so a failed send (e.g. the 24-hour customer-service window closed)
+// surfaces as an error instead of silently marking the item "replied".
 async function replyInboxItem(ctx, id, p) {
   requireManage(ctx);
   var replyBody = V.text(p.replyBody, 'Reply', 2000);
+
+  var itemRes = await pool.query(
+    'SELECT i.author_handle, c.key AS channel_key FROM marketing_inbox_items i JOIN marketing_channels c ON c.id = i.channel_id WHERE i.id = $1',
+    [id]
+  );
+  if (!itemRes.rows[0]) fail('notfound', 'Inbox item not found.');
+  if (itemRes.rows[0].channel_key === 'whatsapp') {
+    if (!itemRes.rows[0].author_handle) fail('invalid', 'This item has no WhatsApp number to reply to.');
+    await whatsappService.sendMessage(itemRes.rows[0].author_handle, replyBody);
+  }
+
   var res = await pool.query(
     "UPDATE marketing_inbox_items SET reply_body = $1, status = 'replied', replied_by = $2, replied_at = now() WHERE id = $3 RETURNING id",
     [replyBody, ctx.employee.id, id]

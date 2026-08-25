@@ -48,12 +48,16 @@ var reportsRoutes = require('./routes/reports.routes');
 var aiRoutes = require('./routes/ai.routes');
 var marketingRoutes = require('./routes/marketing.routes');
 var oauthRoutes = require('./routes/oauth.routes');
+var whatsappRoutes = require('./routes/whatsapp.routes');
 
 var app = express();
 
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
-app.use(express.json());
+// verify captures the raw request bytes onto req.rawBody before JSON
+// parsing discards them — whatsapp.routes.js's webhook needs the exact
+// raw bytes (not a re-serialized object) to check Meta's HMAC signature.
+app.use(express.json({ verify: function (req, res, buf) { req.rawBody = buf; } }));
 
 app.get('/api/health', function (req, res) { res.json({ ok: true }); });
 
@@ -99,11 +103,12 @@ app.use('/api/expenses', expensesRoutes);
 app.use('/api/commercial-settings', commercialSettingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
-// oauthRoutes is mounted first and at a more specific prefix than
-// marketingRoutes so its public (non-requireAuth) callback route is
-// reached before marketingRoutes' router.use(requireAuth) can intercept it
-// — Express matches mounts in registration order, not by specificity.
+// oauthRoutes and whatsappRoutes are mounted first and at a more specific
+// prefix than marketingRoutes so their public (non-requireAuth) routes are
+// reached before marketingRoutes' router.use(requireAuth) can intercept
+// them — Express matches mounts in registration order, not by specificity.
 app.use('/api/marketing/oauth', oauthRoutes);
+app.use('/api/marketing/whatsapp', whatsappRoutes);
 app.use('/api/marketing', marketingRoutes);
 
 app.use(function (req, res) {

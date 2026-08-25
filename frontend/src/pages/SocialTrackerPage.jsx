@@ -113,6 +113,7 @@ export default function SocialTrackerPage() {
   const [syncingInstagram, setSyncingInstagram] = useState(false);
   const [syncingYouTube, setSyncingYouTube] = useState(false);
   const [syncingTwitch, setSyncingTwitch] = useState(false);
+  const [syncingWebsite, setSyncingWebsite] = useState(false);
 
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [pagePickerPending, setPagePickerPending] = useState(null);
@@ -292,6 +293,20 @@ export default function SocialTrackerPage() {
       setError(err.message);
     } finally {
       setSyncingTwitch(false);
+    }
+  }
+
+  async function syncWebsite() {
+    setSyncingWebsite(true);
+    setError(null);
+    try {
+      const r = await api.post('/marketing/website/sync', {});
+      setToast('Synced ' + r.synced + ' website page(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' active users (30d)' : '') + '.');
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingWebsite(false);
     }
   }
 
@@ -771,6 +786,11 @@ export default function SocialTrackerPage() {
                 {c.key === 'twitch' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTwitch} onClick={syncTwitch}>
                     {syncingTwitch ? 'Syncing…' : 'Sync now'}
+                  </button>
+                )}
+                {c.key === 'website' && c.connected && canManage && (
+                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingWebsite} onClick={syncWebsite}>
+                    {syncingWebsite ? 'Syncing…' : 'Sync now'}
                   </button>
                 )}
 

@@ -107,5 +107,44 @@ module.exports = {
       redirectUri: process.env.TWITCH_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/twitch/callback',
       configured: !!(clientId && clientSecret)
     };
+  }()),
+  // WhatsApp Business Cloud API — unlike the other social platforms this
+  // isn't a per-user OAuth redirect: a WhatsApp Business phone number and
+  // its permanent access token are set up once in Meta Business Suite (as a
+  // product under the same Meta app used for Facebook Login) and configured
+  // here as server env vars, not a "Connect" button click. verifyToken is a
+  // string *we* invent and paste into Meta's webhook config screen so
+  // handleWebhookVerify can confirm the handshake request really came from
+  // that config, not a secret Meta issues.
+  whatsapp: (function () {
+    var phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+    var businessAccountId = (process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || '').trim();
+    var accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+    var verifyToken = (process.env.WHATSAPP_VERIFY_TOKEN || '').trim();
+    return {
+      phoneNumberId: phoneNumberId,
+      businessAccountId: businessAccountId,
+      accessToken: accessToken,
+      verifyToken: verifyToken,
+      configured: !!(phoneNumberId && accessToken && verifyToken)
+    };
+  }()),
+  // Website analytics (GA4 Data API) — a service account granted Viewer
+  // access on the GA4 property, authenticated server-to-server via a
+  // signed JWT (see services/googleAnalytics.service.js), not a per-user
+  // OAuth redirect either. privateKey commonly arrives from a hosting
+  // panel's env var UI with literal "\n" sequences instead of real
+  // newlines (copy-pasting a multi-line PEM into a single-line field) —
+  // normalized back to real newlines here so crypto.createSign() accepts it.
+  website: (function () {
+    var propertyId = (process.env.GA4_PROPERTY_ID || '').trim();
+    var serviceAccountEmail = (process.env.GA4_SERVICE_ACCOUNT_EMAIL || '').trim();
+    var privateKey = (process.env.GA4_SERVICE_ACCOUNT_PRIVATE_KEY || '').trim().replace(/\\n/g, '\n');
+    return {
+      propertyId: propertyId,
+      serviceAccountEmail: serviceAccountEmail,
+      privateKey: privateKey,
+      configured: !!(propertyId && serviceAccountEmail && privateKey)
+    };
   }())
 };
