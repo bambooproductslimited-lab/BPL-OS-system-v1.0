@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { GrowthChart, StatSparkline, EngagementBars, channelColor } from '../components/SocialCharts';
 import './SocialTrackerPage.css';
+
+// Channels with a real "followers" concept, in the order they're plotted
+// on the Community growth chart — fixed order so a channel keeps the same
+// color across every chart on this page, growth chart included or not.
+const GROWTH_CHANNEL_KEYS = ['facebook', 'instagram', 'tiktok', 'youtube', 'twitch', 'linkedin'];
 
 // Metricool-style social & campaign tracker: channels (Facebook, Instagram,
 // TikTok, WhatsApp Business, Website, ThomasNet), campaigns, a content
@@ -155,6 +161,23 @@ export default function SocialTrackerPage() {
   }, [calendarFilter.channelId, calendarFilter.campaignId, calendarFilter.status, inboxFilter.channelId, inboxFilter.status, inboxFilter.kind]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // The Overview tab's growth chart needs every channel's follower history
+  // up front (not just the one a user happens to click "Show history" on
+  // in the Channels tab) — fetched once per channel and cached in the same
+  // statHistory state so neither tab re-fetches what the other already has.
+  useEffect(() => {
+    var missing = channels.filter((c) => !(c.id in statHistory));
+    if (!missing.length) return;
+    Promise.all(missing.map((c) => api.get('/marketing/channels/' + c.id + '/stats').then((stats) => [c.id, stats])))
+      .then((pairs) => setStatHistory((prev) => {
+        var next = { ...prev };
+        pairs.forEach(([id, stats]) => { next[id] = stats; });
+        return next;
+      }))
+      .catch(() => {}); // best-effort — the growth chart just shows less if this fails
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channels]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -563,6 +586,30 @@ export default function SocialTrackerPage() {
 
       {tab === 'overview' && dash && (
         <div className="soctrack-overview">
+          <div className="soc-charts-row">
+            <GrowthChart
+              series={GROWTH_CHANNEL_KEYS.map((key) => {
+                var c = channels.find((ch) => ch.key === key);
+                return c ? { key: c.key, name: c.name, color: channelColor(c.key), points: statHistory[c.id] || [] } : null;
+              }).filter(Boolean)}
+            />
+            <StatSparkline
+              label="Website — active users (30 days)"
+              points={(() => {
+                var website = channels.find((c) => c.key === 'website');
+                return website ? statHistory[website.id] || [] : [];
+              })()}
+            />
+          </div>
+          <EngagementBars
+            metricLabel="Reach"
+            items={dash.channels
+              .filter((c) => c.totals.reach > 0)
+              .map((c) => ({ key: c.key, name: c.name, value: c.totals.reach }))
+              .sort((a, b) => b.value - a.value)}
+          />
+
+          <h2 className="soctrack-section-title">Channels</h2>
           <div className="soctrack-channel-grid">
             {dash.channels.map((c) => (
               <div key={c.id} className="soctrack-channel-card">
