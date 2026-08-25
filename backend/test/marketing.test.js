@@ -199,3 +199,30 @@ test('marketing.inbox: log an incoming comment, reply, reopen, archive, dashboar
   var filteredByStatus = await (await fetch(base + '/api/marketing/inbox?status=archived', { headers: authed(admin) })).json();
   assert.ok(filteredByStatus.some(function (i) { return i.id === item.id; }));
 });
+
+test('marketing.dashboardMetrics: permission-gated, rejects an inverted range, returns the expected shape for a wide range', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var alice = await login('alice.kamau@bplghana.com');
+
+  var denied = await fetch(base + '/api/marketing/dashboard/metrics?from=2020-01-01&to=2030-01-01', { headers: authed(alice) });
+  assert.equal(denied.status, 403);
+
+  var inverted = await fetch(base + '/api/marketing/dashboard/metrics?from=2026-01-01&to=2025-01-01', { headers: authed(admin) });
+  assert.equal(inverted.status, 400);
+
+  var res = await fetch(base + '/api/marketing/dashboard/metrics?from=2020-01-01&to=2030-01-01', { headers: authed(admin) });
+  assert.equal(res.status, 200);
+  var body = await res.json();
+  assert.equal(body.from, '2020-01-01');
+  assert.equal(body.to, '2030-01-01');
+  ['followers', 'impressions', 'interactions', 'posts'].forEach(function (metric) {
+    assert.ok(Array.isArray(body.metrics[metric].byChannel), metric + '.byChannel should be an array');
+    assert.ok(Array.isArray(body.metrics[metric].series), metric + '.series should be an array');
+  });
+  // Facebook is seeded with follower snapshots and a published post — it
+  // should show up with real, non-null figures across a range this wide.
+  var fbFollowers = body.metrics.followers.byChannel.find(function (c) { return c.channelKey === 'facebook'; });
+  assert.ok(fbFollowers && fbFollowers.value > 0);
+  var fbImpressions = body.metrics.impressions.byChannel.find(function (c) { return c.channelKey === 'facebook'; });
+  assert.ok(fbImpressions && fbImpressions.value > 0);
+});

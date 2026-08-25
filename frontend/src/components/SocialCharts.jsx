@@ -2,18 +2,15 @@ import { useMemo, useRef, useState } from 'react';
 import './SocialCharts.css';
 
 // Metricool-style graphical metrics for the Social Tracker's Overview tab:
-// a multi-line "Community growth" chart across the social platforms that
-// share a real "followers" concept, a single-series stat/sparkline for
-// Website (deliberately kept off the growth chart's shared axis — active
-// users and follower counts are different metrics at different
-// magnitudes; mixing them on one linear axis is the classic
-// "Users vs Sessions" dual-scale anti-pattern), and a horizontal bar list
-// for engagement totals. No charting library — plain inline SVG, following
+// per-metric sections (Followers / Impressions / Interactions / Posts),
+// each a row of solid-colored per-channel stat cards (current value +
+// trend arrow vs the prior equal-length period) with a multi-line trend
+// chart underneath. No charting library — plain inline SVG, following
 // this app's existing zero-dependency pattern (jsPDF/html2canvas aside).
 
 // Fixed categorical color per channel — assigned once, never reassigned by
-// rank/filter, so a channel keeps its color even if others drop out of a
-// given chart for lacking data.
+// rank/filter, so a channel keeps its color whether it's a chart line, a
+// legend swatch, or a stat card background.
 export const CHANNEL_COLORS = {
   facebook: '#2a78d6',
   instagram: '#eb6834',
@@ -25,6 +22,16 @@ export const CHANNEL_COLORS = {
 };
 const MUTED_COLOR = '#898781';
 export function channelColor(key) { return CHANNEL_COLORS[key] || MUTED_COLOR; }
+
+// Relative luminance -> pick white or ink text so a value stays legible
+// set inside a solid-colored card, per the dataviz skill's one exception
+// to "text never wears the data color."
+function textColorFor(hex) {
+  var r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  var lin = [r, g, b].map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+  var L = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+  return L > 0.5 ? '#0b0b0b' : '#ffffff';
+}
 
 function niceMax(v) {
   if (v <= 0) return 10;
@@ -38,11 +45,13 @@ function niceTicks(max, count) {
   for (var i = 0; i <= count; i++) ticks.push(Math.round((max * i) / count));
   return ticks;
 }
-function compactNum(n) {
+export function compactNum(n) {
   n = Number(n || 0);
-  if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
+  var sign = n < 0 ? '-' : '';
+  n = Math.abs(n);
+  if (n >= 1000000) return sign + (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000) return sign + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return sign + String(n);
 }
 // Always includes the year — history can span a year boundary, and
 // "26 Jul … 10 Jul" with no year reads as backwards even when the
@@ -52,10 +61,10 @@ function fmtShortDate(t) {
 }
 
 var PAD = { left: 44, right: 16, top: 16, bottom: 28 };
-var VBW = 800, VBH = 300;
+var VBW = 800, VBH = 260;
 
-// GrowthChart — series: [{ key, name, color, points: [{ capturedOn, followers }] }]
-export function GrowthChart({ series }) {
+// LineChart — series: [{ key, name, color, points: [{ capturedOn, value }] }]
+function LineChart({ series }) {
   const containerRef = useRef(null);
   const [hoverT, setHoverT] = useState(null);
   const [hoverPos, setHoverPos] = useState(null);
@@ -68,7 +77,7 @@ export function GrowthChart({ series }) {
     active.forEach((s) => s.points.forEach((p) => {
       var t = new Date(p.capturedOn.length > 10 ? p.capturedOn : p.capturedOn + 'T00:00').getTime();
       times.push(t);
-      if (p.followers > maxVal) maxVal = p.followers;
+      if (p.value > maxVal) maxVal = p.value;
     }));
     times.sort((a, b) => a - b);
     return {
@@ -85,18 +94,13 @@ export function GrowthChart({ series }) {
   const xOf = (t) => PAD.left + ((t - minT) / span) * plotW;
   const yOf = (v) => PAD.top + plotH - (maxV ? (v / maxV) * plotH : 0);
 
-  // Step-carry-forward: a follower count holds steady between snapshots,
-  // so the tooltip at any hovered date shows each series' most recent
-  // known value at-or-before that date, not a misleading interpolation.
+  // Step-carry-forward for cumulative metrics (followers) — a count holds
+  // steady between snapshots. Post-based metrics (impressions/interactions/
+  // posts) are daily totals, not cumulative, so an exact-day match is used
+  // instead (no carry-forward — there's nothing to carry).
   function valueAt(s, t) {
-    var pts = s.points;
-    var result = null;
-    for (var i = 0; i < pts.length; i++) {
-      var pt = pts[i];
-      var pTime = new Date(pt.capturedOn.length > 10 ? pt.capturedOn : pt.capturedOn + 'T00:00').getTime();
-      if (pTime <= t) result = pt.followers; else break;
-    }
-    return result;
+    var exact = s.points.find((p) => new Date(p.capturedOn.length > 10 ? p.capturedOn : p.capturedOn + 'T00:00').getTime() === t);
+    return exact ? exact.value : null;
   }
 
   function handleMove(e) {
@@ -116,138 +120,102 @@ export function GrowthChart({ series }) {
     ? active.map((s) => ({ key: s.key, name: s.name, color: s.color, value: valueAt(s, hoverT) })).filter((r) => r.value !== null)
     : [];
 
+  if (!active.length) {
+    return <p className="soc-chart-empty">No data for this period yet.</p>;
+  }
+
   return (
-    <div className="soc-chart-card">
-      <div className="soc-chart-title">Community growth</div>
-      {!active.length ? (
-        <p className="soc-chart-empty">No follower history yet — sync a connected channel, or log a follower count from the Channels tab, to see growth over time.</p>
-      ) : (
-        <>
-          <div className="soc-chart-svg-wrap" ref={containerRef} onPointerMove={handleMove} onPointerLeave={handleLeave}>
-            <svg viewBox={'0 0 ' + VBW + ' ' + VBH} className="soc-chart-svg" preserveAspectRatio="none">
-              {yTicks.map((tv, i) => (
-                <g key={i}>
-                  <line x1={PAD.left} x2={VBW - PAD.right} y1={yOf(tv)} y2={yOf(tv)} className="soc-chart-gridline" />
-                  <text x={PAD.left - 8} y={yOf(tv)} className="soc-chart-axis-label" textAnchor="end" dominantBaseline="middle">{compactNum(tv)}</text>
-                </g>
-              ))}
-              {hoverT !== null && (
-                <line x1={xOf(hoverT)} x2={xOf(hoverT)} y1={PAD.top} y2={VBH - PAD.bottom} className="soc-chart-crosshair" />
-              )}
-              {active.map((s) => {
-                var d = s.points.map((p, i) => {
-                  var t = new Date(p.capturedOn.length > 10 ? p.capturedOn : p.capturedOn + 'T00:00').getTime();
-                  return (i === 0 ? 'M' : 'L') + xOf(t) + ',' + yOf(p.followers);
-                }).join(' ');
-                var last = s.points[s.points.length - 1];
-                var lastT = new Date(last.capturedOn.length > 10 ? last.capturedOn : last.capturedOn + 'T00:00').getTime();
-                return (
-                  <g key={s.key}>
-                    <path d={d} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                    <circle cx={xOf(lastT)} cy={yOf(last.followers)} r="5" fill={s.color} stroke="var(--soc-chart-surface)" strokeWidth="2" />
-                  </g>
-                );
-              })}
+    <>
+      <div className="soc-chart-svg-wrap" ref={containerRef} onPointerMove={handleMove} onPointerLeave={handleLeave}>
+        <svg viewBox={'0 0 ' + VBW + ' ' + VBH} className="soc-chart-svg" preserveAspectRatio="none">
+          {yTicks.map((tv, i) => (
+            <g key={i}>
+              <line x1={PAD.left} x2={VBW - PAD.right} y1={yOf(tv)} y2={yOf(tv)} className="soc-chart-gridline" />
+              <text x={PAD.left - 8} y={yOf(tv)} className="soc-chart-axis-label" textAnchor="end" dominantBaseline="middle">{compactNum(tv)}</text>
+            </g>
+          ))}
+          {hoverT !== null && (
+            <line x1={xOf(hoverT)} x2={xOf(hoverT)} y1={PAD.top} y2={VBH - PAD.bottom} className="soc-chart-crosshair" />
+          )}
+          {active.map((s) => {
+            var sorted = [...s.points].sort((a, b) => a.capturedOn.localeCompare(b.capturedOn));
+            var d = sorted.map((p, i) => {
+              var t = new Date(p.capturedOn.length > 10 ? p.capturedOn : p.capturedOn + 'T00:00').getTime();
+              return (i === 0 ? 'M' : 'L') + xOf(t) + ',' + yOf(p.value);
+            }).join(' ');
+            var last = sorted[sorted.length - 1];
+            var lastT = new Date(last.capturedOn.length > 10 ? last.capturedOn : last.capturedOn + 'T00:00').getTime();
+            return (
+              <g key={s.key}>
+                <path d={d} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                {sorted.length === 1 && <circle cx={xOf(lastT)} cy={yOf(last.value)} r="4" fill={s.color} />}
+                <circle cx={xOf(lastT)} cy={yOf(last.value)} r="5" fill={s.color} stroke="var(--soc-chart-surface)" strokeWidth="2" />
+              </g>
+            );
+          })}
+          {minT === maxT ? (
+            <text x={(PAD.left + VBW - PAD.right) / 2} y={VBH - 8} className="soc-chart-axis-label" textAnchor="middle">{fmtShortDate(minT)}</text>
+          ) : (
+            <>
               <text x={PAD.left} y={VBH - 8} className="soc-chart-axis-label">{fmtShortDate(minT)}</text>
               <text x={VBW - PAD.right} y={VBH - 8} className="soc-chart-axis-label" textAnchor="end">{fmtShortDate(maxT)}</text>
-            </svg>
-            {hoverT !== null && hoverPos && tooltipRows.length > 0 && (
-              <div className="soc-chart-tooltip" style={{ left: Math.min(hoverPos.x + 12, (containerRef.current?.clientWidth || 0) - 170) }}>
-                <div className="soc-chart-tooltip-date">{fmtShortDate(hoverT)}</div>
-                {tooltipRows.map((r) => (
-                  <div key={r.key} className="soc-chart-tooltip-row">
-                    <span className="soc-chart-tooltip-key" style={{ background: r.color }} />
-                    <span className="soc-chart-tooltip-name">{r.name}</span>
-                    <span className="soc-chart-tooltip-value">{compactNum(r.value)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="soc-chart-legend">
-            {active.map((s) => (
-              <div key={s.key} className="soc-chart-legend-item">
-                <span className="soc-chart-legend-key" style={{ background: s.color }} />
-                {s.name}
+            </>
+          )}
+        </svg>
+        {hoverT !== null && hoverPos && tooltipRows.length > 0 && (
+          <div className="soc-chart-tooltip" style={{ left: Math.min(hoverPos.x + 12, (containerRef.current?.clientWidth || 0) - 170) }}>
+            <div className="soc-chart-tooltip-date">{fmtShortDate(hoverT)}</div>
+            {tooltipRows.map((r) => (
+              <div key={r.key} className="soc-chart-tooltip-row">
+                <span className="soc-chart-tooltip-key" style={{ background: r.color }} />
+                <span className="soc-chart-tooltip-name">{r.name}</span>
+                <span className="soc-chart-tooltip-value">{compactNum(r.value)}</span>
               </div>
             ))}
           </div>
-        </>
-      )}
-    </div>
+        )}
+      </div>
+      <div className="soc-chart-legend">
+        {active.map((s) => (
+          <div key={s.key} className="soc-chart-legend-item">
+            <span className="soc-chart-legend-key" style={{ background: s.color }} />
+            {s.name}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
-// StatSparkline — a stat-tile with an optional trend sparkline once there
-// are >= 2 points; a single point (or zero) degrades gracefully to a plain
-// hero number, since a one-point "trend" isn't a trend.
-export function StatSparkline({ label, points, formatValue }) {
-  const has = points && points.length > 0;
-  const latest = has ? points[points.length - 1].followers : null;
-  const w = 160, h = 40;
-  const path = useMemo(() => {
-    if (!points || points.length < 2) return null;
-    var vals = points.map((p) => p.followers);
-    var min = Math.min(...vals), max = Math.max(...vals);
-    var range = max - min || 1;
-    return points.map((p, i) => {
-      var x = (i / (points.length - 1)) * w;
-      var y = h - ((p.followers - min) / range) * h;
-      return (i === 0 ? 'M' : 'L') + x + ',' + y;
-    }).join(' ');
-  }, [points]);
+// MetricSection — one Metricool-style block: a row of solid per-channel
+// stat cards (value + trend arrow) and a trend chart underneath.
+// metric: { byChannel: [{channelKey,name,value,delta}], series: [{channelKey,name,points}] }
+export function MetricSection({ title, metric }) {
+  var byChannel = metric.byChannel || [];
+  var series = (metric.series || []).map((s) => ({ key: s.channelKey, name: s.name, color: channelColor(s.channelKey), points: s.points }));
 
-  return (
-    <div className="soc-stat-tile">
-      <div className="soc-stat-label">{label}</div>
-      {has ? (
-        <>
-          <div className="soc-stat-value">{formatValue ? formatValue(latest) : compactNum(latest)}</div>
-          {path ? (
-            <svg viewBox={'0 0 ' + w + ' ' + h} className="soc-stat-sparkline" preserveAspectRatio="none">
-              <path d={path} fill="none" stroke={CHANNEL_COLORS.website} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-            </svg>
-          ) : (
-            <div className="soc-stat-note">Trend appears after the next sync.</div>
-          )}
-        </>
-      ) : (
-        <div className="soc-stat-note">No data yet — click Sync now on the Channels tab.</div>
-      )}
-    </div>
-  );
-}
-
-// EngagementBars — a horizontal bar list comparing one metric across
-// channels. items: [{ key, name, value }]; zero-value channels are
-// dropped by the caller before this renders (no signal, no bar).
-export function EngagementBars({ items, metricLabel }) {
-  const [hoverKey, setHoverKey] = useState(null);
-  const max = Math.max(1, ...items.map((i) => i.value));
   return (
     <div className="soc-chart-card">
-      <div className="soc-chart-title">Engagement by channel — {metricLabel}</div>
-      {!items.length ? (
-        <p className="soc-chart-empty">No published posts with metrics logged yet.</p>
+      <div className="soc-chart-title">{title}</div>
+      {!byChannel.length ? (
+        <p className="soc-chart-empty">No data for this period yet.</p>
       ) : (
-        <div className="soc-bars">
-          {items.map((it) => {
-            var color = channelColor(it.key);
-            var widthPct = (it.value / max) * 100;
-            return (
-              <div key={it.key} className="soc-bar-row" onPointerEnter={() => setHoverKey(it.key)} onPointerLeave={() => setHoverKey(null)}>
-                <div className="soc-bar-label">{it.name}</div>
-                <div className="soc-bar-track">
-                  <div
-                    className="soc-bar-fill"
-                    style={{ width: widthPct + '%', background: color, opacity: hoverKey && hoverKey !== it.key ? 0.6 : 1 }}
-                  />
+        <>
+          <div className="soc-stat-row">
+            {byChannel.map((c) => {
+              var bg = channelColor(c.channelKey);
+              var ink = textColorFor(bg);
+              var arrow = c.delta === null ? '' : c.delta > 0 ? ' ↑' : c.delta < 0 ? ' ↓' : '';
+              return (
+                <div key={c.channelKey} className="soc-stat-card" style={{ background: bg, color: ink }}>
+                  <div className="soc-stat-card-value">{compactNum(c.value)}{arrow}</div>
+                  <div className="soc-stat-card-name">{c.name}</div>
                 </div>
-                <div className="soc-bar-value">{compactNum(it.value)}</div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          <LineChart series={series} />
+        </>
       )}
     </div>
   );

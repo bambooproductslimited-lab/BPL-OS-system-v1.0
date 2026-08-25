@@ -423,11 +423,118 @@ async function dashboard(ctx) {
   return { channels: channelSummaries, campaigns: campaignSummaries };
 }
 
+// marketing.dashboardMetrics — the Overview tab's date-range-scoped,
+// Metricool-style metric rows: for each of Followers / Impressions /
+// Interactions / Posts, a per-channel current-period value + an up/down
+// delta against the immediately preceding period of equal length, plus a
+// day-by-day series to chart.
+//
+// Followers is a genuine daily account-wide trend, since channel_stats is
+// snapshotted once a day per channel. Impressions/Interactions/Posts are
+// NOT — this app only syncs each post's current cumulative totals, not a
+// day-by-day platform-insights history, so those three are built from
+// each post's own published_at date instead: "what was published, and its
+// reach, on each day" is real data; a fabricated daily *account* trend
+// would not be.
+async function dashboardMetrics(ctx, from, to) {
+  requireRead(ctx);
+  from = V.date(from, 'From date');
+  to = V.date(to, 'To date');
+  if (to < from) fail('invalid', 'To date must be on or after From date.');
+
+  var channels = await listChannels(ctx);
+  var connected = channels.filter(function (c) { return c.connected; });
+  var channelInfoById = {};
+  channels.forEach(function (c) { channelInfoById[c.id] = c; });
+
+  var periodMs = new Date(to + 'T00:00').getTime() - new Date(from + 'T00:00').getTime();
+  var prevTo = new Date(new Date(from + 'T00:00').getTime() - 86400000).toISOString().slice(0, 10);
+  var prevFrom = new Date(new Date(from + 'T00:00').getTime() - 86400000 - periodMs).toISOString().slice(0, 10);
+  var dayBeforeFrom = prevTo;
+
+  // ── Followers ──────────────────────────────────────────────────────
+  var statsRes = await pool.query(
+    'SELECT channel_id, captured_on, followers FROM marketing_channel_stats WHERE captured_on <= $1 ORDER BY channel_id, captured_on', [to]
+  );
+  var statsByChannel = {};
+  statsRes.rows.forEach(function (r) {
+    (statsByChannel[r.channel_id] = statsByChannel[r.channel_id] || []).push({ capturedOn: r.captured_on, followers: r.followers });
+  });
+  function valueAtOrBefore(points, date) {
+    var result = null;
+    for (var i = 0; i < points.length; i++) {
+      if (points[i].capturedOn <= date) result = points[i].followers; else break;
+    }
+    return result;
+  }
+  var followersByChannel = [], followersSeries = [];
+  connected.forEach(function (c) {
+    var points = statsByChannel[c.id] || [];
+    var current = valueAtOrBefore(points, to);
+    var start = valueAtOrBefore(points, dayBeforeFrom);
+    if (current === null) return;
+    followersByChannel.push({ channelKey: c.key, name: c.name, value: current, delta: start !== null ? current - start : null });
+    var inRange = points.filter(function (p) { return p.capturedOn >= from && p.capturedOn <= to; })
+      .map(function (p) { return { capturedOn: p.capturedOn, value: p.followers }; });
+    if (inRange.length) followersSeries.push({ channelKey: c.key, name: c.name, points: inRange });
+  });
+
+  // ── Impressions / Interactions / Posts (built from post publish dates) ──
+  var curRes = await pool.query(
+    "SELECT channel_id, coalesce(sum(impressions),0) AS impressions, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
+    "FROM marketing_posts WHERE status = 'published' AND published_at IS NOT NULL AND published_at::date BETWEEN $1 AND $2 GROUP BY channel_id",
+    [from, to]
+  );
+  var prevRes = await pool.query(
+    "SELECT channel_id, coalesce(sum(impressions),0) AS impressions, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
+    "FROM marketing_posts WHERE status = 'published' AND published_at IS NOT NULL AND published_at::date BETWEEN $1 AND $2 GROUP BY channel_id",
+    [prevFrom, prevTo]
+  );
+  var dailyRes = await pool.query(
+    "SELECT channel_id, published_at::date AS day, coalesce(sum(impressions),0) AS impressions, coalesce(sum(likes+comments+shares),0) AS interactions, count(*) AS posts " +
+    "FROM marketing_posts WHERE status = 'published' AND published_at IS NOT NULL AND published_at::date BETWEEN $1 AND $2 GROUP BY channel_id, day ORDER BY channel_id, day",
+    [from, to]
+  );
+  var curByChannel = {}, prevByChannel = {}, dailyByChannel = {};
+  curRes.rows.forEach(function (r) { curByChannel[r.channel_id] = r; });
+  prevRes.rows.forEach(function (r) { prevByChannel[r.channel_id] = r; });
+  dailyRes.rows.forEach(function (r) { (dailyByChannel[r.channel_id] = dailyByChannel[r.channel_id] || []).push(r); });
+
+  function buildPostMetric(field) {
+    var byChannel = [], series = [];
+    connected.forEach(function (c) {
+      var cur = curByChannel[c.id], prev = prevByChannel[c.id];
+      var curVal = cur ? Number(cur[field]) : 0;
+      var prevVal = prev ? Number(prev[field]) : 0;
+      if (!curVal && !prevVal) return; // no signal from this channel either period
+      byChannel.push({ channelKey: c.key, name: c.name, value: curVal, delta: curVal - prevVal });
+      var days = dailyByChannel[c.id];
+      if (days && days.length) {
+        series.push({
+          channelKey: c.key, name: c.name,
+          points: days.map(function (d) { return { capturedOn: d.day.toISOString ? d.day.toISOString().slice(0, 10) : d.day, value: Number(d[field]) }; })
+        });
+      }
+    });
+    return { byChannel: byChannel, series: series };
+  }
+
+  return {
+    from: from, to: to,
+    metrics: {
+      followers: { byChannel: followersByChannel, series: followersSeries },
+      impressions: buildPostMetric('impressions'),
+      interactions: buildPostMetric('interactions'),
+      posts: buildPostMetric('posts')
+    }
+  };
+}
+
 module.exports = {
   listChannels: listChannels, updateChannel: updateChannel,
   listChannelStats: listChannelStats, logChannelStat: logChannelStat,
   listCampaigns: listCampaigns, createCampaign: createCampaign, updateCampaign: updateCampaign,
   listPosts: listPosts, createPost: createPost, updatePost: updatePost, deletePost: deletePost,
   listInboxItems: listInboxItems, createInboxItem: createInboxItem, replyInboxItem: replyInboxItem, setInboxStatus: setInboxStatus,
-  dashboard: dashboard
+  dashboard: dashboard, dashboardMetrics: dashboardMetrics
 };

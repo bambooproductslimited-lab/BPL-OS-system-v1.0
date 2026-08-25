@@ -36,6 +36,7 @@
 .soctrack-filters .input { max-width: 220px; }
 .soctrack-new-btn { margin-left: auto; }
 .soctrack-toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+.soctrack-overview-header { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 16px; }
 .soctrack-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 .soctrack-desc-cell { max-width: 320px; font-size: 12px; color: var(--color-text-muted); }
 
