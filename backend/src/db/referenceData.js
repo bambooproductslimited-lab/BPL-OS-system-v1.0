@@ -95,7 +95,7 @@ var ROLE_DEFS = [
 function defaultIntegrations() {
   return [
     { id: 'timestation', name: 'TimeStation', category: 'Attendance', description: 'Sync biometric/kiosk clock-in data into Attendance.', connected: false, apiKey: '' },
-    { id: 'squareup', name: 'Square', category: 'Payments & POS', description: 'Sync Square payments and orders with Invoices & Payments.', connected: false, apiKey: '' },
+    { id: 'squareup', name: 'Square', category: 'Payments & POS', description: 'One-time historical import of Square customers, catalogue, orders/invoices and payments into Customers, Catalogue, Invoices & Payments (requires a Square Production Access Token set on the server).', connected: false, apiKey: '' },
     { id: 'slack', name: 'Slack', category: 'Notifications', description: 'Send approval and announcement alerts to a Slack channel.', connected: false, apiKey: '' },
     { id: 'quickbooks', name: 'QuickBooks', category: 'Accounting', description: 'Sync invoices and expenses with QuickBooks.', connected: false, apiKey: '' },
     { id: 'facebook', name: 'Facebook', category: 'Marketing', description: 'Pull page post reach, engagement and follower counts into the social tracker (requires a Meta developer app + Page access token).', connected: false, apiKey: '' },

@@ -50,6 +50,7 @@ var marketingRoutes = require('./routes/marketing.routes');
 var oauthRoutes = require('./routes/oauth.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
+var squareRoutes = require('./routes/square.routes');
 
 var app = express();
 
@@ -118,6 +119,7 @@ app.use('/api/marketing/oauth', oauthRoutes);
 app.use('/api/marketing/whatsapp', whatsappRoutes);
 app.use('/api/marketing', marketingRoutes);
 app.use('/api/kiosk', kioskRoutes);
+app.use('/api/square', squareRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });

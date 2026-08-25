@@ -10,7 +10,8 @@ var config = require('../config');
 // row) so both agree on the same live state instead of drifting.
 var ENV_CONFIGURED_INTEGRATIONS = {
   whatsappbusiness: function () { return config.whatsapp.configured; },
-  googleanalytics: function () { return config.website.configured; }
+  googleanalytics: function () { return config.website.configured; },
+  squareup: function () { return config.square.configured; }
 };
 
 // apiKey is blanked too since nothing is ever stored in settings.integrations

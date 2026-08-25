@@ -150,5 +150,18 @@ module.exports = {
       privateKey: privateKey,
       configured: !!(propertyId && serviceAccountEmail && privateKey)
     };
+  }()),
+  // Square (POS/payments platform) — a one-time historical data import only
+  // (services/squareImport.service.js), not a live sync. A single Production
+  // Access Token for the seller's own account is enough: no OAuth
+  // app/client-secret dance, since we're not acting on behalf of other
+  // Square sellers.
+  square: (function () {
+    var accessToken = (process.env.SQUARE_ACCESS_TOKEN || '').trim();
+    return {
+      accessToken: accessToken,
+      baseUrl: process.env.SQUARE_API_BASE_URL || 'https://connect.squareup.com',
+      configured: !!accessToken
+    };
   }())
 };

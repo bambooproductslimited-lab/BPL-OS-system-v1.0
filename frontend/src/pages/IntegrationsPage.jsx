@@ -74,8 +74,26 @@ export default function IntegrationsPage() {
   // withLiveConfigState) rather than a DB flag.
   const ENV_CONFIGURED_PLATFORMS = {
     whatsappbusiness: 'Set WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN and WHATSAPP_VERIFY_TOKEN on the server to enable.',
-    googleanalytics: 'Set GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL and GA4_SERVICE_ACCOUNT_PRIVATE_KEY on the server to enable.'
+    googleanalytics: 'Set GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL and GA4_SERVICE_ACCOUNT_PRIVATE_KEY on the server to enable.',
+    squareup: 'Set SQUARE_ACCESS_TOKEN on the server to enable.'
   };
+
+  const [squareBusy, setSquareBusy] = useState(false);
+  const [squareResult, setSquareResult] = useState(null);
+  const [squareError, setSquareError] = useState(null);
+
+  async function runSquareImport() {
+    setSquareBusy(true);
+    setSquareError(null);
+    setSquareResult(null);
+    try {
+      setSquareResult(await api.post('/square/import', {}));
+    } catch (err) {
+      setSquareError(err.message);
+    } finally {
+      setSquareBusy(false);
+    }
+  }
   async function connectSingleStep(id) {
     setBusyId(id);
     setError(null);
@@ -137,7 +155,25 @@ export default function IntegrationsPage() {
               <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? 'Connected' : 'Not connected'}</span>
             </div>
             <p className="integrations-card-desc">{i.description}</p>
-            {ENV_CONFIGURED_PLATFORMS[i.id] ? (
+            {i.id === 'squareup' ? (
+              <>
+                <p className="integrations-card-note">
+                  {i.connected ? 'Token configured on the server. Safe to run more than once — already-imported records are matched and updated, not duplicated.' : ENV_CONFIGURED_PLATFORMS.squareup}
+                </p>
+                {i.connected && (
+                  <button type="button" className="btn btn-primary integrations-action" disabled={squareBusy} onClick={runSquareImport}>
+                    {squareBusy ? 'Importing…' : 'Run Square import'}
+                  </button>
+                )}
+                {squareError && <p className="integrations-card-note" style={{ color: 'var(--color-danger-700, #b42318)' }}>{squareError}</p>}
+                {squareResult && (
+                  <p className="integrations-card-note">
+                    Customers {squareResult.customers.imported} imported ({squareResult.customers.skipped} skipped) · Catalogue {squareResult.catalogItems.imported} imported ({squareResult.catalogItems.skipped} skipped) · Invoices {squareResult.invoices.imported} imported ({squareResult.invoices.skipped} skipped) · Payments {squareResult.payments.imported} imported ({squareResult.payments.skipped} skipped)
+                    {squareResult.errors.length > 0 && <> — {squareResult.errors.length} record(s) had errors; see server logs / audit trail.</>}
+                  </p>
+                )}
+              </>
+            ) : ENV_CONFIGURED_PLATFORMS[i.id] ? (
               <p className="integrations-card-note">
                 {i.connected ? 'Configured on the server — live and syncing automatically.' : ENV_CONFIGURED_PLATFORMS[i.id]}
               </p>
