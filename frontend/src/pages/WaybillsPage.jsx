@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import WaybillPreview from '../components/WaybillPreview';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './WaybillsPage.css';
 
 // Waybills document goods leaving the factory or showroom — a delivery
@@ -46,6 +47,7 @@ export default function WaybillsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -141,22 +143,23 @@ export default function WaybillsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleWaybills = waybills.filter((wb) => matchesQuery(search, wb.waybillNo, wb.destination, wb.customerName, wb.driverName, wb.vehicleNo));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="waybills-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>New waybill</button>
-        </div>
-      )}
+      <div className="waybills-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search waybills…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>New waybill</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Waybill</th><th>Origin</th><th>Destination</th><th>Driver</th><th>Vehicle</th><th>Date</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {waybills.map((wb) => (
+          {visibleWaybills.map((wb) => (
             <tr key={wb.id}>
               <td style={{ fontWeight: 600 }}>{wb.waybillNo}</td>
               <td style={{ textTransform: 'capitalize' }}>{wb.origin}</td>
@@ -179,6 +182,7 @@ export default function WaybillsPage() {
         </tbody>
       </table>
       {!waybills.length && <p className="table-empty">No waybills yet.</p>}
+      {!!waybills.length && !visibleWaybills.length && <p className="table-empty">No waybills match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

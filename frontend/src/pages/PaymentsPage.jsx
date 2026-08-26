@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './PaymentsPage.css';
 
 // Ported from Bamboo OS.dc.html's payments screen (screens.payments block).
@@ -25,6 +26,7 @@ export default function PaymentsPage() {
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -61,16 +63,20 @@ export default function PaymentsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visiblePayments = payments.filter((p) => matchesQuery(search, p.invoiceNo, p.customerName, p.reference, p.receivedByName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search payments…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Method</th><th>Reference</th><th>Received by</th><th></th></tr>
         </thead>
         <tbody>
-          {payments.map((p) => (
+          {visiblePayments.map((p) => (
             <tr key={p.id}>
               <td style={{ fontWeight: 600 }}>{p.invoiceNo}</td>
               <td>{p.customerName}</td>
@@ -87,6 +93,7 @@ export default function PaymentsPage() {
         </tbody>
       </table>
       {!payments.length && <p className="table-empty">No payments recorded yet.</p>}
+      {!!payments.length && !visiblePayments.length && <p className="table-empty">No payments match "{search}".</p>}
 
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>

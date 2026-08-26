@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
 import DocPreview from '../components/DocPreview';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './QuotationsPage.css';
 
 // Ported from Bamboo OS.dc.html's quotations screen (screens.quotations
@@ -57,6 +58,7 @@ export default function QuotationsPage() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [previewQ, setPreviewQ] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -142,22 +144,23 @@ export default function QuotationsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleQuotations = quotations.filter((q) => matchesQuery(search, q.quoteNo, q.customerName, q.title));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canOpenNew && (
-        <div className="quotations-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>New quotation</button>
-        </div>
-      )}
+      <div className="quotations-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search quotations…" />
+        {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New quotation</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Quote</th><th>Customer</th><th>Items</th><th>Total</th><th>Valid until</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
-          {quotations.map((q) => {
+          {visibleQuotations.map((q) => {
             const canSend = q.status === 'draft' && canManage;
             const canAccept = (q.status === 'sent' || q.status === 'viewed') && canManage;
             const canReject = (q.status === 'sent' || q.status === 'draft' || q.status === 'viewed') && canManage;
@@ -183,6 +186,7 @@ export default function QuotationsPage() {
         </tbody>
       </table>
       {!quotations.length && <p className="table-empty">No quotations yet.</p>}
+      {!!quotations.length && !visibleQuotations.length && <p className="table-empty">No quotations match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './DepartmentsPage.css';
 
 // Ported from Bamboo OS.dc.html's departments screen (screens.departments
@@ -27,6 +28,12 @@ export default function DepartmentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [dialogError, setDialogError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [search, setSearch] = useState('');
+  const visibleDepartments = useMemo(
+    () => departments.filter((d) => matchesQuery(search, d.code, d.name, d.managerName)),
+    [departments, search]
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -101,12 +108,14 @@ export default function DepartmentsPage() {
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <table className="table" style={{ marginBottom: 20 }}>
+      <SearchInput value={search} onChange={setSearch} placeholder="Search departments…" />
+
+      <table className="table" style={{ marginBottom: 20, marginTop: 16 }}>
         <thead>
           <tr><th>Code</th><th>Department</th><th>Manager</th><th>Headcount</th><th /></tr>
         </thead>
         <tbody>
-          {departments.map((d) => (
+          {visibleDepartments.map((d) => (
             <tr key={d.id}>
               <td>{d.code}</td>
               <td style={{ fontWeight: 600 }}>{d.name}</td>
@@ -123,6 +132,7 @@ export default function DepartmentsPage() {
         </tbody>
       </table>
       {!departments.length && <p className="table-empty">No departments yet.</p>}
+      {!!departments.length && !visibleDepartments.length && <p className="table-empty">No departments match "{search}".</p>}
 
       {canManage && (
         <form className="card departments-form" onSubmit={handleSubmit}>

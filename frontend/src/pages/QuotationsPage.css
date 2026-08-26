@@ -1,4 +1,4 @@
-.quotations-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.quotations-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .quotations-items-line { font-size: 13px; }
 .quotations-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 

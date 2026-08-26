@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProcurementPage.css';
 
 // Ported from Bamboo OS.dc.html's procurement screen (screens.procurement
@@ -43,6 +44,7 @@ export default function ProcurementPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [decidingId, setDecidingId] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -95,6 +97,8 @@ export default function ProcurementPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleRequests = requests.filter((r) => matchesQuery(search, r.item, r.requesterName, r.departmentName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -131,12 +135,13 @@ export default function ProcurementPage() {
         </form>
       )}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search item, requester, department…" />
+      <table className="table" style={{ marginTop: 12 }}>
         <thead>
           <tr><th>Item</th><th>Qty</th><th>Requested by</th><th>Department</th><th>Est. cost</th><th>Needed by</th><th>Priority</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {requests.map((r) => {
+          {visibleRequests.map((r) => {
             const decidable = r.status === 'pending' && canApprove && r.requesterId !== employeeId;
             return (
               <tr key={r.id}>
@@ -162,6 +167,7 @@ export default function ProcurementPage() {
         </tbody>
       </table>
       {!requests.length && <p className="table-empty">Nothing to show in your scope.</p>}
+      {!!requests.length && !visibleRequests.length && <p className="table-empty">No requests match "{search}".</p>}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

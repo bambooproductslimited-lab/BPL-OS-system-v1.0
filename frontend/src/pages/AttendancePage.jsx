@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './AttendancePage.css';
 
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
@@ -48,6 +49,8 @@ export default function AttendancePage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [search, setSearch] = useState('');
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -69,6 +72,7 @@ export default function AttendancePage() {
   }, [toast]);
 
   const rows = data.rows || [];
+  const visibleRows = rows.filter((r) => matchesQuery(search, r.name, r.code, r.department));
   const summary = [
     { label: 'In scope', value: rows.length },
     { label: 'Present', value: rows.filter((r) => r.status === 'present').length },
@@ -139,12 +143,14 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, department…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Code</th><th>Name</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {visibleRows.map((r) => (
             <tr key={r.employeeId}>
               <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
               <td style={{ fontWeight: 600 }}>{r.name}</td>
@@ -164,6 +170,7 @@ export default function AttendancePage() {
         </tbody>
       </table>
       {!rows.length && <p className="table-empty">No employees in scope for this date.</p>}
+      {!!rows.length && !visibleRows.length && <p className="table-empty">No one matches "{search}".</p>}
 
       {correction && (
         <div className="dialog-backdrop" onClick={() => setCorrection(null)}>

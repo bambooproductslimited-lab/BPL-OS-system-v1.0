@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProductionPage.css';
 
 // Ported from Bamboo OS.dc.html's production screen (screens.production
@@ -68,6 +69,8 @@ export default function ProductionPage() {
   const [prodForm, setProdForm] = useState(EMPTY_PRODUCT_FORM);
   const [prodDialogError, setProdDialogError] = useState(null);
   const [prodSaving, setProdSaving] = useState(false);
+  const [rbSearch, setRbSearch] = useState('');
+  const [pbSearch, setPbSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -262,6 +265,8 @@ export default function ProductionPage() {
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const inStockBatches = rawBatches.filter((r) => r.status !== 'depleted');
+  const visibleRawBatches = rawBatches.filter((r) => matchesQuery(rbSearch, r.batchNo, r.species, r.supplierName, r.warehouseName));
+  const visibleProductionBatches = productionBatches.filter((b) => matchesQuery(pbSearch, b.batchNo, b.productName, b.supervisorName, b.productionLine));
 
   return (
     <div className="production-page">
@@ -313,12 +318,13 @@ export default function ProductionPage() {
       )}
 
       <h2 className="production-section-title">Raw bamboo in stock</h2>
-      <table className="table">
+      <SearchInput value={rbSearch} onChange={setRbSearch} placeholder="Search batch, species, supplier, warehouse…" />
+      <table className="table" style={{ marginTop: 12 }}>
         <thead>
           <tr><th>Batch</th><th>Species</th><th>Supplier</th><th>Warehouse</th><th>Quantity</th><th>Grade</th><th>Received</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {rawBatches.map((r) => (
+          {visibleRawBatches.map((r) => (
             <tr key={r.id}>
               <td>{r.batchNo}</td>
               <td>{r.species}</td>
@@ -336,6 +342,7 @@ export default function ProductionPage() {
         </tbody>
       </table>
       {!rawBatches.length && <p className="table-empty">No raw material received yet.</p>}
+      {!!rawBatches.length && !visibleRawBatches.length && <p className="table-empty">No batches match "{rbSearch}".</p>}
 
       <h2 className="production-section-title">Warehouses</h2>
       <table className="table">
@@ -405,12 +412,13 @@ export default function ProductionPage() {
       )}
 
       <h2 className="production-section-title">Production batches</h2>
-      <table className="table">
+      <SearchInput value={pbSearch} onChange={setPbSearch} placeholder="Search batch, product, supervisor, line…" />
+      <table className="table" style={{ marginTop: 12 }}>
         <thead>
           <tr><th>Batch</th><th>Date</th><th>Line</th><th>Supervisor</th><th>Input</th><th>Output</th><th>Waste</th><th>Efficiency</th></tr>
         </thead>
         <tbody>
-          {productionBatches.map((b) => (
+          {visibleProductionBatches.map((b) => (
             <tr key={b.id}>
               <td>{b.batchNo}</td>
               <td>{fmtDate(b.date)}</td>
@@ -425,6 +433,7 @@ export default function ProductionPage() {
         </tbody>
       </table>
       {!productionBatches.length && <p className="table-empty">No production batches recorded yet.</p>}
+      {!!productionBatches.length && !visibleProductionBatches.length && <p className="table-empty">No batches match "{pbSearch}".</p>}
 
       {whDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setWhDialogOpen(false)}>

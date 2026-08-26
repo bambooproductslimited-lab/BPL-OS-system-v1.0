@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
 import DocPreview from '../components/DocPreview';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './EstimatesPage.css';
 
 // Ported from Bamboo OS.dc.html's estimates screen (screens.estimates block,
@@ -68,6 +69,7 @@ export default function EstimatesPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [previewEs, setPreviewEs] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -178,22 +180,23 @@ export default function EstimatesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleEstimates = estimates.filter((es) => matchesQuery(search, es.estimateNo, es.customerName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canOpenNew && (
-        <div className="estimates-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>New estimate</button>
-        </div>
-      )}
+      <div className="estimates-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search estimates…" />
+        {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New estimate</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Estimate</th><th>Customer</th><th>Items</th><th>Total</th><th>Valid until</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
-          {estimates.map((es) => {
+          {visibleEstimates.map((es) => {
             const canFinalize = es.status === 'draft' && canManage;
             const canConvert = es.status === 'finalized' && canManage;
             const canEdit = es.status === 'draft' && canManage;
@@ -219,6 +222,7 @@ export default function EstimatesPage() {
         </tbody>
       </table>
       {!estimates.length && <p className="table-empty">No estimates yet.</p>}
+      {!!estimates.length && !visibleEstimates.length && <p className="table-empty">No estimates match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

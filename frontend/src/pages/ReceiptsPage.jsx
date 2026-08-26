@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { shareOrDownloadPdf } from '../lib/documentShare';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ReceiptsPage.css';
 
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
@@ -23,6 +24,7 @@ export default function ReceiptsPage() {
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
   const previewRef = useRef(null);
+  const [search, setSearch] = useState('');
 
   async function handleShare() {
     setShareError(null);
@@ -52,16 +54,20 @@ export default function ReceiptsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleReceipts = receipts.filter((r) => matchesQuery(search, r.receiptNo, r.invoiceNo, r.customerName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search receipts…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Receipt</th><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Method</th><th>Balance after</th><th></th></tr>
         </thead>
         <tbody>
-          {receipts.map((r) => (
+          {visibleReceipts.map((r) => (
             <tr key={r.id}>
               <td style={{ fontWeight: 600 }}>{r.receiptNo}</td>
               <td>{r.invoiceNo}</td>
@@ -78,6 +84,7 @@ export default function ReceiptsPage() {
         </tbody>
       </table>
       {!receipts.length && <p className="table-empty">No receipts issued yet.</p>}
+      {!!receipts.length && !visibleReceipts.length && <p className="table-empty">No receipts match "{search}".</p>}
 
       {previewR && (
         <div className="dialog-backdrop" onClick={() => setPreviewR(null)}>

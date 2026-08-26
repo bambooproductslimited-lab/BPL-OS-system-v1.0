@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
 import DocPreview from '../components/DocPreview';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './InvoicesPage.css';
 
 // Ported from Bamboo OS.dc.html's invoices screen (screens.invoices block,
@@ -81,6 +82,7 @@ export default function InvoicesPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [previewInv, setPreviewInv] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -229,15 +231,16 @@ export default function InvoicesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleInvoices = invoices.filter((inv) => matchesQuery(search, inv.invoiceNo, inv.customerName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canOpenManual && (
-        <div className="invoices-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>New manual invoice</button>
-        </div>
-      )}
+      <div className="invoices-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search invoices…" />
+        {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>New manual invoice</button>}
+      </div>
 
       {canManage && canSeeSalesOrders && (
         <form className="invoices-order-form" onSubmit={createFromOrder}>
@@ -257,7 +260,7 @@ export default function InvoicesPage() {
           <tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Due</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
-          {invoices.map((inv) => {
+          {visibleInvoices.map((inv) => {
             const canRecordPayment = inv.status !== 'paid' && inv.status !== 'void';
             const canVoid = inv.status === 'unpaid' && canManage;
             const canDelete = inv.status === 'unpaid' && canManage;
@@ -283,6 +286,7 @@ export default function InvoicesPage() {
         </tbody>
       </table>
       {!invoices.length && <p className="table-empty">No invoices yet.</p>}
+      {!!invoices.length && !visibleInvoices.length && <p className="table-empty">No invoices match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

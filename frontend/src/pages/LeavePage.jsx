@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './LeavePage.css';
 
 // Ported from Bamboo OS.dc.html's leave screen (screens.leave block + the
@@ -34,6 +35,7 @@ export default function LeavePage() {
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [balances, setBalances] = useState([]);
   const [filter, setFilter] = useState('pending');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -128,7 +130,9 @@ export default function LeavePage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const rows = leaveRequests.filter((l) => filter === 'all' || l.status === filter);
+  const rows = leaveRequests
+    .filter((l) => filter === 'all' || l.status === filter)
+    .filter((l) => matchesQuery(search, l.employeeName, l.department, l.typeName));
   const listTitle = can('leave.read.all') ? 'Leave requests in your scope' : 'My leave requests';
   const selectedType = leaveTypes.find((t) => t.id === form.leaveTypeId);
   const balance = selectedType && balances.find((b) => b.name === selectedType.name);
@@ -205,7 +209,9 @@ export default function LeavePage() {
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
+          <SearchInput value={search} onChange={setSearch} placeholder="Search employee, department, type…" />
+
+          <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table className="table">
               <thead>
                 <tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th /></tr>

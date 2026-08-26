@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './DocumentsPage.css';
 
 // Ported from Bamboo OS.dc.html's documents screen (screens.documents
@@ -38,6 +39,7 @@ export default function DocumentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -129,22 +131,23 @@ export default function DocumentsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleDocuments = documents.filter((dc) => matchesQuery(search, dc.title, dc.category, dc.fileName, dc.uploaderName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="documents-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Add document</button>
-        </div>
-      )}
+      <div className="documents-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search documents…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add document</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Title</th><th>Category</th><th>File</th><th>Visibility</th><th>Uploaded</th><th>By</th><th /></tr>
         </thead>
         <tbody>
-          {documents.map((dc) => (
+          {visibleDocuments.map((dc) => (
             <tr key={dc.id}>
               <td style={{ fontWeight: 600 }}>{dc.title}</td>
               <td>{dc.category}</td>
@@ -168,6 +171,7 @@ export default function DocumentsPage() {
         </tbody>
       </table>
       {!documents.length && <p className="table-empty">No documents visible to your role.</p>}
+      {!!documents.length && !visibleDocuments.length && <p className="table-empty">No documents match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

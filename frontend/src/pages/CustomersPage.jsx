@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './CustomersPage.css';
 
 // Ported from Bamboo OS.dc.html's customers screen (screens.customers
@@ -35,6 +36,7 @@ export default function CustomersPage() {
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -106,22 +108,23 @@ export default function CustomersPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleCustomers = customers.filter((c) => matchesQuery(search, c.name, c.contactPerson, c.email, c.phone));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="customers-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Add customer</button>
-        </div>
-      )}
+      <div className="customers-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search customers…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add customer</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Customer</th><th>Contact</th><th>Email / phone</th><th>Category</th><th>Quoted</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th /></tr>
         </thead>
         <tbody>
-          {customers.map((c) => {
+          {visibleCustomers.map((c) => {
             const canDelete = canManage && !(c.quotedTotal > 0 || c.invoicedTotal > 0);
             return (
               <tr key={c.id}>
@@ -143,6 +146,7 @@ export default function CustomersPage() {
         </tbody>
       </table>
       {!customers.length && <p className="table-empty">No customers on file yet.</p>}
+      {!!customers.length && !visibleCustomers.length && <p className="table-empty">No customers match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

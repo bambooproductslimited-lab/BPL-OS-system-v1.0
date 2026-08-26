@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './SuppliersPage.css';
 
 // Ported from Bamboo OS.dc.html's suppliers screen (screens.suppliers
@@ -26,6 +27,7 @@ export default function SuppliersPage() {
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -96,22 +98,23 @@ export default function SuppliersPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleSuppliers = suppliers.filter((s) => matchesQuery(search, s.name, s.contactPerson, s.phone, s.materialsSupplied));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="suppliers-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Add supplier</button>
-        </div>
-      )}
+      <div className="suppliers-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search suppliers…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add supplier</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Supplier</th><th>Contact</th><th>Phone</th><th>Materials supplied</th><th>Terms</th><th>Batches</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {suppliers.map((s) => (
+          {visibleSuppliers.map((s) => (
             <tr key={s.id}>
               <td style={{ fontWeight: 600 }}>{s.name}</td>
               <td>{s.contactPerson}</td>
@@ -131,6 +134,7 @@ export default function SuppliersPage() {
         </tbody>
       </table>
       {!suppliers.length && <p className="table-empty">No suppliers on file yet.</p>}
+      {!!suppliers.length && !visibleSuppliers.length && <p className="table-empty">No suppliers match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

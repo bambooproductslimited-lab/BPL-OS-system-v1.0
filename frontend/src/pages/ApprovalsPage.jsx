@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ApprovalsPage.css';
 
 // Ported from Bamboo OS.dc.html's approval centre screen (screens.approvals
@@ -19,6 +20,7 @@ export default function ApprovalsPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [decidingId, setDecidingId] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -61,12 +63,16 @@ export default function ApprovalsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleApprovals = approvals.filter((a) => matchesQuery(search, a.title, a.requesterName, a.requesterRole, a.detail, a.reason));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <div className="approvals-list">
-        {approvals.map((a) => (
+      {!!approvals.length && <SearchInput value={search} onChange={setSearch} placeholder="Search approval queue…" />}
+
+      <div className="approvals-list" style={{ marginTop: approvals.length ? 16 : 0 }}>
+        {visibleApprovals.map((a) => (
           <div className="approvals-item" key={a.id}>
             <div className="approvals-item-body">
               <div className="approvals-item-eyebrow">{a.title}</div>
@@ -84,6 +90,7 @@ export default function ApprovalsPage() {
       {!approvals.length && (
         <p className="table-empty">Your approval queue is clear. Requests from the people you are responsible for will appear here.</p>
       )}
+      {!!approvals.length && !visibleApprovals.length && <p className="table-empty">No approvals match "{search}".</p>}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

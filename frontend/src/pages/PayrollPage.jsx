@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './PayrollPage.css';
 
 // Payroll: employees are paid a daily rate on one of two cycles (monthly,
@@ -44,6 +45,7 @@ export default function PayrollPage() {
   const [runBusy, setRunBusy] = useState(false);
   const [editingSlip, setEditingSlip] = useState(null);
   const [editDays, setEditDays] = useState('');
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -149,6 +151,8 @@ export default function PayrollPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleRuns = runs.filter((r) => matchesQuery(search, r.runNo, r.cycle, r.status));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -159,12 +163,14 @@ export default function PayrollPage() {
         </div>
       )}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search pay runs…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Run</th><th>Cycle</th><th>Period</th><th>Pay date</th><th>Employees</th><th>Total net</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {runs.map((r) => (
+          {visibleRuns.map((r) => (
             <tr key={r.id}>
               <td style={{ fontWeight: 600 }}>{r.runNo}</td>
               <td style={{ textTransform: 'capitalize' }}>{r.cycle}</td>
@@ -181,6 +187,7 @@ export default function PayrollPage() {
         </tbody>
       </table>
       {!runs.length && <p className="table-empty">No pay runs yet.</p>}
+      {!!runs.length && !visibleRuns.length && <p className="table-empty">No pay runs match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

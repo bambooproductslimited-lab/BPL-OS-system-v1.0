@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './AssetsPage.css';
 
 // Ported from Bamboo OS.dc.html's assets screen (screens.assets block +
@@ -39,6 +40,7 @@ export default function AssetsPage() {
   const [maintForm, setMaintForm] = useState(EMPTY_MAINT_FORM);
   const [maintDialogError, setMaintDialogError] = useState(null);
   const [savingMaint, setSavingMaint] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -108,23 +110,28 @@ export default function AssetsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleAssets = assets.filter((a) => matchesQuery(search, a.assetNo, a.category, a.description, a.assigneeName, a.location));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="assets-toolbar">
-          <button type="button" className="btn btn-secondary" onClick={openNewMaintenance}>Log maintenance</button>
-          <button type="button" className="btn btn-primary" onClick={openNewAsset}>Register asset</button>
-        </div>
-      )}
+      <div className="assets-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search assets…" />
+        {canManage && (
+          <div className="assets-toolbar-actions">
+            <button type="button" className="btn btn-secondary" onClick={openNewMaintenance}>Log maintenance</button>
+            <button type="button" className="btn btn-primary" onClick={openNewAsset}>Register asset</button>
+          </div>
+        )}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Asset</th><th>Category</th><th>Description</th><th>Assigned to</th><th>Location</th><th>Condition</th><th>Next service</th><th /></tr>
         </thead>
         <tbody>
-          {assets.map((a) => (
+          {visibleAssets.map((a) => (
             <tr key={a.id}>
               <td style={{ fontVariantNumeric: 'tabular-nums' }}>{a.assetNo}</td>
               <td>{a.category}</td>
@@ -139,6 +146,7 @@ export default function AssetsPage() {
         </tbody>
       </table>
       {!assets.length && <p className="table-empty">No assets registered yet.</p>}
+      {!!assets.length && !visibleAssets.length && <p className="table-empty">No assets match "{search}".</p>}
 
       <h2 className="assets-section-title">Maintenance history</h2>
       <table className="table">

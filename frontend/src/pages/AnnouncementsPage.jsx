@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './AnnouncementsPage.css';
 
 // Ported from Bamboo OS.dc.html's announcements screen (screens.announcements
@@ -32,6 +33,7 @@ export default function AnnouncementsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [dialogError, setDialogError] = useState(null);
   const [publishing, setPublishing] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -87,18 +89,19 @@ export default function AnnouncementsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleAnnouncements = announcements.filter((a) => matchesQuery(search, a.title, a.body, a.publisherName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canPublish && (
-        <div className="announcements-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Publish announcement</button>
-        </div>
-      )}
+      <div className="announcements-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search announcements…" />
+        {canPublish && <button type="button" className="btn btn-primary" onClick={openNew}>Publish announcement</button>}
+      </div>
 
       <div className="announcements-list">
-        {announcements.map((a) => (
+        {visibleAnnouncements.map((a) => (
           <div className="announcements-item" key={a.id}>
             <div className="announcements-eyebrow">{audienceLabel(a.audience)} · {fmtDate(a.publishedAt.slice(0, 10))} · {a.publisherName}</div>
             <div className="announcements-title">{a.title}</div>
@@ -107,6 +110,7 @@ export default function AnnouncementsPage() {
         ))}
       </div>
       {!announcements.length && <p className="table-empty">Nothing published yet.</p>}
+      {!!announcements.length && !visibleAnnouncements.length && <p className="table-empty">No announcements match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

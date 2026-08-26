@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './InventoryPage.css';
 
 // Ported from Bamboo OS.dc.html's inventory screen (screens.inventory
@@ -23,6 +24,7 @@ export default function InventoryPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -79,22 +81,23 @@ export default function InventoryPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleProducts = products.filter((p) => matchesQuery(search, p.sku, p.name, p.category));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="inventory-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Add product</button>
-        </div>
-      )}
+      <div className="inventory-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search products…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add product</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>SKU</th><th>Product</th><th>Category</th><th>Cost</th><th>Selling price</th><th>Stock</th><th>Reorder level</th><th /><th /></tr>
         </thead>
         <tbody>
-          {products.map((p) => (
+          {visibleProducts.map((p) => (
             <tr key={p.id}>
               <td style={{ fontVariantNumeric: 'tabular-nums' }}>{p.sku}</td>
               <td style={{ fontWeight: 600 }}>{p.name}</td>
@@ -112,6 +115,7 @@ export default function InventoryPage() {
         </tbody>
       </table>
       {!products.length && <p className="table-empty">No products in the catalogue yet.</p>}
+      {!!products.length && !visibleProducts.length && <p className="table-empty">No products match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './MessagesPage.css';
 
 // Ported from Bamboo OS.dc.html's messages screen (screens.messages block
@@ -29,6 +30,8 @@ export default function MessagesPage() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [inboxSearch, setInboxSearch] = useState('');
+  const [directorySearch, setDirectorySearch] = useState('');
 
   const threadEndRef = useRef(null);
 
@@ -84,6 +87,9 @@ export default function MessagesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleInbox = inbox.filter((c) => matchesQuery(inboxSearch, c.peerName, c.lastBody));
+  const visibleDirectory = directory.filter((p) => matchesQuery(directorySearch, p.name, p.title));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -94,7 +100,8 @@ export default function MessagesPage() {
 
       <div className="messages-panes">
         <div className="messages-inbox">
-          {inbox.map((c) => (
+          <SearchInput value={inboxSearch} onChange={setInboxSearch} placeholder="Search conversations…" />
+          {visibleInbox.map((c) => (
             <div
               key={c.peerId}
               className={'messages-inbox-item' + (c.peerId === activePeerId ? ' messages-inbox-item-active' : '')}
@@ -109,6 +116,7 @@ export default function MessagesPage() {
             </div>
           ))}
           {!inbox.length && <p className="messages-empty">No conversations yet.</p>}
+          {!!inbox.length && !visibleInbox.length && <p className="messages-empty">No matches.</p>}
         </div>
 
         <div className="messages-thread-pane">
@@ -142,8 +150,9 @@ export default function MessagesPage() {
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <div className="dialog messages-new-dialog" onClick={(e) => e.stopPropagation()}>
             <h2>New message</h2>
+            <SearchInput value={directorySearch} onChange={setDirectorySearch} placeholder="Search people…" />
             <div className="messages-directory">
-              {directory.map((p) => (
+              {visibleDirectory.map((p) => (
                 <button type="button" key={p.id} className="messages-directory-item" onClick={() => startConversationWith(p.id)}>
                   {p.name}{p.title ? ' — ' + p.title : ''}
                 </button>

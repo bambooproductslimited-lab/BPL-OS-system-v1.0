@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProjectsPage.css';
 
 // Ported from Bamboo OS.dc.html's projects screen (screens.projects block
@@ -45,6 +46,7 @@ export default function ProjectsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [dialogError, setDialogError] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -98,18 +100,19 @@ export default function ProjectsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleProjects = projects.filter((p) => matchesQuery(search, p.name, p.code, p.departmentName, p.ownerName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="projects-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>New project</button>
-        </div>
-      )}
+      <div className="projects-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search projects…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>New project</button>}
+      </div>
 
       <div className="projects-grid">
-        {projects.map((p) => {
+        {visibleProjects.map((p) => {
           const progress = p.taskCount ? Math.round((p.doneCount / p.taskCount) * 100) : 0;
           return (
             <div className="projects-card" key={p.id}>
@@ -128,6 +131,7 @@ export default function ProjectsPage() {
         })}
       </div>
       {!projects.length && <p className="table-empty">No projects visible to your role.</p>}
+      {!!projects.length && !visibleProjects.length && <p className="table-empty">No projects match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

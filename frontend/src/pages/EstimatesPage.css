@@ -1,4 +1,4 @@
-.estimates-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.estimates-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .estimates-items-line { font-size: 13px; }
 .estimates-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ExpensesPage.css';
 
 // Ported from Bamboo OS.dc.html's expenses screen (screens.expenses block
@@ -45,6 +46,7 @@ export default function ExpensesPage() {
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -148,6 +150,8 @@ export default function ExpensesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleExpenses = expenses.filter((x) => matchesQuery(search, x.requesterName, x.departmentName, x.category, x.description, x.status));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -174,12 +178,14 @@ export default function ExpensesPage() {
         </form>
       )}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search expense claims…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Requester</th><th>Department</th><th>Category</th><th>Amount</th><th>Date</th><th>Description</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {expenses.map((x) => {
+          {visibleExpenses.map((x) => {
             const decidable = x.status === 'pending' && canApprove && x.requesterId !== employeeId;
             const payable = x.status === 'approved' && canApprove;
             const canEdit = x.status === 'pending' && (x.requesterId === employeeId || canApprove);
@@ -210,6 +216,7 @@ export default function ExpensesPage() {
         </tbody>
       </table>
       {!expenses.length && <p className="table-empty">Nothing to show.</p>}
+      {!!expenses.length && !visibleExpenses.length && <p className="table-empty">No expense claims match "{search}".</p>}
 
       {editTarget && (
         <div className="dialog-backdrop" onClick={() => setEditTarget(null)}>

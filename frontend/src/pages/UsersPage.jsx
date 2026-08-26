@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './UsersPage.css';
 
 // Ported from Bamboo OS.dc.html's users screen (screens.users block + the
@@ -47,6 +48,7 @@ export default function UsersPage() {
   const [resetConfirm, setResetConfirm] = useState('');
   const [resetError, setResetError] = useState(null);
   const [resetting, setResetting] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -161,6 +163,9 @@ export default function UsersPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const roleName = (u) => { const r = roles.find((x) => x.id === u.roleIds[0]); return r ? r.name : ''; };
+  const visibleUsers = users.filter((u) => matchesQuery(search, u.name, u.email, roleName(u), u.status));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -171,12 +176,14 @@ export default function UsersPage() {
         </div>
       )}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search users…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Employee</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
-          {users.map((u) => {
+          {visibleUsers.map((u) => {
             const isSelf = session && u.id === session.userId;
             return (
               <tr key={u.id}>
@@ -212,6 +219,7 @@ export default function UsersPage() {
         </tbody>
       </table>
       {!users.length && <p className="table-empty">No user accounts yet.</p>}
+      {!!users.length && !visibleUsers.length && <p className="table-empty">No users match "{search}".</p>}
 
       {showCreate && (
         <div className="dialog-backdrop" onClick={() => setShowCreate(false)}>

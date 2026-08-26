@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './SalesOrdersPage.css';
 
 // Ported from Bamboo OS.dc.html's sales orders screen (screens.salesorders
@@ -51,6 +52,7 @@ export default function SalesOrdersPage() {
   const [quotationId, setQuotationId] = useState('');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -111,6 +113,7 @@ export default function SalesOrdersPage() {
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const acceptedQuoteOptions = quotations.filter((q) => q.status === 'accepted');
+  const visibleOrders = orders.filter((o) => matchesQuery(search, o.orderNo, o.customerName, o.status));
 
   return (
     <div>
@@ -129,12 +132,14 @@ export default function SalesOrdersPage() {
         </form>
       )}
 
-      <table className="table">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search sales orders…" />
+
+      <table className="table" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
-          {orders.map((o) => {
+          {visibleOrders.map((o) => {
             const hasNext = o.status !== 'delivered' && o.status !== 'cancelled' && canManage;
             const nextLabel = o.status === 'pending' ? 'Start processing' : o.status === 'processing' ? 'Mark delivered' : '';
             return (
@@ -152,6 +157,7 @@ export default function SalesOrdersPage() {
         </tbody>
       </table>
       {!orders.length && <p className="table-empty">No sales orders yet.</p>}
+      {!!orders.length && !visibleOrders.length && <p className="table-empty">No sales orders match "{search}".</p>}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

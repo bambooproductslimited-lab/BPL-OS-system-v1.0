@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './RolesPage.css';
 
 // Ported from Bamboo OS.dc.html's roles screen (screens.roles block + the
@@ -25,6 +26,7 @@ export default function RolesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busyKey, setBusyKey] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -57,6 +59,8 @@ export default function RolesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleCatalogue = catalogue.filter((p) => matchesQuery(search, p.group, p.label, p.key));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -64,7 +68,8 @@ export default function RolesPage() {
         Permissions are enforced on every operation in the system, not just hidden in the interface.
         The System Administrator role is locked to full access.
       </p>
-      <div className="roles-scroll">
+      <SearchInput value={search} onChange={setSearch} placeholder="Search permissions…" />
+      <div className="roles-scroll" style={{ marginTop: 16 }}>
         <table className="table roles-table">
           <thead>
             <tr>
@@ -78,7 +83,7 @@ export default function RolesPage() {
             </tr>
           </thead>
           <tbody>
-            {catalogue.map((p) => (
+            {visibleCatalogue.map((p) => (
               <tr key={p.key}>
                 <td>
                   <div className="roles-perm-label">{p.group} · {p.label}</div>
@@ -105,6 +110,7 @@ export default function RolesPage() {
           </tbody>
         </table>
       </div>
+      {!!catalogue.length && !visibleCatalogue.length && <p className="table-empty">No permissions match "{search}".</p>}
     </div>
   );
 }

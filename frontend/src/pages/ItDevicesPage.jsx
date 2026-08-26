@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ItDevicesPage.css';
 
 // IT device inventory: company laptops/desktops/phones/monitors/etc, owned
@@ -35,6 +36,7 @@ export default function ItDevicesPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -101,22 +103,23 @@ export default function ItDevicesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleDevices = devices.filter((d) => matchesQuery(search, d.deviceTag, d.category, d.brand, d.model, d.serialNumber, d.assigneeName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="itdevices-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Register device</button>
-        </div>
-      )}
+      <div className="itdevices-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search devices…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Register device</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Tag</th><th>Category</th><th>Brand / model</th><th>Serial</th><th>Assigned to</th><th>Condition</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {devices.map((d) => (
+          {visibleDevices.map((d) => (
             <tr key={d.id}>
               <td style={{ fontWeight: 600 }}>{d.deviceTag}</td>
               <td>{d.category}</td>
@@ -133,6 +136,7 @@ export default function ItDevicesPage() {
         </tbody>
       </table>
       {!devices.length && <p className="table-empty">No devices registered yet.</p>}
+      {!!devices.length && !visibleDevices.length && <p className="table-empty">No devices match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

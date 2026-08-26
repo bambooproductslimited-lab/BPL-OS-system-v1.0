@@ -1,4 +1,4 @@
-.invoices-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.invoices-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .invoices-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
 .invoices-order-form {

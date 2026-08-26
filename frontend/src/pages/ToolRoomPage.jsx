@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ToolRoomPage.css';
 
 // Tool room inventory: tools, equipment and materials — separate from the
@@ -38,6 +39,7 @@ export default function ToolRoomPage() {
   const [checkoutEmployeeId, setCheckoutEmployeeId] = useState('');
   const [checkoutError, setCheckoutError] = useState(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -132,22 +134,23 @@ export default function ToolRoomPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const visibleItems = items.filter((it) => matchesQuery(search, it.code, it.name, it.category, it.checkedOutToName));
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="toolroom-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>Add item</button>
-        </div>
-      )}
+      <div className="toolroom-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search tools, equipment, materials…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add item</button>}
+      </div>
 
       <table className="table">
         <thead>
           <tr><th>Code</th><th>Name</th><th>Kind</th><th>Category</th><th>Qty</th><th>Condition</th><th>Status</th><th>Checked out to</th><th /></tr>
         </thead>
         <tbody>
-          {items.map((it) => (
+          {visibleItems.map((it) => (
             <tr key={it.id}>
               <td style={{ fontWeight: 600 }}>{it.code}</td>
               <td>{it.name}</td>
@@ -171,6 +174,7 @@ export default function ToolRoomPage() {
         </tbody>
       </table>
       {!items.length && <p className="table-empty">No tool room items yet.</p>}
+      {!!items.length && !visibleItems.length && <p className="table-empty">No items match "{search}".</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
