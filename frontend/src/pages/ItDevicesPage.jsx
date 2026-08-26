@@ -38,6 +38,14 @@ export default function ItDevicesPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importIncludeCreds, setImportIncludeCreds] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState(null);
+  const [importCommitting, setImportCommitting] = useState(false);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -101,6 +109,46 @@ export default function ItDevicesPage() {
     }
   }
 
+  function openImport() {
+    setImportError(null);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportIncludeCreds(false);
+    setImportOpen(true);
+  }
+
+  async function runImportPreview() {
+    if (!importFile) return;
+    setImportLoading(true);
+    setImportError(null);
+    setImportPreview(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      fd.append('includeCredentials', importIncludeCreds ? 'true' : 'false');
+      setImportPreview(await api.upload('/it-devices/import/preview', fd));
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function commitImport() {
+    setImportCommitting(true);
+    setImportError(null);
+    try {
+      const result = await api.post('/it-devices/import/commit', { rows: importPreview.rows });
+      setToast('Imported ' + result.created + ' device(s)' + (result.skipped ? ' (' + result.skipped + ' already existed, skipped).' : '.'));
+      setImportOpen(false);
+      await load();
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportCommitting(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const visibleDevices = devices.filter((d) => matchesQuery(search, d.deviceTag, d.category, d.brand, d.model, d.serialNumber, d.assigneeName));
@@ -111,7 +159,12 @@ export default function ItDevicesPage() {
 
       <div className="itdevices-toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Search devices…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Register device</button>}
+        {canManage && (
+          <div className="itdevices-toolbar-actions">
+            <button type="button" className="btn btn-secondary" onClick={openImport}>Import from sheet</button>
+            <button type="button" className="btn btn-primary" onClick={openNew}>Register device</button>
+          </div>
+        )}
       </div>
 
       <table className="table">
@@ -220,6 +273,76 @@ export default function ItDevicesPage() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Register device'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="dialog-backdrop" onClick={() => setImportOpen(false)}>
+          <div className="dialog itdevices-import-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2 className="itdevices-dialog-title">Import from IT inventory sheet</h2>
+            <p className="dialog-body">
+              Export the sheet as CSV (File → Download → Comma-separated values) and upload it here. A sheet row
+              with a Total greater than 1 becomes that many individual devices, all sharing the same brand/model.
+            </p>
+            {importError && <div className="error-banner">{importError}</div>}
+
+            {!importPreview && (
+              <>
+                <div className="field">
+                  <label htmlFor="it-import-file">CSV file</label>
+                  <input id="it-import-file" className="input" type="file" accept=".csv,text/csv" onChange={(e) => setImportFile(e.target.files[0] || null)} />
+                </div>
+                <label className="checkbox-field">
+                  <input type="checkbox" checked={importIncludeCreds} onChange={(e) => setImportIncludeCreds(e.target.checked)} />
+                  Include device usernames/passcodes from the sheet in notes (not recommended — stored as plain text)
+                </label>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
+                    {importLoading ? 'Reading…' : 'Preview import'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {importPreview && (
+              <>
+                <p className="itdevices-import-summary">
+                  {importPreview.rows.length} device row(s) found —
+                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} will be created,
+                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} already exist and will be skipped.
+                </p>
+                <div className="itdevices-import-scroll">
+                  <table className="table itdevices-import-table">
+                    <thead>
+                      <tr><th>Tag</th><th>Brand / model</th><th>Status</th><th>Assigned / location</th><th>Notes</th></tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.map((r, i) => (
+                        <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
+                          <td style={{ fontWeight: 600 }}>{r.deviceTag}</td>
+                          <td>{(r.brand + ' ' + r.model).trim() || '—'}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{r.status.replace('_', ' ')}</td>
+                          <td>{r.location || (r.assignedEmployeeId ? 'Matched employee' : '—')}</td>
+                          <td className="itdevices-import-warnings">
+                            {r.willSkip && <div>Already exists — will be skipped.</div>}
+                            {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>Back</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
+                    {importCommitting ? 'Importing…' : 'Import ' + importPreview.rows.filter((r) => !r.willSkip).length + ' device(s)'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

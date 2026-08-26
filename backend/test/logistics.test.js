@@ -135,3 +135,79 @@ test('IT devices: create/update permission-gated to itdevice.manage, auto tag, a
   var list = await (await fetch(base + '/api/it-devices', { headers: authed(emmanuel) })).json();
   assert.ok(list.some(function (d) { return d.id === device.id; }));
 });
+
+test('IT devices import: sheet rows with Total > 1 expand into that many devices, credentials excluded by default, permission-gated', async function () {
+  var emmanuel = await login('emmanuel.chang@bplghana.com'); // it_manager
+  var isreal = await login('isreal.omozuafo@bplghana.com'); // department_manager — no itdevice.manage
+
+  var csv = [
+    'ID,Brand,Device,Model,Date Recieve,Total,In-Use,Status,Who/Where?,Number,Username,Open Pass,Link,Remark,Last Checked Date (EC)',
+    '901,Apple,Smart Device,"iPad Air 2 (A1566 - 64GB)",,2,2,Deployed,BG1,-,,0008,,Square up,',
+    '902,Apple,Smart Device,"iPad Air 2 (A1566 - 64GB)",,1,1,Deployed,"Nicholas (for Bolt Evening)",-,,8282,,Square up,'
+  ].join('\n');
+
+  var deniedForm = new FormData();
+  deniedForm.append('file', new Blob([csv], { type: 'text/csv' }), 'it.csv');
+  var denied = await fetch(base + '/api/it-devices/import/preview', { method: 'POST', headers: authed(isreal), body: deniedForm });
+  assert.equal(denied.status, 403);
+
+  var form = new FormData();
+  form.append('file', new Blob([csv], { type: 'text/csv' }), 'it.csv');
+  var previewRes = await fetch(base + '/api/it-devices/import/preview', { method: 'POST', headers: authed(emmanuel), body: form });
+  assert.equal(previewRes.status, 200);
+  var preview = await previewRes.json();
+
+  // Row 901 (Total 2) expands to 2 units, row 902 (Total 1) to 1 — 3 device rows total.
+  assert.equal(preview.rows.length, 3);
+  assert.deepEqual(preview.rows.map(function (r) { return r.deviceTag; }), ['IT-901-1', 'IT-901-2', 'IT-902']);
+  preview.rows.forEach(function (r) {
+    assert.equal(r.status, 'in_use'); // "Deployed" maps to in_use
+    assert.equal(r.brand, 'Apple');
+    assert.equal(r.model, 'iPad Air 2 (A1566 - 64GB)');
+    // Open Pass (8282/0008) must never appear in notes when includeCredentials wasn't requested.
+    assert.ok(r.notes.indexOf('8282') < 0 && r.notes.indexOf('0008') < 0, 'credentials leaked into notes: ' + r.notes);
+  });
+  assert.equal(preview.rows[0].location, 'BG1'); // "BG1" doesn't match an employee name — kept as location
+  assert.equal(preview.rows[2].location, 'Nicholas (for Bolt Evening)'); // no employee named Nicholas in seed data — kept as location text, not assigned
+  assert.equal(preview.rows[2].assignedEmployeeId, null);
+
+  var committed = await fetch(base + '/api/it-devices/import/commit', {
+    method: 'POST', headers: jsonAuthed(emmanuel), body: JSON.stringify({ rows: preview.rows })
+  });
+  assert.equal(committed.status, 200);
+  var summary = await committed.json();
+  assert.equal(summary.created, 3);
+  assert.equal(summary.skipped, 0);
+
+  var list = await (await fetch(base + '/api/it-devices', { headers: authed(emmanuel) })).json();
+  var tags = list.map(function (d) { return d.deviceTag; });
+  assert.ok(tags.indexOf('IT-901-1') >= 0 && tags.indexOf('IT-901-2') >= 0 && tags.indexOf('IT-902') >= 0);
+
+  // Re-importing the same sheet must not duplicate — existing tags are skipped.
+  var form2 = new FormData();
+  form2.append('file', new Blob([csv], { type: 'text/csv' }), 'it.csv');
+  var preview2 = await (await fetch(base + '/api/it-devices/import/preview', { method: 'POST', headers: authed(emmanuel), body: form2 })).json();
+  assert.ok(preview2.rows.every(function (r) { return r.willSkip; }));
+  var committed2 = await fetch(base + '/api/it-devices/import/commit', {
+    method: 'POST', headers: jsonAuthed(emmanuel), body: JSON.stringify({ rows: preview2.rows })
+  });
+  var summary2 = await committed2.json();
+  assert.equal(summary2.created, 0);
+  assert.equal(summary2.skipped, 3);
+});
+
+test('IT devices import: includeCredentials opts device passcodes into notes explicitly', async function () {
+  var emmanuel = await login('emmanuel.chang@bplghana.com');
+  var csv = [
+    'ID,Brand,Device,Model,Total,In-Use,Status,Who/Where?,Username,Open Pass,Remark',
+    '999,Apple,Router,AirPort,1,1,Deployed,Office,admin,1234,'
+  ].join('\n');
+
+  var form = new FormData();
+  form.append('file', new Blob([csv], { type: 'text/csv' }), 'it.csv');
+  form.append('includeCredentials', 'true');
+  var preview = await (await fetch(base + '/api/it-devices/import/preview', { method: 'POST', headers: authed(emmanuel), body: form })).json();
+  assert.equal(preview.rows.length, 1);
+  assert.match(preview.rows[0].notes, /1234/);
+  assert.match(preview.rows[0].notes, /admin/);
+});
