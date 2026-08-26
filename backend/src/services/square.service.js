@@ -75,8 +75,11 @@ function listAllCustomers() {
 // types=ITEM returns each CatalogItem with its variations already nested
 // inline (item_data.variations: CatalogObject[], each carrying a fully
 // populated item_variation_data) — no separate ITEM_VARIATION fetch needed.
+// CATEGORY objects come back in the same flat list (ListCatalog doesn't
+// nest unrelated types the way SearchCatalogObjects's related_objects
+// does), so the caller separates them by `.type`.
 function listAllCatalogItems() {
-  return paginateGet('/v2/catalog/list', { types: 'ITEM' }, 'objects');
+  return paginateGet('/v2/catalog/list', { types: 'ITEM,CATEGORY' }, 'objects');
 }
 
 // OPEN as well as COMPLETED: an order stays OPEN until its invoice is paid

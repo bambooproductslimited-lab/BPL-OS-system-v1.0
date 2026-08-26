@@ -64,19 +64,50 @@ async function upsertCustomer(sc) {
   return res.rows[0].id;
 }
 
-async function upsertCatalogVariation(item, v) {
+// Every previously-imported Square catalog item/variation is wiped and
+// re-inserted fresh on each run, unlike customers/invoices/payments (which
+// are upserted and never deleted): a catalogue is just a current listing,
+// not a financial history, so a full resync is both simpler and the only
+// way to correctly pick up renamed/removed/regrouped variations on the
+// Square side. Manually-created (source='manual') items are untouched.
+async function wipeSquareCatalog() {
+  await pool.query("DELETE FROM catalog_item_variations WHERE item_id IN (SELECT id FROM catalog_items WHERE source = 'square')");
+  await pool.query("DELETE FROM catalog_items WHERE source = 'square'");
+}
+
+async function upsertCategory(cat) {
+  var res = await pool.query(
+    "INSERT INTO catalog_categories (name, external_id, source) VALUES ($1,$2,'square') " +
+    "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET name = EXCLUDED.name RETURNING id",
+    [cat.category_data.name, cat.id]
+  );
+  return res.rows[0].id;
+}
+
+// Parent Item row — one per Square CatalogItem, keyed by the Square ITEM's
+// own id (not a variation id, unlike the flat pre-redesign import).
+async function upsertCatalogItem(item, categoryIdByExternal) {
+  var squareCategoryId = item.item_data.categories && item.item_data.categories[0] && item.item_data.categories[0].id;
+  var categoryId = (squareCategoryId && categoryIdByExternal[squareCategoryId]) || null;
+  var active = !item.is_deleted;
+  var res = await pool.query(
+    "INSERT INTO catalog_items (name, description, category_id, tax_rate_id, active, external_id, source) " +
+    "VALUES ($1,$2,$3,'tx_zero',$4,$5,'square') RETURNING id",
+    [item.item_data.name, (item.item_data.description || '').trim(), categoryId, active, item.id]
+  );
+  return res.rows[0].id;
+}
+
+async function upsertVariation(itemRowId, v) {
   var vd = v.item_variation_data;
-  var name = item.item_data.name + (vd.name && vd.name !== 'Regular' ? ' - ' + vd.name : '');
+  var name = (vd.name || 'Regular').trim() || 'Regular';
   var code = (vd.sku || '').trim().toUpperCase() || ('SQ-' + v.id.replace(/[^A-Za-z0-9]/g, '').slice(-10).toUpperCase());
   var unitPrice = minorToMajor(vd.price_money);
-  var active = !(item.is_deleted || v.is_deleted);
+  var active = !v.is_deleted;
   var res = await pool.query(
-    "INSERT INTO catalog_items (name, code, description, category, unit, default_qty, unit_price, cost_price, tax_rate_id, active, external_id, source) " +
-    "VALUES ($1,$2,$3,'','each',1,$4,0,'tx_zero',$5,$6,'square') " +
-    "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
-    "name = EXCLUDED.name, code = EXCLUDED.code, unit_price = EXCLUDED.unit_price, active = EXCLUDED.active " +
-    "RETURNING id, code",
-    [name, code, (item.item_data.description || '').trim(), unitPrice, active, v.id]
+    "INSERT INTO catalog_item_variations (item_id, name, code, unit, default_qty, unit_price, cost_price, active, external_id, source) " +
+    "VALUES ($1,$2,$3,'each',1,$4,0,$5,$6,'square') RETURNING id, code",
+    [itemRowId, name, code, unitPrice, active, v.id]
   );
   return res.rows[0];
 }
@@ -248,20 +279,41 @@ async function runImport(ctx) {
     }
   }
 
-  var squareItems = await square.listAllCatalogItems();
+  var squareObjects = await square.listAllCatalogItems();
+  var squareCategories = squareObjects.filter(function (o) { return o.type === 'CATEGORY'; });
+  var squareItems = squareObjects.filter(function (o) { return o.type === 'ITEM'; });
+
+  var categoryIdByExternal = {};
+  for (var cati = 0; cati < squareCategories.length; cati++) {
+    var cat = squareCategories[cati];
+    try {
+      categoryIdByExternal[cat.id] = await upsertCategory(cat);
+    } catch (e) {
+      summary.errors.push({ type: 'category', externalId: cat.id, message: e.message });
+    }
+  }
+
+  await wipeSquareCatalog();
   var catalogByVariationId = {};
   for (var it = 0; it < squareItems.length; it++) {
     var item = squareItems[it];
     var variations = (item.item_data && item.item_data.variations) || [];
-    for (var vi = 0; vi < variations.length; vi++) {
-      var v = variations[vi];
-      try {
-        catalogByVariationId[v.id] = await upsertCatalogVariation(item, v);
-        summary.catalogItems.imported++;
-      } catch (e) {
-        summary.catalogItems.skipped++;
-        summary.errors.push({ type: 'catalogItem', externalId: v.id, message: e.message });
+    if (!variations.length) continue; // an item with no variations isn't sellable — nothing to import
+    try {
+      var itemRowId = await upsertCatalogItem(item, categoryIdByExternal);
+      for (var vi = 0; vi < variations.length; vi++) {
+        var v = variations[vi];
+        try {
+          catalogByVariationId[v.id] = await upsertVariation(itemRowId, v);
+          summary.catalogItems.imported++;
+        } catch (e) {
+          summary.catalogItems.skipped++;
+          summary.errors.push({ type: 'catalogVariation', externalId: v.id, message: e.message });
+        }
       }
+    } catch (e) {
+      summary.catalogItems.skipped += variations.length;
+      summary.errors.push({ type: 'catalogItem', externalId: item.id, message: e.message });
     }
   }
 
