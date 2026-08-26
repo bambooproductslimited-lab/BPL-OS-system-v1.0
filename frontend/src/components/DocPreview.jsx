@@ -31,7 +31,15 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
         <div className="doc-preview-head">
           <div className="doc-preview-brand">
             <img src="/logo.png" alt="" className="doc-preview-logo" />
-            <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+            <div>
+              <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+              <div className="doc-preview-brand-address">
+                Poki House, GT-191-1859 (GhanaPostGPS)<br />
+                35 J K Siaw St, Community 9, Tema, Ghana<br />
+                P.O. Box CO 131, Tema, Ghana<br />
+                Tel: 0591933925 / 0249186859
+              </div>
+            </div>
           </div>
           <div className="doc-preview-headright">
             <div className="doc-preview-docno">{docLabel}</div>

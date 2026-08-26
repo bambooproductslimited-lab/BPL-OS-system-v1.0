@@ -1,6 +1,7 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './CatalogPage.css';
 
 // Products & Services, restructured to match Square's own catalog shape
@@ -14,9 +15,9 @@ function statusLabel(active) { return active ? 'Active' : 'Archived'; }
 
 const EMPTY_ITEM_FORM = {
   name: '', description: '', categoryId: '', taxRateId: '',
-  variationName: '', code: '', unit: '', defaultQty: '', unitPrice: '', costPrice: ''
+  variationName: '', code: '', unit: '', defaultQty: '', unitPrice: '', costPrice: '', stockQty: ''
 };
-const EMPTY_VARIATION_FORM = { name: '', code: '', unit: '', defaultQty: '', unitPrice: '', costPrice: '' };
+const EMPTY_VARIATION_FORM = { name: '', code: '', unit: '', defaultQty: '', unitPrice: '', costPrice: '', stockQty: '' };
 
 export default function CatalogPage() {
   const { can } = useAuth();
@@ -30,6 +31,7 @@ export default function CatalogPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [search, setSearch] = useState('');
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editItemId, setEditItemId] = useState(null);
@@ -48,6 +50,18 @@ export default function CatalogPage() {
   const [deleteVarTarget, setDeleteVarTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [busyId, setBusyId] = useState(null);
+
+  const [stockDialog, setStockDialog] = useState(null); // { variationId, name, stockQty, delta, note }
+  const [stockDialogError, setStockDialogError] = useState(null);
+  const [savingStock, setSavingStock] = useState(false);
+
+  const visibleItems = useMemo(() => {
+    if (!search.trim()) return items;
+    return items.filter((item) => (
+      matchesQuery(search, item.name, item.description, item.categoryName) ||
+      item.variations.some((v) => matchesQuery(search, v.name, v.code))
+    ));
+  }, [items, search]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -108,7 +122,7 @@ export default function CatalogPage() {
         await api.post('/catalog/items', {
           ...payload, name: itemForm.name,
           variationName: itemForm.variationName, code: itemForm.code, unit: itemForm.unit,
-          defaultQty: itemForm.defaultQty, unitPrice: itemForm.unitPrice, costPrice: itemForm.costPrice
+          defaultQty: itemForm.defaultQty, unitPrice: itemForm.unitPrice, costPrice: itemForm.costPrice, stockQty: itemForm.stockQty
         });
         setToast('Item added.');
       }
@@ -188,6 +202,27 @@ export default function CatalogPage() {
     }
   }
 
+  function openStockDialog(v) {
+    setStockDialogError(null);
+    setStockDialog({ variationId: v.id, name: v.name, stockQty: v.stockQty, delta: '', note: '' });
+  }
+
+  async function submitStockAdjust(e) {
+    e.preventDefault();
+    setSavingStock(true);
+    setStockDialogError(null);
+    try {
+      await api.post('/catalog/variations/' + stockDialog.variationId + '/stock', { delta: stockDialog.delta, note: stockDialog.note });
+      setToast('Stock updated.');
+      setStockDialog(null);
+      await load();
+    } catch (err) {
+      setStockDialogError(err.message);
+    } finally {
+      setSavingStock(false);
+    }
+  }
+
   async function confirmDeleteVariation() {
     setDeleting(true);
     try {
@@ -224,18 +259,17 @@ export default function CatalogPage() {
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
-      {canManage && (
-        <div className="catalog-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNewItem}>Add item</button>
-        </div>
-      )}
+      <div className="catalog-toolbar">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search items, categories, variations…" />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNewItem}>Add item</button>}
+      </div>
 
       <table className="table">
         <thead>
-          <tr><th /><th>Item</th><th>Category</th><th>Variations</th><th>Status</th><th /></tr>
+          <tr><th /><th>Item</th><th>Category</th><th>Variations</th><th>Stock</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <Fragment key={item.id}>
               <tr className="catalog-item-row" onClick={() => toggleExpanded(item.id)}>
                 <td className="catalog-chevron-cell">
@@ -247,6 +281,7 @@ export default function CatalogPage() {
                 </td>
                 <td>{item.categoryName}</td>
                 <td>{item.variations.length}</td>
+                <td>{item.variations.reduce((sum, v) => sum + v.stockQty, 0).toLocaleString()}</td>
                 <td><span className={'tag ' + (item.active ? 'tag-neutral' : 'tag-accent')}>{statusLabel(item.active)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => openEditItem(item)}>Edit</button>}
@@ -261,10 +296,10 @@ export default function CatalogPage() {
               {expanded[item.id] && (
                 <tr>
                   <td />
-                  <td colSpan={5} className="catalog-variations-cell">
+                  <td colSpan={6} className="catalog-variations-cell">
                     <table className="table catalog-variations-table">
                       <thead>
-                        <tr><th>Variation</th><th>Code</th><th>Unit</th><th>Unit price</th><th>Cost price</th><th>Status</th><th /></tr>
+                        <tr><th>Variation</th><th>Code</th><th>Unit</th><th>Unit price</th><th>Cost price</th><th>Stock</th><th>Status</th><th /></tr>
                       </thead>
                       <tbody>
                         {item.variations.map((v) => (
@@ -274,8 +309,10 @@ export default function CatalogPage() {
                             <td>{v.unit}</td>
                             <td>GHS {v.unitPrice.toLocaleString()}</td>
                             <td>GHS {v.costPrice.toLocaleString()}</td>
+                            <td>{v.stockQty.toLocaleString()} {v.unit !== 'each' ? v.unit : ''}</td>
                             <td><span className={'tag ' + (v.active ? 'tag-neutral' : 'tag-accent')}>{statusLabel(v.active)}</span></td>
                             <td className="table-actions">
+                              {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => openStockDialog(v)}>Adjust stock</button>}
                               {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => openEditVariation(item.id, v)}>Edit</button>}
                               {canManage && (
                                 <button type="button" className="btn btn-secondary catalog-row-btn" disabled={busyId === v.id} onClick={() => toggleVariationActive(v)}>
@@ -299,6 +336,7 @@ export default function CatalogPage() {
         </tbody>
       </table>
       {!items.length && <p className="table-empty">No catalogue items yet.</p>}
+      {!!items.length && !visibleItems.length && <p className="table-empty">No items match "{search}".</p>}
 
       {itemDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setItemDialogOpen(false)}>
@@ -360,6 +398,10 @@ export default function CatalogPage() {
                   <label htmlFor="cat-costprice">Cost price (GHS)</label>
                   <input id="cat-costprice" className="input" type="number" value={itemForm.costPrice} onChange={(e) => setItemForm({ ...itemForm, costPrice: e.target.value })} />
                 </div>
+                <div className="field">
+                  <label htmlFor="cat-stockqty">Initial stock</label>
+                  <input id="cat-stockqty" className="input" type="number" value={itemForm.stockQty} onChange={(e) => setItemForm({ ...itemForm, stockQty: e.target.value })} />
+                </div>
               </>
             )}
             <div className="dialog-actions catalog-dialog-span">
@@ -399,9 +441,37 @@ export default function CatalogPage() {
               <label htmlFor="var-costprice">Cost price (GHS)</label>
               <input id="var-costprice" className="input" type="number" value={varDialog.form.costPrice} onChange={(e) => setVarDialog({ ...varDialog, form: { ...varDialog.form, costPrice: e.target.value } })} />
             </div>
+            {!varDialog.editId && (
+              <div className="field">
+                <label htmlFor="var-stockqty">Initial stock</label>
+                <input id="var-stockqty" className="input" type="number" value={varDialog.form.stockQty} onChange={(e) => setVarDialog({ ...varDialog, form: { ...varDialog.form, stockQty: e.target.value } })} />
+              </div>
+            )}
             <div className="dialog-actions catalog-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setVarDialog(null)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={savingVar}>{varDialog.editId ? 'Save changes' : 'Add variation'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {stockDialog && (
+        <div className="dialog-backdrop" onClick={() => setStockDialog(null)}>
+          <form className="dialog catalog-stock-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitStockAdjust}>
+            <h2 className="catalog-dialog-title">Adjust stock — {stockDialog.name}</h2>
+            {stockDialogError && <div className="error-banner">{stockDialogError}</div>}
+            <p className="catalog-stock-current">Currently in stock: <strong>{stockDialog.stockQty.toLocaleString()}</strong></p>
+            <div className="field">
+              <label htmlFor="stock-delta">Change (use a negative number to remove stock)</label>
+              <input id="stock-delta" className="input" type="number" value={stockDialog.delta} onChange={(e) => setStockDialog({ ...stockDialog, delta: e.target.value })} placeholder="e.g. 20 or -5" required autoFocus />
+            </div>
+            <div className="field">
+              <label htmlFor="stock-note">Reason (optional)</label>
+              <input id="stock-note" className="input" value={stockDialog.note} onChange={(e) => setStockDialog({ ...stockDialog, note: e.target.value })} placeholder="e.g. Shipment received, stocktake correction" />
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setStockDialog(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={savingStock}>{savingStock ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
         </div>

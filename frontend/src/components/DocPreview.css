@@ -15,6 +15,7 @@
 .doc-preview-brand { display: flex; align-items: center; gap: 8px; }
 .doc-preview-logo { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
 .doc-preview-brand-name { font-weight: 700; font-size: 13px; }
+.doc-preview-brand-address { font-size: 9px; color: #555; line-height: 1.5; margin-top: 3px; }
 .doc-preview-headright { text-align: right; }
 .doc-preview-docno { font-weight: 700; font-size: 13px; }
 .doc-preview-datelabel { font-weight: 700; font-size: 11px; margin-top: 14px; }

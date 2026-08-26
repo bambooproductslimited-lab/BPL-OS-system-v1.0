@@ -38,6 +38,9 @@ router.put('/variations/:id', async function (req, res, next) {
 router.post('/variations/:id/active', async function (req, res, next) {
   try { res.json(await catalogService.setVariationActive(req.ctx, req.params.id, req.body.active)); } catch (e) { next(e); }
 });
+router.post('/variations/:id/stock', async function (req, res, next) {
+  try { res.json(await catalogService.adjustStock(req.ctx, req.params.id, req.body.delta, req.body.note)); } catch (e) { next(e); }
+});
 router.delete('/variations/:id', async function (req, res, next) {
   try { res.json(await catalogService.removeVariation(req.ctx, req.params.id)); } catch (e) { next(e); }
 });

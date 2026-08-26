@@ -112,6 +112,35 @@ test('catalog category: create and link on an item', async function () {
   assert.equal(item.categoryName, 'Test Category');
 });
 
+test('catalog stock: set at creation, adjusted by delta, and cannot go negative', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var created = await (await fetch(base + '/api/catalog/items', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ name: 'Test Stocked Item', code: 'TSI-01', unitPrice: 40, stockQty: 10 })
+  })).json();
+  assert.equal(created.variations[0].stockQty, 10);
+  var variationId = created.variations[0].id;
+
+  var received = await (await fetch(base + '/api/catalog/variations/' + variationId + '/stock', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ delta: 5, note: 'Shipment received' })
+  })).json();
+  assert.equal(received.stockQty, 15);
+
+  var used = await (await fetch(base + '/api/catalog/variations/' + variationId + '/stock', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ delta: -3 })
+  })).json();
+  assert.equal(used.stockQty, 12);
+
+  var tooMuch = await fetch(base + '/api/catalog/variations/' + variationId + '/stock', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ delta: -999 })
+  });
+  assert.equal(tooMuch.status, 400);
+
+  var items = await (await fetch(base + '/api/catalog/items', { headers: authed(admin) })).json();
+  var item = items.find(function (i) { return i.id === created.id; });
+  assert.equal(item.variations[0].stockQty, 12, 'the rejected adjustment should not have changed stock');
+});
+
 test('catalog: create/manage requires catalog.manage; read requires catalog.read', async function () {
   var alice = await login('alice.kamau@bplghana.com'); // plain employee — no catalog.manage
   var res = await fetch(base + '/api/catalog/items', {

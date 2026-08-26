@@ -12,7 +12,8 @@ var { audit } = require('../utils/audit');
 function rowToVariation(r) {
   return {
     id: r.id, itemId: r.item_id, name: r.name, code: r.code, unit: r.unit,
-    defaultQty: Number(r.default_qty), unitPrice: Number(r.unit_price), costPrice: Number(r.cost_price), active: r.active
+    defaultQty: Number(r.default_qty), unitPrice: Number(r.unit_price), costPrice: Number(r.cost_price),
+    stockQty: Number(r.stock_qty), active: r.active
   };
 }
 
@@ -76,7 +77,11 @@ function normalizeVariationInput(v) {
     unit: v.unit || 'each',
     defaultQty: Math.max(1, Number(v.defaultQty) || 1),
     unitPrice: Math.max(0, Number(v.unitPrice) || 0),
-    costPrice: Math.max(0, Number(v.costPrice) || 0)
+    costPrice: Math.max(0, Number(v.costPrice) || 0),
+    // Initial stock only — once a variation exists, stock only changes
+    // through adjustStock below, so every change to it leaves an audit
+    // trail (a delta and a reason) instead of a silent overwrite.
+    stockQty: Math.max(0, Number(v.stockQty) || 0)
   };
 }
 
@@ -86,7 +91,7 @@ function normalizeVariationInput(v) {
 async function create(ctx, p) {
   if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
   var name = V.text(p.name, 'Name', 100);
-  var variation = normalizeVariationInput({ name: p.variationName, code: p.code, unit: p.unit, defaultQty: p.defaultQty, unitPrice: p.unitPrice, costPrice: p.costPrice });
+  var variation = normalizeVariationInput({ name: p.variationName, code: p.code, unit: p.unit, defaultQty: p.defaultQty, unitPrice: p.unitPrice, costPrice: p.costPrice, stockQty: p.stockQty });
 
   var itemRes = await pool.query(
     'INSERT INTO catalog_items (name, description, category_id, tax_rate_id, active) VALUES ($1,$2,$3,$4,true) RETURNING *',
@@ -94,8 +99,8 @@ async function create(ctx, p) {
   );
   var item = itemRes.rows[0];
   var varRes = await pool.query(
-    'INSERT INTO catalog_item_variations (item_id, name, code, unit, default_qty, unit_price, cost_price, active) VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING *',
-    [item.id, variation.name, variation.code, variation.unit, variation.defaultQty, variation.unitPrice, variation.costPrice]
+    'INSERT INTO catalog_item_variations (item_id, name, code, unit, default_qty, unit_price, cost_price, stock_qty, active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *',
+    [item.id, variation.name, variation.code, variation.unit, variation.defaultQty, variation.unitPrice, variation.costPrice, variation.stockQty]
   );
   await audit(pool, ctx, 'catalog.create', 'catalog_item', item.id, 'Added catalogue item ' + item.name + '.');
   return { id: item.id, name: item.name, description: item.description, categoryId: item.category_id, taxRateId: item.tax_rate_id, active: item.active, variations: [rowToVariation(varRes.rows[0])] };
@@ -147,8 +152,8 @@ async function addVariation(ctx, itemId, p) {
   if (!itemRes.rows[0]) fail('notfound', 'Item not found.');
   var v = normalizeVariationInput(p);
   var res = await pool.query(
-    'INSERT INTO catalog_item_variations (item_id, name, code, unit, default_qty, unit_price, cost_price, active) VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING *',
-    [itemId, v.name, v.code, v.unit, v.defaultQty, v.unitPrice, v.costPrice]
+    'INSERT INTO catalog_item_variations (item_id, name, code, unit, default_qty, unit_price, cost_price, stock_qty, active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *',
+    [itemId, v.name, v.code, v.unit, v.defaultQty, v.unitPrice, v.costPrice, v.stockQty]
   );
   await audit(pool, ctx, 'catalog.variation.create', 'catalog_item_variation', res.rows[0].id, 'Added variation ' + v.name + '.');
   return rowToVariation(res.rows[0]);
@@ -181,6 +186,30 @@ async function setVariationActive(ctx, id, active) {
   return rowToVariation(res.rows[0]);
 }
 
+// A +/- delta rather than letting the general edit form silently overwrite
+// stock, so every change (a shipment received, stock used/sold outside an
+// invoice, a stocktake correction) leaves an audited before/after trail.
+// Blocked from going negative — clamp at zero via the WHERE clause instead
+// of letting a bad delta silently corrupt the count.
+async function adjustStock(ctx, id, delta, note) {
+  if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
+  delta = Number(delta);
+  if (!delta || isNaN(delta)) fail('invalid', 'Enter a non-zero quantity.');
+  var res = await pool.query(
+    'UPDATE catalog_item_variations SET stock_qty = stock_qty + $1 WHERE id = $2 AND stock_qty + $1 >= 0 RETURNING *',
+    [delta, id]
+  );
+  if (!res.rows[0]) {
+    var existing = await pool.query('SELECT stock_qty FROM catalog_item_variations WHERE id = $1', [id]);
+    if (!existing.rows[0]) fail('notfound', 'Variation not found.');
+    fail('invalid', 'That would take stock below zero (currently ' + Number(existing.rows[0].stock_qty) + ').');
+  }
+  var v = res.rows[0];
+  await audit(pool, ctx, 'catalog.variation.stock', 'catalog_item_variation', id,
+    (delta > 0 ? '+' : '') + delta + ' stock on ' + v.name + ' (now ' + Number(v.stock_qty) + ').' + (note ? ' ' + note : ''));
+  return rowToVariation(v);
+}
+
 async function removeVariation(ctx, id) {
   if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
   var existing = await pool.query('SELECT * FROM catalog_item_variations WHERE id = $1', [id]);
@@ -195,5 +224,6 @@ async function removeVariation(ctx, id) {
 module.exports = {
   list: list, listItems: listItems, listCategories: listCategories, createCategory: createCategory,
   create: create, update: update, setActive: setActive, remove: remove,
-  addVariation: addVariation, updateVariation: updateVariation, setVariationActive: setVariationActive, removeVariation: removeVariation
+  addVariation: addVariation, updateVariation: updateVariation, setVariationActive: setVariationActive, removeVariation: removeVariation,
+  adjustStock: adjustStock
 };

@@ -1,6 +1,8 @@
 .catalog-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -36,3 +38,6 @@
 .catalog-category-row input { flex: 1; }
 
 .catalog-first-variation-note { font-size: 12px; color: var(--color-text-muted); margin: 4px 0 0; }
+
+.catalog-stock-dialog { max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+.catalog-stock-current { margin: 0; font-size: 13px; color: var(--color-text-muted); }
