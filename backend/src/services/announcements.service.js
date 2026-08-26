@@ -1,7 +1,8 @@
-var { pool } = require('../db/pool');
+var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var { notify } = require('../utils/notify');
 
 // Ported from kernel.js's announcementVisible(ctx, a). kernel stores
 // `audience` as either 'all' or a department id directly; here that's split
@@ -42,13 +43,23 @@ async function publish(ctx, p) {
     scope = 'department'; departmentId = p.audience;
   }
 
-  var res = await pool.query(
-    'INSERT INTO announcements (title, body, audience_scope, department_id, published_by, pinned) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-    [title, body, scope, departmentId, ctx.employee.id, !!p.pinned]
-  );
-  var a = res.rows[0];
-  await audit(pool, ctx, 'announcement.publish', 'announcement', a.id, 'Published "' + a.title + '".');
-  return rowToAnnouncement(a);
+  return withTransaction(async function (client) {
+    var res = await client.query(
+      'INSERT INTO announcements (title, body, audience_scope, department_id, published_by, pinned) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [title, body, scope, departmentId, ctx.employee.id, !!p.pinned]
+    );
+    var a = res.rows[0];
+
+    var audienceRes = scope === 'all'
+      ? await client.query("SELECT id FROM employees WHERE status = 'active' AND id != $1", [ctx.employee.id])
+      : await client.query("SELECT id FROM employees WHERE status = 'active' AND department_id = $1 AND id != $2", [departmentId, ctx.employee.id]);
+    for (var i = 0; i < audienceRes.rows.length; i++) {
+      await notify(client, audienceRes.rows[i].id, 'New announcement', title, 'announcements');
+    }
+
+    await audit(client, ctx, 'announcement.publish', 'announcement', a.id, 'Published "' + a.title + '".');
+    return rowToAnnouncement(a);
+  });
 }
 
 module.exports = { list: list, publish: publish, announcementVisible: announcementVisible };

@@ -122,6 +122,44 @@ test('announcements: publish is permission-gated, audience scoping', async funct
   assert.equal(list[0].pinned, true); // pinned sorts first
 });
 
+test('announcements: publishing notifies the audience (company-wide vs. department-scoped), never the publisher', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var alice = await login('alice.kamau@bplghana.com'); // Production department
+  var emmanuel = await login('emmanuel.chang@bplghana.com'); // IT department
+
+  var depts = await (await fetch(base + '/api/departments', { headers: authed(admin) })).json();
+  var production = depts.find(function (d) { return d.name === 'Production'; });
+  assert.ok(production, 'seed data must include a Production department');
+
+  var unique = 'Notify test ' + Date.now();
+  var published = await fetch(base + '/api/announcements', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ title: unique, body: 'Production-only notice.', audience: production.id })
+  });
+  assert.equal(published.status, 201);
+
+  var aliceNotifs = await (await fetch(base + '/api/notifications', { headers: authed(alice) })).json();
+  var match = aliceNotifs.find(function (n) { return n.title === 'New announcement' && n.body === unique; });
+  assert.ok(match, 'Production employee should be notified of a Production-scoped announcement');
+  assert.equal(match.read, false);
+  assert.equal(match.link, 'announcements');
+
+  var emmanuelNotifs = await (await fetch(base + '/api/notifications', { headers: authed(emmanuel) })).json();
+  assert.ok(!emmanuelNotifs.some(function (n) { return n.body === unique; }), 'IT employee should not be notified of a Production-only announcement');
+
+  var adminNotifs = await (await fetch(base + '/api/notifications', { headers: authed(admin) })).json();
+  assert.ok(!adminNotifs.some(function (n) { return n.body === unique; }), 'the publisher should not notify themself');
+
+  // Mark-as-read round trip, exercised end-to-end here since this is the
+  // notification the test just created.
+  var markRead = await fetch(base + '/api/notifications/read', {
+    method: 'POST', headers: jsonAuthed(alice), body: JSON.stringify({ id: match.id })
+  });
+  assert.equal(markRead.status, 200);
+  var afterRead = await (await fetch(base + '/api/notifications', { headers: authed(alice) })).json();
+  assert.equal(afterRead.find(function (n) { return n.id === match.id; }).read, true);
+});
+
 test('documents: upload requires document.manage, visibility scoping to "all"', async function () {
   var admin = await login('kelvin.duho@bplghana.com');
   var alice = await login('alice.kamau@bplghana.com');

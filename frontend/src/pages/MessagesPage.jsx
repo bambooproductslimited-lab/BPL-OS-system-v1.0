@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './MessagesPage.css';
@@ -20,9 +21,13 @@ function fmtDateTime(iso) {
 }
 
 export default function MessagesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [inbox, setInbox] = useState([]);
   const [directory, setDirectory] = useState([]);
-  const [activePeerId, setActivePeerId] = useState(null);
+  // Deep-linked from a "New message from X" notification (NotificationsBell
+  // navigates to /messages?peer=<id>) — consumed once, then stripped from
+  // the URL so a later back/refresh doesn't keep pinning this conversation.
+  const [activePeerId, setActivePeerId] = useState(() => searchParams.get('peer') || null);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -52,6 +57,11 @@ export default function MessagesPage() {
   }, []);
 
   useEffect(() => { load(activePeerId); }, [load, activePeerId]);
+
+  useEffect(() => {
+    if (searchParams.get('peer')) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (threadEndRef.current) threadEndRef.current.scrollIntoView({ block: 'end' });

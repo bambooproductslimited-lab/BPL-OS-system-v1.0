@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { NAV_GROUPS, ALL_NAV_ITEMS } from './navModel';
+import NotificationsBell from '../components/NotificationsBell';
 import './AppShell.css';
 
 export default function AppShell() {
@@ -63,8 +64,11 @@ export default function AppShell() {
 
       <main className="shell-main">
         <header className="shell-header">
-          <div className="eyebrow">{currentGroup ? currentGroup.label : 'Bamboo OS'}</div>
-          <h1 className="shell-header-title">{currentItem ? currentItem.label : 'Not found'}</h1>
+          <div>
+            <div className="eyebrow">{currentGroup ? currentGroup.label : 'Bamboo OS'}</div>
+            <h1 className="shell-header-title">{currentItem ? currentItem.label : 'Not found'}</h1>
+          </div>
+          <NotificationsBell />
         </header>
         <div className="shell-content">
           <Outlet />
