@@ -5,6 +5,7 @@ var STATUS_BY_CODE = {
   invalid: 400,
   auth: 401,
   forbidden: 403,
+  password_change_required: 403,
   notfound: 404,
   conflict: 409,
   ratelimited: 429,

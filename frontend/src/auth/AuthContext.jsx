@@ -40,13 +40,22 @@ export function AuthProvider({ children }) {
     setSession(null);
   }, []);
 
+  // Re-fetches /api/me and replaces the in-memory session — used after a
+  // forced password change so mustChangePassword flips to false without
+  // requiring the user to log in again.
+  const refreshSession = useCallback(async () => {
+    const me = await getMe();
+    setSession(me);
+    return me;
+  }, []);
+
   const can = useCallback((permission) => {
     return !!(session && session.permissions && session.permissions.indexOf(permission) >= 0);
   }, [session]);
 
   const value = useMemo(
-    () => ({ session, loading, login, logout, can }),
-    [session, loading, login, logout, can]
+    () => ({ session, loading, login, logout, can, refreshSession }),
+    [session, loading, login, logout, can, refreshSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

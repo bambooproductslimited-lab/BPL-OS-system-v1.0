@@ -4,8 +4,14 @@ var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
 var employeeDocumentsService = require('../services/employeeDocuments.service');
 var kioskService = require('../services/kiosk.service');
+var { allowlistFilter } = require('../lib/uploadFilters');
 
-var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+var ID_DOC_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic'];
+var upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: allowlistFilter(ID_DOC_EXTENSIONS, 'That file type isn’t supported for ID documents.')
+});
 
 var router = express.Router();
 router.use(requireAuth);

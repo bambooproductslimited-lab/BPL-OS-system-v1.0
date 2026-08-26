@@ -58,6 +58,31 @@ async function login(email, password) {
   return { token: signToken(user.id), ctx: ctx };
 }
 
+// Self-service password change — distinct from users.service.js's
+// setPassword (an admin resetting someone else's password without knowing
+// the old one). Requires the current password so a hijacked-but-unlocked
+// session (e.g. an unattended workstation) can't be used to lock the real
+// owner out by silently changing their password.
+async function changeOwnPassword(ctx, currentPassword, newPassword) {
+  newPassword = String(newPassword || '');
+  if (newPassword.length < 8) fail('invalid', 'New password must be at least 8 characters.');
+
+  var res = await pool.query('SELECT password_hash FROM users WHERE id = $1', [ctx.user.id]);
+  var user = res.rows[0];
+  if (!user) fail('notfound', 'Account not found.');
+
+  var ok = await bcrypt.compare(String(currentPassword || ''), user.password_hash);
+  if (!ok) fail('auth', 'Current password is incorrect.');
+
+  var hash = await bcrypt.hash(newPassword, config.bcryptRounds);
+  await pool.query(
+    'UPDATE users SET password_hash = $1, must_change_password = false, updated_at = now() WHERE id = $2',
+    [hash, ctx.user.id]
+  );
+  await audit(pool, ctx, 'auth.password_change', 'user', ctx.user.id, 'Changed their own password.');
+  return true;
+}
+
 async function logout(ctx) {
   await audit(pool, ctx, 'auth.logout', 'user', ctx.user.id, 'Signed out.');
   // JWTs are stateless — the client discards the token. Token lifetime is
@@ -66,4 +91,4 @@ async function logout(ctx) {
   return true;
 }
 
-module.exports = { login: login, logout: logout, signToken: signToken, verifyToken: verifyToken };
+module.exports = { login: login, logout: logout, signToken: signToken, verifyToken: verifyToken, changeOwnPassword: changeOwnPassword };

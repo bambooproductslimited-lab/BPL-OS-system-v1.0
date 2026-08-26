@@ -5,7 +5,7 @@ var { pool } = require('../db/pool');
 // roles grant (no direct user -> permission grants, same as the prototype).
 async function buildContext(userId) {
   var userRes = await pool.query(
-    'SELECT u.id, u.email, u.status, u.employee_id, ' +
+    'SELECT u.id, u.email, u.status, u.employee_id, u.must_change_password, ' +
     'e.id AS emp_id, e.code, e.first_name, e.last_name, e.department_id, e.manager_id, e.position_title, e.status AS emp_status ' +
     'FROM users u JOIN employees e ON e.id = u.employee_id WHERE u.id = $1',
     [userId]
@@ -26,7 +26,7 @@ async function buildContext(userId) {
   permissions.forEach(function (p) { pset[p] = true; });
 
   return {
-    user: { id: row.id, email: row.email, status: row.status },
+    user: { id: row.id, email: row.email, status: row.status, mustChangePassword: row.must_change_password },
     employee: {
       id: row.emp_id, code: row.code, first_name: row.first_name, last_name: row.last_name,
       department_id: row.department_id, manager_id: row.manager_id, position_title: row.position_title, status: row.emp_status

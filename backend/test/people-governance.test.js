@@ -42,7 +42,13 @@ test('employee record-level visibility: self-service employee only sees their ow
   assert.equal(aliceList.length, 1);
 
   var adminList = await (await fetch(base + '/api/employees', { headers: authed(admin) })).json();
-  assert.equal(adminList.length, 19);
+  // >= rather than an exact seeded count: other test files create their own
+  // throwaway employees (e.g. passwordChange.test.js) and node's test
+  // runner executes files concurrently, so the exact company-wide total at
+  // any instant isn't deterministic — the real invariant here is "admin
+  // sees everyone, self-service sees only themself".
+  assert.ok(adminList.length >= 19);
+  assert.ok(adminList.some(function (e) { return e.email === 'alice.kamau@bplghana.com'; }));
 });
 
 test('employee CRUD: create requires employee.write, update, terminate, purge lifecycle', async function () {
@@ -173,7 +179,7 @@ test('dashboard.load returns permission-scoped fields', async function () {
   var alice = await login('alice.kamau@bplghana.com');
 
   var adminDash = await (await fetch(base + '/api/dashboard', { headers: authed(admin) })).json();
-  assert.equal(adminDash.headcount, 19);
+  assert.ok(adminDash.headcount >= 19); // see the note on the equivalent assertion above
 
   var aliceDash = await (await fetch(base + '/api/dashboard', { headers: authed(alice) })).json();
   assert.equal(aliceDash.headcount, 1);

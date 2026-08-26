@@ -1,6 +1,7 @@
 var express = require('express');
 var cors = require('cors');
 var helmet = require('helmet');
+var rateLimit = require('express-rate-limit');
 var config = require('./config');
 var { AppError } = require('./utils/errors');
 
@@ -68,6 +69,25 @@ app.use(cors({ origin: config.corsOrigin, credentials: true }));
 app.use(express.json({ verify: function (req, res, buf) { req.rawBody = buf; } }));
 
 app.get('/api/health', function (req, res) { res.json({ ok: true }); });
+
+// General abuse backstop for every other endpoint — previously only
+// /api/auth/login (auth.routes.js) and /api/kiosk/clock (its own
+// in-memory limiter) were throttled, so a valid-but-compromised token
+// could otherwise hit any other route as fast as the network allowed.
+// Generous enough not to bother a shared office IP during normal use;
+// health checks and the WhatsApp webhook (which needs to accept bursts
+// from Meta, verified separately by HMAC signature) are excluded.
+var apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 900,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: function (req) {
+    return config.nodeEnv === 'test' || req.path === '/api/health' || req.path === '/api/marketing/whatsapp/webhook';
+  },
+  message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
+});
+app.use('/api', apiLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/me', meRoutes);

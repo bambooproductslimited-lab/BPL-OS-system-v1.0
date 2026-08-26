@@ -4,8 +4,13 @@ var { requireAuth } = require('../middleware/auth');
 var itDevicesService = require('../services/itDevices.service');
 var itDeviceImportService = require('../services/itDeviceImport.service');
 var { fail } = require('../utils/errors');
+var { allowlistFilter } = require('../lib/uploadFilters');
 
-var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+var upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: allowlistFilter(['csv'], 'Export the sheet as CSV before uploading.')
+});
 
 var router = express.Router();
 router.use(requireAuth);

@@ -4,6 +4,7 @@ var { pool } = require('../db/pool');
 var { serializeEmployee } = require('../services/context.service');
 var { rowToLeaveRequest } = require('../services/leave.service');
 var { rowToAttendance } = require('../services/attendance.service');
+var authService = require('../services/auth.service');
 
 var router = express.Router();
 
@@ -11,6 +12,7 @@ function serializeCtx(ctx) {
   return {
     userId: ctx.user.id,
     email: ctx.user.email,
+    mustChangePassword: ctx.user.mustChangePassword,
     employee: serializeEmployee(ctx.employee),
     roleNames: ctx.roleNames,
     permissions: ctx.permissions
@@ -20,6 +22,16 @@ function serializeCtx(ctx) {
 // kernel.js: api.currentContext() -> GET /api/me
 router.get('/', requireAuth, function (req, res) {
   res.json(serializeCtx(req.ctx));
+});
+
+// Self-service password change — see middleware/auth.js's
+// PASSWORD_CHANGE_ALLOWLIST for why this route (and only this one, plus
+// GET / and logout) stays reachable while must_change_password is set.
+router.post('/password', requireAuth, async function (req, res, next) {
+  try {
+    await authService.changeOwnPassword(req.ctx, req.body.currentPassword, req.body.newPassword);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['me.summary'] -> GET /api/me/summary

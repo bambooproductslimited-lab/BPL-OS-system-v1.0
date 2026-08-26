@@ -14,7 +14,7 @@
     "seed": "node src/db/seed.js",
     "bootstrap": "node src/db/bootstrap.js",
     "db:reset": "node src/db/migrate.js up && node src/db/seed.js",
-    "test": "node --test"
+    "test": "NODE_ENV=test node --test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1113.0",

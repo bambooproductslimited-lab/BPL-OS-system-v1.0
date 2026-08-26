@@ -2,8 +2,14 @@ var express = require('express');
 var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var documentsService = require('../services/documents.service');
+var { allowlistFilter } = require('../lib/uploadFilters');
 
-var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+var DOC_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'jpg', 'jpeg', 'png', 'webp'];
+var upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: allowlistFilter(DOC_EXTENSIONS, 'That file type isn’t supported for documents.')
+});
 
 var router = express.Router();
 router.use(requireAuth);
