@@ -11,7 +11,7 @@ var kioskService = require('../services/kiosk.service');
 var router = express.Router();
 
 router.post('/clock', async function (req, res, next) {
-  try { res.json(await kioskService.clock(req.body.pin, req.ip)); } catch (e) { next(e); }
+  try { res.json(await kioskService.clock(req.body.pin, req.ip, req.body.occurredAt)); } catch (e) { next(e); }
 });
 
 module.exports = router;

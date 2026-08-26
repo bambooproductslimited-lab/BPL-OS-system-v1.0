@@ -7,6 +7,27 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function nowHM() { return new Date().toTimeString().slice(0, 5); }
 
+// The kiosk's offline queue (see KioskPage.jsx) replays a tap after
+// reconnecting, potentially well after it actually happened — resolving to
+// "now" at sync time would record the wrong clock-in time (and the wrong
+// late/present status) for the whole outage. occurredAt lets a caller pass
+// the real tap time through; every other caller (the live kiosk tap, and
+// the web "clock myself in" button) omits it and gets the server's own
+// authoritative now(), exactly as before. Bounded so a stale/never-flushed
+// queue entry can't backdate attendance indefinitely — offline outages of
+// longer than two weeks need a manual attendance.adjust correction instead.
+var MAX_BACKDATE_MS = 14 * 24 * 60 * 60 * 1000;
+var FUTURE_SKEW_MS = 5 * 60 * 1000; // small clock-skew tolerance
+function resolveOccurredAt(occurredAt) {
+  if (!occurredAt) return { date: todayISO(), time: nowHM() };
+  var d = occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
+  if (isNaN(d.getTime())) fail('invalid', 'Invalid timestamp.');
+  var deltaMs = Date.now() - d.getTime();
+  if (deltaMs < -FUTURE_SKEW_MS) fail('invalid', 'That timestamp is in the future.');
+  if (deltaMs > MAX_BACKDATE_MS) fail('invalid', 'That timestamp is too old to sync automatically — ask HR to adjust attendance manually.');
+  return { date: d.toISOString().slice(0, 10), time: d.toTimeString().slice(0, 5) };
+}
+
 // clockInEmployee/clockOutEmployee — the actual attendance-row logic,
 // factored out from clockIn/clockOut below (which are the ctx-based, "I am
 // clocking myself in from the web app" handlers) so the kiosk service can
@@ -14,32 +35,30 @@ function nowHM() { return new Date().toTimeString().slice(0, 5); }
 // tagged with source='kiosk' instead of 'web'. Neither takes ctx or does a
 // permission check — that's the caller's job (clockIn/clockOut check
 // attendance.self; kiosk.service.js's PIN match is its own gate).
-async function clockInEmployee(employeeId, source) {
-  var t = todayISO();
-  var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, t]);
+async function clockInEmployee(employeeId, source, occurredAt) {
+  var resolved = resolveOccurredAt(occurredAt);
+  var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
   if (existing.rows[0]) fail('conflict', 'Already clocked in today.');
 
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
-  var now = nowHM();
   var lateAfter = settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20';
-  var status = now > lateAfter ? 'late' : 'present';
+  var status = resolved.time > lateAfter ? 'late' : 'present';
 
   var res = await pool.query(
     'INSERT INTO attendance (employee_id, date, clock_in, status, source) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-    [employeeId, t, now, status, source]
+    [employeeId, resolved.date, resolved.time, status, source]
   );
   return res.rows[0];
 }
 
-async function clockOutEmployee(employeeId) {
-  var t = todayISO();
-  var res = await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, t]);
+async function clockOutEmployee(employeeId, occurredAt) {
+  var resolved = resolveOccurredAt(occurredAt);
+  var res = await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
   var rec = res.rows[0];
   if (!rec) fail('conflict', 'Not clocked in today.');
   if (rec.clock_out) fail('conflict', 'Already clocked out today.');
 
-  var now = nowHM();
-  var updated = await pool.query('UPDATE attendance SET clock_out = $1 WHERE id = $2 RETURNING *', [now, rec.id]);
+  var updated = await pool.query('UPDATE attendance SET clock_out = $1 WHERE id = $2 RETURNING *', [resolved.time, rec.id]);
   return updated.rows[0];
 }
 
@@ -151,5 +170,5 @@ function rowToAttendance(r) {
 
 module.exports = {
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
-  clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee
+  clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt
 };

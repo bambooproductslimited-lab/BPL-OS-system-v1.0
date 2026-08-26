@@ -115,6 +115,41 @@ test('kiosk PIN: clearing it makes the PIN stop working', async function () {
   assert.equal(attempt.status, 400);
 });
 
+test('kiosk clock offline sync: occurredAt backdates the attendance record instead of using the sync moment, and is bounded', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var list = await (await fetch(base + '/api/employees', { headers: authed(admin) })).json();
+  var candidates = list.filter(function (e) { return e.status === 'active' && EXCLUDED_EMAILS.indexOf(e.email) < 0; });
+  var empC = candidates[2];
+
+  await fetch(base + '/api/employees/' + empC.id + '/kiosk-pin', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ pin: '3344' })
+  });
+
+  var threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  var expectedHm = threeHoursAgo.toTimeString().slice(0, 5);
+
+  var offlineClockIn = await fetch(base + '/api/kiosk/clock', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: '3344', occurredAt: threeHoursAgo.toISOString() })
+  });
+  assert.equal(offlineClockIn.status, 200);
+  var body = await offlineClockIn.json();
+  assert.equal(body.action, 'in');
+  assert.equal(body.time, expectedHm, 'the recorded clock-in time should be the original tap time, not the sync moment');
+
+  var future = await fetch(base + '/api/kiosk/clock', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: '3344', occurredAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
+  });
+  assert.equal(future.status, 400);
+
+  var tooOld = await fetch(base + '/api/kiosk/clock', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: '3344', occurredAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString() })
+  });
+  assert.equal(tooOld.status, 400);
+});
+
 // Runs last in this file — deliberately trips the per-IP lockout, which
 // would otherwise block every kiosk test declared after it.
 test('kiosk clock: repeated wrong PINs from the same caller are rate-limited', async function () {

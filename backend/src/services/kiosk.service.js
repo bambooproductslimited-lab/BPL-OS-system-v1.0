@@ -81,7 +81,15 @@ async function clearPin(ctx, employeeId) {
 // kiosk.clock — the public, unauthenticated endpoint the iPad calls.
 // Toggles: no attendance row yet today -> clock in; a row with clock_in
 // but no clock_out -> clock out; both set -> a clean "already done" error.
-async function clock(pin, ip) {
+//
+// occurredAt is set only when the kiosk's offline queue (KioskPage.jsx) is
+// replaying a tap that happened while the device had no connectivity — a
+// live tap always omits it and gets the server's own now(), unchanged from
+// before. This is the one place a client-supplied timestamp is trusted at
+// all, and only to correctly backdate an already-authenticated tap
+// (attendance.service.js's resolveOccurredAt still bounds/validates it) —
+// never to skip PIN verification itself.
+async function clock(pin, ip, occurredAt) {
   checkRateLimit(ip);
   if (!/^\d{4}$/.test(String(pin || ''))) {
     recordFailure(ip);
@@ -98,13 +106,16 @@ async function clock(pin, ip) {
   }
   recordSuccess(ip);
 
-  var existing = await pool.query("SELECT clock_out FROM attendance WHERE employee_id = $1 AND date = current_date", [emp.id]);
+  var resolved = attendanceService.resolveOccurredAt(occurredAt);
+  var source = occurredAt ? 'kiosk_offline' : 'kiosk';
+
+  var existing = await pool.query('SELECT clock_out FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, resolved.date]);
   var action, rec;
   if (!existing.rows[0]) {
-    rec = await attendanceService.clockInEmployee(emp.id, 'kiosk');
+    rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt);
     action = 'in';
   } else if (!existing.rows[0].clock_out) {
-    rec = await attendanceService.clockOutEmployee(emp.id);
+    rec = await attendanceService.clockOutEmployee(emp.id, occurredAt);
     action = 'out';
   } else {
     fail('conflict', 'You have already clocked in and out today.');

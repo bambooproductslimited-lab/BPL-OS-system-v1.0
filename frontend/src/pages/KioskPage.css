@@ -20,6 +20,16 @@
   margin-bottom: 40px;
 }
 .kiosk-brand { font-family: var(--font-heading); font-weight: 800; font-size: 20px; }
+.kiosk-pending-badge {
+  margin-top: 8px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+}
 .kiosk-clock { text-align: right; }
 .kiosk-time { font-family: var(--font-heading); font-weight: 800; font-size: 28px; line-height: 1; }
 .kiosk-date { font-size: 13px; opacity: 0.75; margin-top: 4px; }
@@ -77,6 +87,8 @@
 .kiosk-result-icon { font-size: 72px; margin-bottom: 16px; line-height: 1; }
 .kiosk-result-ok .kiosk-result-icon { color: #b7e4a8; }
 .kiosk-result-error .kiosk-result-icon { color: #f3a6a1; }
+.kiosk-result-pending .kiosk-result-icon { color: #f3d9a6; }
 .kiosk-result-title { font-family: var(--font-heading); font-weight: 800; font-size: 26px; }
 .kiosk-result-name { font-size: 20px; margin-top: 10px; }
+.kiosk-result-pending .kiosk-result-name { font-size: 16px; opacity: 0.85; max-width: 380px; }
 .kiosk-result-time { font-size: 16px; opacity: 0.8; margin-top: 6px; }
