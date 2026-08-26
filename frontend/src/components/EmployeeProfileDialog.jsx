@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { isPdf, toPreviewUrl } from '../lib/previewUrl';
 import './EmployeeProfileDialog.css';
 
 const ID_SLOT_LABELS = { id_front: 'ID — front', id_back: 'ID — back', passport: 'Passport' };
 const EMPLOYMENT_TYPE_LABELS = { permanent: 'Permanent', contract: 'Contract', casual: 'Casual', day_rate: 'By day' };
-function isPdf(fileName) { return /\.pdf$/i.test(fileName || ''); }
 
 // Full-detail read-only preview for one employee — profile fields, recent
 // attendance, leave history, and open tasks — via the existing
@@ -119,7 +119,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                         <div className="employee-profile-label">{ID_SLOT_LABELS[s.kind]}</div>
                         {s.fileName && s.url ? (
                           isPdf(s.fileName) ? (
-                            <a href={s.url} target="_blank" rel="noopener noreferrer" className="employee-profile-iddoc-pdf">View PDF — {s.fileName}</a>
+                            <a href={toPreviewUrl(s.url, s.fileName)} target="_blank" rel="noopener noreferrer" className="employee-profile-iddoc-pdf">View PDF — {s.fileName}</a>
                           ) : (
                             <a href={s.url} target="_blank" rel="noopener noreferrer">
                               <img src={s.url} alt={ID_SLOT_LABELS[s.kind]} className="employee-profile-iddoc-img" />

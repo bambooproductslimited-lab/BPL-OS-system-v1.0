@@ -2,13 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { toPreviewUrl } from '../lib/previewUrl';
 import './DocumentsPage.css';
 
 // Ported from Bamboo OS.dc.html's documents screen (screens.documents
 // block + the "Add document" dialog around its render()), extended with
-// real file upload/download against Cloudflare R2 (see
+// real file upload/preview against Cloudflare R2 (see
 // backend/src/lib/storage.js) — the prototype's version recorded metadata
-// only. Documents created before storage was wired up have no file
+// only. Files open in a new tab for viewing, never as a download (the
+// signed URL is served with Content-Disposition: inline). Documents
+// created before storage was wired up have no file
 // (hasFile: false) and show a plain, non-clickable filename.
 
 function fmtDate(iso) {
@@ -102,12 +105,12 @@ export default function DocumentsPage() {
     }
   }
 
-  async function handleDownload(doc) {
+  async function handlePreview(doc) {
     setDownloadingId(doc.id);
     setError(null);
     try {
       const { url } = await api.get('/documents/' + doc.id + '/download');
-      window.open(url, '_blank', 'noopener');
+      window.open(toPreviewUrl(url, doc.fileName), '_blank', 'noopener');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -153,7 +156,7 @@ export default function DocumentsPage() {
               <td>{dc.category}</td>
               <td className="documents-filename">
                 {dc.hasFile ? (
-                  <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handleDownload(dc)}>
+                  <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handlePreview(dc)}>
                     {downloadingId === dc.id ? 'Preparing…' : dc.fileName}
                   </button>
                 ) : (

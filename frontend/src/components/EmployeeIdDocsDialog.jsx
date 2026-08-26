@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { toPreviewUrl } from '../lib/previewUrl';
 import './EmployeeIdDocsDialog.css';
 
 // Three fixed ID/passport document slots on an employee record — front of
 // ID, back of ID, passport scan. Opened from a row action on the Employee
-// directory. Same real-upload/signed-download pattern as the Documents
-// module (backend/src/services/employeeDocuments.service.js).
+// directory. Same real-upload/signed-preview pattern as the Documents
+// module (backend/src/services/employeeDocuments.service.js) — files open
+// in a new tab to view, never as a download.
 
 const SLOT_LABELS = { id_front: 'ID — front', id_back: 'ID — back', passport: 'Passport' };
 
@@ -19,7 +21,7 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [uploadingKind, setUploadingKind] = useState(null);
-  const [downloadingKind, setDownloadingKind] = useState(null);
+  const [previewingKind, setPreviewingKind] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -49,16 +51,16 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
     }
   }
 
-  async function handleDownload(kind) {
-    setDownloadingKind(kind);
+  async function handlePreview(kind, fileName) {
+    setPreviewingKind(kind);
     setError(null);
     try {
       const { url } = await api.get('/employees/' + employee.id + '/id-documents/' + kind + '/download');
-      window.open(url, '_blank', 'noopener');
+      window.open(toPreviewUrl(url, fileName), '_blank', 'noopener');
     } catch (err) {
       setError(err.message);
     } finally {
-      setDownloadingKind(null);
+      setPreviewingKind(null);
     }
   }
 
@@ -84,8 +86,8 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
                 </div>
                 <div className="id-docs-row-actions">
                   {s.fileName && (
-                    <button type="button" className="btn btn-secondary id-docs-btn" disabled={downloadingKind === s.kind} onClick={() => handleDownload(s.kind)}>
-                      {downloadingKind === s.kind ? 'Preparing…' : 'Download'}
+                    <button type="button" className="btn btn-secondary id-docs-btn" disabled={previewingKind === s.kind} onClick={() => handlePreview(s.kind, s.fileName)}>
+                      {previewingKind === s.kind ? 'Preparing…' : 'View'}
                     </button>
                   )}
                   <label className="btn btn-secondary id-docs-btn id-docs-upload-btn">

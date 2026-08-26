@@ -30,10 +30,17 @@ async function uploadFile(originalName, buffer, contentType) {
   return key;
 }
 
+// Named getDownloadUrl for history's sake (that's what every caller still
+// imports), but this is a view/preview link, not a download one: inline
+// disposition tells the browser to render the file (PDF/image) in the tab
+// instead of triggering a save dialog, wherever the browser is able to.
+// This isn't real DRM — someone already viewing the rendered file can
+// still save it via the browser's own UI — it just removes the
+// straightforward "click to download" path the OS itself was offering.
 function getDownloadUrl(key, downloadAsFileName) {
   var command = new GetObjectCommand({
     Bucket: r2.bucket, Key: key,
-    ResponseContentDisposition: 'attachment; filename="' + String(downloadAsFileName || 'download').replace(/"/g, '') + '"'
+    ResponseContentDisposition: 'inline; filename="' + String(downloadAsFileName || 'file').replace(/"/g, '') + '"'
   });
   return getSignedUrl(client, command, { expiresIn: 60 });
 }
