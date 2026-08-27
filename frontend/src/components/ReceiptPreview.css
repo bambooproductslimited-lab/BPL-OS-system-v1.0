@@ -1,0 +1,61 @@
+.receipt-preview {
+  max-width: 560px;
+  gap: 20px;
+}
+
+/* Used on the payment-method value inside the preview; also defined in
+   ReceiptsPage.css for its table column — duplicated intentionally so this
+   component looks right wherever it's imported (e.g. PaymentsPage, which
+   has no reason to carry Receipts-table-specific CSS of its own). */
+.receipts-method { text-transform: capitalize; }
+
+@media print {
+  body * { visibility: hidden; }
+  .receipt-preview, .receipt-preview * { visibility: visible; }
+  .no-print, .no-print * { visibility: hidden; }
+  .receipt-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+  }
+}
+.receipt-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: var(--divider-width) solid var(--color-divider);
+  padding-bottom: 16px;
+}
+.receipt-preview-brand { display: flex; align-items: center; gap: 10px; }
+.receipt-preview-logo { width: 40px; height: 40px; object-fit: contain; border-radius: 5px; flex-shrink: 0; }
+.receipt-preview-brand-name { font-family: var(--font-heading); font-weight: 800; font-size: 20px; }
+.receipt-preview-brand-address { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; margin-top: 4px; }
+.receipt-preview-headright { text-align: right; }
+.receipt-preview-eyebrow { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-accent); }
+.receipt-preview-eyebrow-block { color: var(--color-text-muted); margin-bottom: 6px; }
+.receipt-preview-no { font-family: var(--font-heading); font-weight: 800; font-size: 20px; }
+.receipt-preview-date { font-size: 12px; color: var(--color-text-muted); }
+.receipt-preview-customer { font-weight: 600; font-size: 15px; }
+.receipt-preview-address { font-size: 13px; color: var(--color-text-muted); }
+.receipt-preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 13px;
+  border-top: var(--divider-width) solid var(--color-divider);
+  border-bottom: var(--divider-width) solid var(--color-divider);
+  padding: 14px 0;
+}
+.receipt-preview-amounts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 13px;
+}
+.receipt-preview-amount-received { font-size: 18px; }

@@ -32,7 +32,7 @@
 .doc-preview-table tbody tr { border-bottom: 1px solid #eee; }
 .doc-preview-table td { padding: 8px 0; }
 .doc-preview-desc { color: #4a4a4a; }
-.doc-preview-num { text-align: right; }
+.doc-preview-table th.doc-preview-num, .doc-preview-table td.doc-preview-num { text-align: right; }
 .doc-preview-row { display: flex; justify-content: space-between; padding-top: 10px; font-size: 12px; color: #4a4a4a; }
 .doc-preview-grand-row { display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #ccc; margin-top: 6px; font-size: 20px; font-weight: 700; }
 .doc-preview-notes { margin-top: 24px; }

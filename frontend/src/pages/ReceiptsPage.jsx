@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import ReceiptPreview from '../components/ReceiptPreview';
 import './ReceiptsPage.css';
 
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
@@ -87,52 +88,14 @@ export default function ReceiptsPage() {
       {!!receipts.length && !visibleReceipts.length && <p className="table-empty">No receipts match "{search}".</p>}
 
       {previewR && (
-        <div className="dialog-backdrop" onClick={() => setPreviewR(null)}>
-          <div className="dialog receipt-preview" ref={previewRef} onClick={(e) => e.stopPropagation()}>
-            <div className="receipt-preview-head">
-              <div className="receipt-preview-brand">
-                <img src="/logo.png" alt="" className="receipt-preview-logo" />
-                <div>
-                  <div className="receipt-preview-brand-name">Bamboo Products Limited</div>
-                  <div className="receipt-preview-brand-address">
-                    Poki House, GT-191-1859 (GhanaPostGPS)<br />
-                    35 J K Siaw St, Community 9, Tema, Ghana<br />
-                    P.O. Box CO 131, Tema, Ghana<br />
-                    Tel: 0591933925 / 0249186859
-                  </div>
-                </div>
-              </div>
-              <div className="receipt-preview-headright">
-                <div className="receipt-preview-eyebrow">Receipt</div>
-                <div className="receipt-preview-no">{previewR.receiptNo}</div>
-                <div className="receipt-preview-date">Date {fmtDate(previewR.date)}</div>
-              </div>
-            </div>
-            <div>
-              <div className="receipt-preview-eyebrow receipt-preview-eyebrow-block">Received from</div>
-              <div className="receipt-preview-customer">{previewR.customerName}</div>
-              <div className="receipt-preview-address">{previewR.customerAddress || '—'}</div>
-            </div>
-            <div className="receipt-preview-grid">
-              <div>Invoice <strong>{previewR.invoiceNo}</strong></div>
-              <div>Payment method <strong className="receipts-method">{previewR.method.replace('_', ' ')}</strong></div>
-              <div>Transaction reference <strong>{previewR.reference || '—'}</strong></div>
-              <div>Received by <strong>{previewR.receivedByName}</strong></div>
-            </div>
-            <div className="receipt-preview-amounts">
-              <div>Remaining balance &nbsp; <strong>GHS {previewR.balanceAfter.toLocaleString()}</strong></div>
-              <div className="receipt-preview-amount-received">Amount received &nbsp; <strong>GHS {previewR.amount.toLocaleString()}</strong></div>
-            </div>
-            {shareError && <div className="error-banner no-print">{shareError}</div>}
-            <div className="dialog-actions no-print">
-              <button type="button" className="btn btn-secondary" onClick={() => setPreviewR(null)}>Close</button>
-              <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
-              <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
-                {sharing ? 'Preparing…' : 'Share'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReceiptPreview
+          receipt={previewR}
+          previewRef={previewRef}
+          sharing={sharing}
+          shareError={shareError}
+          onClose={() => setPreviewR(null)}
+          onShare={handleShare}
+        />
       )}
     </div>
   );

@@ -38,7 +38,7 @@
 .waybill-preview-table tbody tr { border-bottom: 1px solid #eee; }
 .waybill-preview-table td { padding: 8px 0; }
 .waybill-preview-desc { color: #333; }
-.waybill-preview-num { text-align: right; }
+.waybill-preview-table th.waybill-preview-num, .waybill-preview-table td.waybill-preview-num { text-align: right; }
 
 .waybill-preview-notes { margin-top: 20px; }
 .waybill-preview-notes-body { margin: 0; font-size: 12px; color: #4a4a4a; }

@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { shareOrDownloadPdf } from '../lib/documentShare';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import ReceiptPreview from '../components/ReceiptPreview';
 import './PaymentsPage.css';
 
 // Ported from Bamboo OS.dc.html's payments screen (screens.payments block).
 // Payments are a read-only ledger with one action: delete (which also
 // removes the linked receipt and rolls back the invoice balance server-side
-// — see backend/src/services/payments.service.js's remove()).
+// — see backend/src/services/payments.service.js's remove()). Preview
+// reuses the Receipts module's own preview dialog — every payment has
+// exactly one receipt (recordPayment creates both together), matched here
+// by receipt.paymentId, so "preview the payment" and "preview its receipt"
+// are the same document.
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -21,6 +27,7 @@ export default function PaymentsPage() {
   const canManage = can('invoice.manage');
 
   const [payments, setPayments] = useState([]);
+  const [receiptByPaymentId, setReceiptByPaymentId] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -28,16 +35,38 @@ export default function PaymentsPage() {
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
 
+  const [previewR, setPreviewR] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState(null);
+  const previewRef = useRef(null);
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      setPayments(await api.get('/payments'));
+      const [paymentRows, receiptRows] = await Promise.all([api.get('/payments'), api.get('/receipts')]);
+      setPayments(paymentRows);
+      const map = {};
+      receiptRows.forEach((r) => { map[r.paymentId] = r; });
+      setReceiptByPaymentId(map);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function handleShare() {
+    setShareError(null);
+    setSharing(true);
+    try {
+      const filename = 'Receipt-' + previewR.receiptNo + '.pdf';
+      await shareOrDownloadPdf(previewRef.current, filename, 'Receipt ' + previewR.receiptNo, 'Receipt for ' + previewR.customerName);
+    } catch (err) {
+      if (err.name !== 'AbortError') setShareError(err.message || 'Could not share this receipt.');
+    } finally {
+      setSharing(false);
+    }
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -86,6 +115,9 @@ export default function PaymentsPage() {
               <td>{p.reference || '—'}</td>
               <td>{p.receivedByName}</td>
               <td className="table-actions">
+                {receiptByPaymentId[p.id] && (
+                  <button type="button" className="btn btn-secondary payments-row-btn" onClick={() => { setShareError(null); setPreviewR(receiptByPaymentId[p.id]); }}>Preview</button>
+                )}
                 {canManage && <button type="button" className="btn btn-secondary payments-row-btn" onClick={() => setDeleteTarget(p)}>Delete</button>}
               </td>
             </tr>
@@ -106,6 +138,17 @@ export default function PaymentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {previewR && (
+        <ReceiptPreview
+          receipt={previewR}
+          previewRef={previewRef}
+          sharing={sharing}
+          shareError={shareError}
+          onClose={() => setPreviewR(null)}
+          onShare={handleShare}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}
