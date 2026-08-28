@@ -96,12 +96,22 @@ test('GET /api/timestation/attendance/preview rejects an end date before the sta
   assert.match(body.error.message, /on or after start date/);
 });
 
-test('GET /api/timestation/attendance/preview rejects a range wider than 31 days', async function () {
+test('GET /api/timestation/attendance/preview allows a wide date range (a full-history pull costs the same one API call per employee as a narrow one)', async function () {
   var admin = await login('kelvin.duho@bplghana.com');
-  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=2026-01-01&endDate=2026-03-01', { headers: jsonAuthed(admin) });
+  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=2010-01-01&endDate=2026-01-07', { headers: jsonAuthed(admin) });
+  // Still hits "not configured" (no TIMESTATION_API_KEY in this test env) —
+  // the point is it gets there at all, past date-range validation.
   assert.equal(res.status, 400);
   var body = await res.json();
-  assert.match(body.error.message, /31 days or fewer/);
+  assert.match(body.error.message, /TimeStation is not configured/);
+});
+
+test('GET /api/timestation/attendance/preview rejects a genuinely absurd date range (a mistyped year)', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=1926-01-01&endDate=2026-01-07', { headers: jsonAuthed(admin) });
+  assert.equal(res.status, 400);
+  var body = await res.json();
+  assert.match(body.error.message, /looks like a mistake/);
 });
 
 test('GET /api/timestation/attendance/preview fails clearly when TIMESTATION_API_KEY is not set', async function () {

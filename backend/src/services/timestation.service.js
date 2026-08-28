@@ -247,7 +247,12 @@ async function commit(ctx, rows) {
   return { created: created, skipped: skipped, linked: linked, failed: failed, pinIssues: pinIssues };
 }
 
-var MAX_ATTENDANCE_RANGE_DAYS = 31;
+// Not a real operational limit — TimeStation's own "last 2,000 shifts"
+// cap (see the truncation warning below) means a wide date range costs
+// exactly the same one API call per employee as a narrow one, so there's
+// no need to chunk a full-history pull into smaller windows. This just
+// catches an obviously wrong date (e.g. a typo'd year).
+var MAX_ATTENDANCE_RANGE_DAYS = 20 * 365;
 
 // TimeStation's /shifts endpoint is per-employee (employee_id is a required
 // query param — there's no "give me every business's shifts at once" call),
@@ -276,7 +281,7 @@ async function previewAttendance(ctx, startDate, endDate) {
   endDate = V.date(endDate, 'End date');
   if (endDate < startDate) fail('invalid', 'End date must be on or after start date.');
   var rangeDays = Math.round((new Date(endDate + 'T00:00') - new Date(startDate + 'T00:00')) / 86400000) + 1;
-  if (rangeDays > MAX_ATTENDANCE_RANGE_DAYS) fail('invalid', 'Pick a range of ' + MAX_ATTENDANCE_RANGE_DAYS + ' days or fewer — TimeStation is queried one employee at a time, so a wide range takes a long time to preview.');
+  if (rangeDays > MAX_ATTENDANCE_RANGE_DAYS) fail('invalid', 'That date range looks like a mistake (over ' + Math.round(MAX_ATTENDANCE_RANGE_DAYS / 365) + ' years) — check the dates.');
   if (!config.timestation.configured) fail('invalid', 'TimeStation is not configured — set TIMESTATION_API_KEY on the server.');
 
   var empRes = await pool.query(
@@ -289,6 +294,17 @@ async function previewAttendance(ctx, startDate, endDate) {
     var emp = empRes.rows[i];
     var shifts = await fetchShiftsForEmployee(emp.timestation_employee_id, startDate, endDate);
     if (!shifts.length) continue;
+
+    // TimeStation caps a single response at "the last 2,000 shifts" — if
+    // exactly that many came back, there may be older ones this range
+    // didn't reach. Flag it rather than silently import a partial history.
+    if (shifts.length >= 2000) {
+      out.push({
+        employeeId: emp.id, employeeName: emp.first_name + ' ' + emp.last_name, date: null,
+        clockIn: null, clockOut: null, status: null, action: 'skip',
+        warnings: ['TimeStation returned its maximum of 2,000 shifts for this range — there may be older history not shown here. If full history matters for this person, re-run with an earlier end date to pull the older portion separately.']
+      });
+    }
 
     var byDate = {};
     var skippedNoCheckIn = 0;

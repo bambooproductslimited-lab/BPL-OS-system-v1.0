@@ -290,6 +290,12 @@ export default function AttendancePage() {
                     <input id="sync-end" className="input" type="date" value={syncRange.endDate} onChange={(e) => setSyncRange({ ...syncRange, endDate: e.target.value })} />
                   </div>
                 </div>
+                <button
+                  type="button" className="btn btn-secondary" style={{ fontSize: 12 }}
+                  onClick={() => setSyncRange({ startDate: daysAgoISO(15 * 365), endDate: todayISO() })}
+                >
+                  Use full history (last 15 years)
+                </button>
                 {syncError && <div className="error-banner">{syncError}</div>}
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
