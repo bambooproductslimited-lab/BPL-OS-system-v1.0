@@ -1,9 +1,11 @@
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
+var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var config = require('../config');
 var employeesService = require('./employees.service');
 var kioskService = require('./kiosk.service');
+var attendanceService = require('./attendance.service');
 
 // One-way pull from TimeStation (time & attendance) into the OS's own
 // Employee directory — never writes anything back to TimeStation. Auth is
@@ -245,4 +247,134 @@ async function commit(ctx, rows) {
   return { created: created, skipped: skipped, linked: linked, failed: failed, pinIssues: pinIssues };
 }
 
-module.exports = { preview: preview, commit: commit, splitName: splitName, deriveDeptCode: deriveDeptCode, idFragOf: idFragOf };
+var MAX_ATTENDANCE_RANGE_DAYS = 31;
+
+// TimeStation's /shifts endpoint is per-employee (employee_id is a required
+// query param — there's no "give me every business's shifts at once" call),
+// so this only covers employees that already have a timestation_employee_id
+// (set by the employee sync — see preview()/commit() above). Anyone without
+// one — a Bamboo-native hire never seen in TimeStation, or someone not yet
+// linked — is simply untouched, exactly like the employee sync's rule
+// ("TimeStation is authoritative for everyone it covers", nothing more).
+//
+// A TimeStation "shift" is one continuous in/out pair, but our attendance
+// table is one row per employee per calendar day — if TimeStation shows more
+// than one shift for the same person on the same day (a split shift, or a
+// forgotten-checkout followed by a fresh clock-in), they're merged into a
+// single row (earliest clock-in, latest clock-out) and flagged in the
+// preview so it's not a silent surprise.
+async function fetchShiftsForEmployee(timestationEmployeeId, startDate, endDate) {
+  var qs = 'employee_id=' + encodeURIComponent(timestationEmployeeId) + '&start_date=' + startDate + '&end_date=' + endDate;
+  var data = await timestationRequest('/shifts?' + qs);
+  return data.shifts || [];
+}
+
+// kernel.js: handlers['timestation.previewAttendance']
+async function previewAttendance(ctx, startDate, endDate) {
+  if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
+  startDate = V.date(startDate, 'Start date');
+  endDate = V.date(endDate, 'End date');
+  if (endDate < startDate) fail('invalid', 'End date must be on or after start date.');
+  var rangeDays = Math.round((new Date(endDate + 'T00:00') - new Date(startDate + 'T00:00')) / 86400000) + 1;
+  if (rangeDays > MAX_ATTENDANCE_RANGE_DAYS) fail('invalid', 'Pick a range of ' + MAX_ATTENDANCE_RANGE_DAYS + ' days or fewer — TimeStation is queried one employee at a time, so a wide range takes a long time to preview.');
+  if (!config.timestation.configured) fail('invalid', 'TimeStation is not configured — set TIMESTATION_API_KEY on the server.');
+
+  var empRes = await pool.query(
+    "SELECT id, first_name, last_name, shift_start, timestation_employee_id FROM employees WHERE status = 'active' AND timestation_employee_id IS NOT NULL"
+  );
+  if (!empRes.rows.length) fail('invalid', 'No employees are linked to TimeStation yet — run "Sync from TimeStation" on the Employees page first.');
+
+  var out = [];
+  for (var i = 0; i < empRes.rows.length; i++) {
+    var emp = empRes.rows[i];
+    var shifts = await fetchShiftsForEmployee(emp.timestation_employee_id, startDate, endDate);
+    if (!shifts.length) continue;
+
+    var byDate = {};
+    var skippedNoCheckIn = 0;
+    shifts.forEach(function (s) {
+      if (!s.in || !s.in.time) { skippedNoCheckIn++; return; }
+      var date = s.in.time.slice(0, 10);
+      var clockIn = s.in.time.slice(11, 16);
+      var clockOut = (s.out && s.out.time) ? s.out.time.slice(11, 16) : null;
+      if (!byDate[date]) byDate[date] = { date: date, clockIn: clockIn, clockOut: clockOut, shiftCount: 1 };
+      else {
+        var g = byDate[date];
+        g.shiftCount++;
+        if (clockIn < g.clockIn) g.clockIn = clockIn;
+        if (clockOut === null || g.clockOut === null) g.clockOut = null;
+        else if (clockOut > g.clockOut) g.clockOut = clockOut;
+      }
+    });
+
+    var lateAfter = await attendanceService.resolveLateAfter(emp.id);
+    var dates = Object.keys(byDate).sort();
+    for (var d = 0; d < dates.length; d++) {
+      var g = byDate[dates[d]];
+      var status = g.clockIn > lateAfter ? 'late' : 'present';
+      var existingRes = await pool.query('SELECT status, clock_in, clock_out, source FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, g.date]);
+      var existing = existingRes.rows[0];
+
+      var action, warnings = [];
+      if (!existing) {
+        action = 'create';
+      } else if (existing.source !== 'timestation') {
+        action = 'overwrite';
+        warnings.push('Replaces an existing ' + existing.source + ' attendance record for this date.');
+      } else if ((existing.clock_in ? existing.clock_in.slice(0, 5) : null) === g.clockIn &&
+        (existing.clock_out ? existing.clock_out.slice(0, 5) : null) === g.clockOut && existing.status === status) {
+        action = 'unchanged';
+      } else {
+        action = 'update';
+      }
+      if (g.shiftCount > 1) warnings.push(g.shiftCount + ' separate shifts on this date were merged into one record (earliest in, latest out).');
+
+      out.push({
+        employeeId: emp.id, employeeName: emp.first_name + ' ' + emp.last_name, date: g.date,
+        clockIn: g.clockIn, clockOut: g.clockOut, status: status, action: action, warnings: warnings
+      });
+    }
+    if (skippedNoCheckIn) {
+      out.push({
+        employeeId: emp.id, employeeName: emp.first_name + ' ' + emp.last_name, date: null,
+        clockIn: null, clockOut: null, status: null, action: 'skip',
+        warnings: [skippedNoCheckIn + ' shift(s) in this range have no recorded check-in time on TimeStation — skipped, add manually if needed.']
+      });
+    }
+  }
+
+  out.sort(function (a, b) { return (a.date || '') < (b.date || '') ? -1 : (a.date || '') > (b.date || '') ? 1 : a.employeeName.localeCompare(b.employeeName); });
+  return { rows: out };
+}
+
+// kernel.js: handlers['timestation.commitAttendance']
+async function commitAttendance(ctx, rows) {
+  if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
+  if (!Array.isArray(rows) || !rows.length) fail('invalid', 'Nothing to sync.');
+
+  var created = 0, updated = 0, unchanged = 0, failed = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.action === 'skip' || r.action === 'unchanged') { unchanged++; continue; }
+    try {
+      await pool.query(
+        'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) ' +
+        "VALUES ($1,$2,$3,$4,$5,'timestation','',NULL) " +
+        'ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL',
+        [r.employeeId, r.date, r.clockIn, r.clockOut, r.status]
+      );
+      if (r.action === 'create') created++; else updated++;
+    } catch (e) {
+      failed.push({ name: r.employeeName, date: r.date, reason: e.message || 'Unknown error' });
+    }
+  }
+
+  await audit(pool, ctx, 'attendance.timestationSync', 'attendance', 'bulk',
+    'Synced attendance from TimeStation: ' + created + ' created, ' + updated + ' updated' + (failed.length ? ', ' + failed.length + ' failed' : '') + '.');
+  return { created: created, updated: updated, unchanged: unchanged, failed: failed };
+}
+
+module.exports = {
+  preview: preview, commit: commit, splitName: splitName, deriveDeptCode: deriveDeptCode, idFragOf: idFragOf,
+  previewAttendance: previewAttendance, commitAttendance: commitAttendance
+};

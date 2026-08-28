@@ -189,5 +189,6 @@ function rowToAttendance(r) {
 
 module.exports = {
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
-  clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt
+  clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
+  resolveLateAfter: resolveLateAfter
 };

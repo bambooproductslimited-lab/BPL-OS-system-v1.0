@@ -13,6 +13,10 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function daysAgoISO(n) {
+  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+}
+
 // Ported from kernel.js's UI helper tag(status).
 function tagClass(status) {
   if (['approved', 'present', 'active', 'completed'].includes(status)) return 'tag-neutral';
@@ -50,6 +54,14 @@ export default function AttendancePage() {
   const [deleting, setDeleting] = useState(false);
 
   const [search, setSearch] = useState('');
+
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncRange, setSyncRange] = useState({ startDate: daysAgoISO(7), endDate: todayISO() });
+  const [syncPreview, setSyncPreview] = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError] = useState(null);
+  const [syncCommitting, setSyncCommitting] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -122,6 +134,41 @@ export default function AttendancePage() {
     }
   }
 
+  function openSync() {
+    setSyncError(null);
+    setSyncPreview(null);
+    setSyncResult(null);
+    setSyncOpen(true);
+  }
+
+  async function runSyncPreview() {
+    setSyncLoading(true);
+    setSyncError(null);
+    setSyncPreview(null);
+    try {
+      setSyncPreview(await api.get('/timestation/attendance/preview?startDate=' + syncRange.startDate + '&endDate=' + syncRange.endDate));
+    } catch (err) {
+      setSyncError(err.message);
+    } finally {
+      setSyncLoading(false);
+    }
+  }
+
+  async function commitAttendanceSync() {
+    setSyncCommitting(true);
+    setSyncError(null);
+    try {
+      const result = await api.post('/timestation/attendance/commit', { rows: syncPreview.rows });
+      setSyncResult(result);
+      setToast('Synced attendance from TimeStation.');
+      await load();
+    } catch (err) {
+      setSyncError(err.message);
+    } finally {
+      setSyncCommitting(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   return (
@@ -133,6 +180,7 @@ export default function AttendancePage() {
           <label htmlFor="att-date">Date</label>
           <input id="att-date" className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
+        {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
         <div className="attendance-summary">
           {summary.map((s) => (
             <div key={s.label}>
@@ -215,6 +263,104 @@ export default function AttendancePage() {
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {syncOpen && (
+        <div className="dialog-backdrop" onClick={() => setSyncOpen(false)}>
+          <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="employees-dialog-title">Sync attendance from TimeStation</h2>
+            <p className="dialog-body">
+              Pulls clock in/out shifts for every employee linked to TimeStation (set via "Sync from TimeStation" on
+              the Employees page) over the date range below. TimeStation wins for anyone it covers — this replaces any
+              existing attendance record for those dates, including manual corrections. Employees not linked to
+              TimeStation are untouched.
+            </p>
+
+            {!syncPreview && !syncResult && (
+              <>
+                <div className="attendance-correction-grid">
+                  <div className="field">
+                    <label htmlFor="sync-start">Start date</label>
+                    <input id="sync-start" className="input" type="date" value={syncRange.startDate} onChange={(e) => setSyncRange({ ...syncRange, startDate: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="sync-end">End date</label>
+                    <input id="sync-end" className="input" type="date" value={syncRange.endDate} onChange={(e) => setSyncRange({ ...syncRange, endDate: e.target.value })} />
+                  </div>
+                </div>
+                {syncError && <div className="error-banner">{syncError}</div>}
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={syncLoading} onClick={runSyncPreview}>
+                    {syncLoading ? 'Fetching from TimeStation…' : 'Preview'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {syncPreview && !syncResult && (() => {
+              const toWrite = syncPreview.rows.filter((r) => r.action !== 'skip' && r.action !== 'unchanged');
+              return (
+                <>
+                  {syncError && <div className="error-banner">{syncError}</div>}
+                  <p className="itdevices-import-summary">
+                    {syncPreview.rows.length} record(s) found —
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'create').length} new,
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'update' || r.action === 'overwrite').length} will be updated,
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'unchanged').length} unchanged,
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'skip').length} skipped.
+                  </p>
+                  <div className="itdevices-import-scroll">
+                    <table className="table itdevices-import-table">
+                      <thead>
+                        <tr><th>Employee</th><th>Date</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Action</th><th>Notes</th></tr>
+                      </thead>
+                      <tbody>
+                        {syncPreview.rows.map((r, i) => (
+                          <tr key={i} className={r.action === 'unchanged' || r.action === 'skip' ? 'itdevices-import-row-skip' : ''}>
+                            <td style={{ fontWeight: 600 }}>{r.employeeName}</td>
+                            <td>{r.date || '—'}</td>
+                            <td>{r.clockIn || '—'}</td>
+                            <td>{r.clockOut || '—'}</td>
+                            <td>{r.status || '—'}</td>
+                            <td style={{ textTransform: 'capitalize' }}>{r.action}</td>
+                            <td className="itdevices-import-warnings">
+                              {(r.warnings || []).map((w, wi) => <div key={wi}>{w}</div>)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="dialog-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setSyncPreview(null)}>Back</button>
+                    <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
+                    <button type="button" className="btn btn-primary" disabled={syncCommitting || !toWrite.length} onClick={commitAttendanceSync}>
+                      {syncCommitting ? 'Syncing…' : 'Sync ' + toWrite.length + ' record(s)'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+
+            {syncResult && (
+              <>
+                <p className="itdevices-import-summary">
+                  {syncResult.created} created, {syncResult.updated} updated, {syncResult.unchanged} unchanged
+                  {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
+                </p>
+                {syncResult.failed.length > 0 && (
+                  <ul>
+                    {syncResult.failed.map((f, i) => <li key={i}>{f.name} ({f.date}) — {f.reason}</li>)}
+                  </ul>
+                )}
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-primary" onClick={() => setSyncOpen(false)}>Done</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

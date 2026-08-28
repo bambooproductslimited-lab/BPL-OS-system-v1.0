@@ -9,6 +9,7 @@
  */
 var test = require('node:test');
 var assert = require('node:assert/strict');
+var crypto = require('crypto');
 var app = require('../src/app');
 var timestation = require('../src/services/timestation.service');
 
@@ -79,4 +80,117 @@ test('idFragOf matches EmployeesPage.jsx\'s autoFillMissingEmails() derivation e
   assert.equal(timestation.idFragOf('emp_XY'), 'empxy');
   assert.equal(timestation.idFragOf(''), '');
   assert.equal(timestation.idFragOf(null), '');
+});
+
+test('GET /api/timestation/attendance/preview is forbidden without attendance.adjust', async function () {
+  var alice = await login('alice.kamau@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=2026-01-01&endDate=2026-01-07', { headers: jsonAuthed(alice) });
+  assert.equal(res.status, 403);
+});
+
+test('GET /api/timestation/attendance/preview rejects an end date before the start date', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=2026-01-10&endDate=2026-01-01', { headers: jsonAuthed(admin) });
+  assert.equal(res.status, 400);
+  var body = await res.json();
+  assert.match(body.error.message, /on or after start date/);
+});
+
+test('GET /api/timestation/attendance/preview rejects a range wider than 31 days', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=2026-01-01&endDate=2026-03-01', { headers: jsonAuthed(admin) });
+  assert.equal(res.status, 400);
+  var body = await res.json();
+  assert.match(body.error.message, /31 days or fewer/);
+});
+
+test('GET /api/timestation/attendance/preview fails clearly when TIMESTATION_API_KEY is not set', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/preview?startDate=2026-01-01&endDate=2026-01-07', { headers: jsonAuthed(admin) });
+  assert.equal(res.status, 400);
+  var body = await res.json();
+  assert.match(body.error.message, /TimeStation is not configured/);
+});
+
+test('POST /api/timestation/attendance/commit is forbidden without attendance.adjust', async function () {
+  var alice = await login('alice.kamau@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/commit', { method: 'POST', headers: jsonAuthed(alice), body: JSON.stringify({ rows: [] }) });
+  assert.equal(res.status, 403);
+});
+
+test('POST /api/timestation/attendance/commit rejects an empty row list', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var res = await fetch(base + '/api/timestation/attendance/commit', { method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ rows: [] }) });
+  assert.equal(res.status, 400);
+});
+
+// commitAttendance() never calls TimeStation itself — it only writes
+// whatever rows it's handed (that's previewAttendance()'s job, which does
+// need the real API) — so the write/overwrite/upsert logic is fully
+// testable here without a live TimeStation connection.
+async function makeThrowawayEmployee(adminToken, label) {
+  var depts = await (await fetch(base + '/api/departments', { headers: jsonAuthed(adminToken) })).json();
+  var unique = label + '-' + crypto.randomUUID().slice(0, 8);
+  var res = await fetch(base + '/api/employees', {
+    method: 'POST', headers: jsonAuthed(adminToken),
+    body: JSON.stringify({
+      firstName: unique, lastName: 'Test', email: unique.toLowerCase() + '@bplghana.com',
+      departmentId: depts[0].id, positionTitle: 'Test role', hireDate: '2026-01-01', employmentType: 'permanent'
+    })
+  });
+  var body = await res.json();
+  assert.equal(res.status, 201, 'failed to create throwaway employee: ' + JSON.stringify(body));
+  return body;
+}
+
+test('POST /api/timestation/attendance/commit creates, updates, and overwrites correctly', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var emp = await makeThrowawayEmployee(admin, 'attsync');
+
+  // 'create' on a date with no existing attendance record.
+  var commit1 = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ rows: [{ employeeId: emp.id, employeeName: 'Test', date: '2026-02-01', clockIn: '09:00', clockOut: '17:00', status: 'present', action: 'create' }] })
+  })).json();
+  assert.equal(commit1.created, 1);
+
+  var list1 = await (await fetch(base + '/api/attendance?date=2026-02-01', { headers: jsonAuthed(admin) })).json();
+  var row1 = list1.rows.find(function (r) { return r.employeeId === emp.id; });
+  assert.equal(row1.clockIn.slice(0, 5), '09:00');
+  assert.equal(row1.status, 'present');
+
+  // 'update' — re-syncing a corrected shift for the same date overwrites it.
+  var commit2 = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ rows: [{ employeeId: emp.id, employeeName: 'Test', date: '2026-02-01', clockIn: '09:45', clockOut: '17:00', status: 'late', action: 'update' }] })
+  })).json();
+  assert.equal(commit2.updated, 1);
+  var list2 = await (await fetch(base + '/api/attendance?date=2026-02-01', { headers: jsonAuthed(admin) })).json();
+  var row2 = list2.rows.find(function (r) { return r.employeeId === emp.id; });
+  assert.equal(row2.clockIn.slice(0, 5), '09:45');
+  assert.equal(row2.status, 'late');
+
+  // 'overwrite' — a manual attendance.adjust correction on a different date
+  // gets replaced once TimeStation reports a shift for that same day, per
+  // the "TimeStation wins for anyone it covers" policy.
+  await fetch(base + '/api/attendance/adjust', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ employeeId: emp.id, date: '2026-02-02', status: 'present', note: 'Manual note before sync' })
+  });
+  var commit3 = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ rows: [{ employeeId: emp.id, employeeName: 'Test', date: '2026-02-02', clockIn: '08:10', clockOut: '16:00', status: 'present', action: 'overwrite' }] })
+  })).json();
+  assert.equal(commit3.updated, 1);
+  var list3 = await (await fetch(base + '/api/attendance?date=2026-02-02', { headers: jsonAuthed(admin) })).json();
+  var row3 = list3.rows.find(function (r) { return r.employeeId === emp.id; });
+  assert.equal(row3.clockIn.slice(0, 5), '08:10', 'the TimeStation shift should have replaced the manual adjustment');
+
+  // 'skip' and 'unchanged' rows are counted but never written.
+  var commit4 = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin),
+    body: JSON.stringify({ rows: [{ employeeId: emp.id, employeeName: 'Test', date: null, action: 'skip', warnings: ['no check-in'] }] })
+  })).json();
+  assert.equal(commit4.unchanged, 1);
+  assert.equal(commit4.created, 0);
 });
