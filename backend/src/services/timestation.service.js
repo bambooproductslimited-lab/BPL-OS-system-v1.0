@@ -363,31 +363,69 @@ async function previewAttendance(ctx, startDate, endDate) {
   return { rows: out };
 }
 
+// One multi-row INSERT instead of N sequential round-trips — with a full
+// TimeStation history run easily into the tens of thousands of rows, doing
+// this one row at a time was slow enough to risk a request timeout even
+// before the frontend started chunking large syncs into smaller requests
+// (see AttendancePage.jsx's commitAttendanceSync). `RETURNING (xmax = 0)`
+// is the standard Postgres trick for telling INSERT and ON-CONFLICT-UPDATE
+// apart per row — more reliable than trusting the client's preview-time
+// action label, which could be stale by the time this actually runs.
+async function bulkUpsertAttendance(rows) {
+  if (!rows.length) return { created: 0, updated: 0, failed: [] };
+  var placeholders = [], values = [];
+  rows.forEach(function (r, i) {
+    var b = i * 5;
+    placeholders.push('($' + (b + 1) + ',$' + (b + 2) + ',$' + (b + 3) + ',$' + (b + 4) + ',$' + (b + 5) + ",'timestation','',NULL)");
+    values.push(r.employeeId, r.date, r.clockIn, r.clockOut, r.status);
+  });
+  try {
+    var res = await pool.query(
+      'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) VALUES ' + placeholders.join(',') +
+      ' ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, status = EXCLUDED.status, ' +
+      "source = 'timestation', note = '', adjusted_by = NULL RETURNING (xmax = 0) AS inserted",
+      values
+    );
+    var created = 0, updated = 0;
+    res.rows.forEach(function (row) { if (row.inserted) created++; else updated++; });
+    return { created: created, updated: updated, failed: [] };
+  } catch (e) {
+    // The batch insert failed outright (one bad row can sink the whole
+    // VALUES list) — fall back to one row at a time so a single problem
+    // doesn't cost the rest of the batch, and so the offending row is
+    // identifiable rather than the whole sync just failing.
+    var created2 = 0, updated2 = 0, failed = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      try {
+        var single = await pool.query(
+          'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) ' +
+          "VALUES ($1,$2,$3,$4,$5,'timestation','',NULL) " +
+          'ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL ' +
+          'RETURNING (xmax = 0) AS inserted',
+          [r.employeeId, r.date, r.clockIn, r.clockOut, r.status]
+        );
+        if (single.rows[0].inserted) created2++; else updated2++;
+      } catch (rowErr) {
+        failed.push({ name: r.employeeName, date: r.date, reason: rowErr.message || 'Unknown error' });
+      }
+    }
+    return { created: created2, updated: updated2, failed: failed };
+  }
+}
+
 // kernel.js: handlers['timestation.commitAttendance']
 async function commitAttendance(ctx, rows) {
   if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
   if (!Array.isArray(rows) || !rows.length) fail('invalid', 'Nothing to sync.');
 
-  var created = 0, updated = 0, unchanged = 0, failed = [];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    if (r.action === 'skip' || r.action === 'unchanged') { unchanged++; continue; }
-    try {
-      await pool.query(
-        'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) ' +
-        "VALUES ($1,$2,$3,$4,$5,'timestation','',NULL) " +
-        'ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL',
-        [r.employeeId, r.date, r.clockIn, r.clockOut, r.status]
-      );
-      if (r.action === 'create') created++; else updated++;
-    } catch (e) {
-      failed.push({ name: r.employeeName, date: r.date, reason: e.message || 'Unknown error' });
-    }
-  }
+  var toWrite = rows.filter(function (r) { return r.action !== 'skip' && r.action !== 'unchanged'; });
+  var unchanged = rows.length - toWrite.length;
+  var result = await bulkUpsertAttendance(toWrite);
 
   await audit(pool, ctx, 'attendance.timestationSync', 'attendance', 'bulk',
-    'Synced attendance from TimeStation: ' + created + ' created, ' + updated + ' updated' + (failed.length ? ', ' + failed.length + ' failed' : '') + '.');
-  return { created: created, updated: updated, unchanged: unchanged, failed: failed };
+    'Synced attendance from TimeStation: ' + result.created + ' created, ' + result.updated + ' updated' + (result.failed.length ? ', ' + result.failed.length + ' failed' : '') + '.');
+  return { created: result.created, updated: result.updated, unchanged: unchanged, failed: result.failed };
 }
 
 module.exports = {

@@ -25,6 +25,11 @@ router.get('/', async function (req, res, next) {
   try { res.json(await attendanceService.list(req.ctx, { date: req.query.date })); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['attendance.report'] -> GET /api/attendance/report?from=&to=
+router.get('/report', async function (req, res, next) {
+  try { res.json(await attendanceService.report(req.ctx, req.query.from, req.query.to)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['attendance.delete'] -> DELETE /api/attendance/:id
 router.delete('/:id', async function (req, res, next) {
   try { res.json(await attendanceService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }

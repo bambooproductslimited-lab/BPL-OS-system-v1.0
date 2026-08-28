@@ -67,7 +67,12 @@ app.use(cors({ origin: config.corsOrigin, credentials: true }));
 // verify captures the raw request bytes onto req.rawBody before JSON
 // parsing discards them — whatsapp.routes.js's webhook needs the exact
 // raw bytes (not a re-serialized object) to check Meta's HMAC signature.
-app.use(express.json({ verify: function (req, res, buf) { req.rawBody = buf; } }));
+// limit raised from Express's 100kb default — bulk-commit bodies (e.g. a
+// TimeStation attendance sync's preview rows posted back for writing) can
+// legitimately run into the low single-digit MB for a large batch; every
+// route here is behind requireAuth, so this isn't opening up an anonymous
+// abuse surface.
+app.use(express.json({ limit: '5mb', verify: function (req, res, buf) { req.rawBody = buf; } }));
 
 app.get('/api/health', function (req, res) { res.json({ ok: true }); });
 

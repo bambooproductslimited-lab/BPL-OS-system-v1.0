@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { shareOrDownloadPdf } from '../lib/documentShare';
+import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
 
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
@@ -62,6 +64,14 @@ export default function AttendancePage() {
   const [syncError, setSyncError] = useState(null);
   const [syncCommitting, setSyncCommitting] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [syncProgress, setSyncProgress] = useState(null); // { done, total } while committing in batches
+
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportRange, setReportRange] = useState({ from: daysAgoISO(30), to: todayISO() });
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState(null);
+  const reportPrintRef = useRef(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -154,18 +164,91 @@ export default function AttendancePage() {
     }
   }
 
+  // Committed in batches rather than one request — a full-history sync can
+  // run into tens of thousands of rows, which is both too large a JSON
+  // body for one POST and too slow to write in a single request before
+  // something (the browser, a proxy, the server) times out. Each batch is
+  // independent, so a failure partway through still leaves everything up
+  // to that point written, and the counts below reflect exactly what made
+  // it in rather than an all-or-nothing outcome.
+  const COMMIT_BATCH_SIZE = 500;
+
   async function commitAttendanceSync() {
     setSyncCommitting(true);
     setSyncError(null);
+    const rows = syncPreview.rows;
+    const totals = { created: 0, updated: 0, unchanged: 0, failed: [] };
+    setSyncProgress({ done: 0, total: rows.length });
     try {
-      const result = await api.post('/timestation/attendance/commit', { rows: syncPreview.rows });
-      setSyncResult(result);
+      for (let i = 0; i < rows.length; i += COMMIT_BATCH_SIZE) {
+        const batch = rows.slice(i, i + COMMIT_BATCH_SIZE);
+        const result = await api.post('/timestation/attendance/commit', { rows: batch });
+        totals.created += result.created;
+        totals.updated += result.updated;
+        totals.unchanged += result.unchanged;
+        totals.failed = totals.failed.concat(result.failed);
+        setSyncProgress({ done: Math.min(i + COMMIT_BATCH_SIZE, rows.length), total: rows.length });
+      }
+      setSyncResult(totals);
       setToast('Synced attendance from TimeStation.');
       await load();
     } catch (err) {
-      setSyncError(err.message);
+      setSyncError(err.message + ' (' + totals.created + ' created, ' + totals.updated + ' updated so far — already written, not lost)');
+      setSyncResult(totals);
     } finally {
       setSyncCommitting(false);
+      setSyncProgress(null);
+    }
+  }
+
+  function openReport() {
+    setReportError(null);
+    setReportData(null);
+    setReportOpen(true);
+  }
+
+  async function runReport() {
+    setReportLoading(true);
+    setReportError(null);
+    setReportData(null);
+    try {
+      setReportData(await api.get('/attendance/report?from=' + reportRange.from + '&to=' + reportRange.to));
+    } catch (err) {
+      setReportError(err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
+  function summarizeReport(rows) {
+    const counts = { present: 0, late: 0, absent: 0, leave: 0, off: 0 };
+    rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
+    return counts;
+  }
+
+  function downloadReportCsv() {
+    if (!reportData) return;
+    const counts = summarizeReport(reportData.rows);
+    const rows = [
+      ['Attendance report', reportRange.from + ' to ' + reportRange.to],
+      [],
+      ['Status', 'Count'],
+      ['Present', counts.present], ['Late', counts.late], ['Absent', counts.absent], ['Leave', counts.leave], ['Off', counts.off],
+      ['Total records', reportData.rows.length],
+      [],
+      ['Date', 'Employee', 'Code', 'Department', 'Clock in', 'Clock out', 'Status', 'Source', 'Note'],
+      ...reportData.rows.map((r) => [r.date, r.name, r.code, r.department, r.clockIn || '', r.clockOut || '', r.status, r.source, r.note || ''])
+    ];
+    downloadCsv('attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.csv', rowsToCsv(rows));
+  }
+
+  async function downloadReportPdf() {
+    setReportError(null);
+    try {
+      const filename = 'attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.pdf';
+      await shareOrDownloadPdf(reportPrintRef.current, filename, filename, filename);
+    } catch (err) {
+      setReportError(err.message);
     }
   }
 
@@ -181,6 +264,7 @@ export default function AttendancePage() {
           <input id="att-date" className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
+        <button type="button" className="btn btn-secondary" onClick={openReport}>Download report</button>
         <div className="attendance-summary">
           {summary.map((s) => (
             <div key={s.label}>
@@ -340,9 +424,12 @@ export default function AttendancePage() {
                       </tbody>
                     </table>
                   </div>
+                  {syncProgress && (
+                    <p className="eyebrow">Syncing {syncProgress.done.toLocaleString()} of {syncProgress.total.toLocaleString()}…</p>
+                  )}
                   <div className="dialog-actions">
-                    <button type="button" className="btn btn-secondary" onClick={() => setSyncPreview(null)}>Back</button>
-                    <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
+                    <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncPreview(null)}>Back</button>
+                    <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncOpen(false)}>Cancel</button>
                     <button type="button" className="btn btn-primary" disabled={syncCommitting || !toWrite.length} onClick={commitAttendanceSync}>
                       {syncCommitting ? 'Syncing…' : 'Sync ' + toWrite.length + ' record(s)'}
                     </button>
@@ -353,6 +440,7 @@ export default function AttendancePage() {
 
             {syncResult && (
               <>
+                {syncError && <div className="error-banner">{syncError}</div>}
                 <p className="itdevices-import-summary">
                   {syncResult.created} created, {syncResult.updated} updated, {syncResult.unchanged} unchanged
                   {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
@@ -370,6 +458,84 @@ export default function AttendancePage() {
           </div>
         </div>
       )}
+
+      {reportOpen && (() => {
+        const DETAIL_ROW_CAP = 2000; // beyond this, rendering every row into the DOM (for the on-screen table and PDF screenshot) gets slow — CSV export still covers the full list either way, since that's built as a plain string, not DOM
+        const counts = reportData ? summarizeReport(reportData.rows) : null;
+        const showDetailTable = reportData && reportData.rows.length <= DETAIL_ROW_CAP;
+        return (
+          <div className="dialog-backdrop" onClick={() => setReportOpen(false)}>
+            <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 900 }} onClick={(e) => e.stopPropagation()}>
+              <h2 className="employees-dialog-title">Attendance report</h2>
+              <p className="dialog-body">
+                Every attendance record in the date range below, scoped to what you can already see on this page —
+                everyone if you have company-wide access, otherwise just your own record.
+              </p>
+              <div className="attendance-correction-grid">
+                <div className="field">
+                  <label htmlFor="report-from">From</label>
+                  <input id="report-from" className="input" type="date" value={reportRange.from} onChange={(e) => setReportRange({ ...reportRange, from: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="report-to">To</label>
+                  <input id="report-to" className="input" type="date" value={reportRange.to} onChange={(e) => setReportRange({ ...reportRange, to: e.target.value })} />
+                </div>
+              </div>
+              {reportError && <div className="error-banner">{reportError}</div>}
+              <div className="dialog-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setReportOpen(false)}>Close</button>
+                <button type="button" className="btn btn-primary" disabled={reportLoading} onClick={runReport}>
+                  {reportLoading ? 'Running…' : 'Run report'}
+                </button>
+              </div>
+
+              {reportData && (
+                <>
+                  <div ref={reportPrintRef}>
+                    <p className="itdevices-import-summary">
+                      {reportRange.from} to {reportRange.to} — {reportData.rows.length.toLocaleString()} record(s):
+                      {' '}{counts.present} present, {counts.late} late, {counts.absent} absent, {counts.leave} leave, {counts.off} off.
+                    </p>
+                    {!showDetailTable && (
+                      <p className="itdevices-import-summary">
+                        Too many records ({reportData.rows.length.toLocaleString()}) to list on screen — download the CSV for the full detail.
+                      </p>
+                    )}
+                    {showDetailTable && (
+                      <div className="itdevices-import-scroll">
+                        <table className="table itdevices-import-table">
+                          <thead>
+                            <tr><th>Date</th><th>Employee</th><th>Code</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Source</th></tr>
+                          </thead>
+                          <tbody>
+                            {reportData.rows.map((r, i) => (
+                              <tr key={i}>
+                                <td>{r.date}</td>
+                                <td style={{ fontWeight: 600 }}>{r.name}</td>
+                                <td>{r.code}</td>
+                                <td>{r.department}</td>
+                                <td>{r.clockIn || '—'}</td>
+                                <td>{r.clockOut || '—'}</td>
+                                <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
+                                <td>{r.source}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {!reportData.rows.length && <p className="table-empty">No attendance records in this range.</p>}
+                  </div>
+                  <div className="dialog-actions">
+                    <button type="button" className="btn btn-secondary" onClick={downloadReportCsv}>Download CSV</button>
+                    <button type="button" className="btn btn-secondary" onClick={downloadReportPdf}>Download PDF</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

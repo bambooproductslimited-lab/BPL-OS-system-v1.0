@@ -112,6 +112,32 @@ test('attendance: clock in, duplicate clock-in conflicts, clock out', async func
   assert.ok(list.rows.some(function (r) { return r.status === 'present' || r.status === 'late'; }));
 });
 
+test('attendance report: date-range validation, and self-service scoping matches attendance.list', async function () {
+  var john = await login('john.sitati@bplghana.com');
+  var admin = await login('kelvin.duho@bplghana.com');
+
+  var badRange = await fetch(base + '/api/attendance/report?from=2026-02-01&to=2026-01-01', { headers: authed(admin) });
+  assert.equal(badRange.status, 400);
+  var badRangeBody = await badRange.json();
+  assert.match(badRangeBody.error.message, /on or after from date/);
+
+  var absurdRange = await fetch(base + '/api/attendance/report?from=1900-01-01&to=2026-01-01', { headers: authed(admin) });
+  assert.equal(absurdRange.status, 400);
+  var absurdBody = await absurdRange.json();
+  assert.match(absurdBody.error.message, /looks like a mistake/);
+
+  // John doesn't have attendance.read.all (plain employee role) — the
+  // report should scope to just his own record, same as attendance.list.
+  var today = new Date().toISOString().slice(0, 10);
+  var johnReport = await (await fetch(base + '/api/attendance/report?from=' + today + '&to=' + today, { headers: authed(john) })).json();
+  assert.ok(johnReport.rows.every(function (r) { return r.name === 'John Sitati'; }));
+
+  // Admin (attendance.read.all) sees the same clock-in among everyone's.
+  var adminReport = await (await fetch(base + '/api/attendance/report?from=' + today + '&to=' + today, { headers: authed(admin) })).json();
+  assert.ok(adminReport.rows.some(function (r) { return r.name === 'John Sitati'; }));
+  assert.ok(adminReport.rows.length >= johnReport.rows.length);
+});
+
 test('roles.setPermission is locked for the administrator role, works for others', async function () {
   var admin = await login('kelvin.duho@bplghana.com');
   var roles = await (await fetch(base + '/api/roles', { headers: authed(admin) })).json();

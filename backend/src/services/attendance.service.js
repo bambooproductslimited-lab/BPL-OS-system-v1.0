@@ -136,6 +136,59 @@ async function list(ctx, params) {
   };
 }
 
+var MAX_REPORT_RANGE_DAYS = 5 * 365; // sanity bound (catches a typo'd year), not a real operational limit
+
+// kernel.js: handlers['attendance.report'] — every actual attendance record
+// in the range, not a per-day roster like list() (no synthesized "absent"
+// placeholder rows for days with nothing recorded — a report should show
+// what's really in the table, not an assumption about what "should" have
+// happened). Same visibility scoping as list(): attendance.read.all sees
+// everyone in reach, otherwise just your own record.
+async function report(ctx, from, to) {
+  from = V.date(from, 'From date');
+  to = V.date(to, 'To date');
+  if (to < from) fail('invalid', 'To date must be on or after from date.');
+  var rangeDays = Math.round((new Date(to + 'T00:00') - new Date(from + 'T00:00')) / 86400000) + 1;
+  if (rangeDays > MAX_REPORT_RANGE_DAYS) fail('invalid', 'That date range looks like a mistake (over ' + Math.round(MAX_REPORT_RANGE_DAYS / 365) + ' years) — check the dates.');
+
+  var mine = !ctx.can('attendance.read.all');
+  var scopeEmployees;
+  if (mine) {
+    scopeEmployees = [ctx.employee];
+  } else {
+    var empRes = await pool.query('SELECT id, department_id, manager_id, code, first_name, last_name FROM employees WHERE status != \'terminated\'');
+    scopeEmployees = [];
+    for (var i = 0; i < empRes.rows.length; i++) {
+      if (await visibleEmployee(ctx, empRes.rows[i])) scopeEmployees.push(empRes.rows[i]);
+    }
+  }
+  var ids = scopeEmployees.map(function (e) { return e.id; });
+  if (!ids.length) return { from: from, to: to, rows: [] };
+
+  var deptRes = await pool.query('SELECT e.id AS emp_id, d.name FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.id = ANY($1)', [ids]);
+  var deptByEmp = {};
+  deptRes.rows.forEach(function (r) { deptByEmp[r.emp_id] = r.name; });
+  var empById = {};
+  scopeEmployees.forEach(function (e) { empById[e.id] = e; });
+
+  var attRes = await pool.query(
+    'SELECT * FROM attendance WHERE employee_id = ANY($1) AND date BETWEEN $2 AND $3 ORDER BY date, employee_id',
+    [ids, from, to]
+  );
+
+  return {
+    from: from, to: to,
+    rows: attRes.rows.map(function (r) {
+      var e = empById[r.employee_id];
+      return {
+        employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name, department: deptByEmp[e.id] || '—',
+        date: r.date, clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
+        status: r.status, source: r.source, note: r.note
+      };
+    })
+  };
+}
+
 // kernel.js: handlers['attendance.adjust']
 async function adjust(ctx, p) {
   if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
@@ -190,5 +243,5 @@ function rowToAttendance(r) {
 module.exports = {
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
-  resolveLateAfter: resolveLateAfter
+  resolveLateAfter: resolveLateAfter, report: report
 };

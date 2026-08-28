@@ -204,3 +204,52 @@ test('POST /api/timestation/attendance/commit creates, updates, and overwrites c
   assert.equal(commit4.unchanged, 1);
   assert.equal(commit4.created, 0);
 });
+
+test('POST /api/timestation/attendance/commit handles a large multi-row batch via the bulk upsert path, and salvages good rows when one is bad', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var emp = await makeThrowawayEmployee(admin, 'attbulk');
+
+  // 300 distinct dates for one employee in a single request — exercises
+  // the real bulk-insert path (not the tiny single-row cases above),
+  // which is what a large TimeStation history sync actually sends.
+  var rows = [];
+  for (var i = 0; i < 300; i++) {
+    var d = new Date('2020-01-01T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + i);
+    rows.push({ employeeId: emp.id, employeeName: 'Test', date: d.toISOString().slice(0, 10), clockIn: '07:05', clockOut: '16:00', status: 'present', action: 'create' });
+  }
+  var bulkResult = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ rows: rows })
+  })).json();
+  assert.equal(bulkResult.created, 300);
+  assert.equal(bulkResult.failed.length, 0);
+
+  var checkRes = await (await fetch(base + '/api/attendance?date=2020-06-15', { headers: jsonAuthed(admin) })).json();
+  var checkRow = checkRes.rows.find(function (r) { return r.employeeId === emp.id; });
+  assert.equal(checkRow.clockIn.slice(0, 5), '07:05');
+
+  // Re-running the same 300 rows should now report them all as updates,
+  // not creates (they already exist) — proves the INSERT..RETURNING
+  // (xmax = 0) create/update detection works across a real bulk batch,
+  // not just the single-row cases.
+  var rerunResult = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ rows: rows })
+  })).json();
+  assert.equal(rerunResult.created, 0);
+  assert.equal(rerunResult.updated, 300);
+
+  // One row with an employee_id that doesn't exist (violates the FK) mixed
+  // into an otherwise-valid batch should sink the fast bulk INSERT, but
+  // the row-by-row fallback should still salvage the good ones.
+  var mixedRows = [
+    { employeeId: emp.id, employeeName: 'Test', date: '2021-01-01', clockIn: '07:00', clockOut: '16:00', status: 'present', action: 'create' },
+    { employeeId: '00000000-0000-0000-0000-000000000000', employeeName: 'Ghost', date: '2021-01-01', clockIn: '07:00', clockOut: '16:00', status: 'present', action: 'create' },
+    { employeeId: emp.id, employeeName: 'Test', date: '2021-01-02', clockIn: '07:00', clockOut: '16:00', status: 'present', action: 'create' }
+  ];
+  var mixedResult = await (await fetch(base + '/api/timestation/attendance/commit', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ rows: mixedRows })
+  })).json();
+  assert.equal(mixedResult.created, 2, 'the two valid rows should still be written despite the bad one');
+  assert.equal(mixedResult.failed.length, 1);
+  assert.equal(mixedResult.failed[0].name, 'Ghost');
+});
