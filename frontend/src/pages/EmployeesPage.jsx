@@ -282,6 +282,28 @@ export default function EmployeesPage() {
     });
   }
 
+  // Bulk one-click alternative to typing each address by hand. Uses an
+  // obviously-fake domain, never a real one (e.g. @bplghana.com) — this
+  // TimeStation account spans several unrelated businesses, so a company
+  // domain would be flat-out wrong for most of these people, and nothing in
+  // Bamboo OS ever sends real mail to an employee's email address (it's
+  // only used as a unique record key), so a placeholder is safe. The
+  // TimeStation employee id is folded in so two "John Mensah"s never
+  // collide. Only fills rows still blank — anything HR already typed in is
+  // left alone.
+  function autoFillMissingEmails() {
+    if (!syncPreview) return;
+    const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const updates = {};
+    syncPreview.rows.forEach((r, i) => {
+      if (r.skipReason === 'no_email' && !(syncEmailEdits[i] || '').trim()) {
+        const idFrag = String(r.timestationEmployeeId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toLowerCase();
+        updates[i] = slug(r.firstName) + '.' + slug(r.lastName) + (idFrag ? '.' + idFrag : '.' + i) + '@no-email.placeholder';
+      }
+    });
+    setSyncEmailEdits({ ...syncEmailEdits, ...updates });
+  }
+
   async function commitSync() {
     setSyncCommitting(true);
     setSyncError(null);
@@ -528,11 +550,12 @@ export default function EmployeesPage() {
             <p className="dialog-body">
               Pulls your live employee list from TimeStation (name, title, department, email, hourly rate, kiosk PIN).
               Departments that don't already exist here are created automatically. Records with no email on
-              TimeStation are shown with a blank field below — type one in to import that person, or leave it blank
-              to skip them. Hourly rate is shown for reference only — HR still sets the real daily rate via Payroll.
-              TimeStation's PIN is imported as the kiosk PIN automatically; if it clashes with one already in use
-              here, that employee is still created with the PIN left unset for HR to assign manually. Live clock
-              in/out status isn't imported — it's a snapshot, not an employment status.
+              TimeStation are shown with a blank field below — type one in to import that person, use "Fill in all
+              missing emails" to import everyone at once with a placeholder address, or leave a field blank to skip
+              just that person. Hourly rate is shown for reference only — HR still sets the real daily rate via
+              Payroll. TimeStation's PIN is imported as the kiosk PIN automatically; if it clashes with one already
+              in use here, that employee is still created with the PIN left unset for HR to assign manually. Live
+              clock in/out status isn't imported — it's a snapshot, not an employment status.
             </p>
             {syncError && <div className="error-banner">{syncError}</div>}
 
@@ -541,12 +564,20 @@ export default function EmployeesPage() {
             {!syncLoading && syncPreview && !syncResult && (() => {
               const effRows = syncEffectiveRows();
               const toCreate = effRows.filter((r) => !r.willSkip).length;
+              const missingCount = syncPreview.rows.filter((r, i) => r.skipReason === 'no_email' && !(syncEmailEdits[i] || '').trim()).length;
               return (
                 <>
                   <p className="itdevices-import-summary">
                     {effRows.length} employee(s) found on TimeStation —
                     {' '}{toCreate} will be created,
                     {' '}{effRows.length - toCreate} will be skipped.
+                    {missingCount > 0 && (
+                      <>
+                        {' '}<button type="button" className="btn btn-secondary" style={{ fontSize: 12, marginLeft: 8 }} onClick={autoFillMissingEmails}>
+                          Fill in all {missingCount} missing email(s) with placeholders
+                        </button>
+                      </>
+                    )}
                   </p>
                   <div className="itdevices-import-scroll">
                     <table className="table itdevices-import-table">
