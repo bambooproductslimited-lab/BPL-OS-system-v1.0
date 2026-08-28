@@ -314,7 +314,7 @@ export default function EmployeesPage() {
     try {
       const result = await api.post('/timestation/commit', { rows: syncEffectiveRows() });
       setSyncResult(result);
-      setToast('Imported ' + result.created + ' employee(s) from TimeStation.');
+      setToast('Imported ' + result.created + ' employee(s)' + (result.linked ? ', linked ' + result.linked : '') + ' from TimeStation.');
       await load();
     } catch (err) {
       setSyncError(err.message);
@@ -578,13 +578,16 @@ export default function EmployeesPage() {
             {!syncLoading && syncPreview && !syncResult && (() => {
               const effRows = syncEffectiveRows();
               const toCreate = effRows.filter((r) => !r.willSkip).length;
+              const toLink = effRows.filter((r) => r.willSkip && r.willLink).length;
+              const toSkip = effRows.length - toCreate - toLink;
               const missingCount = syncPreview.rows.filter((r, i) => r.skipReason === 'no_email' && !(syncEmailEdits[i] || '').trim()).length;
               return (
                 <>
                   <p className="itdevices-import-summary">
                     {effRows.length} employee(s) found on TimeStation —
                     {' '}{toCreate} will be created,
-                    {' '}{effRows.length - toCreate} will be skipped.
+                    {toLink > 0 && <>{' '}{toLink} already imported (will just link for the attendance sync),</>}
+                    {' '}{toSkip} will be skipped.
                     {missingCount > 0 && (
                       <>
                         {' '}<button type="button" className="btn btn-secondary" style={{ fontSize: 12, marginLeft: 8 }} onClick={autoFillMissingEmails}>
@@ -625,8 +628,10 @@ export default function EmployeesPage() {
                   </div>
                   <div className="dialog-actions">
                     <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
-                    <button type="button" className="btn btn-primary" disabled={syncCommitting || !toCreate} onClick={commitSync}>
-                      {syncCommitting ? 'Importing…' : 'Import ' + toCreate + ' employee(s)'}
+                    <button type="button" className="btn btn-primary" disabled={syncCommitting || (!toCreate && !toLink)} onClick={commitSync}>
+                      {syncCommitting ? 'Working…' : toCreate
+                        ? 'Import ' + toCreate + ' employee(s)' + (toLink ? ' + link ' + toLink : '')
+                        : toLink ? 'Link ' + toLink + ' employee(s)' : 'Nothing to do'}
                     </button>
                   </div>
                 </>
