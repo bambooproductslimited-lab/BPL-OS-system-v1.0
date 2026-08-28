@@ -12,6 +12,7 @@
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var app = require('../src/app');
+var { pool } = require('../src/db/pool');
 
 var server;
 var base;
@@ -113,6 +114,33 @@ test('kiosk PIN: clearing it makes the PIN stop working', async function () {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '5588' })
   });
   assert.equal(attempt.status, 400);
+});
+
+test('kiosk PIN: viewing is employee.write gated, reflects unset/set state, and reveals what was actually set', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var alice = await login('alice.kamau@bplghana.com');
+  var [empA] = await pickTwoEmployees(admin);
+
+  var denied = await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', { headers: authed(alice) });
+  assert.equal(denied.status, 403);
+
+  await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', { method: 'DELETE', headers: authed(admin) });
+  var unset = await (await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', { headers: authed(admin) })).json();
+  assert.deepEqual(unset, { hasPin: false, pin: null });
+
+  await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', {
+    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ pin: '7261' })
+  });
+  var revealed = await (await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', { headers: authed(admin) })).json();
+  assert.deepEqual(revealed, { hasPin: true, pin: '7261' });
+
+  // A PIN set before this feature existed only ever has the hash — the
+  // encrypted column stays null forever for that row until HR resets it.
+  await pool.query('UPDATE employees SET kiosk_pin_encrypted = NULL WHERE id = $1', [empA.id]);
+  var legacy = await (await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', { headers: authed(admin) })).json();
+  assert.deepEqual(legacy, { hasPin: true, pin: null });
+
+  await fetch(base + '/api/employees/' + empA.id + '/kiosk-pin', { method: 'DELETE', headers: authed(admin) });
 });
 
 test('kiosk clock offline sync: occurredAt backdates the attendance record instead of using the sync moment, and is bounded', async function () {

@@ -70,6 +70,9 @@ router.get('/:id/id-documents/:kind/download', async function (req, res, next) {
 
 // Kiosk PIN — admin-set/reset only (see kiosk.service.js's module comment
 // for why there's no employee self-service path for this one).
+router.get('/:id/kiosk-pin', async function (req, res, next) {
+  try { res.json(await kioskService.getPin(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
 router.post('/:id/kiosk-pin', async function (req, res, next) {
   try { res.json(await kioskService.setPin(req.ctx, req.params.id, req.body.pin)); } catch (e) { next(e); }
 });

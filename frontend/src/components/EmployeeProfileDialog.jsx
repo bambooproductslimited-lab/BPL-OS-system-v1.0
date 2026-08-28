@@ -39,6 +39,8 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [idSlots, setIdSlots] = useState(null);
+  const [kioskPin, setKioskPin] = useState(null); // null = not fetched yet, { hasPin, pin }
+  const [kioskPinLoading, setKioskPinLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +74,22 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
     return () => { cancelled = true; };
   }, [employeeId, canViewIdDocs]);
 
+  useEffect(() => { setKioskPin(null); }, [employeeId]);
+
+  // Fetched only on click, not on dialog open — so a PIN isn't decrypted
+  // and pulled over the wire just from someone glancing at a profile.
+  // Every successful reveal is audit-logged server-side (kiosk.service.js).
+  async function revealKioskPin() {
+    setKioskPinLoading(true);
+    try {
+      setKioskPin(await api.get('/employees/' + employeeId + '/kiosk-pin'));
+    } catch {
+      setKioskPin({ hasPin: true, pin: null, error: true });
+    } finally {
+      setKioskPinLoading(false);
+    }
+  }
+
   const e = data && data.employee;
 
   return (
@@ -104,6 +122,22 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                   <div><div className="employee-profile-label">Pay cycle</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
                   <div><div className="employee-profile-label">Daily rate</div><div>{fmtMoney(e.dailyRate)}</div></div>
                 </>
+              )}
+              {canViewIdDocs && (
+                <div>
+                  <div className="employee-profile-label">Kiosk PIN</div>
+                  <div>
+                    {kioskPin === null && (
+                      <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} disabled={kioskPinLoading} onClick={revealKioskPin}>
+                        {kioskPinLoading ? 'Loading…' : 'Show'}
+                      </button>
+                    )}
+                    {kioskPin && kioskPin.error && <span>Couldn't load — try again.</span>}
+                    {kioskPin && !kioskPin.error && !kioskPin.hasPin && <span>Not set</span>}
+                    {kioskPin && !kioskPin.error && kioskPin.hasPin && kioskPin.pin && <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{kioskPin.pin}</span>}
+                    {kioskPin && !kioskPin.error && kioskPin.hasPin && !kioskPin.pin && <span>Set before this feature existed — reset it via "Kiosk PIN" to make it viewable.</span>}
+                  </div>
+                </div>
               )}
             </div>
 

@@ -1,0 +1,12 @@
+-- Adds a recoverable copy of the kiosk PIN, separate from kiosk_pin_hash.
+-- kiosk_pin_hash (migration 0025) stays exactly as it was — the deterministic
+-- HMAC the kiosk itself checks against on every clock-in/out tap, unchanged
+-- and still the only thing that authenticates a kiosk tap. This new column
+-- is AES-256-GCM ciphertext (random IV per write, so two employees sharing
+-- the same PIN don't produce the same bytes), decryptable only by the
+-- server (key derived from KIOSK_PIN_PEPPER — see kiosk.service.js) so an
+-- HR/admin user can look up what a PIN currently is without resetting it,
+-- gated behind the same employee.write permission that already lets them
+-- reset any PIN. It is set/cleared in lockstep with kiosk_pin_hash by
+-- kiosk.service.js's setPin()/clearPin() — never written independently.
+ALTER TABLE employees ADD COLUMN kiosk_pin_encrypted text NULL;

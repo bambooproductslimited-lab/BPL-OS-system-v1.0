@@ -48,6 +48,33 @@ function hashPin(pin) {
   return crypto.createHmac('sha256', config.kioskPinPepper).update(pin).digest('hex');
 }
 
+// Reversible copy of the PIN, stored alongside the hash above — see
+// migration 0029's comment for why this exists as a second column instead
+// of replacing the hash. Key is derived (scrypt, not used directly) from
+// the same pepper so no separate secret needs configuring on Render; a
+// fresh random IV per encryption means the same PIN encrypts differently
+// every time it's set, so two employees sharing a PIN never show matching
+// ciphertext.
+var ENCRYPTION_KEY = crypto.scryptSync(config.kioskPinPepper, 'bamboo-os-kiosk-pin-encryption', 32);
+
+function encryptPin(pin) {
+  var iv = crypto.randomBytes(12);
+  var cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  var ciphertext = Buffer.concat([cipher.update(pin, 'utf8'), cipher.final()]);
+  var authTag = cipher.getAuthTag();
+  return Buffer.concat([iv, authTag, ciphertext]).toString('base64');
+}
+
+function decryptPin(encrypted) {
+  var raw = Buffer.from(encrypted, 'base64');
+  var iv = raw.subarray(0, 12);
+  var authTag = raw.subarray(12, 28);
+  var ciphertext = raw.subarray(28);
+  var decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+}
+
 // kiosk.setPin — admin sets/resets an employee's PIN (employees.routes.js,
 // employee.write gated there). Exported here since the hashing/uniqueness
 // concern belongs with the rest of the kiosk PIN logic.
@@ -58,8 +85,9 @@ async function setPin(ctx, employeeId, pin) {
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
   var hash = hashPin(pin);
+  var encrypted = encryptPin(pin);
   try {
-    await pool.query('UPDATE employees SET kiosk_pin_hash = $1 WHERE id = $2', [hash, employeeId]);
+    await pool.query('UPDATE employees SET kiosk_pin_hash = $1, kiosk_pin_encrypted = $2 WHERE id = $3', [hash, encrypted, employeeId]);
   } catch (err) {
     if (err.code === '23505') fail('conflict', 'That PIN is already in use by another employee — choose a different one.');
     throw err;
@@ -73,9 +101,29 @@ async function clearPin(ctx, employeeId) {
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
-  await pool.query('UPDATE employees SET kiosk_pin_hash = NULL WHERE id = $1', [employeeId]);
+  await pool.query('UPDATE employees SET kiosk_pin_hash = NULL, kiosk_pin_encrypted = NULL WHERE id = $1', [employeeId]);
   await audit(pool, ctx, 'employee.kioskPin.clear', 'employee', employeeId, 'Cleared the kiosk PIN for ' + emp.first_name + ' ' + emp.last_name + '.');
   return { ok: true };
+}
+
+// kiosk.getPin — reveal an employee's current PIN on demand. Gated the
+// same as set/clear (employee.write): this doesn't hand PIN visibility to
+// anyone new, only to people who could already learn any employee's PIN
+// by resetting it. Every reveal is audit-logged, same principle as viewing
+// an ID document — it's sensitive enough to leave a trail of who looked.
+async function getPin(ctx, employeeId) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var empRes = await pool.query('SELECT id, first_name, last_name, kiosk_pin_hash, kiosk_pin_encrypted FROM employees WHERE id = $1', [employeeId]);
+  var emp = empRes.rows[0];
+  if (!emp) fail('notfound', 'Employee not found.');
+  // A PIN set before this feature existed (or via the TimeStation sync
+  // before it was updated to store the recoverable copy too) only has the
+  // hash — not recoverable, not a bug. HR resetting it via "Kiosk PIN" is
+  // the only way to make an old PIN viewable going forward.
+  if (!emp.kiosk_pin_hash) return { hasPin: false, pin: null };
+  if (!emp.kiosk_pin_encrypted) return { hasPin: true, pin: null };
+  await audit(pool, ctx, 'employee.kioskPin.view', 'employee', employeeId, 'Viewed the kiosk PIN for ' + emp.first_name + ' ' + emp.last_name + '.');
+  return { hasPin: true, pin: decryptPin(emp.kiosk_pin_encrypted) };
 }
 
 // kiosk.clock — the public, unauthenticated endpoint the iPad calls.
@@ -125,4 +173,4 @@ async function clock(pin, ip, occurredAt) {
   return { action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status };
 }
 
-module.exports = { setPin: setPin, clearPin: clearPin, clock: clock };
+module.exports = { setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock };
