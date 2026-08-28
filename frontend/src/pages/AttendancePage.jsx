@@ -56,6 +56,7 @@ export default function AttendancePage() {
   const [deleting, setDeleting] = useState(false);
 
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncRange, setSyncRange] = useState({ startDate: daysAgoISO(7), endDate: todayISO() });
@@ -94,7 +95,9 @@ export default function AttendancePage() {
   }, [toast]);
 
   const rows = data.rows || [];
-  const visibleRows = rows.filter((r) => matchesQuery(search, r.name, r.code, r.department));
+  const visibleRows = rows
+    .filter((r) => matchesQuery(search, r.name, r.code, r.department))
+    .filter((r) => !statusFilter || r.status === statusFilter);
   const summary = [
     { label: 'In scope', value: rows.length },
     { label: 'Present', value: rows.filter((r) => r.status === 'present').length },
@@ -275,7 +278,17 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, department…" />
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, department…" />
+        <select className="input" style={{ maxWidth: 200 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+          <option value="">All statuses</option>
+          <option value="present">Present</option>
+          <option value="late">Late</option>
+          <option value="absent">Absent</option>
+          <option value="leave">Leave</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
 
       <table className="table" style={{ marginTop: 16 }}>
         <thead>
@@ -302,7 +315,11 @@ export default function AttendancePage() {
         </tbody>
       </table>
       {!rows.length && <p className="table-empty">No employees in scope for this date.</p>}
-      {!!rows.length && !visibleRows.length && <p className="table-empty">No one matches "{search}".</p>}
+      {!!rows.length && !visibleRows.length && (
+        <p className="table-empty">
+          No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+        </p>
+      )}
 
       {correction && (
         <div className="dialog-backdrop" onClick={() => setCorrection(null)}>
