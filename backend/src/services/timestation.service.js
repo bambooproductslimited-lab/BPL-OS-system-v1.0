@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var config = require('../config');
 var employeesService = require('./employees.service');
+var kioskService = require('./kiosk.service');
 
 // One-way pull from TimeStation (time & attendance) into the OS's own
 // Employee directory — never writes anything back to TimeStation. Auth is
@@ -17,9 +18,17 @@ var employeesService = require('./employees.service');
 // Compensation: TimeStation only ever exposes a flat hourly_rate, and this
 // account has zero custom fields configured, so there is no Monthly/Daily
 // Rate, allowance, Staff Type or Report Group data to pull — hourly_rate is
-// kept only as a reference note; HR sets the OS's real dailyRate the same
-// way as for any other new hire (payroll.manage-gated, via the Employees
-// screen), never guess-converted here.
+// surfaced in the preview as a reference figure only; HR still sets the OS's
+// real dailyRate the same way as for any other new hire (payroll.manage-
+// gated, via the Employees screen), never guess-converted here.
+//
+// Kiosk PIN: TimeStation's own pin is auto-imported as the new employee's
+// Bamboo OS kiosk PIN (owner's explicit choice), via the same
+// kiosk.service.js.setPin() the manual "Kiosk PIN" dialog uses — same
+// hashing, same uniqueness constraint. TimeStation's account spans several
+// businesses, so its PINs aren't guaranteed unique the way Bamboo OS
+// requires; a collision doesn't fail the employee's creation, just leaves
+// that one PIN unset with a warning for HR to assign manually.
 async function timestationRequest(path) {
   if (!config.timestation.configured) fail('invalid', 'TimeStation is not configured — set TIMESTATION_API_KEY on the server.');
   var res = await fetch(config.timestation.baseUrl + path, {
@@ -101,6 +110,7 @@ async function preview(ctx) {
       departmentName: deptName,
       departmentWillCreate: willCreateDept,
       hourlyRate: te.hourly_rate || '',
+      pin: te.pin || '',
       willSkip: willSkip,
       warnings: warnings
     });
@@ -136,7 +146,7 @@ async function commit(ctx, rows) {
   var deptIdByName = {};
   deptRes.rows.forEach(function (d) { deptIdByName[d.name.toLowerCase()] = d.id; });
 
-  var created = 0, skipped = 0, failed = [];
+  var created = 0, skipped = 0, failed = [], pinIssues = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     if (r.willSkip) { skipped++; continue; }
@@ -146,7 +156,7 @@ async function commit(ctx, rows) {
         deptId = await findOrCreateDepartment(pool, r.departmentName, takenCodes);
         deptIdByName[String(r.departmentName || '').toLowerCase()] = deptId;
       }
-      await employeesService.create(ctx, {
+      var newEmployee = await employeesService.create(ctx, {
         firstName: r.firstName,
         lastName: r.lastName,
         email: r.email,
@@ -155,14 +165,28 @@ async function commit(ctx, rows) {
         employmentType: 'permanent'
       });
       created++;
+
+      var pin = String(r.pin || '').trim();
+      var name = (r.firstName + ' ' + r.lastName).trim();
+      if (pin) {
+        if (!/^\d{4}$/.test(pin)) {
+          pinIssues.push({ name: name, reason: 'TimeStation PIN "' + pin + '" is not 4 digits — kiosk PIN left unset, add one manually.' });
+        } else {
+          try {
+            await kioskService.setPin(ctx, newEmployee.id, pin);
+          } catch (pinErr) {
+            pinIssues.push({ name: name, reason: (pinErr.message || 'Could not set kiosk PIN.') + ' Left unset — add one manually.' });
+          }
+        }
+      }
     } catch (e) {
       failed.push({ name: (r.firstName + ' ' + r.lastName).trim(), reason: e.message || 'Unknown error' });
     }
   }
 
   await audit(pool, ctx, 'employee.import', 'employee', 'bulk',
-    'Imported ' + created + ' employee(s) from TimeStation' + (skipped ? ' (' + skipped + ' skipped)' : '') + (failed.length ? ' (' + failed.length + ' failed)' : '') + '.');
-  return { created: created, skipped: skipped, failed: failed };
+    'Imported ' + created + ' employee(s) from TimeStation' + (skipped ? ' (' + skipped + ' skipped)' : '') + (failed.length ? ' (' + failed.length + ' failed)' : '') + (pinIssues.length ? ' (' + pinIssues.length + ' kiosk PIN issue(s))' : '') + '.');
+  return { created: created, skipped: skipped, failed: failed, pinIssues: pinIssues };
 }
 
 module.exports = { preview: preview, commit: commit, splitName: splitName, deriveDeptCode: deriveDeptCode };

@@ -509,10 +509,12 @@ export default function EmployeesPage() {
           <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
             <h2 className="employees-dialog-title">Sync from TimeStation</h2>
             <p className="dialog-body">
-              Pulls your live employee list from TimeStation (name, title, department, email). Departments that don't
-              already exist here are created automatically. Records with no email on TimeStation can't be matched
-              safely and are skipped. TimeStation's own hourly rate, PIN and attendance status are not imported —
-              set actual pay via Payroll and kiosk PINs via the Kiosk PIN dialog, same as any new hire.
+              Pulls your live employee list from TimeStation (name, title, department, email, hourly rate, kiosk PIN).
+              Departments that don't already exist here are created automatically. Records with no email on
+              TimeStation can't be matched safely and are skipped. Hourly rate is shown for reference only — HR still
+              sets the real daily rate via Payroll. TimeStation's PIN is imported as the kiosk PIN automatically; if
+              it clashes with one already in use here, that employee is still created with the PIN left unset for HR
+              to assign manually. Live clock in/out status isn't imported — it's a snapshot, not an employment status.
             </p>
             {syncError && <div className="error-banner">{syncError}</div>}
 
@@ -528,7 +530,7 @@ export default function EmployeesPage() {
                 <div className="itdevices-import-scroll">
                   <table className="table itdevices-import-table">
                     <thead>
-                      <tr><th>Name</th><th>Title</th><th>Department</th><th>Email</th><th>Notes</th></tr>
+                      <tr><th>Name</th><th>Title</th><th>Department</th><th>Email</th><th>Rate (ref.)</th><th>Notes</th></tr>
                     </thead>
                     <tbody>
                       {syncPreview.rows.map((r, i) => (
@@ -537,6 +539,7 @@ export default function EmployeesPage() {
                           <td>{r.positionTitle || '—'}</td>
                           <td>{r.departmentName}{r.departmentWillCreate ? ' (new)' : ''}</td>
                           <td>{r.email || '—'}</td>
+                          <td>{r.hourlyRate ? r.hourlyRate + '/hr' : '—'}</td>
                           <td className="itdevices-import-warnings">
                             {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
                           </td>
@@ -564,6 +567,14 @@ export default function EmployeesPage() {
                   <ul>
                     {syncResult.failed.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
                   </ul>
+                )}
+                {syncResult.pinIssues && syncResult.pinIssues.length > 0 && (
+                  <>
+                    <p className="itdevices-import-summary">Kiosk PIN not set for {syncResult.pinIssues.length} employee(s) — set these manually via the Kiosk PIN button:</p>
+                    <ul>
+                      {syncResult.pinIssues.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
+                    </ul>
+                  </>
                 )}
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-primary" onClick={() => setSyncOpen(false)}>Done</button>
