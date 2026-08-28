@@ -19,7 +19,7 @@
   align-items: flex-start;
   margin-bottom: 40px;
 }
-.kiosk-brand { font-family: var(--font-heading); font-weight: 800; font-size: 20px; }
+.kiosk-brand { font-family: var(--font-heading); font-weight: 800; font-size: 36px; letter-spacing: 0.02em; }
 .kiosk-pending-badge {
   margin-top: 8px;
   display: inline-block;

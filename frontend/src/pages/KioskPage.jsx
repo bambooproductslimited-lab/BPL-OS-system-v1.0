@@ -129,7 +129,7 @@ export default function KioskPage() {
     <div className="kiosk-root">
       <div className="kiosk-header">
         <div>
-          <div className="kiosk-brand">Bamboo Products Limited</div>
+          <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
           {pendingCount > 0 && (
             <div className="kiosk-pending-badge">{pendingCount} tap{pendingCount === 1 ? '' : 's'} syncing…</div>
           )}
