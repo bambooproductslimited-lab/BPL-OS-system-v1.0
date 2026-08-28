@@ -89,13 +89,16 @@ async function preview(ctx) {
     var existingDept = deptByName[deptName.toLowerCase()];
     var warnings = [];
     var willSkip = false;
+    var skipReason = null;
 
     if (!email) {
-      warnings.push('No email on this TimeStation record — cannot create a matching employee. Skipped.');
+      warnings.push('No email on this TimeStation record — enter one before importing, or this person will be skipped.');
       willSkip = true;
+      skipReason = 'no_email';
     } else if (existingEmails.has(email)) {
       warnings.push('An employee with this email already exists in the OS — skipped to avoid a duplicate.');
       willSkip = true;
+      skipReason = 'duplicate';
     }
 
     var willCreateDept = !existingDept && !seenDeptNames[deptName.toLowerCase()];
@@ -111,6 +114,7 @@ async function preview(ctx) {
       departmentWillCreate: willCreateDept,
       hourlyRate: te.hourly_rate || '',
       pin: te.pin || '',
+      skipReason: skipReason,
       willSkip: willSkip,
       warnings: warnings
     });

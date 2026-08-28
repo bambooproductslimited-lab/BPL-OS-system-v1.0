@@ -74,6 +74,7 @@ export default function EmployeesPage() {
   const [syncError, setSyncError] = useState(null);
   const [syncCommitting, setSyncCommitting] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [syncEmailEdits, setSyncEmailEdits] = useState({});
 
   const load = useCallback(async () => {
     setError(null);
@@ -249,6 +250,7 @@ export default function EmployeesPage() {
     setSyncError(null);
     setSyncPreview(null);
     setSyncResult(null);
+    setSyncEmailEdits({});
     setSyncOpen(true);
     runSyncPreview();
   }
@@ -265,11 +267,26 @@ export default function EmployeesPage() {
     }
   }
 
+  // A "no email on record" row becomes importable the moment HR types one in
+  // here — it's not re-checked against the OS's existing employees until
+  // commit, so a typo that collides with someone else still surfaces as a
+  // clear per-row failure afterward rather than silently overwriting anyone.
+  function syncEffectiveRows() {
+    if (!syncPreview) return [];
+    return syncPreview.rows.map((r, i) => {
+      if (r.skipReason === 'no_email') {
+        const edited = (syncEmailEdits[i] || '').trim();
+        if (edited) return { ...r, email: edited, willSkip: false, warnings: [] };
+      }
+      return r;
+    });
+  }
+
   async function commitSync() {
     setSyncCommitting(true);
     setSyncError(null);
     try {
-      const result = await api.post('/timestation/commit', { rows: syncPreview.rows });
+      const result = await api.post('/timestation/commit', { rows: syncEffectiveRows() });
       setSyncResult(result);
       setToast('Imported ' + result.created + ' employee(s) from TimeStation.');
       await load();
@@ -511,51 +528,65 @@ export default function EmployeesPage() {
             <p className="dialog-body">
               Pulls your live employee list from TimeStation (name, title, department, email, hourly rate, kiosk PIN).
               Departments that don't already exist here are created automatically. Records with no email on
-              TimeStation can't be matched safely and are skipped. Hourly rate is shown for reference only — HR still
-              sets the real daily rate via Payroll. TimeStation's PIN is imported as the kiosk PIN automatically; if
-              it clashes with one already in use here, that employee is still created with the PIN left unset for HR
-              to assign manually. Live clock in/out status isn't imported — it's a snapshot, not an employment status.
+              TimeStation are shown with a blank field below — type one in to import that person, or leave it blank
+              to skip them. Hourly rate is shown for reference only — HR still sets the real daily rate via Payroll.
+              TimeStation's PIN is imported as the kiosk PIN automatically; if it clashes with one already in use
+              here, that employee is still created with the PIN left unset for HR to assign manually. Live clock
+              in/out status isn't imported — it's a snapshot, not an employment status.
             </p>
             {syncError && <div className="error-banner">{syncError}</div>}
 
             {syncLoading && <p className="eyebrow">Fetching from TimeStation…</p>}
 
-            {!syncLoading && syncPreview && !syncResult && (
-              <>
-                <p className="itdevices-import-summary">
-                  {syncPreview.rows.length} employee(s) found on TimeStation —
-                  {' '}{syncPreview.rows.filter((r) => !r.willSkip).length} will be created,
-                  {' '}{syncPreview.rows.filter((r) => r.willSkip).length} will be skipped.
-                </p>
-                <div className="itdevices-import-scroll">
-                  <table className="table itdevices-import-table">
-                    <thead>
-                      <tr><th>Name</th><th>Title</th><th>Department</th><th>Email</th><th>Rate (ref.)</th><th>Notes</th></tr>
-                    </thead>
-                    <tbody>
-                      {syncPreview.rows.map((r, i) => (
-                        <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
-                          <td style={{ fontWeight: 600 }}>{r.firstName} {r.lastName}</td>
-                          <td>{r.positionTitle || '—'}</td>
-                          <td>{r.departmentName}{r.departmentWillCreate ? ' (new)' : ''}</td>
-                          <td>{r.email || '—'}</td>
-                          <td>{r.hourlyRate ? r.hourlyRate + '/hr' : '—'}</td>
-                          <td className="itdevices-import-warnings">
-                            {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
-                  <button type="button" className="btn btn-primary" disabled={syncCommitting || !syncPreview.rows.some((r) => !r.willSkip)} onClick={commitSync}>
-                    {syncCommitting ? 'Importing…' : 'Import ' + syncPreview.rows.filter((r) => !r.willSkip).length + ' employee(s)'}
-                  </button>
-                </div>
-              </>
-            )}
+            {!syncLoading && syncPreview && !syncResult && (() => {
+              const effRows = syncEffectiveRows();
+              const toCreate = effRows.filter((r) => !r.willSkip).length;
+              return (
+                <>
+                  <p className="itdevices-import-summary">
+                    {effRows.length} employee(s) found on TimeStation —
+                    {' '}{toCreate} will be created,
+                    {' '}{effRows.length - toCreate} will be skipped.
+                  </p>
+                  <div className="itdevices-import-scroll">
+                    <table className="table itdevices-import-table">
+                      <thead>
+                        <tr><th>Name</th><th>Title</th><th>Department</th><th>Email</th><th>Rate (ref.)</th><th>Notes</th></tr>
+                      </thead>
+                      <tbody>
+                        {effRows.map((r, i) => (
+                          <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
+                            <td style={{ fontWeight: 600 }}>{r.firstName} {r.lastName}</td>
+                            <td>{r.positionTitle || '—'}</td>
+                            <td>{r.departmentName}{r.departmentWillCreate ? ' (new)' : ''}</td>
+                            <td>
+                              {syncPreview.rows[i].skipReason === 'no_email' ? (
+                                <input
+                                  type="email" className="input" style={{ minWidth: 190 }}
+                                  value={syncEmailEdits[i] || ''}
+                                  onChange={(e) => setSyncEmailEdits({ ...syncEmailEdits, [i]: e.target.value })}
+                                  placeholder="Enter email to import…"
+                                />
+                              ) : (r.email || '—')}
+                            </td>
+                            <td>{r.hourlyRate ? r.hourlyRate + '/hr' : '—'}</td>
+                            <td className="itdevices-import-warnings">
+                              {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="dialog-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
+                    <button type="button" className="btn btn-primary" disabled={syncCommitting || !toCreate} onClick={commitSync}>
+                      {syncCommitting ? 'Importing…' : 'Import ' + toCreate + ' employee(s)'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
 
             {syncResult && (
               <>
