@@ -6,8 +6,9 @@ var { nextDocNumber } = require('../utils/documents');
 var { computePaye } = require('../utils/payroll');
 
 // Payroll: employees are paid a daily rate (employees.daily_rate) on one of
-// two cycles (employees.pay_cycle — 'monthly', paid on the 5th per Company
-// Settings, or 'biweekly'). A pay run computes each employee's days worked
+// three cycles (employees.pay_cycle — 'monthly', paid on the 5th per Company
+// Settings, 'biweekly', or 'daily' for staff paid out per day worked). A pay
+// run computes each employee's days worked
 // from Attendance (present/late = 1 worked day; absent/leave/off don't
 // count) over the chosen period, then gross/SSNIT/PAYE/net — see
 // computePaye() in utils/payroll.js for the important caveat on the tax
@@ -88,7 +89,7 @@ async function get(ctx, id) {
 // days worked pulled automatically from Attendance for the period.
 async function create(ctx, p) {
   if (!ctx.can('payroll.manage')) fail('forbidden', 'Your role does not allow this action (payroll.manage).');
-  var cycle = V.oneOf(p.cycle, ['monthly', 'biweekly'], 'Cycle');
+  var cycle = V.oneOf(p.cycle, ['monthly', 'biweekly', 'daily'], 'Cycle');
   var periodStart = V.date(p.periodStart, 'Period start');
   var periodEnd = V.date(p.periodEnd, 'Period end');
   var payDate = V.date(p.payDate || todayISO(), 'Pay date');

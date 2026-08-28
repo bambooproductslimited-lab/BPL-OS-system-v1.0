@@ -18,6 +18,11 @@ var V = {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) fail('invalid', label + ' must be a valid date.');
     return v;
   },
+  time: function (v, label) {
+    v = V.text(v, label);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('invalid', label + ' must be a valid 24-hour time (HH:MM).');
+    return v;
+  },
   oneOf: function (v, opts, label) {
     if (opts.indexOf(v) < 0) fail('invalid', label + ' is not a valid option.');
     return v;

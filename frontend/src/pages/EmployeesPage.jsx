@@ -26,7 +26,8 @@ const EMPLOYMENT_TYPES = [
 const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   departmentId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
-  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0
+  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0,
+  shiftStart: '', shiftEnd: ''
 };
 
 export default function EmployeesPage() {
@@ -132,7 +133,8 @@ export default function EmployeesPage() {
       firstName: emp.firstName, lastName: emp.lastName, email: emp.email, phone: emp.phone,
       positionTitle: emp.positionTitle, departmentId: emp.departmentId, managerId: emp.managerId || '',
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
-      roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0
+      roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
+      shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || ''
     });
     setDialog('employee');
   }
@@ -146,7 +148,8 @@ export default function EmployeesPage() {
         const body = {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, managerId: form.managerId || null,
-          employmentType: form.employmentType, status: form.status
+          employmentType: form.employmentType, status: form.status,
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd
         };
         if (canManagePayroll) {
           body.payCycle = form.payCycle;
@@ -159,6 +162,7 @@ export default function EmployeesPage() {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd,
           createAccount: !!form.roleId, roleId: form.roleId || null
         });
         setToast(created.code + ' — ' + created.firstName + ' ' + created.lastName + ' added.');
@@ -430,6 +434,15 @@ export default function EmployeesPage() {
                 {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
+            <div className="field"><label htmlFor="emp-shift-start">Shift start</label>
+              <input id="emp-shift-start" className="input" type="time" value={form.shiftStart} onChange={(e) => setForm({ ...form, shiftStart: e.target.value })} />
+            </div>
+            <div className="field"><label htmlFor="emp-shift-end">Shift end</label>
+              <input id="emp-shift-end" className="input" type="time" value={form.shiftEnd} onChange={(e) => setForm({ ...form, shiftEnd: e.target.value })} />
+            </div>
+            <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+              Leave blank to follow the company default. Attendance uses shift start (+20 min grace) to mark someone late — set this per person for businesses with different hours.
+            </p>
             {editId && (
               <div className="field"><label htmlFor="emp-status">Status</label>
                 <select id="emp-status" className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
@@ -452,6 +465,7 @@ export default function EmployeesPage() {
                   <select id="emp-pay-cycle" className="input" value={form.payCycle} onChange={(e) => setForm({ ...form, payCycle: e.target.value })}>
                     <option value="monthly">Monthly (5th)</option>
                     <option value="biweekly">Biweekly</option>
+                    <option value="daily">Daily</option>
                   </select>
                 </div>
                 <div className="field"><label htmlFor="emp-daily-rate">Daily rate (GHS)</label>

@@ -7,6 +7,26 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function nowHM() { return new Date().toTimeString().slice(0, 5); }
 
+// The OS now spans several businesses with genuinely different shifts (via
+// the TimeStation sync — factory, restaurant, security, construction crew,
+// etc.), so lateness can no longer be judged against one company-wide clock
+// time. An employee with a personal shift_start (employees.shift_start) is
+// judged against their own hours + a fixed grace window; everyone else
+// keeps exactly the old behavior — settings.late_after, unchanged.
+var LATE_GRACE_MINUTES = 20; // matches the historical default (shift 07:00, late after 07:20)
+function addMinutesToHM(hm, minutes) {
+  var parts = hm.split(':').map(Number);
+  var total = ((parts[0] * 60 + parts[1] + minutes) % 1440 + 1440) % 1440;
+  return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+}
+async function resolveLateAfter(employeeId) {
+  var empRes = await pool.query('SELECT shift_start FROM employees WHERE id = $1', [employeeId]);
+  var shiftStart = empRes.rows[0] && empRes.rows[0].shift_start ? empRes.rows[0].shift_start.slice(0, 5) : null;
+  if (shiftStart) return addMinutesToHM(shiftStart, LATE_GRACE_MINUTES);
+  var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
+  return settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20';
+}
+
 // The kiosk's offline queue (see KioskPage.jsx) replays a tap after
 // reconnecting, potentially well after it actually happened — resolving to
 // "now" at sync time would record the wrong clock-in time (and the wrong
@@ -40,8 +60,7 @@ async function clockInEmployee(employeeId, source, occurredAt) {
   var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
   if (existing.rows[0]) fail('conflict', 'Already clocked in today.');
 
-  var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
-  var lateAfter = settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20';
+  var lateAfter = await resolveLateAfter(employeeId);
   var status = resolved.time > lateAfter ? 'late' : 'present';
 
   var res = await pool.query(

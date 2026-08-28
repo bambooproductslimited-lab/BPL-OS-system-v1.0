@@ -4,8 +4,9 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './PayrollPage.css';
 
-// Payroll: employees are paid a daily rate on one of two cycles (monthly,
-// paid on the 5th, or biweekly). A pay run auto-computes each employee's
+// Payroll: employees are paid a daily rate on one of three cycles (monthly,
+// paid on the 5th; biweekly; or daily, for staff paid per day worked). A
+// pay run auto-computes each employee's
 // days worked from Attendance and their SSNIT/PAYE deductions — see
 // backend/src/services/payroll.service.js. Days worked stays editable
 // while the run is a draft (e.g. to correct for unpaid leave not yet
@@ -200,6 +201,7 @@ export default function PayrollPage() {
               <select id="pr-cycle" className="input" value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })}>
                 <option value="monthly">Monthly</option>
                 <option value="biweekly">Biweekly</option>
+                <option value="daily">Daily</option>
               </select>
             </div>
             <div className="field">

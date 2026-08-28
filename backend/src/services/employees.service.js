@@ -10,11 +10,21 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 // whether to include payCycle/dailyRate — compensation data, which stays
 // out of the payload entirely for anyone without payroll.manage, rather
 // than being sent and merely hidden client-side).
+//
+// shift (the free-text label shown throughout the UI, e.g. "Day ·
+// 07:00–16:00") is derived from shift_start/shift_end once either is set,
+// rather than kept in sync by every writer — one source of truth. Until
+// someone sets real hours for this person, it falls back to whatever's
+// already stored (the historical default text, or a legacy import).
 function rowToEmployee(r, ctx) {
+  var shiftStart = r.shift_start ? r.shift_start.slice(0, 5) : null;
+  var shiftEnd = r.shift_end ? r.shift_end.slice(0, 5) : null;
   var out = {
     id: r.id, code: r.code, firstName: r.first_name, lastName: r.last_name, email: r.email, phone: r.phone,
     departmentId: r.department_id, positionTitle: r.position_title, managerId: r.manager_id,
-    employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location, shift: r.shift
+    employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location,
+    shiftStart: shiftStart, shiftEnd: shiftEnd,
+    shift: shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift
   };
   if (ctx && ctx.can('payroll.manage')) {
     out.payCycle = r.pay_cycle;
@@ -67,6 +77,8 @@ async function create(ctx, p) {
   var positionTitle = V.text(p.positionTitle, 'Job title', 60);
   var employmentType = V.oneOf(p.employmentType || 'permanent', ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
   var hireDate = V.date(p.hireDate || new Date().toISOString().slice(0, 10), 'Hire date');
+  var shiftStart = p.shiftStart ? V.time(p.shiftStart, 'Shift start') : null;
+  var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
 
   var existing = await pool.query('SELECT id FROM employees WHERE email = $1', [email]);
   if (existing.rows[0]) fail('invalid', 'That email is already in use.');
@@ -78,10 +90,10 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
-        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00']
+        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd]
     );
     var e = insertRes.rows[0];
 
@@ -149,8 +161,21 @@ async function update(ctx, id, p) {
   if (p.status !== undefined) V.oneOf(p.status, ['active', 'inactive', 'terminated'], 'Status');
   if (p.employmentType !== undefined) V.oneOf(p.employmentType, ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
   if (p.payCycle !== undefined) {
-    V.oneOf(p.payCycle, ['monthly', 'biweekly'], 'Pay cycle');
+    V.oneOf(p.payCycle, ['monthly', 'biweekly', 'daily'], 'Pay cycle');
     if (p.payCycle !== e.pay_cycle) { changed.push('payCycle'); values.push(p.payCycle); sets.push('pay_cycle = $' + values.length); }
+  }
+  // Empty string clears back to "no personal override — follow the company
+  // default", not a validation error; only a non-empty value is checked
+  // against the HH:MM format.
+  if (p.shiftStart !== undefined) {
+    var shiftStart = p.shiftStart ? V.time(p.shiftStart, 'Shift start') : null;
+    var curShiftStart = e.shift_start ? e.shift_start.slice(0, 5) : null;
+    if (shiftStart !== curShiftStart) { changed.push('shiftStart'); values.push(shiftStart); sets.push('shift_start = $' + values.length); }
+  }
+  if (p.shiftEnd !== undefined) {
+    var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
+    var curShiftEnd = e.shift_end ? e.shift_end.slice(0, 5) : null;
+    if (shiftEnd !== curShiftEnd) { changed.push('shiftEnd'); values.push(shiftEnd); sets.push('shift_end = $' + values.length); }
   }
   if (p.dailyRate !== undefined) {
     var dailyRate = Math.max(0, Number(p.dailyRate) || 0);
