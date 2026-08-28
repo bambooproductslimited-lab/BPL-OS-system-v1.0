@@ -52,6 +52,7 @@ var oauthRoutes = require('./routes/oauth.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
 var squareRoutes = require('./routes/square.routes');
+var timestationRoutes = require('./routes/timestation.routes');
 
 var app = express();
 
@@ -118,6 +119,7 @@ app.use('/api/waybills', waybillsRoutes);
 app.use('/api/tool-room', toolRoomRoutes);
 app.use('/api/it-devices', itDevicesRoutes);
 app.use('/api/payroll', payrollRoutes);
+app.use('/api/timestation', timestationRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/customers', customersRoutes);
 app.use('/api/catalog', catalogRoutes);

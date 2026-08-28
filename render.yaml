@@ -82,3 +82,8 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      # Optional — leave unset and the Employees screen's "Sync from
+      # TimeStation" button is disabled with a clear message. Find/create
+      # this in your TimeStation account under Settings > API Keys.
+      - key: TIMESTATION_API_KEY
+        sync: false

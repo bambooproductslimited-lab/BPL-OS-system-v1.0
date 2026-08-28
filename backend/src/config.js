@@ -163,5 +163,17 @@ module.exports = {
       baseUrl: process.env.SQUARE_API_BASE_URL || 'https://connect.squareup.com',
       configured: !!accessToken
     };
+  }()),
+  // TimeStation (time & attendance) employee sync — services/timestation.service.js.
+  // A single API key authenticates as HTTP Basic Auth username with no
+  // password (per TimeStation's own API v1.2 docs). One-way pull only: we
+  // never write anything back to TimeStation.
+  timestation: (function () {
+    var apiKey = (process.env.TIMESTATION_API_KEY || '').trim();
+    return {
+      apiKey: apiKey,
+      baseUrl: process.env.TIMESTATION_API_BASE_URL || 'https://api.mytimestation.com/v1.2',
+      configured: !!apiKey
+    };
   }())
 };

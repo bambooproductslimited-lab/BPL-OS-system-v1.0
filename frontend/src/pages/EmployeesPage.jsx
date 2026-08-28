@@ -34,6 +34,7 @@ export default function EmployeesPage() {
   const canWrite = can('employee.write');
   const canPurge = can('role.manage');
   const canManagePayroll = can('payroll.manage');
+  const canSync = canWrite && can('department.manage');
 
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -66,6 +67,13 @@ export default function EmployeesPage() {
   const [profileTarget, setProfileTarget] = useState(null);
   const [kioskPinTarget, setKioskPinTarget] = useState(null);
   const [kioskPinValue, setKioskPinValue] = useState('');
+
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncPreview, setSyncPreview] = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError] = useState(null);
+  const [syncCommitting, setSyncCommitting] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -237,6 +245,41 @@ export default function EmployeesPage() {
     }
   }
 
+  function openSync() {
+    setSyncError(null);
+    setSyncPreview(null);
+    setSyncResult(null);
+    setSyncOpen(true);
+    runSyncPreview();
+  }
+
+  async function runSyncPreview() {
+    setSyncLoading(true);
+    setSyncError(null);
+    try {
+      setSyncPreview(await api.get('/timestation/preview'));
+    } catch (err) {
+      setSyncError(err.message);
+    } finally {
+      setSyncLoading(false);
+    }
+  }
+
+  async function commitSync() {
+    setSyncCommitting(true);
+    setSyncError(null);
+    try {
+      const result = await api.post('/timestation/commit', { rows: syncPreview.rows });
+      setSyncResult(result);
+      setToast('Imported ' + result.created + ' employee(s) from TimeStation.');
+      await load();
+    } catch (err) {
+      setSyncError(err.message);
+    } finally {
+      setSyncCommitting(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
@@ -259,6 +302,7 @@ export default function EmployeesPage() {
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
+        {canSync && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openSync}>Sync from TimeStation</button>}
         {canWrite && <button type="button" className="btn btn-primary employees-add-btn" onClick={openNew}>Add employee</button>}
       </div>
 
@@ -457,6 +501,76 @@ export default function EmployeesPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {syncOpen && (
+        <div className="dialog-backdrop" onClick={() => setSyncOpen(false)}>
+          <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="employees-dialog-title">Sync from TimeStation</h2>
+            <p className="dialog-body">
+              Pulls your live employee list from TimeStation (name, title, department, email). Departments that don't
+              already exist here are created automatically. Records with no email on TimeStation can't be matched
+              safely and are skipped. TimeStation's own hourly rate, PIN and attendance status are not imported —
+              set actual pay via Payroll and kiosk PINs via the Kiosk PIN dialog, same as any new hire.
+            </p>
+            {syncError && <div className="error-banner">{syncError}</div>}
+
+            {syncLoading && <p className="eyebrow">Fetching from TimeStation…</p>}
+
+            {!syncLoading && syncPreview && !syncResult && (
+              <>
+                <p className="itdevices-import-summary">
+                  {syncPreview.rows.length} employee(s) found on TimeStation —
+                  {' '}{syncPreview.rows.filter((r) => !r.willSkip).length} will be created,
+                  {' '}{syncPreview.rows.filter((r) => r.willSkip).length} will be skipped.
+                </p>
+                <div className="itdevices-import-scroll">
+                  <table className="table itdevices-import-table">
+                    <thead>
+                      <tr><th>Name</th><th>Title</th><th>Department</th><th>Email</th><th>Notes</th></tr>
+                    </thead>
+                    <tbody>
+                      {syncPreview.rows.map((r, i) => (
+                        <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
+                          <td style={{ fontWeight: 600 }}>{r.firstName} {r.lastName}</td>
+                          <td>{r.positionTitle || '—'}</td>
+                          <td>{r.departmentName}{r.departmentWillCreate ? ' (new)' : ''}</td>
+                          <td>{r.email || '—'}</td>
+                          <td className="itdevices-import-warnings">
+                            {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={syncCommitting || !syncPreview.rows.some((r) => !r.willSkip)} onClick={commitSync}>
+                    {syncCommitting ? 'Importing…' : 'Import ' + syncPreview.rows.filter((r) => !r.willSkip).length + ' employee(s)'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {syncResult && (
+              <>
+                <p className="itdevices-import-summary">
+                  Imported {syncResult.created} employee(s){syncResult.skipped ? ', skipped ' + syncResult.skipped : ''}
+                  {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
+                </p>
+                {syncResult.failed.length > 0 && (
+                  <ul>
+                    {syncResult.failed.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
+                  </ul>
+                )}
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-primary" onClick={() => setSyncOpen(false)}>Done</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
