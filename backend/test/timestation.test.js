@@ -73,3 +73,10 @@ test('deriveDeptCode derives a short unique code within the 5-char CHECK constra
   var takenClash = new Set(['BG']);
   assert.equal(timestation.deriveDeptCode('Bamboo Garden', takenClash), 'BG1');
 });
+
+test('idFragOf matches EmployeesPage.jsx\'s autoFillMissingEmails() derivation exactly, so a placeholder-email employee can be found again later', function () {
+  assert.equal(timestation.idFragOf('emp_abc123456'), '123456');
+  assert.equal(timestation.idFragOf('emp_XY'), 'empxy');
+  assert.equal(timestation.idFragOf(''), '');
+  assert.equal(timestation.idFragOf(null), '');
+});

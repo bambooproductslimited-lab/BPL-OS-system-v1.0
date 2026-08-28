@@ -64,6 +64,16 @@ function deriveDeptCode(name, takenCodes) {
   return code;
 }
 
+// The commit() that created a placeholder-email employee (see
+// autoFillMissingEmails() in EmployeesPage.jsx) embedded a 6-char fragment
+// of that TimeStation employee_id into the address, specifically so a later
+// sync could find its way back to the right record without a real email to
+// match on. Same derivation, read back out here.
+function idFragOf(timestationEmployeeId) {
+  return String(timestationEmployeeId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toLowerCase();
+}
+var PLACEHOLDER_EMAIL_RE = /\.([a-z0-9]+)@no-email\.placeholder$/i;
+
 // kernel.js: handlers['timestation.preview']
 async function preview(ctx) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
@@ -76,8 +86,16 @@ async function preview(ctx) {
   var takenCodes = new Set();
   deptRes.rows.forEach(function (d) { deptByName[d.name.toLowerCase()] = d; takenCodes.add(d.code); });
 
-  var empRes = await pool.query("SELECT email FROM employees WHERE email <> ''");
-  var existingEmails = new Set(empRes.rows.map(function (e) { return e.email.toLowerCase(); }));
+  var empRes = await pool.query('SELECT id, email, timestation_employee_id FROM employees');
+  var existingByEmail = {};
+  var unlinkedPlaceholderByFrag = {};
+  empRes.rows.forEach(function (e) {
+    if (e.email) existingByEmail[e.email.toLowerCase()] = e;
+    if (!e.timestation_employee_id) {
+      var m = PLACEHOLDER_EMAIL_RE.exec(e.email || '');
+      if (m) unlinkedPlaceholderByFrag[m[1]] = e;
+    }
+  });
 
   var seenDeptNames = {}; // dedupe "will create" rows across multiple employees in the same new department
   var out = [];
@@ -90,15 +108,32 @@ async function preview(ctx) {
     var warnings = [];
     var willSkip = false;
     var skipReason = null;
+    var willLink = false;
+    var existingEmployeeId = null;
 
-    if (!email) {
+    var emailMatch = email ? existingByEmail[email] : null;
+    var placeholderMatch = !email ? unlinkedPlaceholderByFrag[idFragOf(te.employee_id)] : null;
+
+    if (emailMatch) {
+      willSkip = true;
+      skipReason = 'duplicate';
+      if (!emailMatch.timestation_employee_id) {
+        willLink = true;
+        existingEmployeeId = emailMatch.id;
+        warnings.push('Already in the OS — this run will just link it to TimeStation for the attendance sync (no new record created).');
+      } else {
+        warnings.push('An employee with this email already exists in the OS — skipped to avoid a duplicate.');
+      }
+    } else if (placeholderMatch) {
+      willSkip = true;
+      skipReason = 'already_linked_placeholder';
+      willLink = true;
+      existingEmployeeId = placeholderMatch.id;
+      warnings.push('Already imported earlier under a placeholder email — this run will just link it to TimeStation for the attendance sync.');
+    } else if (!email) {
       warnings.push('No email on this TimeStation record — enter one before importing, or this person will be skipped.');
       willSkip = true;
       skipReason = 'no_email';
-    } else if (existingEmails.has(email)) {
-      warnings.push('An employee with this email already exists in the OS — skipped to avoid a duplicate.');
-      willSkip = true;
-      skipReason = 'duplicate';
     }
 
     var willCreateDept = !existingDept && !seenDeptNames[deptName.toLowerCase()];
@@ -116,6 +151,8 @@ async function preview(ctx) {
       pin: te.pin || '',
       skipReason: skipReason,
       willSkip: willSkip,
+      willLink: willLink,
+      existingEmployeeId: existingEmployeeId,
       warnings: warnings
     });
   });
@@ -150,10 +187,22 @@ async function commit(ctx, rows) {
   var deptIdByName = {};
   deptRes.rows.forEach(function (d) { deptIdByName[d.name.toLowerCase()] = d.id; });
 
-  var created = 0, skipped = 0, failed = [], pinIssues = [];
+  var created = 0, skipped = 0, linked = 0, failed = [], pinIssues = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    if (r.willSkip) { skipped++; continue; }
+    if (r.willSkip) {
+      skipped++;
+      if (r.willLink && r.existingEmployeeId && r.timestationEmployeeId) {
+        // Idempotent — only fills a NULL, so re-running the sync never
+        // steals a link from a different (already-linked) employee.
+        var linkRes = await pool.query(
+          'UPDATE employees SET timestation_employee_id = $1 WHERE id = $2 AND timestation_employee_id IS NULL',
+          [r.timestationEmployeeId, r.existingEmployeeId]
+        );
+        if (linkRes.rowCount) linked++;
+      }
+      continue;
+    }
     try {
       var deptId = deptIdByName[String(r.departmentName || '').toLowerCase()];
       if (!deptId) {
@@ -168,6 +217,9 @@ async function commit(ctx, rows) {
         positionTitle: r.positionTitle || 'Staff',
         employmentType: 'permanent'
       });
+      if (r.timestationEmployeeId) {
+        await pool.query('UPDATE employees SET timestation_employee_id = $1 WHERE id = $2', [r.timestationEmployeeId, newEmployee.id]);
+      }
       created++;
 
       var pin = String(r.pin || '').trim();
@@ -189,8 +241,8 @@ async function commit(ctx, rows) {
   }
 
   await audit(pool, ctx, 'employee.import', 'employee', 'bulk',
-    'Imported ' + created + ' employee(s) from TimeStation' + (skipped ? ' (' + skipped + ' skipped)' : '') + (failed.length ? ' (' + failed.length + ' failed)' : '') + (pinIssues.length ? ' (' + pinIssues.length + ' kiosk PIN issue(s))' : '') + '.');
-  return { created: created, skipped: skipped, failed: failed, pinIssues: pinIssues };
+    'Imported ' + created + ' employee(s) from TimeStation' + (skipped ? ' (' + skipped + ' skipped)' : '') + (linked ? ' (' + linked + ' linked for attendance sync)' : '') + (failed.length ? ' (' + failed.length + ' failed)' : '') + (pinIssues.length ? ' (' + pinIssues.length + ' kiosk PIN issue(s))' : '') + '.');
+  return { created: created, skipped: skipped, linked: linked, failed: failed, pinIssues: pinIssues };
 }
 
-module.exports = { preview: preview, commit: commit, splitName: splitName, deriveDeptCode: deriveDeptCode };
+module.exports = { preview: preview, commit: commit, splitName: splitName, deriveDeptCode: deriveDeptCode, idFragOf: idFragOf };

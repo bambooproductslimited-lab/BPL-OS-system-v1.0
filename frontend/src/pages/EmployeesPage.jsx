@@ -637,6 +637,7 @@ export default function EmployeesPage() {
               <>
                 <p className="itdevices-import-summary">
                   Imported {syncResult.created} employee(s){syncResult.skipped ? ', skipped ' + syncResult.skipped : ''}
+                  {syncResult.linked ? ', linked ' + syncResult.linked + ' already-imported record(s) to TimeStation' : ''}
                   {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
                 </p>
                 {syncResult.failed.length > 0 && (
