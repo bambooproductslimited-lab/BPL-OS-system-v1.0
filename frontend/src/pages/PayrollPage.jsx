@@ -50,6 +50,12 @@ export default function PayrollPage() {
   const [search, setSearch] = useState('');
   const [periodRange, setPeriodRange] = useState({ from: null, to: null, presetKey: 'all', label: 'All time' });
 
+  const [employees, setEmployees] = useState([]);
+  const [employeeFilter, setEmployeeFilter] = useState('');
+  const [history, setHistory] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -62,6 +68,33 @@ export default function PayrollPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api.get('/employees').then(setEmployees).catch(() => setEmployees([]));
+  }, []);
+
+  useEffect(() => {
+    if (!employeeFilter) { setHistory(null); return undefined; }
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    let url = '/payroll/payslips?employeeId=' + employeeFilter;
+    if (periodRange.from && periodRange.to) url += '&from=' + periodRange.from + '&to=' + periodRange.to;
+    api.get(url)
+      .then((res) => { if (!cancelled) setHistory(res); })
+      .catch((err) => { if (!cancelled) setHistoryError(err.message); })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [employeeFilter, periodRange]);
+
+  async function viewRunFromHistory(payRunId) {
+    setRunError(null);
+    try {
+      setActiveRun(await api.get('/payroll/runs/' + payRunId));
+    } catch (err) {
+      setHistoryError(err.message);
+    }
+  }
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -170,36 +203,84 @@ export default function PayrollPage() {
             <DateRangePicker value={periodRange} onChange={setPeriodRange} showAllTime />
           </div>
           <SearchInput value={search} onChange={setSearch} placeholder="Search pay runs…" />
+          <div className="field payroll-employee">
+            <label htmlFor="pr-employee-filter">Employee</label>
+            <select id="pr-employee-filter" className="input" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+              <option value="">All employees</option>
+              {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
+            </select>
+          </div>
         </div>
         {canManage && (
           <button type="button" className="btn btn-primary" onClick={openNew}>New pay run</button>
         )}
       </div>
 
-      <table className="table" style={{ marginTop: 16 }}>
-        <thead>
-          <tr><th>Run</th><th>Cycle</th><th>Period</th><th>Pay date</th><th>Employees</th><th>Total net</th><th>Status</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleRuns.map((r) => (
-            <tr key={r.id}>
-              <td style={{ fontWeight: 600 }}>{r.runNo}</td>
-              <td style={{ textTransform: 'capitalize' }}>{r.cycle}</td>
-              <td>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</td>
-              <td>{fmtDate(r.payDate)}</td>
-              <td>{r.employeeCount}</td>
-              <td>{fmtMoney(r.totalNet)}</td>
-              <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
-              <td className="table-actions">
-                <button type="button" className="btn btn-secondary payroll-row-btn" onClick={() => openRun(r)}>View</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {!runs.length && <p className="table-empty">No pay runs yet.</p>}
-      {!!runs.length && !visibleRuns.length && search && <p className="table-empty">No pay runs match "{search}".</p>}
-      {!!runs.length && !visibleRuns.length && !search && <p className="table-empty">No pay runs in this period.</p>}
+      {employeeFilter ? (
+        <>
+          {historyLoading && <div className="eyebrow" style={{ marginTop: 16 }}>Loading…</div>}
+          {historyError && <div className="error-banner" style={{ marginTop: 16 }}>{historyError}</div>}
+          {history && (
+            <>
+              <p className="eyebrow" style={{ marginTop: 16 }}>
+                {history.employeeName} ({history.employeeCode}) — {history.payslips.length} payslip(s){periodRange.from ? ' in ' + periodRange.label.toLowerCase() : ''}.
+              </p>
+              <table className="table" style={{ marginTop: 8 }}>
+                <thead>
+                  <tr><th>Pay date</th><th>Run</th><th>Cycle</th><th>Period</th><th>Days</th><th>Gross</th><th>SSNIT</th><th>PAYE</th><th>Net</th><th>Status</th><th /></tr>
+                </thead>
+                <tbody>
+                  {history.payslips.map((s) => (
+                    <tr key={s.id}>
+                      <td>{fmtDate(s.payDate)}</td>
+                      <td style={{ fontWeight: 600 }}>{s.runNo}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{s.cycle}</td>
+                      <td>{fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}</td>
+                      <td>{s.daysWorked}</td>
+                      <td>{fmtMoney(s.grossPay)}</td>
+                      <td>{fmtMoney(s.ssnitEmployee)}</td>
+                      <td>{fmtMoney(s.payeTax)}</td>
+                      <td style={{ fontWeight: 600 }}>{fmtMoney(s.netPay)}</td>
+                      <td><span className={'tag ' + tagClass(s.runStatus)}>{s.runStatus}</span></td>
+                      <td className="table-actions">
+                        <button type="button" className="btn btn-secondary payroll-row-btn" onClick={() => viewRunFromHistory(s.payRunId)}>View run</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!history.payslips.length && <p className="table-empty">No payslips for {history.employeeName} in this period.</p>}
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <table className="table" style={{ marginTop: 16 }}>
+            <thead>
+              <tr><th>Run</th><th>Cycle</th><th>Period</th><th>Pay date</th><th>Employees</th><th>Total net</th><th>Status</th><th /></tr>
+            </thead>
+            <tbody>
+              {visibleRuns.map((r) => (
+                <tr key={r.id}>
+                  <td style={{ fontWeight: 600 }}>{r.runNo}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{r.cycle}</td>
+                  <td>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</td>
+                  <td>{fmtDate(r.payDate)}</td>
+                  <td>{r.employeeCount}</td>
+                  <td>{fmtMoney(r.totalNet)}</td>
+                  <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
+                  <td className="table-actions">
+                    <button type="button" className="btn btn-secondary payroll-row-btn" onClick={() => openRun(r)}>View</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!runs.length && <p className="table-empty">No pay runs yet.</p>}
+          {!!runs.length && !visibleRuns.length && search && <p className="table-empty">No pay runs match "{search}".</p>}
+          {!!runs.length && !visibleRuns.length && !search && <p className="table-empty">No pay runs in this period.</p>}
+        </>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

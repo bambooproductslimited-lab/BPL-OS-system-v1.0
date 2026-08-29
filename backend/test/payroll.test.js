@@ -130,3 +130,40 @@ test('pay run: computes days worked from attendance, SSNIT/PAYE, draft -> approv
   var list = await (await fetch(base + '/api/payroll/runs', { headers: authed(albert) })).json();
   assert.ok(list.some(function (r) { return r.id === run.id; }));
 });
+
+test('payslip history: permission-gated, requires employeeId, filters by period, spans multiple runs', async function () {
+  var albert = await login('albert.awini@bplghana.com');
+  var alice = await login('alice.kamau@bplghana.com');
+
+  var employees = await (await fetch(base + '/api/employees', { headers: authed(albert) })).json();
+  var target = employees.find(function (e) { return e.email === 'alice.kamau@bplghana.com'; });
+
+  var deniedRead = await fetch(base + '/api/payroll/payslips?employeeId=' + target.id, { headers: authed(alice) });
+  assert.equal(deniedRead.status, 403);
+
+  var missingId = await fetch(base + '/api/payroll/payslips', { headers: authed(albert) });
+  assert.equal(missingId.status, 400);
+
+  // A second run in a later period, on top of the January run from the previous test.
+  var febRun = await (await fetch(base + '/api/payroll/runs', {
+    method: 'POST', headers: jsonAuthed(albert),
+    body: JSON.stringify({ cycle: 'biweekly', periodStart: '2026-02-01', periodEnd: '2026-02-14', payDate: '2026-02-16' })
+  })).json();
+
+  var allHistory = await (await fetch(base + '/api/payroll/payslips?employeeId=' + target.id, { headers: authed(albert) })).json();
+  assert.equal(allHistory.employeeId, target.id);
+  assert.ok(allHistory.payslips.length >= 2);
+  assert.ok(allHistory.payslips[0].payDate >= allHistory.payslips[allHistory.payslips.length - 1].payDate); // newest first
+  assert.ok(allHistory.payslips.some(function (s) { return s.runNo === febRun.runNo; }));
+
+  var febOnly = await (await fetch(
+    base + '/api/payroll/payslips?employeeId=' + target.id + '&from=2026-02-01&to=2026-02-28', { headers: authed(albert) }
+  )).json();
+  assert.ok(febOnly.payslips.length >= 1);
+  assert.ok(febOnly.payslips.every(function (s) { return s.runNo === febRun.runNo; }));
+
+  var janOnly = await (await fetch(
+    base + '/api/payroll/payslips?employeeId=' + target.id + '&from=2026-01-01&to=2026-01-31', { headers: authed(albert) }
+  )).json();
+  assert.ok(janOnly.payslips.every(function (s) { return s.runNo !== febRun.runNo; }));
+});

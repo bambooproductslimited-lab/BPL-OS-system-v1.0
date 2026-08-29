@@ -9,6 +9,10 @@ router.get('/runs', async function (req, res, next) {
   try { res.json(await payrollService.list(req.ctx)); } catch (e) { next(e); }
 });
 
+router.get('/payslips', async function (req, res, next) {
+  try { res.json(await payrollService.payslipHistory(req.ctx, req.query.employeeId, req.query.from, req.query.to)); } catch (e) { next(e); }
+});
+
 router.get('/runs/:id', async function (req, res, next) {
   try { res.json(await payrollService.get(req.ctx, req.params.id)); } catch (e) { next(e); }
 });

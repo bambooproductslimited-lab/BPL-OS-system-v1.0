@@ -54,6 +54,37 @@ async function computeSlipFields(db, dailyRate, daysWorked, periodScale) {
   return { grossPay: grossPay, ssnitEmployee: ssnitEmployee, ssnitEmployer: ssnitEmployer, taxableIncome: taxableIncome, payeTax: payeTax, netPay: netPay };
 }
 
+// payroll.payslipHistory — one employee's payslips across every run,
+// newest pay date first, optionally narrowed to a period. Used by the
+// Payroll screen's employee filter so admins can see one person's pay
+// history instead of hunting through each run.
+async function payslipHistory(ctx, employeeId, from, to) {
+  if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
+  if (!employeeId) fail('invalid', 'employeeId is required.');
+  var empRes = await pool.query('SELECT id, code, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
+  var employee = empRes.rows[0];
+  if (!employee) fail('notfound', 'Employee not found.');
+
+  var where = ['p.employee_id = $1'];
+  var params = [employeeId];
+  if (from) { params.push(V.date(from, 'From date')); where.push('pr.period_end >= $' + params.length); }
+  if (to) { params.push(V.date(to, 'To date')); where.push('pr.period_start <= $' + params.length); }
+
+  var res = await pool.query(
+    'SELECT p.*, pr.run_no, pr.cycle, pr.period_start, pr.period_end, pr.pay_date, pr.status AS run_status ' +
+    'FROM payslips p JOIN pay_runs pr ON pr.id = p.pay_run_id ' +
+    'WHERE ' + where.join(' AND ') + ' ORDER BY pr.pay_date DESC',
+    params
+  );
+  var payslips = res.rows.map(function (r) {
+    return rowToPayslip(r, {
+      runNo: r.run_no, cycle: r.cycle, periodStart: r.period_start, periodEnd: r.period_end,
+      payDate: r.pay_date, runStatus: r.run_status
+    });
+  });
+  return { employeeId: employee.id, employeeCode: employee.code, employeeName: employee.first_name + ' ' + employee.last_name, payslips: payslips };
+}
+
 // payroll.listRuns
 async function list(ctx) {
   if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
@@ -186,4 +217,4 @@ async function markPaid(ctx, id) {
   return get(ctx, id);
 }
 
-module.exports = { list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid };
+module.exports = { list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, payslipHistory: payslipHistory };
