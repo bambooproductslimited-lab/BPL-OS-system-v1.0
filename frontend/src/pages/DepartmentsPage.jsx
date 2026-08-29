@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -24,6 +24,7 @@ export default function DepartmentsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const formRef = useRef(null);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [dialogError, setDialogError] = useState(null);
@@ -63,6 +64,16 @@ export default function DepartmentsPage() {
     setEditId(dept.id);
     setForm({ code: dept.code, name: dept.name, managerId: dept.managerId || '' });
   }
+
+  // The edit form is inline at the bottom of the page, not a modal — with a
+  // long group list it's below the fold, so clicking "Edit" looked like it
+  // did nothing. Scroll it into view and focus the name field instead.
+  useEffect(() => {
+    if (!editId || !formRef.current) return;
+    formRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const nameInput = formRef.current.querySelector('#dept-name');
+    if (nameInput) nameInput.focus();
+  }, [editId]);
 
   function cancelEdit() {
     setEditId(null);
@@ -135,7 +146,7 @@ export default function DepartmentsPage() {
       {!!departments.length && !visibleDepartments.length && <p className="table-empty">No groups match "{search}".</p>}
 
       {canManage && (
-        <form className="card departments-form" onSubmit={handleSubmit}>
+        <form className="card departments-form" ref={formRef} onSubmit={handleSubmit}>
           <div className="field departments-form-code">
             <label htmlFor="dept-code">Code</label>
             <input id="dept-code" className="input" maxLength={5} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="PKG" required />
