@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
@@ -8,12 +8,63 @@ import './EmployeesPage.css';
 // Ported from Bamboo OS.dc.html's employee directory screen (screens.people
 // block) — search/department filter, show-terminated toggle, the
 // add/edit employee dialog, and the terminate + purge-terminated
-// confirmation dialogs.
+// confirmation dialogs. The directory list itself is redesigned around the
+// avatar/icon language established for Messages/Login/Dashboard; every
+// dialog (add/edit, terminate, purge, kiosk PIN, TimeStation sync) is
+// left as-is — this page is complex enough already that reskinning the
+// list view is the highest-value, lowest-risk change.
 
 function tagClass(status) {
   if (status === 'terminated') return 'tag-accent';
   if (status === 'active') return 'tag-neutral';
   return 'tag-outline';
+}
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(first, last) { return ((first ? first[0] : '') + (last ? last[0] : '')).toUpperCase(); }
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name) % AVATAR_COLORS.length]; }
+
+// Row actions beyond "View" (Edit/ID docs/Kiosk PIN/Delete) are tucked
+// behind this menu instead of five buttons crowding every row — same
+// click-outside-to-close pattern as DateRangePicker.jsx.
+function RowMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function onDocClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+  return (
+    <div className="employees-row-menu" ref={ref}>
+      <button type="button" className="employees-row-menu-trigger" aria-label="More actions" onClick={() => setOpen((o) => !o)}>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+          <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+          <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <div className="employees-row-menu-panel">
+          {items.map((it) => (
+            <button
+              key={it.label}
+              type="button"
+              className={'employees-row-menu-item' + (it.tone === 'danger' ? ' employees-row-menu-item-danger' : '')}
+              onClick={() => { setOpen(false); it.onClick(); }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const EMPLOYMENT_TYPES = [
@@ -336,7 +387,14 @@ export default function EmployeesPage() {
       <div className="employees-toolbar">
         <div className="field employees-search">
           <label htmlFor="emp-q">Search name, code, job title</label>
-          <input id="emp-q" className="input" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="e.g. operator" />
+          <div className="search-input-wrap">
+            <svg className="search-input-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M18 18L14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <input id="emp-q" className="input search-input" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="e.g. operator" />
+            {qInput && <button type="button" className="search-input-clear" aria-label="Clear search" onClick={() => setQInput('')}>×</button>}
+          </div>
         </div>
         <div className="field employees-dept-filter">
           <label htmlFor="emp-dept">Group</label>
@@ -368,10 +426,23 @@ export default function EmployeesPage() {
         <tbody>
           {employees.map((p) => {
             const canDelete = canWrite && p.status !== 'terminated' && p.id !== (session && session.employee && session.employee.id);
+            const menuItems = [
+              canWrite && { label: 'Edit', onClick: () => openEdit(p) },
+              canWrite && { label: 'ID docs', onClick: () => setIdDocsTarget(p) },
+              canWrite && { label: 'Kiosk PIN', onClick: () => openKioskPin(p) },
+              canDelete && { label: 'Delete', onClick: () => openTerminate(p), tone: 'danger' }
+            ].filter(Boolean);
             return (
               <tr key={p.id}>
                 <td style={{ fontVariantNumeric: 'tabular-nums' }}>{p.code}</td>
-                <td style={{ fontWeight: 600 }}>{p.firstName} {p.lastName}</td>
+                <td>
+                  <div className="employees-name-cell">
+                    <span className="employees-avatar" style={{ background: avatarColor(p.firstName + ' ' + p.lastName) }}>
+                      {initials(p.firstName, p.lastName)}
+                    </span>
+                    <span style={{ fontWeight: 600 }}>{p.firstName} {p.lastName}</span>
+                  </div>
+                </td>
                 <td>{p.positionTitle}</td>
                 <td>{deptName(p.departmentId)}</td>
                 <td>{p.managerId ? empName(p.managerId) : '—'}</td>
@@ -379,17 +450,23 @@ export default function EmployeesPage() {
                 <td><span className={'tag ' + tagClass(p.status)}>{p.status}</span></td>
                 <td className="table-actions">
                   <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setProfileTarget(p.id)}>View</button>
-                  {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openEdit(p)}>Edit</button>}
-                  {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setIdDocsTarget(p)}>ID docs</button>}
-                  {canWrite && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openKioskPin(p)}>Kiosk PIN</button>}
-                  {canDelete && <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => openTerminate(p)}>Delete</button>}
+                  {menuItems.length > 0 && <RowMenu items={menuItems} />}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {!employees.length && <p className="table-empty">No employees match this filter.</p>}
+      {!employees.length && (
+        <div className="employees-empty-state">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="employees-empty-icon">
+            <circle cx="12" cy="8" r="3.4" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+          <p className="employees-empty-title">No employees match this filter</p>
+          <p className="employees-empty-sub">Try a different search or group.</p>
+        </div>
+      )}
       <p className="employees-footer">{footer}</p>
 
       {dialog === 'employee' && (

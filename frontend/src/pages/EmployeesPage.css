@@ -31,6 +31,78 @@
 .employees-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 .employees-footer { margin: 12px 0 0; font-size: 12px; color: var(--color-text-muted); }
 
+/* ── avatar + name cell ─────────────────────────────────────────────── */
+.employees-name-cell { display: flex; align-items: center; gap: 10px; }
+.employees-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── row actions overflow menu ──────────────────────────────────────── */
+.employees-row-menu { position: relative; display: inline-block; margin-left: 6px; }
+.employees-row-menu-trigger {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius);
+  border: var(--divider-width) solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.employees-row-menu-trigger svg { width: 16px; height: 16px; }
+.employees-row-menu-trigger:hover { border-color: var(--color-text); color: var(--color-text); }
+
+.employees-row-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 150px;
+  background: var(--color-bg);
+  border: var(--divider-width) solid var(--color-divider);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+.employees-row-menu-item {
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 13px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text);
+}
+.employees-row-menu-item:hover { background: var(--color-bg-subtle); }
+.employees-row-menu-item-danger { color: var(--color-danger); }
+.employees-row-menu-item-danger:hover { background: var(--color-danger-100); }
+
+/* ── empty state ────────────────────────────────────────────────────── */
+.employees-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  color: var(--color-text-muted);
+}
+.employees-empty-icon { width: 40px; height: 40px; color: var(--color-text-faint); margin-bottom: 8px; }
+.employees-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+.employees-empty-sub { font-size: 12.5px; margin: 0; }
+
 .employees-dialog {
   max-width: 620px;
   display: grid;
