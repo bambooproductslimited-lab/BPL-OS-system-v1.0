@@ -11,6 +11,44 @@ import './AttendancePage.css';
 // block + the attendance/attSummary computed values around its render()).
 // Clock in/out lives on the "My space" screen, not here — this screen is
 // the manager/HR roster view for a given day.
+//
+// Redesigned around the roster/summary/toolbar view — icon summary tiles
+// (matching Dashboard's KPI tiles), initials avatars on each row (matching
+// Messages/Login/Employees), and an icon'd empty state. The TimeStation
+// sync and report dialogs are left functionally and visually as-is: this
+// page already carries a lot of write/batch logic, so reskinning the list
+// view is the highest-value, lowest-risk change.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  users: <><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
+  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
+  xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
+  calendar: <><rect x="4" y="5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
+function EmptyState({ title, sub }) {
+  return (
+    <div className="attendance-empty-state">
+      <span className="attendance-empty-icon"><Icon name="calendar" /></span>
+      <p className="attendance-empty-title">{title}</p>
+      {sub && <p className="attendance-empty-sub">{sub}</p>}
+    </div>
+  );
+}
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -131,20 +169,20 @@ export default function AttendancePage() {
     .filter((r) => matchesQuery(search, r.name, r.code, r.department))
     .filter((r) => !statusFilter || r.status === statusFilter);
   const summary = [
-    { label: 'In scope', value: rows.length },
-    { label: 'Present', value: rows.filter((r) => r.status === 'present').length },
-    { label: 'Late', value: rows.filter((r) => r.status === 'late').length },
-    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length }
+    { label: 'In scope', value: rows.length, icon: 'users', tone: 'people' },
+    { label: 'Present', value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people' },
+    { label: 'Late', value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning' },
+    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger' }
   ];
 
   const visiblePeriodRows = periodRows
     .filter((r) => matchesQuery(search, r.name, r.code, r.department))
     .filter((r) => !statusFilter || r[statusFilter] > 0);
   const periodSummary = [
-    { label: 'Employees with records', value: periodRows.length },
-    { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0) },
-    { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0) },
-    { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0) }
+    { label: 'Employees with records', value: periodRows.length, icon: 'users', tone: 'people' },
+    { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people' },
+    { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning' },
+    { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger' }
   ];
 
   function openCorrection(row) {
@@ -308,21 +346,27 @@ export default function AttendancePage() {
           <label>Period</label>
           <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>
-        {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
-        <button type="button" className="btn btn-secondary" onClick={openReport}>Download report</button>
-        <div className="attendance-summary">
-          {(isSingleDay ? summary : periodSummary).map((s) => (
-            <div key={s.label}>
-              <div className="attendance-summary-label">{s.label}</div>
-              <div className="attendance-summary-value">{s.value}</div>
-            </div>
-          ))}
+        <div className="attendance-toolbar-actions">
+          {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
+          <button type="button" className="btn btn-secondary" onClick={openReport}>Download report</button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="attendance-summary">
+        {(isSingleDay ? summary : periodSummary).map((s) => (
+          <div className={'attendance-summary-tile attendance-summary-tile-' + s.tone} key={s.label}>
+            <span className="attendance-summary-icon"><Icon name={s.icon} /></span>
+            <div>
+              <div className="attendance-summary-value">{s.value}</div>
+              <div className="attendance-summary-label">{s.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="attendance-filters">
         <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, group…" />
-        <select className="input" style={{ maxWidth: 200 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+        <select className="input attendance-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="present">Present</option>
           <option value="late">Late</option>
@@ -349,7 +393,12 @@ export default function AttendancePage() {
               {visibleRows.map((r) => (
                 <tr key={r.employeeId}>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
-                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td>
+                    <div className="attendance-name-cell">
+                      <span className="attendance-avatar" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span>
+                      <span style={{ fontWeight: 600 }}>{r.name}</span>
+                    </div>
+                  </td>
                   <td>{r.department}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'}</td>
@@ -365,7 +414,7 @@ export default function AttendancePage() {
               ))}
             </tbody>
           </table>
-          {!rows.length && <p className="table-empty">No employees in scope for this date.</p>}
+          {!rows.length && <EmptyState title="No employees in scope for this date" />}
           {!!rows.length && !visibleRows.length && (
             <p className="table-empty">
               No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
@@ -382,7 +431,12 @@ export default function AttendancePage() {
               {visiblePeriodRows.map((r) => (
                 <tr key={r.employeeId}>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
-                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td>
+                    <div className="attendance-name-cell">
+                      <span className="attendance-avatar" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span>
+                      <span style={{ fontWeight: 600 }}>{r.name}</span>
+                    </div>
+                  </td>
                   <td>{r.department}</td>
                   <td>{r.present}</td>
                   <td>{r.late}</td>
@@ -394,7 +448,7 @@ export default function AttendancePage() {
               ))}
             </tbody>
           </table>
-          {!periodRows.length && <p className="table-empty">No attendance records in this range.</p>}
+          {!periodRows.length && <EmptyState title="No attendance records in this range" />}
           {!!periodRows.length && !visiblePeriodRows.length && (
             <p className="table-empty">
               No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
