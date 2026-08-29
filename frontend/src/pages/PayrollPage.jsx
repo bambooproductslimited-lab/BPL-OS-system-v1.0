@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import DateRangePicker from '../components/DateRangePicker';
 import './PayrollPage.css';
 
 // Payroll: employees are paid a daily rate on one of three cycles (monthly,
@@ -47,6 +48,7 @@ export default function PayrollPage() {
   const [editingSlip, setEditingSlip] = useState(null);
   const [editDays, setEditDays] = useState('');
   const [search, setSearch] = useState('');
+  const [periodRange, setPeriodRange] = useState({ from: null, to: null, presetKey: 'all', label: 'All time' });
 
   const load = useCallback(async () => {
     setError(null);
@@ -152,19 +154,27 @@ export default function PayrollPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visibleRuns = runs.filter((r) => matchesQuery(search, r.runNo, r.cycle, r.status));
+  const periodFiltered = periodRange.from && periodRange.to
+    ? runs.filter((r) => r.periodStart <= periodRange.to && r.periodEnd >= periodRange.from)
+    : runs;
+  const visibleRuns = periodFiltered.filter((r) => matchesQuery(search, r.runNo, r.cycle, r.status));
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {canManage && (
-        <div className="payroll-toolbar">
-          <button type="button" className="btn btn-primary" onClick={openNew}>New pay run</button>
+      <div className="payroll-toolbar">
+        <div className="payroll-filters">
+          <div className="field payroll-period">
+            <label>Pay period</label>
+            <DateRangePicker value={periodRange} onChange={setPeriodRange} showAllTime />
+          </div>
+          <SearchInput value={search} onChange={setSearch} placeholder="Search pay runs…" />
         </div>
-      )}
-
-      <SearchInput value={search} onChange={setSearch} placeholder="Search pay runs…" />
+        {canManage && (
+          <button type="button" className="btn btn-primary" onClick={openNew}>New pay run</button>
+        )}
+      </div>
 
       <table className="table" style={{ marginTop: 16 }}>
         <thead>
@@ -188,7 +198,8 @@ export default function PayrollPage() {
         </tbody>
       </table>
       {!runs.length && <p className="table-empty">No pay runs yet.</p>}
-      {!!runs.length && !visibleRuns.length && <p className="table-empty">No pay runs match "{search}".</p>}
+      {!!runs.length && !visibleRuns.length && search && <p className="table-empty">No pay runs match "{search}".</p>}
+      {!!runs.length && !visibleRuns.length && !search && <p className="table-empty">No pay runs in this period.</p>}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

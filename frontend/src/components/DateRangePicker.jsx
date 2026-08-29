@@ -32,10 +32,10 @@ function fmt(iso) {
   return new Date(iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function DateRangePicker({ value, onChange }) {
+export default function DateRangePicker({ value, onChange, showAllTime }) {
   const [open, setOpen] = useState(false);
-  const [customFrom, setCustomFrom] = useState(value.from);
-  const [customTo, setCustomTo] = useState(value.to);
+  const [customFrom, setCustomFrom] = useState(value.from || '');
+  const [customTo, setCustomTo] = useState(value.to || '');
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export default function DateRangePicker({ value, onChange }) {
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  useEffect(() => { setCustomFrom(value.from); setCustomTo(value.to); }, [value.from, value.to]);
+  useEffect(() => { setCustomFrom(value.from || ''); setCustomTo(value.to || ''); }, [value.from, value.to]);
 
   function choosePreset(preset) {
     var range = preset.range();
@@ -54,6 +54,10 @@ export default function DateRangePicker({ value, onChange }) {
   function applyCustom() {
     if (!customFrom || !customTo || customTo < customFrom) return;
     onChange({ from: customFrom, to: customTo, presetKey: 'custom', label: fmt(customFrom) + ' – ' + fmt(customTo) });
+    setOpen(false);
+  }
+  function chooseAllTime() {
+    onChange({ from: null, to: null, presetKey: 'all', label: 'All time' });
     setOpen(false);
   }
 
@@ -66,6 +70,12 @@ export default function DateRangePicker({ value, onChange }) {
       {open && (
         <div className="drp-panel">
           <div className="drp-presets">
+            {showAllTime && (
+              <button type="button" className="drp-preset-row" onClick={chooseAllTime}>
+                <span className="drp-preset-check">{value.presetKey === 'all' ? '✓' : ''}</span>
+                All time
+              </button>
+            )}
             {PRESETS.map((p) => (
               <button type="button" key={p.key} className="drp-preset-row" onClick={() => choosePreset(p)}>
                 <span className="drp-preset-check">{value.presetKey === p.key ? '✓' : ''}</span>

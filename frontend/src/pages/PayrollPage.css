@@ -1,8 +1,20 @@
 .payroll-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
+
+.payroll-filters {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.payroll-period { min-width: 200px; }
 
 .payroll-row-btn { font-size: 12px; padding: 6px 10px; }
 
