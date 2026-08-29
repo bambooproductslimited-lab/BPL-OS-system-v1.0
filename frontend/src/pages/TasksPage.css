@@ -33,11 +33,86 @@
   text-decoration: underline;
 }
 
-.tasks-comment-count { font-size: 11px; color: var(--color-text-muted); }
 .tasks-date-input { font-size: 12px; padding: 4px 6px; }
 .tasks-status-select { font-size: 12px; padding: 4px 8px; }
 .tasks-overdue { font-size: 11px; color: var(--color-accent); margin-top: 2px; font-weight: 600; }
 .tasks-row-btn { font-size: 12px; padding: 6px 10px; }
+
+/* ── overdue badge ──────────────────────────────────────────────────── */
+.tasks-overdue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--color-danger-100);
+  color: var(--color-danger);
+  margin-left: auto;
+}
+.tasks-overdue-badge svg { width: 13px; height: 13px; }
+
+/* ── comment count badge ───────────────────────────────────────────── */
+.tasks-comment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-left: 6px;
+}
+.tasks-comment-badge svg { width: 12px; height: 12px; }
+
+/* ── assignee avatar stack ─────────────────────────────────────────── */
+.tasks-assignee-stack { display: flex; align-items: center; }
+.tasks-assignee-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 9.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-bg);
+  flex-shrink: 0;
+}
+.tasks-assignee-avatar + .tasks-assignee-avatar { margin-left: -8px; }
+.tasks-assignee-extra { background: var(--color-text-faint); }
+.tasks-unassigned { font-size: 12px; color: var(--color-text-faint); }
+
+/* ── comment author avatar ─────────────────────────────────────────── */
+.tasks-comment-author { display: flex; align-items: center; gap: 6px; }
+.tasks-comment-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 8.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── empty state ────────────────────────────────────────────────────── */
+.tasks-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.tasks-empty-icon { width: 40px; height: 40px; color: var(--color-text-faint); margin-bottom: 8px; }
+.tasks-empty-icon svg { width: 100%; height: 100%; }
+.tasks-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+.tasks-empty-sub { font-size: 12.5px; margin: 0; }
 
 .tasks-detail-dialog { max-width: 600px; max-height: 88vh; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
 

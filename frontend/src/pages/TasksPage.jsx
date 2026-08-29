@@ -5,9 +5,45 @@ import './TasksPage.css';
 
 // Ported from Bamboo OS.dc.html's tasks screen (screens.tasks block + the
 // tasks/taskScopeFilters computed values, and the taskDetail dialog around
-// its render()).
+// its render()), redesigned around the icon/avatar language established
+// for Messages/Dashboard/My Space/Employees/Attendance/Leave: assignee
+// avatar stacks, a comment-count badge, an overdue indicator, avatars on
+// comment authors, and an icon'd empty state.
 
 const STATUS_OPTIONS = ['not_started', 'in_progress', 'waiting', 'under_review', 'completed', 'cancelled'];
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  checklist: <><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M8 12.5l2.3 2.3L16 9.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
+  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
+  message: <><rect x="3.5" y="5" width="17" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8 20l3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
+function AssigneeStack({ names }) {
+  if (!names.length) return <span className="tasks-unassigned">Unassigned</span>;
+  const shown = names.slice(0, 3);
+  const extra = names.length - shown.length;
+  return (
+    <div className="tasks-assignee-stack" title={names.join(', ')}>
+      {shown.map((n, i) => (
+        <span key={n + i} className="tasks-assignee-avatar" style={{ background: avatarColor(n), zIndex: shown.length - i }}>{initials(n)}</span>
+      ))}
+      {extra > 0 && <span className="tasks-assignee-avatar tasks-assignee-extra">+{extra}</span>}
+    </div>
+  );
+}
 
 function tagClass(status) {
   if (['approved', 'present', 'active', 'completed'].includes(status)) return 'tag-neutral';
@@ -224,6 +260,8 @@ export default function TasksPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
+  const overdueCount = tasks.filter((t) => t.overdue).length;
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -242,6 +280,9 @@ export default function TasksPage() {
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
         </select>
         <input className="input tasks-search" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search tasks…" />
+        {overdueCount > 0 && (
+          <span className="tasks-overdue-badge"><Icon name="clock" /> {overdueCount} overdue</span>
+        )}
       </div>
 
       {canManage && (
@@ -281,10 +322,12 @@ export default function TasksPage() {
             <tr key={t.id}>
               <td>
                 <button type="button" className="tasks-title-btn" onClick={() => openDetail(t)}>{t.title}</button>
-                {t.commentCount > 0 && <span className="tasks-comment-count"> ({t.commentCount})</span>}
+                {t.commentCount > 0 && (
+                  <span className="tasks-comment-badge"><Icon name="message" /> {t.commentCount}</span>
+                )}
               </td>
               <td>{t.projectName}</td>
-              <td style={{ fontSize: 13 }}>{t.assigneeNames.join(', ')}</td>
+              <td><AssigneeStack names={t.assigneeNames} /></td>
               <td><span className={'tag ' + priorityClass(t.priority)}>{t.priority}</span></td>
               <td>
                 <input type="date" className="input tasks-date-input" value={(t.createdAt || '').slice(0, 10)} disabled={!canManage} onChange={(e) => handleSetStarted(t, e.target.value)} />
@@ -305,7 +348,13 @@ export default function TasksPage() {
           ))}
         </tbody>
       </table>
-      {!tasks.length && <p className="table-empty">No tasks here.</p>}
+      {!tasks.length && (
+        <div className="tasks-empty-state">
+          <span className="tasks-empty-icon"><Icon name="checklist" /></span>
+          <p className="tasks-empty-title">No tasks here</p>
+          <p className="tasks-empty-sub">Nothing matches this scope, status, or search.</p>
+        </div>
+      )}
 
       {detail && (
         <div className="dialog-backdrop" onClick={() => setDetail(null)}>
@@ -369,7 +418,13 @@ export default function TasksPage() {
                   <h3>Comments</h3>
                   {detail.comments.map((c) => (
                     <div className="tasks-comment" key={c.id}>
-                      <div className="tasks-comment-head"><span>{c.authorName}</span><span>{fmtDate(c.at)}</span></div>
+                      <div className="tasks-comment-head">
+                        <span className="tasks-comment-author">
+                          <span className="tasks-comment-avatar" style={{ background: avatarColor(c.authorName) }}>{initials(c.authorName)}</span>
+                          {c.authorName}
+                        </span>
+                        <span>{fmtDate(c.at)}</span>
+                      </div>
                       <div className="tasks-comment-body">{c.body}</div>
                     </div>
                   ))}
