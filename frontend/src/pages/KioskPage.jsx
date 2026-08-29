@@ -26,10 +26,49 @@ import './KioskPage.css';
 // > Accessibility > Guided Access) pointed at this URL, so it can't be
 // swiped away to another app or tab — that's a device-level iOS setting,
 // nothing this page can enforce on its own.
+//
+// Redesigned to match the visual language established for Login/Messages/
+// Dashboard: hand-drawn SVG icons (no emoji — inconsistent across devices,
+// and this runs on whatever browser is on the mounted iPad), a gradient +
+// bamboo-grove decoration instead of flat color, and a full-screen color
+// wash on the result screen (green/red/amber) — the same "big confident
+// feedback" pattern real POS/kiosk terminals use, since the whole point of
+// this screen is being readable at a glance from a few feet away while
+// walking past it.
 
 const PIN_LENGTH = 4;
 const RESULT_DISPLAY_MS = 3500;
 const FLUSH_INTERVAL_MS = 20000;
+
+const ICON_PATHS = {
+  checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
+  exit: <><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /><path d="M20 12H9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /><path d="M16 8l4 4-4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
+  cloud: <path d="M7 18a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.2 8.06 4.5 4.5 0 0 1 17 17H7Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />,
+  xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
+  backspace: <><path d="M8 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8l-6-6 6-6Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="M13 10l4 4m0-4l-4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
+function KioskDecoration() {
+  // Same abstract bamboo-grove motif as the login page's brand panel —
+  // plain lines only, purely decorative, tuned for a full dark canvas.
+  const canes = [
+    { x: 60, top: 90 }, { x: 150, top: 220 }, { x: 250, top: 40 }, { x: 340, top: 180 },
+    { x: 430, top: 100 }, { x: 520, top: 250 }, { x: 610, top: 60 }, { x: 700, top: 190 }
+  ];
+  return (
+    <svg className="kiosk-deco" viewBox="0 0 760 500" fill="none" aria-hidden="true" preserveAspectRatio="xMidYMax slice">
+      <g stroke="#ffffff" strokeOpacity="0.06" strokeWidth="14" strokeLinecap="round">
+        {canes.map((c) => <line key={c.x} x1={c.x} y1="520" x2={c.x} y2={c.top} />)}
+      </g>
+      <g stroke="#ffffff" strokeOpacity="0.09" strokeWidth="14">
+        {canes.map((c) => [260, 380].filter((y) => y > c.top).map((y) => (
+          <line key={c.x + '-' + y} x1={c.x - 22} y1={y} x2={c.x + 22} y2={y} />
+        )))}
+      </g>
+    </svg>
+  );
+}
 
 function useClock() {
   const [now, setNow] = useState(new Date());
@@ -126,63 +165,67 @@ export default function KioskPage() {
   function tapBackspace() { if (!submitting) setPin(pin.slice(0, -1)); }
 
   return (
-    <div className="kiosk-root">
-      <div className="kiosk-header">
-        <div>
-          <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
-          {pendingCount > 0 && (
-            <div className="kiosk-pending-badge">{pendingCount} tap{pendingCount === 1 ? '' : 's'} syncing…</div>
-          )}
+    <div className={'kiosk-root' + (result ? ' kiosk-root-' + result.kind : '')}>
+      <KioskDecoration />
+      <div className="kiosk-content">
+        <div className="kiosk-header">
+          <div>
+            <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
+            {pendingCount > 0 && (
+              <div className="kiosk-pending-badge">
+                <Icon name="cloud" />
+                {pendingCount} tap{pendingCount === 1 ? '' : 's'} syncing…
+              </div>
+            )}
+          </div>
+          <div className="kiosk-clock">
+            <div className="kiosk-time">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div className="kiosk-date">{now.toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
+          </div>
         </div>
-        <div className="kiosk-clock">
-          <div className="kiosk-time">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-          <div className="kiosk-date">{now.toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
-        </div>
-      </div>
 
-      {result ? (
-        <div className={'kiosk-result ' + (result.kind === 'ok' ? 'kiosk-result-ok' : result.kind === 'pending' ? 'kiosk-result-pending' : 'kiosk-result-error')}>
-          {result.kind === 'ok' && (
-            <>
-              <div className="kiosk-result-icon">{result.action === 'in' ? '✓' : '👋'}</div>
-              <div className="kiosk-result-title">{result.action === 'in' ? 'Clocked in' : 'Clocked out'}</div>
-              <div className="kiosk-result-name">{result.employeeName}</div>
-              <div className="kiosk-result-time">{result.time}</div>
-            </>
-          )}
-          {result.kind === 'pending' && (
-            <>
-              <div className="kiosk-result-icon">☁</div>
-              <div className="kiosk-result-title">Recorded</div>
-              <div className="kiosk-result-name">No connection — this will sync automatically once you're back online.</div>
-            </>
-          )}
-          {result.kind === 'error' && (
-            <>
-              <div className="kiosk-result-icon">✕</div>
+        {result ? (
+          <div className="kiosk-result">
+            <div className="kiosk-result-badge">
+              <Icon name={result.kind === 'ok' ? (result.action === 'in' ? 'checkCircle' : 'exit') : result.kind === 'pending' ? 'cloud' : 'xCircle'} />
+            </div>
+            {result.kind === 'ok' && (
+              <>
+                <div className="kiosk-result-title">{result.action === 'in' ? 'Clocked in' : 'Clocked out'}</div>
+                <div className="kiosk-result-name">{result.employeeName}</div>
+                <div className="kiosk-result-time">{result.time}</div>
+              </>
+            )}
+            {result.kind === 'pending' && (
+              <>
+                <div className="kiosk-result-title">Recorded</div>
+                <div className="kiosk-result-name">No connection — this will sync automatically once you're back online.</div>
+              </>
+            )}
+            {result.kind === 'error' && (
               <div className="kiosk-result-title">{result.message}</div>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="kiosk-pad-wrap">
-          <div className="kiosk-prompt">Enter your PIN to clock in or out</div>
-          <div className="kiosk-pin-dots">
-            {Array.from({ length: PIN_LENGTH }).map((_, i) => (
-              <span key={i} className={'kiosk-pin-dot' + (i < pin.length ? ' kiosk-pin-dot-filled' : '')} />
-            ))}
+            )}
           </div>
-          <div className="kiosk-keypad">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-              <button key={d} type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
-            ))}
-            <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapClear}>Clear</button>
-            <button type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
-            <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapBackspace}>⌫</button>
+        ) : (
+          <div className="kiosk-pad-wrap">
+            <div className="kiosk-prompt">Enter your PIN to clock in or out</div>
+            <div className="kiosk-pin-dots">
+              {Array.from({ length: PIN_LENGTH }).map((_, i) => (
+                <span key={i} className={'kiosk-pin-dot' + (i < pin.length ? ' kiosk-pin-dot-filled' : '')} />
+              ))}
+            </div>
+            <div className="kiosk-keypad">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+                <button key={d} type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
+              ))}
+              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapClear}>Clear</button>
+              <button type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
+              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapBackspace} aria-label="Backspace"><Icon name="backspace" /></button>
+            </div>
+            {submitting && <div className="kiosk-loading">Checking…</div>}
           </div>
-          {submitting && <div className="kiosk-loading">Checking…</div>}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
