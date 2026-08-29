@@ -13,12 +13,49 @@ import './DocumentsPage.css';
 // signed URL is served with Content-Disposition: inline). Documents
 // created before storage was wired up have no file
 // (hasFile: false) and show a plain, non-clickable filename.
+//
+// Redesigned around the icon/avatar language established elsewhere:
+// file-type icons color-coded by extension (a classic document-library
+// pattern — PDF/Word/Excel/image read differently at a glance), an
+// uploader avatar, and an icon'd empty state.
 
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  doc: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  sheet: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M5 9.5h14M10.5 9.5v11" stroke="currentColor" strokeWidth="1.6" /></>,
+  image: <><rect x="4" y="4.5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="9" cy="10" r="1.6" stroke="currentColor" strokeWidth="1.5" /><path d="M5 16.5l4-4 3 3 3.5-4L20 16" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></>,
+  folder: <><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
+const EXT_KIND = {
+  pdf: { icon: 'doc', tone: 'danger' },
+  doc: { icon: 'doc', tone: 'ops' }, docx: { icon: 'doc', tone: 'ops' },
+  xls: { icon: 'sheet', tone: 'people' }, xlsx: { icon: 'sheet', tone: 'people' }, csv: { icon: 'sheet', tone: 'people' },
+  ppt: { icon: 'doc', tone: 'warning' }, pptx: { icon: 'doc', tone: 'warning' },
+  png: { icon: 'image', tone: 'finance' }, jpg: { icon: 'image', tone: 'finance' }, jpeg: { icon: 'image', tone: 'finance' }, gif: { icon: 'image', tone: 'finance' }, webp: { icon: 'image', tone: 'finance' }, svg: { icon: 'image', tone: 'finance' }
+};
+function fileKind(fileName) {
+  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  return EXT_KIND[ext] || { icon: 'doc', tone: 'muted' };
 }
 
 const EMPTY_FORM = { title: '', category: '', visibility: 'all' };
@@ -150,31 +187,52 @@ export default function DocumentsPage() {
           <tr><th>Title</th><th>Category</th><th>File</th><th>Visibility</th><th>Uploaded</th><th>By</th><th /></tr>
         </thead>
         <tbody>
-          {visibleDocuments.map((dc) => (
-            <tr key={dc.id}>
-              <td style={{ fontWeight: 600 }}>{dc.title}</td>
-              <td>{dc.category}</td>
-              <td className="documents-filename">
-                {dc.hasFile ? (
-                  <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handlePreview(dc)}>
-                    {downloadingId === dc.id ? 'Preparing…' : dc.fileName}
-                  </button>
-                ) : (
-                  <span title="Uploaded before file storage was set up — no file on record.">{dc.fileName}</span>
-                )}
-              </td>
-              <td><span className="tag tag-neutral">{visLabel(dc)}</span></td>
-              <td>{fmtDate((dc.uploadedAt || '').slice(0, 10))}</td>
-              <td>{dc.uploaderName}</td>
-              <td className="table-actions">
-                {canManage && <button type="button" className="btn btn-secondary documents-row-btn" onClick={() => setDeleteTarget(dc)}>Remove</button>}
-              </td>
-            </tr>
-          ))}
+          {visibleDocuments.map((dc) => {
+            const kind = fileKind(dc.fileName);
+            return (
+              <tr key={dc.id}>
+                <td style={{ fontWeight: 600 }}>{dc.title}</td>
+                <td>{dc.category}</td>
+                <td className="documents-filename">
+                  <div className="documents-file-cell">
+                    <span className={'documents-file-icon documents-file-icon-' + kind.tone}><Icon name={kind.icon} /></span>
+                    {dc.hasFile ? (
+                      <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handlePreview(dc)}>
+                        {downloadingId === dc.id ? 'Preparing…' : dc.fileName}
+                      </button>
+                    ) : (
+                      <span title="Uploaded before file storage was set up — no file on record.">{dc.fileName}</span>
+                    )}
+                  </div>
+                </td>
+                <td><span className="tag tag-neutral">{visLabel(dc)}</span></td>
+                <td>{fmtDate((dc.uploadedAt || '').slice(0, 10))}</td>
+                <td>
+                  <div className="documents-uploader-cell">
+                    <span className="documents-uploader-avatar" style={{ background: avatarColor(dc.uploaderName) }}>{initials(dc.uploaderName)}</span>
+                    {dc.uploaderName}
+                  </div>
+                </td>
+                <td className="table-actions">
+                  {canManage && <button type="button" className="btn btn-secondary documents-row-btn" onClick={() => setDeleteTarget(dc)}>Remove</button>}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-      {!documents.length && <p className="table-empty">No documents visible to your role.</p>}
-      {!!documents.length && !visibleDocuments.length && <p className="table-empty">No documents match "{search}".</p>}
+      {!documents.length && (
+        <div className="documents-empty-state">
+          <span className="documents-empty-icon"><Icon name="folder" /></span>
+          <p className="documents-empty-title">No documents visible to your role</p>
+        </div>
+      )}
+      {!!documents.length && !visibleDocuments.length && (
+        <div className="documents-empty-state">
+          <span className="documents-empty-icon"><Icon name="folder" /></span>
+          <p className="documents-empty-title">No documents match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

@@ -9,6 +9,57 @@
 .documents-filename { font-size: 12px; color: var(--color-text-muted); }
 .documents-row-btn { font-size: 12px; padding: 6px 10px; }
 
+/* ── file type icon ─────────────────────────────────────────────────── */
+.documents-file-cell { display: flex; align-items: center; gap: 8px; }
+.documents-file-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+}
+.documents-file-icon svg { width: 13px; height: 13px; }
+.documents-file-icon-people { --tile-tone: var(--color-accent); }
+.documents-file-icon-warning { --tile-tone: var(--color-warning); }
+.documents-file-icon-danger { --tile-tone: var(--color-danger); }
+.documents-file-icon-ops { --tile-tone: #3f5a7d; }
+.documents-file-icon-finance { --tile-tone: #7d3f5c; }
+.documents-file-icon-muted { --tile-tone: var(--color-text-faint); }
+
+/* ── uploader avatar ────────────────────────────────────────────────── */
+.documents-uploader-cell { display: flex; align-items: center; gap: 8px; }
+.documents-uploader-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── empty state ────────────────────────────────────────────────────── */
+.documents-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.documents-empty-icon { width: 40px; height: 40px; color: var(--color-text-faint); margin-bottom: 8px; }
+.documents-empty-icon svg { width: 100%; height: 100%; }
+.documents-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+
 .documents-dialog { max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
 .documents-dialog h2 { margin: 0; font-size: 20px; }
 
