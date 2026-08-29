@@ -12,6 +12,13 @@
 
 .myspace-clock { padding: 20px; }
 
+.myspace-clock-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .myspace-eyebrow {
   font-size: 10px;
   letter-spacing: 0.14em;
@@ -19,12 +26,48 @@
   color: var(--color-accent);
 }
 
+.myspace-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.myspace-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-faint); }
+.myspace-status-pill-on { background: var(--color-accent-100); color: var(--color-accent-800); }
+.myspace-status-pill-on .myspace-status-dot {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 60%, transparent);
+  animation: myspace-pulse 2s ease-in-out infinite;
+}
+
+@keyframes myspace-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent); }
+}
+
+.myspace-live-time {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 14px;
+}
+
 .myspace-headline {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 40px;
-  line-height: 1;
-  margin: 10px 0 4px;
+  font-size: 38px;
+  line-height: 1.05;
+  margin: 4px 0 4px;
 }
 
 .myspace-detail { font-size: 13px; color: var(--color-text-muted); }
@@ -34,7 +77,60 @@
   gap: 8px;
   margin-top: 18px;
 }
+.myspace-actions .btn svg { width: 17px; height: 17px; flex-shrink: 0; }
 
 .myspace-section-title { margin: 0 0 10px; font-size: 15px; }
 .myspace-note { color: var(--color-text-muted); }
 .myspace-row-btn { font-size: 12px; padding: 6px 10px; }
+
+/* ── leave balance cards ────────────────────────────────────────────── */
+.myspace-balance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.myspace-balance-card {
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.myspace-balance-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.myspace-balance-icon svg { width: 15px; height: 15px; }
+
+.myspace-balance-name { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.myspace-balance-remaining { font-family: var(--font-heading); font-weight: 800; font-size: 22px; margin-top: 2px; }
+.myspace-balance-unit { font-family: var(--font-body); font-weight: 500; font-size: 11px; color: var(--color-text-muted); }
+
+.myspace-balance-track { height: 5px; background: var(--color-bg-subtle); margin-top: 6px; }
+.myspace-balance-bar { height: 5px; background: var(--color-accent); }
+.myspace-balance-used { font-size: 10.5px; color: var(--color-text-faint); margin-top: 3px; }
+
+/* ── empty state ────────────────────────────────────────────────────── */
+.myspace-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.myspace-empty-icon { width: 40px; height: 40px; color: var(--color-text-faint); margin-bottom: 8px; }
+.myspace-empty-icon svg { width: 100%; height: 100%; }
+.myspace-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+.myspace-empty-sub { font-size: 12.5px; margin: 0 0 12px; }
