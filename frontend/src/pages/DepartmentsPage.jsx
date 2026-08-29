@@ -76,7 +76,7 @@ export default function DepartmentsPage() {
     try {
       const body = { code: form.code, name: form.name, managerId: form.managerId || null };
       const saved = editId ? await api.put('/departments/' + editId, body) : await api.post('/departments', body);
-      setToast('Department ' + saved.code + ' saved.');
+      setToast('Group ' + saved.code + ' saved.');
       setForm(EMPTY_FORM);
       setEditId(null);
       await load();
@@ -108,11 +108,11 @@ export default function DepartmentsPage() {
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search departments…" />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search groups…" />
 
       <table className="table" style={{ marginBottom: 20, marginTop: 16 }}>
         <thead>
-          <tr><th>Code</th><th>Department</th><th>Manager</th><th>Headcount</th><th /></tr>
+          <tr><th>Code</th><th>Group</th><th>Manager</th><th>Headcount</th><th /></tr>
         </thead>
         <tbody>
           {visibleDepartments.map((d) => (
@@ -131,8 +131,8 @@ export default function DepartmentsPage() {
           ))}
         </tbody>
       </table>
-      {!departments.length && <p className="table-empty">No departments yet.</p>}
-      {!!departments.length && !visibleDepartments.length && <p className="table-empty">No departments match "{search}".</p>}
+      {!departments.length && <p className="table-empty">No groups yet.</p>}
+      {!!departments.length && !visibleDepartments.length && <p className="table-empty">No groups match "{search}".</p>}
 
       {canManage && (
         <form className="card departments-form" onSubmit={handleSubmit}>
@@ -141,7 +141,7 @@ export default function DepartmentsPage() {
             <input id="dept-code" className="input" maxLength={5} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="PKG" required />
           </div>
           <div className="field departments-form-name">
-            <label htmlFor="dept-name">{editId ? 'Department name' : 'New department name'}</label>
+            <label htmlFor="dept-name">{editId ? 'Group name' : 'New group name'}</label>
             <input id="dept-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Packaging" required />
           </div>
           <div className="field departments-form-manager">
@@ -161,13 +161,13 @@ export default function DepartmentsPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete department</h2>
+            <h2>Delete group</h2>
             <p className="dialog-body">Delete <strong>{deleteTarget.name}</strong>? This cannot be undone.</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>
-                {deleting ? 'Deleting…' : 'Delete department'}
+                {deleting ? 'Deleting…' : 'Delete group'}
               </button>
             </div>
           </div>

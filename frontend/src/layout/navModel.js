@@ -11,7 +11,7 @@ export const NAV_GROUPS = [
   ] },
   { label: 'People', items: [
     { key: 'people', label: 'Employee directory', perm: 'employee.read' },
-    { key: 'departments', label: 'Departments', perm: 'employee.read' },
+    { key: 'departments', label: 'Groups', perm: 'employee.read' },
     { key: 'attendance', label: 'Attendance' },
     { key: 'leave', label: 'Leave' }
   ] },

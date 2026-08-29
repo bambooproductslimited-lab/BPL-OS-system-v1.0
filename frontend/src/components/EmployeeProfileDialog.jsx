@@ -109,7 +109,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
             </div>
 
             <div className="employee-profile-grid">
-              <div><div className="employee-profile-label">Department</div><div>{data.departmentName}</div></div>
+              <div><div className="employee-profile-label">Group</div><div>{data.departmentName}</div></div>
               <div><div className="employee-profile-label">Reports to</div><div>{data.managerName}</div></div>
               <div><div className="employee-profile-label">Work email</div><div>{e.email}</div></div>
               <div><div className="employee-profile-label">Phone</div><div>{e.phone || '—'}</div></div>

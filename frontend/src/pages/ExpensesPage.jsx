@@ -182,7 +182,7 @@ export default function ExpensesPage() {
 
       <table className="table" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Requester</th><th>Department</th><th>Category</th><th>Amount</th><th>Date</th><th>Description</th><th>Status</th><th /></tr>
+          <tr><th>Requester</th><th>Group</th><th>Category</th><th>Amount</th><th>Date</th><th>Description</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           {visibleExpenses.map((x) => {

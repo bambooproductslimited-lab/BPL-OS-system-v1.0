@@ -197,7 +197,7 @@ export default function DocumentsPage() {
               <label htmlFor="doc-visibility">Visibility</label>
               <select id="doc-visibility" className="input" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
                 <option value="all">All staff</option>
-                <option value="department">My department only</option>
+                <option value="department">My group only</option>
                 <option value="managers">Managers only</option>
               </select>
             </div>

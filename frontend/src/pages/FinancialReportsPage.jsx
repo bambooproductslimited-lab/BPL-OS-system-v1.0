@@ -205,7 +205,7 @@ export default function FinancialReportsPage() {
     const rows = [
       ['Expense Detail', from + ' to ' + to],
       [],
-      ['Date', 'Category', 'Department', 'Requester', 'Description', 'Amount (GHS)'],
+      ['Date', 'Category', 'Group', 'Requester', 'Description', 'Amount (GHS)'],
       ...expenseDetail.items.map((r) => [r.date, r.category, r.departmentName, r.requesterName, r.description, r.amount])
     ];
     downloadCsv('expense-detail-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
@@ -399,16 +399,16 @@ export default function FinancialReportsPage() {
                 </table>
               </section>
               <section>
-                <h2 className="finreport-section-title">By department</h2>
+                <h2 className="finreport-section-title">By group</h2>
                 <table className="table">
-                  <thead><tr><th>Department</th><th>Amount</th></tr></thead>
+                  <thead><tr><th>Group</th><th>Amount</th></tr></thead>
                   <tbody>{expenseDetail.byDepartment.map((r) => <tr key={r.department}><td>{r.department}</td><td>{money(r.amount)}</td></tr>)}</tbody>
                 </table>
               </section>
             </div>
             <h2 className="finreport-section-title">All expenses</h2>
             <table className="table">
-              <thead><tr><th>Date</th><th>Category</th><th>Department</th><th>Requester</th><th>Description</th><th>Amount</th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th>Group</th><th>Requester</th><th>Description</th><th>Amount</th></tr></thead>
               <tbody>
                 {expenseDetail.items.map((r, i) => (
                   <tr key={i}>

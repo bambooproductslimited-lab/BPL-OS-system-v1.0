@@ -160,7 +160,7 @@ export default function FinanceDashboardPage() {
         <section>
           <h2 className="finance-section-title">Expense claims awaiting a decision</h2>
           <table className="table">
-            <thead><tr><th>Category</th><th>Amount</th><th>Requester</th><th>Department</th></tr></thead>
+            <thead><tr><th>Category</th><th>Amount</th><th>Requester</th><th>Group</th></tr></thead>
             <tbody>
               {fin.pendingExpenses.map((e, i) => (
                 <tr key={i}>

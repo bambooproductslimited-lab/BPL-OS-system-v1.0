@@ -135,10 +135,10 @@ export default function ProcurementPage() {
         </form>
       )}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search item, requester, department…" />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search item, requester, group…" />
       <table className="table" style={{ marginTop: 12 }}>
         <thead>
-          <tr><th>Item</th><th>Qty</th><th>Requested by</th><th>Department</th><th>Est. cost</th><th>Needed by</th><th>Priority</th><th>Status</th><th /></tr>
+          <tr><th>Item</th><th>Qty</th><th>Requested by</th><th>Group</th><th>Est. cost</th><th>Needed by</th><th>Priority</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           {visibleRequests.map((r) => {

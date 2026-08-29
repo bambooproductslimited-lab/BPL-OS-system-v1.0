@@ -143,7 +143,7 @@ export default function ProjectsPage() {
               <input id="proj-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="proj-dept">Department</label>
+              <label htmlFor="proj-dept">Group</label>
               <select id="proj-dept" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} required>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>

@@ -228,7 +228,7 @@ export default function ItDevicesPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="it-department">Department</label>
+              <label htmlFor="it-department">Group</label>
               <select id="it-department" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
                 <option value="">Unassigned</option>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}

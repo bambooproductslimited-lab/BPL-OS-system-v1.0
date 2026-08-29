@@ -73,9 +73,9 @@ export default function DashboardPage() {
 
       <div className="dashboard-columns">
         <section>
-          <h2 className="dashboard-section-title">Attendance by department — today</h2>
+          <h2 className="dashboard-section-title">Attendance by group — today</h2>
           <table className="table">
-            <thead><tr><th>Department</th><th>Headcount</th><th>Clocked in</th><th style={{ width: 120 }}>Rate</th></tr></thead>
+            <thead><tr><th>Group</th><th>Headcount</th><th>Clocked in</th><th style={{ width: 120 }}>Rate</th></tr></thead>
             <tbody>
               {dash.departments.map((row) => (
                 <tr key={row.code}>
@@ -93,7 +93,7 @@ export default function DashboardPage() {
             </tbody>
           </table>
           {!dash.departments.length && (
-            <p className="dashboard-empty-note">No department attendance is visible to your role. Your own record is on My Space.</p>
+            <p className="dashboard-empty-note">No group attendance is visible to your role. Your own record is on My Space.</p>
           )}
         </section>
 

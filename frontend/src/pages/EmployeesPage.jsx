@@ -327,7 +327,7 @@ export default function EmployeesPage() {
 
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
   const footer = employees.length + ' record(s) visible to your role' +
-    (can('employee.read.all') ? ' — company-wide access.' : ' — limited to your department and reporting line.');
+    (can('employee.read.all') ? ' — company-wide access.' : ' — limited to your group and reporting line.');
 
   return (
     <div>
@@ -339,9 +339,9 @@ export default function EmployeesPage() {
           <input id="emp-q" className="input" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="e.g. operator" />
         </div>
         <div className="field employees-dept-filter">
-          <label htmlFor="emp-dept">Department</label>
+          <label htmlFor="emp-dept">Group</label>
           <select id="emp-dept" className="input" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
-            <option value="">All departments</option>
+            <option value="">All groups</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
@@ -363,7 +363,7 @@ export default function EmployeesPage() {
 
       <table className="table">
         <thead>
-          <tr><th>Code</th><th>Name</th><th>Job title</th><th>Department</th><th>Reports to</th><th>Shift</th><th>Status</th><th /></tr>
+          <tr><th>Code</th><th>Name</th><th>Job title</th><th>Group</th><th>Reports to</th><th>Shift</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           {employees.map((p) => {
@@ -412,9 +412,9 @@ export default function EmployeesPage() {
             <div className="field"><label htmlFor="emp-jt">Job title</label>
               <input id="emp-jt" className="input" value={form.positionTitle} onChange={(e) => setForm({ ...form, positionTitle: e.target.value })} required />
             </div>
-            <div className="field"><label htmlFor="emp-dept-sel">Department</label>
+            <div className="field"><label htmlFor="emp-dept-sel">Group</label>
               <select id="emp-dept-sel" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} required>
-                <option value="" disabled>Choose a department</option>
+                <option value="" disabled>Choose a group</option>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
@@ -562,8 +562,8 @@ export default function EmployeesPage() {
           <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
             <h2 className="employees-dialog-title">Sync from TimeStation</h2>
             <p className="dialog-body">
-              Pulls your live employee list from TimeStation (name, title, department, email, hourly rate, kiosk PIN).
-              Departments that don't already exist here are created automatically. Records with no email on
+              Pulls your live employee list from TimeStation (name, title, group, email, hourly rate, kiosk PIN).
+              Groups that don't already exist here are created automatically. Records with no email on
               TimeStation are shown with a blank field below — type one in to import that person, use "Fill in all
               missing emails" to import everyone at once with a placeholder address, or leave a field blank to skip
               just that person. Hourly rate is shown for reference only — HR still sets the real daily rate via
@@ -599,7 +599,7 @@ export default function EmployeesPage() {
                   <div className="itdevices-import-scroll">
                     <table className="table itdevices-import-table">
                       <thead>
-                        <tr><th>Name</th><th>Title</th><th>Department</th><th>Email</th><th>Rate (ref.)</th><th>Notes</th></tr>
+                        <tr><th>Name</th><th>Title</th><th>Group</th><th>Email</th><th>Rate (ref.)</th><th>Notes</th></tr>
                       </thead>
                       <tbody>
                         {effRows.map((r, i) => (

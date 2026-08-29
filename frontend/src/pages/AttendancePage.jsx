@@ -239,7 +239,7 @@ export default function AttendancePage() {
       ['Present', counts.present], ['Late', counts.late], ['Absent', counts.absent], ['Leave', counts.leave], ['Off', counts.off],
       ['Total records', reportData.rows.length],
       [],
-      ['Date', 'Employee', 'Code', 'Department', 'Clock in', 'Clock out', 'Status', 'Source', 'Note'],
+      ['Date', 'Employee', 'Code', 'Group', 'Clock in', 'Clock out', 'Status', 'Source', 'Note'],
       ...reportData.rows.map((r) => [r.date, r.name, r.code, r.department, r.clockIn || '', r.clockOut || '', r.status, r.source, r.note || ''])
     ];
     downloadCsv('attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.csv', rowsToCsv(rows));
@@ -279,7 +279,7 @@ export default function AttendancePage() {
       </div>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, department…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, group…" />
         <select className="input" style={{ maxWidth: 200 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="present">Present</option>
@@ -292,7 +292,7 @@ export default function AttendancePage() {
 
       <table className="table" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Code</th><th>Name</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
+          <tr><th>Code</th><th>Name</th><th>Group</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
         </thead>
         <tbody>
           {visibleRows.map((r) => (
@@ -522,7 +522,7 @@ export default function AttendancePage() {
                       <div className="itdevices-import-scroll">
                         <table className="table itdevices-import-table">
                           <thead>
-                            <tr><th>Date</th><th>Employee</th><th>Code</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Source</th></tr>
+                            <tr><th>Date</th><th>Employee</th><th>Code</th><th>Group</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Source</th></tr>
                           </thead>
                           <tbody>
                             {reportData.rows.map((r, i) => (

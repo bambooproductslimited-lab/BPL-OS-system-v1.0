@@ -209,7 +209,7 @@ export default function LeavePage() {
             </div>
           </div>
 
-          <SearchInput value={search} onChange={setSearch} placeholder="Search employee, department, type…" />
+          <SearchInput value={search} onChange={setSearch} placeholder="Search employee, group, type…" />
 
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table className="table">
