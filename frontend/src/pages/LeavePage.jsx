@@ -5,7 +5,11 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './LeavePage.css';
 
 // Ported from Bamboo OS.dc.html's leave screen (screens.leave block + the
-// leaveRows/leaveFilters/leaveHint computed values around its render()).
+// leaveRows/leaveFilters/leaveHint computed values around its render()),
+// redesigned around the icon/avatar language established for Messages/
+// Dashboard/My Space/Employees/Attendance: initials avatars on each row,
+// a balance chip on the request form, counts on the status tabs, and an
+// icon'd empty state.
 
 const STATUS_FILTERS = ['pending', 'approved', 'rejected', 'all'];
 
@@ -16,6 +20,25 @@ function tagClass(status) {
   if (status === 'rejected' || status === 'cancelled') return 'tag-accent';
   return 'tag-neutral';
 }
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
+  xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
+  calendar: <><rect x="4" y="5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
 // Ported from Bamboo OS.dc.html's fmtDate().
 function fmtDate(iso) {
@@ -136,9 +159,12 @@ export default function LeavePage() {
   const listTitle = can('leave.read.all') ? 'Leave requests in your scope' : 'My leave requests';
   const selectedType = leaveTypes.find((t) => t.id === form.leaveTypeId);
   const balance = selectedType && balances.find((b) => b.name === selectedType.name);
-  const hint = balance
-    ? balance.left + ' of ' + balance.entitled + ' days remaining. Sundays are not counted.'
-    : 'Sundays are not counted as leave days.';
+  const filterCounts = {
+    pending: leaveRequests.filter((l) => l.status === 'pending').length,
+    approved: leaveRequests.filter((l) => l.status === 'approved').length,
+    rejected: leaveRequests.filter((l) => l.status === 'rejected').length,
+    all: leaveRequests.length
+  };
 
   return (
     <div>
@@ -188,7 +214,13 @@ export default function LeavePage() {
               />
             </div>
 
-            <div className="leave-hint">{hint}</div>
+            {balance && (
+              <div className={'leave-balance-chip' + (balance.left <= 0 ? ' leave-balance-chip-empty' : '')}>
+                <span className="leave-balance-chip-icon"><Icon name="calendar" /></span>
+                <span><strong>{balance.left}</strong> of {balance.entitled} day(s) remaining</span>
+              </div>
+            )}
+            <div className="leave-hint">Sundays are not counted as leave days.</div>
 
             <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
               {submitting ? 'Submitting…' : 'Submit request'}
@@ -203,7 +235,7 @@ export default function LeavePage() {
               {STATUS_FILTERS.map((k) => (
                 <label className="seg-opt" key={k}>
                   <input type="radio" name="leave-filter" checked={filter === k} onChange={() => setFilter(k)} />
-                  <span>{k.charAt(0).toUpperCase() + k.slice(1)}</span>
+                  <span>{k.charAt(0).toUpperCase() + k.slice(1)}{filterCounts[k] > 0 ? ' (' + filterCounts[k] + ')' : ''}</span>
                 </label>
               ))}
             </div>
@@ -211,43 +243,60 @@ export default function LeavePage() {
 
           <SearchInput value={search} onChange={setSearch} placeholder="Search employee, group, type…" />
 
-          <div style={{ overflowX: 'auto', marginTop: 12 }}>
-            <table className="table">
-              <thead>
-                <tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th /></tr>
-              </thead>
-              <tbody>
-                {rows.map((l) => {
-                  const decidable = l.status === 'pending' && can('leave.approve') && l.employeeId !== employeeId;
-                  const cancellable = l.status === 'pending' && l.employeeId === employeeId;
-                  return (
-                    <tr key={l.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{l.employeeName}</div>
-                        <div className="leave-dept">{l.department}</div>
-                      </td>
-                      <td>{l.typeName}</td>
-                      <td style={{ fontSize: 13 }}>{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</td>
-                      <td>{l.days}</td>
-                      <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
-                      <td className="table-actions">
-                        {decidable && (
-                          <>
-                            <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'approved')}>Approve</button>
-                            <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'rejected')}>Reject</button>
-                          </>
-                        )}
-                        {cancellable && (
-                          <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => handleCancel(l)}>Cancel</button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {!rows.length && <p className="table-empty">Nothing matches this filter.</p>}
+          {rows.length > 0 && (
+            <div style={{ overflowX: 'auto', marginTop: 12 }}>
+              <table className="table">
+                <thead>
+                  <tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th /></tr>
+                </thead>
+                <tbody>
+                  {rows.map((l) => {
+                    const decidable = l.status === 'pending' && can('leave.approve') && l.employeeId !== employeeId;
+                    const cancellable = l.status === 'pending' && l.employeeId === employeeId;
+                    return (
+                      <tr key={l.id}>
+                        <td>
+                          <div className="leave-name-cell">
+                            <span className="leave-avatar" style={{ background: avatarColor(l.employeeName) }}>{initials(l.employeeName)}</span>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{l.employeeName}</div>
+                              <div className="leave-dept">{l.department}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>{l.typeName}</td>
+                        <td style={{ fontSize: 13 }}>{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</td>
+                        <td>{l.days}</td>
+                        <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
+                        <td className="table-actions">
+                          {decidable && (
+                            <>
+                              <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'approved')}>
+                                <Icon name="checkCircle" /> Approve
+                              </button>
+                              <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'rejected')}>
+                                <Icon name="xCircle" /> Reject
+                              </button>
+                            </>
+                          )}
+                          {cancellable && (
+                            <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => handleCancel(l)}>Cancel</button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!rows.length && (
+            <div className="leave-empty-state">
+              <span className="leave-empty-icon"><Icon name="calendar" /></span>
+              <p className="leave-empty-title">Nothing matches this filter</p>
+              <p className="leave-empty-sub">Try a different status or search.</p>
+            </div>
+          )}
         </section>
       </div>
 
