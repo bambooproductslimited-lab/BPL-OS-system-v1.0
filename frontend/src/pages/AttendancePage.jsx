@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import DateRangePicker from '../components/DateRangePicker';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
@@ -35,14 +36,34 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Only employees with at least one actual attendance record in the range
+// show up here — same "report what's really there, don't invent absence
+// rows for a period with nothing recorded" rule as /attendance/report
+// itself (see attendance.service.js). Called out in the UI with a caption
+// rather than left as a silent gap.
+function aggregateByEmployee(rows) {
+  const byEmp = {};
+  rows.forEach((r) => {
+    if (!byEmp[r.employeeId]) {
+      byEmp[r.employeeId] = { employeeId: r.employeeId, name: r.name, code: r.code, department: r.department, present: 0, late: 0, absent: 0, leave: 0, off: 0, total: 0 };
+    }
+    const e = byEmp[r.employeeId];
+    if (e[r.status] !== undefined) e[r.status]++;
+    e.total++;
+  });
+  return Object.values(byEmp).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 const CORRECTION_STATUSES = ['present', 'late', 'absent', 'leave', 'off'];
 
 export default function AttendancePage() {
   const { can } = useAuth();
   const canAdjust = can('attendance.adjust');
 
-  const [date, setDate] = useState(todayISO());
+  const [dateRange, setDateRange] = useState({ from: todayISO(), to: todayISO(), presetKey: 'today', label: 'Today' });
+  const isSingleDay = dateRange.from === dateRange.to;
   const [data, setData] = useState({ rows: [], scopeSize: 0 });
+  const [periodRows, setPeriodRows] = useState([]); // aggregated per-employee counts, used when the range spans more than one day
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -68,23 +89,34 @@ export default function AttendancePage() {
   const [syncProgress, setSyncProgress] = useState(null); // { done, total } while committing in batches
 
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportRange, setReportRange] = useState({ from: daysAgoISO(30), to: todayISO() });
+  const [reportRange, setReportRange] = useState({ from: daysAgoISO(29), to: todayISO(), presetKey: 'last30', label: 'Last 30 days' });
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
   const reportPrintRef = useRef(null);
 
+  // A single day keeps the exact roster this screen always had (one row per
+  // employee, editable). A wider range (a week/month/year picked via the
+  // range control below) switches to a per-employee period summary instead
+  // — one roster row per employee doesn't mean anything once "the day" is
+  // several days, so this reuses the same /attendance/report endpoint the
+  // "Download report" dialog already calls, just aggregated into counts.
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.get('/attendance?date=' + date);
-      setData(res);
+      if (isSingleDay) {
+        const res = await api.get('/attendance?date=' + dateRange.from);
+        setData(res);
+      } else {
+        const res = await api.get('/attendance/report?from=' + dateRange.from + '&to=' + dateRange.to);
+        setPeriodRows(aggregateByEmployee(res.rows));
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [dateRange, isSingleDay]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -105,6 +137,16 @@ export default function AttendancePage() {
     { label: 'No record', value: rows.filter((r) => r.status === 'absent').length }
   ];
 
+  const visiblePeriodRows = periodRows
+    .filter((r) => matchesQuery(search, r.name, r.code, r.department))
+    .filter((r) => !statusFilter || r[statusFilter] > 0);
+  const periodSummary = [
+    { label: 'Employees with records', value: periodRows.length },
+    { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0) },
+    { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0) },
+    { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0) }
+  ];
+
   function openCorrection(row) {
     setDialogError(null);
     setCorrection(row);
@@ -120,7 +162,7 @@ export default function AttendancePage() {
     setDialogError(null);
     try {
       await api.post('/attendance/adjust', {
-        id: correction.id || undefined, employeeId: correction.employeeId, date,
+        id: correction.id || undefined, employeeId: correction.employeeId, date: dateRange.from,
         clockIn: corrForm.clockIn, clockOut: corrForm.clockOut, status: corrForm.status, note: corrForm.note
       });
       setToast('Attendance corrected and logged.');
@@ -263,13 +305,13 @@ export default function AttendancePage() {
 
       <div className="attendance-toolbar">
         <div className="field attendance-date">
-          <label htmlFor="att-date">Date</label>
-          <input id="att-date" className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label>Period</label>
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>
         {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
         <button type="button" className="btn btn-secondary" onClick={openReport}>Download report</button>
         <div className="attendance-summary">
-          {summary.map((s) => (
+          {(isSingleDay ? summary : periodSummary).map((s) => (
             <div key={s.label}>
               <div className="attendance-summary-label">{s.label}</div>
               <div className="attendance-summary-value">{s.value}</div>
@@ -290,42 +332,82 @@ export default function AttendancePage() {
         </select>
       </div>
 
-      <table className="table" style={{ marginTop: 16 }}>
-        <thead>
-          <tr><th>Code</th><th>Name</th><th>Group</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleRows.map((r) => (
-            <tr key={r.employeeId}>
-              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
-              <td style={{ fontWeight: 600 }}>{r.name}</td>
-              <td>{r.department}</td>
-              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'}</td>
-              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'}</td>
-              <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
-              <td className="attendance-note">{r.note || '—'}</td>
-              <td className="table-actions">
-                {canAdjust && <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => openCorrection(r)}>Correct</button>}
-                {canAdjust && r.id && (
-                  <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => setDeleteTarget(r)}>Delete</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {!rows.length && <p className="table-empty">No employees in scope for this date.</p>}
-      {!!rows.length && !visibleRows.length && (
-        <p className="table-empty">
-          No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+      {!isSingleDay && (
+        <p className="eyebrow" style={{ marginTop: 12 }}>
+          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}, per-employee totals. Only employees with at least one
+          attendance record in this range are listed — pick a single day above to see and correct individual records.
         </p>
+      )}
+
+      {isSingleDay ? (
+        <>
+          <table className="table" style={{ marginTop: 16 }}>
+            <thead>
+              <tr><th>Code</th><th>Name</th><th>Group</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((r) => (
+                <tr key={r.employeeId}>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
+                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td>{r.department}</td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'}</td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'}</td>
+                  <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
+                  <td className="attendance-note">{r.note || '—'}</td>
+                  <td className="table-actions">
+                    {canAdjust && <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => openCorrection(r)}>Correct</button>}
+                    {canAdjust && r.id && (
+                      <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => setDeleteTarget(r)}>Delete</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!rows.length && <p className="table-empty">No employees in scope for this date.</p>}
+          {!!rows.length && !visibleRows.length && (
+            <p className="table-empty">
+              No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <table className="table" style={{ marginTop: 16 }}>
+            <thead>
+              <tr><th>Code</th><th>Name</th><th>Group</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th>Total</th></tr>
+            </thead>
+            <tbody>
+              {visiblePeriodRows.map((r) => (
+                <tr key={r.employeeId}>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
+                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td>{r.department}</td>
+                  <td>{r.present}</td>
+                  <td>{r.late}</td>
+                  <td>{r.absent}</td>
+                  <td>{r.leave}</td>
+                  <td>{r.off}</td>
+                  <td style={{ fontWeight: 600 }}>{r.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!periodRows.length && <p className="table-empty">No attendance records in this range.</p>}
+          {!!periodRows.length && !visiblePeriodRows.length && (
+            <p className="table-empty">
+              No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+            </p>
+          )}
+        </>
       )}
 
       {correction && (
         <div className="dialog-backdrop" onClick={() => setCorrection(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmCorrection}>
             <h2>Correct attendance</h2>
-            <p className="dialog-body">{correction.name} · {fmtDate(date)}</p>
+            <p className="dialog-body">{correction.name} · {fmtDate(dateRange.from)}</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="attendance-correction-grid">
               <div className="field">
@@ -359,7 +441,7 @@ export default function AttendancePage() {
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h2>Delete attendance record</h2>
-            <p className="dialog-body">Delete the record for <strong>{deleteTarget.name}</strong> ({fmtDate(date)})? This cannot be undone.</p>
+            <p className="dialog-body">Delete the record for <strong>{deleteTarget.name}</strong> ({fmtDate(dateRange.from)})? This cannot be undone.</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
@@ -488,15 +570,9 @@ export default function AttendancePage() {
                 Every attendance record in the date range below, scoped to what you can already see on this page —
                 everyone if you have company-wide access, otherwise just your own record.
               </p>
-              <div className="attendance-correction-grid">
-                <div className="field">
-                  <label htmlFor="report-from">From</label>
-                  <input id="report-from" className="input" type="date" value={reportRange.from} onChange={(e) => setReportRange({ ...reportRange, from: e.target.value })} />
-                </div>
-                <div className="field">
-                  <label htmlFor="report-to">To</label>
-                  <input id="report-to" className="input" type="date" value={reportRange.to} onChange={(e) => setReportRange({ ...reportRange, to: e.target.value })} />
-                </div>
+              <div className="field">
+                <label>Period</label>
+                <DateRangePicker value={reportRange} onChange={setReportRange} />
               </div>
               {reportError && <div className="error-banner">{reportError}</div>}
               <div className="dialog-actions">
