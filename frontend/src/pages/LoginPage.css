@@ -10,12 +10,33 @@
 }
 
 .login-brand {
+  position: relative;
+  overflow: hidden;
   color: #ffffff;
   padding: 48px 40px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  background: linear-gradient(160deg, var(--color-accent) 0%, var(--color-accent-700) 65%, var(--color-accent-800) 100%);
+}
+
+.login-brand-deco {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.login-brand-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
   justify-content: space-between;
-  background-color: var(--color-accent);
+  height: 100%;
+  min-height: 420px;
+  animation: login-fade-up 0.5s ease-out;
 }
 
 .login-logo {
@@ -29,6 +50,7 @@
   line-height: 0.95;
   letter-spacing: -0.02em;
   color: #ffffff;
+  margin-top: 28px;
 }
 
 .login-brand-sub {
@@ -40,11 +62,18 @@
 }
 
 .login-brand-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.8;
+  opacity: 0.85;
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  padding-top: 16px;
+  margin-top: 24px;
 }
+.login-brand-footer svg { width: 16px; height: 16px; flex-shrink: 0; }
 
 .login-form-wrap {
   display: flex;
@@ -58,6 +87,12 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  animation: login-fade-up 0.5s ease-out 0.05s both;
+}
+
+@keyframes login-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .login-form-title {
@@ -72,19 +107,102 @@
   color: var(--color-text-muted);
 }
 
-.login-demo-list {
+/* ── inputs with a leading icon (and a trailing toggle for password) ── */
+.login-input-wrap { position: relative; display: flex; align-items: center; }
+
+.login-input-icon {
+  position: absolute;
+  left: 12px;
+  width: 17px;
+  height: 17px;
+  color: var(--color-text-faint);
+  pointer-events: none;
+}
+
+.login-input { padding-left: 38px; width: 100%; }
+.login-input-wrap:focus-within .login-input-icon { color: var(--color-accent); }
+
+.login-input-toggle {
+  position: absolute;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.login-input-toggle svg { width: 18px; height: 18px; }
+.login-input-toggle:hover { color: var(--color-text); background: var(--color-bg-subtle); }
+
+/* ── demo account picker ────────────────────────────────────────────── */
+.login-demo-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+}
+.login-demo-toggle:hover { color: var(--color-text); }
+.login-demo-toggle-chevron { width: 14px; height: 14px; transition: transform 0.15s ease; }
+.login-demo-toggle-chevron.is-open { transform: rotate(180deg); }
+
+.login-demo {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  animation: login-fade-up 0.2s ease-out;
+}
+
+.login-demo-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+@media (max-width: 480px) {
+  .login-demo-list { grid-template-columns: 1fr; }
 }
 
-.login-demo-btn {
-  justify-content: space-between;
-  width: 100%;
-  font-size: 12px;
+.login-demo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 8px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-bg);
+  cursor: pointer;
+  font: inherit;
+}
+.login-demo-item:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
+
+.login-demo-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.login-demo-email {
-  opacity: 0.6;
-  font-weight: 400;
-}
+.login-demo-text { display: flex; flex-direction: column; min-width: 0; }
+.login-demo-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.login-demo-role { font-size: 10.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
