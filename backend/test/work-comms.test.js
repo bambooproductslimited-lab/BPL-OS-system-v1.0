@@ -48,7 +48,7 @@ test('project + task lifecycle: create, assign, self-service status change, comm
   var alice = await login('alice.kamau@bplghana.com');
 
   var depts = await (await fetch(base + '/api/departments', { headers: authed(admin) })).json();
-  var prodDept = depts.find(function (d) { return d.code === 'PRD'; });
+  var prodDept = depts.find(function (d) { return d.code === 'PROD'; });
   var aliceId = await employeeId(admin, 'alice.kamau@bplghana.com');
 
   var deniedProject = await fetch(base + '/api/projects', {
@@ -124,12 +124,12 @@ test('announcements: publish is permission-gated, audience scoping', async funct
 
 test('announcements: publishing notifies the audience (company-wide vs. department-scoped), never the publisher', async function () {
   var admin = await login('kelvin.duho@bplghana.com');
-  var alice = await login('alice.kamau@bplghana.com'); // Production department
-  var emmanuel = await login('emmanuel.chang@bplghana.com'); // IT department
+  var alice = await login('alice.kamau@bplghana.com'); // Productions department
+  var emmanuel = await login('emmanuel.chang@bplghana.com'); // I.T Department
 
   var depts = await (await fetch(base + '/api/departments', { headers: authed(admin) })).json();
-  var production = depts.find(function (d) { return d.name === 'Production'; });
-  assert.ok(production, 'seed data must include a Production department');
+  var production = depts.find(function (d) { return d.name === 'Productions'; });
+  assert.ok(production, 'seed data must include a Productions department');
 
   var unique = 'Notify test ' + Date.now();
   var published = await fetch(base + '/api/announcements', {
@@ -140,12 +140,12 @@ test('announcements: publishing notifies the audience (company-wide vs. departme
 
   var aliceNotifs = await (await fetch(base + '/api/notifications', { headers: authed(alice) })).json();
   var match = aliceNotifs.find(function (n) { return n.title === 'New announcement' && n.body === unique; });
-  assert.ok(match, 'Production employee should be notified of a Production-scoped announcement');
+  assert.ok(match, 'Productions employee should be notified of a Productions-scoped announcement');
   assert.equal(match.read, false);
   assert.equal(match.link, 'announcements');
 
   var emmanuelNotifs = await (await fetch(base + '/api/notifications', { headers: authed(emmanuel) })).json();
-  assert.ok(!emmanuelNotifs.some(function (n) { return n.body === unique; }), 'IT employee should not be notified of a Production-only announcement');
+  assert.ok(!emmanuelNotifs.some(function (n) { return n.body === unique; }), 'IT employee should not be notified of a Productions-only announcement');
 
   var adminNotifs = await (await fetch(base + '/api/notifications', { headers: authed(admin) })).json();
   assert.ok(!adminNotifs.some(function (n) { return n.body === unique; }), 'the publisher should not notify themself');

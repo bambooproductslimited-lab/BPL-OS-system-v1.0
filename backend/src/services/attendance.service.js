@@ -10,9 +10,11 @@ function nowHM() { return new Date().toTimeString().slice(0, 5); }
 // The OS now spans several businesses with genuinely different shifts (via
 // the TimeStation sync — factory, restaurant, security, construction crew,
 // etc.), so lateness can no longer be judged against one company-wide clock
-// time. An employee with a personal shift_start (employees.shift_start) is
-// judged against their own hours + a fixed grace window; everyone else
-// keeps exactly the old behavior — settings.late_after, unchanged.
+// time. Priority: the employee's assigned shift template (employees.shift_id
+// -> shifts.start_time — set per company/department, see migration 0032),
+// then a personal shift_start override (employees.shift_start, predates the
+// shift catalogue but still supported), then the old company-wide fallback
+// — settings.late_after, unchanged for anyone with neither.
 var LATE_GRACE_MINUTES = 20; // matches the historical default (shift 07:00, late after 07:20)
 function addMinutesToHM(hm, minutes) {
   var parts = hm.split(':').map(Number);
@@ -20,8 +22,12 @@ function addMinutesToHM(hm, minutes) {
   return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
 }
 async function resolveLateAfter(employeeId) {
-  var empRes = await pool.query('SELECT shift_start FROM employees WHERE id = $1', [employeeId]);
-  var shiftStart = empRes.rows[0] && empRes.rows[0].shift_start ? empRes.rows[0].shift_start.slice(0, 5) : null;
+  var empRes = await pool.query(
+    'SELECT e.shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
+    [employeeId]
+  );
+  var row = empRes.rows[0];
+  var shiftStart = row && (row.shift_tpl_start || row.shift_start) ? String(row.shift_tpl_start || row.shift_start).slice(0, 5) : null;
   if (shiftStart) return addMinutesToHM(shiftStart, LATE_GRACE_MINUTES);
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
   return settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20';

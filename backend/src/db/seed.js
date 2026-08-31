@@ -15,43 +15,107 @@ var { PERMISSIONS, ROLE_DEFS, defaultSettingsRow } = require('./referenceData');
 
 function uuid() { return crypto.randomUUID(); }
 
-// ── departments (final state incl. Information Technology from migration 17) ─
-var DEPT_DEFS = [
-  { key: 'd_exec', code: 'EXE', name: 'Executive Office', managerKey: 'e_002' },
-  { key: 'd_hr', code: 'HRA', name: 'Human Resources & Admin', managerKey: 'e_003' },
-  { key: 'd_fin', code: 'FIN', name: 'Finance', managerKey: 'e_003' },
-  { key: 'd_prod', code: 'PRD', name: 'Production', managerKey: 'e_011' },
-  { key: 'd_raw', code: 'RAW', name: 'Harvesting & Raw Bamboo', managerKey: 'e_006' },
-  { key: 'd_qc', code: 'QCL', name: 'Quality Control', managerKey: 'e_007' },
-  { key: 'd_sal', code: 'SAL', name: 'Sales & Marketing', managerKey: 'e_008' },
-  { key: 'd_log', code: 'LOG', name: 'Logistics & Warehouse', managerKey: 'e_009' },
-  { key: 'd_mnt', code: 'MNT', name: 'Maintenance & Engineering', managerKey: 'e_010' },
-  { key: 'd_it', code: 'ITD', name: 'Information Technology', managerKey: 'e_019' }
+// ── companies — the top-level org unit ("Group" in the UI is now "Company")
+var COMPANY_DEFS = [
+  { key: 'c_bpl', code: 'BPL', name: 'Bamboo Products Limited' },
+  { key: 'c_sbr', code: 'SBR', name: 'Star Bar Restaurant' },
+  { key: 'c_bgn', code: 'BGN', name: 'Bamboo Garden' }
 ];
 
-// ── employees + users (final state, verbatim from kernel.js seed()'s E array) ─
+// ── departments, each scoped to a company ─────────────────────────────────
+var DEPT_DEFS = [
+  // Bamboo Products Limited
+  { key: 'd_aux', companyKey: 'c_bpl', code: 'AUX', name: 'Auxiliary Team', managerKey: null },
+  { key: 'd_con', companyKey: 'c_bpl', code: 'CONS', name: 'Construction Crew', managerKey: null },
+  { key: 'd_css', companyKey: 'c_bpl', code: 'CSS', name: 'Customer service & Sales', managerKey: 'e_008' },
+  { key: 'd_exec', companyKey: 'c_bpl', code: 'EXEC', name: 'Executive Office', managerKey: 'e_002' },
+  { key: 'd_fac', companyKey: 'c_bpl', code: 'FCTY', name: 'Factory', managerKey: 'e_006' },
+  { key: 'd_fhr', companyKey: 'c_bpl', code: 'FNHR', name: 'Finance & HR', managerKey: 'e_003' },
+  { key: 'd_it', companyKey: 'c_bpl', code: 'ITD', name: 'I.T Department', managerKey: 'e_019' },
+  { key: 'd_mka', companyKey: 'c_bpl', code: 'MKTA', name: 'Marketing & Administration', managerKey: null },
+  { key: 'd_prod', companyKey: 'c_bpl', code: 'PROD', name: 'Productions', managerKey: 'e_011' },
+  { key: 'd_sec', companyKey: 'c_bpl', code: 'SEC', name: 'Security', managerKey: null },
+  { key: 'd_tmm', companyKey: 'c_bpl', code: 'TMM', name: 'Tool & Material Management', managerKey: 'e_009' },
+  // Star Bar Restaurant
+  { key: 'd_sbr_ty', companyKey: 'c_sbr', code: 'SBTY', name: 'Ty Staff', managerKey: null },
+  { key: 'd_sbr_kit', companyKey: 'c_sbr', code: 'SBKT', name: 'Kitchen', managerKey: null },
+  { key: 'd_sbr_wai', companyKey: 'c_sbr', code: 'SBWT', name: 'Waitress', managerKey: null },
+  { key: 'd_sbr_str', companyKey: 'c_sbr', code: 'SBST', name: 'Store room', managerKey: null },
+  // Bamboo Garden
+  { key: 'd_bgn_kit', companyKey: 'c_bgn', code: 'BGKT', name: 'Kitchen', managerKey: null },
+  { key: 'd_bgn_wai', companyKey: 'c_bgn', code: 'BGWT', name: 'Waitress', managerKey: null },
+  { key: 'd_bgn_str', companyKey: 'c_bgn', code: 'BGST', name: 'Store room', managerKey: null }
+];
+
+// ── shift templates, scoped to a department — "different shifts" per
+// company and department. Office-type BPL departments get one day shift;
+// Factory/Productions/Auxiliary/Construction keep the historical 07:00
+// start (the app's old default late-after cutoff); Security runs 24/7 so
+// gets day + night; the two restaurants run split day/evening shifts for
+// customer-facing roles and a single day shift for back-of-house.
+var SHIFT_DEFS = [
+  { key: 'sh_aux_day', deptKey: 'd_aux', name: 'Day Shift', start: '07:00', end: '16:00' },
+  { key: 'sh_con_day', deptKey: 'd_con', name: 'Day Shift', start: '06:30', end: '15:30' },
+  { key: 'sh_css_day', deptKey: 'd_css', name: 'Day Shift', start: '08:00', end: '17:00' },
+  { key: 'sh_exec_day', deptKey: 'd_exec', name: 'Day Shift', start: '08:00', end: '17:00' },
+  { key: 'sh_fac_day', deptKey: 'd_fac', name: 'Day Shift', start: '07:00', end: '16:00' },
+  { key: 'sh_fhr_day', deptKey: 'd_fhr', name: 'Day Shift', start: '08:00', end: '17:00' },
+  { key: 'sh_it_day', deptKey: 'd_it', name: 'Day Shift', start: '08:00', end: '17:00' },
+  { key: 'sh_mka_day', deptKey: 'd_mka', name: 'Day Shift', start: '08:00', end: '17:00' },
+  { key: 'sh_prod_day', deptKey: 'd_prod', name: 'Day Shift', start: '07:00', end: '16:00' },
+  { key: 'sh_sec_day', deptKey: 'd_sec', name: 'Day Shift', start: '06:00', end: '18:00' },
+  { key: 'sh_sec_night', deptKey: 'd_sec', name: 'Night Shift', start: '18:00', end: '06:00' },
+  { key: 'sh_tmm_day', deptKey: 'd_tmm', name: 'Day Shift', start: '07:00', end: '16:00' },
+
+  { key: 'sh_sbrty_day', deptKey: 'd_sbr_ty', name: 'Day Shift', start: '09:00', end: '18:00' },
+  { key: 'sh_sbrkit_morn', deptKey: 'd_sbr_kit', name: 'Morning Shift', start: '08:00', end: '16:00' },
+  { key: 'sh_sbrkit_eve', deptKey: 'd_sbr_kit', name: 'Evening Shift', start: '16:00', end: '00:00' },
+  { key: 'sh_sbrwai_morn', deptKey: 'd_sbr_wai', name: 'Morning Shift', start: '09:00', end: '17:00' },
+  { key: 'sh_sbrwai_eve', deptKey: 'd_sbr_wai', name: 'Evening Shift', start: '17:00', end: '01:00' },
+  { key: 'sh_sbrstr_day', deptKey: 'd_sbr_str', name: 'Day Shift', start: '08:00', end: '17:00' },
+
+  { key: 'sh_bgnkit_morn', deptKey: 'd_bgn_kit', name: 'Morning Shift', start: '08:00', end: '16:00' },
+  { key: 'sh_bgnkit_eve', deptKey: 'd_bgn_kit', name: 'Evening Shift', start: '16:00', end: '00:00' },
+  { key: 'sh_bgnwai_morn', deptKey: 'd_bgn_wai', name: 'Morning Shift', start: '09:00', end: '17:00' },
+  { key: 'sh_bgnwai_eve', deptKey: 'd_bgn_wai', name: 'Evening Shift', start: '17:00', end: '01:00' },
+  { key: 'sh_bgnstr_day', deptKey: 'd_bgn_str', name: 'Day Shift', start: '08:00', end: '17:00' }
+];
+
+// ── employees + users — remapped from the old flat department list onto
+// the new Bamboo Products Limited departments above, by job function
+// (e.g. Finance Manager -> Finance & HR, Quality Inspector -> Factory).
 // [key, code, firstName, lastName, deptKey, positionTitle, managerKey, roleKey, hireDate]
 var E = [
-  ['e_001', 'BPL-001', 'Kelvin', 'Duho', 'd_hr', 'IT & Systems Administrator', 'e_003', 'administrator', '2019-03-04'],
+  ['e_001', 'BPL-001', 'Kelvin', 'Duho', 'd_it', 'IT & Systems Administrator', 'e_019', 'administrator', '2019-03-04'],
   ['e_002', 'BPL-002', 'Andy', 'Chou', 'd_exec', 'Managing Director', null, 'executive', '2015-01-12'],
-  ['e_003', 'BPL-003', 'Albert', 'Awini', 'd_hr', 'Finance & HR Manager', 'e_002', 'finance_hr_manager', '2017-06-19'],
-  ['e_004', 'BPL-004', 'Peter', 'Njoroge', 'd_fin', 'Finance Manager', 'e_003', 'department_manager', '2018-02-05'],
+  ['e_003', 'BPL-003', 'Albert', 'Awini', 'd_fhr', 'Finance & HR Manager', 'e_002', 'finance_hr_manager', '2017-06-19'],
+  ['e_004', 'BPL-004', 'Peter', 'Njoroge', 'd_fhr', 'Finance Manager', 'e_003', 'department_manager', '2018-02-05'],
   ['e_005', 'BPL-005', 'Frank', 'Kampewu', 'd_prod', 'General Manager', 'e_002', 'general_manager', '2016-09-01'],
-  ['e_006', 'BPL-006', 'Samuel', 'Kiptoo', 'd_raw', 'Raw Material Manager', 'e_002', 'department_manager', '2018-11-13'],
-  ['e_007', 'BPL-007', 'Faith', 'Wanjiru', 'd_qc', 'Quality Assurance Manager', 'e_005', 'department_manager', '2019-07-22'],
-  ['e_008', 'BPL-008', 'Daniel', 'Omondi', 'd_sal', 'Sales & Marketing Manager', 'e_002', 'department_manager', '2017-04-03'],
-  ['e_009', 'BPL-009', 'Esther', 'Chebet', 'd_log', 'Warehouse & Logistics Manager', 'e_002', 'department_manager', '2020-01-20'],
-  ['e_010', 'BPL-010', 'Brian', 'Mutua', 'd_mnt', 'Maintenance Engineer', 'e_002', 'department_manager', '2019-10-07'],
+  ['e_006', 'BPL-006', 'Samuel', 'Kiptoo', 'd_fac', 'Raw Material Manager', 'e_002', 'department_manager', '2018-11-13'],
+  ['e_007', 'BPL-007', 'Faith', 'Wanjiru', 'd_fac', 'Quality Assurance Manager', 'e_005', 'department_manager', '2019-07-22'],
+  ['e_008', 'BPL-008', 'Daniel', 'Omondi', 'd_css', 'Sales & Marketing Manager', 'e_002', 'department_manager', '2017-04-03'],
+  ['e_009', 'BPL-009', 'Esther', 'Chebet', 'd_tmm', 'Warehouse & Logistics Manager', 'e_002', 'department_manager', '2020-01-20'],
+  ['e_010', 'BPL-010', 'Brian', 'Mutua', 'd_fac', 'Maintenance Engineer', 'e_002', 'department_manager', '2019-10-07'],
   ['e_011', 'BPL-011', 'Isreal', 'Omozuafo', 'd_prod', 'Production Manager', 'e_002', 'department_manager', '2021-02-15'],
   ['e_012', 'BPL-012', 'Kevin', 'Barasa', 'd_prod', 'Treatment Line Supervisor', 'e_011', 'supervisor', '2021-05-04'],
   ['e_013', 'BPL-013', 'Alice', 'Kamau', 'd_prod', 'Machine Operator', 'e_011', 'employee', '2022-03-01'],
   ['e_014', 'BPL-014', 'John', 'Sitati', 'd_prod', 'Machine Operator', 'e_012', 'employee', '2022-08-16'],
-  ['e_015', 'BPL-015', 'Lydia', 'Auma', 'd_qc', 'Quality Inspector', 'e_007', 'employee', '2023-01-09'],
-  ['e_016', 'BPL-016', 'Moses', 'Wekesa', 'd_raw', 'Harvest Team Lead', 'e_006', 'supervisor', '2021-11-02'],
-  ['e_017', 'BPL-017', 'Christine', 'Adhiambo', 'd_log', 'Store Clerk', 'e_009', 'employee', '2023-06-12'],
-  ['e_018', 'BPL-018', 'Victor', 'Maina', 'd_sal', 'Sales Executive', 'e_008', 'employee', '2022-10-24'],
+  ['e_015', 'BPL-015', 'Lydia', 'Auma', 'd_fac', 'Quality Inspector', 'e_007', 'employee', '2023-01-09'],
+  ['e_016', 'BPL-016', 'Moses', 'Wekesa', 'd_fac', 'Harvest Team Lead', 'e_006', 'supervisor', '2021-11-02'],
+  ['e_017', 'BPL-017', 'Christine', 'Adhiambo', 'd_tmm', 'Store Clerk', 'e_009', 'employee', '2023-06-12'],
+  ['e_018', 'BPL-018', 'Victor', 'Maina', 'd_css', 'Sales Executive', 'e_008', 'employee', '2022-10-24'],
   ['e_019', 'BPL-019', 'Emmanuel', 'Chang', 'd_it', 'Head of IT Department', 'e_002', 'it_manager', '2020-04-06']
 ];
+
+// Every employee's assigned shift (department's "Day Shift" by default;
+// see SHIFT_DEFS above — none of these departments have more than one
+// day-only shift, so this is unambiguous for all 19 seeded employees).
+var EMP_SHIFT = {
+  e_001: 'sh_it_day', e_002: 'sh_exec_day', e_003: 'sh_fhr_day', e_004: 'sh_fhr_day', e_005: 'sh_prod_day',
+  e_006: 'sh_fac_day', e_007: 'sh_fac_day', e_008: 'sh_css_day', e_009: 'sh_tmm_day', e_010: 'sh_fac_day',
+  e_011: 'sh_prod_day', e_012: 'sh_prod_day', e_013: 'sh_prod_day', e_014: 'sh_prod_day', e_015: 'sh_fac_day',
+  e_016: 'sh_fac_day', e_017: 'sh_tmm_day', e_018: 'sh_css_day', e_019: 'sh_it_day'
+};
 
 var LEAVE_TYPE_DEFS = [
   { key: 'lt_annual', name: 'Annual staff leave', daysPerYear: 21, paid: true },
@@ -104,18 +168,37 @@ async function run() {
       }
     }
 
+    console.log('Seeding companies...');
+    var companyIds = {};
+    COMPANY_DEFS.forEach(function (c) { companyIds[c.key] = uuid(); });
+    for (i = 0; i < COMPANY_DEFS.length; i++) {
+      var co = COMPANY_DEFS[i];
+      await client.query('INSERT INTO companies (id, code, name, status) VALUES ($1,$2,$3,$4)', [companyIds[co.key], co.code, co.name, 'active']);
+    }
+
     console.log('Seeding departments...');
     var deptIds = {};
     DEPT_DEFS.forEach(function (d) { deptIds[d.key] = uuid(); });
     for (i = 0; i < DEPT_DEFS.length; i++) {
       var d = DEPT_DEFS[i];
       await client.query(
-        'INSERT INTO departments (id, code, name, manager_id, status) VALUES ($1, $2, $3, NULL, $4)',
-        [deptIds[d.key], d.code, d.name, 'active']
+        'INSERT INTO departments (id, code, name, manager_id, company_id, status) VALUES ($1, $2, $3, NULL, $4, $5)',
+        [deptIds[d.key], d.code, d.name, companyIds[d.companyKey], 'active']
       );
     }
     // manager_id references employees, which don't exist yet — inserted NULL
     // above, patched once employee ids are known (see the UPDATE loop below).
+
+    console.log('Seeding shifts...');
+    var shiftIds = {};
+    SHIFT_DEFS.forEach(function (s) { shiftIds[s.key] = uuid(); });
+    for (i = 0; i < SHIFT_DEFS.length; i++) {
+      var sh = SHIFT_DEFS[i];
+      await client.query(
+        'INSERT INTO shifts (id, department_id, name, start_time, end_time, status) VALUES ($1,$2,$3,$4,$5,$6)',
+        [shiftIds[sh.key], deptIds[sh.deptKey], sh.name, sh.start, sh.end, 'active']
+      );
+    }
 
     console.log('Seeding employees + users...');
     var empIds = {}; E.forEach(function (r) { empIds[r[0]] = uuid(); });
@@ -127,11 +210,13 @@ async function run() {
       var email = (firstName + '.' + lastName).toLowerCase() + '@bplghana.com';
       var phone = '+233 24' + (1000000 + i * 4321).toString().slice(0, 7);
       var location = 'Tema Plant';
-      var shift = deptKey === 'd_prod' ? 'Shift A · 06:00–14:00' : 'Day · 07:00–16:00';
+      var shiftKey = EMP_SHIFT[key];
+      var shiftDef = SHIFT_DEFS.filter(function (s) { return s.key === shiftKey; })[0];
+      var shift = shiftDef.name + ' · ' + shiftDef.start + '–' + shiftDef.end;
       await client.query(
-        'INSERT INTO employees (id, code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
-        [empIds[key], code, firstName, lastName, email, phone, deptIds[deptKey], title, managerKey ? empIds[managerKey] : null, 'permanent', hireDate, 'active', location, shift]
+        'INSERT INTO employees (id, code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_id) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
+        [empIds[key], code, firstName, lastName, email, phone, deptIds[deptKey], title, managerKey ? empIds[managerKey] : null, 'permanent', hireDate, 'active', location, shift, shiftIds[shiftKey]]
       );
       var uid = uuid();
       userIds[key] = uid;
@@ -152,15 +237,17 @@ async function run() {
     }
 
     // Demo pay rates so the Payroll screen has something realistic to show:
-    // production/harvest staff paid biweekly (factory-floor convention),
-    // everyone else monthly (paid on the 5th, per Company Settings).
+    // production/factory-floor staff paid biweekly (factory-floor
+    // convention), everyone else monthly (paid on the 5th, per Company
+    // Settings). PROD/FCTY replace the old PRD/RAW codes that no longer
+    // exist under the new Bamboo Products Limited department list.
     await client.query(
       "UPDATE employees SET pay_cycle = 'biweekly', daily_rate = 150 WHERE department_id IN " +
-      "(SELECT id FROM departments WHERE code IN ('PRD', 'RAW'))"
+      "(SELECT id FROM departments WHERE code IN ('PROD', 'FCTY'))"
     );
     await client.query(
       "UPDATE employees SET pay_cycle = 'monthly', daily_rate = 350 WHERE department_id NOT IN " +
-      "(SELECT id FROM departments WHERE code IN ('PRD', 'RAW'))"
+      "(SELECT id FROM departments WHERE code IN ('PROD', 'FCTY'))"
     );
 
     console.log('Seeding leave types + balances...');

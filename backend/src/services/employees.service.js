@@ -12,19 +12,21 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 // than being sent and merely hidden client-side).
 //
 // shift (the free-text label shown throughout the UI, e.g. "Day ·
-// 07:00–16:00") is derived from shift_start/shift_end once either is set,
-// rather than kept in sync by every writer — one source of truth. Until
-// someone sets real hours for this person, it falls back to whatever's
-// already stored (the historical default text, or a legacy import).
+// 07:00–16:00") resolves in priority order: the assigned shift template
+// (shift_id, joined in as shift_tpl_name/start/end below — see the
+// company/department shift catalogue added alongside companies), then the
+// per-employee shift_start/shift_end override, then whatever's already
+// stored as free text (the historical default, or a legacy import).
 function rowToEmployee(r, ctx) {
-  var shiftStart = r.shift_start ? r.shift_start.slice(0, 5) : null;
-  var shiftEnd = r.shift_end ? r.shift_end.slice(0, 5) : null;
+  var shiftStart = r.shift_tpl_start ? r.shift_tpl_start.slice(0, 5) : (r.shift_start ? r.shift_start.slice(0, 5) : null);
+  var shiftEnd = r.shift_tpl_end ? r.shift_tpl_end.slice(0, 5) : (r.shift_end ? r.shift_end.slice(0, 5) : null);
   var out = {
     id: r.id, code: r.code, firstName: r.first_name, lastName: r.last_name, email: r.email, phone: r.phone,
     departmentId: r.department_id, positionTitle: r.position_title, managerId: r.manager_id,
     employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location,
+    shiftId: r.shift_id, shiftName: r.shift_tpl_name || null,
     shiftStart: shiftStart, shiftEnd: shiftEnd,
-    shift: shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift
+    shift: r.shift_tpl_name ? (r.shift_tpl_name + ' · ' + shiftStart + '–' + shiftEnd) : (shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift)
   };
   if (ctx && ctx.can('payroll.manage')) {
     out.payCycle = r.pay_cycle;
@@ -39,7 +41,10 @@ async function list(ctx, params) {
   var q = String((params && params.q) || '').toLowerCase();
   var includeTerminated = !!(params && params.includeTerminated);
 
-  var res = await pool.query('SELECT * FROM employees ORDER BY code');
+  var res = await pool.query(
+    'SELECT e.*, s.name AS shift_tpl_name, s.start_time AS shift_tpl_start, s.end_time AS shift_tpl_end ' +
+    'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id ORDER BY e.code'
+  );
   var out = [];
   for (var i = 0; i < res.rows.length; i++) {
     var r = res.rows[i];
@@ -58,7 +63,11 @@ async function list(ctx, params) {
 // kernel.js: handlers['employees.get']
 async function get(ctx, id) {
   if (!ctx.can('employee.read')) fail('forbidden', 'Your role does not allow this action (employee.read).');
-  var res = await pool.query('SELECT * FROM employees WHERE id = $1', [id]);
+  var res = await pool.query(
+    'SELECT e.*, s.name AS shift_tpl_name, s.start_time AS shift_tpl_start, s.end_time AS shift_tpl_end ' +
+    'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
+    [id]
+  );
   var e = res.rows[0];
   if (!(await visibleEmployee(ctx, e))) fail('forbidden', 'You do not have access to that employee record.');
   return rowToEmployee(e, ctx);
@@ -79,6 +88,12 @@ async function create(ctx, p) {
   var hireDate = V.date(p.hireDate || new Date().toISOString().slice(0, 10), 'Hire date');
   var shiftStart = p.shiftStart ? V.time(p.shiftStart, 'Shift start') : null;
   var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
+  var shiftId = null;
+  if (p.shiftId) {
+    var shiftRes = await pool.query('SELECT id FROM shifts WHERE id = $1 AND department_id = $2', [p.shiftId, departmentId]);
+    if (!shiftRes.rows[0]) fail('invalid', 'Shift is not a valid option for this department.');
+    shiftId = p.shiftId;
+  }
 
   var existing = await pool.query('SELECT id FROM employees WHERE email = $1', [email]);
   if (existing.rows[0]) fail('invalid', 'That email is already in use.');
@@ -90,10 +105,10 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
-        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd]
+        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId]
     );
     var e = insertRes.rows[0];
 
@@ -136,6 +151,18 @@ var COLUMN_BY_FIELD = {
   location: 'location', shift: 'shift', status: 'status'
 };
 
+// shiftId is validated (must belong to the employee's — possibly
+// just-updated — department) rather than handled by the generic
+// UPDATABLE_FIELDS loop above, which has no way to express that check.
+async function resolveShiftIdUpdate(p, e) {
+  if (p.shiftId === undefined) return undefined;
+  if (!p.shiftId) return null; // explicit clear
+  var departmentId = p.departmentId !== undefined ? p.departmentId : e.department_id;
+  var shiftRes = await pool.query('SELECT id FROM shifts WHERE id = $1 AND department_id = $2', [p.shiftId, departmentId]);
+  if (!shiftRes.rows[0]) fail('invalid', 'Shift is not a valid option for this department.');
+  return p.shiftId;
+}
+
 // kernel.js: handlers['employees.update']
 async function update(ctx, id, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
@@ -177,6 +204,10 @@ async function update(ctx, id, p) {
     var curShiftEnd = e.shift_end ? e.shift_end.slice(0, 5) : null;
     if (shiftEnd !== curShiftEnd) { changed.push('shiftEnd'); values.push(shiftEnd); sets.push('shift_end = $' + values.length); }
   }
+  var shiftIdUpdate = await resolveShiftIdUpdate(p, e);
+  if (shiftIdUpdate !== undefined && shiftIdUpdate !== e.shift_id) {
+    changed.push('shiftId'); values.push(shiftIdUpdate); sets.push('shift_id = $' + values.length);
+  }
   if (p.dailyRate !== undefined) {
     var dailyRate = Math.max(0, Number(p.dailyRate) || 0);
     if (dailyRate !== Number(e.daily_rate)) { changed.push('dailyRate'); values.push(dailyRate); sets.push('daily_rate = $' + values.length); }
@@ -194,7 +225,11 @@ async function update(ctx, id, p) {
   }
 
   await audit(pool, ctx, 'employee.update', 'employee', id, 'Updated ' + e.first_name + ' ' + e.last_name + ' (' + (changed.join(', ') || 'no change') + ').');
-  var updated = await pool.query('SELECT * FROM employees WHERE id = $1', [id]);
+  var updated = await pool.query(
+    'SELECT e.*, s.name AS shift_tpl_name, s.start_time AS shift_tpl_start, s.end_time AS shift_tpl_end ' +
+    'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
+    [id]
+  );
   return rowToEmployee(updated.rows[0], ctx);
 }
 
