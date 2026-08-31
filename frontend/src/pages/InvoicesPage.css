@@ -1,6 +1,37 @@
 .invoices-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .invoices-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
+.invoices-no-cell { display: flex; align-items: center; gap: 10px; }
+.invoices-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+}
+.invoices-badge svg { width: 13px; height: 13px; }
+.invoices-badge-people { --tile-tone: var(--color-accent); }
+.invoices-badge-warning { --tile-tone: var(--color-warning); }
+.invoices-badge-danger { --tile-tone: var(--color-danger); }
+
+.invoices-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.invoices-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.invoices-empty-icon svg { width: 100%; height: 100%; }
+.invoices-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+
 .invoices-order-form {
   border: var(--divider-width) solid var(--color-divider);
   padding: 16px;

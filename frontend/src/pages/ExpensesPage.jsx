@@ -7,6 +7,31 @@ import './ExpensesPage.css';
 // Ported from Bamboo OS.dc.html's expenses screen (screens.expenses block
 // + the expenses computed values, and the "Edit expense claim" dialog
 // around its render()).
+//
+// Redesigned around the icon language established elsewhere: a requester
+// avatar per row, an icon'd empty state. The edit/delete dialogs are
+// untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function ReceiptIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function tagClass(status) {
   if (status === 'approved' || status === 'paid') return 'tag-neutral';
@@ -192,7 +217,12 @@ export default function ExpensesPage() {
             const busy = busyId === x.id;
             return (
               <tr key={x.id}>
-                <td style={{ fontWeight: 600 }}>{x.requesterName}</td>
+                <td>
+                  <div className="expenses-requester-cell">
+                    <span className="expenses-avatar" style={{ background: avatarColor(x.requesterName) }}>{initials(x.requesterName)}</span>
+                    <span style={{ fontWeight: 600 }}>{x.requesterName}</span>
+                  </div>
+                </td>
                 <td>{x.departmentName}</td>
                 <td>{x.category}</td>
                 <td>GHS {x.amount.toLocaleString()}</td>
@@ -215,8 +245,18 @@ export default function ExpensesPage() {
           })}
         </tbody>
       </table>
-      {!expenses.length && <p className="table-empty">Nothing to show.</p>}
-      {!!expenses.length && !visibleExpenses.length && <p className="table-empty">No expense claims match "{search}".</p>}
+      {!expenses.length && (
+        <div className="expenses-empty-state">
+          <span className="expenses-empty-icon"><ReceiptIcon /></span>
+          <p className="expenses-empty-title">Nothing to show in your scope</p>
+        </div>
+      )}
+      {!!expenses.length && !visibleExpenses.length && (
+        <div className="expenses-empty-state">
+          <span className="expenses-empty-icon"><ReceiptIcon /></span>
+          <p className="expenses-empty-title">No expense claims match "{search}"</p>
+        </div>
+      )}
 
       {editTarget && (
         <div className="dialog-backdrop" onClick={() => setEditTarget(null)}>

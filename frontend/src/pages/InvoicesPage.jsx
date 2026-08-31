@@ -21,6 +21,25 @@ import './InvoicesPage.css';
 //    sales.read, since its dropdown is populated from GET /sales-orders.
 // Both degrade to the button/form simply not rendering for a role that
 // can't populate the picker it needs, rather than showing a dead control.
+//
+// Redesigned around the icon language established elsewhere: a
+// status-toned document badge per row (mirrors Documents' file-type
+// tone-mix treatment), an icon'd empty state. All dialogs and the
+// printed preview are untouched.
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+function statusTone(bucket) {
+  if (bucket === 'approved') return 'people';
+  if (bucket === 'rejected') return 'danger';
+  return 'warning';
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -35,9 +54,10 @@ function docTagClass(bucket) {
   return 'tag-outline';
 }
 
-function invoiceTagClass(inv) {
-  return docTagClass(inv.status === 'paid' ? 'approved' : (inv.overdue || inv.status === 'void') ? 'rejected' : 'pending');
+function invoiceBucket(inv) {
+  return inv.status === 'paid' ? 'approved' : (inv.overdue || inv.status === 'void') ? 'rejected' : 'pending';
 }
+function invoiceTagClass(inv) { return docTagClass(invoiceBucket(inv)); }
 
 const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '' };
 const EMPTY_PAY = { amount: '', method: 'cash', date: new Date().toISOString().slice(0, 10), reference: '', notes: '' };
@@ -266,7 +286,12 @@ export default function InvoicesPage() {
             const canDelete = inv.status === 'unpaid' && canManage;
             return (
               <tr key={inv.id}>
-                <td style={{ fontWeight: 600 }}>{inv.invoiceNo}</td>
+                <td>
+                  <div className="invoices-no-cell">
+                    <span className={'invoices-badge invoices-badge-' + statusTone(invoiceBucket(inv))}><DocIcon /></span>
+                    <span style={{ fontWeight: 600 }}>{inv.invoiceNo}</span>
+                  </div>
+                </td>
                 <td>{inv.customerName}</td>
                 <td>GHS {inv.grandTotal.toLocaleString()}</td>
                 <td>GHS {inv.amountPaid.toLocaleString()}</td>
@@ -285,8 +310,18 @@ export default function InvoicesPage() {
           })}
         </tbody>
       </table>
-      {!invoices.length && <p className="table-empty">No invoices yet.</p>}
-      {!!invoices.length && !visibleInvoices.length && <p className="table-empty">No invoices match "{search}".</p>}
+      {!invoices.length && (
+        <div className="invoices-empty-state">
+          <span className="invoices-empty-icon"><DocIcon /></span>
+          <p className="invoices-empty-title">No invoices yet</p>
+        </div>
+      )}
+      {!!invoices.length && !visibleInvoices.length && (
+        <div className="invoices-empty-state">
+          <span className="invoices-empty-icon"><DocIcon /></span>
+          <p className="invoices-empty-title">No invoices match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

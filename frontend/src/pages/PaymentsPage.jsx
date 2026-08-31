@@ -14,6 +14,31 @@ import './PaymentsPage.css';
 // exactly one receipt (recordPayment creates both together), matched here
 // by receipt.paymentId, so "preview the payment" and "preview its receipt"
 // are the same document.
+//
+// Redesigned around the icon language established elsewhere: an avatar
+// for whoever recorded the payment, an icon'd empty state.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function CashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="2.5" y="6" width="19" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M5.5 9v0M18.5 15v0" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -113,7 +138,12 @@ export default function PaymentsPage() {
               <td>{fmtDate(p.date)}</td>
               <td className="payments-method">{p.method.replace('_', ' ')}</td>
               <td>{p.reference || '—'}</td>
-              <td>{p.receivedByName}</td>
+              <td>
+                <div className="payments-receiver-cell">
+                  <span className="payments-avatar" style={{ background: avatarColor(p.receivedByName) }}>{initials(p.receivedByName)}</span>
+                  {p.receivedByName}
+                </div>
+              </td>
               <td className="table-actions">
                 {receiptByPaymentId[p.id] && (
                   <button type="button" className="btn btn-secondary payments-row-btn" onClick={() => { setShareError(null); setPreviewR(receiptByPaymentId[p.id]); }}>Preview</button>
@@ -124,8 +154,18 @@ export default function PaymentsPage() {
           ))}
         </tbody>
       </table>
-      {!payments.length && <p className="table-empty">No payments recorded yet.</p>}
-      {!!payments.length && !visiblePayments.length && <p className="table-empty">No payments match "{search}".</p>}
+      {!payments.length && (
+        <div className="payments-empty-state">
+          <span className="payments-empty-icon"><CashIcon /></span>
+          <p className="payments-empty-title">No payments recorded yet</p>
+        </div>
+      )}
+      {!!payments.length && !visiblePayments.length && (
+        <div className="payments-empty-state">
+          <span className="payments-empty-icon"><CashIcon /></span>
+          <p className="payments-empty-title">No payments match "{search}"</p>
+        </div>
+      )}
 
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
