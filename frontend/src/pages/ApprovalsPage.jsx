@@ -13,6 +13,36 @@ import './ApprovalsPage.css';
 // decision to the real endpoint for its subjectType instead of carrying
 // that bug forward, since doing otherwise would make procurement/expense
 // approvals silently fail against the real backend.
+//
+// Redesigned around the icon/avatar language established elsewhere:
+// requester avatar + a subject-type icon per item, and a celebratory
+// "all caught up" empty state instead of a plain sentence.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  calendar: <><rect x="4" y="5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  cart: <><path d="M3 4h2.2l2 11.5h10.6l1.7-8.2H6.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /><circle cx="9.5" cy="19.5" r="1.3" stroke="currentColor" strokeWidth="1.6" /><circle cx="16.5" cy="19.5" r="1.3" stroke="currentColor" strokeWidth="1.6" /></>,
+  receipt: <><path d="M6 3.5h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M9 8h6M9 12h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
+function subjectIcon(subjectType) {
+  if (subjectType === 'procurement_request') return 'cart';
+  if (subjectType === 'expense') return 'receipt';
+  return 'calendar';
+}
 
 export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState([]);
@@ -74,8 +104,9 @@ export default function ApprovalsPage() {
       <div className="approvals-list" style={{ marginTop: approvals.length ? 16 : 0 }}>
         {visibleApprovals.map((a) => (
           <div className="approvals-item" key={a.id}>
+            <span className="approvals-avatar" style={{ background: avatarColor(a.requesterName) }}>{initials(a.requesterName)}</span>
             <div className="approvals-item-body">
-              <div className="approvals-item-eyebrow">{a.title}</div>
+              <div className="approvals-item-eyebrow"><Icon name={subjectIcon(a.subjectType)} /> {a.title}</div>
               <div className="approvals-item-name">{a.requesterName} · {a.requesterRole}</div>
               <div className="approvals-item-detail">{a.detail}</div>
               <div className="approvals-item-reason">{a.reason || '—'}</div>
@@ -88,7 +119,11 @@ export default function ApprovalsPage() {
         ))}
       </div>
       {!approvals.length && (
-        <p className="table-empty">Your approval queue is clear. Requests from the people you are responsible for will appear here.</p>
+        <div className="approvals-empty-state">
+          <span className="approvals-empty-icon"><Icon name="checkCircle" /></span>
+          <p className="approvals-empty-title">You're all caught up</p>
+          <p className="approvals-empty-sub">Requests from the people you're responsible for will appear here.</p>
+        </div>
       )}
       {!!approvals.length && !visibleApprovals.length && <p className="table-empty">No approvals match "{search}".</p>}
 

@@ -7,6 +7,28 @@ import './SuppliersPage.css';
 // Ported from Bamboo OS.dc.html's suppliers screen (screens.suppliers
 // block + the suppliers computed values, and the shared "supplier"
 // create/edit dialog around its render()).
+//
+// Redesigned around the icon language established elsewhere — suppliers
+// are companies, not people, so each gets a hash-colored building badge
+// (not an initials avatar) plus an icon'd empty state.
+
+const BADGE_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function badgeColor(name) { return BADGE_COLORS[hashStr(name || '') % BADGE_COLORS.length]; }
+
+function BuildingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3" width="9" height="18" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="14" y="9" width="6" height="12" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 7h1M8 11h1M8 15h1M11 7h1M11 11h1M11 15h1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const EMPTY_FORM = { name: '', contactPerson: '', phone: '', email: '', address: '', materialsSupplied: '' };
 
@@ -116,7 +138,12 @@ export default function SuppliersPage() {
         <tbody>
           {visibleSuppliers.map((s) => (
             <tr key={s.id}>
-              <td style={{ fontWeight: 600 }}>{s.name}</td>
+              <td>
+                <div className="suppliers-name-cell">
+                  <span className="suppliers-badge" style={{ background: badgeColor(s.name) }}><BuildingIcon /></span>
+                  <span style={{ fontWeight: 600 }}>{s.name}</span>
+                </div>
+              </td>
               <td>{s.contactPerson}</td>
               <td>{s.phone}</td>
               <td style={{ fontSize: 13 }}>{s.materialsSupplied}</td>
@@ -133,8 +160,18 @@ export default function SuppliersPage() {
           ))}
         </tbody>
       </table>
-      {!suppliers.length && <p className="table-empty">No suppliers on file yet.</p>}
-      {!!suppliers.length && !visibleSuppliers.length && <p className="table-empty">No suppliers match "{search}".</p>}
+      {!suppliers.length && (
+        <div className="suppliers-empty-state">
+          <span className="suppliers-empty-icon"><BuildingIcon /></span>
+          <p className="suppliers-empty-title">No suppliers on file yet</p>
+        </div>
+      )}
+      {!!suppliers.length && !visibleSuppliers.length && (
+        <div className="suppliers-empty-state">
+          <span className="suppliers-empty-icon"><BuildingIcon /></span>
+          <p className="suppliers-empty-title">No suppliers match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

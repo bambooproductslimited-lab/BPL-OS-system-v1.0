@@ -8,6 +8,32 @@ import './DepartmentsPage.css';
 // block) — a list with an inline (not modal) create/edit form, and a
 // delete-confirmation dialog gated on headcount === 0, matching the
 // backend's own guard (departments.service.js#remove).
+//
+// Redesigned around the icon/avatar language established elsewhere:
+// manager avatar per row, an icon'd empty state.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function Icon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const EMPTY_FORM = { code: '', name: '', managerId: '' };
 
@@ -130,7 +156,14 @@ export default function DepartmentsPage() {
             <tr key={d.id}>
               <td>{d.code}</td>
               <td style={{ fontWeight: 600 }}>{d.name}</td>
-              <td>{d.managerName}</td>
+              <td>
+                {d.managerName && d.managerName !== '—' ? (
+                  <div className="departments-manager-cell">
+                    <span className="departments-avatar" style={{ background: avatarColor(d.managerName) }}>{initials(d.managerName)}</span>
+                    {d.managerName}
+                  </div>
+                ) : '—'}
+              </td>
               <td>{d.headcount}</td>
               <td className="table-actions">
                 {canManage && <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => startEdit(d)}>Edit</button>}
@@ -142,8 +175,18 @@ export default function DepartmentsPage() {
           ))}
         </tbody>
       </table>
-      {!departments.length && <p className="table-empty">No groups yet.</p>}
-      {!!departments.length && !visibleDepartments.length && <p className="table-empty">No groups match "{search}".</p>}
+      {!departments.length && (
+        <div className="departments-empty-state">
+          <span className="departments-empty-icon"><Icon /></span>
+          <p className="departments-empty-title">No groups yet</p>
+        </div>
+      )}
+      {!!departments.length && !visibleDepartments.length && (
+        <div className="departments-empty-state">
+          <span className="departments-empty-icon"><Icon /></span>
+          <p className="departments-empty-title">No groups match "{search}"</p>
+        </div>
+      )}
 
       {canManage && (
         <form className="card departments-form" ref={formRef} onSubmit={handleSubmit}>

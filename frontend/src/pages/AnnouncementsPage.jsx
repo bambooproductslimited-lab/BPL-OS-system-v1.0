@@ -9,6 +9,27 @@ import './AnnouncementsPage.css';
 // always published as false — the prototype hardcodes it on publish and
 // never renders a pin control or badge anywhere, so this port doesn't add
 // one either.
+//
+// Redesigned around the icon/avatar language established elsewhere:
+// publisher avatar per item, a megaphone icon badge, and an icon'd empty
+// state.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  megaphone: <><path d="M3 10v4h3l7 4V6l-7 4H3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M17 9a4 4 0 0 1 0 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -103,14 +124,31 @@ export default function AnnouncementsPage() {
       <div className="announcements-list">
         {visibleAnnouncements.map((a) => (
           <div className="announcements-item" key={a.id}>
-            <div className="announcements-eyebrow">{audienceLabel(a.audience)} · {fmtDate(a.publishedAt.slice(0, 10))} · {a.publisherName}</div>
-            <div className="announcements-title">{a.title}</div>
-            <p className="announcements-body">{a.body}</p>
+            <span className="announcements-icon"><Icon name="megaphone" /></span>
+            <div className="announcements-item-body">
+              <div className="announcements-eyebrow">{audienceLabel(a.audience)} · {fmtDate(a.publishedAt.slice(0, 10))}</div>
+              <div className="announcements-title">{a.title}</div>
+              <p className="announcements-body">{a.body}</p>
+              <div className="announcements-publisher">
+                <span className="announcements-avatar" style={{ background: avatarColor(a.publisherName) }}>{initials(a.publisherName)}</span>
+                {a.publisherName}
+              </div>
+            </div>
           </div>
         ))}
       </div>
-      {!announcements.length && <p className="table-empty">Nothing published yet.</p>}
-      {!!announcements.length && !visibleAnnouncements.length && <p className="table-empty">No announcements match "{search}".</p>}
+      {!announcements.length && (
+        <div className="announcements-empty-state">
+          <span className="announcements-empty-icon"><Icon name="megaphone" /></span>
+          <p className="announcements-empty-title">Nothing published yet</p>
+        </div>
+      )}
+      {!!announcements.length && !visibleAnnouncements.length && (
+        <div className="announcements-empty-state">
+          <span className="announcements-empty-icon"><Icon name="megaphone" /></span>
+          <p className="announcements-empty-title">No announcements match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

@@ -8,6 +8,33 @@
 
 .suppliers-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
+.suppliers-name-cell { display: flex; align-items: center; gap: 10px; }
+.suppliers-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.suppliers-badge svg { width: 15px; height: 15px; }
+
+.suppliers-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.suppliers-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.suppliers-empty-icon svg { width: 100%; height: 100%; }
+.suppliers-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+
 .suppliers-dialog {
   max-width: 560px;
   display: grid;
