@@ -59,3 +59,12 @@
 
 .toolroom-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
 .toolroom-dialog-span { grid-column: 1 / -1; }
+
+.toolroom-toolbar-actions { display: flex; gap: 8px; }
+
+.toolroom-import-dialog { max-width: 900px; max-height: 90vh; overflow: auto; display: block; }
+.toolroom-import-summary { font-size: 13px; color: var(--color-text-muted); margin: 0 0 12px; }
+.toolroom-import-scroll { max-height: 360px; overflow: auto; }
+.toolroom-import-table { font-size: 13px; }
+.toolroom-import-row-skip { opacity: 0.55; }
+.toolroom-import-warnings { font-size: 12px; color: var(--color-accent); max-width: 260px; }

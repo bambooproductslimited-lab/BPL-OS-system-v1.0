@@ -78,6 +78,13 @@ export default function ToolRoomPage() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [search, setSearch] = useState('');
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState(null);
+  const [importCommitting, setImportCommitting] = useState(false);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -169,6 +176,44 @@ export default function ToolRoomPage() {
     }
   }
 
+  function openImport() {
+    setImportError(null);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportOpen(true);
+  }
+
+  async function runImportPreview() {
+    if (!importFile) return;
+    setImportLoading(true);
+    setImportError(null);
+    setImportPreview(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      setImportPreview(await api.upload('/tool-room/import/preview', fd));
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function commitImport() {
+    setImportCommitting(true);
+    setImportError(null);
+    try {
+      const result = await api.post('/tool-room/import/commit', { rows: importPreview.rows });
+      setToast('Imported ' + result.created + ' item(s)' + (result.skipped ? ' (' + result.skipped + ' already existed, skipped).' : '.'));
+      setImportOpen(false);
+      await load();
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportCommitting(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const visibleItems = items.filter((it) => matchesQuery(search, it.code, it.name, it.category, it.checkedOutToName));
@@ -179,7 +224,12 @@ export default function ToolRoomPage() {
 
       <div className="toolroom-toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Search tools, equipment, materials…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add item</button>}
+        {canManage && (
+          <div className="toolroom-toolbar-actions">
+            <button type="button" className="btn btn-secondary" onClick={openImport}>Import from sheet</button>
+            <button type="button" className="btn btn-primary" onClick={openNew}>Add item</button>
+          </div>
+        )}
       </div>
 
       <table className="table">
@@ -314,6 +364,73 @@ export default function ToolRoomPage() {
               <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? 'Checking out…' : 'Check out'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="dialog-backdrop" onClick={() => setImportOpen(false)}>
+          <div className="dialog toolroom-import-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2 className="toolroom-dialog-title">Import from tool room sheet</h2>
+            <p className="dialog-body">
+              Export the sheet as CSV (File → Download → Comma-separated values) and upload it here. Rows without a
+              code get one generated automatically; rows whose code already exists are skipped, not overwritten.
+            </p>
+            {importError && <div className="error-banner">{importError}</div>}
+
+            {!importPreview && (
+              <>
+                <div className="field">
+                  <label htmlFor="tr-import-file">CSV file</label>
+                  <input id="tr-import-file" className="input" type="file" accept=".csv,text/csv" onChange={(e) => setImportFile(e.target.files[0] || null)} />
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
+                    {importLoading ? 'Reading…' : 'Preview import'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {importPreview && (
+              <>
+                <p className="toolroom-import-summary">
+                  {importPreview.rows.length} item row(s) found —
+                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} will be created,
+                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} already exist and will be skipped.
+                </p>
+                <div className="toolroom-import-scroll">
+                  <table className="table toolroom-import-table">
+                    <thead>
+                      <tr><th>Code</th><th>Name</th><th>Kind</th><th>Qty</th><th>Condition</th><th>Notes</th></tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.map((r, i) => (
+                        <tr key={i} className={r.willSkip ? 'toolroom-import-row-skip' : ''}>
+                          <td style={{ fontWeight: 600 }}>{r.code}</td>
+                          <td>{r.name}</td>
+                          <td>{KIND_LABELS[r.kind]}</td>
+                          <td>{r.quantityOnHand}{r.unit !== 'each' ? ' ' + r.unit : ''}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{r.condition.replace('_', ' ')}</td>
+                          <td className="toolroom-import-warnings">
+                            {r.willSkip && <div>Already exists — will be skipped.</div>}
+                            {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>Back</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
+                    {importCommitting ? 'Importing…' : 'Import ' + importPreview.rows.filter((r) => !r.willSkip).length + ' item(s)'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

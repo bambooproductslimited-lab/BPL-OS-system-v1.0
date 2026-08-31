@@ -3,7 +3,9 @@ var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
 var employeeDocumentsService = require('../services/employeeDocuments.service');
+var employeeImportService = require('../services/employeeImport.service');
 var kioskService = require('../services/kiosk.service');
+var { fail } = require('../utils/errors');
 var { allowlistFilter } = require('../lib/uploadFilters');
 
 var ID_DOC_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic'];
@@ -11,6 +13,12 @@ var upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: allowlistFilter(ID_DOC_EXTENSIONS, 'That file type isn’t supported for ID documents.')
+});
+
+var uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: allowlistFilter(['csv'], 'Export the sheet as CSV before uploading.')
 });
 
 var router = express.Router();
@@ -33,6 +41,17 @@ router.post('/', async function (req, res, next) {
 // kernel.js: handlers['employees.purgeTerminated'] -> POST /api/employees/purge-terminated
 router.post('/purge-terminated', async function (req, res, next) {
   try { res.json(await employeesService.purgeTerminated(req.ctx)); } catch (e) { next(e); }
+});
+
+router.post('/import/preview', uploadCsv.single('file'), async function (req, res, next) {
+  try {
+    if (!req.file) fail('invalid', 'No file uploaded.');
+    res.json(await employeeImportService.preview(req.ctx, req.file.buffer));
+  } catch (e) { next(e); }
+});
+
+router.post('/import/commit', async function (req, res, next) {
+  try { res.json(await employeeImportService.commit(req.ctx, req.body.rows)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['employees.get'] -> GET /api/employees/:id

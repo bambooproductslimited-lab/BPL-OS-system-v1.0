@@ -140,6 +140,14 @@ export default function EmployeesPage() {
   const [syncResult, setSyncResult] = useState(null);
   const [syncEmailEdits, setSyncEmailEdits] = useState({});
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState(null);
+  const [importCommitting, setImportCommitting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -393,6 +401,45 @@ export default function EmployeesPage() {
     }
   }
 
+  function openImport() {
+    setImportError(null);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+    setImportOpen(true);
+  }
+
+  async function runImportPreview() {
+    if (!importFile) return;
+    setImportLoading(true);
+    setImportError(null);
+    setImportPreview(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      setImportPreview(await api.upload('/employees/import/preview', fd));
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function commitImport() {
+    setImportCommitting(true);
+    setImportError(null);
+    try {
+      const result = await api.post('/employees/import/commit', { rows: importPreview.rows });
+      setImportResult(result);
+      setToast('Imported ' + result.created + ' employee(s)' + (result.skipped ? ', skipped ' + result.skipped : '') + (result.failed.length ? ', ' + result.failed.length + ' failed' : '') + ' from spreadsheet.');
+      await load();
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportCommitting(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
@@ -430,6 +477,7 @@ export default function EmployeesPage() {
           </select>
         </div>
         {canSync && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openSync}>Sync from TimeStation</button>}
+        {canWrite && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openImport}>Import from sheet</button>}
         {canWrite && <button type="button" className="btn btn-primary employees-add-btn" onClick={openNew}>Add employee</button>}
       </div>
 
@@ -791,6 +839,95 @@ export default function EmployeesPage() {
                 )}
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-primary" onClick={() => setSyncOpen(false)}>Done</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="dialog-backdrop" onClick={() => setImportOpen(false)}>
+          <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 780 }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="employees-dialog-title">Import from spreadsheet</h2>
+            <p className="dialog-body">
+              Export an HR sheet as CSV (File → Download → Comma-separated values) with columns for name (or first/
+              last name), email, job title, company, department and hire date, and upload it here. A row's Company
+              column disambiguates department names shared across companies (e.g. every company's own "Kitchen");
+              without it, a department name that exists in more than one company is skipped for you to fix. Unknown
+              departments are never auto-created — create the department first from the Companies screen if it's
+              missing.
+            </p>
+            {importError && <div className="error-banner">{importError}</div>}
+
+            {!importPreview && (
+              <>
+                <div className="field">
+                  <label htmlFor="emp-import-file">CSV file</label>
+                  <input id="emp-import-file" className="input" type="file" accept=".csv,text/csv" onChange={(e) => setImportFile(e.target.files[0] || null)} />
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
+                    {importLoading ? 'Reading…' : 'Preview import'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {importPreview && !importResult && (() => {
+              const toCreate = importPreview.rows.filter((r) => !r.willSkip).length;
+              const toSkip = importPreview.rows.length - toCreate;
+              return (
+                <>
+                  <p className="itdevices-import-summary">
+                    {importPreview.rows.length} row(s) found — {toCreate} will be created, {toSkip} will be skipped.
+                  </p>
+                  <div className="itdevices-import-scroll">
+                    <table className="table itdevices-import-table">
+                      <thead>
+                        <tr><th>Name</th><th>Title</th><th>Company</th><th>Department</th><th>Email</th><th>Notes</th></tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.rows.map((r, i) => (
+                          <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
+                            <td style={{ fontWeight: 600 }}>{r.firstName} {r.lastName}</td>
+                            <td>{r.positionTitle || '—'}</td>
+                            <td>{r.companyName || '—'}</td>
+                            <td>{r.departmentName || '—'}</td>
+                            <td>{r.email || '—'}</td>
+                            <td className="itdevices-import-warnings">
+                              {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="dialog-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>Back</button>
+                    <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                    <button type="button" className="btn btn-primary" disabled={importCommitting || !toCreate} onClick={commitImport}>
+                      {importCommitting ? 'Importing…' : toCreate ? 'Import ' + toCreate + ' employee(s)' : 'Nothing to import'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+
+            {importResult && (
+              <>
+                <p className="itdevices-import-summary">
+                  Imported {importResult.created} employee(s){importResult.skipped ? ', skipped ' + importResult.skipped : ''}
+                  {importResult.failed.length ? ', ' + importResult.failed.length + ' failed' : ''}.
+                </p>
+                {importResult.failed.length > 0 && (
+                  <ul>
+                    {importResult.failed.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
+                  </ul>
+                )}
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-primary" onClick={() => setImportOpen(false)}>Done</button>
                 </div>
               </>
             )}
