@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import './AssistantPage.css';
 
 // Ported from Bamboo OS.dc.html's assistant screen (screens.assistant
@@ -13,6 +14,31 @@ import './AssistantPage.css';
 // ANTHROPIC_API_KEY configured on the server, every reply is the same
 // "not configured" message — that's the backend's own graceful fallback,
 // not something this page special-cases.
+//
+// Redesigned around the icon/avatar language established elsewhere: an
+// initials avatar for the signed-in user's own messages, a sparkle badge
+// for the assistant's replies (mirroring Messages' bubble+avatar layout).
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
 
 const SUGGESTIONS = [
   'Summarize company operations today.',
@@ -22,6 +48,8 @@ const SUGGESTIONS = [
 ];
 
 export default function AssistantPage() {
+  const { session } = useAuth();
+  const userName = session && session.employee ? session.employee.firstName + ' ' + session.employee.lastName : 'You';
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -74,11 +102,21 @@ export default function AssistantPage() {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={'assistant-bubble ' + (m.role === 'user' ? 'assistant-bubble-user' : 'assistant-bubble-reply')}>
-              {m.text}
+            <div key={i} className={'assistant-row ' + (m.role === 'user' ? 'assistant-row-user' : 'assistant-row-reply')}>
+              {m.role === 'user' ? (
+                <span className="assistant-avatar" style={{ background: avatarColor(userName) }}>{initials(userName)}</span>
+              ) : (
+                <span className="assistant-avatar assistant-avatar-bot"><SparkleIcon /></span>
+              )}
+              <div className="assistant-bubble">{m.text}</div>
             </div>
           ))}
-          {busy && <div className="assistant-thinking">Thinking…</div>}
+          {busy && (
+            <div className="assistant-row assistant-row-reply">
+              <span className="assistant-avatar assistant-avatar-bot"><SparkleIcon /></span>
+              <div className="assistant-thinking">Thinking…</div>
+            </div>
+          )}
         </div>
         <form className="assistant-form" onSubmit={handleSubmit}>
           <input

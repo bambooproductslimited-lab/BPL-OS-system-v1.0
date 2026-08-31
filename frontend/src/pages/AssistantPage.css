@@ -19,24 +19,40 @@
 .assistant-suggestions-label { font-size: 13px; color: var(--color-text-muted); }
 .assistant-suggestion-btn { text-align: left; font-size: 13px; width: fit-content; }
 
+.assistant-row { display: flex; gap: 8px; max-width: 84%; align-items: flex-end; }
+.assistant-row-user { align-self: flex-end; flex-direction: row-reverse; }
+.assistant-row-reply { align-self: flex-start; }
+
+.assistant-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.assistant-avatar-bot { background: var(--color-accent); }
+.assistant-avatar-bot svg { width: 15px; height: 15px; }
+
 .assistant-bubble {
-  max-width: 80%;
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
 }
-.assistant-bubble-user {
-  align-self: flex-end;
+.assistant-row-user .assistant-bubble {
   background: var(--color-accent);
   color: #ffffff;
 }
-.assistant-bubble-reply {
-  align-self: flex-start;
+.assistant-row-reply .assistant-bubble {
   background: var(--color-bg-subtle);
   color: var(--color-text);
 }
-.assistant-thinking { font-size: 12px; color: var(--color-text-muted); }
+.assistant-thinking { font-size: 12px; color: var(--color-text-muted); padding: 10px 14px; }
 
 .assistant-form {
   display: flex;

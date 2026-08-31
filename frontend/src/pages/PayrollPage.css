@@ -27,3 +27,48 @@
 .payroll-slip-table { font-size: 13px; margin-bottom: 8px; }
 .payroll-slip-code { font-size: 11px; color: var(--color-text-muted); }
 .payroll-days-input { width: 70px; }
+
+.payroll-run-cell { display: flex; align-items: center; gap: 10px; }
+.payroll-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+}
+.payroll-badge svg { width: 13px; height: 13px; }
+.payroll-badge-people { --tile-tone: var(--color-accent); }
+.payroll-badge-warning { --tile-tone: var(--color-warning); }
+.payroll-badge-ops { --tile-tone: #3f5a7d; }
+
+.payroll-employee-cell { display: flex; align-items: center; gap: 10px; }
+.payroll-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.payroll-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.payroll-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.payroll-empty-icon svg { width: 100%; height: 100%; }
+.payroll-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }

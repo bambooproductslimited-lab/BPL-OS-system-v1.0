@@ -13,6 +13,37 @@ import './PayrollPage.css';
 // while the run is a draft (e.g. to correct for unpaid leave not yet
 // reflected in Attendance), then locks once approved.
 
+// Redesigned around the icon language established elsewhere: a
+// status-toned document badge per pay run (mirroring Invoices/
+// Quotations — green for paid, blue for approved, amber for draft), an
+// employee avatar per payslip row, icon'd empty states. The new-run and
+// payslip-edit dialogs are otherwise untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  );
+}
+function statusTone(status) {
+  if (status === 'paid') return 'people';
+  if (status === 'approved') return 'ops';
+  return 'warning';
+}
+
 function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -233,7 +264,12 @@ export default function PayrollPage() {
                   {history.payslips.map((s) => (
                     <tr key={s.id}>
                       <td>{fmtDate(s.payDate)}</td>
-                      <td style={{ fontWeight: 600 }}>{s.runNo}</td>
+                      <td>
+                        <div className="payroll-run-cell">
+                          <span className={'payroll-badge payroll-badge-' + statusTone(s.runStatus)}><DocIcon /></span>
+                          <span style={{ fontWeight: 600 }}>{s.runNo}</span>
+                        </div>
+                      </td>
                       <td style={{ textTransform: 'capitalize' }}>{s.cycle}</td>
                       <td>{fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}</td>
                       <td>{s.daysWorked}</td>
@@ -249,7 +285,12 @@ export default function PayrollPage() {
                   ))}
                 </tbody>
               </table>
-              {!history.payslips.length && <p className="table-empty">No payslips for {history.employeeName} in this period.</p>}
+              {!history.payslips.length && (
+                <div className="payroll-empty-state">
+                  <span className="payroll-empty-icon"><DocIcon /></span>
+                  <p className="payroll-empty-title">No payslips for {history.employeeName} in this period</p>
+                </div>
+              )}
             </>
           )}
         </>
@@ -262,7 +303,12 @@ export default function PayrollPage() {
             <tbody>
               {visibleRuns.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ fontWeight: 600 }}>{r.runNo}</td>
+                  <td>
+                    <div className="payroll-run-cell">
+                      <span className={'payroll-badge payroll-badge-' + statusTone(r.status)}><DocIcon /></span>
+                      <span style={{ fontWeight: 600 }}>{r.runNo}</span>
+                    </div>
+                  </td>
                   <td style={{ textTransform: 'capitalize' }}>{r.cycle}</td>
                   <td>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</td>
                   <td>{fmtDate(r.payDate)}</td>
@@ -276,9 +322,24 @@ export default function PayrollPage() {
               ))}
             </tbody>
           </table>
-          {!runs.length && <p className="table-empty">No pay runs yet.</p>}
-          {!!runs.length && !visibleRuns.length && search && <p className="table-empty">No pay runs match "{search}".</p>}
-          {!!runs.length && !visibleRuns.length && !search && <p className="table-empty">No pay runs in this period.</p>}
+          {!runs.length && (
+            <div className="payroll-empty-state">
+              <span className="payroll-empty-icon"><DocIcon /></span>
+              <p className="payroll-empty-title">No pay runs yet</p>
+            </div>
+          )}
+          {!!runs.length && !visibleRuns.length && search && (
+            <div className="payroll-empty-state">
+              <span className="payroll-empty-icon"><DocIcon /></span>
+              <p className="payroll-empty-title">No pay runs match "{search}"</p>
+            </div>
+          )}
+          {!!runs.length && !visibleRuns.length && !search && (
+            <div className="payroll-empty-state">
+              <span className="payroll-empty-icon"><DocIcon /></span>
+              <p className="payroll-empty-title">No pay runs in this period</p>
+            </div>
+          )}
         </>
       )}
 
@@ -338,7 +399,15 @@ export default function PayrollPage() {
               <tbody>
                 {activeRun.payslips.map((s) => (
                   <tr key={s.employeeId}>
-                    <td>{s.employeeName}<div className="payroll-slip-code">{s.employeeCode}</div></td>
+                    <td>
+                      <div className="payroll-employee-cell">
+                        <span className="payroll-avatar" style={{ background: avatarColor(s.employeeName) }}>{initials(s.employeeName)}</span>
+                        <div>
+                          {s.employeeName}
+                          <div className="payroll-slip-code">{s.employeeCode}</div>
+                        </div>
+                      </div>
+                    </td>
                     <td>
                       {editingSlip === s.employeeId ? (
                         <input className="input payroll-days-input" type="number" min="0" step="0.5" value={editDays} onChange={(e) => setEditDays(e.target.value)} />
