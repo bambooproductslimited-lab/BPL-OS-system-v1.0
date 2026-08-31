@@ -87,3 +87,12 @@ services:
       # this in your TimeStation account under Settings > API Keys.
       - key: TIMESTATION_API_KEY
         sync: false
+      # Optional — leave unset and the Integrations screen's "Run Square
+      # import" button is disabled with a clear message. A one-time
+      # historical pull (customers, catalogue, invoices, payments) into the
+      # OS, not a live sync — safe to run more than once, already-imported
+      # records are matched and updated, not duplicated. Create a
+      # Production Access Token for your own Square seller account at
+      # https://developer.squareup.com/apps (no OAuth app needed).
+      - key: SQUARE_ACCESS_TOKEN
+        sync: false
