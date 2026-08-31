@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import Icon from '../layout/navIcons';
 import './NotificationsBell.css';
 
 // The header bell + dropdown from the design prototype (Bamboo OS.dc.html's
@@ -67,8 +68,8 @@ export default function NotificationsBell() {
 
   return (
     <div className="notif-bell">
-      <button type="button" className="btn btn-secondary notif-bell-btn" onClick={handleOpen}>
-        Notifications
+      <button type="button" className="btn btn-secondary notif-bell-btn" onClick={handleOpen} aria-label="Notifications">
+        <span className="notif-bell-icon"><Icon name="bell" /></span>
         {unreadCount > 0 && <span className="notif-bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
       </button>
 

@@ -4,67 +4,68 @@
 // segment. Screens not yet built render a "Coming soon" placeholder (see
 // AppShell) rather than being left out of the nav — the shape of the app is
 // part of what this pass is establishing.
+// `icon` names a shared path in layout/navIcons.jsx (AppShell's <Icon>).
 export const NAV_GROUPS = [
   { label: 'Overview', items: [
-    { key: 'dashboard', label: 'Dashboard' },
-    { key: 'myspace', label: 'My space' }
+    { key: 'dashboard', label: 'Dashboard', icon: 'home' },
+    { key: 'myspace', label: 'My space', icon: 'user' }
   ] },
   { label: 'People', items: [
-    { key: 'people', label: 'Employee directory', perm: 'employee.read' },
-    { key: 'departments', label: 'Groups', perm: 'employee.read' },
-    { key: 'attendance', label: 'Attendance' },
-    { key: 'leave', label: 'Leave' }
+    { key: 'people', label: 'Employee directory', perm: 'employee.read', icon: 'users' },
+    { key: 'departments', label: 'Groups', perm: 'employee.read', icon: 'layers' },
+    { key: 'attendance', label: 'Attendance', icon: 'clock' },
+    { key: 'leave', label: 'Leave', icon: 'calendar' }
   ] },
   { label: 'Work', items: [
-    { key: 'tasks', label: 'Tasks', perm: 'task.read' },
-    { key: 'projects', label: 'Projects', perm: 'project.read' },
-    { key: 'messages', label: 'Messages' },
-    { key: 'announcements', label: 'Announcements' },
-    { key: 'documents', label: 'Documents', perm: 'document.read' }
+    { key: 'tasks', label: 'Tasks', perm: 'task.read', icon: 'checklist' },
+    { key: 'projects', label: 'Projects', perm: 'project.read', icon: 'folder' },
+    { key: 'messages', label: 'Messages', icon: 'chat' },
+    { key: 'announcements', label: 'Announcements', icon: 'megaphone' },
+    { key: 'documents', label: 'Documents', perm: 'document.read', icon: 'document' }
   ] },
   { label: 'Operations', items: [
-    { key: 'production', label: 'Raw bamboo & production', perm: 'production.read' },
-    { key: 'inventory', label: 'Products & inventory', perm: 'inventory.read' },
-    { key: 'suppliers', label: 'Suppliers', perm: 'supplier.read' },
-    { key: 'procurement', label: 'Procurement', perm: 'procurement.request' },
-    { key: 'assets', label: 'Assets & maintenance', perm: 'asset.read' },
-    { key: 'waybills', label: 'Waybills', perm: 'waybill.read' },
-    { key: 'toolroom', label: 'Tool room inventory', perm: 'toolroom.read' },
-    { key: 'itdevices', label: 'IT device inventory', perm: 'itdevice.read' }
+    { key: 'production', label: 'Raw bamboo & production', perm: 'production.read', icon: 'leaf' },
+    { key: 'inventory', label: 'Products & inventory', perm: 'inventory.read', icon: 'box' },
+    { key: 'suppliers', label: 'Suppliers', perm: 'supplier.read', icon: 'building' },
+    { key: 'procurement', label: 'Procurement', perm: 'procurement.request', icon: 'cart' },
+    { key: 'assets', label: 'Assets & maintenance', perm: 'asset.read', icon: 'wrench' },
+    { key: 'waybills', label: 'Waybills', perm: 'waybill.read', icon: 'truck' },
+    { key: 'toolroom', label: 'Tool room inventory', perm: 'toolroom.read', icon: 'toolbox' },
+    { key: 'itdevices', label: 'IT device inventory', perm: 'itdevice.read', icon: 'device' }
   ] },
   { label: 'Quotations & Invoicing', items: [
-    { key: 'qioverview', label: 'Overview', perm: 'report.read' },
-    { key: 'customers', label: 'Clients', perm: 'customer.read' },
-    { key: 'estimates', label: 'Estimates', perm: 'quotation.read' },
-    { key: 'quotations', label: 'Quotations', perm: 'quotation.read' },
-    { key: 'invoices', label: 'Invoices', perm: 'invoice.read' },
-    { key: 'payments', label: 'Payments', perm: 'invoice.read' },
-    { key: 'receipts', label: 'Receipts', perm: 'invoice.read' },
-    { key: 'catalog', label: 'Products & Services', perm: 'catalog.read' },
-    { key: 'billingsettings', label: 'Settings', perm: 'settings.manage' }
+    { key: 'qioverview', label: 'Overview', perm: 'report.read', icon: 'chart' },
+    { key: 'customers', label: 'Clients', perm: 'customer.read', icon: 'building' },
+    { key: 'estimates', label: 'Estimates', perm: 'quotation.read', icon: 'document' },
+    { key: 'quotations', label: 'Quotations', perm: 'quotation.read', icon: 'document' },
+    { key: 'invoices', label: 'Invoices', perm: 'invoice.read', icon: 'document' },
+    { key: 'payments', label: 'Payments', perm: 'invoice.read', icon: 'cash' },
+    { key: 'receipts', label: 'Receipts', perm: 'invoice.read', icon: 'receipt' },
+    { key: 'catalog', label: 'Products & Services', perm: 'catalog.read', icon: 'box' },
+    { key: 'billingsettings', label: 'Settings', perm: 'settings.manage', icon: 'gear' }
   ] },
   { label: 'Finance', items: [
-    { key: 'financedash', label: 'Finance dashboard', perm: 'report.read' },
-    { key: 'payroll', label: 'Payroll', perm: 'payroll.read' },
-    { key: 'expenses', label: 'Expenses', perm: 'expense.request' },
-    { key: 'reports', label: 'Reports', perm: 'report.read' },
-    { key: 'financialreports', label: 'Financial reports', perm: 'report.read' }
+    { key: 'financedash', label: 'Finance dashboard', perm: 'report.read', icon: 'chart' },
+    { key: 'payroll', label: 'Payroll', perm: 'payroll.read', icon: 'cash' },
+    { key: 'expenses', label: 'Expenses', perm: 'expense.request', icon: 'receipt' },
+    { key: 'reports', label: 'Reports', perm: 'report.read', icon: 'chart' },
+    { key: 'financialreports', label: 'Financial reports', perm: 'report.read', icon: 'chart' }
   ] },
   { label: 'Insights', items: [
-    { key: 'marketing', label: 'Marketing dashboard', perm: 'customer.read' },
-    { key: 'socialtracker', label: 'Social & campaign tracker', perm: 'marketing.read' },
-    { key: 'salesorders', label: 'Sales orders', perm: 'sales.read' }
+    { key: 'marketing', label: 'Marketing dashboard', perm: 'customer.read', icon: 'chart' },
+    { key: 'socialtracker', label: 'Social & campaign tracker', perm: 'marketing.read', icon: 'megaphone' },
+    { key: 'salesorders', label: 'Sales orders', perm: 'sales.read', icon: 'cart' }
   ] },
   { label: 'Intelligence', items: [
-    { key: 'assistant', label: 'AI Assistant' }
+    { key: 'assistant', label: 'AI Assistant', icon: 'sparkle' }
   ] },
   { label: 'Governance', items: [
-    { key: 'approvals', label: 'Approval centre', perm: 'approval.act' },
-    { key: 'roles', label: 'Roles & permissions', perm: 'role.manage' },
-    { key: 'users', label: 'User accounts', perm: 'user.manage' },
-    { key: 'audit', label: 'Audit log', perm: 'audit.read' },
-    { key: 'settings', label: 'Company settings', perm: 'employee.read' },
-    { key: 'integrations', label: 'Integrations', perm: 'settings.manage' }
+    { key: 'approvals', label: 'Approval centre', perm: 'approval.act', icon: 'shield' },
+    { key: 'roles', label: 'Roles & permissions', perm: 'role.manage', icon: 'key' },
+    { key: 'users', label: 'User accounts', perm: 'user.manage', icon: 'users' },
+    { key: 'audit', label: 'Audit log', perm: 'audit.read', icon: 'history' },
+    { key: 'settings', label: 'Company settings', perm: 'employee.read', icon: 'gear' },
+    { key: 'integrations', label: 'Integrations', perm: 'settings.manage', icon: 'plug' }
   ] }
 ];
 

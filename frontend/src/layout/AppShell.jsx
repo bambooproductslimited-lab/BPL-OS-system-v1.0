@@ -1,8 +1,26 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { NAV_GROUPS, ALL_NAV_ITEMS } from './navModel';
+import Icon from './navIcons';
 import NotificationsBell from '../components/NotificationsBell';
 import './AppShell.css';
+
+// Redesigned around the icon/avatar language established across every
+// page: an icon per nav item (navModel.js's `icon` field, rendered via
+// navIcons.jsx), an accent-tinted active state, an initials avatar for
+// the signed-in user, and a matching icon badge on the page header.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
 
 export default function AppShell() {
   const { session, logout, can } = useAuth();
@@ -13,6 +31,7 @@ export default function AppShell() {
   const currentGroup = NAV_GROUPS.find((group) => group.items.some((item) => item.key === currentKey));
 
   const employee = session && session.employee;
+  const employeeName = employee ? employee.firstName + ' ' + employee.lastName : '';
   const roleLine = session
     ? (session.roleNames || []).join(', ') + (employee ? ' · ' + employee.positionTitle : '')
     : '';
@@ -45,6 +64,7 @@ export default function AppShell() {
                     to={'/' + item.key}
                     className={({ isActive }) => 'shell-nav-item' + (isActive ? ' is-active' : '')}
                   >
+                    <span className="shell-nav-icon"><Icon name={item.icon} /></span>
                     {item.label}
                   </NavLink>
                 ))}
@@ -54,8 +74,13 @@ export default function AppShell() {
         </nav>
 
         <div className="shell-user">
-          <div className="shell-user-name">{employee ? employee.firstName + ' ' + employee.lastName : ''}</div>
-          <div className="shell-user-role">{roleLine}</div>
+          <div className="shell-user-row">
+            <span className="shell-user-avatar" style={{ background: avatarColor(employeeName) }}>{initials(employeeName)}</span>
+            <div className="shell-user-text">
+              <div className="shell-user-name">{employeeName}</div>
+              <div className="shell-user-role">{roleLine}</div>
+            </div>
+          </div>
           <button type="button" className="btn btn-secondary shell-signout" onClick={handleLogout}>
             Sign out
           </button>
@@ -64,9 +89,12 @@ export default function AppShell() {
 
       <main className="shell-main">
         <header className="shell-header">
-          <div>
-            <div className="eyebrow">{currentGroup ? currentGroup.label : 'Bamboo OS'}</div>
-            <h1 className="shell-header-title">{currentItem ? currentItem.label : 'Not found'}</h1>
+          <div className="shell-header-title-row">
+            {currentItem && <span className="shell-header-icon"><Icon name={currentItem.icon} /></span>}
+            <div>
+              <div className="eyebrow">{currentGroup ? currentGroup.label : 'Bamboo OS'}</div>
+              <h1 className="shell-header-title">{currentItem ? currentItem.label : 'Not found'}</h1>
+            </div>
           </div>
           <NotificationsBell />
         </header>
