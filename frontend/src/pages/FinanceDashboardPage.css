@@ -23,6 +23,25 @@
   min-height: 96px;
 }
 
+.finance-kpi-people { --tile-tone: var(--color-accent); }
+.finance-kpi-warning { --tile-tone: var(--color-warning); }
+.finance-kpi-ops { --tile-tone: #3f5a7d; }
+.finance-kpi-finance { --tile-tone: #7d3f5c; }
+.finance-kpi-danger { --tile-tone: var(--color-danger); }
+
+.finance-kpi-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.finance-kpi-icon svg { width: 15px; height: 15px; }
+
 .finance-kpi-label {
   font-size: 10px;
   letter-spacing: 0.14em;
@@ -32,6 +51,20 @@
 
 .finance-kpi-value { font-family: var(--font-heading); font-weight: 800; font-size: 24px; }
 .finance-kpi-note { font-size: 11px; color: var(--color-text-muted); }
+
+.finance-requester-cell { display: flex; align-items: center; gap: 8px; }
+.finance-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 
 .finance-columns {
   display: grid;

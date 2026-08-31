@@ -7,6 +7,32 @@ import './FinanceDashboardPage.css';
 // values around its render()), including the client-side CSV export
 // (downloadFinanceCsv) built the same way: an in-browser Blob download,
 // no server endpoint involved.
+//
+// Redesigned around the tone-mix KPI tile language introduced on the
+// Dashboard (icon + tone-colored badge per stat, non-interactive since
+// these tiles have no drill-down), plus a requester avatar in the
+// pending-expenses table.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  cash: <><rect x="2.5" y="6" width="19" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" /></>,
+  document: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
+  warning: <><path d="M12 4 21 19H3L12 4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 10v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="12" cy="16.5" r="0.9" fill="currentColor" /></>,
+  receipt: <><path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
 const PERIOD_OPTIONS = [3, 6, 9, 12];
 
@@ -64,12 +90,12 @@ export default function FinanceDashboardPage() {
   if (!fin) return <p className="table-empty">No data yet.</p>;
 
   const kpis = [
-    { label: 'Cash collected this month', value: 'GHS ' + fin.cashCollectedThisMonth.toLocaleString(), note: '' },
-    { label: 'Net position this month', value: 'GHS ' + (fin.netPositionThisMonth || 0).toLocaleString(), note: 'Collected minus approved expenses' },
-    { label: 'Outstanding (all invoices)', value: 'GHS ' + fin.outstandingTotal.toLocaleString(), note: fin.unpaidCount + ' unpaid' },
-    { label: 'Overdue total', value: 'GHS ' + fin.overdueTotal.toLocaleString(), note: fin.overdueInvoices.length + ' invoice(s)' },
-    { label: 'Pending expense claims', value: 'GHS ' + fin.pendingExpensesTotal.toLocaleString(), note: fin.pendingExpenses.length + ' claim(s)' },
-    { label: 'Expenses approved this month', value: 'GHS ' + fin.approvedExpensesThisMonth.toLocaleString(), note: '' }
+    { label: 'Cash collected this month', value: 'GHS ' + fin.cashCollectedThisMonth.toLocaleString(), note: '', icon: 'cash', tone: 'people' },
+    { label: 'Net position this month', value: 'GHS ' + (fin.netPositionThisMonth || 0).toLocaleString(), note: 'Collected minus approved expenses', icon: 'document', tone: 'ops' },
+    { label: 'Outstanding (all invoices)', value: 'GHS ' + fin.outstandingTotal.toLocaleString(), note: fin.unpaidCount + ' unpaid', icon: 'clock', tone: 'warning' },
+    { label: 'Overdue total', value: 'GHS ' + fin.overdueTotal.toLocaleString(), note: fin.overdueInvoices.length + ' invoice(s)', icon: 'warning', tone: 'danger' },
+    { label: 'Pending expense claims', value: 'GHS ' + fin.pendingExpensesTotal.toLocaleString(), note: fin.pendingExpenses.length + ' claim(s)', icon: 'receipt', tone: 'warning' },
+    { label: 'Expenses approved this month', value: 'GHS ' + fin.approvedExpensesThisMonth.toLocaleString(), note: '', icon: 'receipt', tone: 'finance' }
   ];
 
   const trendMax = Math.max(1, ...(fin.monthlyTrend || []).flatMap((m) => [m.revenue, m.expense]));
@@ -82,7 +108,8 @@ export default function FinanceDashboardPage() {
 
       <div className="finance-kpis">
         {kpis.map((k) => (
-          <div className="finance-kpi" key={k.label}>
+          <div className={'finance-kpi finance-kpi-' + k.tone} key={k.label}>
+            <span className="finance-kpi-icon"><Icon name={k.icon} /></span>
             <div className="finance-kpi-label">{k.label}</div>
             <div className="finance-kpi-value">{k.value}</div>
             <div className="finance-kpi-note">{k.note}</div>
@@ -164,7 +191,14 @@ export default function FinanceDashboardPage() {
             <tbody>
               {fin.pendingExpenses.map((e, i) => (
                 <tr key={i}>
-                  <td>{e.category}</td><td>GHS {e.amount.toLocaleString()}</td><td>{e.requesterName}</td><td>{e.departmentName}</td>
+                  <td>{e.category}</td><td>GHS {e.amount.toLocaleString()}</td>
+                  <td>
+                    <div className="finance-requester-cell">
+                      <span className="finance-avatar" style={{ background: avatarColor(e.requesterName) }}>{initials(e.requesterName)}</span>
+                      {e.requesterName}
+                    </div>
+                  </td>
+                  <td>{e.departmentName}</td>
                 </tr>
               ))}
             </tbody>

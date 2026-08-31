@@ -9,6 +9,19 @@ import './ReceiptsPage.css';
 // and dialog.receiptPreview. Receipts are read-only — a pure byproduct of
 // invoices.recordPayment (backend/src/services/invoices.service.js) — so
 // there is no create/edit/delete here, only Preview.
+//
+// Redesigned around the icon language established elsewhere: an icon'd
+// empty state (mirroring Payments — this is likewise a flat ledger with
+// no natural per-row category, so no badge is added).
+
+function ReceiptIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -84,8 +97,18 @@ export default function ReceiptsPage() {
           ))}
         </tbody>
       </table>
-      {!receipts.length && <p className="table-empty">No receipts issued yet.</p>}
-      {!!receipts.length && !visibleReceipts.length && <p className="table-empty">No receipts match "{search}".</p>}
+      {!receipts.length && (
+        <div className="receipts-empty-state">
+          <span className="receipts-empty-icon"><ReceiptIcon /></span>
+          <p className="receipts-empty-title">No receipts issued yet</p>
+        </div>
+      )}
+      {!!receipts.length && !visibleReceipts.length && (
+        <div className="receipts-empty-state">
+          <span className="receipts-empty-icon"><ReceiptIcon /></span>
+          <p className="receipts-empty-title">No receipts match "{search}"</p>
+        </div>
+      )}
 
       {previewR && (
         <ReceiptPreview

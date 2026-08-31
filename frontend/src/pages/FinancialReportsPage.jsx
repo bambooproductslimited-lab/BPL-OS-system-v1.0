@@ -12,6 +12,34 @@ import './FinancialReportsPage.css';
 // Payable, Loans and Owner's Equity lines are entered manually here
 // (report.manage) rather than computed; everything else is automatic.
 
+// Redesign scoped narrowly given the size and density of this page (six
+// report tabs, a PDF export ref, a manual balance-sheet-inputs form): only
+// the P&L/Cash Flow summary tiles get the icon+tone treatment (mirroring
+// Reports/FinanceDashboard), plus a requester avatar in the Expense Detail
+// table. The AR Aging bucket tiles keep their existing bar-only treatment
+// (a second icon there would clutter, not clarify) and every tab's table,
+// the balance-sheet form, and all exports are untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+const ICON_PATHS = {
+  cash: <><rect x="2.5" y="6" width="19" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" /></>,
+  receipt: <><path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  users: <><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  document: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
 const TABS = [
   { key: 'pnl', label: 'Profit & Loss' },
   { key: 'cashflow', label: 'Cash Flow' },
@@ -257,10 +285,11 @@ export default function FinancialReportsPage() {
         {tab === 'pnl' && pnl && (
           <div>
             <div className="finreport-kpis">
-              <div className="finreport-kpi"><div className="finreport-kpi-label">Revenue</div><div className="finreport-kpi-value">{money(pnl.revenue)}</div></div>
-              <div className="finreport-kpi"><div className="finreport-kpi-label">Expenses</div><div className="finreport-kpi-value">{money(pnl.totalExpenses)}</div></div>
-              <div className="finreport-kpi"><div className="finreport-kpi-label">Payroll cost</div><div className="finreport-kpi-value">{money(pnl.payrollCost)}</div></div>
-              <div className="finreport-kpi">
+              <div className="finreport-kpi finreport-kpi-people"><span className="finreport-kpi-icon"><Icon name="cash" /></span><div className="finreport-kpi-label">Revenue</div><div className="finreport-kpi-value">{money(pnl.revenue)}</div></div>
+              <div className="finreport-kpi finreport-kpi-warning"><span className="finreport-kpi-icon"><Icon name="receipt" /></span><div className="finreport-kpi-label">Expenses</div><div className="finreport-kpi-value">{money(pnl.totalExpenses)}</div></div>
+              <div className="finreport-kpi finreport-kpi-finance"><span className="finreport-kpi-icon"><Icon name="users" /></span><div className="finreport-kpi-label">Payroll cost</div><div className="finreport-kpi-value">{money(pnl.payrollCost)}</div></div>
+              <div className="finreport-kpi finreport-kpi-ops">
+                <span className="finreport-kpi-icon"><Icon name="document" /></span>
                 <div className="finreport-kpi-label">Net profit</div>
                 <div className={'finreport-kpi-value' + (pnl.netProfit < 0 ? ' finreport-negative' : '')}>{money(pnl.netProfit)}</div>
               </div>
@@ -279,9 +308,10 @@ export default function FinancialReportsPage() {
         {tab === 'cashflow' && cashFlow && (
           <div>
             <div className="finreport-kpis">
-              <div className="finreport-kpi"><div className="finreport-kpi-label">Cash in</div><div className="finreport-kpi-value">{money(cashFlow.cashIn)}</div></div>
-              <div className="finreport-kpi"><div className="finreport-kpi-label">Cash out</div><div className="finreport-kpi-value">{money(cashFlow.cashOut)}</div></div>
-              <div className="finreport-kpi">
+              <div className="finreport-kpi finreport-kpi-people"><span className="finreport-kpi-icon"><Icon name="cash" /></span><div className="finreport-kpi-label">Cash in</div><div className="finreport-kpi-value">{money(cashFlow.cashIn)}</div></div>
+              <div className="finreport-kpi finreport-kpi-warning"><span className="finreport-kpi-icon"><Icon name="receipt" /></span><div className="finreport-kpi-label">Cash out</div><div className="finreport-kpi-value">{money(cashFlow.cashOut)}</div></div>
+              <div className="finreport-kpi finreport-kpi-ops">
+                <span className="finreport-kpi-icon"><Icon name="document" /></span>
                 <div className="finreport-kpi-label">Net cash flow</div>
                 <div className={'finreport-kpi-value' + (cashFlow.netCashFlow < 0 ? ' finreport-negative' : '')}>{money(cashFlow.netCashFlow)}</div>
               </div>
@@ -412,7 +442,13 @@ export default function FinancialReportsPage() {
               <tbody>
                 {expenseDetail.items.map((r, i) => (
                   <tr key={i}>
-                    <td>{fmtDate(r.date)}</td><td>{r.category}</td><td>{r.departmentName}</td><td>{r.requesterName}</td>
+                    <td>{fmtDate(r.date)}</td><td>{r.category}</td><td>{r.departmentName}</td>
+                    <td>
+                      <div className="finreport-requester-cell">
+                        <span className="finreport-avatar" style={{ background: avatarColor(r.requesterName) }}>{initials(r.requesterName)}</span>
+                        {r.requesterName}
+                      </div>
+                    </td>
                     <td className="finreport-desc-cell">{r.description || '—'}</td><td>{money(r.amount)}</td>
                   </tr>
                 ))}

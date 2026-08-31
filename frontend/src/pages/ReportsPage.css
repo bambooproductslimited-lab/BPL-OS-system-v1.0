@@ -17,6 +17,24 @@
   min-height: 90px;
 }
 
+.reports-kpi-people { --tile-tone: var(--color-accent); }
+.reports-kpi-warning { --tile-tone: var(--color-warning); }
+.reports-kpi-ops { --tile-tone: #3f5a7d; }
+.reports-kpi-finance { --tile-tone: #7d3f5c; }
+
+.reports-kpi-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.reports-kpi-icon svg { width: 15px; height: 15px; }
+
 .reports-kpi-label {
   font-size: 10px;
   letter-spacing: 0.14em;
