@@ -20,8 +20,52 @@
   flex-direction: column;
   gap: 4px;
 }
+.mkt-funnel-tile-people { --tile-tone: var(--color-accent); }
+.mkt-funnel-tile-warning { --tile-tone: var(--color-warning); }
+.mkt-funnel-tile-ops { --tile-tone: #3f5a7d; }
+.mkt-funnel-tile-finance { --tile-tone: #7d3f5c; }
+.mkt-funnel-tile-danger { --tile-tone: var(--color-danger); }
+.mkt-funnel-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+.mkt-funnel-icon svg { width: 14px; height: 14px; }
 .mkt-funnel-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
 .mkt-funnel-value { font-family: var(--font-heading); font-weight: 800; font-size: 24px; }
+
+.mkt-name-cell { display: flex; align-items: center; gap: 10px; }
+.mkt-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mkt-badge svg { width: 14px; height: 14px; }
+
+.mkt-contact-person-cell { display: flex; align-items: center; gap: 8px; }
+.mkt-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 
 @media (max-width: 900px) {
   .mkt-top { grid-template-columns: 1fr; }

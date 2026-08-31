@@ -16,6 +16,25 @@
   gap: 6px;
   min-height: 88px;
 }
+.qio-kpi-people { --tile-tone: var(--color-accent); }
+.qio-kpi-warning { --tile-tone: var(--color-warning); }
+.qio-kpi-ops { --tile-tone: #3f5a7d; }
+.qio-kpi-finance { --tile-tone: #7d3f5c; }
+.qio-kpi-danger { --tile-tone: var(--color-danger); }
+
+.qio-kpi-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+.qio-kpi-icon svg { width: 14px; height: 14px; }
+
 .qio-kpi-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-text-muted); }
 .qio-kpi-value { font-family: var(--font-heading); font-weight: 800; font-size: 22px; }
 .qio-kpi-note { font-size: 11px; color: var(--color-text-muted); }

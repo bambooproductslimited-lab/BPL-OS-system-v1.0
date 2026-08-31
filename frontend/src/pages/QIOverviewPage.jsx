@@ -6,6 +6,20 @@ import './QIOverviewPage.css';
 // block + the qiKpis/qiMonthly/qiRecent*/qiUpcomingDue/qiOverdueInvoices
 // computed values), backed by GET /api/reports/commercial
 // (reportsService.commercialDashboard).
+//
+// Redesigned around the tone-mix KPI tile language introduced on the
+// Dashboard: an icon + tone-colored badge per stat. Non-interactive,
+// same as Reports/FinanceDashboard, since these tiles have no
+// drill-down destination.
+
+const ICON_PATHS = {
+  document: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  cash: <><rect x="2.5" y="6" width="19" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" /></>,
+  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
+  check: <><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M8 12.5l2.3 2.3L16 9.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
+  warning: <><path d="M12 4 21 19H3L12 4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 10v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="12" cy="16.5" r="0.9" fill="currentColor" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -42,20 +56,20 @@ export default function QIOverviewPage() {
   if (!data) return null;
 
   const kpis = [
-    { label: 'Total quotations', value: data.totalQuotations },
-    { label: 'Awaiting response', value: data.awaitingResponse },
-    { label: 'Accepted', value: data.acceptedQuotations },
-    { label: 'Rejected', value: data.rejectedQuotations },
-    { label: 'Expired', value: data.expiredQuotations },
-    { label: 'Quotation value', value: 'GHS ' + data.totalQuotationValue.toLocaleString() },
-    { label: 'Conversion rate', value: data.conversionRate + '%' },
-    { label: 'Total invoices', value: data.totalInvoices },
-    { label: 'Invoiced amount', value: 'GHS ' + data.totalInvoicedAmount.toLocaleString() },
-    { label: 'Total paid', value: 'GHS ' + data.totalPaid.toLocaleString() },
-    { label: 'Outstanding balance', value: 'GHS ' + data.outstandingBalance.toLocaleString() },
-    { label: 'Overdue invoices', value: data.overdueCount, note: 'GHS ' + data.overdueAmount.toLocaleString() },
-    { label: 'Revenue this month', value: 'GHS ' + data.revenueThisMonth.toLocaleString() },
-    { label: 'Revenue this year', value: 'GHS ' + data.revenueThisYear.toLocaleString() }
+    { label: 'Total quotations', value: data.totalQuotations, icon: 'document', tone: 'ops' },
+    { label: 'Awaiting response', value: data.awaitingResponse, icon: 'clock', tone: 'warning' },
+    { label: 'Accepted', value: data.acceptedQuotations, icon: 'check', tone: 'people' },
+    { label: 'Rejected', value: data.rejectedQuotations, icon: 'warning', tone: 'danger' },
+    { label: 'Expired', value: data.expiredQuotations, icon: 'clock', tone: 'danger' },
+    { label: 'Quotation value', value: 'GHS ' + data.totalQuotationValue.toLocaleString(), icon: 'cash', tone: 'finance' },
+    { label: 'Conversion rate', value: data.conversionRate + '%', icon: 'check', tone: 'people' },
+    { label: 'Total invoices', value: data.totalInvoices, icon: 'document', tone: 'ops' },
+    { label: 'Invoiced amount', value: 'GHS ' + data.totalInvoicedAmount.toLocaleString(), icon: 'cash', tone: 'finance' },
+    { label: 'Total paid', value: 'GHS ' + data.totalPaid.toLocaleString(), icon: 'cash', tone: 'people' },
+    { label: 'Outstanding balance', value: 'GHS ' + data.outstandingBalance.toLocaleString(), icon: 'clock', tone: 'warning' },
+    { label: 'Overdue invoices', value: data.overdueCount, note: 'GHS ' + data.overdueAmount.toLocaleString(), icon: 'warning', tone: 'danger' },
+    { label: 'Revenue this month', value: 'GHS ' + data.revenueThisMonth.toLocaleString(), icon: 'cash', tone: 'people' },
+    { label: 'Revenue this year', value: 'GHS ' + data.revenueThisYear.toLocaleString(), icon: 'cash', tone: 'people' }
   ];
 
   const maxInvoiced = data.monthly.length ? Math.max(...data.monthly.map((m) => m.invoiced)) : 0;
@@ -64,7 +78,8 @@ export default function QIOverviewPage() {
     <div className="qio">
       <div className="qio-kpis">
         {kpis.map((k) => (
-          <div key={k.label} className="qio-kpi">
+          <div key={k.label} className={'qio-kpi qio-kpi-' + k.tone}>
+            <span className="qio-kpi-icon"><Icon name={k.icon} /></span>
             <div className="qio-kpi-label">{k.label}</div>
             <div className="qio-kpi-value">{k.value}</div>
             {k.note && <div className="qio-kpi-note">{k.note}</div>}
