@@ -7,6 +7,34 @@ import './ItDevicesPage.css';
 // IT device inventory: company laptops/desktops/phones/monitors/etc, owned
 // and tracked by IT specifically — separate from the general Assets &
 // Maintenance module.
+//
+// Redesigned around the icon language established elsewhere: a
+// category-colored device badge per row, an assignee avatar, icon'd
+// empty states. The register/edit dialog and the sheet-import flow are
+// untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+function badgeColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function DeviceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="4.5" width="18" height="11" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M1.5 18.5h21" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M9.5 18.5 10 16h4l.5 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 const EMPTY_FORM = {
   deviceTag: '', category: '', brand: '', model: '', serialNumber: '', assignedEmployeeId: '', departmentId: '',
@@ -174,11 +202,23 @@ export default function ItDevicesPage() {
         <tbody>
           {visibleDevices.map((d) => (
             <tr key={d.id}>
-              <td style={{ fontWeight: 600 }}>{d.deviceTag}</td>
+              <td>
+                <div className="itdevices-name-cell">
+                  <span className="itdevices-badge" style={{ background: badgeColor(d.category) }}><DeviceIcon /></span>
+                  <span style={{ fontWeight: 600 }}>{d.deviceTag}</span>
+                </div>
+              </td>
               <td>{d.category}</td>
               <td>{(d.brand + ' ' + d.model).trim() || '—'}</td>
               <td className="itdevices-serial">{d.serialNumber || '—'}</td>
-              <td>{d.assigneeName}</td>
+              <td>
+                {d.assigneeName !== 'Unassigned' ? (
+                  <div className="itdevices-driver-cell">
+                    <span className="itdevices-avatar" style={{ background: avatarColor(d.assigneeName) }}>{initials(d.assigneeName)}</span>
+                    {d.assigneeName}
+                  </div>
+                ) : d.assigneeName}
+              </td>
               <td style={{ textTransform: 'capitalize' }}>{d.condition}</td>
               <td><span className={'tag ' + tagClass(d.status)}>{d.status.replace('_', ' ')}</span></td>
               <td className="table-actions">
@@ -188,8 +228,18 @@ export default function ItDevicesPage() {
           ))}
         </tbody>
       </table>
-      {!devices.length && <p className="table-empty">No devices registered yet.</p>}
-      {!!devices.length && !visibleDevices.length && <p className="table-empty">No devices match "{search}".</p>}
+      {!devices.length && (
+        <div className="itdevices-empty-state">
+          <span className="itdevices-empty-icon"><DeviceIcon /></span>
+          <p className="itdevices-empty-title">No devices registered yet</p>
+        </div>
+      )}
+      {!!devices.length && !visibleDevices.length && (
+        <div className="itdevices-empty-state">
+          <span className="itdevices-empty-icon"><DeviceIcon /></span>
+          <p className="itdevices-empty-title">No devices match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

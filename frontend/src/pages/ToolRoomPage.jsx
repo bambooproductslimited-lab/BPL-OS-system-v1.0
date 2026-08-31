@@ -8,6 +8,43 @@ import './ToolRoomPage.css';
 // finished-goods Products & Inventory module. Tools/equipment can be
 // checked out to an employee; materials are tracked by quantity like
 // Products, just scoped to this module instead.
+//
+// Redesigned around the icon language established elsewhere: a
+// category-colored badge per item (wrench for tools/equipment, box for
+// materials — mirroring Assets and Inventory respectively), an avatar for
+// whoever it's checked out to, icon'd empty states. The add/edit and
+// checkout dialogs are untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+function badgeColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function WrenchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M14.7 9.3a4 4 0 0 1-5.2 5.2L4 20l-1.5-1.5 5.5-5.5a4 4 0 0 1 5.2-5.2l-2.3 2.3 1.5 1.5 2.3-2.3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function BoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3.5 20 8 12 12.5 4 8 12 3.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M4 8v8l8 4.5 8-4.5V8" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M12 12.5V21" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+function kindIcon(kind) { return kind === 'material' ? <BoxIcon /> : <WrenchIcon />; }
 
 const KIND_LABELS = { tool: 'Tool', equipment: 'Equipment', material: 'Material' };
 const EMPTY_FORM = { code: '', name: '', kind: 'tool', category: '', unit: 'each', quantityOnHand: '', reorderLevel: '', condition: 'good', location: 'Tool room', notes: '' };
@@ -152,14 +189,26 @@ export default function ToolRoomPage() {
         <tbody>
           {visibleItems.map((it) => (
             <tr key={it.id}>
-              <td style={{ fontWeight: 600 }}>{it.code}</td>
+              <td>
+                <div className="toolroom-name-cell">
+                  <span className="toolroom-badge" style={{ background: badgeColor(it.category || it.kind) }}>{kindIcon(it.kind)}</span>
+                  <span style={{ fontWeight: 600 }}>{it.code}</span>
+                </div>
+              </td>
               <td>{it.name}</td>
               <td>{KIND_LABELS[it.kind]}</td>
               <td>{it.category || '—'}</td>
               <td>{it.quantityOnHand}{it.unit !== 'each' ? ' ' + it.unit : ''} {it.lowStock && <span className="tag tag-accent toolroom-lowstock">Low</span>}</td>
               <td style={{ textTransform: 'capitalize' }}>{it.condition.replace('_', ' ')}</td>
               <td><span className={'tag ' + tagClass(it.status)}>{it.status.replace('_', ' ')}</span></td>
-              <td>{it.checkedOutToName || '—'}</td>
+              <td>
+                {it.checkedOutToName ? (
+                  <div className="toolroom-driver-cell">
+                    <span className="toolroom-avatar" style={{ background: avatarColor(it.checkedOutToName) }}>{initials(it.checkedOutToName)}</span>
+                    {it.checkedOutToName}
+                  </div>
+                ) : '—'}
+              </td>
               <td className="table-actions">
                 {canManage && <button type="button" className="btn btn-secondary toolroom-row-btn" onClick={() => openEdit(it)}>Edit</button>}
                 {canManage && it.kind !== 'material' && it.status === 'available' && (
@@ -173,8 +222,18 @@ export default function ToolRoomPage() {
           ))}
         </tbody>
       </table>
-      {!items.length && <p className="table-empty">No tool room items yet.</p>}
-      {!!items.length && !visibleItems.length && <p className="table-empty">No items match "{search}".</p>}
+      {!items.length && (
+        <div className="toolroom-empty-state">
+          <span className="toolroom-empty-icon"><WrenchIcon /></span>
+          <p className="toolroom-empty-title">No tool room items yet</p>
+        </div>
+      )}
+      {!!items.length && !visibleItems.length && (
+        <div className="toolroom-empty-state">
+          <span className="toolroom-empty-icon"><WrenchIcon /></span>
+          <p className="toolroom-empty-title">No items match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

@@ -9,6 +9,34 @@ import './WaybillsPage.css';
 // note, not a sales document (no pricing on the line items). The printed
 // document (WaybillPreview.jsx) carries the full company letterhead, a
 // "shipped to" contact block, and three sign-off lines.
+//
+// Redesigned around the icon language established elsewhere: an
+// origin-colored truck badge per waybill, a driver avatar, icon'd
+// empty states. The new-waybill dialog and printed preview are untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+function badgeColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function TruckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 6.5h10v9H3v-9Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M13 10h3.5L20 13v2.5h-7v-5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <circle cx="7" cy="17" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="17" cy="17" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -161,10 +189,22 @@ export default function WaybillsPage() {
         <tbody>
           {visibleWaybills.map((wb) => (
             <tr key={wb.id}>
-              <td style={{ fontWeight: 600 }}>{wb.waybillNo}</td>
+              <td>
+                <div className="waybills-no-cell">
+                  <span className="waybills-badge" style={{ background: badgeColor(wb.origin) }}><TruckIcon /></span>
+                  <span style={{ fontWeight: 600 }}>{wb.waybillNo}</span>
+                </div>
+              </td>
               <td style={{ textTransform: 'capitalize' }}>{wb.origin}</td>
               <td>{wb.destination}{wb.customerName ? ' (' + wb.customerName + ')' : ''}</td>
-              <td>{wb.driverName || '—'}</td>
+              <td>
+                {wb.driverName ? (
+                  <div className="waybills-driver-cell">
+                    <span className="waybills-avatar" style={{ background: avatarColor(wb.driverName) }}>{initials(wb.driverName)}</span>
+                    {wb.driverName}
+                  </div>
+                ) : '—'}
+              </td>
               <td>{wb.vehicleNo || '—'}</td>
               <td>{fmtDate(wb.createdAt)}</td>
               <td><span className={'tag ' + tagClass(wb.status)}>{wb.status}</span></td>
@@ -181,8 +221,18 @@ export default function WaybillsPage() {
           ))}
         </tbody>
       </table>
-      {!waybills.length && <p className="table-empty">No waybills yet.</p>}
-      {!!waybills.length && !visibleWaybills.length && <p className="table-empty">No waybills match "{search}".</p>}
+      {!waybills.length && (
+        <div className="waybills-empty-state">
+          <span className="waybills-empty-icon"><TruckIcon /></span>
+          <p className="waybills-empty-title">No waybills yet</p>
+        </div>
+      )}
+      {!!waybills.length && !visibleWaybills.length && (
+        <div className="waybills-empty-state">
+          <span className="waybills-empty-icon"><TruckIcon /></span>
+          <p className="waybills-empty-title">No waybills match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
