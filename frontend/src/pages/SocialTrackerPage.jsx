@@ -14,6 +14,48 @@ import './SocialTrackerPage.css';
 // integrations (Square, Slack, QuickBooks); pulling live numbers from each
 // platform's API is a separate backend build per platform once real
 // developer app approval exists for it.
+//
+// Redesigned around the icon language established elsewhere, scoped to
+// the highest-value, lowest-risk spots given this page's size (five
+// tabs, seven dialogs, six per-platform sync flows, a Facebook Page
+// picker): an author avatar per inbox item (a real commenter/DM sender,
+// a person), a status-toned document badge per campaign row, icon'd
+// empty states. Every dialog, sync button, and the page picker are
+// completely untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+function InboxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 12.5V6a1.5 1.5 0 0 1 1.5-1.5h15A1.5 1.5 0 0 1 21 6v6.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M3 12.5h5.2l1.3 2.5h4.9l1.3-2.5H21V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18v-5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function statusTone(status) {
+  if (status === 'published' || status === 'active' || status === 'completed' || status === 'replied') return 'people';
+  if (status === 'failed') return 'danger';
+  return 'warning';
+}
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -636,7 +678,12 @@ export default function SocialTrackerPage() {
             <tbody>
               {dash.campaigns.map((c) => (
                 <tr key={c.id}>
-                  <td style={{ fontWeight: 600 }}>{c.name}</td>
+                  <td>
+                    <div className="soctrack-name-cell">
+                      <span className={'soctrack-badge soctrack-badge-' + statusTone(c.status)}><DocIcon /></span>
+                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+                    </div>
+                  </td>
                   <td><span className={'tag ' + statusTagClass(c.status)}>{c.status}</span></td>
                   <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
                   <td>{c.totals.posts}</td><td>{num(c.totals.likes)}</td><td>{num(c.totals.reach)}</td><td>{num(c.totals.clicks)}</td><td>{num(c.totals.leads)}</td>
@@ -644,7 +691,12 @@ export default function SocialTrackerPage() {
               ))}
             </tbody>
           </table>
-          {!dash.campaigns.length && <p className="table-empty">No campaigns yet.</p>}
+          {!dash.campaigns.length && (
+            <div className="soctrack-empty-state">
+              <span className="soctrack-empty-icon"><DocIcon /></span>
+              <p className="soctrack-empty-title">No campaigns yet</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -689,7 +741,12 @@ export default function SocialTrackerPage() {
               ))}
             </tbody>
           </table>
-          {!posts.length && <p className="table-empty">No posts logged yet.</p>}
+          {!posts.length && (
+            <div className="soctrack-empty-state">
+              <span className="soctrack-empty-icon"><DocIcon /></span>
+              <p className="soctrack-empty-title">No posts logged yet</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -705,7 +762,12 @@ export default function SocialTrackerPage() {
             <tbody>
               {campaigns.map((c) => (
                 <tr key={c.id}>
-                  <td style={{ fontWeight: 600 }}>{c.name}</td>
+                  <td>
+                    <div className="soctrack-name-cell">
+                      <span className={'soctrack-badge soctrack-badge-' + statusTone(c.status)}><DocIcon /></span>
+                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+                    </div>
+                  </td>
                   <td className="soctrack-desc-cell">{c.description || '—'}</td>
                   <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
                   <td><span className={'tag ' + statusTagClass(c.status)}>{c.status}</span></td>
@@ -716,7 +778,12 @@ export default function SocialTrackerPage() {
               ))}
             </tbody>
           </table>
-          {!campaigns.length && <p className="table-empty">No campaigns yet.</p>}
+          {!campaigns.length && (
+            <div className="soctrack-empty-state">
+              <span className="soctrack-empty-icon"><DocIcon /></span>
+              <p className="soctrack-empty-title">No campaigns yet</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -747,10 +814,13 @@ export default function SocialTrackerPage() {
             {inboxItems.map((item) => (
               <div key={item.id} className="soctrack-inbox-item">
                 <div className="soctrack-inbox-item-top">
-                  <div>
-                    <span className="soctrack-inbox-kind">{item.kind === 'comment' ? 'Comment' : 'Message'}</span> on <strong>{item.channelName}</strong>
-                    {item.postTitle && <span> · {item.postTitle}</span>}
-                    <div className="soctrack-inbox-author">{item.authorName || 'Unknown'} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
+                  <div className="soctrack-inbox-author-row">
+                    <span className="soctrack-inbox-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }}>{initials(item.authorName || 'Unknown')}</span>
+                    <div>
+                      <span className="soctrack-inbox-kind">{item.kind === 'comment' ? 'Comment' : 'Message'}</span> on <strong>{item.channelName}</strong>
+                      {item.postTitle && <span> · {item.postTitle}</span>}
+                      <div className="soctrack-inbox-author">{item.authorName || 'Unknown'} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
+                    </div>
                   </div>
                   <span className={'tag ' + statusTagClass(item.status)}>{item.status}</span>
                 </div>
@@ -774,7 +844,12 @@ export default function SocialTrackerPage() {
               </div>
             ))}
           </div>
-          {!inboxItems.length && <p className="table-empty">Nothing logged yet.</p>}
+          {!inboxItems.length && (
+            <div className="soctrack-empty-state">
+              <span className="soctrack-empty-icon"><InboxIcon /></span>
+              <p className="soctrack-empty-title">Nothing logged yet</p>
+            </div>
+          )}
         </div>
       )}
 

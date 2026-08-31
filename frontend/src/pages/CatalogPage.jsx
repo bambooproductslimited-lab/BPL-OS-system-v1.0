@@ -10,6 +10,31 @@ import './CatalogPage.css';
 // from 1 to 22 variations), so a flat one-row-per-product list couldn't
 // represent it, and a Square import would otherwise flatten every
 // variation into its own unrelated top-level product.
+//
+// Redesigned around the icon language established elsewhere: a
+// category-colored box badge per item (mirroring Inventory), an icon'd
+// empty state. Scoped to the list/expand view only — this page carries
+// three separate dialogs (item, variation, stock adjustment), all left
+// completely untouched, same risk-mitigation approach used for
+// Employees, Attendance and Production.
+
+const BADGE_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function badgeColor(name) { return BADGE_COLORS[hashStr(name || '') % BADGE_COLORS.length]; }
+
+function BoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3.5 20 8 12 12.5 4 8 12 3.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M4 8v8l8 4.5 8-4.5V8" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M12 12.5V21" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
 
 function statusLabel(active) { return active ? 'Active' : 'Archived'; }
 
@@ -276,8 +301,13 @@ export default function CatalogPage() {
                   <span className={'catalog-chevron ' + (expanded[item.id] ? 'catalog-chevron-open' : '')}>›</span>
                 </td>
                 <td>
-                  <div style={{ fontWeight: 600 }}>{item.name}</div>
-                  <div className="catalog-description">{item.description || '—'}</div>
+                  <div className="catalog-name-cell">
+                    <span className="catalog-badge" style={{ background: badgeColor(item.categoryName) }}><BoxIcon /></span>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{item.name}</div>
+                      <div className="catalog-description">{item.description || '—'}</div>
+                    </div>
+                  </div>
                 </td>
                 <td>{item.categoryName}</td>
                 <td>{item.variations.length}</td>
@@ -335,8 +365,18 @@ export default function CatalogPage() {
           ))}
         </tbody>
       </table>
-      {!items.length && <p className="table-empty">No catalogue items yet.</p>}
-      {!!items.length && !visibleItems.length && <p className="table-empty">No items match "{search}".</p>}
+      {!items.length && (
+        <div className="catalog-empty-state">
+          <span className="catalog-empty-icon"><BoxIcon /></span>
+          <p className="catalog-empty-title">No catalogue items yet</p>
+        </div>
+      )}
+      {!!items.length && !visibleItems.length && (
+        <div className="catalog-empty-state">
+          <span className="catalog-empty-icon"><BoxIcon /></span>
+          <p className="catalog-empty-title">No items match "{search}"</p>
+        </div>
+      )}
 
       {itemDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setItemDialogOpen(false)}>
