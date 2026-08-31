@@ -10,6 +10,33 @@ import './UsersPage.css';
 // or disabling your own account (users.service.js's setRole/setStatus), so
 // the row for the signed-in user disables both controls rather than letting
 // the click round-trip into a 403.
+//
+// Redesigned around the icon language established elsewhere: an avatar
+// per user row, an icon'd empty state. The create/reset-password dialogs
+// are untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function tagClass(status) {
   if (['approved', 'present', 'active', 'completed'].includes(status)) return 'tag-neutral';
@@ -187,7 +214,12 @@ export default function UsersPage() {
             const isSelf = session && u.id === session.userId;
             return (
               <tr key={u.id}>
-                <td style={{ fontWeight: 600 }}>{u.name}</td>
+                <td>
+                  <div className="users-name-cell">
+                    <span className="users-avatar" style={{ background: avatarColor(u.name) }}>{initials(u.name)}</span>
+                    <span style={{ fontWeight: 600 }}>{u.name}</span>
+                  </div>
+                </td>
                 <td className="users-email">{u.email}</td>
                 <td>
                   <select
@@ -218,8 +250,18 @@ export default function UsersPage() {
           })}
         </tbody>
       </table>
-      {!users.length && <p className="table-empty">No user accounts yet.</p>}
-      {!!users.length && !visibleUsers.length && <p className="table-empty">No users match "{search}".</p>}
+      {!users.length && (
+        <div className="users-empty-state">
+          <span className="users-empty-icon"><UsersIcon /></span>
+          <p className="users-empty-title">No user accounts yet</p>
+        </div>
+      )}
+      {!!users.length && !visibleUsers.length && (
+        <div className="users-empty-state">
+          <span className="users-empty-icon"><UsersIcon /></span>
+          <p className="users-empty-title">No users match "{search}"</p>
+        </div>
+      )}
 
       {showCreate && (
         <div className="dialog-backdrop" onClick={() => setShowCreate(false)}>

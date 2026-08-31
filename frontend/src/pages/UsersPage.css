@@ -3,6 +3,34 @@
 .users-lastlogin { font-size: 12px; }
 .users-row-btn { font-size: 12px; padding: 6px 10px; }
 
+.users-name-cell { display: flex; align-items: center; gap: 8px; }
+.users-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.users-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.users-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.users-empty-icon svg { width: 100%; height: 100%; }
+.users-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+
 .field-hint { margin: 0; font-size: 12px; color: var(--color-text-muted); }
 .checkbox-field {
   display: flex;

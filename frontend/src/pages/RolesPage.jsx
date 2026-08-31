@@ -17,6 +17,19 @@ import './RolesPage.css';
 // requires employee.read, so the code doesn't assume the nav gate is the
 // only way here.
 
+// Redesigned around the icon language established elsewhere: an icon'd
+// empty state for the permission filter. The permission matrix itself is
+// a checkbox grid, not a list of entities, so no per-row badges apply.
+
+function KeyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="8" cy="15" r="4" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M11 12 19 4M16 6l2.5 2.5M13.5 8.5 16 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function RolesPage() {
   const { can } = useAuth();
   const canManage = can('role.manage');
@@ -110,7 +123,12 @@ export default function RolesPage() {
           </tbody>
         </table>
       </div>
-      {!!catalogue.length && !visibleCatalogue.length && <p className="table-empty">No permissions match "{search}".</p>}
+      {!!catalogue.length && !visibleCatalogue.length && (
+        <div className="roles-empty-state">
+          <span className="roles-empty-icon"><KeyIcon /></span>
+          <p className="roles-empty-title">No permissions match "{search}"</p>
+        </div>
+      )}
     </div>
   );
 }
