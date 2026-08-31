@@ -13,6 +13,34 @@ import './ProductionPage.css';
 // (always empty) — this port keeps that exact behavior rather than adding
 // controls the design never had.
 
+// Redesigned around the icon/avatar language established elsewhere:
+// a supervisor avatar on production batches, icon'd empty states. The
+// four create/edit forms/dialogs here are left as-is — this page is
+// complex enough (raw batches, warehouses, production batches, plus
+// inline supplier/product creation) that reskinning only the read
+// views is the highest-value, lowest-risk change.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function LeafIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20 4c-9 0-16 7-16 16 9 0 16-7 16-16Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M6 18 18 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
@@ -341,8 +369,18 @@ export default function ProductionPage() {
           ))}
         </tbody>
       </table>
-      {!rawBatches.length && <p className="table-empty">No raw material received yet.</p>}
-      {!!rawBatches.length && !visibleRawBatches.length && <p className="table-empty">No batches match "{rbSearch}".</p>}
+      {!rawBatches.length && (
+        <div className="production-empty-state">
+          <span className="production-empty-icon"><LeafIcon /></span>
+          <p className="production-empty-title">No raw material received yet</p>
+        </div>
+      )}
+      {!!rawBatches.length && !visibleRawBatches.length && (
+        <div className="production-empty-state">
+          <span className="production-empty-icon"><LeafIcon /></span>
+          <p className="production-empty-title">No batches match "{rbSearch}"</p>
+        </div>
+      )}
 
       <h2 className="production-section-title">Warehouses</h2>
       <table className="table">
@@ -423,7 +461,12 @@ export default function ProductionPage() {
               <td>{b.batchNo}</td>
               <td>{fmtDate(b.date)}</td>
               <td>{b.productionLine}</td>
-              <td>{b.supervisorName}</td>
+              <td>
+                <div className="production-supervisor-cell">
+                  <span className="production-avatar" style={{ background: avatarColor(b.supervisorName) }}>{initials(b.supervisorName)}</span>
+                  {b.supervisorName}
+                </div>
+              </td>
               <td>{b.inputQty}</td>
               <td>{b.outputQty} ({b.productName})</td>
               <td>{b.wasteQty}</td>
@@ -432,8 +475,18 @@ export default function ProductionPage() {
           ))}
         </tbody>
       </table>
-      {!productionBatches.length && <p className="table-empty">No production batches recorded yet.</p>}
-      {!!productionBatches.length && !visibleProductionBatches.length && <p className="table-empty">No batches match "{pbSearch}".</p>}
+      {!productionBatches.length && (
+        <div className="production-empty-state">
+          <span className="production-empty-icon"><LeafIcon /></span>
+          <p className="production-empty-title">No production batches recorded yet</p>
+        </div>
+      )}
+      {!!productionBatches.length && !visibleProductionBatches.length && (
+        <div className="production-empty-state">
+          <span className="production-empty-icon"><LeafIcon /></span>
+          <p className="production-empty-title">No batches match "{pbSearch}"</p>
+        </div>
+      )}
 
       {whDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setWhDialogOpen(false)}>

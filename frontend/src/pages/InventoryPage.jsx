@@ -7,6 +7,27 @@ import './InventoryPage.css';
 // Ported from Bamboo OS.dc.html's inventory screen (screens.inventory
 // block + the products computed values, and the shared "product"
 // create/edit dialog around its render()).
+//
+// Redesigned around the icon language established elsewhere: a
+// category-colored box badge per product, an icon'd empty state.
+
+const BADGE_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function badgeColor(name) { return BADGE_COLORS[hashStr(name || '') % BADGE_COLORS.length]; }
+
+function BoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3.5 20 8 12 12.5 4 8 12 3.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M4 8v8l8 4.5 8-4.5V8" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M12 12.5V21" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
 
 const EMPTY_FORM = { sku: '', name: '', category: '', unit: '', costPrice: '', sellingPrice: '', currentStock: '', reorderLevel: '' };
 
@@ -100,7 +121,12 @@ export default function InventoryPage() {
           {visibleProducts.map((p) => (
             <tr key={p.id}>
               <td style={{ fontVariantNumeric: 'tabular-nums' }}>{p.sku}</td>
-              <td style={{ fontWeight: 600 }}>{p.name}</td>
+              <td>
+                <div className="inventory-name-cell">
+                  <span className="inventory-badge" style={{ background: badgeColor(p.category) }}><BoxIcon /></span>
+                  <span style={{ fontWeight: 600 }}>{p.name}</span>
+                </div>
+              </td>
               <td>{p.category}</td>
               <td>{p.costPrice}</td>
               <td>{p.sellingPrice}</td>
@@ -114,8 +140,18 @@ export default function InventoryPage() {
           ))}
         </tbody>
       </table>
-      {!products.length && <p className="table-empty">No products in the catalogue yet.</p>}
-      {!!products.length && !visibleProducts.length && <p className="table-empty">No products match "{search}".</p>}
+      {!products.length && (
+        <div className="inventory-empty-state">
+          <span className="inventory-empty-icon"><BoxIcon /></span>
+          <p className="inventory-empty-title">No products in the catalogue yet</p>
+        </div>
+      )}
+      {!!products.length && !visibleProducts.length && (
+        <div className="inventory-empty-state">
+          <span className="inventory-empty-icon"><BoxIcon /></span>
+          <p className="inventory-empty-title">No products match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

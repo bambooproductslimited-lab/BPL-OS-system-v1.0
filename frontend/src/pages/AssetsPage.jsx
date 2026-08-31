@@ -9,6 +9,30 @@ import './AssetsPage.css';
 // "Log maintenance" dialogs around its render()). Assets are register-only
 // here — the prototype's asset rows have no edit/delete action, only the
 // two toolbar buttons.
+//
+// Redesigned around the icon/avatar language established elsewhere: a
+// category-colored wrench badge per asset, an assignee avatar, icon'd
+// empty states.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function WrenchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M14.7 5.3a4.3 4.3 0 0 1-5.6 5.6L4.5 15.5l3 3 4.6-4.6a4.3 4.3 0 0 1 5.6-5.6l-2.6 2.6-2.4-2.4 2.6-2.6Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -133,10 +157,22 @@ export default function AssetsPage() {
         <tbody>
           {visibleAssets.map((a) => (
             <tr key={a.id}>
-              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{a.assetNo}</td>
+              <td>
+                <div className="assets-name-cell">
+                  <span className="assets-badge" style={{ background: avatarColor(a.category) }}><WrenchIcon /></span>
+                  {a.assetNo}
+                </div>
+              </td>
               <td>{a.category}</td>
               <td>{a.description}</td>
-              <td>{a.assigneeName}</td>
+              <td>
+                {a.assigneeName ? (
+                  <div className="assets-assignee-cell">
+                    <span className="assets-avatar" style={{ background: avatarColor(a.assigneeName) }}>{initials(a.assigneeName)}</span>
+                    {a.assigneeName}
+                  </div>
+                ) : '—'}
+              </td>
               <td style={{ fontSize: 12 }}>{a.location}</td>
               <td>{a.condition}</td>
               <td>{fmtDate(a.nextServiceDate)}</td>
@@ -145,8 +181,18 @@ export default function AssetsPage() {
           ))}
         </tbody>
       </table>
-      {!assets.length && <p className="table-empty">No assets registered yet.</p>}
-      {!!assets.length && !visibleAssets.length && <p className="table-empty">No assets match "{search}".</p>}
+      {!assets.length && (
+        <div className="assets-empty-state">
+          <span className="assets-empty-icon"><WrenchIcon /></span>
+          <p className="assets-empty-title">No assets registered yet</p>
+        </div>
+      )}
+      {!!assets.length && !visibleAssets.length && (
+        <div className="assets-empty-state">
+          <span className="assets-empty-icon"><WrenchIcon /></span>
+          <p className="assets-empty-title">No assets match "{search}"</p>
+        </div>
+      )}
 
       <h2 className="assets-section-title">Maintenance history</h2>
       <table className="table">
@@ -167,7 +213,12 @@ export default function AssetsPage() {
           ))}
         </tbody>
       </table>
-      {!maintenance.length && <p className="table-empty">No maintenance logged yet.</p>}
+      {!maintenance.length && (
+        <div className="assets-empty-state">
+          <span className="assets-empty-icon"><WrenchIcon /></span>
+          <p className="assets-empty-title">No maintenance logged yet</p>
+        </div>
+      )}
 
       {assetDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setAssetDialogOpen(false)}>

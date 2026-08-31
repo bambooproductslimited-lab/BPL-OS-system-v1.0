@@ -8,6 +8,33 @@
 
 .inventory-row-btn { font-size: 12px; padding: 6px 10px; }
 
+.inventory-name-cell { display: flex; align-items: center; gap: 10px; }
+.inventory-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.inventory-badge svg { width: 14px; height: 14px; }
+
+.inventory-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.inventory-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.inventory-empty-icon svg { width: 100%; height: 100%; }
+.inventory-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+
 .inventory-dialog {
   max-width: 560px;
   display: grid;

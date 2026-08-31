@@ -6,6 +6,31 @@ import './ProcurementPage.css';
 
 // Ported from Bamboo OS.dc.html's procurement screen (screens.procurement
 // block + the procurement computed values around its render()).
+//
+// Redesigned around the icon/avatar language established elsewhere:
+// requester avatar per row, an icon'd empty state.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function CartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 4h2.2l2 11.5h10.6l1.7-8.2H6.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="9.5" cy="19.5" r="1.3" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="16.5" cy="19.5" r="1.3" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
 
 function tagClass(status) {
   if (['approved', 'present', 'active', 'completed'].includes(status)) return 'tag-neutral';
@@ -147,7 +172,12 @@ export default function ProcurementPage() {
               <tr key={r.id}>
                 <td style={{ fontWeight: 600 }}>{r.item}</td>
                 <td>{r.quantity}</td>
-                <td>{r.requesterName}</td>
+                <td>
+                  <div className="procurement-requester-cell">
+                    <span className="procurement-avatar" style={{ background: avatarColor(r.requesterName) }}>{initials(r.requesterName)}</span>
+                    {r.requesterName}
+                  </div>
+                </td>
                 <td>{r.departmentName}</td>
                 <td>GHS {r.estimatedPrice.toLocaleString()}</td>
                 <td>{fmtDate(r.requiredDate)}</td>
@@ -166,8 +196,18 @@ export default function ProcurementPage() {
           })}
         </tbody>
       </table>
-      {!requests.length && <p className="table-empty">Nothing to show in your scope.</p>}
-      {!!requests.length && !visibleRequests.length && <p className="table-empty">No requests match "{search}".</p>}
+      {!requests.length && (
+        <div className="procurement-empty-state">
+          <span className="procurement-empty-icon"><CartIcon /></span>
+          <p className="procurement-empty-title">Nothing to show in your scope</p>
+        </div>
+      )}
+      {!!requests.length && !visibleRequests.length && (
+        <div className="procurement-empty-state">
+          <span className="procurement-empty-icon"><CartIcon /></span>
+          <p className="procurement-empty-title">No requests match "{search}"</p>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>
