@@ -83,10 +83,23 @@ async function preview(ctx) {
   var data = await timestationRequest('/employees');
   var tsEmployees = data.employees || [];
 
-  var deptRes = await pool.query('SELECT id, name, code FROM departments');
-  var deptByName = {};
+  // Department names are no longer globally unique — Star Bar Restaurant
+  // and Bamboo Garden each have their own "Kitchen", "Waitress" and "Store
+  // room" (migration 0032's seed data). Group by lowercased name so a
+  // TimeStation department name that now matches more than one company's
+  // department can be flagged instead of silently resolving to whichever
+  // row Postgres happened to return first.
+  var deptRes = await pool.query(
+    'SELECT d.id, d.name, d.code, c.name AS company_name FROM departments d JOIN companies c ON c.id = d.company_id'
+  );
+  var deptsByName = {};
   var takenCodes = new Set();
-  deptRes.rows.forEach(function (d) { deptByName[d.name.toLowerCase()] = d; takenCodes.add(d.code); });
+  deptRes.rows.forEach(function (d) {
+    var key = d.name.toLowerCase();
+    if (!deptsByName[key]) deptsByName[key] = [];
+    deptsByName[key].push(d);
+    takenCodes.add(d.code);
+  });
 
   var empRes = await pool.query('SELECT id, email, timestation_employee_id FROM employees');
   var existingByEmail = {};
@@ -106,7 +119,9 @@ async function preview(ctx) {
     var name = splitName(te.name);
     var email = String(te.email || '').trim().toLowerCase();
     var deptName = te.primary_department || te.current_department || 'Unassigned';
-    var existingDept = deptByName[deptName.toLowerCase()];
+    var deptMatches = deptsByName[deptName.toLowerCase()] || [];
+    var existingDept = deptMatches.length === 1 ? deptMatches[0] : null;
+    var ambiguousDept = deptMatches.length > 1;
     var warnings = [];
     var willSkip = false;
     var skipReason = null;
@@ -136,10 +151,14 @@ async function preview(ctx) {
       warnings.push('No email on this TimeStation record — enter one before importing, or this person will be skipped.');
       willSkip = true;
       skipReason = 'no_email';
+    } else if (ambiguousDept) {
+      willSkip = true;
+      skipReason = 'ambiguous_department';
+      warnings.push('"' + deptName + '" matches more than one department (' + deptMatches.map(function (d) { return d.company_name; }).join(', ') + ') — rename it in TimeStation to be specific (e.g. "Star Bar Kitchen") before importing.');
     }
 
-    var willCreateDept = !existingDept && !seenDeptNames[deptName.toLowerCase()];
-    if (!existingDept) seenDeptNames[deptName.toLowerCase()] = true;
+    var willCreateDept = !existingDept && !ambiguousDept && !seenDeptNames[deptName.toLowerCase()];
+    if (!existingDept && !ambiguousDept) seenDeptNames[deptName.toLowerCase()] = true;
 
     out.push({
       timestationEmployeeId: te.employee_id,
@@ -162,13 +181,19 @@ async function preview(ctx) {
   return { rows: out };
 }
 
-async function findOrCreateDepartment(client, name, takenCodes) {
+// New departments need a company (departments.company_id is NOT NULL — see
+// migration 0032). TimeStation has no concept of "company", only
+// department, so an auto-created department defaults to Bamboo Products
+// Limited (the business this sync was built for) — HR can move it to Star
+// Bar Restaurant or Bamboo Garden afterward from the Companies screen if a
+// synced department actually belongs to one of them.
+async function findOrCreateDepartment(client, name, takenCodes, defaultCompanyId) {
   var existing = await client.query('SELECT id FROM departments WHERE lower(name) = lower($1)', [name]);
   if (existing.rows[0]) return existing.rows[0].id;
   var code = deriveDeptCode(name, takenCodes);
   var created = await client.query(
-    "INSERT INTO departments (name, code, status) VALUES ($1,$2,'active') RETURNING id",
-    [name, code]
+    "INSERT INTO departments (name, code, company_id, status) VALUES ($1,$2,$3,'active') RETURNING id",
+    [name, code, defaultCompanyId]
   );
   return created.rows[0].id;
 }
@@ -187,7 +212,14 @@ async function commit(ctx, rows) {
   var deptRes = await pool.query('SELECT id, name, code FROM departments');
   var takenCodes = new Set(deptRes.rows.map(function (d) { return d.code; }));
   var deptIdByName = {};
-  deptRes.rows.forEach(function (d) { deptIdByName[d.name.toLowerCase()] = d.id; });
+  var ambiguousDeptNames = new Set();
+  deptRes.rows.forEach(function (d) {
+    var key = d.name.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(deptIdByName, key)) ambiguousDeptNames.add(key);
+    else deptIdByName[key] = d.id;
+  });
+  var defaultCompanyRes = await pool.query("SELECT id FROM companies WHERE code = 'BPL'");
+  var defaultCompanyId = defaultCompanyRes.rows[0] && defaultCompanyRes.rows[0].id;
 
   var created = 0, skipped = 0, linked = 0, failed = [], pinIssues = [];
   for (var i = 0; i < rows.length; i++) {
@@ -206,10 +238,14 @@ async function commit(ctx, rows) {
       continue;
     }
     try {
-      var deptId = deptIdByName[String(r.departmentName || '').toLowerCase()];
+      var deptKey = String(r.departmentName || '').toLowerCase();
+      if (ambiguousDeptNames.has(deptKey)) {
+        throw new Error('Department "' + r.departmentName + '" matches more than one existing department — rename it in TimeStation to be specific before importing.');
+      }
+      var deptId = deptIdByName[deptKey];
       if (!deptId) {
-        deptId = await findOrCreateDepartment(pool, r.departmentName, takenCodes);
-        deptIdByName[String(r.departmentName || '').toLowerCase()] = deptId;
+        deptId = await findOrCreateDepartment(pool, r.departmentName, takenCodes, defaultCompanyId);
+        deptIdByName[deptKey] = deptId;
       }
       var newEmployee = await employeesService.create(ctx, {
         firstName: r.firstName,

@@ -29,16 +29,66 @@
 .departments-empty-icon svg { width: 100%; height: 100%; }
 .departments-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
 
-.departments-form {
+.departments-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.departments-description { font-size: 12px; color: var(--color-text-muted); }
+
+.departments-name-cell { display: flex; align-items: center; gap: 10px; }
+.departments-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.departments-badge svg { width: 14px; height: 14px; }
+
+.departments-company-row { cursor: pointer; }
+.departments-chevron-cell { width: 24px; }
+.departments-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  color: var(--color-text-muted);
+  font-size: 16px;
+}
+.departments-chevron-open { transform: rotate(90deg); }
+
+.departments-nested-cell { background: var(--color-surface-sunken, #f7f7f5); padding: 12px 12px 12px 32px; }
+.departments-nested-table { margin-bottom: 0; }
+.departments-nested-empty { font-size: 13px; color: var(--color-text-muted); margin: 4px 0; }
+
+.departments-shifts-btn { display: inline-flex; align-items: center; gap: 5px; }
+.departments-shifts-btn svg { width: 13px; height: 13px; }
+
+.departments-dialog {
+  max-width: 480px;
   display: grid;
-  grid-template-columns: 120px 1fr 1fr auto auto;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.departments-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
+.departments-dialog-span { grid-column: 1 / -1; }
+
+.departments-shifts-dialog { max-width: 640px; }
+.departments-shifts-table { margin: 4px 0 16px; }
+.departments-shift-form {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto auto;
   gap: 12px;
   align-items: end;
-  max-width: 960px;
+  padding-top: 12px;
+  border-top: var(--divider-width) solid var(--color-divider);
 }
 
 @media (max-width: 720px) {
-  .departments-form { grid-template-columns: 1fr; }
+  .departments-shift-form { grid-template-columns: 1fr; }
 }
-
-.departments-form-code, .departments-form-name, .departments-form-manager { min-width: 0; }

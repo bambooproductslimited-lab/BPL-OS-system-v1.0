@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
@@ -76,7 +76,7 @@ const EMPLOYMENT_TYPES = [
 
 const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
-  departmentId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
+  companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0,
   shiftStart: '', shiftEnd: ''
 };
@@ -90,6 +90,7 @@ export default function EmployeesPage() {
 
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [shifts, setShifts] = useState([]);
   const [managers, setManagers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -98,8 +99,19 @@ export default function EmployeesPage() {
 
   const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [showTerminated, setShowTerminated] = useState(false);
+
+  // Companies aren't fetched separately here — every department already
+  // carries its companyId/companyName (departments.service.js#list), so the
+  // company filter and the add/edit dialog's company→department cascade are
+  // both derived from the one /departments response instead of a second call.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
 
   // Debounce the search box so typing doesn't fire a request per keystroke —
   // the prototype's synchronous in-memory kernel had no such cost.
@@ -142,9 +154,10 @@ export default function EmployeesPage() {
       setEmployees(people);
       setDepartments(depts);
       if (canWrite) {
-        const [mgrs, roleList] = await Promise.all([api.get('/employees'), api.get('/roles')]);
+        const [mgrs, roleList, shiftList] = await Promise.all([api.get('/employees'), api.get('/roles'), api.get('/shifts')]);
         setManagers(mgrs.map((e) => ({ id: e.id, name: e.firstName + ' ' + e.lastName })));
         setRoles(roleList);
+        setShifts(shiftList);
       }
     } catch (err) {
       setError(err.message);
@@ -165,6 +178,10 @@ export default function EmployeesPage() {
     const d = departments.find((x) => x.id === id);
     return d ? d.name : '—';
   }
+  function companyNameOf(departmentId) {
+    const d = departments.find((x) => x.id === departmentId);
+    return d ? d.companyName : '—';
+  }
   function empName(id) {
     const e = employees.find((x) => x.id === id) || managers.find((x) => x.id === id);
     return e ? (e.name || e.firstName + ' ' + e.lastName) : '—';
@@ -180,9 +197,11 @@ export default function EmployeesPage() {
   function openEdit(emp) {
     setDialogError(null);
     setEditId(emp.id);
+    const dept = departments.find((d) => d.id === emp.departmentId);
     setForm({
       firstName: emp.firstName, lastName: emp.lastName, email: emp.email, phone: emp.phone,
-      positionTitle: emp.positionTitle, departmentId: emp.departmentId, managerId: emp.managerId || '',
+      positionTitle: emp.positionTitle, companyId: dept ? dept.companyId : '', departmentId: emp.departmentId,
+      shiftId: emp.shiftId || '', managerId: emp.managerId || '',
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
       roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || ''
@@ -198,7 +217,7 @@ export default function EmployeesPage() {
       if (editId) {
         const body = {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
-          positionTitle: form.positionTitle, departmentId: form.departmentId, managerId: form.managerId || null,
+          positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd
         };
@@ -211,7 +230,7 @@ export default function EmployeesPage() {
       } else {
         const created = await api.post('/employees', {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
-          positionTitle: form.positionTitle, departmentId: form.departmentId, managerId: form.managerId || null,
+          positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd,
           createAccount: !!form.roleId, roleId: form.roleId || null
@@ -397,10 +416,17 @@ export default function EmployeesPage() {
           </div>
         </div>
         <div className="field employees-dept-filter">
-          <label htmlFor="emp-dept">Group</label>
+          <label htmlFor="emp-company-filter">Company</label>
+          <select id="emp-company-filter" className="input" value={companyFilter} onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}>
+            <option value="">All companies</option>
+            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="field employees-dept-filter">
+          <label htmlFor="emp-dept">Department</label>
           <select id="emp-dept" className="input" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
-            <option value="">All groups</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <option value="">All departments</option>
+            {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
         {canSync && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openSync}>Sync from TimeStation</button>}
@@ -421,7 +447,7 @@ export default function EmployeesPage() {
 
       <table className="table">
         <thead>
-          <tr><th>Code</th><th>Name</th><th>Job title</th><th>Group</th><th>Reports to</th><th>Shift</th><th>Status</th><th /></tr>
+          <tr><th>Code</th><th>Name</th><th>Job title</th><th>Company</th><th>Department</th><th>Reports to</th><th>Shift</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           {employees.map((p) => {
@@ -444,6 +470,7 @@ export default function EmployeesPage() {
                   </div>
                 </td>
                 <td>{p.positionTitle}</td>
+                <td>{companyNameOf(p.departmentId)}</td>
                 <td>{deptName(p.departmentId)}</td>
                 <td>{p.managerId ? empName(p.managerId) : '—'}</td>
                 <td className="employees-shift">{p.shift}</td>
@@ -489,10 +516,35 @@ export default function EmployeesPage() {
             <div className="field"><label htmlFor="emp-jt">Job title</label>
               <input id="emp-jt" className="input" value={form.positionTitle} onChange={(e) => setForm({ ...form, positionTitle: e.target.value })} required />
             </div>
-            <div className="field"><label htmlFor="emp-dept-sel">Group</label>
-              <select id="emp-dept-sel" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} required>
-                <option value="" disabled>Choose a group</option>
-                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <div className="field"><label htmlFor="emp-company-sel">Company</label>
+              <select
+                id="emp-company-sel" className="input" value={form.companyId}
+                onChange={(e) => setForm({ ...form, companyId: e.target.value, departmentId: '', shiftId: '' })}
+                required
+              >
+                <option value="" disabled>Choose a company</option>
+                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="field"><label htmlFor="emp-dept-sel">Department</label>
+              <select
+                id="emp-dept-sel" className="input" value={form.departmentId} disabled={!form.companyId}
+                onChange={(e) => setForm({ ...form, departmentId: e.target.value, shiftId: '' })}
+                required
+              >
+                <option value="" disabled>{form.companyId ? 'Choose a department' : 'Choose a company first'}</option>
+                {departments.filter((d) => d.companyId === form.companyId).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+            <div className="field"><label htmlFor="emp-shift-sel">Shift</label>
+              <select
+                id="emp-shift-sel" className="input" value={form.shiftId} disabled={!form.departmentId}
+                onChange={(e) => setForm({ ...form, shiftId: e.target.value })}
+              >
+                <option value="">No shift assigned</option>
+                {shifts.filter((s) => s.departmentId === form.departmentId).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.startTime}–{s.endTime})</option>
+                ))}
               </select>
             </div>
             <div className="field"><label htmlFor="emp-mgr">Reports to</label>
@@ -518,7 +570,9 @@ export default function EmployeesPage() {
               <input id="emp-shift-end" className="input" type="time" value={form.shiftEnd} onChange={(e) => setForm({ ...form, shiftEnd: e.target.value })} />
             </div>
             <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
-              Leave blank to follow the company default. Attendance uses shift start (+20 min grace) to mark someone late — set this per person for businesses with different hours.
+              These are a manual override only — leave blank if the shift picked above already covers it. Attendance
+              uses (in order) the assigned shift's start time, then this manual override, then the company default,
+              always with a 20-minute grace period, to decide who's marked late.
             </p>
             {editId && (
               <div className="field"><label htmlFor="emp-status">Status</label>

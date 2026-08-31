@@ -12,7 +12,7 @@ export const NAV_GROUPS = [
   ] },
   { label: 'People', items: [
     { key: 'people', label: 'Employee directory', perm: 'employee.read', icon: 'users' },
-    { key: 'departments', label: 'Groups', perm: 'employee.read', icon: 'layers' },
+    { key: 'departments', label: 'Companies', perm: 'employee.read', icon: 'building' },
     { key: 'attendance', label: 'Attendance', icon: 'clock' },
     { key: 'leave', label: 'Leave', icon: 'calendar' }
   ] },
