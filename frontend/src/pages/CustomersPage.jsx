@@ -7,6 +7,34 @@ import './CustomersPage.css';
 // Ported from Bamboo OS.dc.html's customers screen (screens.customers
 // block + the customers computed values, and the shared "customer"
 // create/edit dialog around its render()).
+//
+// Redesigned around the icon language established elsewhere — customers
+// are companies, not people, so each gets a hash-colored building badge
+// (not an initials avatar); the named contact person still gets one,
+// since they are a person. Icon'd empty states. Add/edit dialog untouched.
+
+const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+function badgeColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+
+function BuildingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3" width="9" height="18" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="14" y="9" width="6" height="12" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 7h1M8 11h1M8 15h1M11 7h1M11 11h1M11 15h1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function tagClass(category) {
   if (category === 'vip' || category === 'active') return 'tag-neutral';
@@ -128,8 +156,20 @@ export default function CustomersPage() {
             const canDelete = canManage && !(c.quotedTotal > 0 || c.invoicedTotal > 0);
             return (
               <tr key={c.id}>
-                <td style={{ fontWeight: 600 }}>{c.name}</td>
-                <td>{c.contactPerson}</td>
+                <td>
+                  <div className="customers-name-cell">
+                    <span className="customers-badge" style={{ background: badgeColor(c.name) }}><BuildingIcon /></span>
+                    <span style={{ fontWeight: 600 }}>{c.name}</span>
+                  </div>
+                </td>
+                <td>
+                  {c.contactPerson ? (
+                    <div className="customers-contact-person-cell">
+                      <span className="customers-avatar" style={{ background: avatarColor(c.contactPerson) }}>{initials(c.contactPerson)}</span>
+                      {c.contactPerson}
+                    </div>
+                  ) : '—'}
+                </td>
                 <td className="customers-contact-cell">{c.email}<br />{c.phone}</td>
                 <td><span className={'tag ' + tagClass(c.category)}>{c.category}</span></td>
                 <td>GHS {c.quotedTotal.toLocaleString()}</td>
@@ -145,8 +185,18 @@ export default function CustomersPage() {
           })}
         </tbody>
       </table>
-      {!customers.length && <p className="table-empty">No customers on file yet.</p>}
-      {!!customers.length && !visibleCustomers.length && <p className="table-empty">No customers match "{search}".</p>}
+      {!customers.length && (
+        <div className="customers-empty-state">
+          <span className="customers-empty-icon"><BuildingIcon /></span>
+          <p className="customers-empty-title">No customers on file yet</p>
+        </div>
+      )}
+      {!!customers.length && !visibleCustomers.length && (
+        <div className="customers-empty-state">
+          <span className="customers-empty-icon"><BuildingIcon /></span>
+          <p className="customers-empty-title">No customers match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

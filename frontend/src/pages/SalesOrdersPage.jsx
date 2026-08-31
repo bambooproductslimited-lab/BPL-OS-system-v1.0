@@ -25,6 +25,24 @@ import './SalesOrdersPage.css';
 // the customer.read/catalog.read/sales.read gates on the Quotations &
 // Invoicing screens).
 
+// Redesigned around the icon language established elsewhere: a
+// status-toned document badge per row (mirrors Documents' file-type
+// tone-mix treatment), an icon'd empty state.
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+function statusTone(bucket) {
+  if (bucket === 'approved') return 'people';
+  if (bucket === 'rejected') return 'danger';
+  return 'warning';
+}
+
 function statusLabel(s) { return String(s || '').replace(/_/g, ' '); }
 
 function docTagClass(bucket) {
@@ -33,9 +51,10 @@ function docTagClass(bucket) {
   return 'tag-outline';
 }
 
-function orderTagClass(status) {
-  return docTagClass(status === 'delivered' ? 'approved' : status === 'cancelled' ? 'rejected' : 'pending');
+function orderBucket(status) {
+  return status === 'delivered' ? 'approved' : status === 'cancelled' ? 'rejected' : 'pending';
 }
+function orderTagClass(status) { return docTagClass(orderBucket(status)); }
 
 export default function SalesOrdersPage() {
   const { can } = useAuth();
@@ -144,7 +163,12 @@ export default function SalesOrdersPage() {
             const nextLabel = o.status === 'pending' ? 'Start processing' : o.status === 'processing' ? 'Mark delivered' : '';
             return (
               <tr key={o.id}>
-                <td style={{ fontWeight: 600 }}>{o.orderNo}</td>
+                <td>
+                  <div className="salesorders-no-cell">
+                    <span className={'salesorders-badge salesorders-badge-' + statusTone(orderBucket(o.status))}><DocIcon /></span>
+                    <span style={{ fontWeight: 600 }}>{o.orderNo}</span>
+                  </div>
+                </td>
                 <td>{o.customerName}</td>
                 <td>GHS {o.total.toLocaleString()}</td>
                 <td><span className={'tag ' + orderTagClass(o.status)}>{statusLabel(o.status)}</span></td>
@@ -156,8 +180,18 @@ export default function SalesOrdersPage() {
           })}
         </tbody>
       </table>
-      {!orders.length && <p className="table-empty">No sales orders yet.</p>}
-      {!!orders.length && !visibleOrders.length && <p className="table-empty">No sales orders match "{search}".</p>}
+      {!orders.length && (
+        <div className="salesorders-empty-state">
+          <span className="salesorders-empty-icon"><DocIcon /></span>
+          <p className="salesorders-empty-title">No sales orders yet</p>
+        </div>
+      )}
+      {!!orders.length && !visibleOrders.length && (
+        <div className="salesorders-empty-state">
+          <span className="salesorders-empty-icon"><DocIcon /></span>
+          <p className="salesorders-empty-title">No sales orders match "{search}"</p>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

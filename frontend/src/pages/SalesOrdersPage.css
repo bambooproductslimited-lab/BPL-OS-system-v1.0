@@ -8,3 +8,34 @@
   margin-bottom: 16px;
 }
 .salesorders-row-btn { font-size: 12px; padding: 6px 10px; }
+
+.salesorders-no-cell { display: flex; align-items: center; gap: 10px; }
+.salesorders-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+}
+.salesorders-badge svg { width: 13px; height: 13px; }
+.salesorders-badge-people { --tile-tone: var(--color-accent); }
+.salesorders-badge-warning { --tile-tone: var(--color-warning); }
+.salesorders-badge-danger { --tile-tone: var(--color-danger); }
+
+.salesorders-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.salesorders-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.salesorders-empty-icon svg { width: 100%; height: 100%; }
+.salesorders-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }

@@ -24,6 +24,25 @@ import './EstimatesPage.css';
 // happens to always pair them, but the code shouldn't assume that). "New
 // estimate" is gated on customer.read too so the dialog is never opened in
 // a state where the customer picker has no way to be populated.
+//
+// Redesigned around the icon language established elsewhere: a
+// status-toned document badge per row (mirrors Documents' file-type
+// tone-mix treatment), an icon'd empty state. The new/edit dialog and
+// printed preview are untouched.
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+function statusTone(bucket) {
+  if (bucket === 'approved') return 'people';
+  if (bucket === 'rejected') return 'danger';
+  return 'warning';
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -38,9 +57,10 @@ function docTagClass(bucket) {
   return 'tag-outline';
 }
 
-function estimateTagClass(status) {
-  return docTagClass(status === 'converted' ? 'approved' : status === 'archived' ? 'rejected' : 'pending');
+function estimateBucket(status) {
+  return status === 'converted' ? 'approved' : status === 'archived' ? 'rejected' : 'pending';
 }
+function estimateTagClass(status) { return docTagClass(estimateBucket(status)); }
 
 const EMPTY_FORM = { customerId: '', validUntil: '', internalNotes: '', clientNotes: '' };
 
@@ -203,7 +223,12 @@ export default function EstimatesPage() {
             const canDelete = es.status !== 'converted' && canManage;
             return (
               <tr key={es.id}>
-                <td style={{ fontWeight: 600 }}>{es.estimateNo}</td>
+                <td>
+                  <div className="estimates-no-cell">
+                    <span className={'estimates-badge estimates-badge-' + statusTone(estimateBucket(es.status))}><DocIcon /></span>
+                    <span style={{ fontWeight: 600 }}>{es.estimateNo}</span>
+                  </div>
+                </td>
                 <td>{es.customerName}</td>
                 <td className="estimates-items-line">{es.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
                 <td>GHS {es.grandTotal.toLocaleString()}</td>
@@ -221,8 +246,18 @@ export default function EstimatesPage() {
           })}
         </tbody>
       </table>
-      {!estimates.length && <p className="table-empty">No estimates yet.</p>}
-      {!!estimates.length && !visibleEstimates.length && <p className="table-empty">No estimates match "{search}".</p>}
+      {!estimates.length && (
+        <div className="estimates-empty-state">
+          <span className="estimates-empty-icon"><DocIcon /></span>
+          <p className="estimates-empty-title">No estimates yet</p>
+        </div>
+      )}
+      {!!estimates.length && !visibleEstimates.length && (
+        <div className="estimates-empty-state">
+          <span className="estimates-empty-icon"><DocIcon /></span>
+          <p className="estimates-empty-title">No estimates match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>

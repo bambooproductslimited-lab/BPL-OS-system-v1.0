@@ -16,6 +16,25 @@ import './QuotationsPage.css';
 // Same customer.read dependency as EstimatesPage: "New quotation" is gated
 // on customer.read in addition to quotation.manage, since the dialog can't
 // function without a customer list.
+//
+// Redesigned around the icon language established elsewhere: a
+// status-toned document badge per row (mirrors Documents' file-type
+// tone-mix treatment), an icon'd empty state. The new-quotation dialog
+// and printed preview are untouched.
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+function statusTone(bucket) {
+  if (bucket === 'approved') return 'people';
+  if (bucket === 'rejected') return 'danger';
+  return 'warning';
+}
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -30,9 +49,10 @@ function docTagClass(bucket) {
   return 'tag-outline';
 }
 
-function quoteTagClass(status) {
-  return docTagClass(status === 'accepted' ? 'approved' : (status === 'rejected' || status === 'expired' || status === 'cancelled') ? 'rejected' : 'pending');
+function quoteBucket(status) {
+  return status === 'accepted' ? 'approved' : (status === 'rejected' || status === 'expired' || status === 'cancelled') ? 'rejected' : 'pending';
 }
+function quoteTagClass(status) { return docTagClass(quoteBucket(status)); }
 
 const EMPTY_FORM = { customerId: '', title: '', validUntil: '', notes: '' };
 
@@ -167,7 +187,12 @@ export default function QuotationsPage() {
             const canDoInvoice = q.status === 'accepted' && canInvoice;
             return (
               <tr key={q.id}>
-                <td style={{ fontWeight: 600 }}>{q.quoteNo}</td>
+                <td>
+                  <div className="quotations-no-cell">
+                    <span className={'quotations-badge quotations-badge-' + statusTone(quoteBucket(q.status))}><DocIcon /></span>
+                    <span style={{ fontWeight: 600 }}>{q.quoteNo}</span>
+                  </div>
+                </td>
                 <td>{q.customerName}</td>
                 <td className="quotations-items-line">{q.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
                 <td>GHS {q.grandTotal.toLocaleString()}</td>
@@ -185,8 +210,18 @@ export default function QuotationsPage() {
           })}
         </tbody>
       </table>
-      {!quotations.length && <p className="table-empty">No quotations yet.</p>}
-      {!!quotations.length && !visibleQuotations.length && <p className="table-empty">No quotations match "{search}".</p>}
+      {!quotations.length && (
+        <div className="quotations-empty-state">
+          <span className="quotations-empty-icon"><DocIcon /></span>
+          <p className="quotations-empty-title">No quotations yet</p>
+        </div>
+      )}
+      {!!quotations.length && !visibleQuotations.length && (
+        <div className="quotations-empty-state">
+          <span className="quotations-empty-icon"><DocIcon /></span>
+          <p className="quotations-empty-title">No quotations match "{search}"</p>
+        </div>
+      )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
