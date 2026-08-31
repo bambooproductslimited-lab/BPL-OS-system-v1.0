@@ -15,6 +15,21 @@ import './CompanySettingsPage.css';
 // property of the design tool's own in-memory kernel (this.K.schemaVersion())
 // with no equivalent in the real Postgres-backed backend, so it's left out
 // rather than inventing a fake version number.
+//
+// Redesigned lightly: this page is a single settings form with no list of
+// entities, so the icon/avatar language doesn't apply directly — the only
+// addition is a small building-icon accent on the section header, for
+// visual consistency with the rest of the redesigned app.
+
+function BuildingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="3" width="9" height="18" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="14" y="9" width="6" height="12" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 7h1M8 11h1M8 15h1M11 7h1M11 11h1M11 15h1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const FIELDS = ['companyName', 'shortName', 'country', 'currency', 'workWeek', 'lateAfter'];
 
@@ -73,6 +88,11 @@ export default function CompanySettingsPage() {
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <div className="cs-header">
+        <span className="cs-header-icon"><BuildingIcon /></span>
+        <h2 className="cs-header-title">Company profile</h2>
+      </div>
 
       <form className="cs-form" onSubmit={handleSubmit}>
         <div className="field">

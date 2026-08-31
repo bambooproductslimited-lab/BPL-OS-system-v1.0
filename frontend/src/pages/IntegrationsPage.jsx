@@ -13,6 +13,26 @@ import './IntegrationsPage.css';
 // keyValue: i.connected ? '••••••••••••' : draft, which never re-displays
 // a secret once it's been saved, even though the backend's response does
 // technically include the real value.
+//
+// Redesigned around the icon language established elsewhere: a
+// category-colored plug badge per integration card.
+
+const BADGE_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function badgeColor(name) { return BADGE_COLORS[hashStr(name || '') % BADGE_COLORS.length]; }
+
+function PlugIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M12 17v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const MASK = '••••••••••••';
 
@@ -148,9 +168,12 @@ export default function IntegrationsPage() {
         {integrations.map((i) => (
           <div key={i.id} className="integrations-card">
             <div className="integrations-card-top">
-              <div>
-                <div className="integrations-card-name">{i.name}</div>
-                <div className="integrations-card-category">{i.category}</div>
+              <div className="integrations-card-identity">
+                <span className="integrations-badge" style={{ background: badgeColor(i.category) }}><PlugIcon /></span>
+                <div>
+                  <div className="integrations-card-name">{i.name}</div>
+                  <div className="integrations-card-category">{i.category}</div>
+                </div>
               </div>
               <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? 'Connected' : 'Not connected'}</span>
             </div>
@@ -235,7 +258,12 @@ export default function IntegrationsPage() {
           </div>
         ))}
       </div>
-      {!integrations.length && <p className="table-empty">No integrations configured.</p>}
+      {!integrations.length && (
+        <div className="integrations-empty-state">
+          <span className="integrations-empty-icon"><PlugIcon /></span>
+          <p className="integrations-empty-title">No integrations configured</p>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

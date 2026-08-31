@@ -15,8 +15,34 @@
   gap: 10px;
 }
 .integrations-card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.integrations-card-identity { display: flex; align-items: center; gap: 10px; }
+.integrations-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.integrations-badge svg { width: 16px; height: 16px; }
 .integrations-card-name { font-family: var(--font-heading); font-weight: 800; font-size: 16px; }
 .integrations-card-category { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); }
 .integrations-card-desc { margin: 0; font-size: 13px; color: var(--color-text-muted); }
 .integrations-action { width: fit-content; }
 .integrations-card-note { margin: 0; font-size: 11px; color: var(--color-text-muted); }
+
+.integrations-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px;
+  border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+.integrations-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
+.integrations-empty-icon svg { width: 100%; height: 100%; }
+.integrations-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }

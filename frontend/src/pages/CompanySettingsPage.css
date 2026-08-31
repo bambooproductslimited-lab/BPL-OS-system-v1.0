@@ -1,3 +1,18 @@
+.cs-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.cs-header-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-accent) 14%, white);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cs-header-icon svg { width: 16px; height: 16px; }
+.cs-header-title { margin: 0; font-size: 16px; }
+
 .cs-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -10,6 +10,19 @@ import './BillingSettingsPage.css';
 // Catalog's tax-rate field there is no viewer who can reach this page
 // without also being able to fetch its data).
 
+// Redesigned lightly: this page is settings forms plus two small reference
+// tables (document numbering, tax rates) with no natural icon dimension,
+// so the addition here is a small icon accent on each section header, for
+// visual consistency with the rest of the redesigned app.
+
+const ICON_PATHS = {
+  document: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  cash: <><rect x="2.5" y="6" width="19" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" /></>,
+  hash: <path d="M9 4 7 20M17 4l-2 16M4 9h16M3 15h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />,
+  receipt: <><path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+
 const EMPTY = {
   quotationIntro: '', quotationFooter: '', invoiceFooter: '', paymentTerms: '', terms: '', validityDays: '', invoiceDueDays: '',
   bankName: '', accountName: '', accountNumber: '', branch: '', swift: '', momoProvider: '', momoNumber: '', instructions: ''
@@ -109,7 +122,7 @@ export default function BillingSettingsPage() {
 
       <form className="bs-form" onSubmit={handleSubmit}>
         <section className="bs-section">
-          <h2 className="bs-section-title">Document templates & defaults</h2>
+          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="document" /></span>Document templates & defaults</h2>
           <div className="field">
             <label htmlFor="bs-qi">Quotation introduction</label>
             <textarea id="bs-qi" className="input" value={form.quotationIntro} onChange={(e) => setForm({ ...form, quotationIntro: e.target.value })} />
@@ -141,7 +154,7 @@ export default function BillingSettingsPage() {
         </section>
 
         <section className="bs-section">
-          <h2 className="bs-section-title">Payment details shown on invoices</h2>
+          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="cash" /></span>Payment details shown on invoices</h2>
           <div className="field">
             <label htmlFor="bs-bn">Bank name</label>
             <input id="bs-bn" className="input" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
@@ -180,7 +193,7 @@ export default function BillingSettingsPage() {
       </form>
 
       <section className="bs-narrow">
-        <h2 className="bs-section-title">Document numbering</h2>
+        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="hash" /></span>Document numbering</h2>
         <table className="table">
           <thead><tr><th>Document</th><th>Next number</th></tr></thead>
           <tbody>
@@ -190,7 +203,7 @@ export default function BillingSettingsPage() {
       </section>
 
       <section className="bs-narrow">
-        <h2 className="bs-section-title">Tax rates</h2>
+        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="receipt" /></span>Tax rates</h2>
         <table className="table">
           <thead><tr><th>Name</th><th>Rate</th></tr></thead>
           <tbody>
