@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ApprovalsPage.css';
@@ -46,22 +46,39 @@ function subjectIcon(subjectType) {
 
 export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [decidingId, setDecidingId] = useState(null);
   const [search, setSearch] = useState('');
 
+  // Departments already carry companyId/companyName (departments.service.js#list)
+  // so the company list is derived from one fetch, same pattern as
+  // EmployeesPage/AttendancePage/PayrollPage/LeavePage/TasksPage/ProjectsPage.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      setApprovals(await api.get('/approvals/queue'));
+      const params = new URLSearchParams();
+      if (companyFilter) params.set('companyId', companyFilter);
+      if (deptFilter) params.set('departmentId', deptFilter);
+      const [queue, depts] = await Promise.all([api.get('/approvals/queue?' + params.toString()), api.get('/departments')]);
+      setApprovals(queue);
+      setDepartments(depts);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyFilter, deptFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -93,13 +110,31 @@ export default function ApprovalsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visibleApprovals = approvals.filter((a) => matchesQuery(search, a.title, a.requesterName, a.requesterRole, a.detail, a.reason));
+  const visibleApprovals = approvals.filter((a) => matchesQuery(search, a.title, a.requesterName, a.requesterRole, a.department, a.company, a.detail, a.reason));
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {!!approvals.length && <SearchInput value={search} onChange={setSearch} placeholder="Search approval queue…" />}
+      <div className="approvals-filters-row">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search approval queue…" />
+        <select
+          className="input approvals-company-filter" value={companyFilter} aria-label="Filter by company"
+          onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
+        >
+          <option value="">All companies</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select
+          className="input approvals-company-filter" value={deptFilter} aria-label="Filter by department"
+          onChange={(e) => setDeptFilter(e.target.value)}
+        >
+          <option value="">All departments</option>
+          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
+            <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="approvals-list" style={{ marginTop: approvals.length ? 16 : 0 }}>
         {visibleApprovals.map((a) => (
@@ -107,7 +142,7 @@ export default function ApprovalsPage() {
             <span className="approvals-avatar" style={{ background: avatarColor(a.requesterName) }}>{initials(a.requesterName)}</span>
             <div className="approvals-item-body">
               <div className="approvals-item-eyebrow"><Icon name={subjectIcon(a.subjectType)} /> {a.title}</div>
-              <div className="approvals-item-name">{a.requesterName} · {a.requesterRole}</div>
+              <div className="approvals-item-name">{a.requesterName} · {a.requesterRole} · {a.company}</div>
               <div className="approvals-item-detail">{a.detail}</div>
               <div className="approvals-item-reason">{a.reason || '—'}</div>
             </div>

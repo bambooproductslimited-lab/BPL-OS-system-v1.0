@@ -5,9 +5,9 @@ var projectsService = require('../services/projects.service');
 var router = express.Router();
 router.use(requireAuth);
 
-// kernel.js: handlers['projects.list'] -> GET /api/projects
+// kernel.js: handlers['projects.list'] -> GET /api/projects?companyId=&departmentId=
 router.get('/', async function (req, res, next) {
-  try { res.json(await projectsService.list(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await projectsService.list(req.ctx, { companyId: req.query.companyId, departmentId: req.query.departmentId })); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['projects.create'] -> POST /api/projects

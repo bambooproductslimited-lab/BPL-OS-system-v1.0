@@ -1,3 +1,6 @@
+.approvals-filters-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.approvals-company-filter { max-width: 200px; }
+
 .approvals-list {
   display: flex;
   flex-direction: column;

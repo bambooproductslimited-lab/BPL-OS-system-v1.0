@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -75,11 +75,25 @@ export default function ProjectsPage() {
   const [dialogError, setDialogError] = useState(null);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+
+  // Departments already carry companyId/companyName (departments.service.js#list)
+  // so the company list is derived from one fetch, same pattern as
+  // EmployeesPage/AttendancePage/PayrollPage/LeavePage/TasksPage.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [rows, depts] = await Promise.all([api.get('/projects'), api.get('/departments')]);
+      const params = new URLSearchParams();
+      if (companyFilter) params.set('companyId', companyFilter);
+      if (deptFilter) params.set('departmentId', deptFilter);
+      const [rows, depts] = await Promise.all([api.get('/projects?' + params.toString()), api.get('/departments')]);
       setProjects(rows);
       setDepartments(depts);
       if (canManage) {
@@ -91,7 +105,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [canManage]);
+  }, [canManage, companyFilter, deptFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -128,7 +142,7 @@ export default function ProjectsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visibleProjects = projects.filter((p) => matchesQuery(search, p.name, p.code, p.departmentName, p.ownerName));
+  const visibleProjects = projects.filter((p) => matchesQuery(search, p.name, p.code, p.departmentName, p.companyName, p.ownerName));
   const isOverdue = (p) => p.deadline && p.deadline < todayISO() && !['completed', 'cancelled'].includes(p.status);
   const overdueCount = projects.filter(isOverdue).length;
   const completedCount = projects.filter((p) => p.status === 'completed').length;
@@ -161,6 +175,22 @@ export default function ProjectsPage() {
 
       <div className="projects-toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Search projects…" />
+        <select
+          className="input projects-filter-select" value={companyFilter} aria-label="Filter by company"
+          onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
+        >
+          <option value="">All companies</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select
+          className="input projects-filter-select" value={deptFilter} aria-label="Filter by department"
+          onChange={(e) => setDeptFilter(e.target.value)}
+        >
+          <option value="">All departments</option>
+          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
+            <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
+          ))}
+        </select>
         {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>New project</button>}
       </div>
 
@@ -171,7 +201,7 @@ export default function ProjectsPage() {
           return (
             <div className="projects-card" key={p.id}>
               <div className="projects-card-top">
-                <div className="projects-card-eyebrow">{p.code} · {p.departmentName}</div>
+                <div className="projects-card-eyebrow">{p.code} · {p.companyName} · {p.departmentName}</div>
                 <span className={'tag ' + tagClass(p.status)}>{statusLabel(p.status)}</span>
               </div>
               <div className="projects-card-name">{p.name}</div>
@@ -216,9 +246,9 @@ export default function ProjectsPage() {
               <input id="proj-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="proj-dept">Group</label>
+              <label htmlFor="proj-dept">Department</label>
               <select id="proj-dept" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} required>
-                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name} — {d.companyName}</option>)}
               </select>
             </div>
             <div className="field">

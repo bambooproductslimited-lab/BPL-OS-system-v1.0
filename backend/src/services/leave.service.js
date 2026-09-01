@@ -17,19 +17,25 @@ function rowToLeaveRequest(r) {
     startDate: r.start_date, endDate: r.end_date, days: r.days, reason: r.reason,
     status: r.status, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at,
     decisionNote: r.decision_note,
-    employeeName: r.employee_name, department: r.department_name, typeName: r.type_name
+    employeeName: r.employee_name, department: r.department_name, company: r.company_name, typeName: r.type_name
   };
 }
 
-// kernel.js: handlers['leave.list']
-async function list(ctx, statusFilter) {
+// kernel.js: handlers['leave.list'] — params.companyId/departmentId narrow
+// by the requester's department and its company (the tier added in
+// migration 0032), applied after the existing visibility scoping below.
+async function list(ctx, params) {
+  var statusFilter = params && params.status;
+  var companyId = params && params.companyId;
+  var departmentId = params && params.departmentId;
   var all = ctx.can('leave.read.all');
   var res = await pool.query(
-    'SELECT lr.*, e.first_name, e.last_name, e.department_id, d.name AS department_name, lt.name AS type_name, ' +
+    'SELECT lr.*, e.first_name, e.last_name, e.department_id, d.name AS department_name, d.company_id, c.name AS company_name, lt.name AS type_name, ' +
     "(e.first_name || ' ' || e.last_name) AS employee_name " +
     'FROM leave_requests lr ' +
     'JOIN employees e ON e.id = lr.employee_id ' +
     'JOIN departments d ON d.id = e.department_id ' +
+    'JOIN companies c ON c.id = d.company_id ' +
     'JOIN leave_types lt ON lt.id = lr.leave_type_id ' +
     'ORDER BY lr.created_at DESC'
   );
@@ -47,6 +53,8 @@ async function list(ctx, statusFilter) {
   if (statusFilter && statusFilter !== 'all') {
     visible = visible.filter(function (r) { return r.status === statusFilter; });
   }
+  if (companyId) visible = visible.filter(function (r) { return r.company_id === companyId; });
+  if (departmentId) visible = visible.filter(function (r) { return r.department_id === departmentId; });
   return visible.map(rowToLeaveRequest);
 }
 

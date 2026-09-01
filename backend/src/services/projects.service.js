@@ -22,23 +22,30 @@ function rowToProject(r, extra) {
   }, extra || {});
 }
 
-// kernel.js: handlers['projects.list']
-async function list(ctx) {
+// kernel.js: handlers['projects.list'] — params.companyId/departmentId
+// filter on the project's own department (each project has exactly one,
+// unlike Tasks' multi-assignee shape), same pattern as Attendance/Leave.
+async function list(ctx, params) {
   if (!ctx.can('project.read')) fail('forbidden', 'Your role does not allow this action (project.read).');
   var res = await pool.query(
-    'SELECT p.*, o.first_name AS owner_first, o.last_name AS owner_last, d.name AS dept_name, ' +
+    'SELECT p.*, o.first_name AS owner_first, o.last_name AS owner_last, d.name AS dept_name, d.company_id, c.name AS company_name, ' +
     "(SELECT array_agg(employee_id) FROM project_members pm WHERE pm.project_id = p.id) AS member_ids, " +
     '(SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id) AS task_count, ' +
     "(SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') AS done_count " +
     'FROM projects p JOIN employees o ON o.id = p.owner_id JOIN departments d ON d.id = p.department_id ' +
+    'JOIN companies c ON c.id = d.company_id ' +
     'ORDER BY p.code'
   );
-  return res.rows.filter(function (r) { return projectVisible(ctx, r); }).map(function (r) {
-    return rowToProject(r, {
-      ownerName: r.owner_first + ' ' + r.owner_last, departmentName: r.dept_name,
-      taskCount: r.task_count, doneCount: r.done_count
+  return res.rows
+    .filter(function (r) { return projectVisible(ctx, r); })
+    .filter(function (r) { return !(params && params.companyId) || r.company_id === params.companyId; })
+    .filter(function (r) { return !(params && params.departmentId) || r.department_id === params.departmentId; })
+    .map(function (r) {
+      return rowToProject(r, {
+        ownerName: r.owner_first + ' ' + r.owner_last, departmentName: r.dept_name, companyName: r.company_name,
+        taskCount: r.task_count, doneCount: r.done_count
+      });
     });
-  });
 }
 
 // kernel.js: handlers['projects.create']

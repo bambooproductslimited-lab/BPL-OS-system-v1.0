@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import './TasksPage.css';
@@ -83,9 +83,21 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
+
+  // Departments already carry companyId/companyName (departments.service.js#list)
+  // so the company list is derived from one fetch, same pattern as
+  // EmployeesPage/AttendancePage/PayrollPage/LeavePage.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
@@ -111,12 +123,16 @@ export default function TasksPage() {
       const params = new URLSearchParams({ scope: scope });
       if (statusFilter) params.set('status', statusFilter);
       if (q) params.set('q', q);
-      const [rows, projRows] = await Promise.all([
+      if (companyFilter) params.set('companyId', companyFilter);
+      if (deptFilter) params.set('departmentId', deptFilter);
+      const [rows, projRows, depts] = await Promise.all([
         api.get('/tasks?' + params.toString()),
-        api.get('/projects')
+        api.get('/projects'),
+        api.get('/departments')
       ]);
       setTasks(rows);
       setProjects(projRows);
+      setDepartments(depts);
       if (canManage) {
         const empRows = await api.get('/employees');
         setEmployees(empRows);
@@ -126,7 +142,7 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [scope, statusFilter, q, canManage]);
+  }, [scope, statusFilter, q, companyFilter, deptFilter, canManage]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -278,6 +294,22 @@ export default function TasksPage() {
         <select className="input tasks-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
+        </select>
+        <select
+          className="input tasks-status-filter" value={companyFilter} aria-label="Filter by company"
+          onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
+        >
+          <option value="">All companies</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select
+          className="input tasks-status-filter" value={deptFilter} aria-label="Filter by department"
+          onChange={(e) => setDeptFilter(e.target.value)}
+        >
+          <option value="">All departments</option>
+          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
+            <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
+          ))}
         </select>
         <input className="input tasks-search" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search tasks…" />
         {overdueCount > 0 && (

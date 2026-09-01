@@ -11,9 +11,11 @@ router.get('/types', async function (req, res, next) {
   try { res.json(await leaveService.listTypes()); } catch (e) { next(e); }
 });
 
-// kernel.js: handlers['leave.list'] -> GET /api/leave?status=
+// kernel.js: handlers['leave.list'] -> GET /api/leave?status=&companyId=&departmentId=
 router.get('/', async function (req, res, next) {
-  try { res.json(await leaveService.list(req.ctx, req.query.status)); } catch (e) { next(e); }
+  try {
+    res.json(await leaveService.list(req.ctx, { status: req.query.status, companyId: req.query.companyId, departmentId: req.query.departmentId }));
+  } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['leave.request'] -> POST /api/leave

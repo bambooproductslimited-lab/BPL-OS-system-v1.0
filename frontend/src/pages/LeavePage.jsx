@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -62,6 +62,18 @@ export default function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+
+  // Departments already carry companyId/companyName (departments.service.js#list)
+  // so the company list is derived from one fetch, same pattern as
+  // EmployeesPage/AttendancePage/PayrollPage.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -74,21 +86,26 @@ export default function LeavePage() {
   const loadAll = useCallback(async () => {
     setError(null);
     try {
-      const [types, requests, me] = await Promise.all([
+      const params = new URLSearchParams();
+      if (companyFilter) params.set('companyId', companyFilter);
+      if (deptFilter) params.set('departmentId', deptFilter);
+      const [types, requests, me, depts] = await Promise.all([
         api.get('/leave/types'),
-        api.get('/leave'),
-        api.get('/me/summary')
+        api.get('/leave?' + params.toString()),
+        api.get('/me/summary'),
+        api.get('/departments')
       ]);
       setLeaveTypes(types);
       setLeaveRequests(requests);
       setBalances(me.balances || []);
+      setDepartments(depts);
       setForm((f) => (f.leaveTypeId ? f : { ...f, leaveTypeId: (types[0] && types[0].id) || '' }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyFilter, deptFilter]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -155,7 +172,7 @@ export default function LeavePage() {
 
   const rows = leaveRequests
     .filter((l) => filter === 'all' || l.status === filter)
-    .filter((l) => matchesQuery(search, l.employeeName, l.department, l.typeName));
+    .filter((l) => matchesQuery(search, l.employeeName, l.department, l.company, l.typeName));
   const listTitle = can('leave.read.all') ? 'Leave requests in your scope' : 'My leave requests';
   const selectedType = leaveTypes.find((t) => t.id === form.leaveTypeId);
   const balance = selectedType && balances.find((b) => b.name === selectedType.name);
@@ -241,7 +258,25 @@ export default function LeavePage() {
             </div>
           </div>
 
-          <SearchInput value={search} onChange={setSearch} placeholder="Search employee, group, type…" />
+          <div className="leave-filters-row">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search employee, department, type…" />
+            <select
+              className="input leave-company-filter" value={companyFilter} aria-label="Filter by company"
+              onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
+            >
+              <option value="">All companies</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select
+              className="input leave-company-filter" value={deptFilter} aria-label="Filter by department"
+              onChange={(e) => setDeptFilter(e.target.value)}
+            >
+              <option value="">All departments</option>
+              {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
+                <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
+              ))}
+            </select>
+          </div>
 
           {rows.length > 0 && (
             <div style={{ overflowX: 'auto', marginTop: 12 }}>
@@ -260,7 +295,7 @@ export default function LeavePage() {
                             <span className="leave-avatar" style={{ background: avatarColor(l.employeeName) }}>{initials(l.employeeName)}</span>
                             <div>
                               <div style={{ fontWeight: 600 }}>{l.employeeName}</div>
-                              <div className="leave-dept">{l.department}</div>
+                              <div className="leave-dept">{l.department} · {l.company}</div>
                             </div>
                           </div>
                         </td>

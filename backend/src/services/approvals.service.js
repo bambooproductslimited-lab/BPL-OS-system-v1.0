@@ -5,8 +5,9 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 // kernel.js: handlers['approvals.queue']
 // Ported in full for the polymorphic shape — subject_type gates which detail
 // query runs, one branch per approval-backed workflow (leave, procurement,
-// expense).
-async function queue(ctx) {
+// expense). params.companyId/departmentId narrow by the requester's
+// department and its company (the tier added in migration 0032).
+async function queue(ctx, params) {
   if (!ctx.can('approval.act')) fail('forbidden', 'Your role does not allow this action (approval.act).');
 
   var res = await pool.query("SELECT * FROM approvals WHERE status = 'pending' ORDER BY created_at DESC");
@@ -19,11 +20,18 @@ async function queue(ctx) {
     var requester = await fetchEmployeeById(a.requested_by);
     if (!(await visibleEmployee(ctx, requester))) continue;
 
-    var empRes = await pool.query('SELECT first_name, last_name, position_title FROM employees WHERE id = $1', [a.requested_by]);
+    var empRes = await pool.query(
+      'SELECT e.first_name, e.last_name, e.position_title, e.department_id, d.name AS department_name, d.company_id, c.name AS company_name ' +
+      'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id WHERE e.id = $1',
+      [a.requested_by]
+    );
     var e = empRes.rows[0];
+    if (params && params.companyId && (!e || e.company_id !== params.companyId)) continue;
+    if (params && params.departmentId && (!e || e.department_id !== params.departmentId)) continue;
     var entry = {
       id: a.id, subjectId: a.subject_id, subjectType: a.subject_type, title: a.title, createdAt: a.created_at,
       requesterName: e ? e.first_name + ' ' + e.last_name : '—', requesterRole: e ? e.position_title : '',
+      department: e ? e.department_name : '—', company: e ? e.company_name : '—',
       detail: '', reason: ''
     };
 

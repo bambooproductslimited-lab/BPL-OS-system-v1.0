@@ -32,6 +32,9 @@
 
 .leave-list-title { font-size: 15px; margin-right: auto; }
 
+.leave-filters-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.leave-company-filter { max-width: 200px; }
+
 .leave-dept { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
 
 .leave-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }

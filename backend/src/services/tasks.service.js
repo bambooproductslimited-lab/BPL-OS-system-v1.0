@@ -37,9 +37,27 @@ async function loadTask(id) {
   };
 }
 
-// kernel.js: handlers['tasks.list']
+// kernel.js: handlers['tasks.list'] — params.companyId/departmentId keep a
+// task if AT LEAST ONE assignee belongs to that company/department (a task
+// has no single department of its own — it can span several assignees
+// across companies, unlike Attendance/Leave/Payroll's one-employee-per-row
+// shape), resolved via a set of eligible employee ids so the check below
+// stays a plain array lookup instead of a query per task.
+async function eligibleEmployeeIds(companyId, departmentId) {
+  if (!companyId && !departmentId) return null;
+  var where = [], args = [];
+  if (departmentId) { args.push(departmentId); where.push('e.department_id = $' + args.length); }
+  else if (companyId) { args.push(companyId); where.push('d.company_id = $' + args.length); }
+  var res = await pool.query(
+    'SELECT e.id FROM employees e JOIN departments d ON d.id = e.department_id WHERE ' + where.join(' AND '),
+    args
+  );
+  return new Set(res.rows.map(function (r) { return r.id; }));
+}
+
 async function list(ctx, params) {
   var scope = (params && params.scope) || 'mine';
+  var eligibleIds = await eligibleEmployeeIds(params && params.companyId, params && params.departmentId);
   var res = await pool.query(
     'SELECT t.*, p.name AS project_name, ' +
     "(SELECT array_agg(employee_id) FROM task_assignees ta WHERE ta.task_id = t.id) AS assignee_ids, " +
@@ -56,6 +74,7 @@ async function list(ctx, params) {
     if (scope === 'mine' && assigneeIds.indexOf(ctx.employee.id) < 0) continue;
     if (params && params.status && r.status !== params.status) continue;
     if (params && params.q && r.title.toLowerCase().indexOf(String(params.q).toLowerCase()) < 0) continue;
+    if (eligibleIds && !assigneeIds.some(function (id) { return eligibleIds.has(id); })) continue;
 
     var overdue = r.due_date && r.due_date < todayISO() && ['completed', 'cancelled'].indexOf(r.status) < 0;
     var daysOverdue = overdue ? Math.round((new Date(todayISO()) - new Date(r.due_date)) / 86400000) : 0;

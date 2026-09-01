@@ -3,8 +3,11 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
+
+.projects-filter-select { max-width: 200px; }
 
 /* ── summary tiles ──────────────────────────────────────────────────── */
 .projects-summary {
