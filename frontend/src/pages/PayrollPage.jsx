@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -82,6 +82,8 @@ export default function PayrollPage() {
   const [periodRange, setPeriodRange] = useState({ from: null, to: null, presetKey: 'all', label: 'All time' });
 
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [companyFilter, setCompanyFilter] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [history, setHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -102,7 +104,37 @@ export default function PayrollPage() {
 
   useEffect(() => {
     api.get('/employees').then(setEmployees).catch(() => setEmployees([]));
+    api.get('/departments').then(setDepartments).catch(() => setDepartments([]));
   }, []);
+
+  // Departments already carry companyId/companyName (departments.service.js#list)
+  // so the company list is derived from that one fetch, same pattern as
+  // EmployeesPage.jsx and AttendancePage.jsx.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
+
+  const departmentCompanyId = useMemo(() => {
+    const map = new Map();
+    departments.forEach((d) => map.set(d.id, d.companyId));
+    return map;
+  }, [departments]);
+
+  const companyFilteredEmployees = useMemo(() => {
+    if (!companyFilter) return employees;
+    return employees.filter((e) => departmentCompanyId.get(e.departmentId) === companyFilter);
+  }, [employees, companyFilter, departmentCompanyId]);
+
+  // Switching companies while a specific employee from a different company
+  // is selected would otherwise leave the payslip-history view showing
+  // someone who's no longer even in the (now-empty) dropdown.
+  useEffect(() => {
+    if (employeeFilter && companyFilter && departmentCompanyId.size && !companyFilteredEmployees.some((e) => e.id === employeeFilter)) {
+      setEmployeeFilter('');
+    }
+  }, [companyFilter, companyFilteredEmployees, employeeFilter, departmentCompanyId]);
 
   useEffect(() => {
     if (!employeeFilter) { setHistory(null); return undefined; }
@@ -222,6 +254,7 @@ export default function PayrollPage() {
     ? runs.filter((r) => r.periodStart <= periodRange.to && r.periodEnd >= periodRange.from)
     : runs;
   const visibleRuns = periodFiltered.filter((r) => matchesQuery(search, r.runNo, r.cycle, r.status));
+  const visibleRunPayslips = activeRun ? activeRun.payslips.filter((s) => !companyFilter || s.companyId === companyFilter) : [];
 
   return (
     <div>
@@ -235,10 +268,17 @@ export default function PayrollPage() {
           </div>
           <SearchInput value={search} onChange={setSearch} placeholder="Search pay runs…" />
           <div className="field payroll-employee">
+            <label htmlFor="pr-company-filter">Company</label>
+            <select id="pr-company-filter" className="input" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+              <option value="">All companies</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="field payroll-employee">
             <label htmlFor="pr-employee-filter">Employee</label>
             <select id="pr-employee-filter" className="input" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
               <option value="">All employees</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
+              {companyFilteredEmployees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
             </select>
           </div>
         </div>
@@ -392,12 +432,19 @@ export default function PayrollPage() {
 
             {runError && <div className="error-banner">{runError}</div>}
 
+            {companyFilter && (
+              <p className="eyebrow" style={{ margin: '-4px 0 8px' }}>
+                Showing {visibleRunPayslips.length} of {activeRun.payslips.length} payslip(s) — filtered to{' '}
+                {companies.find((c) => c.id === companyFilter)?.name}. Clear the Company filter above to see everyone in this run.
+              </p>
+            )}
+
             <table className="table payroll-slip-table">
               <thead>
-                <tr><th>Employee</th><th>Days</th><th>Rate</th><th>Gross</th><th>SSNIT</th><th>PAYE</th><th>Net</th><th /></tr>
+                <tr><th>Employee</th><th>Company</th><th>Days</th><th>Rate</th><th>Gross</th><th>SSNIT</th><th>PAYE</th><th>Net</th><th /></tr>
               </thead>
               <tbody>
-                {activeRun.payslips.map((s) => (
+                {visibleRunPayslips.map((s) => (
                   <tr key={s.employeeId}>
                     <td>
                       <div className="payroll-employee-cell">
@@ -408,6 +455,7 @@ export default function PayrollPage() {
                         </div>
                       </div>
                     </td>
+                    <td>{s.companyName}</td>
                     <td>
                       {editingSlip === s.employeeId ? (
                         <input className="input payroll-days-input" type="number" min="0" step="0.5" value={editDays} onChange={(e) => setEditDays(e.target.value)} />
@@ -431,6 +479,9 @@ export default function PayrollPage() {
                 ))}
               </tbody>
             </table>
+            {!visibleRunPayslips.length && (
+              <p className="table-empty">No payslips in this run for {companies.find((c) => c.id === companyFilter)?.name || 'that company'}.</p>
+            )}
 
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setActiveRun(null)}>Close</button>

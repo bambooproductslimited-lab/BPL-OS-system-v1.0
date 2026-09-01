@@ -99,19 +99,29 @@ async function list(ctx) {
   });
 }
 
-// payroll.getRun
+// payroll.getRun — payslips are joined out to their employee's department
+// and company (the Companies tier added in migration 0032) so the Payroll
+// screen can filter one run's payslips by company/department client-side,
+// same as it already does with the employee filter; a pay run itself still
+// spans every eligible employee on its cycle regardless of company —
+// filtering only narrows what's shown, never what a run contains.
 async function get(ctx, id) {
   if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
   var runRes = await pool.query('SELECT * FROM pay_runs WHERE id = $1', [id]);
   var run = runRes.rows[0];
   if (!run) fail('notfound', 'Pay run not found.');
   var slipsRes = await pool.query(
-    'SELECT p.*, e.code, e.first_name, e.last_name, e.position_title FROM payslips p ' +
-    'JOIN employees e ON e.id = p.employee_id WHERE p.pay_run_id = $1 ORDER BY e.first_name',
+    'SELECT p.*, e.code, e.first_name, e.last_name, e.position_title, d.id AS department_id, d.name AS department_name, c.id AS company_id, c.name AS company_name ' +
+    'FROM payslips p JOIN employees e ON e.id = p.employee_id ' +
+    'JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id ' +
+    'WHERE p.pay_run_id = $1 ORDER BY e.first_name',
     [id]
   );
   var slips = slipsRes.rows.map(function (r) {
-    return rowToPayslip(r, { employeeCode: r.code, employeeName: r.first_name + ' ' + r.last_name, positionTitle: r.position_title });
+    return rowToPayslip(r, {
+      employeeCode: r.code, employeeName: r.first_name + ' ' + r.last_name, positionTitle: r.position_title,
+      departmentId: r.department_id, departmentName: r.department_name, companyId: r.company_id, companyName: r.company_name
+    });
   });
   return Object.assign(rowToPayRun(run), { payslips: slips });
 }
