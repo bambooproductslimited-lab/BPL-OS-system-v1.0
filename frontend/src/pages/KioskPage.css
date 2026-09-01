@@ -6,18 +6,26 @@
   color: #ffffff;
   user-select: none;
   -webkit-user-select: none;
-  background: linear-gradient(160deg, var(--color-accent-700) 0%, var(--color-accent-800) 60%, color-mix(in srgb, var(--color-accent-800) 65%, black) 100%);
+  background: linear-gradient(160deg, var(--color-accent-700) 0%, var(--color-accent-800) 60%, #173016 100%);
   transition: background 0.4s ease;
 }
 
+/* Gradient stops below are var(--color-*) pre-mixed with black at build time
+   (was color-mix(in srgb, ...)) — Safari never supported color-mix() before
+   16.2, and the kiosk iPad (iPad Air 2, capped at iPadOS 15.8.8 forever)
+   can never reach that version. An unsupported function invalidates the
+   whole background declaration, leaving this white-text page background-
+   less — i.e. invisible white-on-white, which is exactly the "blank /kiosk"
+   bug reported from that device. Static hex values render identically on
+   every browser and don't depend on color-mix() support at all. */
 .kiosk-root-ok {
-  background: linear-gradient(160deg, var(--color-accent-700) 0%, color-mix(in srgb, var(--color-accent-800) 80%, black) 60%, black 100%);
+  background: linear-gradient(160deg, var(--color-accent-700) 0%, #1d3b1b 60%, black 100%);
 }
 .kiosk-root-error {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--color-danger) 55%, black) 0%, color-mix(in srgb, var(--color-danger) 25%, black) 60%, black 100%);
+  background: linear-gradient(160deg, #621511 0%, #2d0a08 60%, black 100%);
 }
 .kiosk-root-pending {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--color-warning) 60%, black) 0%, color-mix(in srgb, var(--color-warning) 30%, black) 60%, black 100%);
+  background: linear-gradient(160deg, #5c3e00 0%, #2e1f00 60%, black 100%);
 }
 
 .kiosk-deco {
