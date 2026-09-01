@@ -473,7 +473,9 @@ export default function EmployeesPage() {
           <label htmlFor="emp-dept">Department</label>
           <select id="emp-dept" className="input" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
             <option value="">All departments</option>
-            {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
+              <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
+            ))}
           </select>
         </div>
         {canSync && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openSync}>Sync from TimeStation</button>}

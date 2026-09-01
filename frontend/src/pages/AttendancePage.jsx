@@ -401,7 +401,9 @@ export default function AttendancePage() {
           onChange={(e) => setDeptFilter(e.target.value)}
         >
           <option value="">All departments</option>
-          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
+            <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
+          ))}
         </select>
         <select className="input attendance-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>
