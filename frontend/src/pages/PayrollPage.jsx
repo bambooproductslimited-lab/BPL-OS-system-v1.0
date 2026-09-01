@@ -57,7 +57,7 @@ function tagClass(status) {
   return 'tag-outline';
 }
 
-const EMPTY_FORM = { cycle: 'monthly', periodStart: '', periodEnd: '', payDate: todayISO() };
+const EMPTY_FORM = { cycle: 'monthly', periodStart: '', periodEnd: '', payDate: todayISO(), companyId: '' };
 
 export default function PayrollPage() {
   const { can } = useAuth();
@@ -92,13 +92,15 @@ export default function PayrollPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      setRuns(await api.get('/payroll/runs'));
+      const params = new URLSearchParams();
+      if (companyFilter) params.set('companyId', companyFilter);
+      setRuns(await api.get('/payroll/runs?' + params.toString()));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -167,7 +169,10 @@ export default function PayrollPage() {
 
   function openNew() {
     setDialogError(null);
-    setForm(EMPTY_FORM);
+    // Prefill from the page's own Company filter, if one is set — the
+    // common case is opening this right after narrowing the page to one
+    // company. Still fully editable, including back to "All companies".
+    setForm({ ...EMPTY_FORM, companyId: companyFilter });
     setDialogOpen(true);
   }
 
@@ -338,7 +343,7 @@ export default function PayrollPage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Run</th><th>Cycle</th><th>Period</th><th>Pay date</th><th>Employees</th><th>Total net</th><th>Status</th><th /></tr>
+              <tr><th>Run</th><th>Company</th><th>Cycle</th><th>Period</th><th>Pay date</th><th>Employees</th><th>Total net</th><th>Status</th><th /></tr>
             </thead>
             <tbody>
               {visibleRuns.map((r) => (
@@ -349,6 +354,7 @@ export default function PayrollPage() {
                       <span style={{ fontWeight: 600 }}>{r.runNo}</span>
                     </div>
                   </td>
+                  <td>{r.companyName}</td>
                   <td style={{ textTransform: 'capitalize' }}>{r.cycle}</td>
                   <td>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</td>
                   <td>{fmtDate(r.payDate)}</td>
@@ -387,8 +393,19 @@ export default function PayrollPage() {
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
             <h2>New pay run</h2>
-            <p className="dialog-body">Generates one payslip per active employee on the chosen cycle, with days worked pulled automatically from Attendance for the period.</p>
+            <p className="dialog-body">
+              Generates one payslip per active employee on the chosen cycle, with days worked pulled automatically
+              from Attendance for the period. Leave Company as "All companies" to run payroll company-wide as
+              before, or pick one company to generate a run for just its employees.
+            </p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
+            <div className="field">
+              <label htmlFor="pr-company">Company</label>
+              <select id="pr-company" className="input" value={form.companyId} onChange={(e) => setForm({ ...form, companyId: e.target.value })}>
+                <option value="">All companies</option>
+                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
             <div className="field">
               <label htmlFor="pr-cycle">Cycle</label>
               <select id="pr-cycle" className="input" value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })}>
@@ -424,7 +441,7 @@ export default function PayrollPage() {
               <div>
                 <h2 className="payroll-run-title">{activeRun.runNo}</h2>
                 <div className="payroll-run-sub">
-                  {activeRun.cycle} · {fmtDate(activeRun.periodStart)} – {fmtDate(activeRun.periodEnd)} · Pay date {fmtDate(activeRun.payDate)}
+                  {activeRun.companyName} · {activeRun.cycle} · {fmtDate(activeRun.periodStart)} – {fmtDate(activeRun.periodEnd)} · Pay date {fmtDate(activeRun.payDate)}
                 </div>
               </div>
               <span className={'tag ' + tagClass(activeRun.status)}>{activeRun.status}</span>

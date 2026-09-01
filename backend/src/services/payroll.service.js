@@ -30,7 +30,7 @@ function rowToPayRun(r, extra) {
   return Object.assign({
     id: r.id, runNo: r.run_no, cycle: r.cycle, periodStart: r.period_start, periodEnd: r.period_end,
     payDate: r.pay_date, status: r.status, createdBy: r.created_by, createdAt: r.created_at,
-    approvedBy: r.approved_by, approvedAt: r.approved_at
+    approvedBy: r.approved_by, approvedAt: r.approved_at, companyId: r.company_id || null
   }, extra || {});
 }
 
@@ -85,18 +85,29 @@ async function payslipHistory(ctx, employeeId, from, to) {
   return { employeeId: employee.id, employeeCode: employee.code, employeeName: employee.first_name + ' ' + employee.last_name, payslips: payslips };
 }
 
-// payroll.listRuns
-async function list(ctx) {
+// payroll.listRuns — params.companyId narrows to runs relevant to that one
+// company: a run created specifically FOR that company (see create()'s
+// companyId option), plus every "All companies" run (company_id null),
+// since those still contain that company's payslips even though they
+// weren't scoped to just it. Only a run scoped to a DIFFERENT company gets
+// excluded — an "All companies" run is never hidden by this filter.
+async function list(ctx, params) {
   if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
   var res = await pool.query(
-    'SELECT pr.*, e.first_name, e.last_name, ' +
+    'SELECT pr.*, e.first_name, e.last_name, c.name AS company_name, ' +
     '(SELECT count(*)::int FROM payslips p WHERE p.pay_run_id = pr.id) AS employee_count, ' +
     '(SELECT coalesce(sum(net_pay),0) FROM payslips p WHERE p.pay_run_id = pr.id) AS total_net ' +
-    'FROM pay_runs pr JOIN employees e ON e.id = pr.created_by ORDER BY pr.created_at DESC'
+    'FROM pay_runs pr JOIN employees e ON e.id = pr.created_by LEFT JOIN companies c ON c.id = pr.company_id ' +
+    'ORDER BY pr.created_at DESC'
   );
-  return res.rows.map(function (r) {
-    return rowToPayRun(r, { createdByName: r.first_name + ' ' + r.last_name, employeeCount: r.employee_count, totalNet: Number(r.total_net) });
-  });
+  return res.rows
+    .filter(function (r) { return !(params && params.companyId) || !r.company_id || r.company_id === params.companyId; })
+    .map(function (r) {
+      return rowToPayRun(r, {
+        createdByName: r.first_name + ' ' + r.last_name, companyName: r.company_name || 'All companies',
+        employeeCount: r.employee_count, totalNet: Number(r.total_net)
+      });
+    });
 }
 
 // payroll.getRun — payslips are joined out to their employee's department
@@ -107,7 +118,10 @@ async function list(ctx) {
 // filtering only narrows what's shown, never what a run contains.
 async function get(ctx, id) {
   if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
-  var runRes = await pool.query('SELECT * FROM pay_runs WHERE id = $1', [id]);
+  var runRes = await pool.query(
+    'SELECT pr.*, c.name AS company_name FROM pay_runs pr LEFT JOIN companies c ON c.id = pr.company_id WHERE pr.id = $1',
+    [id]
+  );
   var run = runRes.rows[0];
   if (!run) fail('notfound', 'Pay run not found.');
   var slipsRes = await pool.query(
@@ -123,11 +137,15 @@ async function get(ctx, id) {
       departmentId: r.department_id, departmentName: r.department_name, companyId: r.company_id, companyName: r.company_name
     });
   });
-  return Object.assign(rowToPayRun(run), { payslips: slips });
+  return Object.assign(rowToPayRun(run), { companyName: run.company_name || 'All companies', payslips: slips });
 }
 
 // payroll.createRun — one payslip per active employee on the chosen cycle,
 // days worked pulled automatically from Attendance for the period.
+// p.companyId is optional — when set, the run is scoped to just that
+// company's employees (and remembers the scoping on pay_runs.company_id
+// for the run list/detail to show later); left unset, this behaves exactly
+// as before — every active employee on the cycle, across every company.
 async function create(ctx, p) {
   if (!ctx.can('payroll.manage')) fail('forbidden', 'Your role does not allow this action (payroll.manage).');
   var cycle = V.oneOf(p.cycle, ['monthly', 'biweekly', 'daily'], 'Cycle');
@@ -136,16 +154,32 @@ async function create(ctx, p) {
   var payDate = V.date(p.payDate || todayISO(), 'Pay date');
   if (periodEnd < periodStart) fail('invalid', 'Period end must be on or after period start.');
 
-  var employeesRes = await pool.query("SELECT id, daily_rate FROM employees WHERE status = 'active' AND pay_cycle = $1", [cycle]);
-  if (!employeesRes.rows.length) fail('invalid', 'No active employees are on the ' + cycle + ' pay cycle.');
+  var companyId = null, companyName = null;
+  if (p.companyId) {
+    var companyRes = await pool.query('SELECT id, name FROM companies WHERE id = $1', [p.companyId]);
+    if (!companyRes.rows[0]) fail('invalid', 'Company is not a valid option.');
+    companyId = companyRes.rows[0].id;
+    companyName = companyRes.rows[0].name;
+  }
+
+  var employeesRes = companyId
+    ? await pool.query(
+        "SELECT e.id, e.daily_rate FROM employees e JOIN departments d ON d.id = e.department_id " +
+        "WHERE e.status = 'active' AND e.pay_cycle = $1 AND d.company_id = $2",
+        [cycle, companyId]
+      )
+    : await pool.query("SELECT id, daily_rate FROM employees WHERE status = 'active' AND pay_cycle = $1", [cycle]);
+  if (!employeesRes.rows.length) {
+    fail('invalid', 'No active employees are on the ' + cycle + ' pay cycle' + (companyName ? ' at ' + companyName : '') + '.');
+  }
 
   var periodScale = periodScaleFor(periodStart, periodEnd);
 
   var newId = await withTransaction(async function (client) {
     var runNo = await nextDocNumber(client, 'payrun');
     var runRes = await client.query(
-      "INSERT INTO pay_runs (run_no, cycle, period_start, period_end, pay_date, status, created_by) VALUES ($1,$2,$3,$4,$5,'draft',$6) RETURNING *",
-      [runNo, cycle, periodStart, periodEnd, payDate, ctx.employee.id]
+      "INSERT INTO pay_runs (run_no, cycle, period_start, period_end, pay_date, status, created_by, company_id) VALUES ($1,$2,$3,$4,$5,'draft',$6,$7) RETURNING *",
+      [runNo, cycle, periodStart, periodEnd, payDate, ctx.employee.id, companyId]
     );
     var run = runRes.rows[0];
 
@@ -168,7 +202,8 @@ async function create(ctx, p) {
     }
 
     await audit(client, ctx, 'payroll.create', 'pay_run', run.id,
-      'Created ' + cycle + ' pay run ' + run.run_no + ' for ' + periodStart + ' to ' + periodEnd + ' (' + employeesRes.rows.length + ' employees).');
+      'Created ' + cycle + ' pay run ' + run.run_no + ' for ' + periodStart + ' to ' + periodEnd +
+      (companyName ? ' — ' + companyName : '') + ' (' + employeesRes.rows.length + ' employees).');
     return run.id;
   });
 

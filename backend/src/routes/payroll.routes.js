@@ -6,7 +6,7 @@ var router = express.Router();
 router.use(requireAuth);
 
 router.get('/runs', async function (req, res, next) {
-  try { res.json(await payrollService.list(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await payrollService.list(req.ctx, { companyId: req.query.companyId })); } catch (e) { next(e); }
 });
 
 router.get('/payslips', async function (req, res, next) {
