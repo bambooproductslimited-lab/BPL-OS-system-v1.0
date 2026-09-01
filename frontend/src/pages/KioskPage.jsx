@@ -97,21 +97,6 @@ export default function KioskPage() {
     }
   }, []);
 
-  // index.html's <link rel="manifest"> normally points at the app-wide
-  // manifest.webmanifest (start_url "/", scope "/") — this is a single-page
-  // app, so every route shares the one HTML document and thus the one
-  // manifest link by default. iOS Safari's "Add to Home Screen" launches
-  // whatever that manifest's start_url says, not the URL actually on screen,
-  // so an icon added from /kiosk would open the main app instead. Swapping
-  // the link to a /kiosk-scoped manifest (start_url "/kiosk") while this
-  // page is mounted makes "Add to Home Screen" done from here open straight
-  // back into the kiosk; unmounting restores the app-wide one.
-  useEffect(() => {
-    const link = document.querySelector('link[rel="manifest"]');
-    const prevHref = link ? link.getAttribute('href') : null;
-    if (link) link.setAttribute('href', '/kiosk-manifest.webmanifest');
-    return () => { if (link && prevHref) link.setAttribute('href', prevHref); };
-  }, []);
 
   useEffect(() => {
     setPendingCount(queueLength());

@@ -1,0 +1,28 @@
+# SPA fallback for React Router (history/browser routing): any request
+# that isn't a real file or directory on disk falls back to index.html so
+# client-side routes (e.g. /socialtracker) resolve correctly on a hard
+# page load or external redirect (like an OAuth callback), not just when
+# navigated to from inside the app.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # /kiosk gets its own static HTML shell (kiosk.html, a second Vite build
+  # entry — see vite.config.js) instead of the main index.html, so its
+  # <link rel="manifest"> points at kiosk-manifest.webmanifest from the
+  # first byte of the response. That matters because iOS Safari's "Add to
+  # Home Screen" resolves the manifest from the served document itself,
+  # not from anything client-side JS does after the page loads — mutating
+  # the tag from React after mount was too late to affect it (tried first,
+  # didn't work). Matches exactly "/kiosk" and
+  # "/kiosk/"; a kiosk.html request itself, and every other static asset
+  # (JS/CSS/icons/kiosk-sw.js/kiosk-manifest.webmanifest), already exists
+  # as a real file so it never reaches this rule.
+  RewriteRule ^index\.html$ - [L]
+  RewriteRule ^kiosk\.html$ - [L]
+  RewriteRule ^kiosk/?$ /kiosk.html [L]
+
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
