@@ -20,14 +20,18 @@ router.post('/adjust', async function (req, res, next) {
   try { res.json(await attendanceService.adjust(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
-// kernel.js: handlers['attendance.list'] -> GET /api/attendance?date=
+// kernel.js: handlers['attendance.list'] -> GET /api/attendance?date=&companyId=&departmentId=
 router.get('/', async function (req, res, next) {
-  try { res.json(await attendanceService.list(req.ctx, { date: req.query.date })); } catch (e) { next(e); }
+  try {
+    res.json(await attendanceService.list(req.ctx, { date: req.query.date, companyId: req.query.companyId, departmentId: req.query.departmentId }));
+  } catch (e) { next(e); }
 });
 
-// kernel.js: handlers['attendance.report'] -> GET /api/attendance/report?from=&to=
+// kernel.js: handlers['attendance.report'] -> GET /api/attendance/report?from=&to=&companyId=&departmentId=
 router.get('/report', async function (req, res, next) {
-  try { res.json(await attendanceService.report(req.ctx, req.query.from, req.query.to)); } catch (e) { next(e); }
+  try {
+    res.json(await attendanceService.report(req.ctx, req.query.from, req.query.to, { companyId: req.query.companyId, departmentId: req.query.departmentId }));
+  } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['attendance.delete'] -> DELETE /api/attendance/:id

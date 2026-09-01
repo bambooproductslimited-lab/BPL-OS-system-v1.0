@@ -103,30 +103,42 @@ async function clockOut(ctx) {
   return rowToAttendance(rec);
 }
 
+// Shared by list() and report(): everyone visible to ctx, joined with their
+// department (and its company) so a caller can filter by companyId/
+// departmentId — the Companies/Departments tier added in migration 0032.
+// "mine" (no attendance.read.all) ignores both filters, same as before —
+// there's only ever one row in that case, the caller's own — but still
+// joins departments/companies for it, so the self-view keeps showing a real
+// department/company name instead of ctx.employee's bare department_id.
+async function scopedEmployees(ctx, filters) {
+  var canAll = ctx.can('attendance.read.all');
+  var baseQuery =
+    'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, d.name AS department_name, d.company_id, c.name AS company_name ' +
+    'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id ' +
+    "WHERE e.status != 'terminated'";
+  if (!canAll) {
+    var selfRes = await pool.query(baseQuery + ' AND e.id = $1', [ctx.employee.id]);
+    return selfRes.rows;
+  }
+  var empRes = await pool.query(baseQuery);
+  var out = [];
+  for (var i = 0; i < empRes.rows.length; i++) {
+    var e = empRes.rows[i];
+    if (filters && filters.companyId && e.company_id !== filters.companyId) continue;
+    if (filters && filters.departmentId && e.department_id !== filters.departmentId) continue;
+    if (await visibleEmployee(ctx, e)) out.push(e);
+  }
+  return out;
+}
+
 // kernel.js: handlers['attendance.list']
 async function list(ctx, params) {
   var date = (params && params.date) || todayISO();
-  var mine = !ctx.can('attendance.read.all');
-
-  var scopeEmployees;
-  if (mine) {
-    scopeEmployees = [ctx.employee];
-  } else {
-    var empRes = await pool.query('SELECT id, department_id, manager_id, code, first_name, last_name FROM employees WHERE status != \'terminated\'');
-    scopeEmployees = [];
-    for (var i = 0; i < empRes.rows.length; i++) {
-      if (await visibleEmployee(ctx, empRes.rows[i])) scopeEmployees.push(empRes.rows[i]);
-    }
-  }
+  var scopeEmployees = await scopedEmployees(ctx, params);
 
   var attRes = await pool.query('SELECT * FROM attendance WHERE date = $1', [date]);
   var byEmp = {};
   attRes.rows.forEach(function (r) { byEmp[r.employee_id] = r; });
-
-  var ids = scopeEmployees.map(function (e) { return e.id; });
-  var deptRes = ids.length ? await pool.query('SELECT e.id AS emp_id, d.name FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.id = ANY($1)', [ids]) : { rows: [] };
-  var deptByEmp = {};
-  deptRes.rows.forEach(function (r) { deptByEmp[r.emp_id] = r.name; });
 
   return {
     date: date,
@@ -135,7 +147,8 @@ async function list(ctx, params) {
       var r = byEmp[e.id];
       return {
         id: r ? r.id : null, employeeId: e.id, name: e.first_name + ' ' + e.last_name, code: e.code,
-        department: deptByEmp[e.id] || '—', clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
+        department: e.department_name || '—', company: e.company_name || '—',
+        clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
         status: r ? r.status : 'absent', note: r ? r.note : ''
       };
     })
@@ -150,30 +163,17 @@ var MAX_REPORT_RANGE_DAYS = 5 * 365; // sanity bound (catches a typo'd year), no
 // what's really in the table, not an assumption about what "should" have
 // happened). Same visibility scoping as list(): attendance.read.all sees
 // everyone in reach, otherwise just your own record.
-async function report(ctx, from, to) {
+async function report(ctx, from, to, filters) {
   from = V.date(from, 'From date');
   to = V.date(to, 'To date');
   if (to < from) fail('invalid', 'To date must be on or after from date.');
   var rangeDays = Math.round((new Date(to + 'T00:00') - new Date(from + 'T00:00')) / 86400000) + 1;
   if (rangeDays > MAX_REPORT_RANGE_DAYS) fail('invalid', 'That date range looks like a mistake (over ' + Math.round(MAX_REPORT_RANGE_DAYS / 365) + ' years) — check the dates.');
 
-  var mine = !ctx.can('attendance.read.all');
-  var scopeEmployees;
-  if (mine) {
-    scopeEmployees = [ctx.employee];
-  } else {
-    var empRes = await pool.query('SELECT id, department_id, manager_id, code, first_name, last_name FROM employees WHERE status != \'terminated\'');
-    scopeEmployees = [];
-    for (var i = 0; i < empRes.rows.length; i++) {
-      if (await visibleEmployee(ctx, empRes.rows[i])) scopeEmployees.push(empRes.rows[i]);
-    }
-  }
+  var scopeEmployees = await scopedEmployees(ctx, filters);
   var ids = scopeEmployees.map(function (e) { return e.id; });
   if (!ids.length) return { from: from, to: to, rows: [] };
 
-  var deptRes = await pool.query('SELECT e.id AS emp_id, d.name FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.id = ANY($1)', [ids]);
-  var deptByEmp = {};
-  deptRes.rows.forEach(function (r) { deptByEmp[r.emp_id] = r.name; });
   var empById = {};
   scopeEmployees.forEach(function (e) { empById[e.id] = e; });
 
@@ -187,7 +187,8 @@ async function report(ctx, from, to) {
     rows: attRes.rows.map(function (r) {
       var e = empById[r.employee_id];
       return {
-        employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name, department: deptByEmp[e.id] || '—',
+        employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name,
+        department: e.department_name || '—', company: e.company_name || '—',
         date: r.date, clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
         status: r.status, source: r.source, note: r.note
       };

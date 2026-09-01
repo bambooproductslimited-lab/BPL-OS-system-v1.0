@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -83,7 +83,7 @@ function aggregateByEmployee(rows) {
   const byEmp = {};
   rows.forEach((r) => {
     if (!byEmp[r.employeeId]) {
-      byEmp[r.employeeId] = { employeeId: r.employeeId, name: r.name, code: r.code, department: r.department, present: 0, late: 0, absent: 0, leave: 0, off: 0, total: 0 };
+      byEmp[r.employeeId] = { employeeId: r.employeeId, name: r.name, code: r.code, department: r.department, company: r.company, present: 0, late: 0, absent: 0, leave: 0, off: 0, total: 0 };
     }
     const e = byEmp[r.employeeId];
     if (e[r.status] !== undefined) e[r.status]++;
@@ -116,6 +116,18 @@ export default function AttendancePage() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [departments, setDepartments] = useState([]);
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+
+  // Departments already carry companyId/companyName (departments.service.js#list)
+  // so the company filter and its department cascade are both derived from
+  // one fetch, same pattern as EmployeesPage.jsx.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [departments]);
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncRange, setSyncRange] = useState({ startDate: daysAgoISO(7), endDate: todayISO() });
@@ -142,11 +154,19 @@ export default function AttendancePage() {
   const load = useCallback(async () => {
     setError(null);
     try {
+      const scopeParams = new URLSearchParams();
+      if (companyFilter) scopeParams.set('companyId', companyFilter);
+      if (deptFilter) scopeParams.set('departmentId', deptFilter);
+      const [depts] = await Promise.all([api.get('/departments')]);
+      setDepartments(depts);
       if (isSingleDay) {
-        const res = await api.get('/attendance?date=' + dateRange.from);
+        scopeParams.set('date', dateRange.from);
+        const res = await api.get('/attendance?' + scopeParams.toString());
         setData(res);
       } else {
-        const res = await api.get('/attendance/report?from=' + dateRange.from + '&to=' + dateRange.to);
+        scopeParams.set('from', dateRange.from);
+        scopeParams.set('to', dateRange.to);
+        const res = await api.get('/attendance/report?' + scopeParams.toString());
         setPeriodRows(aggregateByEmployee(res.rows));
       }
     } catch (err) {
@@ -154,7 +174,7 @@ export default function AttendancePage() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange, isSingleDay]);
+  }, [dateRange, isSingleDay, companyFilter, deptFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -166,7 +186,7 @@ export default function AttendancePage() {
 
   const rows = data.rows || [];
   const visibleRows = rows
-    .filter((r) => matchesQuery(search, r.name, r.code, r.department))
+    .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || r.status === statusFilter);
   const summary = [
     { label: 'In scope', value: rows.length, icon: 'users', tone: 'people' },
@@ -176,7 +196,7 @@ export default function AttendancePage() {
   ];
 
   const visiblePeriodRows = periodRows
-    .filter((r) => matchesQuery(search, r.name, r.code, r.department))
+    .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || r[statusFilter] > 0);
   const periodSummary = [
     { label: 'Employees with records', value: periodRows.length, icon: 'users', tone: 'people' },
@@ -295,7 +315,10 @@ export default function AttendancePage() {
     setReportError(null);
     setReportData(null);
     try {
-      setReportData(await api.get('/attendance/report?from=' + reportRange.from + '&to=' + reportRange.to));
+      const params = new URLSearchParams({ from: reportRange.from, to: reportRange.to });
+      if (companyFilter) params.set('companyId', companyFilter);
+      if (deptFilter) params.set('departmentId', deptFilter);
+      setReportData(await api.get('/attendance/report?' + params.toString()));
     } catch (err) {
       setReportError(err.message);
     } finally {
@@ -319,8 +342,8 @@ export default function AttendancePage() {
       ['Present', counts.present], ['Late', counts.late], ['Absent', counts.absent], ['Leave', counts.leave], ['Off', counts.off],
       ['Total records', reportData.rows.length],
       [],
-      ['Date', 'Employee', 'Code', 'Group', 'Clock in', 'Clock out', 'Status', 'Source', 'Note'],
-      ...reportData.rows.map((r) => [r.date, r.name, r.code, r.department, r.clockIn || '', r.clockOut || '', r.status, r.source, r.note || ''])
+      ['Date', 'Employee', 'Code', 'Company', 'Department', 'Clock in', 'Clock out', 'Status', 'Source', 'Note'],
+      ...reportData.rows.map((r) => [r.date, r.name, r.code, r.company, r.department, r.clockIn || '', r.clockOut || '', r.status, r.source, r.note || ''])
     ];
     downloadCsv('attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.csv', rowsToCsv(rows));
   }
@@ -365,7 +388,21 @@ export default function AttendancePage() {
       </div>
 
       <div className="attendance-filters">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, group…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, department…" />
+        <select
+          className="input attendance-status-filter" value={companyFilter} aria-label="Filter by company"
+          onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
+        >
+          <option value="">All companies</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select
+          className="input attendance-status-filter" value={deptFilter} aria-label="Filter by department"
+          onChange={(e) => setDeptFilter(e.target.value)}
+        >
+          <option value="">All departments</option>
+          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
         <select className="input attendance-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="present">Present</option>
@@ -387,7 +424,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Group</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
+              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
             </thead>
             <tbody>
               {visibleRows.map((r) => (
@@ -399,6 +436,7 @@ export default function AttendancePage() {
                       <span style={{ fontWeight: 600 }}>{r.name}</span>
                     </div>
                   </td>
+                  <td>{r.company}</td>
                   <td>{r.department}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'}</td>
@@ -425,7 +463,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Group</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th>Total</th></tr>
+              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th>Total</th></tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
@@ -437,6 +475,7 @@ export default function AttendancePage() {
                       <span style={{ fontWeight: 600 }}>{r.name}</span>
                     </div>
                   </td>
+                  <td>{r.company}</td>
                   <td>{r.department}</td>
                   <td>{r.present}</td>
                   <td>{r.late}</td>
@@ -622,7 +661,8 @@ export default function AttendancePage() {
               <h2 className="employees-dialog-title">Attendance report</h2>
               <p className="dialog-body">
                 Every attendance record in the date range below, scoped to what you can already see on this page —
-                everyone if you have company-wide access, otherwise just your own record.
+                everyone if you have company-wide access (narrowed further by the Company/Department filter above,
+                if one is set), otherwise just your own record.
               </p>
               <div className="field">
                 <label>Period</label>
@@ -652,7 +692,7 @@ export default function AttendancePage() {
                       <div className="itdevices-import-scroll">
                         <table className="table itdevices-import-table">
                           <thead>
-                            <tr><th>Date</th><th>Employee</th><th>Code</th><th>Group</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Source</th></tr>
+                            <tr><th>Date</th><th>Employee</th><th>Code</th><th>Company</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Source</th></tr>
                           </thead>
                           <tbody>
                             {reportData.rows.map((r, i) => (
@@ -660,6 +700,7 @@ export default function AttendancePage() {
                                 <td>{r.date}</td>
                                 <td style={{ fontWeight: 600 }}>{r.name}</td>
                                 <td>{r.code}</td>
+                                <td>{r.company}</td>
                                 <td>{r.department}</td>
                                 <td>{r.clockIn || '—'}</td>
                                 <td>{r.clockOut || '—'}</td>
