@@ -9,7 +9,13 @@
 // Bump CACHE_NAME on any change here so old caches get cleared on activate
 // (harmless if forgotten — just means a stale cache lingers as dead weight
 // until the next bump, never served, since cache lookups are exact-URL).
-var CACHE_NAME = 'bamboo-kiosk-v1';
+// v2: fixes a real bug — cache-first for the navigation itself (this file's
+// original behavior) could permanently strand a kiosk device on a stale
+// index.html referencing content-hashed JS/CSS filenames from a build no
+// longer on the server, once enough redeploys had happened since that
+// device's first visit. Bumped so every already-installed kiosk (including
+// any already wedged on the old bug) clears its cache and self-heals.
+var CACHE_NAME = 'bamboo-kiosk-v2';
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -35,6 +41,33 @@ self.addEventListener('fetch', function (event) {
   // depends on seeing a genuine network failure, not a cached response.
   if (req.method !== 'GET' || req.url.indexOf('/api/') !== -1) return;
 
+  // The navigation itself (loading /kiosk) goes network-first: whenever
+  // there's a connection, always fetch the real, current index.html —
+  // never let a device get stuck on a stale cached shell that references
+  // content-hashed JS/CSS from a build that's since been replaced (see the
+  // CACHE_NAME v2 comment above — this was a real bug, not hypothetical).
+  // Only fall back to whatever's cached when the network genuinely fails,
+  // which is the true "offline kiosk" case this worker exists for.
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).then(function (res) {
+        if (res && res.ok) {
+          var copy = res.clone();
+          caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
+        }
+        return res;
+      }).catch(function () {
+        return caches.match(req).then(function (cached) { return cached || caches.match('/kiosk'); });
+      })
+    );
+    return;
+  }
+
+  // Everything else under this scope is a content-hashed asset (JS/CSS/
+  // images) — its filename changes whenever its content does, so a cache
+  // hit is always correct forever. Cache-first is the right call here:
+  // instant load offline, and still refreshes in the background for
+  // whatever gets fetched fresh.
   event.respondWith(
     caches.match(req).then(function (cached) {
       var network = fetch(req).then(function (res) {
@@ -44,9 +77,6 @@ self.addEventListener('fetch', function (event) {
         }
         return res;
       }).catch(function () { return cached; });
-      // Cache-first: instant load offline; still refreshes the cache in
-      // the background when online so the next deploy's assets get picked
-      // up after a normal reload.
       return cached || network;
     })
   );
