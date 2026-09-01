@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/offlineQueue';
+import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
 import './KioskPage.css';
 
 // The clock-in/out kiosk — a full-screen, standalone page meant to be
@@ -139,10 +140,12 @@ export default function KioskPage() {
     try {
       const r = await api.post('/kiosk/clock', { pin: fullPin });
       setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time });
+      if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
       if (err instanceof ApiError) {
         setResult({ kind: 'error', message: err.message || 'Something went wrong.' });
+        playWrongPin();
       } else {
         enqueueTap(fullPin, new Date().toISOString());
         setPendingCount(queueLength());
@@ -157,6 +160,7 @@ export default function KioskPage() {
 
   function tapDigit(d) {
     if (submitting || result) return;
+    unlockAudio();
     const next = pin + d;
     setPin(next);
     if (next.length === PIN_LENGTH) submitPin(next);
