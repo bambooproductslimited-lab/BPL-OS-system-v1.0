@@ -124,6 +124,36 @@ async function syncBalanceForYear(employeeId, leaveType, year) {
   await pool.query('UPDATE leave_balances SET entitled = $1 WHERE id = $2', [entitled, existing.rows[0].id]);
 }
 
+// kernel.js: handlers['leave.balances.recalculate'] — force every one of
+// this employee's existing balance rows for a year back onto the current
+// formula (their resolved entitlement net of that year's holidays), not
+// just the one row a Save/Reset on the Base Entitlement table happens to
+// touch. Needed because a leave type's company default or a company's
+// holiday list can change AFTER a year's balances were already granted —
+// nothing walks back and fixes rows nobody's individually re-saved, so
+// they're left showing whatever was true at grant time. Only touches
+// rows that already exist (never creates one — that's rollover's/the
+// self-heal grant's job) and never touches "used".
+async function recalculateBalances(ctx, employeeId, year) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var emp = await fetchEmployeeById(employeeId);
+  if (!emp) fail('notfound', 'Employee not found.');
+  year = Number(year);
+  if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
+
+  var typesRes = await pool.query('SELECT id, name, days_per_year FROM leave_types WHERE active');
+  var updated = 0;
+  for (var i = 0; i < typesRes.rows.length; i++) {
+    var before = await pool.query('SELECT entitled FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3', [employeeId, typesRes.rows[i].id, year]);
+    if (!before.rows[0]) continue;
+    await syncBalanceForYear(employeeId, typesRes.rows[i], year);
+    var after = await pool.query('SELECT entitled FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3', [employeeId, typesRes.rows[i].id, year]);
+    if (after.rows[0].entitled !== before.rows[0].entitled) updated++;
+  }
+  await audit(pool, ctx, 'leave.balances.recalculate', 'employee', emp.id, 'Recalculated ' + emp.first_name + ' ' + emp.last_name + '’s ' + year + ' leave balances against current policy (' + updated + ' changed).');
+  return { year: year, updated: updated, checked: typesRes.rows.length };
+}
+
 // kernel.js: handlers['leave.entitlements.set']
 async function setEntitlement(ctx, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
@@ -563,7 +593,7 @@ async function cancel(ctx, requestId) {
 module.exports = {
   listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest,
   listAllTypes: listAllTypes, createType: createType, updateType: updateType,
-  getBalances: getBalances, setBalance: setBalance, rollover: rollover,
+  getBalances: getBalances, setBalance: setBalance, rollover: rollover, recalculateBalances: recalculateBalances,
   listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday,
   getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement
 };

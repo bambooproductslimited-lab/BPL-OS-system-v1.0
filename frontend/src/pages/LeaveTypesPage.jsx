@@ -53,6 +53,9 @@ export default function LeaveTypesPage() {
   const [holidayForm, setHolidayForm] = useState(EMPTY_HOLIDAY_FORM);
   const [holidaySaving, setHolidaySaving] = useState(false);
 
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalculateResult, setRecalculateResult] = useState(null);
+
   const [entitlements, setEntitlements] = useState(null);
   const [entitlementsLoading, setEntitlementsLoading] = useState(false);
   const [entitlementError, setEntitlementError] = useState('');
@@ -199,12 +202,36 @@ export default function LeaveTypesPage() {
 
   function onEmployeeChange(id) {
     setSelectedEmployeeId(id);
+    setRecalculateResult(null);
     loadBalances(id, year);
     loadEntitlements(id);
   }
   function onYearChange(y) {
     setYear(y);
+    setRecalculateResult(null);
     if (selectedEmployeeId) loadBalances(selectedEmployeeId, y);
+  }
+
+  // A leave_balances row is only ever set once (at grant time) and never
+  // automatically tracks a later change to a leave type's default or a
+  // company's holiday list — Save/Reset on Base Entitlement above only
+  // re-syncs the one row it actually touches, so a type nobody's
+  // customized (still sitting at the default) can go stale silently.
+  // This walks every leave type for the employee/year and snaps each
+  // existing row back onto the current formula in one action.
+  async function recalculateBalances() {
+    setRecalculating(true);
+    setBalanceError('');
+    setRecalculateResult(null);
+    try {
+      const res = await api.post('/leave/balances/recalculate', { employeeId: selectedEmployeeId, year: Number(year) });
+      setRecalculateResult(res);
+      await loadBalances(selectedEmployeeId, year);
+    } catch (err) {
+      setBalanceError(err instanceof ApiError ? err.message : 'Could not recalculate balances.');
+    } finally {
+      setRecalculating(false);
+    }
   }
 
   async function saveEntitlement(leaveTypeId) {
@@ -425,7 +452,17 @@ export default function LeaveTypesPage() {
               </table>
             )}
 
-            <h3 className="leavetypes-subheading">{year} balance</h3>
+            <div className="leavetypes-balance-subheader">
+              <h3 className="leavetypes-subheading">{year} balance</h3>
+              <button type="button" className="btn btn-secondary attendance-row-btn" disabled={recalculating} onClick={recalculateBalances}>
+                {recalculating ? 'Recalculating…' : 'Recalculate against current policy'}
+              </button>
+            </div>
+            {recalculateResult && (
+              <p className="leavetypes-rollover-result">
+                Checked {recalculateResult.checked} leave type(s), updated {recalculateResult.updated} to match the current company default/holidays/personal entitlement.
+              </p>
+            )}
           </>
         )}
 

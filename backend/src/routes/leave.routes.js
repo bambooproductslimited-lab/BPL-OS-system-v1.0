@@ -38,6 +38,11 @@ router.post('/balances', async function (req, res, next) {
   try { res.json(await leaveService.setBalance(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['leave.balances.recalculate'] -> POST /api/leave/balances/recalculate
+router.post('/balances/recalculate', async function (req, res, next) {
+  try { res.json(await leaveService.recalculateBalances(req.ctx, req.body.employeeId, req.body.year)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['leave.rollover'] -> POST /api/leave/rollover
 router.post('/rollover', async function (req, res, next) {
   try { res.json(await leaveService.rollover(req.ctx, req.body.year)); } catch (e) { next(e); }
