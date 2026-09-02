@@ -137,7 +137,7 @@ async function getPin(ctx, employeeId) {
 // all, and only to correctly backdate an already-authenticated tap
 // (attendance.service.js's resolveOccurredAt still bounds/validates it) —
 // never to skip PIN verification itself.
-async function clock(pin, ip, occurredAt) {
+async function clock(pin, ip, occurredAt, location) {
   checkRateLimit(ip);
   if (!/^\d{4}$/.test(String(pin || ''))) {
     recordFailure(ip);
@@ -160,10 +160,10 @@ async function clock(pin, ip, occurredAt) {
   var existing = await pool.query('SELECT clock_out FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, resolved.date]);
   var action, rec;
   if (!existing.rows[0]) {
-    rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt);
+    rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt, location);
     action = 'in';
   } else if (!existing.rows[0].clock_out) {
-    rec = await attendanceService.clockOutEmployee(emp.id, occurredAt);
+    rec = await attendanceService.clockOutEmployee(emp.id, occurredAt, location);
     action = 'out';
   } else {
     fail('conflict', 'You have already clocked in and out today.');

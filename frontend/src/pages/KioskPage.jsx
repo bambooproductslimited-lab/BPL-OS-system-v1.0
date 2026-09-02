@@ -87,6 +87,7 @@ export default function KioskPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const resultTimerRef = useRef(null);
   const flushingRef = useRef(false);
+  const locationRef = useRef(null); // latest GPS fix, kept fresh by watchPosition below
   const now = useClock();
 
   useEffect(() => () => { if (resultTimerRef.current) clearTimeout(resultTimerRef.current); }, []);
@@ -97,6 +98,25 @@ export default function KioskPage() {
     }
   }, []);
 
+  // The kiosk is a fixed, plugged-in device, so every fix reports roughly
+  // the same spot — this exists to timestamp clock events with the
+  // kiosk's own location for the record, not to track the tapping
+  // employee. watchPosition (not a one-off getCurrentPosition per tap)
+  // keeps locationRef current in the background without adding latency
+  // to a clock-in/out; a tap just uses whatever fix is on hand. Denied
+  // permission or no fix yet simply means location stays null — never
+  // something that blocks or fails a clock event.
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        locationRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 20000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   useEffect(() => {
     setPendingCount(queueLength());
@@ -123,7 +143,7 @@ export default function KioskPage() {
       for (const item of items) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          await api.post('/kiosk/clock', { pin: item.pin, occurredAt: item.occurredAt });
+          await api.post('/kiosk/clock', { pin: item.pin, occurredAt: item.occurredAt, location: item.location });
           removeFromQueue(item.tempId);
         } catch (err) {
           if (err instanceof ApiError) removeFromQueue(item.tempId);
@@ -139,7 +159,7 @@ export default function KioskPage() {
   async function submitPin(fullPin) {
     setSubmitting(true);
     try {
-      const r = await api.post('/kiosk/clock', { pin: fullPin });
+      const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current });
       setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time });
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
@@ -148,7 +168,7 @@ export default function KioskPage() {
         setResult({ kind: 'error', message: err.message || 'Something went wrong.' });
         playWrongPin();
       } else {
-        enqueueTap(fullPin, new Date().toISOString());
+        enqueueTap(fullPin, new Date().toISOString(), locationRef.current);
         setPendingCount(queueLength());
         setResult({ kind: 'pending' });
       }

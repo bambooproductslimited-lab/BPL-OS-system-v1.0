@@ -73,6 +73,10 @@
 .attendance-note { font-size: 12px; color: var(--color-text-muted); }
 .attendance-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
+.attendance-location-link { display: inline-flex; vertical-align: -3px; color: var(--color-text-muted); }
+.attendance-location-link svg { width: 14px; height: 14px; }
+.attendance-location-link:hover { color: var(--color-accent-700); }
+
 /* ── empty state ────────────────────────────────────────────────────── */
 .attendance-empty-state {
   display: flex;

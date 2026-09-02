@@ -54,14 +54,32 @@ function resolveOccurredAt(occurredAt) {
   return { date: d.toISOString().slice(0, 10), time: d.toTimeString().slice(0, 5) };
 }
 
+// The kiosk device's browser reports its GPS fix on each clock event (see
+// KioskPage.jsx) — a plain {lat, lng, accuracy} object, unauthenticated and
+// client-supplied, so it's range-checked and any junk (missing, wrong
+// shape, out-of-range) is quietly dropped to null rather than failing the
+// clock event over it. accuracy is in meters, straight from the browser's
+// Geolocation API; not range-checked since any non-negative number is
+// meaningful (a kiosk indoors can easily report accuracy in the hundreds
+// of meters).
+function sanitizeLocation(loc) {
+  if (!loc || typeof loc !== 'object') return null;
+  var lat = Number(loc.lat), lng = Number(loc.lng);
+  if (!isFinite(lat) || !isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  var accuracy = Number(loc.accuracy);
+  return { lat: lat, lng: lng, accuracy: isFinite(accuracy) && accuracy >= 0 ? accuracy : null };
+}
+
 // clockInEmployee/clockOutEmployee — the actual attendance-row logic,
 // factored out from clockIn/clockOut below (which are the ctx-based, "I am
 // clocking myself in from the web app" handlers) so the kiosk service can
 // drive the exact same business rules for a PIN-identified employee,
 // tagged with source='kiosk' instead of 'web'. Neither takes ctx or does a
 // permission check — that's the caller's job (clockIn/clockOut check
-// attendance.self; kiosk.service.js's PIN match is its own gate).
-async function clockInEmployee(employeeId, source, occurredAt) {
+// attendance.self; kiosk.service.js's PIN match is its own gate). location
+// is only ever populated by the kiosk; clockIn/clockOut (the web "clock
+// myself in" handlers below) don't collect it, so it's simply null there.
+async function clockInEmployee(employeeId, source, occurredAt, location) {
   var resolved = resolveOccurredAt(occurredAt);
   var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
   if (existing.rows[0]) fail('conflict', 'Already clocked in today.');
@@ -70,20 +88,23 @@ async function clockInEmployee(employeeId, source, occurredAt) {
   var status = resolved.time > lateAfter ? 'late' : 'present';
 
   var res = await pool.query(
-    'INSERT INTO attendance (employee_id, date, clock_in, status, source) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-    [employeeId, resolved.date, resolved.time, status, source]
+    'INSERT INTO attendance (employee_id, date, clock_in, status, source, clock_in_location) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+    [employeeId, resolved.date, resolved.time, status, source, sanitizeLocation(location)]
   );
   return res.rows[0];
 }
 
-async function clockOutEmployee(employeeId, occurredAt) {
+async function clockOutEmployee(employeeId, occurredAt, location) {
   var resolved = resolveOccurredAt(occurredAt);
   var res = await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
   var rec = res.rows[0];
   if (!rec) fail('conflict', 'Not clocked in today.');
   if (rec.clock_out) fail('conflict', 'Already clocked out today.');
 
-  var updated = await pool.query('UPDATE attendance SET clock_out = $1 WHERE id = $2 RETURNING *', [resolved.time, rec.id]);
+  var updated = await pool.query(
+    'UPDATE attendance SET clock_out = $1, clock_out_location = $2 WHERE id = $3 RETURNING *',
+    [resolved.time, sanitizeLocation(location), rec.id]
+  );
   return updated.rows[0];
 }
 
@@ -149,6 +170,7 @@ async function list(ctx, params) {
         id: r ? r.id : null, employeeId: e.id, name: e.first_name + ' ' + e.last_name, code: e.code,
         department: e.department_name || '—', company: e.company_name || '—',
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
+        clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         status: r ? r.status : 'absent', note: r ? r.note : ''
       };
     })
@@ -190,6 +212,7 @@ async function report(ctx, from, to, filters) {
         employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name,
         department: e.department_name || '—', company: e.company_name || '—',
         date: r.date, clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
+        clockInLocation: r.clock_in_location, clockOutLocation: r.clock_out_location,
         status: r.status, source: r.source, note: r.note
       };
     })
@@ -243,6 +266,7 @@ function rowToAttendance(r) {
   return {
     id: r.id, employeeId: r.employee_id, date: r.date,
     clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
+    clockInLocation: r.clock_in_location, clockOutLocation: r.clock_out_location,
     status: r.status, source: r.source, note: r.note, adjustedBy: r.adjusted_by
   };
 }
