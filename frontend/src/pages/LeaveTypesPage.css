@@ -16,6 +16,11 @@
 .leavetypes-checkbox-field { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 12px 0; }
 .leavetypes-checkbox-field input { width: auto; }
 
+.leavetypes-total-row { display: flex; align-items: flex-end; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
+.leavetypes-allocated { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px; }
+.leavetypes-allocated-match { color: var(--color-accent-700); background: var(--color-accent-100); }
+.leavetypes-allocated-mismatch { color: var(--color-danger); background: var(--color-danger-100); }
+
 .leavetypes-rollover-result { font-size: 13px; color: var(--color-accent-700); margin-top: 12px; }
 
 .leavetypes-holiday-form { display: flex; align-items: flex-end; gap: 16px; margin-top: 16px; flex-wrap: wrap; }

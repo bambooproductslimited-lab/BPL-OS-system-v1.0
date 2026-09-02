@@ -48,6 +48,11 @@ router.post('/rollover', async function (req, res, next) {
   try { res.json(await leaveService.rollover(req.ctx, req.body.year)); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['leave.entitlements.setTotal'] -> POST /api/leave/entitlements/total
+router.post('/entitlements/total', async function (req, res, next) {
+  try { res.json(await leaveService.setLeaveDaysTotal(req.ctx, req.body.employeeId, req.body.leaveDaysTotal)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['leave.entitlements'] -> GET /api/leave/entitlements/:employeeId
 router.get('/entitlements/:employeeId', async function (req, res, next) {
   try { res.json(await leaveService.getEntitlements(req.ctx, req.params.employeeId)); } catch (e) { next(e); }

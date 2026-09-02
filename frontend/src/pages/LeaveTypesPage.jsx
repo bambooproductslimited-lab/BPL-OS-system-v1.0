@@ -56,6 +56,9 @@ export default function LeaveTypesPage() {
   const [recalculating, setRecalculating] = useState(false);
   const [recalculateResult, setRecalculateResult] = useState(null);
 
+  const [leaveDaysTotalDraft, setLeaveDaysTotalDraft] = useState('');
+  const [totalSaving, setTotalSaving] = useState(false);
+
   const [entitlements, setEntitlements] = useState(null);
   const [entitlementsLoading, setEntitlementsLoading] = useState(false);
   const [entitlementError, setEntitlementError] = useState('');
@@ -189,14 +192,28 @@ export default function LeaveTypesPage() {
     setEntitlementsLoading(true);
     setEntitlementError('');
     try {
-      const rows = await api.get('/leave/entitlements/' + empId);
-      setEntitlements(rows);
-      setEntitlementDrafts(Object.fromEntries(rows.map((r) => [r.leaveTypeId, String(r.daysPerYear)])));
+      const res = await api.get('/leave/entitlements/' + empId);
+      setEntitlements(res);
+      setEntitlementDrafts(Object.fromEntries(res.types.map((r) => [r.leaveTypeId, String(r.daysPerYear)])));
+      setLeaveDaysTotalDraft(res.leaveDaysTotal === null ? '' : String(res.leaveDaysTotal));
     } catch (err) {
       setEntitlementError(err instanceof ApiError ? err.message : 'Could not load entitlements.');
       setEntitlements(null);
     } finally {
       setEntitlementsLoading(false);
+    }
+  }
+
+  async function saveLeaveDaysTotal() {
+    setTotalSaving(true);
+    setEntitlementError('');
+    try {
+      await api.post('/leave/entitlements/total', { employeeId: selectedEmployeeId, leaveDaysTotal: leaveDaysTotalDraft === '' ? null : Number(leaveDaysTotalDraft) });
+      await loadEntitlements(selectedEmployeeId);
+    } catch (err) {
+      setEntitlementError(err instanceof ApiError ? err.message : 'Could not save the total.');
+    } finally {
+      setTotalSaving(false);
     }
   }
 
@@ -298,6 +315,13 @@ export default function LeaveTypesPage() {
       setRolloverRunning(false);
     }
   }
+
+  // Live running sum of the draft "This employee" values (whether saved
+  // yet or still being typed) — lets HR see the split add up to the
+  // declared total as they go, not just after saving each row.
+  const allocatedSum = entitlements
+    ? entitlements.types.reduce(function (sum, t) { return sum + (Number(entitlementDrafts[t.leaveTypeId] ?? t.daysPerYear) || 0); }, 0)
+    : 0;
 
   return (
     <div>
@@ -418,10 +442,31 @@ export default function LeaveTypesPage() {
             {entitlementError && <div className="error-banner">{entitlementError}</div>}
             {entitlementsLoading && <p className="table-empty">Loading…</p>}
             {!entitlementsLoading && entitlements && (
-              <table className="table" style={{ marginTop: 12, marginBottom: 24 }}>
+              <>
+                <div className="leavetypes-total-row">
+                  <div className="field">
+                    <label htmlFor="lt-days-total">Total leave days agreed with this employee</label>
+                    <input
+                      id="lt-days-total" className="input" style={{ width: 100 }} inputMode="numeric" placeholder="e.g. 20"
+                      value={leaveDaysTotalDraft} onChange={(e) => setLeaveDaysTotalDraft(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button" className="btn btn-secondary attendance-row-btn" disabled={totalSaving}
+                    onClick={saveLeaveDaysTotal}
+                  >
+                    {totalSaving ? 'Saving…' : 'Save total'}
+                  </button>
+                  {entitlements.leaveDaysTotal !== null && (
+                    <span className={'leavetypes-allocated' + (allocatedSum === entitlements.leaveDaysTotal ? ' leavetypes-allocated-match' : ' leavetypes-allocated-mismatch')}>
+                      Allocated {allocatedSum} of {entitlements.leaveDaysTotal}
+                    </span>
+                  )}
+                </div>
+                <table className="table" style={{ marginTop: 12, marginBottom: 24 }}>
                 <thead><tr><th>Leave type</th><th>Company default</th><th>This employee</th><th /></tr></thead>
                 <tbody>
-                  {entitlements.map((en) => (
+                  {entitlements.types.map((en) => (
                     <tr key={en.leaveTypeId}>
                       <td style={{ fontWeight: 600 }}>{en.name}{en.isCustom && <span className="tag tag-outline" style={{ marginLeft: 8 }}>Custom</span>}</td>
                       <td style={{ fontVariantNumeric: 'tabular-nums' }}>{en.companyDefault}</td>
@@ -449,7 +494,8 @@ export default function LeaveTypesPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </>
             )}
 
             <div className="leavetypes-balance-subheader">

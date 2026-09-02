@@ -88,19 +88,40 @@ async function getEntitlements(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   var emp = await fetchEmployeeById(employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
+  var totalRes = await pool.query('SELECT leave_days_total FROM employees WHERE id = $1', [employeeId]);
 
   var typesRes = await pool.query('SELECT id, name, days_per_year FROM leave_types WHERE active ORDER BY name');
   var overridesRes = await pool.query('SELECT leave_type_id, days_per_year FROM employee_leave_entitlements WHERE employee_id = $1', [employeeId]);
   var overrideByType = {};
   overridesRes.rows.forEach(function (r) { overrideByType[r.leave_type_id] = r.days_per_year; });
 
-  return typesRes.rows.map(function (t) {
+  var types = typesRes.rows.map(function (t) {
     var override = overrideByType[t.id];
     return {
       leaveTypeId: t.id, name: t.name, companyDefault: t.days_per_year,
       daysPerYear: override !== undefined ? override : t.days_per_year, isCustom: override !== undefined
     };
   });
+  return { leaveDaysTotal: totalRes.rows[0] ? totalRes.rows[0].leave_days_total : null, types: types };
+}
+
+// kernel.js: handlers['leave.entitlements.setTotal'] — HR's own
+// bookkeeping figure for "the flat total leave days we agreed with this
+// employee" (e.g. 20), so they have somewhere to record it and see it
+// against the running sum of what they've actually split across leave
+// types below. Purely informational: never read by requestLeave(),
+// rollover(), or anything else that enforces a balance — each leave type
+// keeps its own independent entitlement regardless of this number.
+async function setLeaveDaysTotal(ctx, employeeId, leaveDaysTotal) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var emp = await fetchEmployeeById(employeeId);
+  if (!emp) fail('notfound', 'Employee not found.');
+  var total = leaveDaysTotal === null || leaveDaysTotal === '' ? null : validateDaysPerYear(leaveDaysTotal);
+  await pool.query('UPDATE employees SET leave_days_total = $1 WHERE id = $2', [total, employeeId]);
+  var empName = await pool.query('SELECT first_name, last_name FROM employees WHERE id = $1', [employeeId]);
+  await audit(pool, ctx, 'leave.entitlement.setTotal', 'employee', employeeId,
+    'Set ' + empName.rows[0].first_name + ' ' + empName.rows[0].last_name + '’s total leave days to ' + (total === null ? '(cleared)' : total) + '.');
+  return { leaveDaysTotal: total };
 }
 
 // A leave_balances row, once granted, is a stored fact — it doesn't
@@ -613,5 +634,5 @@ module.exports = {
   listAllTypes: listAllTypes, createType: createType, updateType: updateType,
   getBalances: getBalances, setBalance: setBalance, rollover: rollover, recalculateBalances: recalculateBalances,
   listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday,
-  getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement
+  getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement, setLeaveDaysTotal: setLeaveDaysTotal
 };
