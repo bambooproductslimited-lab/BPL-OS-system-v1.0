@@ -103,6 +103,27 @@ async function getEntitlements(ctx, employeeId) {
   });
 }
 
+// A leave_balances row, once granted, is a stored fact — it doesn't
+// silently track a leave type or an employee_leave_entitlements override
+// as either one changes later. Without this, changing a base entitlement
+// would visibly do nothing until the year's balance is next (re)granted
+// (next year's rollover, or never, if this year's row already exists),
+// which looks like the change didn't work. Called only when the admin
+// screen tells us which year they're actually looking at, and only
+// touches a row that already exists there — it never creates one (that's
+// still rollover's/the self-heal grant's job) and never touches "used".
+async function syncBalanceForYear(employeeId, leaveType, year) {
+  if (!year || leaveType.days_per_year <= 0) return; // unlimited types (e.g. unpaid) aren't balance-capped at all
+  var existing = await pool.query('SELECT id FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3', [employeeId, leaveType.id, year]);
+  if (!existing.rows[0]) return;
+  var emp = await fetchEmployeeById(employeeId);
+  var companyId = await employeeCompanyId(emp.department_id);
+  var holidays = await countHolidays(companyId, year);
+  var resolvedDaysPerYear = await resolveDaysPerYear(employeeId, leaveType.id, leaveType.days_per_year);
+  var entitled = Math.max(0, resolvedDaysPerYear - holidays);
+  await pool.query('UPDATE leave_balances SET entitled = $1 WHERE id = $2', [entitled, existing.rows[0].id]);
+}
+
 // kernel.js: handlers['leave.entitlements.set']
 async function setEntitlement(ctx, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
@@ -118,6 +139,7 @@ async function setEntitlement(ctx, p) {
     'ON CONFLICT (employee_id, leave_type_id) DO UPDATE SET days_per_year = $3',
     [emp.id, type.id, daysPerYear]
   );
+  await syncBalanceForYear(emp.id, type, p.year ? Number(p.year) : null);
   await audit(pool, ctx, 'leave.entitlement.set', 'employee', emp.id, 'Set ' + emp.first_name + ' ' + emp.last_name + '’s personal ' + type.name.toLowerCase() + ' entitlement to ' + daysPerYear + ' day(s)/year.');
   return { leaveTypeId: type.id, name: type.name, companyDefault: type.days_per_year, daysPerYear: daysPerYear, isCustom: true };
 }
@@ -125,10 +147,12 @@ async function setEntitlement(ctx, p) {
 // kernel.js: handlers['leave.entitlements.clear'] — removes the personal
 // override, reverting the employee to the leave type's company-wide
 // default going forward.
-async function clearEntitlement(ctx, employeeId, leaveTypeId) {
+async function clearEntitlement(ctx, employeeId, leaveTypeId, year) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   var res = await pool.query('DELETE FROM employee_leave_entitlements WHERE employee_id = $1 AND leave_type_id = $2 RETURNING id', [employeeId, leaveTypeId]);
   if (!res.rows[0]) fail('notfound', 'No custom entitlement set for that employee/leave type.');
+  var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [leaveTypeId]);
+  if (typeRes.rows[0]) await syncBalanceForYear(employeeId, typeRes.rows[0], year ? Number(year) : null);
   var emp = await fetchEmployeeById(employeeId);
   await audit(pool, ctx, 'leave.entitlement.clear', 'employee', employeeId, 'Reverted ' + (emp ? emp.first_name + ' ' + emp.last_name : 'an employee') + '’s leave entitlement to the company default.');
   return { ok: true };

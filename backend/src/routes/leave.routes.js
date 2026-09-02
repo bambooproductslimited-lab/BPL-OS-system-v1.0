@@ -53,9 +53,9 @@ router.post('/entitlements', async function (req, res, next) {
   try { res.json(await leaveService.setEntitlement(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
-// kernel.js: handlers['leave.entitlements.clear'] -> DELETE /api/leave/entitlements/:employeeId/:leaveTypeId
+// kernel.js: handlers['leave.entitlements.clear'] -> DELETE /api/leave/entitlements/:employeeId/:leaveTypeId?year=
 router.delete('/entitlements/:employeeId/:leaveTypeId', async function (req, res, next) {
-  try { res.json(await leaveService.clearEntitlement(req.ctx, req.params.employeeId, req.params.leaveTypeId)); } catch (e) { next(e); }
+  try { res.json(await leaveService.clearEntitlement(req.ctx, req.params.employeeId, req.params.leaveTypeId, req.query.year)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['leave.holidays'] -> GET /api/leave/holidays?companyId=&year=

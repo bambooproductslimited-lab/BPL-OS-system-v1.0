@@ -214,8 +214,11 @@ export default function LeaveTypesPage() {
     setEntitlementSavingId(leaveTypeId);
     setEntitlementError('');
     try {
-      await api.post('/leave/entitlements', { employeeId: selectedEmployeeId, leaveTypeId, daysPerYear });
-      await loadEntitlements(selectedEmployeeId);
+      // year: so the backend can immediately update this year's balance
+      // too, if one's already been granted — otherwise the change is
+      // invisible below until the balance is next (re)granted.
+      await api.post('/leave/entitlements', { employeeId: selectedEmployeeId, leaveTypeId, daysPerYear, year: Number(year) });
+      await Promise.all([loadEntitlements(selectedEmployeeId), loadBalances(selectedEmployeeId, year)]);
     } catch (err) {
       setEntitlementError(err instanceof ApiError ? err.message : 'Could not save that entitlement.');
     } finally {
@@ -227,8 +230,8 @@ export default function LeaveTypesPage() {
     setEntitlementSavingId(leaveTypeId);
     setEntitlementError('');
     try {
-      await api.del('/leave/entitlements/' + selectedEmployeeId + '/' + leaveTypeId);
-      await loadEntitlements(selectedEmployeeId);
+      await api.del('/leave/entitlements/' + selectedEmployeeId + '/' + leaveTypeId + '?year=' + encodeURIComponent(year));
+      await Promise.all([loadEntitlements(selectedEmployeeId), loadBalances(selectedEmployeeId, year)]);
     } catch (err) {
       setEntitlementError(err instanceof ApiError ? err.message : 'Could not reset that entitlement.');
     } finally {
@@ -383,7 +386,7 @@ export default function LeaveTypesPage() {
             <p className="leavetypes-intro">
               This employee's own annual days per leave type — persists year to year until changed. Defaults to the
               company figure above until you set a personal one (seniority, a negotiated offer, a proration that
-              should stick).
+              should stick). Saving updates the {year} balance below immediately if one's already been granted.
             </p>
             {entitlementError && <div className="error-banner">{entitlementError}</div>}
             {entitlementsLoading && <p className="table-empty">Loading…</p>}
