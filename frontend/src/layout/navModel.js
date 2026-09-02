@@ -14,7 +14,8 @@ export const NAV_GROUPS = [
     { key: 'people', label: 'Employee directory', perm: 'employee.read', icon: 'users' },
     { key: 'departments', label: 'Companies', perm: 'employee.read', icon: 'building' },
     { key: 'attendance', label: 'Attendance', icon: 'clock' },
-    { key: 'leave', label: 'Leave', icon: 'calendar' }
+    { key: 'leave', label: 'Leave', icon: 'calendar' },
+    { key: 'leavetypes', label: 'Leave types & balances', perm: 'employee.write', icon: 'calendar' }
   ] },
   { label: 'Work', items: [
     { key: 'tasks', label: 'Tasks', perm: 'task.read', icon: 'checklist' },

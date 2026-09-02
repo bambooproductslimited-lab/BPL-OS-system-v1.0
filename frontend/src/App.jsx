@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage';
 import KioskPage from './pages/KioskPage';
 import DashboardPage from './pages/DashboardPage';
 import LeavePage from './pages/LeavePage';
+import LeaveTypesPage from './pages/LeaveTypesPage';
 import EmployeesPage from './pages/EmployeesPage';
 import DepartmentsPage from './pages/DepartmentsPage';
 import AttendancePage from './pages/AttendancePage';
@@ -55,7 +56,7 @@ import PlaceholderPage from './pages/PlaceholderPage';
 // intended full nav structure (see layout/navModel.js). Built once at
 // module scope so route elements stay referentially stable across renders.
 const BUILT_SCREENS = {
-  dashboard: DashboardPage, leave: LeavePage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
+  dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: TasksPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage,
   assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,

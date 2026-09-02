@@ -1,0 +1,16 @@
+.leavetypes-intro { font-size: 13px; color: var(--color-text-muted); margin: 0 0 16px; max-width: 640px; }
+
+.leavetypes-section { margin-bottom: 32px; padding-bottom: 32px; border-bottom: var(--divider-width) solid var(--color-border); }
+.leavetypes-section:last-child { border-bottom: none; }
+.leavetypes-section h2 { font-size: 16px; margin: 0; }
+
+.leavetypes-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.leavetypes-row-inactive { opacity: 0.55; }
+
+.leavetypes-balance-toolbar { display: flex; align-items: flex-end; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
+
+.leavetypes-checkbox-field { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 12px 0; }
+.leavetypes-checkbox-field input { width: auto; }
+
+.leavetypes-rollover-result { font-size: 13px; color: var(--color-accent-700); margin-top: 12px; }

@@ -11,6 +11,140 @@ async function listTypes() {
   return res.rows;
 }
 
+function rowToLeaveType(r) {
+  return { id: r.id, name: r.name, daysPerYear: r.days_per_year, paid: r.paid, active: r.active };
+}
+
+// kernel.js: handlers['leave.types.all'] — the admin management list:
+// every leave type including inactive ones (unlike listTypes() above,
+// which is what the "request leave" picker shows), so HR/Admin can see
+// and edit a type without it ever appearing as choosable again — reviving
+// one is a deliberate "Active" toggle, not just editing its other fields.
+async function listAllTypes(ctx) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var res = await pool.query('SELECT id, name, days_per_year, paid, active FROM leave_types ORDER BY active DESC, name');
+  return res.rows.map(rowToLeaveType);
+}
+
+function validateDaysPerYear(v) {
+  var n = Number(v);
+  if (!Number.isInteger(n) || n < 0) fail('invalid', 'Days per year must be a whole number, 0 or more.');
+  return n;
+}
+
+// kernel.js: handlers['leave.types.create']
+async function createType(ctx, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var name = V.text(p.name, 'Name', 60);
+  var daysPerYear = validateDaysPerYear(p.daysPerYear);
+  var paid = !!p.paid;
+  var res = await pool.query('INSERT INTO leave_types (name, days_per_year, paid) VALUES ($1,$2,$3) RETURNING *', [name, daysPerYear, paid]);
+  await audit(pool, ctx, 'leave.type.create', 'leave_type', res.rows[0].id, 'Created leave type "' + name + '" (' + daysPerYear + ' day(s)/year).');
+  return rowToLeaveType(res.rows[0]);
+}
+
+// kernel.js: handlers['leave.types.update'] — every field optional so the
+// admin screen can send just the one thing that changed (e.g. only
+// toggling Active off doesn't need to resend name/days/paid).
+async function updateType(ctx, id, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var res = await pool.query('SELECT * FROM leave_types WHERE id = $1', [id]);
+  var type = res.rows[0];
+  if (!type) fail('notfound', 'Leave type not found.');
+
+  var name = p.name !== undefined ? V.text(p.name, 'Name', 60) : type.name;
+  var daysPerYear = p.daysPerYear !== undefined ? validateDaysPerYear(p.daysPerYear) : type.days_per_year;
+  var paid = p.paid !== undefined ? !!p.paid : type.paid;
+  var active = p.active !== undefined ? !!p.active : type.active;
+
+  var updated = await pool.query(
+    'UPDATE leave_types SET name = $1, days_per_year = $2, paid = $3, active = $4 WHERE id = $5 RETURNING *',
+    [name, daysPerYear, paid, active, id]
+  );
+  await audit(pool, ctx, 'leave.type.update', 'leave_type', id, 'Updated leave type "' + name + '".');
+  return rowToLeaveType(updated.rows[0]);
+}
+
+// kernel.js: handlers['leave.balances'] — every active leave type's
+// entitled/used for one employee/year, HR/Admin-only (this is the
+// underlying entitlement, not the self-service summary me.routes.js
+// already exposes to an employee about their own balance). Synthesizes a
+// zero-entitled row for any active type with no leave_balances row yet
+// (nothing there to edit otherwise) rather than omitting it.
+async function getBalances(ctx, employeeId, year) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  year = year ? Number(year) : new Date().getFullYear();
+  if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
+  var emp = await fetchEmployeeById(employeeId);
+  if (!emp) fail('notfound', 'Employee not found.');
+
+  var typesRes = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active ORDER BY name');
+  var balRes = await pool.query('SELECT * FROM leave_balances WHERE employee_id = $1 AND year = $2', [employeeId, year]);
+  var byType = {};
+  balRes.rows.forEach(function (r) { byType[r.leave_type_id] = r; });
+
+  return typesRes.rows.map(function (t) {
+    var b = byType[t.id];
+    return { leaveTypeId: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid, entitled: b ? b.entitled : 0, used: b ? b.used : 0 };
+  });
+}
+
+// kernel.js: handlers['leave.balances.set'] — HR/Admin correction of one
+// employee's entitled days for one leave type/year: proration for a new
+// hire, a one-off correction, above/below the type's flat default. used
+// is never editable here — it only ever moves via an approved request
+// (decide() below), so it always reflects what's actually been taken.
+async function setBalance(ctx, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var emp = await fetchEmployeeById(p.employeeId);
+  if (!emp) fail('notfound', 'Employee not found.');
+  var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [p.leaveTypeId]);
+  var type = typeRes.rows[0];
+  if (!type) fail('invalid', 'Unknown leave type.');
+  var year = Number(p.year);
+  if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
+  var entitled = validateDaysPerYear(p.entitled);
+
+  var res = await pool.query(
+    'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) ' +
+    'ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET entitled = $4 RETURNING *',
+    [emp.id, type.id, year, entitled]
+  );
+  await audit(pool, ctx, 'leave.balance.set', 'employee', emp.id, 'Set ' + emp.first_name + ' ' + emp.last_name + '’s ' + year + ' ' + type.name.toLowerCase() + ' entitlement to ' + entitled + ' day(s).');
+  return { leaveTypeId: type.id, name: type.name, entitled: entitled, used: res.rows[0].used };
+}
+
+// kernel.js: handlers['leave.rollover'] — bulk-grants every active
+// employee a balance row for the given year, per active leave type, using
+// that type's current days_per_year default. The same grant
+// employees.service.js's create() already gives a brand-new hire
+// automatically, just run in bulk for an existing headcount at the start
+// of a new year. Idempotent (ON CONFLICT DO NOTHING) so it never clobbers
+// a custom entitled value HR already set via setBalance — re-running it,
+// or a stray double-click, is always safe.
+async function rollover(ctx, year) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  year = Number(year);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('invalid', 'Enter a valid year.');
+
+  var typesRes = await pool.query('SELECT id, days_per_year FROM leave_types WHERE active');
+  var empRes = await pool.query("SELECT id FROM employees WHERE status = 'active'");
+
+  var granted = 0;
+  for (var i = 0; i < empRes.rows.length; i++) {
+    for (var j = 0; j < typesRes.rows.length; j++) {
+      var insertRes = await pool.query(
+        'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) ' +
+        'ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING',
+        [empRes.rows[i].id, typesRes.rows[j].id, year, typesRes.rows[j].days_per_year]
+      );
+      granted += insertRes.rowCount;
+    }
+  }
+  await audit(pool, ctx, 'leave.rollover', 'leave_type', String(year), 'Granted ' + year + ' leave balances (' + granted + ' new record(s), ' + empRes.rows.length + ' active employee(s)).');
+  return { year: year, granted: granted, employees: empRes.rows.length, types: typesRes.rows.length };
+}
+
 function rowToLeaveRequest(r) {
   return {
     id: r.id, employeeId: r.employee_id, leaveTypeId: r.leave_type_id,
@@ -85,8 +219,24 @@ async function requestLeave(ctx, p) {
     [ctx.employee.id, type.id, year]
   );
   var bal = balRes.rows[0];
-  if (bal && type.days_per_year > 0 && days > bal.entitled - bal.used) {
-    fail('invalid', 'That exceeds your remaining ' + type.name.toLowerCase() + ' (' + (bal.entitled - bal.used) + ' days left).');
+  if (type.days_per_year > 0) {
+    if (!bal) {
+      // No balance row for this year yet — a new year started since this
+      // employee last got one (see rollover() below, the proactive bulk
+      // version of this same grant), or this leave type didn't exist when
+      // they were hired. Auto-grant the type's current default now rather
+      // than either silently letting the request through unlimited (the
+      // bug this replaces — an absent row used to skip the check
+      // entirely) or blocking someone who's genuinely entitled.
+      var insertBalRes = await pool.query(
+        'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) RETURNING *',
+        [ctx.employee.id, type.id, year, type.days_per_year]
+      );
+      bal = insertBalRes.rows[0];
+    }
+    if (days > bal.entitled - bal.used) {
+      fail('invalid', 'That exceeds your remaining ' + type.name.toLowerCase() + ' (' + (bal.entitled - bal.used) + ' days left).');
+    }
   }
 
   var reason = V.text(p.reason, 'Reason', 300);
@@ -191,4 +341,8 @@ async function cancel(ctx, requestId) {
   });
 }
 
-module.exports = { listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest };
+module.exports = {
+  listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest,
+  listAllTypes: listAllTypes, createType: createType, updateType: updateType,
+  getBalances: getBalances, setBalance: setBalance, rollover: rollover
+};
