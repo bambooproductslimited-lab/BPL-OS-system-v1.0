@@ -84,11 +84,25 @@ async function resolveDaysPerYear(employeeId, leaveTypeId, typeDaysPerYear) {
 // override if set, otherwise the type's company-wide default), so the
 // admin screen can show what's actually being granted and which rows are
 // a deliberate customization vs. just following the type's default.
-async function getEntitlements(ctx, employeeId) {
+async function getEntitlements(ctx, employeeId, year) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  year = year ? Number(year) : new Date().getFullYear();
+  if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
   var emp = await fetchEmployeeById(employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
   var totalRes = await pool.query('SELECT leave_days_total FROM employees WHERE id = $1', [employeeId]);
+  var leaveDaysTotal = totalRes.rows[0] ? totalRes.rows[0].leave_days_total : null;
+
+  var companyId = await employeeCompanyId(emp.department_id);
+  var holidaysThisYear = await countHolidays(companyId, year);
+  // The one place the "total includes the year's public holidays" policy
+  // actually applies: a single summary figure, subtracted once from the
+  // flat total HR agreed with this employee — not from any individual
+  // leave type's own entitlement (see syncBalanceForYear above for why
+  // that over-subtracts). Purely informational, like leaveDaysTotal
+  // itself: never read by requestLeave()/rollover()/anything enforcing a
+  // per-type balance.
+  var usableLeaveDays = leaveDaysTotal === null ? null : Math.max(0, leaveDaysTotal - holidaysThisYear);
 
   var typesRes = await pool.query('SELECT id, name, days_per_year FROM leave_types WHERE active ORDER BY name');
   var overridesRes = await pool.query('SELECT leave_type_id, days_per_year FROM employee_leave_entitlements WHERE employee_id = $1', [employeeId]);
@@ -102,7 +116,10 @@ async function getEntitlements(ctx, employeeId) {
       daysPerYear: override !== undefined ? override : t.days_per_year, isCustom: override !== undefined
     };
   });
-  return { leaveDaysTotal: totalRes.rows[0] ? totalRes.rows[0].leave_days_total : null, types: types };
+  return {
+    leaveDaysTotal: leaveDaysTotal, year: year, holidaysThisYear: holidaysThisYear,
+    usableLeaveDays: usableLeaveDays, types: types
+  };
 }
 
 // kernel.js: handlers['leave.entitlements.setTotal'] — HR's own

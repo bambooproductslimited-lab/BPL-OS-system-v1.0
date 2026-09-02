@@ -53,9 +53,9 @@ router.post('/entitlements/total', async function (req, res, next) {
   try { res.json(await leaveService.setLeaveDaysTotal(req.ctx, req.body.employeeId, req.body.leaveDaysTotal)); } catch (e) { next(e); }
 });
 
-// kernel.js: handlers['leave.entitlements'] -> GET /api/leave/entitlements/:employeeId
+// kernel.js: handlers['leave.entitlements'] -> GET /api/leave/entitlements/:employeeId?year=
 router.get('/entitlements/:employeeId', async function (req, res, next) {
-  try { res.json(await leaveService.getEntitlements(req.ctx, req.params.employeeId)); } catch (e) { next(e); }
+  try { res.json(await leaveService.getEntitlements(req.ctx, req.params.employeeId, req.query.year)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['leave.entitlements.set'] -> POST /api/leave/entitlements

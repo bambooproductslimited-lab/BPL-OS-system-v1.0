@@ -22,11 +22,16 @@ import './LeaveTypesPage.css';
 //    company-wide days/year until HR sets a personal override, and is
 //    typically how a flat total agreed with the employee (e.g. 20 days)
 //    gets divided across types — see the Total leave days field and its
-//    live allocated-vs-total check. "Entitled/Used/Left" below it is the
-//    actual stored balance for one specific year (equal to the base
-//    entitlement once granted/synced), still correctable for a one-off
-//    exception — "used" there is always read-only, since it only ever
-//    moves via an approved request.
+//    live allocated-vs-total check. Just below that field, a single
+//    summary line shows "usable" days for the selected year: the flat
+//    total minus that year's company holiday count (the total is treated
+//    as already including the holidays, so this is the only place that
+//    subtraction is ever made) — purely informational, doesn't change any
+//    per-type entitlement or get enforced against a request. "Entitled/
+//    Used/Left" below it is the actual stored balance for one specific
+//    year (equal to the base entitlement once granted/synced), still
+//    correctable for a one-off exception — "used" there is always
+//    read-only, since it only ever moves via an approved request.
 //  - Year rollover: bulk-grant next year's balances ahead of time, so
 //    everyone's summary is populated on day one rather than only
 //    appearing after their first leave request of the year (the backend
@@ -189,12 +194,12 @@ export default function LeaveTypesPage() {
     }
   }
 
-  async function loadEntitlements(empId) {
+  async function loadEntitlements(empId, y) {
     if (!empId) { setEntitlements(null); return; }
     setEntitlementsLoading(true);
     setEntitlementError('');
     try {
-      const res = await api.get('/leave/entitlements/' + empId);
+      const res = await api.get('/leave/entitlements/' + empId + '?year=' + encodeURIComponent(y ?? year));
       setEntitlements(res);
       setEntitlementDrafts(Object.fromEntries(res.types.map((r) => [r.leaveTypeId, String(r.daysPerYear)])));
       setLeaveDaysTotalDraft(res.leaveDaysTotal === null ? '' : String(res.leaveDaysTotal));
@@ -223,12 +228,15 @@ export default function LeaveTypesPage() {
     setSelectedEmployeeId(id);
     setRecalculateResult(null);
     loadBalances(id, year);
-    loadEntitlements(id);
+    loadEntitlements(id, year);
   }
   function onYearChange(y) {
     setYear(y);
     setRecalculateResult(null);
-    if (selectedEmployeeId) loadBalances(selectedEmployeeId, y);
+    if (selectedEmployeeId) {
+      loadBalances(selectedEmployeeId, y);
+      loadEntitlements(selectedEmployeeId, y);
+    }
   }
 
   // A leave_balances row is only ever set once (at grant time) and never
@@ -465,6 +473,13 @@ export default function LeaveTypesPage() {
                     </span>
                   )}
                 </div>
+                {entitlements.leaveDaysTotal !== null && (
+                  <p className="leavetypes-field-hint" style={{ marginTop: -8, marginBottom: 12 }}>
+                    {entitlements.usableLeaveDays} usable in {entitlements.year} — {entitlements.leaveDaysTotal} total days
+                    already include that year's {entitlements.holidaysThisYear} company holiday(s), so {entitlements.holidaysThisYear} of
+                    the {entitlements.leaveDaysTotal} are the public holidays themselves, not extra leave on top.
+                  </p>
+                )}
                 <table className="table" style={{ marginTop: 12, marginBottom: 24 }}>
                 <thead><tr><th>Leave type</th><th>Company default</th><th>This employee</th><th /></tr></thead>
                 <tbody>
