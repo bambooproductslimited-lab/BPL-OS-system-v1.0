@@ -43,6 +43,21 @@ router.post('/rollover', async function (req, res, next) {
   try { res.json(await leaveService.rollover(req.ctx, req.body.year)); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['leave.entitlements'] -> GET /api/leave/entitlements/:employeeId
+router.get('/entitlements/:employeeId', async function (req, res, next) {
+  try { res.json(await leaveService.getEntitlements(req.ctx, req.params.employeeId)); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['leave.entitlements.set'] -> POST /api/leave/entitlements
+router.post('/entitlements', async function (req, res, next) {
+  try { res.json(await leaveService.setEntitlement(req.ctx, req.body)); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['leave.entitlements.clear'] -> DELETE /api/leave/entitlements/:employeeId/:leaveTypeId
+router.delete('/entitlements/:employeeId/:leaveTypeId', async function (req, res, next) {
+  try { res.json(await leaveService.clearEntitlement(req.ctx, req.params.employeeId, req.params.leaveTypeId)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['leave.holidays'] -> GET /api/leave/holidays?companyId=&year=
 router.get('/holidays', async function (req, res, next) {
   try { res.json(await leaveService.listHolidays(req.ctx, req.query.companyId, req.query.year)); } catch (e) { next(e); }

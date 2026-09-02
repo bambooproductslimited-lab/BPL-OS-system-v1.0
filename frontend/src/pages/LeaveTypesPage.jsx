@@ -15,10 +15,16 @@ import './LeaveTypesPage.css';
 //    holidays that year nets to 7 actual bookable days. The same list
 //    also means a holiday inside an approved request isn't charged
 //    against the balance, exactly like Sundays already aren't.
-//  - Employee balances: view and correct one employee's entitled days for
-//    a chosen year (proration, one-off corrections) — "used" is always
-//    read-only here, since it only ever moves via an approved request.
-//    "Entitled" is always the final, holiday-adjusted number.
+//  - Employee balances: two related but distinct things per employee.
+//    "Base entitlement" is their personal annual days for a leave type —
+//    year-independent, persists until changed, defaults to the type's
+//    company-wide days/year until HR sets a personal override (seniority,
+//    a negotiated offer, a proration that should stick rather than
+//    resetting every year). "Entitled/Used/Left" below it is the actual
+//    stored balance for one specific year (base entitlement net of that
+//    year's company holidays), still correctable for a one-off exception —
+//    "used" there is always read-only, since it only ever moves via an
+//    approved request.
 //  - Year rollover: bulk-grant next year's balances ahead of time, so
 //    everyone's summary is populated on day one rather than only
 //    appearing after their first leave request of the year (the backend
@@ -46,6 +52,12 @@ export default function LeaveTypesPage() {
   const [holidayError, setHolidayError] = useState('');
   const [holidayForm, setHolidayForm] = useState(EMPTY_HOLIDAY_FORM);
   const [holidaySaving, setHolidaySaving] = useState(false);
+
+  const [entitlements, setEntitlements] = useState(null);
+  const [entitlementsLoading, setEntitlementsLoading] = useState(false);
+  const [entitlementError, setEntitlementError] = useState('');
+  const [entitlementSavingId, setEntitlementSavingId] = useState('');
+  const [entitlementDrafts, setEntitlementDrafts] = useState({}); // leaveTypeId -> string being edited
 
   const [employees, setEmployees] = useState([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -169,13 +181,59 @@ export default function LeaveTypesPage() {
     }
   }
 
+  async function loadEntitlements(empId) {
+    if (!empId) { setEntitlements(null); return; }
+    setEntitlementsLoading(true);
+    setEntitlementError('');
+    try {
+      const rows = await api.get('/leave/entitlements/' + empId);
+      setEntitlements(rows);
+      setEntitlementDrafts(Object.fromEntries(rows.map((r) => [r.leaveTypeId, String(r.daysPerYear)])));
+    } catch (err) {
+      setEntitlementError(err instanceof ApiError ? err.message : 'Could not load entitlements.');
+      setEntitlements(null);
+    } finally {
+      setEntitlementsLoading(false);
+    }
+  }
+
   function onEmployeeChange(id) {
     setSelectedEmployeeId(id);
     loadBalances(id, year);
+    loadEntitlements(id);
   }
   function onYearChange(y) {
     setYear(y);
     if (selectedEmployeeId) loadBalances(selectedEmployeeId, y);
+  }
+
+  async function saveEntitlement(leaveTypeId) {
+    const draft = entitlementDrafts[leaveTypeId];
+    const daysPerYear = Number(draft);
+    if (!Number.isInteger(daysPerYear) || daysPerYear < 0) { setEntitlementError('Days must be a whole number, 0 or more.'); return; }
+    setEntitlementSavingId(leaveTypeId);
+    setEntitlementError('');
+    try {
+      await api.post('/leave/entitlements', { employeeId: selectedEmployeeId, leaveTypeId, daysPerYear });
+      await loadEntitlements(selectedEmployeeId);
+    } catch (err) {
+      setEntitlementError(err instanceof ApiError ? err.message : 'Could not save that entitlement.');
+    } finally {
+      setEntitlementSavingId('');
+    }
+  }
+
+  async function resetEntitlement(leaveTypeId) {
+    setEntitlementSavingId(leaveTypeId);
+    setEntitlementError('');
+    try {
+      await api.del('/leave/entitlements/' + selectedEmployeeId + '/' + leaveTypeId);
+      await loadEntitlements(selectedEmployeeId);
+    } catch (err) {
+      setEntitlementError(err instanceof ApiError ? err.message : 'Could not reset that entitlement.');
+    } finally {
+      setEntitlementSavingId('');
+    }
   }
 
   async function saveEntitled(leaveTypeId) {
@@ -317,8 +375,58 @@ export default function LeaveTypesPage() {
           </div>
         </div>
 
-        {balanceError && <div className="error-banner">{balanceError}</div>}
         {!selectedEmployeeId && <p className="table-empty">Choose an employee to view and correct their leave balances.</p>}
+
+        {selectedEmployeeId && (
+          <>
+            <h3 className="leavetypes-subheading">Base entitlement</h3>
+            <p className="leavetypes-intro">
+              This employee's own annual days per leave type — persists year to year until changed. Defaults to the
+              company figure above until you set a personal one (seniority, a negotiated offer, a proration that
+              should stick).
+            </p>
+            {entitlementError && <div className="error-banner">{entitlementError}</div>}
+            {entitlementsLoading && <p className="table-empty">Loading…</p>}
+            {!entitlementsLoading && entitlements && (
+              <table className="table" style={{ marginTop: 12, marginBottom: 24 }}>
+                <thead><tr><th>Leave type</th><th>Company default</th><th>This employee</th><th /></tr></thead>
+                <tbody>
+                  {entitlements.map((en) => (
+                    <tr key={en.leaveTypeId}>
+                      <td style={{ fontWeight: 600 }}>{en.name}{en.isCustom && <span className="tag tag-outline" style={{ marginLeft: 8 }}>Custom</span>}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{en.companyDefault}</td>
+                      <td>
+                        <input
+                          className="input" style={{ width: 80 }} inputMode="numeric"
+                          value={entitlementDrafts[en.leaveTypeId] ?? String(en.daysPerYear)}
+                          onChange={(e) => setEntitlementDrafts({ ...entitlementDrafts, [en.leaveTypeId]: e.target.value })}
+                        />
+                      </td>
+                      <td className="table-actions">
+                        <button
+                          type="button" className="btn btn-secondary attendance-row-btn"
+                          disabled={entitlementSavingId === en.leaveTypeId || String(en.daysPerYear) === (entitlementDrafts[en.leaveTypeId] ?? String(en.daysPerYear))}
+                          onClick={() => saveEntitlement(en.leaveTypeId)}
+                        >
+                          {entitlementSavingId === en.leaveTypeId ? 'Saving…' : 'Save'}
+                        </button>
+                        {en.isCustom && (
+                          <button type="button" className="btn btn-secondary attendance-row-btn" disabled={entitlementSavingId === en.leaveTypeId} onClick={() => resetEntitlement(en.leaveTypeId)}>
+                            Reset to default
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <h3 className="leavetypes-subheading">{year} balance</h3>
+          </>
+        )}
+
+        {balanceError && <div className="error-banner">{balanceError}</div>}
         {selectedEmployeeId && balancesLoading && <p className="table-empty">Loading…</p>}
         {selectedEmployeeId && !balancesLoading && balances && (
           <table className="table" style={{ marginTop: 12 }}>

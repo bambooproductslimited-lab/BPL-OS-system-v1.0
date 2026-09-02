@@ -65,6 +65,75 @@ async function updateType(ctx, id, p) {
   return rowToLeaveType(updated.rows[0]);
 }
 
+// Internal — an employee's personal annual entitlement for a leave type,
+// if HR has ever set one (a promotion, a negotiated offer, a part-year
+// proration that should persist year over year instead of resetting to
+// the company default every rollover). Falls back to the leave type's own
+// days_per_year when no override exists — the ordinary, unremarkable case
+// for most employees.
+async function resolveDaysPerYear(employeeId, leaveTypeId, typeDaysPerYear) {
+  var res = await pool.query(
+    'SELECT days_per_year FROM employee_leave_entitlements WHERE employee_id = $1 AND leave_type_id = $2',
+    [employeeId, leaveTypeId]
+  );
+  return res.rows[0] ? res.rows[0].days_per_year : typeDaysPerYear;
+}
+
+// kernel.js: handlers['leave.entitlements'] — one employee's personal
+// annual entitlement for every active leave type (resolved: their own
+// override if set, otherwise the type's company-wide default), so the
+// admin screen can show what's actually being granted and which rows are
+// a deliberate customization vs. just following the type's default.
+async function getEntitlements(ctx, employeeId) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var emp = await fetchEmployeeById(employeeId);
+  if (!emp) fail('notfound', 'Employee not found.');
+
+  var typesRes = await pool.query('SELECT id, name, days_per_year FROM leave_types WHERE active ORDER BY name');
+  var overridesRes = await pool.query('SELECT leave_type_id, days_per_year FROM employee_leave_entitlements WHERE employee_id = $1', [employeeId]);
+  var overrideByType = {};
+  overridesRes.rows.forEach(function (r) { overrideByType[r.leave_type_id] = r.days_per_year; });
+
+  return typesRes.rows.map(function (t) {
+    var override = overrideByType[t.id];
+    return {
+      leaveTypeId: t.id, name: t.name, companyDefault: t.days_per_year,
+      daysPerYear: override !== undefined ? override : t.days_per_year, isCustom: override !== undefined
+    };
+  });
+}
+
+// kernel.js: handlers['leave.entitlements.set']
+async function setEntitlement(ctx, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var emp = await fetchEmployeeById(p.employeeId);
+  if (!emp) fail('notfound', 'Employee not found.');
+  var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [p.leaveTypeId]);
+  var type = typeRes.rows[0];
+  if (!type) fail('invalid', 'Unknown leave type.');
+  var daysPerYear = validateDaysPerYear(p.daysPerYear);
+
+  await pool.query(
+    'INSERT INTO employee_leave_entitlements (employee_id, leave_type_id, days_per_year) VALUES ($1,$2,$3) ' +
+    'ON CONFLICT (employee_id, leave_type_id) DO UPDATE SET days_per_year = $3',
+    [emp.id, type.id, daysPerYear]
+  );
+  await audit(pool, ctx, 'leave.entitlement.set', 'employee', emp.id, 'Set ' + emp.first_name + ' ' + emp.last_name + '’s personal ' + type.name.toLowerCase() + ' entitlement to ' + daysPerYear + ' day(s)/year.');
+  return { leaveTypeId: type.id, name: type.name, companyDefault: type.days_per_year, daysPerYear: daysPerYear, isCustom: true };
+}
+
+// kernel.js: handlers['leave.entitlements.clear'] — removes the personal
+// override, reverting the employee to the leave type's company-wide
+// default going forward.
+async function clearEntitlement(ctx, employeeId, leaveTypeId) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var res = await pool.query('DELETE FROM employee_leave_entitlements WHERE employee_id = $1 AND leave_type_id = $2 RETURNING id', [employeeId, leaveTypeId]);
+  if (!res.rows[0]) fail('notfound', 'No custom entitlement set for that employee/leave type.');
+  var emp = await fetchEmployeeById(employeeId);
+  await audit(pool, ctx, 'leave.entitlement.clear', 'employee', employeeId, 'Reverted ' + (emp ? emp.first_name + ' ' + emp.last_name : 'an employee') + '’s leave entitlement to the company default.');
+  return { ok: true };
+}
+
 // kernel.js: handlers['leave.balances'] — every active leave type's
 // entitled/used for one employee/year, HR/Admin-only (this is the
 // underlying entitlement, not the self-service summary me.routes.js
@@ -84,15 +153,23 @@ async function getBalances(ctx, employeeId, year) {
   var balRes = await pool.query('SELECT * FROM leave_balances WHERE employee_id = $1 AND year = $2', [employeeId, year]);
   var byType = {};
   balRes.rows.forEach(function (r) { byType[r.leave_type_id] = r; });
+  var overridesRes = await pool.query('SELECT leave_type_id, days_per_year FROM employee_leave_entitlements WHERE employee_id = $1', [employeeId]);
+  var overrideByType = {};
+  overridesRes.rows.forEach(function (r) { overrideByType[r.leave_type_id] = r.days_per_year; });
 
   return typesRes.rows.map(function (t) {
     var b = byType[t.id];
+    // This employee's own gross entitlement (their personal override, if
+    // HR ever set one — see employee_leave_entitlements — else the type's
+    // company-wide default), not necessarily the same figure another
+    // employee on the same type would see.
+    var daysPerYear = overrideByType[t.id] !== undefined ? overrideByType[t.id] : t.days_per_year;
     // No row yet — preview what rollover/the next request would actually
-    // grant (days_per_year net of this company's holidays for the year)
+    // grant (daysPerYear net of this company's holidays for the year)
     // rather than showing a bare, misleading 0.
-    var previewEntitled = t.days_per_year > 0 ? Math.max(0, t.days_per_year - holidays) : t.days_per_year;
+    var previewEntitled = daysPerYear > 0 ? Math.max(0, daysPerYear - holidays) : daysPerYear;
     return {
-      leaveTypeId: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid, holidays: holidays,
+      leaveTypeId: t.id, name: t.name, daysPerYear: daysPerYear, isCustomEntitlement: overrideByType[t.id] !== undefined, paid: t.paid, holidays: holidays,
       entitled: b ? b.entitled : previewEntitled, used: b ? b.used : 0, hasRow: !!b
     };
   });
@@ -227,12 +304,21 @@ async function rollover(ctx, year) {
   var holidaysByCompany = {};
   for (var c = 0; c < companyIds.length; c++) holidaysByCompany[companyIds[c]] = await countHolidays(companyIds[c], year);
 
+  // Every personal entitlement override, fetched once and keyed by
+  // "employeeId:leaveTypeId" — an N+1 query per employee/type here would
+  // otherwise mean hundreds of round-trips for a real headcount.
+  var overridesRes = await pool.query('SELECT employee_id, leave_type_id, days_per_year FROM employee_leave_entitlements');
+  var overrideByKey = {};
+  overridesRes.rows.forEach(function (r) { overrideByKey[r.employee_id + ':' + r.leave_type_id] = r.days_per_year; });
+
   var granted = 0;
   for (var i = 0; i < empRes.rows.length; i++) {
     var holidays = holidaysByCompany[empRes.rows[i].company_id] || 0;
     for (var j = 0; j < typesRes.rows.length; j++) {
-      var daysPerYear = typesRes.rows[j].days_per_year;
-      var entitled = daysPerYear > 0 ? Math.max(0, daysPerYear - holidays) : daysPerYear;
+      var typeDaysPerYear = typesRes.rows[j].days_per_year;
+      var override = overrideByKey[empRes.rows[i].id + ':' + typesRes.rows[j].id];
+      var resolvedDaysPerYear = override !== undefined ? override : typeDaysPerYear;
+      var entitled = typeDaysPerYear > 0 ? Math.max(0, resolvedDaysPerYear - holidays) : typeDaysPerYear;
       var insertRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) ' +
         'ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING',
@@ -327,14 +413,16 @@ async function requestLeave(ctx, p) {
       // No balance row for this year yet — a new year started since this
       // employee last got one (see rollover() below, the proactive bulk
       // version of this same grant), or this leave type didn't exist when
-      // they were hired. Auto-grant the type's default now (net of this
-      // company's holidays for the year — see the policy note on
-      // countHolidays above) rather than either silently letting the
-      // request through unlimited (the bug this replaces — an absent row
-      // used to skip the check entirely) or blocking someone who's
-      // genuinely entitled.
+      // they were hired. Auto-grant this employee's own entitlement now
+      // (their personal override if HR set one, else the type's
+      // company-wide default — see resolveDaysPerYear — net of this
+      // company's holidays for the year) rather than either silently
+      // letting the request through unlimited (the bug this replaces — an
+      // absent row used to skip the check entirely) or blocking someone
+      // who's genuinely entitled.
       var holidaysThisYear = await countHolidays(companyId, year);
-      var grantEntitled = Math.max(0, type.days_per_year - holidaysThisYear);
+      var resolvedDaysPerYear = await resolveDaysPerYear(ctx.employee.id, type.id, type.days_per_year);
+      var grantEntitled = Math.max(0, resolvedDaysPerYear - holidaysThisYear);
       var insertBalRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) RETURNING *',
         [ctx.employee.id, type.id, year, grantEntitled]
@@ -452,5 +540,6 @@ module.exports = {
   listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest,
   listAllTypes: listAllTypes, createType: createType, updateType: updateType,
   getBalances: getBalances, setBalance: setBalance, rollover: rollover,
-  listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday
+  listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday,
+  getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement
 };

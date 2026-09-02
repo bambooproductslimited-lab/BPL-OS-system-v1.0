@@ -3,6 +3,7 @@
 .leavetypes-section { margin-bottom: 32px; padding-bottom: 32px; border-bottom: var(--divider-width) solid var(--color-border); }
 .leavetypes-section:last-child { border-bottom: none; }
 .leavetypes-section h2 { font-size: 16px; margin: 0; }
+.leavetypes-subheading { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); margin: 20px 0 4px; }
 
 .leavetypes-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
