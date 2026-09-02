@@ -142,11 +142,17 @@ async function syncBalanceForYear(employeeId, leaveType, year) {
   if (!year || !leaveType.paid) return;
   var existing = await pool.query('SELECT id FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3', [employeeId, leaveType.id, year]);
   if (!existing.rows[0]) return;
-  var emp = await fetchEmployeeById(employeeId);
-  var companyId = await employeeCompanyId(emp.department_id);
-  var holidays = await countHolidays(companyId, year);
+  // Not netted against holidays here — see the policy note above
+  // resolveDaysPerYear/countHolidays: an employee's total is manually
+  // split across leave types (e.g. 20 days as 5+5+4+6+0), so subtracting
+  // the same full-year holiday count from each small slice independently
+  // over-subtracts massively (12 holidays subtracted 4 times over would
+  // zero out every type on a 20-day total alone). Holidays are instead
+  // handled at the point they can be measured unambiguously: a holiday
+  // date inside an actual request doesn't cost a leave day (businessDays()
+  // in requestLeave() below), the same way Sundays already don't.
   var resolvedDaysPerYear = await resolveDaysPerYear(employeeId, leaveType.id, leaveType.days_per_year);
-  var entitled = Math.max(0, resolvedDaysPerYear - holidays);
+  var entitled = resolvedDaysPerYear;
   await pool.query('UPDATE leave_balances SET entitled = $1 WHERE id = $2', [entitled, existing.rows[0].id]);
 }
 
@@ -245,9 +251,11 @@ async function getBalances(ctx, employeeId, year) {
     // employee on the same type would see.
     var daysPerYear = overrideByType[t.id] !== undefined ? overrideByType[t.id] : t.days_per_year;
     // No row yet — preview what rollover/the next request would actually
-    // grant (daysPerYear net of this company's holidays for the year)
-    // rather than showing a bare, misleading 0.
-    var previewEntitled = daysPerYear > 0 ? Math.max(0, daysPerYear - holidays) : daysPerYear;
+    // grant: the resolved entitlement as-is, not netted against holidays
+    // (see syncBalanceForYear's comment on why — a shared total split
+    // across types can't each independently absorb the full holiday
+    // count). holidays is still surfaced below so HR can see the context.
+    var previewEntitled = daysPerYear;
     return {
       leaveTypeId: t.id, name: t.name, daysPerYear: daysPerYear, isCustomEntitlement: overrideByType[t.id] !== undefined, paid: t.paid, holidays: holidays,
       entitled: b ? b.entitled : previewEntitled, used: b ? b.used : 0, hasRow: !!b
@@ -377,13 +385,6 @@ async function rollover(ctx, year) {
     "SELECT e.id, d.company_id FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.status = 'active'"
   );
 
-  // Each company's holiday count for the year, fetched once rather than
-  // per employee — cheap even for a large headcount since there are only
-  // a handful of companies.
-  var companyIds = Array.from(new Set(empRes.rows.map(function (e) { return e.company_id; }).filter(Boolean)));
-  var holidaysByCompany = {};
-  for (var c = 0; c < companyIds.length; c++) holidaysByCompany[companyIds[c]] = await countHolidays(companyIds[c], year);
-
   // Every personal entitlement override, fetched once and keyed by
   // "employeeId:leaveTypeId" — an N+1 query per employee/type here would
   // otherwise mean hundreds of round-trips for a real headcount.
@@ -393,17 +394,17 @@ async function rollover(ctx, year) {
 
   var granted = 0;
   for (var i = 0; i < empRes.rows.length; i++) {
-    var holidays = holidaysByCompany[empRes.rows[i].company_id] || 0;
     for (var j = 0; j < typesRes.rows.length; j++) {
       var typeDaysPerYear = typesRes.rows[j].days_per_year;
       var override = overrideByKey[empRes.rows[i].id + ':' + typesRes.rows[j].id];
-      var resolvedDaysPerYear = override !== undefined ? override : typeDaysPerYear;
-      // Gate on paid, not typeDaysPerYear > 0 — see syncBalanceForYear's
-      // comment: a type whose company default is 0 (e.g. Maternity/
-      // paternity) still needs a real, capped grant for an employee with
-      // a personal override; only an actually-unlimited type (paid: false)
-      // has no balance to grant at all.
-      var entitled = typesRes.rows[j].paid ? Math.max(0, resolvedDaysPerYear - holidays) : typeDaysPerYear;
+      // Not netted against holidays — see syncBalanceForYear's comment:
+      // an employee's total is manually split across leave types, so
+      // subtracting the same full-year holiday count from each small
+      // slice independently would over-subtract. Holidays are instead
+      // handled per-request (a holiday inside an approved request isn't
+      // charged, like Sundays already aren't — see businessDays() in
+      // requestLeave() below).
+      var entitled = override !== undefined ? override : typeDaysPerYear;
       var insertRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) ' +
         'ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING',
@@ -508,14 +509,16 @@ async function requestLeave(ctx, p) {
       // version of this same grant), or this leave type didn't exist when
       // they were hired. Auto-grant this employee's own entitlement now
       // (their personal override if HR set one, else the type's
-      // company-wide default — see resolveDaysPerYear — net of this
-      // company's holidays for the year) rather than either silently
-      // letting the request through unlimited (the bug this replaces — an
-      // absent row used to skip the check entirely) or blocking someone
-      // who's genuinely entitled.
-      var holidaysThisYear = await countHolidays(companyId, year);
+      // company-wide default — see resolveDaysPerYear) rather than either
+      // silently letting the request through unlimited (the bug this
+      // replaces — an absent row used to skip the check entirely) or
+      // blocking someone who's genuinely entitled. Not netted against
+      // holidays — see syncBalanceForYear's comment: a shared total split
+      // across types can't each independently absorb the full holiday
+      // count; a holiday inside this specific request is instead excluded
+      // from the day count below (businessDays()), same as Sundays.
       var resolvedDaysPerYear = await resolveDaysPerYear(ctx.employee.id, type.id, type.days_per_year);
-      var grantEntitled = Math.max(0, resolvedDaysPerYear - holidaysThisYear);
+      var grantEntitled = resolvedDaysPerYear;
       var insertBalRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) RETURNING *',
         [ctx.employee.id, type.id, year, grantEntitled]

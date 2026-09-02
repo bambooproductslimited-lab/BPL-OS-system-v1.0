@@ -7,24 +7,26 @@ import './LeaveTypesPage.css';
 // the Leave screen itself deliberately doesn't expose. Four sections:
 //  - Leave types: create/edit the catalogue leave.routes.js's /types
 //    endpoint exposes to the request-leave picker. "Days per year" here is
-//    the gross policy figure, before public holidays are subtracted.
+//    the company-wide default entitlement for that type.
 //  - Public holidays: each company keeps its own list (a restaurant/bar
-//    can stay open on a day the factory closes for) — company policy
-//    bakes public holidays into the annual leave allowance rather than
-//    granting them on top of it, so a 21-day type with 14 company
-//    holidays that year nets to 7 actual bookable days. The same list
-//    also means a holiday inside an approved request isn't charged
-//    against the balance, exactly like Sundays already aren't.
+//    can stay open on a day the factory closes for). NOT subtracted from
+//    any leave type's entitlement — an employee's total is a shared
+//    figure manually split across types (see Base entitlement below), so
+//    subtracting the same full-year holiday count from each small slice
+//    independently would over-subtract massively. Instead, a holiday
+//    inside an approved request simply isn't charged against the
+//    balance, exactly like Sundays already aren't.
 //  - Employee balances: two related but distinct things per employee.
 //    "Base entitlement" is their personal annual days for a leave type —
 //    year-independent, persists until changed, defaults to the type's
-//    company-wide days/year until HR sets a personal override (seniority,
-//    a negotiated offer, a proration that should stick rather than
-//    resetting every year). "Entitled/Used/Left" below it is the actual
-//    stored balance for one specific year (base entitlement net of that
-//    year's company holidays), still correctable for a one-off exception —
-//    "used" there is always read-only, since it only ever moves via an
-//    approved request.
+//    company-wide days/year until HR sets a personal override, and is
+//    typically how a flat total agreed with the employee (e.g. 20 days)
+//    gets divided across types — see the Total leave days field and its
+//    live allocated-vs-total check. "Entitled/Used/Left" below it is the
+//    actual stored balance for one specific year (equal to the base
+//    entitlement once granted/synced), still correctable for a one-off
+//    exception — "used" there is always read-only, since it only ever
+//    moves via an approved request.
 //  - Year rollover: bulk-grant next year's balances ahead of time, so
 //    everyone's summary is populated on day one rather than only
 //    appearing after their first leave request of the year (the backend
@@ -359,8 +361,8 @@ export default function LeaveTypesPage() {
       <section className="leavetypes-section">
         <h2>Public holidays</h2>
         <p className="leavetypes-intro">
-          Each company keeps its own list. Company policy bakes these into the annual leave allowance — a 21-day type
-          with 14 holidays this year nets to 7 bookable days — rather than granting holidays on top of it.
+          Each company keeps its own list. These aren't subtracted from anyone's entitlement — a holiday that falls
+          inside an approved leave request simply isn't charged against the balance, the same way Sundays aren't.
         </p>
         <div className="leavetypes-balance-toolbar">
           <div className="field">
@@ -506,7 +508,7 @@ export default function LeaveTypesPage() {
             </div>
             {recalculateResult && (
               <p className="leavetypes-rollover-result">
-                Checked {recalculateResult.checked} leave type(s), updated {recalculateResult.updated} to match the current company default/holidays/personal entitlement.
+                Checked {recalculateResult.checked} leave type(s), updated {recalculateResult.updated} to match the current company default/personal entitlement.
               </p>
             )}
           </>
@@ -522,7 +524,7 @@ export default function LeaveTypesPage() {
                 <tr key={b.leaveTypeId}>
                   <td style={{ fontWeight: 600 }}>
                     {b.name}
-                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} days/year − {b.holidays} holiday(s){!b.hasRow ? ' (preview)' : ''}</div>}
+                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} days/year · {b.holidays} company holiday(s) this year won't count against a request{!b.hasRow ? ' (preview)' : ''}</div>}
                   </td>
                   <td>
                     <input
@@ -584,7 +586,7 @@ export default function LeaveTypesPage() {
             <div className="field">
               <label htmlFor="lt-days">Days per year</label>
               <input id="lt-days" className="input" value={typeForm.daysPerYear} onChange={(e) => setTypeForm({ ...typeForm, daysPerYear: e.target.value })} inputMode="numeric" required />
-              <span className="leavetypes-field-hint">Gross figure, before each company's public holidays are subtracted — see the balance an employee actually gets below.</span>
+              <span className="leavetypes-field-hint">The company-wide default for this type — an individual employee's own figure (Base Entitlement, below) can override it.</span>
             </div>
             <label className="leavetypes-checkbox-field">
               <input type="checkbox" checked={typeForm.paid} onChange={(e) => setTypeForm({ ...typeForm, paid: e.target.checked })} />
