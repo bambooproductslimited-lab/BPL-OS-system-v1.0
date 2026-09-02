@@ -43,6 +43,21 @@ router.post('/rollover', async function (req, res, next) {
   try { res.json(await leaveService.rollover(req.ctx, req.body.year)); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['leave.holidays'] -> GET /api/leave/holidays?companyId=&year=
+router.get('/holidays', async function (req, res, next) {
+  try { res.json(await leaveService.listHolidays(req.ctx, req.query.companyId, req.query.year)); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['leave.holidays.add'] -> POST /api/leave/holidays
+router.post('/holidays', async function (req, res, next) {
+  try { res.status(201).json(await leaveService.addHoliday(req.ctx, req.body)); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['leave.holidays.remove'] -> DELETE /api/leave/holidays/:id
+router.delete('/holidays/:id', async function (req, res, next) {
+  try { res.json(await leaveService.removeHoliday(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['leave.list'] -> GET /api/leave?status=&companyId=&departmentId=
 router.get('/', async function (req, res, next) {
   try {

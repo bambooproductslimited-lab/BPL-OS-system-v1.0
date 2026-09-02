@@ -112,12 +112,29 @@ async function create(ctx, p) {
     );
     var e = insertRes.rows[0];
 
-    var typesRes = await client.query('SELECT id, days_per_year FROM leave_types WHERE active');
+    // Each leave type's flat days_per_year is reduced by however many
+    // public holidays this employee's own company has this year (each
+    // company keeps its own list — see the holidays table/migration
+    // 0035) — the company's leave policy already bakes public holidays
+    // into the annual allowance rather than granting them on top of it.
+    // Clamped at 0 so a company with more holidays than a type's default
+    // never grants a negative entitlement.
+    var companyRes = await client.query('SELECT company_id FROM departments WHERE id = $1', [departmentId]);
+    var companyId = companyRes.rows[0] ? companyRes.rows[0].company_id : null;
     var year = new Date().getFullYear();
+    var holidaysRes = await client.query(
+      'SELECT count(*)::int AS n FROM holidays WHERE company_id = $1 AND date BETWEEN $2 AND $3',
+      [companyId, year + '-01-01', year + '-12-31']
+    );
+    var holidays = holidaysRes.rows[0].n;
+
+    var typesRes = await client.query('SELECT id, days_per_year FROM leave_types WHERE active');
     for (var i = 0; i < typesRes.rows.length; i++) {
+      var daysPerYear = typesRes.rows[i].days_per_year;
+      var entitled = daysPerYear > 0 ? Math.max(0, daysPerYear - holidays) : daysPerYear;
       await client.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0)',
-        [e.id, typesRes.rows[i].id, year, typesRes.rows[i].days_per_year]
+        [e.id, typesRes.rows[i].id, year, entitled]
       );
     }
 

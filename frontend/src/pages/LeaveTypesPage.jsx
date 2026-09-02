@@ -3,15 +3,22 @@ import { api, ApiError } from '../api/client';
 import './LeaveTypesPage.css';
 
 // HR/Admin-only screen (nav-gated on employee.write, same permission that
-// already gates kiosk PIN management and employee editing) for the two
-// things the Leave screen itself deliberately doesn't expose: what leave
-// types exist and what each is worth per year, and what any individual
-// employee's actual entitlement/usage is. Three sections:
+// already gates kiosk PIN management and employee editing) for the things
+// the Leave screen itself deliberately doesn't expose. Four sections:
 //  - Leave types: create/edit the catalogue leave.routes.js's /types
-//    endpoint exposes to the request-leave picker.
+//    endpoint exposes to the request-leave picker. "Days per year" here is
+//    the gross policy figure, before public holidays are subtracted.
+//  - Public holidays: each company keeps its own list (a restaurant/bar
+//    can stay open on a day the factory closes for) — company policy
+//    bakes public holidays into the annual leave allowance rather than
+//    granting them on top of it, so a 21-day type with 14 company
+//    holidays that year nets to 7 actual bookable days. The same list
+//    also means a holiday inside an approved request isn't charged
+//    against the balance, exactly like Sundays already aren't.
 //  - Employee balances: view and correct one employee's entitled days for
 //    a chosen year (proration, one-off corrections) — "used" is always
 //    read-only here, since it only ever moves via an approved request.
+//    "Entitled" is always the final, holiday-adjusted number.
 //  - Year rollover: bulk-grant next year's balances ahead of time, so
 //    everyone's summary is populated on day one rather than only
 //    appearing after their first leave request of the year (the backend
@@ -19,6 +26,7 @@ import './LeaveTypesPage.css';
 //    leave.service.js's requestLeave()).
 
 const EMPTY_TYPE_FORM = { name: '', daysPerYear: '', paid: true, active: true };
+const EMPTY_HOLIDAY_FORM = { date: '', name: '' };
 
 export default function LeaveTypesPage() {
   const [types, setTypes] = useState([]);
@@ -29,6 +37,15 @@ export default function LeaveTypesPage() {
   const [typeForm, setTypeForm] = useState(EMPTY_TYPE_FORM);
   const [typeSaving, setTypeSaving] = useState(false);
   const [typeError, setTypeError] = useState('');
+
+  const [companies, setCompanies] = useState([]);
+  const [holidayCompanyId, setHolidayCompanyId] = useState('');
+  const [holidayYear, setHolidayYear] = useState(String(new Date().getFullYear()));
+  const [holidays, setHolidays] = useState([]);
+  const [holidaysLoading, setHolidaysLoading] = useState(false);
+  const [holidayError, setHolidayError] = useState('');
+  const [holidayForm, setHolidayForm] = useState(EMPTY_HOLIDAY_FORM);
+  const [holidaySaving, setHolidaySaving] = useState(false);
 
   const [employees, setEmployees] = useState([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -59,7 +76,54 @@ export default function LeaveTypesPage() {
   useEffect(() => {
     loadTypes();
     api.get('/employees').then((rows) => setEmployees(rows.filter((e) => e.status === 'active'))).catch(() => {});
+    api.get('/companies').then((rows) => {
+      setCompanies(rows);
+      if (rows.length) setHolidayCompanyId(rows[0].id);
+    }).catch(() => {});
   }, []);
+
+  async function loadHolidays(companyId, y) {
+    if (!companyId) { setHolidays([]); return; }
+    setHolidaysLoading(true);
+    setHolidayError('');
+    try {
+      setHolidays(await api.get('/leave/holidays?companyId=' + companyId + '&year=' + encodeURIComponent(y)));
+    } catch (err) {
+      setHolidayError(err instanceof ApiError ? err.message : 'Could not load holidays.');
+    } finally {
+      setHolidaysLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (holidayCompanyId) loadHolidays(holidayCompanyId, holidayYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holidayCompanyId, holidayYear]);
+
+  async function addHoliday(e) {
+    e.preventDefault();
+    setHolidaySaving(true);
+    setHolidayError('');
+    try {
+      await api.post('/leave/holidays', { companyId: holidayCompanyId, date: holidayForm.date, name: holidayForm.name });
+      setHolidayForm(EMPTY_HOLIDAY_FORM);
+      await loadHolidays(holidayCompanyId, holidayYear);
+    } catch (err) {
+      setHolidayError(err instanceof ApiError ? err.message : 'Could not add that holiday.');
+    } finally {
+      setHolidaySaving(false);
+    }
+  }
+
+  async function removeHoliday(id) {
+    setHolidayError('');
+    try {
+      await api.del('/leave/holidays/' + id);
+      await loadHolidays(holidayCompanyId, holidayYear);
+    } catch (err) {
+      setHolidayError(err instanceof ApiError ? err.message : 'Could not remove that holiday.');
+    }
+  }
 
   function openNewType() {
     setTypeForm(EMPTY_TYPE_FORM);
@@ -181,6 +245,63 @@ export default function LeaveTypesPage() {
       </section>
 
       <section className="leavetypes-section">
+        <h2>Public holidays</h2>
+        <p className="leavetypes-intro">
+          Each company keeps its own list. Company policy bakes these into the annual leave allowance — a 21-day type
+          with 14 holidays this year nets to 7 bookable days — rather than granting holidays on top of it.
+        </p>
+        <div className="leavetypes-balance-toolbar">
+          <div className="field">
+            <label htmlFor="lt-holiday-company">Company</label>
+            <select id="lt-holiday-company" className="input" value={holidayCompanyId} onChange={(e) => setHolidayCompanyId(e.target.value)}>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="lt-holiday-year">Year</label>
+            <input id="lt-holiday-year" className="input" style={{ width: 110 }} value={holidayYear} onChange={(e) => setHolidayYear(e.target.value)} inputMode="numeric" />
+          </div>
+        </div>
+
+        {holidayError && <div className="error-banner">{holidayError}</div>}
+        {holidaysLoading ? (
+          <p className="table-empty">Loading…</p>
+        ) : (
+          <>
+            {holidays.length > 0 && (
+              <table className="table" style={{ marginTop: 12 }}>
+                <thead><tr><th>Date</th><th>Name</th><th /></tr></thead>
+                <tbody>
+                  {holidays.map((h) => (
+                    <tr key={h.id}>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{h.date}</td>
+                      <td>{h.name}</td>
+                      <td className="table-actions">
+                        <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => removeHoliday(h.id)}>Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!holidays.length && <p className="table-empty">No holidays recorded for this company/year yet.</p>}
+          </>
+        )}
+
+        <form className="leavetypes-holiday-form" onSubmit={addHoliday}>
+          <div className="field">
+            <label htmlFor="lt-holiday-date">Date</label>
+            <input id="lt-holiday-date" type="date" className="input" value={holidayForm.date} onChange={(e) => setHolidayForm({ ...holidayForm, date: e.target.value })} required />
+          </div>
+          <div className="field">
+            <label htmlFor="lt-holiday-name">Name</label>
+            <input id="lt-holiday-name" className="input" value={holidayForm.name} onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })} placeholder="e.g. Independence Day" required />
+          </div>
+          <button type="submit" className="btn btn-secondary" disabled={holidaySaving}>{holidaySaving ? 'Adding…' : '+ Add holiday'}</button>
+        </form>
+      </section>
+
+      <section className="leavetypes-section">
         <h2>Employee balances</h2>
         <div className="leavetypes-balance-toolbar">
           <div className="field">
@@ -205,7 +326,10 @@ export default function LeaveTypesPage() {
             <tbody>
               {balances.map((b) => (
                 <tr key={b.leaveTypeId}>
-                  <td style={{ fontWeight: 600 }}>{b.name}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {b.name}
+                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} days/year − {b.holidays} holiday(s){!b.hasRow ? ' (preview)' : ''}</div>}
+                  </td>
                   <td>
                     <input
                       className="input" style={{ width: 80 }} inputMode="numeric"
@@ -266,6 +390,7 @@ export default function LeaveTypesPage() {
             <div className="field">
               <label htmlFor="lt-days">Days per year</label>
               <input id="lt-days" className="input" value={typeForm.daysPerYear} onChange={(e) => setTypeForm({ ...typeForm, daysPerYear: e.target.value })} inputMode="numeric" required />
+              <span className="leavetypes-field-hint">Gross figure, before each company's public holidays are subtracted — see the balance an employee actually gets below.</span>
             </div>
             <label className="leavetypes-checkbox-field">
               <input type="checkbox" checked={typeForm.paid} onChange={(e) => setTypeForm({ ...typeForm, paid: e.target.checked })} />

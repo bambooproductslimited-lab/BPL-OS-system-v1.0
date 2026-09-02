@@ -77,6 +77,8 @@ async function getBalances(ctx, employeeId, year) {
   if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
   var emp = await fetchEmployeeById(employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
+  var companyId = await employeeCompanyId(emp.department_id);
+  var holidays = await countHolidays(companyId, year);
 
   var typesRes = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active ORDER BY name');
   var balRes = await pool.query('SELECT * FROM leave_balances WHERE employee_id = $1 AND year = $2', [employeeId, year]);
@@ -85,7 +87,14 @@ async function getBalances(ctx, employeeId, year) {
 
   return typesRes.rows.map(function (t) {
     var b = byType[t.id];
-    return { leaveTypeId: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid, entitled: b ? b.entitled : 0, used: b ? b.used : 0 };
+    // No row yet — preview what rollover/the next request would actually
+    // grant (days_per_year net of this company's holidays for the year)
+    // rather than showing a bare, misleading 0.
+    var previewEntitled = t.days_per_year > 0 ? Math.max(0, t.days_per_year - holidays) : t.days_per_year;
+    return {
+      leaveTypeId: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid, holidays: holidays,
+      entitled: b ? b.entitled : previewEntitled, used: b ? b.used : 0, hasRow: !!b
+    };
   });
 }
 
@@ -114,6 +123,85 @@ async function setBalance(ctx, p) {
   return { leaveTypeId: type.id, name: type.name, entitled: entitled, used: res.rows[0].used };
 }
 
+function rowToHoliday(r) {
+  return { id: r.id, companyId: r.company_id, date: r.date, name: r.name };
+}
+
+// kernel.js: handlers['leave.holidays'] — one company's public holidays.
+// Each company keeps its own list (a restaurant/bar can stay open on a
+// day the factory closes for) — used two ways: shrinking what a leave
+// type actually grants for that company/year (countHolidays below) and
+// excluding a holiday date from an individual request's day count
+// (businessDays() in utils/validate.js), the same way Sundays already are.
+async function listHolidays(ctx, companyId, year) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var args = [companyId];
+  var where = 'company_id = $1';
+  if (year) { args.push(String(year) + '-01-01', String(year) + '-12-31'); where += ' AND date BETWEEN $2 AND $3'; }
+  var res = await pool.query('SELECT * FROM holidays WHERE ' + where + ' ORDER BY date', args);
+  return res.rows.map(rowToHoliday);
+}
+
+// kernel.js: handlers['leave.holidays.add']
+async function addHoliday(ctx, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var date = V.date(p.date, 'Date');
+  var name = V.text(p.name, 'Name', 100);
+  var companyRes = await pool.query('SELECT id, name FROM companies WHERE id = $1', [p.companyId]);
+  var company = companyRes.rows[0];
+  if (!company) fail('invalid', 'Unknown company.');
+  try {
+    var res = await pool.query('INSERT INTO holidays (company_id, date, name) VALUES ($1,$2,$3) RETURNING *', [company.id, date, name]);
+    await audit(pool, ctx, 'leave.holiday.add', 'holiday', res.rows[0].id, 'Added ' + company.name + ' holiday: ' + name + ' (' + date + ').');
+    return rowToHoliday(res.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') fail('conflict', 'That date is already a holiday for ' + company.name + '.');
+    throw err;
+  }
+}
+
+// kernel.js: handlers['leave.holidays.remove']
+async function removeHoliday(ctx, id) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var res = await pool.query('DELETE FROM holidays WHERE id = $1 RETURNING *', [id]);
+  if (!res.rows[0]) fail('notfound', 'Holiday not found.');
+  await audit(pool, ctx, 'leave.holiday.remove', 'holiday', id, 'Removed holiday: ' + res.rows[0].name + ' (' + res.rows[0].date + ').');
+  return { ok: true };
+}
+
+// Internal — how many of a company's holidays fall in a given year.
+// Always clamp-floored at 0 wherever this is subtracted from a leave
+// type's days_per_year (Math.max(0, ...) at each call site below), so a
+// company with more holidays than a type's flat default never grants a
+// negative entitlement.
+async function countHolidays(companyId, year) {
+  if (!companyId) return 0;
+  var res = await pool.query(
+    'SELECT count(*)::int AS n FROM holidays WHERE company_id = $1 AND date BETWEEN $2 AND $3',
+    [companyId, String(year) + '-01-01', String(year) + '-12-31']
+  );
+  return res.rows[0].n;
+}
+
+// Internal — the actual set of a company's holiday dates ('YYYY-MM-DD',
+// same string shape V.date/pool.js's DATE parser already use throughout
+// this file) between two dates, for businessDays() to exclude from one
+// specific request's day count.
+async function holidayDatesInRange(companyId, start, end) {
+  if (!companyId) return new Set();
+  var res = await pool.query('SELECT date FROM holidays WHERE company_id = $1 AND date BETWEEN $2 AND $3', [companyId, start, end]);
+  return new Set(res.rows.map(function (r) { return r.date; }));
+}
+
+// Internal — an employee's company_id via their department. Several
+// callers need this (requestLeave, rollover, getBalances) since
+// holidays.company_id is per-company but ctx.employee/employees rows only
+// carry department_id.
+async function employeeCompanyId(departmentId) {
+  var res = await pool.query('SELECT company_id FROM departments WHERE id = $1', [departmentId]);
+  return res.rows[0] ? res.rows[0].company_id : null;
+}
+
 // kernel.js: handlers['leave.rollover'] — bulk-grants every active
 // employee a balance row for the given year, per active leave type, using
 // that type's current days_per_year default. The same grant
@@ -128,15 +216,27 @@ async function rollover(ctx, year) {
   if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('invalid', 'Enter a valid year.');
 
   var typesRes = await pool.query('SELECT id, days_per_year FROM leave_types WHERE active');
-  var empRes = await pool.query("SELECT id FROM employees WHERE status = 'active'");
+  var empRes = await pool.query(
+    "SELECT e.id, d.company_id FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.status = 'active'"
+  );
+
+  // Each company's holiday count for the year, fetched once rather than
+  // per employee — cheap even for a large headcount since there are only
+  // a handful of companies.
+  var companyIds = Array.from(new Set(empRes.rows.map(function (e) { return e.company_id; }).filter(Boolean)));
+  var holidaysByCompany = {};
+  for (var c = 0; c < companyIds.length; c++) holidaysByCompany[companyIds[c]] = await countHolidays(companyIds[c], year);
 
   var granted = 0;
   for (var i = 0; i < empRes.rows.length; i++) {
+    var holidays = holidaysByCompany[empRes.rows[i].company_id] || 0;
     for (var j = 0; j < typesRes.rows.length; j++) {
+      var daysPerYear = typesRes.rows[j].days_per_year;
+      var entitled = daysPerYear > 0 ? Math.max(0, daysPerYear - holidays) : daysPerYear;
       var insertRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) ' +
         'ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING',
-        [empRes.rows[i].id, typesRes.rows[j].id, year, typesRes.rows[j].days_per_year]
+        [empRes.rows[i].id, typesRes.rows[j].id, year, entitled]
       );
       granted += insertRes.rowCount;
     }
@@ -204,7 +304,10 @@ async function requestLeave(ctx, p) {
   var type = typeRes.rows[0];
   if (!type) fail('invalid', 'Choose a leave type.');
 
-  var days = businessDays(start, end);
+  var companyId = await employeeCompanyId(ctx.employee.department_id);
+  var holidaySet = await holidayDatesInRange(companyId, start, end);
+  var days = businessDays(start, end, holidaySet);
+  if (days <= 0) fail('invalid', 'That range has no working days to take as leave (weekends and public holidays are already excluded).');
 
   var overlapRes = await pool.query(
     "SELECT id FROM leave_requests WHERE employee_id = $1 AND status NOT IN ('rejected','cancelled') " +
@@ -224,13 +327,17 @@ async function requestLeave(ctx, p) {
       // No balance row for this year yet — a new year started since this
       // employee last got one (see rollover() below, the proactive bulk
       // version of this same grant), or this leave type didn't exist when
-      // they were hired. Auto-grant the type's current default now rather
-      // than either silently letting the request through unlimited (the
-      // bug this replaces — an absent row used to skip the check
-      // entirely) or blocking someone who's genuinely entitled.
+      // they were hired. Auto-grant the type's default now (net of this
+      // company's holidays for the year — see the policy note on
+      // countHolidays above) rather than either silently letting the
+      // request through unlimited (the bug this replaces — an absent row
+      // used to skip the check entirely) or blocking someone who's
+      // genuinely entitled.
+      var holidaysThisYear = await countHolidays(companyId, year);
+      var grantEntitled = Math.max(0, type.days_per_year - holidaysThisYear);
       var insertBalRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) RETURNING *',
-        [ctx.employee.id, type.id, year, type.days_per_year]
+        [ctx.employee.id, type.id, year, grantEntitled]
       );
       bal = insertBalRes.rows[0];
     }
@@ -344,5 +451,6 @@ async function cancel(ctx, requestId) {
 module.exports = {
   listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest,
   listAllTypes: listAllTypes, createType: createType, updateType: updateType,
-  getBalances: getBalances, setBalance: setBalance, rollover: rollover
+  getBalances: getBalances, setBalance: setBalance, rollover: rollover,
+  listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday
 };

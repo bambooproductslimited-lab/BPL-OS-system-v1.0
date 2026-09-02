@@ -29,11 +29,20 @@ var V = {
   }
 };
 
-// Ported verbatim from kernel.js's businessDays().
-function businessDays(a, b) {
+// Ported from kernel.js's businessDays(). holidayDates (optional) is a Set
+// of 'YYYY-MM-DD' strings — a public holiday inside the range isn't
+// charged against a leave balance, the same reasoning as Sundays already
+// not being: nobody would have worked that day regardless. See
+// leave.service.js's requestLeave() for where the company's holiday list
+// gets loaded and passed in here.
+function businessDays(a, b, holidayDates) {
   var s = new Date(a + 'T00:00'), e = new Date(b + 'T00:00'), n = 0;
   if (e < s) return 0;
-  while (s <= e) { if (s.getDay() !== 0) n++; s = new Date(s.getTime() + 86400000); }
+  while (s <= e) {
+    var iso = s.toISOString().slice(0, 10);
+    if (s.getDay() !== 0 && !(holidayDates && holidayDates.has(iso))) n++;
+    s = new Date(s.getTime() + 86400000);
+  }
   return n;
 }
 
