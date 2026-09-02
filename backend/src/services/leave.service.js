@@ -113,7 +113,12 @@ async function getEntitlements(ctx, employeeId) {
 // touches a row that already exists there — it never creates one (that's
 // still rollover's/the self-heal grant's job) and never touches "used".
 async function syncBalanceForYear(employeeId, leaveType, year) {
-  if (!year || leaveType.days_per_year <= 0) return; // unlimited types (e.g. unpaid) aren't balance-capped at all
+  // Gate on leaveType.paid, not days_per_year > 0 — a type whose company
+  // default happens to be 0 (e.g. Maternity/paternity, until HR sets up
+  // each eligible employee individually) is still a real, capped balance
+  // once a personal override exists; only an actually-unlimited type
+  // (Unpaid leave, paid: false) has no balance concept to sync at all.
+  if (!year || !leaveType.paid) return;
   var existing = await pool.query('SELECT id FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3', [employeeId, leaveType.id, year]);
   if (!existing.rows[0]) return;
   var emp = await fetchEmployeeById(employeeId);
@@ -141,7 +146,7 @@ async function recalculateBalances(ctx, employeeId, year) {
   year = Number(year);
   if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
 
-  var typesRes = await pool.query('SELECT id, name, days_per_year FROM leave_types WHERE active');
+  var typesRes = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active');
   var updated = 0;
   for (var i = 0; i < typesRes.rows.length; i++) {
     var before = await pool.query('SELECT entitled FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3', [employeeId, typesRes.rows[i].id, year]);
@@ -346,7 +351,7 @@ async function rollover(ctx, year) {
   year = Number(year);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('invalid', 'Enter a valid year.');
 
-  var typesRes = await pool.query('SELECT id, days_per_year FROM leave_types WHERE active');
+  var typesRes = await pool.query('SELECT id, days_per_year, paid FROM leave_types WHERE active');
   var empRes = await pool.query(
     "SELECT e.id, d.company_id FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.status = 'active'"
   );
@@ -372,7 +377,12 @@ async function rollover(ctx, year) {
       var typeDaysPerYear = typesRes.rows[j].days_per_year;
       var override = overrideByKey[empRes.rows[i].id + ':' + typesRes.rows[j].id];
       var resolvedDaysPerYear = override !== undefined ? override : typeDaysPerYear;
-      var entitled = typeDaysPerYear > 0 ? Math.max(0, resolvedDaysPerYear - holidays) : typeDaysPerYear;
+      // Gate on paid, not typeDaysPerYear > 0 — see syncBalanceForYear's
+      // comment: a type whose company default is 0 (e.g. Maternity/
+      // paternity) still needs a real, capped grant for an employee with
+      // a personal override; only an actually-unlimited type (paid: false)
+      // has no balance to grant at all.
+      var entitled = typesRes.rows[j].paid ? Math.max(0, resolvedDaysPerYear - holidays) : typeDaysPerYear;
       var insertRes = await pool.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0) ' +
         'ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING',
@@ -462,7 +472,15 @@ async function requestLeave(ctx, p) {
     [ctx.employee.id, type.id, year]
   );
   var bal = balRes.rows[0];
-  if (type.days_per_year > 0) {
+  // Gate on type.paid, not type.days_per_year > 0 — a type whose company
+  // default happens to be 0 (e.g. Maternity/paternity, until HR sets up
+  // each eligible employee individually) still needs real enforcement
+  // once this employee has a personal override; only a genuinely
+  // unlimited type (Unpaid leave, paid: false) skips balance tracking
+  // altogether. Using the flat default here used to mean an employee
+  // with, say, a 4-day Maternity override could take unlimited days —
+  // the enforcement check below never even ran.
+  if (type.paid) {
     if (!bal) {
       // No balance row for this year yet — a new year started since this
       // employee last got one (see rollover() below, the proactive bulk

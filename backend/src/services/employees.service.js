@@ -128,10 +128,15 @@ async function create(ctx, p) {
     );
     var holidays = holidaysRes.rows[0].n;
 
-    var typesRes = await client.query('SELECT id, days_per_year FROM leave_types WHERE active');
+    var typesRes = await client.query('SELECT id, days_per_year, paid FROM leave_types WHERE active');
     for (var i = 0; i < typesRes.rows.length; i++) {
       var daysPerYear = typesRes.rows[i].days_per_year;
-      var entitled = daysPerYear > 0 ? Math.max(0, daysPerYear - holidays) : daysPerYear;
+      // Gate on paid, not daysPerYear > 0 — see leave.service.js's
+      // syncBalanceForYear comment: a type whose company default is 0
+      // (e.g. Maternity/paternity, until HR configures each eligible
+      // employee) is still a real, capped balance in principle; only an
+      // actually-unlimited type (paid: false) has none to grant.
+      var entitled = typesRes.rows[i].paid ? Math.max(0, daysPerYear - holidays) : daysPerYear;
       await client.query(
         'INSERT INTO leave_balances (employee_id, leave_type_id, year, entitled, used) VALUES ($1,$2,$3,$4,0)',
         [e.id, typesRes.rows[i].id, year, entitled]
