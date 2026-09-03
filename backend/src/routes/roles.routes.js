@@ -17,6 +17,18 @@ router.get('/', requireAuth, async function (req, res, next) {
   try { res.json(await rolesService.list(req.ctx)); } catch (e) { next(e); }
 });
 
+// New capability — POST /api/roles: create a custom role (starts with
+// zero permissions; check its boxes in the matrix afterward).
+router.post('/', requireAuth, async function (req, res, next) {
+  try { res.json(await rolesService.create(req.ctx, req.body)); } catch (e) { next(e); }
+});
+
+// New capability — DELETE /api/roles/:roleId: remove a custom role that
+// nobody is currently assigned to.
+router.delete('/:roleId', requireAuth, async function (req, res, next) {
+  try { res.json(await rolesService.remove(req.ctx, req.params.roleId)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['roles.setPermission'] -> POST /api/roles/:roleId/permissions
 router.post('/:roleId/permissions', requireAuth, async function (req, res, next) {
   try { res.json(await rolesService.setPermission(req.ctx, req.params.roleId, req.body.permission, !!req.body.on)); } catch (e) { next(e); }
