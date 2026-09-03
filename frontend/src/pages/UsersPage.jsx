@@ -77,6 +77,11 @@ export default function UsersPage() {
   const [resetting, setResetting] = useState(false);
   const [search, setSearch] = useState('');
 
+  const [emailTarget, setEmailTarget] = useState(null);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [emailError, setEmailError] = useState(null);
+  const [emailSaving, setEmailSaving] = useState(false);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -188,6 +193,28 @@ export default function UsersPage() {
     }
   }
 
+  function openEmail(user) {
+    setEmailError(null);
+    setEmailDraft(user.email);
+    setEmailTarget(user);
+  }
+
+  async function handleEmailSave(e) {
+    e.preventDefault();
+    setEmailError(null);
+    setEmailSaving(true);
+    try {
+      await api.post('/users/' + emailTarget.id + '/email', { email: emailDraft });
+      setToast("Login email updated for " + emailTarget.name + '.');
+      setEmailTarget(null);
+      await load();
+    } catch (err) {
+      setEmailError(err.message);
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const roleName = (u) => { const r = roles.find((x) => x.id === u.roleIds[0]); return r ? r.name : ''; };
@@ -237,6 +264,11 @@ export default function UsersPage() {
                   {!isSelf && (
                     <button type="button" className="btn btn-secondary users-row-btn" disabled={busyId === u.id} onClick={() => toggleStatus(u)}>
                       {u.status === 'active' ? 'Disable' : 'Enable'}
+                    </button>
+                  )}
+                  {canCreate && (
+                    <button type="button" className="btn btn-secondary users-row-btn" onClick={() => openEmail(u)}>
+                      Change email
                     </button>
                   )}
                   {canCreate && (
@@ -386,6 +418,41 @@ export default function UsersPage() {
                 <button type="button" className="btn btn-secondary" onClick={() => setResetTarget(null)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={resetting}>
                   {resetting ? 'Saving…' : 'Reset password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {emailTarget && (
+        <div className="dialog-backdrop" onClick={() => setEmailTarget(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Change login email</h2>
+            <p className="dialog-body">
+              Set the email <strong>{emailTarget.name}</strong> signs in with. This only changes their login
+              account — it doesn't touch their employee record's own email address.
+            </p>
+            <form className="users-dialog-form" onSubmit={handleEmailSave}>
+              <div className="field">
+                <label htmlFor="ce-email">Login email</label>
+                <input
+                  id="ce-email"
+                  className="input"
+                  type="email"
+                  autoComplete="off"
+                  value={emailDraft}
+                  onChange={(e) => setEmailDraft(e.target.value)}
+                  required
+                />
+              </div>
+
+              {emailError && <div className="error-banner">{emailError}</div>}
+
+              <div className="dialog-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setEmailTarget(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={emailSaving}>
+                  {emailSaving ? 'Saving…' : 'Save email'}
                 </button>
               </div>
             </form>

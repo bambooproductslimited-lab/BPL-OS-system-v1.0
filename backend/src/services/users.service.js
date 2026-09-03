@@ -58,6 +58,35 @@ async function setStatus(ctx, userId, status) {
   return updated.filter(function (u) { return u.id === userId; })[0];
 }
 
+// New capability — no kernel.js equivalent. create() below copies the
+// employee's email in once at account-creation time, but users.email and
+// employees.email are independently UNIQUE columns that are never kept in
+// sync afterward — editing the employee's own record elsewhere doesn't
+// touch this. This is the only way to fix a login email that was wrong
+// (typo, wrong employee's address, etc.) from the moment the account was
+// created onward. Gated on user.create, same as setPassword — both are
+// sensitive login-credential corrections, not the routine role/status
+// admin user.manage covers.
+async function setEmail(ctx, userId, email) {
+  if (!ctx.can('user.create')) fail('forbidden', 'Your role does not allow this action (user.create).');
+  var newEmail = V.email(email);
+
+  var userRes = await pool.query('SELECT id, email FROM users WHERE id = $1', [userId]);
+  var user = userRes.rows[0];
+  if (!user) fail('notfound', 'Account not found.');
+
+  if (newEmail !== user.email) {
+    var dupRes = await pool.query('SELECT 1 FROM users WHERE email = $1 AND id != $2', [newEmail, userId]);
+    if (dupRes.rows[0]) fail('invalid', 'That email is already in use by another account.');
+
+    await pool.query('UPDATE users SET email = $1, updated_at = now() WHERE id = $2', [newEmail, userId]);
+    await audit(pool, ctx, 'user.setEmail', 'user', userId, 'Changed login email from ' + user.email + ' to ' + newEmail + '.');
+  }
+
+  var updated = await list(ctx);
+  return updated.filter(function (u) { return u.id === userId; })[0];
+}
+
 // kernel.js: handlers['users.create'] — new: admin-only account creation,
 // so a login account no longer has to come from the one seed/bootstrap admin.
 async function create(ctx, p) {
@@ -128,6 +157,6 @@ async function availableEmployees(ctx) {
 }
 
 module.exports = {
-  list: list, setRole: setRole, setStatus: setStatus,
+  list: list, setRole: setRole, setStatus: setStatus, setEmail: setEmail,
   create: create, setPassword: setPassword, availableEmployees: availableEmployees
 };

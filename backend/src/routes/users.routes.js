@@ -25,6 +25,14 @@ router.post('/:id/password', async function (req, res, next) {
   try { res.json(await usersService.setPassword(req.ctx, req.params.id, req.body.password)); } catch (e) { next(e); }
 });
 
+// New capability -> POST /api/users/:id/email: corrects an account's login
+// email after creation (see users.service.js's setEmail for why this
+// can't be done by editing the employee record instead). Gated on
+// user.create, same as setPassword just below.
+router.post('/:id/email', async function (req, res, next) {
+  try { res.json(await usersService.setEmail(req.ctx, req.params.id, req.body.email)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['users.setRole'] -> POST /api/users/:id/role
 router.post('/:id/role', async function (req, res, next) {
   try { res.json(await usersService.setRole(req.ctx, req.params.id, req.body.roleId)); } catch (e) { next(e); }
