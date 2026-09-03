@@ -68,14 +68,25 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [dashData, settings] = await Promise.all([api.get('/dashboard'), api.get('/settings')]);
+      const dashData = await api.get('/dashboard');
       setDash(dashData);
-      if (settings.lateAfter) setLateAfter(settings.lateAfter);
     } catch (err) {
       setError(err.message);
-    } finally {
       setLoading(false);
+      return;
     }
+    // /settings also carries integration API keys, so it's correctly
+    // gated behind employee.read (unlike /dashboard, which any signed-in
+    // user can load) -- a viewer without it just keeps the default
+    // lateAfter shown below rather than losing the whole dashboard to a
+    // Promise.all rejection, which is what used to happen here.
+    try {
+      const settings = await api.get('/settings');
+      if (settings.lateAfter) setLateAfter(settings.lateAfter);
+    } catch (err) {
+      // ignore — cosmetic fallback only
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
