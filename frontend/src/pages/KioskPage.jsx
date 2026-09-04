@@ -43,13 +43,17 @@ const RESULT_DISPLAY_MS = 3500;
 const FLUSH_INTERVAL_MS = 20000;
 // requiresFace came back true from /kiosk/identify — the server knows this
 // PIN belongs to an enrolled employee, so a face capture is mandatory
-// before we're willing to try again.
-const FACE_TIMEOUT_REQUIRED_MS = 15000;
+// before we're willing to try again. Kept generous since these kiosks run
+// on a real spread of hardware (iPadOS 15 through 26 — as old as an iPad
+// Air 2), and the lightweight detector chosen for exactly that reason (see
+// lib/faceModels.js) can still take a few extra seconds on the oldest
+// devices, especially before its models are cached by the service worker.
+const FACE_TIMEOUT_REQUIRED_MS = 20000;
 // We couldn't reach /kiosk/identify at all (offline) so we don't actually
 // know whether this PIN needs a face — try briefly anyway (see
 // handlePinComplete's comment), but don't hold up a PIN-only employee's
 // tap for long while the device has no connectivity regardless.
-const FACE_TIMEOUT_OFFLINE_MS = 10000;
+const FACE_TIMEOUT_OFFLINE_MS = 12000;
 
 const ICON_PATHS = {
   checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,

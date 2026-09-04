@@ -9,13 +9,26 @@ import './FaceCapture.css';
 // reference — mode="enroll", requires an explicit Capture click, then
 // walks the employee through a few head angles).
 //
-// Detection runs client-side via face-api.js's SsdMobilenetv1 detector +
-// 68-point landmarks + recognition net (see lib/faceModels.js) against the
-// live <video> element — nothing is ever uploaded as an image; only the
-// resulting 128-number descriptor(s) leave this component, via onCapture.
-// Detections are chained with setTimeout (not setInterval), since
-// SsdMobilenetv1 is slow enough per frame that a fixed interval could queue
-// overlapping detections faster than the device can actually run them.
+// Detection runs client-side via face-api.js against the live <video>
+// element — nothing is ever uploaded as an image; only the resulting
+// 128-number descriptor(s) leave this component, via onCapture. Which face
+// DETECTOR runs is mode-dependent (see lib/faceModels.js's comment): a
+// heavier, more accurate one for enrollment (run on ordinary HR hardware),
+// a lightweight one built for real-time use on constrained mobile hardware
+// for the kiosk (run on whatever iPad is mounted at the door — this
+// deployment spans iPadOS 15 through 26, including hardware as old as an
+// iPad Air 2). Both share the same landmark + recognition nets, so this
+// split doesn't affect matching accuracy — only how fast/reliably a face
+// gets located in the frame.
+//
+// Detections are chained with setTimeout (not setInterval), since a face
+// detector call can take long enough on some devices that a fixed interval
+// could queue overlapping detections faster than the device can actually
+// run them. Each detection call is wrapped in try/catch — a transient
+// WebGL hiccup (tfjs's mobile Safari backend has a documented history of
+// these) is treated as "no detection this frame" rather than silently
+// killing the loop; MAX_CONSECUTIVE_ERRORS bails out to onError only if
+// detection is genuinely broken, not just missing a face for a frame.
 //
 // Enrollment captures a SET of descriptors, one per head pose (straight on,
 // turned left/right, tilted up/down), each itself an average of a couple of
@@ -34,6 +47,7 @@ const DETECT_DELAY_MS = 250;
 // window was a real source of poor-quality reference/verification shots.
 const WARMUP_MS = 900;
 const KIOSK_SAMPLE_COUNT = 4; // consecutive good detections, post-warmup, averaged into one capture
+const MAX_CONSECUTIVE_ERRORS = 6;
 
 const ENROLL_POSES = [
   { label: 'Look straight at the camera' },
@@ -59,6 +73,23 @@ function averageDescriptors(samples) {
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+function detectorOptions(faceapi, mode) {
+  return mode === 'kiosk'
+    ? new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 })
+    : new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+}
+
+// A wrapped detection call that never throws — returns null on "no face"
+// same as face-api.js itself, but also on a caught detector/backend error,
+// so a bad frame never crashes the caller's loop.
+async function tryDetect(faceapi, video, options) {
+  try {
+    return await faceapi.detectSingleFace(video, options).withFaceLandmarks().withFaceDescriptor();
+  } catch {
+    return null;
+  }
+}
+
 export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onError, timeoutMs, title, subtitle }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -76,9 +107,10 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
 
     async function start() {
       try {
+        const idealSize = mode === 'kiosk' ? 480 : 720;
         const [faceapi, stream] = await Promise.all([
-          loadFaceModels(),
-          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } } })
+          loadFaceModels(mode),
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: idealSize }, height: { ideal: idealSize } } })
         ]);
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
@@ -95,14 +127,28 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
           }, timeoutMs);
         }
 
-        const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+        const options = detectorOptions(faceapi, mode);
+        let consecutiveErrors = 0;
         async function detectLoop() {
           if (cancelled || capturedRef.current || !videoRef.current) return;
-          const detection = await faceapi
-            .detectSingleFace(videoRef.current, options)
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+          let detection = null;
+          let errored = false;
+          try {
+            detection = await faceapi.detectSingleFace(videoRef.current, options).withFaceLandmarks().withFaceDescriptor();
+            consecutiveErrors = 0;
+          } catch {
+            errored = true;
+            consecutiveErrors += 1;
+          }
           if (cancelled || capturedRef.current) return;
+
+          if (errored && consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            setStatus('error');
+            var message = 'This device is having trouble running face detection. Try reloading the page, or ask IT for help.';
+            setErrorMessage(message);
+            if (onError) onError(message);
+            return;
+          }
 
           if (!detection) {
             samplesRef.current = [];
@@ -145,16 +191,16 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
   // Enrollment: walks through ENROLL_POSES in sequence — each pose gets a
   // settle pause (time to actually move into it), then a couple of frames
   // captured and averaged into that pose's descriptor. A pose that never
-  // sees a face within its attempt budget (lost/moved too far) is simply
-  // skipped rather than blocking forever; the whole thing only fails if
-  // fewer than 2 poses came back with anything.
+  // sees a face within its attempt budget (lost/moved too far, or a run of
+  // detector errors) is simply skipped rather than blocking forever; the
+  // whole thing only fails if fewer than 2 poses came back with anything.
   function captureNow() {
     if (capturedRef.current || status !== 'found' || !videoRef.current) return;
     capturedRef.current = true; // stop the background detectLoop; this function drives its own sampling now
     setStatus('capturing');
     (async () => {
-      const faceapi = await loadFaceModels();
-      const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+      const faceapi = await loadFaceModels(mode);
+      const options = detectorOptions(faceapi, mode);
       const poseDescriptors = [];
 
       for (let p = 0; p < ENROLL_POSES.length; p++) {
@@ -167,10 +213,7 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
         while (frames.length < POSE_FRAMES && attempts < POSE_MAX_ATTEMPTS) {
           attempts += 1;
           // eslint-disable-next-line no-await-in-loop
-          const detection = await faceapi
-            .detectSingleFace(videoRef.current, options)
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+          const detection = await tryDetect(faceapi, videoRef.current, options);
           if (detection) frames.push(Array.from(detection.descriptor));
           if (frames.length < POSE_FRAMES && attempts < POSE_MAX_ATTEMPTS) {
             // eslint-disable-next-line no-await-in-loop
