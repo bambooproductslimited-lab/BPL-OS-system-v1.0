@@ -131,4 +131,4 @@ async function chat(ctx, message, history) {
   }
 }
 
-module.exports = { chat: chat, buildContext: buildContext };
+module.exports = { chat: chat, buildContext: buildContext, callAnthropic: callAnthropic };

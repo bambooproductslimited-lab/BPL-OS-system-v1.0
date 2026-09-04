@@ -42,6 +42,9 @@ router.get('/dashboard', async function (req, res, next) {
 router.get('/dashboard/metrics', async function (req, res, next) {
   try { res.json(await marketingService.dashboardMetrics(req.ctx, req.query.from, req.query.to)); } catch (e) { next(e); }
 });
+router.get('/recommendations', async function (req, res, next) {
+  try { res.json(await marketingService.recommendations(req.ctx)); } catch (e) { next(e); }
+});
 
 router.get('/channels', async function (req, res, next) {
   try { res.json(await marketingService.listChannels(req.ctx)); } catch (e) { next(e); }

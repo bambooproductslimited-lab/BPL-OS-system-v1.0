@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { money } from '../lib/currency';
+import { rowsToCsv, downloadCsv } from '../lib/csvExport';
+import { shareOrDownloadPdf } from '../lib/documentShare';
+import MarketingRecommendations from '../components/MarketingRecommendations';
 import './MarketingDashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's marketing screen (screens.marketing
@@ -54,6 +57,9 @@ export default function MarketingDashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [recommendation, setRecommendation] = useState(null);
+  const printRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -66,6 +72,47 @@ export default function MarketingDashboardPage() {
       }
     })();
   }, []);
+
+  async function downloadPdf() {
+    setExporting(true);
+    try {
+      await shareOrDownloadPdf(printRef.current, 'marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.pdf', 'Marketing dashboard', 'Marketing dashboard');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function downloadCsvReport() {
+    const rows = [
+      ['Marketing Dashboard', new Date().toISOString().slice(0, 10)],
+      [],
+      ['Customer pipeline'],
+      ['Category', 'Customers'],
+      ...data.pipeline.map((p) => [p.category, p.count]),
+      [],
+      ['Quotation funnel'],
+      ['Sent', data.funnel.sent], ['Accepted', data.funnel.accepted], ['Rejected/expired', data.funnel.rejected],
+      ['Conversion rate', data.funnel.conversionRate + '%'],
+      [],
+      ['Top customers by sales value'],
+      ['Customer', 'Currency', 'Total'],
+      ...data.topCustomers.map((c) => [c.name, c.currency, c.total]),
+      [],
+      ['Recent quotations'],
+      ['Quote', 'Customer', 'Currency', 'Total', 'Status'],
+      ...data.recentQuotes.map((q) => [q.quoteNo, q.customerName, q.currency, q.total, q.status]),
+      [],
+      ['Leads & prospects to follow up'],
+      ['Customer', 'Contact', 'Email', 'Phone', 'Category', 'Account manager'],
+      ...data.leads.map((l) => [l.name, l.contactPerson, l.email, l.phone, l.category, l.managerName])
+    ];
+    if (recommendation) {
+      rows.push([], ['Content recommendations'], [recommendation.recommendation]);
+    }
+    downloadCsv('marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
+  }
 
   if (loading) return <div className="eyebrow">Loading…</div>;
   if (error) return <div className="error-banner">{error}</div>;
@@ -84,6 +131,13 @@ export default function MarketingDashboardPage() {
 
   return (
     <div className="mkt">
+      <div className="mkt-toolbar no-print">
+        <button type="button" className="btn btn-secondary" onClick={downloadCsvReport}>Download CSV</button>
+        <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadPdf}>
+          {exporting ? 'Preparing…' : 'Download PDF'}
+        </button>
+      </div>
+      <div ref={printRef}>
       <div className="mkt-top">
         <section>
           <h2 className="mkt-section-title">Customer pipeline</h2>
@@ -167,6 +221,9 @@ export default function MarketingDashboardPage() {
         </table>
         {!data.leads.length && <p className="table-empty">No leads or prospects to follow up right now.</p>}
       </section>
+
+      <MarketingRecommendations onGenerated={setRecommendation} />
+      </div>
     </div>
   );
 }

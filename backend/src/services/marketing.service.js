@@ -4,6 +4,8 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var whatsappService = require('./whatsapp.service');
 var { withLiveConfigState } = require('./envConfiguredIntegrations');
+var config = require('../config');
+var aiService = require('./ai.service');
 
 // Social & campaign tracker (Metricool-style): channels, campaigns, a
 // content calendar of posts with their engagement numbers, and periodic
@@ -536,11 +538,97 @@ async function dashboardMetrics(ctx, from, to) {
   };
 }
 
+// marketing.recommendations — a written recommendation on what content to
+// post more of and which channel/campaign needs a promotional push, fed by
+// this account's own real post/channel numbers rather than generic advice.
+// Ranks actual data first (top/bottom posts by engagement, channels with no
+// recent activity or falling followers), then hands that ranked snapshot to
+// the same Anthropic call ai.service.js's chat() uses — the LLM's job here
+// is only to turn already-computed rankings into a short written brief, not
+// to invent numbers itself.
+var RECOMMENDATION_SYSTEM_PROMPT =
+  'You are a social media strategist for Bamboo Products Limited. You are given a JSON snapshot of this ' +
+  "account's own real post and channel performance (top/bottom performing posts by engagement, channels " +
+  'with no recent posts, follower trends). Using ONLY that data, write a short, concrete brief with two ' +
+  'sections: "What to post" (2-3 bullet points on the type/topic of content that has performed best and ' +
+  'should be repeated, citing specific posts or channels from the data) and "What to promote" (2-3 bullet ' +
+  'points on which underperforming or inactive channel/campaign needs a push, and a concrete idea for it). ' +
+  'Be specific and reference the actual channel names, post titles and numbers given — never invent a ' +
+  'statistic that is not in the data. Keep the whole brief under 200 words, plain text with a blank line ' +
+  'between the two sections, no markdown headers.';
+
+async function recommendations(ctx) {
+  requireRead(ctx);
+
+  var sinceRes = await pool.query("SELECT (now() - interval '90 days')::date AS since");
+  var since = sinceRes.rows[0].since;
+
+  var topPostsRes = await pool.query(
+    POST_SELECT + " WHERE p.status = 'published' AND p.published_at >= $1 " +
+    'ORDER BY (p.likes + p.comments + p.shares) DESC LIMIT 8',
+    [since]
+  );
+  var bottomPostsRes = await pool.query(
+    POST_SELECT + " WHERE p.status = 'published' AND p.published_at >= $1 " +
+    'ORDER BY (p.likes + p.comments + p.shares) ASC LIMIT 5',
+    [since]
+  );
+  var channelActivityRes = await pool.query(
+    'SELECT c.id, c.name, c.key, ' +
+    '(SELECT s.followers FROM marketing_channel_stats s WHERE s.channel_id = c.id ORDER BY s.captured_on DESC LIMIT 1) AS followers, ' +
+    'coalesce((SELECT count(*)::int FROM marketing_posts p WHERE p.channel_id = c.id AND p.status = \'published\' AND p.published_at >= $1), 0) AS recent_post_count, ' +
+    '(SELECT sum(likes + comments + shares) FROM marketing_posts p WHERE p.channel_id = c.id AND p.status = \'published\' AND p.published_at >= $1) AS recent_engagement ' +
+    'FROM marketing_channels c ORDER BY c.name',
+    [since]
+  );
+
+  function postSummary(r) {
+    return {
+      channel: r.channel_name, title: r.title || (r.caption || '').slice(0, 60), publishedAt: r.published_at,
+      likes: r.likes, comments: r.comments, shares: r.shares, reach: r.reach
+    };
+  }
+  var snapshot = {
+    periodDays: 90,
+    topPerformingPosts: topPostsRes.rows.map(postSummary),
+    lowestPerformingPosts: bottomPostsRes.rows.map(postSummary),
+    channels: channelActivityRes.rows.map(function (r) {
+      return {
+        name: r.name, followers: r.followers, recentPostCount90d: r.recent_post_count,
+        recentEngagement90d: r.recent_engagement === null ? 0 : Number(r.recent_engagement)
+      };
+    })
+  };
+
+  if (!config.ai.apiKey) {
+    return {
+      generatedAt: new Date().toISOString(), basedOn: snapshot,
+      recommendation: 'The AI assistant needs an ANTHROPIC_API_KEY configured on the server, which is not set for this environment.'
+    };
+  }
+  if (!topPostsRes.rows.length && !bottomPostsRes.rows.length) {
+    return {
+      generatedAt: new Date().toISOString(), basedOn: snapshot,
+      recommendation: 'Not enough published posts in the last 90 days to base a recommendation on yet — log some post performance in the Calendar tab first.'
+    };
+  }
+
+  try {
+    var text = await aiService.callAnthropic(
+      RECOMMENDATION_SYSTEM_PROMPT + '\n\nSNAPSHOT:\n' + JSON.stringify(snapshot),
+      [{ role: 'user', content: 'Write the brief.' }]
+    );
+    return { generatedAt: new Date().toISOString(), basedOn: snapshot, recommendation: text || 'Could not generate a recommendation.' };
+  } catch (err) {
+    return { generatedAt: new Date().toISOString(), basedOn: snapshot, recommendation: 'Something went wrong generating a recommendation: ' + err.message };
+  }
+}
+
 module.exports = {
   listChannels: listChannels, updateChannel: updateChannel,
   listChannelStats: listChannelStats, logChannelStat: logChannelStat,
   listCampaigns: listCampaigns, createCampaign: createCampaign, updateCampaign: updateCampaign,
   listPosts: listPosts, createPost: createPost, updatePost: updatePost, deletePost: deletePost,
   listInboxItems: listInboxItems, createInboxItem: createInboxItem, replyInboxItem: replyInboxItem, setInboxStatus: setInboxStatus,
-  dashboard: dashboard, dashboardMetrics: dashboardMetrics
+  dashboard: dashboard, dashboardMetrics: dashboardMetrics, recommendations: recommendations
 };

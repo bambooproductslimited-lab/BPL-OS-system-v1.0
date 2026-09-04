@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { MetricSection } from '../components/SocialCharts';
 import DateRangePicker, { PRESETS } from '../components/DateRangePicker';
+import MarketingRecommendations from '../components/MarketingRecommendations';
+import { rowsToCsv, downloadCsv } from '../lib/csvExport';
+import { shareOrDownloadPdf } from '../lib/documentShare';
 import './SocialTrackerPage.css';
 
 // Metricool-style social & campaign tracker: channels (Facebook, Instagram,
@@ -170,6 +173,10 @@ export default function SocialTrackerPage() {
   const [dateRange, setDateRange] = useState(defaultRange);
   const [metrics, setMetrics] = useState(null);
   const [metricsError, setMetricsError] = useState(null);
+
+  const [exporting, setExporting] = useState(false);
+  const [recommendation, setRecommendation] = useState(null);
+  const overviewRef = useRef(null);
 
   const loadAll = useCallback(async () => {
     setError(null);
@@ -598,6 +605,34 @@ export default function SocialTrackerPage() {
     }
   }
 
+  async function downloadOverviewPdf() {
+    setExporting(true);
+    try {
+      await shareOrDownloadPdf(overviewRef.current, 'social-tracker-' + new Date().toISOString().slice(0, 10) + '.pdf', 'Social & campaign tracker', 'Social & campaign tracker');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function downloadOverviewCsv() {
+    if (!dash) return;
+    const rows = [
+      ['Social & Campaign Tracker — Overview', new Date().toISOString().slice(0, 10)],
+      [],
+      ['Channels'],
+      ['Channel', 'Handle', 'Connected', 'Followers', 'Follower change', 'Posts', 'Likes', 'Reach', 'Clicks', 'Leads'],
+      ...dash.channels.map((c) => [c.name, c.handle || '', c.connected ? 'yes' : 'no', c.followers, c.followerChange, c.totals.posts, c.totals.likes, c.totals.reach, c.totals.clicks, c.totals.leads]),
+      [],
+      ['Campaigns'],
+      ['Campaign', 'Status', 'Start', 'End', 'Posts', 'Likes', 'Reach', 'Clicks', 'Leads'],
+      ...dash.campaigns.map((c) => [c.name, c.status, c.startDate || '', c.endDate || '', c.totals.posts, c.totals.likes, c.totals.reach, c.totals.clicks, c.totals.leads])
+    ];
+    if (recommendation) rows.push([], ['Content recommendations'], [recommendation.recommendation]);
+    downloadCsv('social-tracker-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   return (
@@ -623,8 +658,15 @@ export default function SocialTrackerPage() {
         <div className="soctrack-overview">
           <div className="soctrack-overview-header">
             <h2 className="soctrack-section-title" style={{ margin: 0 }}>Performance</h2>
-            <DateRangePicker value={dateRange} onChange={setDateRange} />
+            <div className="soctrack-overview-actions">
+              <DateRangePicker value={dateRange} onChange={setDateRange} />
+              <button type="button" className="btn btn-secondary" onClick={downloadOverviewCsv}>Download CSV</button>
+              <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadOverviewPdf}>
+                {exporting ? 'Preparing…' : 'Download PDF'}
+              </button>
+            </div>
           </div>
+          <div ref={overviewRef}>
           {metricsError && <div className="error-banner" style={{ marginBottom: 12 }}>{metricsError}</div>}
           {metrics && (
             <div className="soc-metrics-stack">
@@ -697,6 +739,9 @@ export default function SocialTrackerPage() {
               <p className="soctrack-empty-title">No campaigns yet</p>
             </div>
           )}
+
+          <MarketingRecommendations onGenerated={setRecommendation} />
+          </div>
         </div>
       )}
 

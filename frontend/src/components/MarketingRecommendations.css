@@ -1,0 +1,4 @@
+.mkt-reco { margin: 24px 0; padding: 20px; border: var(--divider-width) solid var(--color-divider); }
+.mkt-reco-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.mkt-reco-title { margin: 0; font-size: 16px; }
+.mkt-reco-text { white-space: pre-wrap; font-size: 13px; line-height: 1.6; margin: 12px 0 0; }
