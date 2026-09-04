@@ -131,9 +131,13 @@ async function getPin(ctx, employeeId) {
 // a 128-number vector produced client-side by face-api.js; no photo is ever
 // sent to or stored on the server, only this vector (see migration 0039).
 var FACE_DESCRIPTOR_LENGTH = 128;
-// face-api.js's own recommended threshold for its FaceMatcher — two
-// descriptors within this Euclidean distance are considered the same face.
-var FACE_MATCH_THRESHOLD = 0.6;
+// face-api.js's docs cite 0.6 as its FaceMatcher default, but that's
+// calibrated against clean, well-aligned input — in practice, on a laptop/
+// kiosk webcam, 0.6 let different people match each other. 0.5 is tighter;
+// paired with the more accurate SsdMobilenetv1 detector on the capture side
+// (see FaceCapture.jsx), it should reject a different face while still
+// tolerating normal lighting/angle variation for the enrolled person.
+var FACE_MATCH_THRESHOLD = 0.5;
 
 function validateDescriptor(descriptor) {
   if (!Array.isArray(descriptor) || descriptor.length !== FACE_DESCRIPTOR_LENGTH) {

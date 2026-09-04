@@ -9,13 +9,21 @@ import './FaceCapture.css';
 // face — mode="enroll", requires an explicit Capture click so HR controls
 // the moment, with the employee looking at the camera on their own time).
 //
-// Detection runs client-side via face-api.js's tiny face detector +
-// 68-point landmarks + recognition net (see lib/faceModels.js) on a
-// polling interval against the live <video> element — nothing is ever
-// uploaded as an image; only the resulting 128-number descriptor leaves
-// this component, via onCapture.
-const DETECT_INTERVAL_MS = 350;
-const KIOSK_STABLE_HITS = 2; // consecutive good detections before auto-capturing
+// Detection runs client-side via face-api.js's SsdMobilenetv1 detector +
+// 68-point landmarks + recognition net (see lib/faceModels.js) against the
+// live <video> element — nothing is ever uploaded as an image; only the
+// resulting 128-number descriptor leaves this component, via onCapture.
+// Detections are chained with setTimeout (not setInterval) rather than a
+// fixed interval, since SsdMobilenetv1 is noticeably slower per frame than
+// the tiny detector it replaced — a fixed interval could queue up
+// overlapping detections faster than the device can actually run them.
+const DETECT_DELAY_MS = 250;
+// Skip counting hits for the first moment after the camera stream starts —
+// a webcam's auto-exposure/focus hasn't settled yet, and capturing during
+// that window was a real source of poor-quality (and so poorly matching)
+// reference/verification shots.
+const WARMUP_MS = 900;
+const KIOSK_STABLE_HITS = 3; // consecutive good detections, post-warmup, before auto-capturing
 
 export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onError, timeoutMs, title, subtitle }) {
   const videoRef = useRef(null);
@@ -24,6 +32,7 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
   const timeoutTimerRef = useRef(null);
   const stableHitsRef = useRef(0);
   const capturedRef = useRef(false);
+  const streamStartedAtRef = useRef(0);
   const [status, setStatus] = useState('starting'); // starting | searching | found | error
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -34,10 +43,11 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
       try {
         const [faceapi, stream] = await Promise.all([
           loadFaceModels(),
-          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 } } })
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } } })
         ]);
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
+        streamStartedAtRef.current = Date.now();
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => {});
@@ -50,8 +60,8 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
           }, timeoutMs);
         }
 
-        const options = new faceapi.TinyFaceDetectorOptions();
-        detectTimerRef.current = setInterval(async () => {
+        const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+        async function detectLoop() {
           if (cancelled || capturedRef.current || !videoRef.current) return;
           const detection = await faceapi
             .detectSingleFace(videoRef.current, options)
@@ -62,16 +72,20 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
           if (!detection) {
             stableHitsRef.current = 0;
             setStatus('searching');
-            return;
-          }
-          setStatus('found');
-          stableHitsRef.current += 1;
+          } else {
+            setStatus('found');
+            var warmedUp = Date.now() - streamStartedAtRef.current >= WARMUP_MS;
+            if (warmedUp) stableHitsRef.current += 1;
 
-          if (mode === 'kiosk' && stableHitsRef.current >= KIOSK_STABLE_HITS) {
-            capturedRef.current = true;
-            onCapture(Array.from(detection.descriptor));
+            if (mode === 'kiosk' && warmedUp && stableHitsRef.current >= KIOSK_STABLE_HITS) {
+              capturedRef.current = true;
+              onCapture(Array.from(detection.descriptor));
+              return;
+            }
           }
-        }, DETECT_INTERVAL_MS);
+          detectTimerRef.current = setTimeout(detectLoop, DETECT_DELAY_MS);
+        }
+        detectLoop();
       } catch (err) {
         if (cancelled) return;
         var message = err && err.name === 'NotAllowedError'
@@ -86,7 +100,7 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
 
     return () => {
       cancelled = true;
-      if (detectTimerRef.current) clearInterval(detectTimerRef.current);
+      if (detectTimerRef.current) clearTimeout(detectTimerRef.current);
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     };
@@ -98,7 +112,7 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
     (async () => {
       const faceapi = await loadFaceModels();
       const detection = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+        .detectSingleFace(videoRef.current, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
       if (detection) {

@@ -13,7 +13,11 @@ export function loadFaceModels() {
     modelsPromise = (async () => {
       const faceapi = await import('face-api.js');
       await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+        // SsdMobilenetv1, not TinyFaceDetector — the tiny detector's looser
+        // face box/alignment was measurably letting different people match
+        // each other at the kiosk. This one is slower per frame but a kiosk
+        // tap can afford an extra second; accuracy matters more here.
+        faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
         faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
         faceapi.nets.faceRecognitionNet.loadFromUri('/models')
       ]);
