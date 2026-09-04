@@ -823,7 +823,7 @@ export default function EmployeesPage() {
                 <FaceCapture
                   mode="enroll"
                   title="Look at the camera"
-                  subtitle={'Have ' + kioskFaceTarget.firstName + ' look straight at the camera, then click Capture.'}
+                  subtitle={'Have ' + kioskFaceTarget.firstName + ' look straight at the camera, then click Capture and hold still for a moment — it takes a short burst of shots to build an accurate reference.'}
                   onCapture={submitKioskFace}
                   onCancel={() => setKioskFaceCapturing(false)}
                 />

@@ -131,13 +131,20 @@ async function getPin(ctx, employeeId) {
 // a 128-number vector produced client-side by face-api.js; no photo is ever
 // sent to or stored on the server, only this vector (see migration 0039).
 var FACE_DESCRIPTOR_LENGTH = 128;
-// face-api.js's docs cite 0.6 as its FaceMatcher default, but that's
-// calibrated against clean, well-aligned input — in practice, on a laptop/
-// kiosk webcam, 0.6 let different people match each other. 0.5 is tighter;
-// paired with the more accurate SsdMobilenetv1 detector on the capture side
-// (see FaceCapture.jsx), it should reject a different face while still
-// tolerating normal lighting/angle variation for the enrolled person.
-var FACE_MATCH_THRESHOLD = 0.5;
+// face-api.js's docs cite 0.6 as its FaceMatcher default, but 0.6 (and
+// then 0.5) both still let different people match each other in practice on
+// a laptop/kiosk webcam — that default is calibrated against cleaner input
+// than a typical webcam produces. 0.42 is deliberately tight: a standard 2D
+// webcam has no depth data to fall back on (unlike, say, an iPhone's
+// infrared TrueDepth sensor, which is what actually gets Face ID to its
+// ~1-in-1,000,000 false-accept rate — no amount of threshold tuning on a
+// flat image reaches that), so the only lever here is trading some
+// tolerance for lighting/angle variation for a much lower chance of
+// accepting the wrong person. Paired with SsdMobilenetv1 (more accurate
+// alignment than the tiny detector it replaced) and averaging several
+// samples instead of trusting one frame (see FaceCapture.jsx) on both the
+// enrollment and verification side.
+var FACE_MATCH_THRESHOLD = 0.42;
 
 function validateDescriptor(descriptor) {
   if (!Array.isArray(descriptor) || descriptor.length !== FACE_DESCRIPTOR_LENGTH) {
