@@ -126,6 +126,89 @@ async function getPin(ctx, employeeId) {
   return { hasPin: true, pin: decryptPin(emp.kiosk_pin_encrypted) };
 }
 
+// Face enrollment — HR/admin captures a reference descriptor for an
+// employee (employee.write, same gate as the PIN itself). The descriptor is
+// a 128-number vector produced client-side by face-api.js; no photo is ever
+// sent to or stored on the server, only this vector (see migration 0039).
+var FACE_DESCRIPTOR_LENGTH = 128;
+// face-api.js's own recommended threshold for its FaceMatcher — two
+// descriptors within this Euclidean distance are considered the same face.
+var FACE_MATCH_THRESHOLD = 0.6;
+
+function validateDescriptor(descriptor) {
+  if (!Array.isArray(descriptor) || descriptor.length !== FACE_DESCRIPTOR_LENGTH) {
+    fail('invalid', 'Invalid face descriptor.');
+  }
+  for (var i = 0; i < descriptor.length; i++) {
+    if (typeof descriptor[i] !== 'number' || !isFinite(descriptor[i])) fail('invalid', 'Invalid face descriptor.');
+  }
+}
+
+function euclideanDistance(a, b) {
+  var sum = 0;
+  for (var i = 0; i < a.length; i++) {
+    var d = a[i] - b[i];
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
+}
+
+async function enrollFace(ctx, employeeId, descriptor) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  validateDescriptor(descriptor);
+  var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
+  var emp = empRes.rows[0];
+  if (!emp) fail('notfound', 'Employee not found.');
+  await pool.query(
+    'UPDATE employees SET face_descriptor = $1, face_enrolled_at = now(), face_enrolled_by = $2 WHERE id = $3',
+    [JSON.stringify(descriptor), ctx.employee.id, employeeId]
+  );
+  await audit(pool, ctx, 'employee.face.enroll', 'employee', employeeId, 'Enrolled a kiosk face match for ' + emp.first_name + ' ' + emp.last_name + '.');
+  return { ok: true };
+}
+
+async function clearFace(ctx, employeeId) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
+  var emp = empRes.rows[0];
+  if (!emp) fail('notfound', 'Employee not found.');
+  await pool.query('UPDATE employees SET face_descriptor = NULL, face_enrolled_at = NULL, face_enrolled_by = NULL WHERE id = $1', [employeeId]);
+  await audit(pool, ctx, 'employee.face.clear', 'employee', employeeId, 'Cleared the kiosk face match for ' + emp.first_name + ' ' + emp.last_name + '.');
+  return { ok: true };
+}
+
+async function getFaceStatus(ctx, employeeId) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var res = await pool.query('SELECT face_enrolled_at FROM employees WHERE id = $1', [employeeId]);
+  if (!res.rows[0]) fail('notfound', 'Employee not found.');
+  return { enrolled: !!res.rows[0].face_enrolled_at, enrolledAt: res.rows[0].face_enrolled_at };
+}
+
+// kiosk.identify — resolves a PIN to the employee it belongs to, without
+// clocking anything, so the kiosk knows before capturing a camera frame
+// whether that employee has a face on file to check it against (see
+// KioskPage.jsx). Same rate limiting as clock() itself, since this is the
+// same PIN-guessing surface — an attacker gains nothing by probing this
+// endpoint instead of the real one.
+async function identify(pin, ip) {
+  checkRateLimit(ip);
+  if (!/^\d{4}$/.test(String(pin || ''))) {
+    recordFailure(ip);
+    fail('invalid', 'Enter a 4-digit PIN.');
+  }
+  var hash = hashPin(pin);
+  var empRes = await pool.query(
+    "SELECT id, first_name, last_name, face_descriptor FROM employees WHERE kiosk_pin_hash = $1 AND status = 'active'", [hash]
+  );
+  var emp = empRes.rows[0];
+  if (!emp) {
+    recordFailure(ip);
+    fail('invalid', 'Incorrect PIN.');
+  }
+  recordSuccess(ip);
+  return { employeeName: emp.first_name + ' ' + emp.last_name, requiresFace: !!emp.face_descriptor };
+}
+
 // kiosk.clock — the public, unauthenticated endpoint the iPad calls.
 // Toggles: no attendance row yet today -> clock in; a row with clock_in
 // but no clock_out -> clock out; both set -> a clean "already done" error.
@@ -137,7 +220,7 @@ async function getPin(ctx, employeeId) {
 // all, and only to correctly backdate an already-authenticated tap
 // (attendance.service.js's resolveOccurredAt still bounds/validates it) —
 // never to skip PIN verification itself.
-async function clock(pin, ip, occurredAt, location) {
+async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   checkRateLimit(ip);
   if (!/^\d{4}$/.test(String(pin || ''))) {
     recordFailure(ip);
@@ -145,12 +228,30 @@ async function clock(pin, ip, occurredAt, location) {
   }
   var hash = hashPin(pin);
   var empRes = await pool.query(
-    "SELECT id, first_name, last_name FROM employees WHERE kiosk_pin_hash = $1 AND status = 'active'", [hash]
+    "SELECT id, first_name, last_name, face_descriptor FROM employees WHERE kiosk_pin_hash = $1 AND status = 'active'", [hash]
   );
   var emp = empRes.rows[0];
   if (!emp) {
     recordFailure(ip);
     fail('invalid', 'Incorrect PIN.');
+  }
+
+  // An employee with a face on file must match it every tap — the PIN
+  // alone is no longer enough for them (that's the whole point: someone
+  // else who knows/is handed their PIN can't clock them in). Nothing
+  // changes for an employee who was never enrolled — see migration 0039's
+  // comment on why enrollment is optional/gradual.
+  if (emp.face_descriptor) {
+    if (!faceDescriptor) {
+      recordFailure(ip);
+      fail('faceRequired', 'Look at the camera to confirm it’s you.');
+    }
+    validateDescriptor(faceDescriptor);
+    var distance = euclideanDistance(emp.face_descriptor, faceDescriptor);
+    if (distance > FACE_MATCH_THRESHOLD) {
+      recordFailure(ip);
+      fail('faceMismatch', 'That face doesn’t match this PIN.');
+    }
   }
   recordSuccess(ip);
 
@@ -173,4 +274,7 @@ async function clock(pin, ip, occurredAt, location) {
   return { action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status };
 }
 
-module.exports = { setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock };
+module.exports = {
+  setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify,
+  enrollFace: enrollFace, clearFace: clearFace, getFaceStatus: getFaceStatus
+};

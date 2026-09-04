@@ -26,9 +26,12 @@ function writeAll(items) {
   }
 }
 
-export function enqueueTap(pin, occurredAt, location) {
+export function enqueueTap(pin, occurredAt, location, faceDescriptor) {
   const items = readAll();
-  items.push({ tempId: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), pin, occurredAt, location: location || null });
+  items.push({
+    tempId: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
+    pin, occurredAt, location: location || null, faceDescriptor: faceDescriptor || null
+  });
   writeAll(items);
 }
 

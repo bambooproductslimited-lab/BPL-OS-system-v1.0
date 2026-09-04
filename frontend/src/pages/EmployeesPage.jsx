@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
+import FaceCapture from '../components/FaceCapture';
 import './EmployeesPage.css';
 
 // Ported from Bamboo OS.dc.html's employee directory screen (screens.people
@@ -131,6 +132,9 @@ export default function EmployeesPage() {
   const [profileTarget, setProfileTarget] = useState(null);
   const [kioskPinTarget, setKioskPinTarget] = useState(null);
   const [kioskPinValue, setKioskPinValue] = useState('');
+  const [kioskFaceTarget, setKioskFaceTarget] = useState(null);
+  const [kioskFaceStatus, setKioskFaceStatus] = useState(null); // { enrolled, enrolledAt }
+  const [kioskFaceCapturing, setKioskFaceCapturing] = useState(false);
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncPreview, setSyncPreview] = useState(null);
@@ -306,6 +310,49 @@ export default function EmployeesPage() {
       await api.del('/employees/' + kioskPinTarget.id + '/kiosk-pin');
       setToast('Kiosk PIN cleared for ' + kioskPinTarget.firstName + ' ' + kioskPinTarget.lastName + '.');
       setDialog(null);
+    } catch (err) {
+      setDialogError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openKioskFace(emp) {
+    setDialogError(null);
+    setKioskFaceCapturing(false);
+    setKioskFaceTarget(emp);
+    setKioskFaceStatus(null);
+    setDialog('kioskFace');
+    try {
+      setKioskFaceStatus(await api.get('/employees/' + emp.id + '/kiosk-face'));
+    } catch (err) {
+      setDialogError(err.message);
+    }
+  }
+
+  async function submitKioskFace(descriptor) {
+    setSaving(true);
+    setDialogError(null);
+    try {
+      await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face', { descriptor });
+      setToast('Face enrolled for ' + kioskFaceTarget.firstName + ' ' + kioskFaceTarget.lastName + '.');
+      setKioskFaceCapturing(false);
+      setKioskFaceStatus(await api.get('/employees/' + kioskFaceTarget.id + '/kiosk-face'));
+    } catch (err) {
+      setDialogError(err.message);
+      setKioskFaceCapturing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearKioskFace() {
+    setSaving(true);
+    setDialogError(null);
+    try {
+      await api.del('/employees/' + kioskFaceTarget.id + '/kiosk-face');
+      setToast('Kiosk face cleared for ' + kioskFaceTarget.firstName + ' ' + kioskFaceTarget.lastName + '.');
+      setKioskFaceStatus({ enrolled: false, enrolledAt: null });
     } catch (err) {
       setDialogError(err.message);
     } finally {
@@ -506,6 +553,7 @@ export default function EmployeesPage() {
               canWrite && { label: 'Edit', onClick: () => openEdit(p) },
               canWrite && { label: 'ID docs', onClick: () => setIdDocsTarget(p) },
               canWrite && { label: 'Kiosk PIN', onClick: () => openKioskPin(p) },
+              canWrite && { label: 'Kiosk Face', onClick: () => openKioskFace(p) },
               canDelete && { label: 'Delete', onClick: () => openTerminate(p), tone: 'danger' }
             ].filter(Boolean);
             return (
@@ -735,6 +783,54 @@ export default function EmployeesPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {dialog === 'kioskFace' && kioskFaceTarget && (
+        <div className="dialog-backdrop" onClick={() => setDialog(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Kiosk face match — {kioskFaceTarget.firstName} {kioskFaceTarget.lastName}</h2>
+            <p className="dialog-body">
+              Once enrolled, {kioskFaceTarget.firstName} has to look at the kiosk's camera to confirm it's them
+              every time they tap their PIN — the PIN alone stops being enough. Nothing is stored except the
+              measurements the camera captures right now; no photo is kept.
+            </p>
+            {dialogError && <div className="error-banner">{dialogError}</div>}
+            {!kioskFaceCapturing && (
+              <>
+                <p className="dialog-body">
+                  {kioskFaceStatus === null && 'Loading…'}
+                  {kioskFaceStatus && !kioskFaceStatus.enrolled && 'Not enrolled — the PIN alone still clocks them in and out.'}
+                  {kioskFaceStatus && kioskFaceStatus.enrolled && (
+                    'Enrolled' + (kioskFaceStatus.enrolledAt ? ' on ' + new Date(kioskFaceStatus.enrolledAt).toLocaleDateString() : '') + '.'
+                  )}
+                </p>
+                <div className="dialog-actions">
+                  {kioskFaceStatus && kioskFaceStatus.enrolled && (
+                    <button type="button" className="btn btn-secondary" onClick={clearKioskFace} disabled={saving}>
+                      {saving ? 'Clearing…' : 'Clear'}
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Close</button>
+                  <button type="button" className="btn btn-primary" disabled={kioskFaceStatus === null} onClick={() => setKioskFaceCapturing(true)}>
+                    {kioskFaceStatus && kioskFaceStatus.enrolled ? 'Re-enroll' : 'Enroll face'}
+                  </button>
+                </div>
+              </>
+            )}
+            {kioskFaceCapturing && (
+              <>
+                <FaceCapture
+                  mode="enroll"
+                  title="Look at the camera"
+                  subtitle={'Have ' + kioskFaceTarget.firstName + ' look straight at the camera, then click Capture.'}
+                  onCapture={submitKioskFace}
+                  onCancel={() => setKioskFaceCapturing(false)}
+                />
+                {saving && <p className="dialog-body">Saving…</p>}
+              </>
+            )}
+          </div>
         </div>
       )}
 

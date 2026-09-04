@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/offlineQueue';
 import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
+import FaceCapture from '../components/FaceCapture';
 import './KioskPage.css';
 
 // The clock-in/out kiosk — a full-screen, standalone page meant to be
@@ -40,6 +41,15 @@ import './KioskPage.css';
 const PIN_LENGTH = 4;
 const RESULT_DISPLAY_MS = 3500;
 const FLUSH_INTERVAL_MS = 20000;
+// requiresFace came back true from /kiosk/identify — the server knows this
+// PIN belongs to an enrolled employee, so a face capture is mandatory
+// before we're willing to try again.
+const FACE_TIMEOUT_REQUIRED_MS = 15000;
+// We couldn't reach /kiosk/identify at all (offline) so we don't actually
+// know whether this PIN needs a face — try briefly anyway (see
+// handlePinComplete's comment), but don't hold up a PIN-only employee's
+// tap for long while the device has no connectivity regardless.
+const FACE_TIMEOUT_OFFLINE_MS = 6000;
 
 const ICON_PATHS = {
   checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
@@ -83,8 +93,9 @@ function useClock() {
 export default function KioskPage() {
   const [pin, setPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null); // { kind: 'ok'|'error'|'pending', action, employeeName, time, message }
+  const [result, setResult] = useState(null); // { kind: 'ok'|'error'|'pending', action, employeeName, time, status, message }
   const [pendingCount, setPendingCount] = useState(0);
+  const [faceStage, setFaceStage] = useState(null); // { pin, optional } while the camera step is showing
   const resultTimerRef = useRef(null);
   const flushingRef = useRef(false);
   const locationRef = useRef(null); // latest GPS fix, kept fresh by watchPosition below
@@ -143,7 +154,9 @@ export default function KioskPage() {
       for (const item of items) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          await api.post('/kiosk/clock', { pin: item.pin, occurredAt: item.occurredAt, location: item.location });
+          await api.post('/kiosk/clock', {
+            pin: item.pin, occurredAt: item.occurredAt, location: item.location, faceDescriptor: item.faceDescriptor
+          });
           removeFromQueue(item.tempId);
         } catch (err) {
           if (err instanceof ApiError) removeFromQueue(item.tempId);
@@ -156,11 +169,11 @@ export default function KioskPage() {
     }
   }
 
-  async function submitPin(fullPin) {
+  async function submitPin(fullPin, faceDescriptor) {
     setSubmitting(true);
     try {
-      const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current });
-      setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time });
+      const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
+      setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time, status: r.status });
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
@@ -168,7 +181,7 @@ export default function KioskPage() {
         setResult({ kind: 'error', message: err.message || 'Something went wrong.' });
         playWrongPin();
       } else {
-        enqueueTap(fullPin, new Date().toISOString(), locationRef.current);
+        enqueueTap(fullPin, new Date().toISOString(), locationRef.current, faceDescriptor);
         setPendingCount(queueLength());
         setResult({ kind: 'pending' });
       }
@@ -179,12 +192,49 @@ export default function KioskPage() {
     }
   }
 
+  function showErrorResult(message) {
+    setPin('');
+    setResult({ kind: 'error', message });
+    playWrongPin();
+    resultTimerRef.current = setTimeout(() => setResult(null), RESULT_DISPLAY_MS);
+  }
+
+  // A PIN alone used to be enough to clock in/out; now, for an employee HR
+  // has enrolled a face for, it also has to be their face. /kiosk/identify
+  // resolves the PIN without clocking anything, purely so we know whether
+  // to bother with the camera at all — most employees still have no face
+  // on file (see migration 0039), and they should keep tapping in exactly
+  // as fast as before.
+  async function handlePinComplete(fullPin) {
+    if (submitting || result || faceStage) return;
+    setSubmitting(true);
+    try {
+      const r = await api.post('/kiosk/identify', { pin: fullPin });
+      setSubmitting(false);
+      if (r.requiresFace) {
+        setFaceStage({ pin: fullPin, optional: false });
+      } else {
+        submitPin(fullPin);
+      }
+    } catch (err) {
+      setSubmitting(false);
+      if (err instanceof ApiError) {
+        showErrorResult(err.message || 'Something went wrong.');
+      } else {
+        // Offline — we can't ask the server whether this PIN needs a face,
+        // so try briefly for one anyway (covers an enrolled employee
+        // tapping during an outage) without holding up everyone else long.
+        setFaceStage({ pin: fullPin, optional: true });
+      }
+    }
+  }
+
   function tapDigit(d) {
-    if (submitting || result) return;
+    if (submitting || result || faceStage) return;
     unlockAudio();
     const next = pin + d;
     setPin(next);
-    if (next.length === PIN_LENGTH) submitPin(next);
+    if (next.length === PIN_LENGTH) handlePinComplete(next);
   }
   function tapClear() { if (!submitting) setPin(''); }
   function tapBackspace() { if (!submitting) setPin(pin.slice(0, -1)); }
@@ -219,6 +269,11 @@ export default function KioskPage() {
                 <div className="kiosk-result-title">{result.action === 'in' ? 'Clocked in' : 'Clocked out'}</div>
                 <div className="kiosk-result-name">{result.employeeName}</div>
                 <div className="kiosk-result-time">{result.time}</div>
+                {result.action === 'in' && result.status && (
+                  <div className={'kiosk-result-late' + (result.status === 'late' ? ' kiosk-result-late-yes' : '')}>
+                    {result.status === 'late' ? "You're late" : "You're on time"}
+                  </div>
+                )}
               </>
             )}
             {result.kind === 'pending' && (
@@ -230,6 +285,33 @@ export default function KioskPage() {
             {result.kind === 'error' && (
               <div className="kiosk-result-title">{result.message}</div>
             )}
+          </div>
+        ) : faceStage ? (
+          <div className="kiosk-face-wrap">
+            <FaceCapture
+              mode="kiosk"
+              title="Confirm it's you"
+              subtitle="Hold still and look at the camera to finish clocking in or out."
+              timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
+              onCapture={(descriptor) => {
+                const p = faceStage.pin;
+                setFaceStage(null);
+                submitPin(p, descriptor);
+              }}
+              onCancel={() => { setFaceStage(null); setPin(''); }}
+              onTimeout={() => {
+                const p = faceStage.pin, optional = faceStage.optional;
+                setFaceStage(null);
+                if (optional) submitPin(p);
+                else showErrorResult("Couldn't see your face clearly — try again.");
+              }}
+              onError={(message) => {
+                const p = faceStage.pin, optional = faceStage.optional;
+                setFaceStage(null);
+                if (optional) submitPin(p);
+                else showErrorResult(message);
+              }}
+            />
           </div>
         ) : (
           <div className="kiosk-pad-wrap">

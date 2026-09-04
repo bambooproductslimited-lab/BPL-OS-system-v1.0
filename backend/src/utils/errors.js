@@ -3,6 +3,8 @@
 // mapped to real HTTP status codes here instead of an { ok:false } envelope.
 var STATUS_BY_CODE = {
   invalid: 400,
+  faceRequired: 400,
+  faceMismatch: 400,
   auth: 401,
   forbidden: 403,
   password_change_required: 403,
