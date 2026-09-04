@@ -330,11 +330,11 @@ export default function EmployeesPage() {
     }
   }
 
-  async function submitKioskFace(descriptor) {
+  async function submitKioskFace(descriptors) {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face', { descriptor });
+      await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face', { descriptors });
       setToast('Face enrolled for ' + kioskFaceTarget.firstName + ' ' + kioskFaceTarget.lastName + '.');
       setKioskFaceCapturing(false);
       setKioskFaceStatus(await api.get('/employees/' + kioskFaceTarget.id + '/kiosk-face'));
@@ -823,7 +823,7 @@ export default function EmployeesPage() {
                 <FaceCapture
                   mode="enroll"
                   title="Look at the camera"
-                  subtitle={'Have ' + kioskFaceTarget.firstName + ' look straight at the camera, then click Capture and hold still for a moment — it takes a short burst of shots to build an accurate reference.'}
+                  subtitle={'Have ' + kioskFaceTarget.firstName + ' look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down), about 10 seconds, to build a reference that holds up at whatever angle they happen to be at the kiosk.'}
                   onCapture={submitKioskFace}
                   onCancel={() => setKioskFaceCapturing(false)}
                 />

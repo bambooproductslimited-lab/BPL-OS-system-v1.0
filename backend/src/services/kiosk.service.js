@@ -126,11 +126,21 @@ async function getPin(ctx, employeeId) {
   return { hasPin: true, pin: decryptPin(emp.kiosk_pin_encrypted) };
 }
 
-// Face enrollment — HR/admin captures a reference descriptor for an
-// employee (employee.write, same gate as the PIN itself). The descriptor is
-// a 128-number vector produced client-side by face-api.js; no photo is ever
-// sent to or stored on the server, only this vector (see migration 0039).
+// Face enrollment — HR/admin captures a reference descriptor SET for an
+// employee (employee.write, same gate as the PIN itself): several
+// 128-number vectors, one per head angle (straight on, turned left/right,
+// tilted up/down — see FaceCapture.jsx's guided pose walk), not a single
+// shot. A verification frame only has to be close to the nearest of these,
+// which is what actually makes the match tolerant of whatever angle
+// someone happens to be at when they look at the kiosk — the same reason
+// Face ID has you move your head in a circle during its own setup. No
+// photo is ever sent to or stored on the server, only these vectors (see
+// migration 0039 — the column predates the move from one vector to a set,
+// but jsonb doesn't care, and normalizeDescriptorSet below still accepts an
+// old single-vector row as a one-pose set).
 var FACE_DESCRIPTOR_LENGTH = 128;
+var MIN_POSE_SAMPLES = 2;
+var MAX_POSE_SAMPLES = 8;
 // face-api.js's docs cite 0.6 as its FaceMatcher default, but 0.6 (and
 // then 0.5) both still let different people match each other in practice on
 // a laptop/kiosk webcam — that default is calibrated against cleaner input
@@ -155,6 +165,23 @@ function validateDescriptor(descriptor) {
   }
 }
 
+function validateDescriptorSet(set) {
+  if (!Array.isArray(set) || set.length < MIN_POSE_SAMPLES || set.length > MAX_POSE_SAMPLES) {
+    fail('invalid', 'Expected between ' + MIN_POSE_SAMPLES + ' and ' + MAX_POSE_SAMPLES + ' captured face angles.');
+  }
+  for (var i = 0; i < set.length; i++) validateDescriptor(set[i]);
+}
+
+// A row written before enrollment moved from one vector to a pose set (see
+// module comment above) still has a single flat array of 128 numbers in
+// face_descriptor rather than an array of those — treat that as a
+// one-pose set rather than erroring, so an old enrollment quietly keeps
+// working (just without the multi-angle tolerance a re-enrollment gets).
+function normalizeDescriptorSet(raw) {
+  if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'number') return [raw];
+  return raw;
+}
+
 function euclideanDistance(a, b) {
   var sum = 0;
   for (var i = 0; i < a.length; i++) {
@@ -164,17 +191,26 @@ function euclideanDistance(a, b) {
   return Math.sqrt(sum);
 }
 
-async function enrollFace(ctx, employeeId, descriptor) {
+function nearestDistance(enrolledSet, descriptor) {
+  var min = Infinity;
+  for (var i = 0; i < enrolledSet.length; i++) {
+    var d = euclideanDistance(enrolledSet[i], descriptor);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+async function enrollFace(ctx, employeeId, descriptorSet) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
-  validateDescriptor(descriptor);
+  validateDescriptorSet(descriptorSet);
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
   await pool.query(
     'UPDATE employees SET face_descriptor = $1, face_enrolled_at = now(), face_enrolled_by = $2 WHERE id = $3',
-    [JSON.stringify(descriptor), ctx.employee.id, employeeId]
+    [JSON.stringify(descriptorSet), ctx.employee.id, employeeId]
   );
-  await audit(pool, ctx, 'employee.face.enroll', 'employee', employeeId, 'Enrolled a kiosk face match for ' + emp.first_name + ' ' + emp.last_name + '.');
+  await audit(pool, ctx, 'employee.face.enroll', 'employee', employeeId, 'Enrolled a kiosk face match (' + descriptorSet.length + ' angles) for ' + emp.first_name + ' ' + emp.last_name + '.');
   return { ok: true };
 }
 
@@ -258,7 +294,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
       fail('faceRequired', 'Look at the camera to confirm it’s you.');
     }
     validateDescriptor(faceDescriptor);
-    var distance = euclideanDistance(emp.face_descriptor, faceDescriptor);
+    var distance = nearestDistance(normalizeDescriptorSet(emp.face_descriptor), faceDescriptor);
     if (distance > FACE_MATCH_THRESHOLD) {
       recordFailure(ip);
       fail('faceMismatch', 'That face doesn’t match this PIN.');

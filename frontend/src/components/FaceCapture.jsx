@@ -6,34 +6,46 @@ import './FaceCapture.css';
 // tap against an enrolled face — mode="kiosk", hands-free, auto-captures
 // once a steady run of samples is collected so nobody has to find a button
 // on a wall-mounted iPad) and the Employee profile (HR enrolling a
-// reference face — mode="enroll", requires an explicit Capture click so HR
-// controls the moment, then the employee holds still through a short burst
-// of samples).
+// reference — mode="enroll", requires an explicit Capture click, then
+// walks the employee through a few head angles).
 //
 // Detection runs client-side via face-api.js's SsdMobilenetv1 detector +
 // 68-point landmarks + recognition net (see lib/faceModels.js) against the
 // live <video> element — nothing is ever uploaded as an image; only the
-// resulting 128-number descriptor leaves this component, via onCapture.
+// resulting 128-number descriptor(s) leave this component, via onCapture.
 // Detections are chained with setTimeout (not setInterval), since
 // SsdMobilenetv1 is slow enough per frame that a fixed interval could queue
 // overlapping detections faster than the device can actually run them.
 //
-// Averaging multiple samples (rather than trusting whichever single frame
-// happened to be captured) matters a lot for real-world accuracy: one
-// slightly blurry, off-angle, or badly lit frame is a common, mundane cause
-// of a false match or a false reject, and there's no way to know in advance
-// which frame that will be. Taking several a fraction of a second apart and
-// averaging cancels most of that noise out — this is the single biggest
-// lever available without different camera hardware (see the module
-// comment in kiosk.service.js on the 2D-webcam-vs-depth-sensor ceiling).
+// Enrollment captures a SET of descriptors, one per head pose (straight on,
+// turned left/right, tilted up/down), each itself an average of a couple of
+// frames — onCapture(descriptorSet) receives an array of vectors, not one
+// vector. This mirrors how Face ID's own setup has you move your head in a
+// circle: verification only has to land close to the NEAREST enrolled
+// angle (see kiosk.service.js's nearestDistance), so it stays reliable no
+// matter what angle someone happens to be at when they glance at the
+// kiosk. Kiosk verification is the opposite shape on purpose — a person
+// tapping in isn't going to tilt through a sequence of poses for a two-
+// second clock-in, so it captures one steady, averaged reading and leaves
+// the angle-tolerance work to what was captured at enrollment.
 const DETECT_DELAY_MS = 250;
 // Skip counting samples for the first moment after the camera stream
 // starts — a webcam's auto-exposure/focus hasn't settled yet, and that
 // window was a real source of poor-quality reference/verification shots.
 const WARMUP_MS = 900;
 const KIOSK_SAMPLE_COUNT = 4; // consecutive good detections, post-warmup, averaged into one capture
-const ENROLL_SAMPLE_COUNT = 5; // deliberate burst, spaced out, once HR clicks Capture
-const ENROLL_SAMPLE_GAP_MS = 350;
+
+const ENROLL_POSES = [
+  { label: 'Look straight at the camera' },
+  { label: 'Slowly turn your head to your left' },
+  { label: 'Slowly turn your head to your right' },
+  { label: 'Tilt your chin up slightly' },
+  { label: 'Tilt your chin down slightly' }
+];
+const POSE_SETTLE_MS = 1100; // time to actually move into the new position before it's trusted
+const POSE_FRAMES = 2; // frames captured & averaged per pose
+const POSE_FRAME_GAP_MS = 300;
+const POSE_MAX_ATTEMPTS = 6; // detection attempts per pose before giving up on it (lost face, moved too far)
 
 function averageDescriptors(samples) {
   var len = samples[0].length;
@@ -45,6 +57,8 @@ function averageDescriptors(samples) {
   return out;
 }
 
+function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
 export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onError, timeoutMs, title, subtitle }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -55,7 +69,7 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
   const streamStartedAtRef = useRef(0);
   const [status, setStatus] = useState('starting'); // starting | searching | found | capturing | error
   const [errorMessage, setErrorMessage] = useState('');
-  const [captureProgress, setCaptureProgress] = useState(0);
+  const [poseIndex, setPoseIndex] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,10 +142,12 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Enrollment: a deliberate burst of several samples spaced out, so a
-  // single bad frame can't become the one-and-only reference for this
-  // person. HR keeps the employee looking at the camera through the whole
-  // burst — the progress text below tells them when it's done.
+  // Enrollment: walks through ENROLL_POSES in sequence — each pose gets a
+  // settle pause (time to actually move into it), then a couple of frames
+  // captured and averaged into that pose's descriptor. A pose that never
+  // sees a face within its attempt budget (lost/moved too far) is simply
+  // skipped rather than blocking forever; the whole thing only fails if
+  // fewer than 2 poses came back with anything.
   function captureNow() {
     if (capturedRef.current || status !== 'found' || !videoRef.current) return;
     capturedRef.current = true; // stop the background detectLoop; this function drives its own sampling now
@@ -139,32 +155,45 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
     (async () => {
       const faceapi = await loadFaceModels();
       const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
-      const collected = [];
-      for (let i = 0; i < ENROLL_SAMPLE_COUNT; i++) {
-        setCaptureProgress(i + 1);
+      const poseDescriptors = [];
+
+      for (let p = 0; p < ENROLL_POSES.length; p++) {
+        setPoseIndex(p);
         // eslint-disable-next-line no-await-in-loop
-        const detection = await faceapi
-          .detectSingleFace(videoRef.current, options)
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-        if (detection) collected.push(Array.from(detection.descriptor));
-        if (i < ENROLL_SAMPLE_COUNT - 1) {
+        await wait(POSE_SETTLE_MS);
+
+        const frames = [];
+        let attempts = 0;
+        while (frames.length < POSE_FRAMES && attempts < POSE_MAX_ATTEMPTS) {
+          attempts += 1;
           // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => setTimeout(resolve, ENROLL_SAMPLE_GAP_MS));
+          const detection = await faceapi
+            .detectSingleFace(videoRef.current, options)
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+          if (detection) frames.push(Array.from(detection.descriptor));
+          if (frames.length < POSE_FRAMES && attempts < POSE_MAX_ATTEMPTS) {
+            // eslint-disable-next-line no-await-in-loop
+            await wait(POSE_FRAME_GAP_MS);
+          }
         }
+        if (frames.length > 0) poseDescriptors.push(averageDescriptors(frames));
       }
-      if (collected.length === 0) {
-        // Lost the face mid-burst (moved, blinked through every frame,
-        // lighting changed) — let them try the whole thing again rather
-        // than enrolling off of nothing.
+
+      if (poseDescriptors.length < 2) {
+        // Lost the face through most of the walk (moved away, bad
+        // lighting) — let them try the whole thing again rather than
+        // enrolling off of one or zero angles.
         capturedRef.current = false;
-        setCaptureProgress(0);
+        setPoseIndex(0);
         setStatus('found');
         return;
       }
-      onCapture(averageDescriptors(collected));
+      onCapture(poseDescriptors);
     })();
   }
+
+  const posesDone = mode === 'enroll' && status === 'capturing';
 
   return (
     <div className="facecap">
@@ -176,10 +205,13 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
         {status === 'starting' && 'Starting camera…'}
         {status === 'searching' && (title || 'Look at the camera')}
         {status === 'found' && (mode === 'kiosk' ? 'Got it…' : 'Face found — capture when ready')}
-        {status === 'capturing' && 'Hold still — capturing ' + captureProgress + '/' + ENROLL_SAMPLE_COUNT + '…'}
+        {posesDone && (ENROLL_POSES[poseIndex] ? ENROLL_POSES[poseIndex].label : 'Almost done…')}
         {status === 'error' && errorMessage}
       </div>
-      {subtitle && status !== 'error' && <div className="facecap-subtitle">{subtitle}</div>}
+      {posesDone && (
+        <div className="facecap-pose-progress">Angle {poseIndex + 1} of {ENROLL_POSES.length}</div>
+      )}
+      {subtitle && status !== 'error' && !posesDone && <div className="facecap-subtitle">{subtitle}</div>}
       <div className="facecap-actions">
         {mode === 'enroll' && status !== 'error' && (
           <button type="button" className="btn btn-primary" disabled={status !== 'found'} onClick={captureNow}>Capture</button>

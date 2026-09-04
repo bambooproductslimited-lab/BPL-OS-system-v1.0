@@ -104,7 +104,7 @@ router.get('/:id/kiosk-face', async function (req, res, next) {
   try { res.json(await kioskService.getFaceStatus(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 router.post('/:id/kiosk-face', async function (req, res, next) {
-  try { res.json(await kioskService.enrollFace(req.ctx, req.params.id, req.body.descriptor)); } catch (e) { next(e); }
+  try { res.json(await kioskService.enrollFace(req.ctx, req.params.id, req.body.descriptors)); } catch (e) { next(e); }
 });
 router.delete('/:id/kiosk-face', async function (req, res, next) {
   try { res.json(await kioskService.clearFace(req.ctx, req.params.id)); } catch (e) { next(e); }
