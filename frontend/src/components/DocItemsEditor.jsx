@@ -1,3 +1,4 @@
+import { money } from '../lib/currency';
 import './DocItemsEditor.css';
 
 // Shared line-item editor used identically by the New Quotation, New
@@ -44,8 +45,9 @@ export function applyCatalogItem(items, idx, catalogId, catalogOptions) {
   return items.map((it, i) => (i === idx ? { ...it, description: c.name, unit: c.unit, unitPrice: c.unitPrice, qty: c.defaultQty || 1 } : it));
 }
 
-export default function DocItemsEditor({ items, onChange, catalogOptions }) {
+export default function DocItemsEditor({ items, onChange, catalogOptions, currency }) {
   const totals = computeDocTotals(items);
+  const cur = currency || 'GHS';
 
   function setField(idx, key, value) {
     onChange(items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)));
@@ -67,7 +69,7 @@ export default function DocItemsEditor({ items, onChange, catalogOptions }) {
         <table className="table doc-items-table">
           <thead>
             <tr>
-              <th>Item</th><th>Qty</th><th>Unit</th><th>Price (GHS)</th><th>Disc.</th><th>Type</th><th>Tax %</th><th>Line total</th><th></th>
+              <th>Item</th><th>Qty</th><th>Unit</th><th>Price ({cur})</th><th>Disc.</th><th>Type</th><th>Tax %</th><th>Line total</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -76,7 +78,7 @@ export default function DocItemsEditor({ items, onChange, catalogOptions }) {
                 <td className="doc-items-desc-cell">
                   <select className="input doc-items-catalog-picker" value="" onChange={(e) => pickCatalog(idx, e.target.value)}>
                     <option value="">From catalogue…</option>
-                    {(catalogOptions || []).map((c) => <option key={c.id} value={c.id}>{c.name} — GHS {c.unitPrice.toLocaleString()}</option>)}
+                    {(catalogOptions || []).map((c) => <option key={c.id} value={c.id}>{c.name} — {money(c.unitPrice, cur)}</option>)}
                   </select>
                   <input className="input" value={it.description} onChange={(e) => setField(idx, 'description', e.target.value)} placeholder="Description" />
                 </td>
@@ -86,11 +88,11 @@ export default function DocItemsEditor({ items, onChange, catalogOptions }) {
                 <td><input className="input" type="number" value={it.discount} onChange={(e) => setField(idx, 'discount', e.target.value)} /></td>
                 <td>
                   <select className="input" value={it.discountType} onChange={(e) => setField(idx, 'discountType', e.target.value)}>
-                    <option value="fixed">GHS</option><option value="percent">%</option>
+                    <option value="fixed">{cur}</option><option value="percent">%</option>
                   </select>
                 </td>
                 <td><input className="input" type="number" value={it.taxRate} onChange={(e) => setField(idx, 'taxRate', e.target.value)} /></td>
-                <td className="doc-items-total-cell">GHS {lineTotal(it).toLocaleString()}</td>
+                <td className="doc-items-total-cell">{money(lineTotal(it), cur)}</td>
                 <td>{items.length > 1 && <button type="button" className="btn btn-secondary doc-items-remove" onClick={() => removeLine(idx)}>✕</button>}</td>
               </tr>
             ))}
@@ -99,10 +101,10 @@ export default function DocItemsEditor({ items, onChange, catalogOptions }) {
       </div>
       <button type="button" className="btn btn-secondary doc-items-add" onClick={addLine}>+ Add line</button>
       <div className="doc-items-footer">
-        <div>Subtotal <strong>GHS {totals.subtotal.toLocaleString()}</strong></div>
-        <div>Discount <strong>GHS {totals.discountTotal.toLocaleString()}</strong></div>
-        <div>Tax <strong>GHS {totals.taxTotal.toLocaleString()}</strong></div>
-        <div>Total <strong className="doc-items-grand-total">GHS {totals.grandTotal.toLocaleString()}</strong></div>
+        <div>Subtotal <strong>{money(totals.subtotal, cur)}</strong></div>
+        <div>Discount <strong>{money(totals.discountTotal, cur)}</strong></div>
+        <div>Tax <strong>{money(totals.taxTotal, cur)}</strong></div>
+        <div>Total <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
       </div>
     </div>
   );

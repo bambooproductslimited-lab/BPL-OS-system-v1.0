@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import ReceiptPreview from '../components/ReceiptPreview';
+import { money } from '../lib/currency';
 import './ReceiptsPage.css';
 
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
@@ -86,10 +87,10 @@ export default function ReceiptsPage() {
               <td style={{ fontWeight: 600 }}>{r.receiptNo}</td>
               <td>{r.invoiceNo}</td>
               <td>{r.customerName}</td>
-              <td>GHS {r.amount.toLocaleString()}</td>
+              <td>{money(r.amount, r.currency)}</td>
               <td>{fmtDate(r.date)}</td>
               <td className="receipts-method">{r.method.replace('_', ' ')}</td>
-              <td>GHS {r.balanceAfter.toLocaleString()}</td>
+              <td>{money(r.balanceAfter, r.currency)}</td>
               <td className="table-actions">
                 <button type="button" className="btn btn-secondary receipts-row-btn" onClick={() => { setShareError(null); setPreviewR(r); }}>Preview</button>
               </td>

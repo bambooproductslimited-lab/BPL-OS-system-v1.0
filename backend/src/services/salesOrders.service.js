@@ -7,7 +7,7 @@ var { todayISO, loadLineItems, insertLineItems } = require('../utils/documents')
 async function rowToOrder(db, r, extra) {
   var items = await loadLineItems(db, 'sales_order', r.id);
   return Object.assign({
-    id: r.id, orderNo: r.order_no, customerId: r.customer_id, quotationId: r.quotation_id, items: items,
+    id: r.id, orderNo: r.order_no, customerId: r.customer_id, quotationId: r.quotation_id, items: items, currency: r.currency,
     total: Number(r.total), status: r.status, createdAt: r.created_at, createdBy: r.created_by
   }, extra || {});
 }
@@ -37,12 +37,12 @@ async function createFromQuotation(ctx, quotationId) {
 
   var newId = await withTransaction(async function (client) {
     var res = await client.query(
-      "INSERT INTO sales_orders (order_no, customer_id, quotation_id, total, status, created_by) VALUES ($1,$2,$3,$4,'pending',$5) RETURNING *",
-      [orderNo, q.customer_id, q.id, q.grand_total, ctx.employee.id]
+      "INSERT INTO sales_orders (order_no, customer_id, quotation_id, total, status, created_by, currency) VALUES ($1,$2,$3,$4,'pending',$5,$6) RETURNING *",
+      [orderNo, q.customer_id, q.id, q.grand_total, ctx.employee.id, q.currency]
     );
     var o = res.rows[0];
     await insertLineItems(client, 'sales_order', o.id, items);
-    await audit(client, ctx, 'salesorder.create', 'sales_order', o.id, 'Created ' + o.order_no + ' from ' + q.quote_no + ' (GHS ' + Number(q.grand_total).toLocaleString() + ').');
+    await audit(client, ctx, 'salesorder.create', 'sales_order', o.id, 'Created ' + o.order_no + ' from ' + q.quote_no + ' (' + q.currency + ' ' + Number(q.grand_total).toLocaleString() + ').');
     return o.id;
   });
 

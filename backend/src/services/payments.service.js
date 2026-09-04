@@ -38,7 +38,7 @@ async function remove(ctx, id) {
   var paidAt = status === 'paid' ? i.paid_at : null;
   await pool.query('UPDATE invoices SET amount_paid = $1, balance_due = $2, status = $3, paid_at = $4 WHERE id = $5', [amountPaid, balanceDue, status, paidAt, i.id]);
 
-  await audit(pool, ctx, 'payment.delete', 'invoice', i.id, 'Removed GHS ' + Number(pay.amount).toLocaleString() + ' payment from ' + i.invoice_no + '.');
+  await audit(pool, ctx, 'payment.delete', 'invoice', i.id, 'Removed ' + pay.currency + ' ' + Number(pay.amount).toLocaleString() + ' payment from ' + i.invoice_no + '.');
   return true;
 }
 

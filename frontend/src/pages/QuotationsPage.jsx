@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { money } from '../lib/currency';
 import './QuotationsPage.css';
 
 // Ported from Bamboo OS.dc.html's quotations screen (screens.quotations
@@ -54,7 +55,7 @@ function quoteBucket(status) {
 }
 function quoteTagClass(status) { return docTagClass(quoteBucket(status)); }
 
-const EMPTY_FORM = { customerId: '', title: '', validUntil: '', notes: '' };
+const EMPTY_FORM = { customerId: '', title: '', validUntil: '', notes: '', currency: '' };
 
 export default function QuotationsPage() {
   const { can } = useAuth();
@@ -67,6 +68,7 @@ export default function QuotationsPage() {
   const [quotations, setQuotations] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  const [currencies, setCurrencies] = useState(['GHS']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -96,6 +98,14 @@ export default function QuotationsPage() {
     } finally {
       setLoading(false);
     }
+    // Best-effort: the currency picker falls back to just GHS if this
+    // fails (e.g. a role without employee.read, which /settings requires
+    // since it also carries integration API keys) rather than blocking the
+    // whole page over a field that only matters inside the dialog.
+    try {
+      const settings = await api.get('/settings');
+      if (settings.commercial && settings.commercial.currencies) setCurrencies(settings.commercial.currencies);
+    } catch (err) { /* ignore */ }
   }, [canSeeCustomers, canSeeCatalog]);
 
   useEffect(() => { load(); }, [load]);
@@ -118,7 +128,7 @@ export default function QuotationsPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.post('/quotations', { customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes });
+      await api.post('/quotations', { customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes, currency: form.currency || undefined });
       setToast('Quotation created.');
       setDialogOpen(false);
       await load();
@@ -195,7 +205,7 @@ export default function QuotationsPage() {
                 </td>
                 <td>{q.customerName}</td>
                 <td className="quotations-items-line">{q.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
-                <td>GHS {q.grandTotal.toLocaleString()}</td>
+                <td>{money(q.grandTotal, q.currency)}</td>
                 <td>{fmtDate(q.validUntil)}</td>
                 <td><span className={'tag ' + quoteTagClass(q.status)}>{q.status}</span></td>
                 <td className="table-actions">
@@ -241,11 +251,21 @@ export default function QuotationsPage() {
                 <input id="q-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Quotation for ..." />
               </div>
               <div className="field">
+                <label htmlFor="q-currency">Currency</label>
+                <select id="q-currency" className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+                  <option value="">Customer's default</option>
+                  {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="field">
                 <label htmlFor="q-valid">Valid until</label>
                 <input id="q-valid" className="input" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
               </div>
             </div>
-            <DocItemsEditor items={items} onChange={setItems} catalogOptions={catalog} />
+            <DocItemsEditor
+              items={items} onChange={setItems} catalogOptions={catalog}
+              currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
+            />
             <div className="field">
               <label htmlFor="q-notes">Notes to client</label>
               <textarea id="q-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -267,13 +287,13 @@ export default function QuotationsPage() {
           subHeading={'Valid until ' + fmtDate(previewQ.validUntil)}
           blocks={[
             { title: 'Customer', lines: [previewQ.customerName, previewQ.customerEmail] },
-            { title: 'Quotation Details', lines: ['Created ' + fmtDate(previewQ.createdAt), 'GHS ' + previewQ.grandTotal.toLocaleString()] },
-            { title: 'Validity', lines: ['Valid until ' + fmtDate(previewQ.validUntil), 'GHS ' + previewQ.grandTotal.toLocaleString()] }
+            { title: 'Quotation Details', lines: ['Created ' + fmtDate(previewQ.createdAt), money(previewQ.grandTotal, previewQ.currency)] },
+            { title: 'Validity', lines: ['Valid until ' + fmtDate(previewQ.validUntil), money(previewQ.grandTotal, previewQ.currency)] }
           ]}
-          items={previewQ.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: 'GHS ' + i.unitPrice.toLocaleString(), lineTotal: 'GHS ' + Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)).toLocaleString() }))}
-          subtotal={'GHS ' + previewQ.subtotal.toLocaleString()}
+          items={previewQ.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: money(i.unitPrice, previewQ.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewQ.currency) }))}
+          subtotal={money(previewQ.subtotal, previewQ.currency)}
           totalLabel="Grand Total"
-          total={'GHS ' + previewQ.grandTotal.toLocaleString()}
+          total={money(previewQ.grandTotal, previewQ.currency)}
           notesLabel="Notes"
           notesValue={previewQ.notes}
           termsLabel="Terms & conditions"

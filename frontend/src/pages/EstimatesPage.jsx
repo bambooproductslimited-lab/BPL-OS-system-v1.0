@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { money } from '../lib/currency';
 import './EstimatesPage.css';
 
 // Ported from Bamboo OS.dc.html's estimates screen (screens.estimates block,
@@ -62,7 +63,7 @@ function estimateBucket(status) {
 }
 function estimateTagClass(status) { return docTagClass(estimateBucket(status)); }
 
-const EMPTY_FORM = { customerId: '', validUntil: '', internalNotes: '', clientNotes: '' };
+const EMPTY_FORM = { customerId: '', validUntil: '', internalNotes: '', clientNotes: '', currency: '' };
 
 export default function EstimatesPage() {
   const { can } = useAuth();
@@ -74,6 +75,7 @@ export default function EstimatesPage() {
   const [estimates, setEstimates] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  const [currencies, setCurrencies] = useState(['GHS']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -107,6 +109,10 @@ export default function EstimatesPage() {
     } finally {
       setLoading(false);
     }
+    try {
+      const settings = await api.get('/settings');
+      if (settings.commercial && settings.commercial.currencies) setCurrencies(settings.commercial.currencies);
+    } catch (err) { /* ignore — falls back to GHS only, see QuotationsPage's identical comment */ }
   }, [canSeeCustomers, canSeeCatalog]);
 
   useEffect(() => { load(); }, [load]);
@@ -128,7 +134,7 @@ export default function EstimatesPage() {
   function openEdit(es) {
     setDialogError(null);
     setEditId(es.id);
-    setForm({ customerId: es.customerId, validUntil: es.validUntil, internalNotes: es.internalNotes || '', clientNotes: es.clientNotes || '' });
+    setForm({ customerId: es.customerId, validUntil: es.validUntil, internalNotes: es.internalNotes || '', clientNotes: es.clientNotes || '', currency: es.currency || '' });
     setItems(es.items.map((it) => ({ ...it })));
     setDialogOpen(true);
   }
@@ -138,7 +144,7 @@ export default function EstimatesPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      const payload = { customerId: form.customerId, items, validUntil: form.validUntil, internalNotes: form.internalNotes, clientNotes: form.clientNotes };
+      const payload = { customerId: form.customerId, items, validUntil: form.validUntil, internalNotes: form.internalNotes, clientNotes: form.clientNotes, currency: form.currency || undefined };
       if (editId) await api.put('/estimates/' + editId, payload);
       else await api.post('/estimates', payload);
       setToast(editId ? 'Estimate updated.' : 'Estimate created.');
@@ -231,7 +237,7 @@ export default function EstimatesPage() {
                 </td>
                 <td>{es.customerName}</td>
                 <td className="estimates-items-line">{es.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
-                <td>GHS {es.grandTotal.toLocaleString()}</td>
+                <td>{money(es.grandTotal, es.currency)}</td>
                 <td>{fmtDate(es.validUntil)}</td>
                 <td><span className={'tag ' + estimateTagClass(es.status)}>{es.status}</span></td>
                 <td className="table-actions">
@@ -273,11 +279,21 @@ export default function EstimatesPage() {
                 </select>
               </div>
               <div className="field">
+                <label htmlFor="es-currency">Currency</label>
+                <select id="es-currency" className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+                  <option value="">Customer's default</option>
+                  {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="field">
                 <label htmlFor="es-valid">Valid until</label>
                 <input id="es-valid" className="input" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
               </div>
             </div>
-            <DocItemsEditor items={items} onChange={setItems} catalogOptions={catalog} />
+            <DocItemsEditor
+              items={items} onChange={setItems} catalogOptions={catalog}
+              currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
+            />
             <div className="estimates-dialog-fields">
               <div className="field">
                 <label htmlFor="es-internal">Internal notes</label>
@@ -318,13 +334,13 @@ export default function EstimatesPage() {
           subHeading={'Valid until ' + fmtDate(previewEs.validUntil)}
           blocks={[
             { title: 'Customer', lines: [previewEs.customerName, previewEs.customerEmail] },
-            { title: 'Estimate Details', lines: ['Created ' + fmtDate(previewEs.createdAt), 'GHS ' + previewEs.grandTotal.toLocaleString()] },
-            { title: 'Validity', lines: ['Valid until ' + fmtDate(previewEs.validUntil), 'GHS ' + previewEs.grandTotal.toLocaleString()] }
+            { title: 'Estimate Details', lines: ['Created ' + fmtDate(previewEs.createdAt), money(previewEs.grandTotal, previewEs.currency)] },
+            { title: 'Validity', lines: ['Valid until ' + fmtDate(previewEs.validUntil), money(previewEs.grandTotal, previewEs.currency)] }
           ]}
-          items={previewEs.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: 'GHS ' + i.unitPrice.toLocaleString(), lineTotal: 'GHS ' + Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)).toLocaleString() }))}
-          subtotal={'GHS ' + previewEs.subtotal.toLocaleString()}
+          items={previewEs.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: money(i.unitPrice, previewEs.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewEs.currency) }))}
+          subtotal={money(previewEs.subtotal, previewEs.currency)}
           totalLabel="Grand Total"
-          total={'GHS ' + previewEs.grandTotal.toLocaleString()}
+          total={money(previewEs.grandTotal, previewEs.currency)}
           notesLabel="Notes"
           notesValue={previewEs.clientNotes}
           termsLabel="Terms & conditions"

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { money } from '../lib/currency';
 import './SalesOrdersPage.css';
 
 // Ported from Bamboo OS.dc.html's sales orders screen (screens.salesorders
@@ -170,7 +171,7 @@ export default function SalesOrdersPage() {
                   </div>
                 </td>
                 <td>{o.customerName}</td>
-                <td>GHS {o.total.toLocaleString()}</td>
+                <td>{money(o.total, o.currency)}</td>
                 <td><span className={'tag ' + orderTagClass(o.status)}>{statusLabel(o.status)}</span></td>
                 <td className="table-actions">
                   {hasNext && <button type="button" className="btn btn-secondary salesorders-row-btn" disabled={busyId === o.id} onClick={() => advance(o)}>{nextLabel}</button>}

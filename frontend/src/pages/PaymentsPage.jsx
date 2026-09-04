@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import ReceiptPreview from '../components/ReceiptPreview';
+import { money } from '../lib/currency';
 import './PaymentsPage.css';
 
 // Ported from Bamboo OS.dc.html's payments screen (screens.payments block).
@@ -134,7 +135,7 @@ export default function PaymentsPage() {
             <tr key={p.id}>
               <td style={{ fontWeight: 600 }}>{p.invoiceNo}</td>
               <td>{p.customerName}</td>
-              <td>GHS {p.amount.toLocaleString()}</td>
+              <td>{money(p.amount, p.currency)}</td>
               <td>{fmtDate(p.date)}</td>
               <td className="payments-method">{p.method.replace('_', ' ')}</td>
               <td>{p.reference || '—'}</td>

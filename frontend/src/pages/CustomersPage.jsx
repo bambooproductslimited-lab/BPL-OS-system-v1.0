@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { moneyBreakdown } from '../lib/currency';
 import './CustomersPage.css';
 
 // Ported from Bamboo OS.dc.html's customers screen (screens.customers
@@ -44,7 +45,7 @@ function tagClass(category) {
 
 const CATEGORIES = ['lead', 'prospect', 'active', 'vip', 'inactive'];
 
-const EMPTY_FORM = { name: '', contactPerson: '', email: '', phone: '', address: '', category: 'lead', accountManagerId: '', notes: '' };
+const EMPTY_FORM = { name: '', contactPerson: '', email: '', phone: '', address: '', category: 'lead', accountManagerId: '', notes: '', preferredCurrency: 'GHS' };
 
 export default function CustomersPage() {
   const { can } = useAuth();
@@ -52,6 +53,7 @@ export default function CustomersPage() {
 
   const [customers, setCustomers] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [currencies, setCurrencies] = useState(['GHS']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -76,6 +78,10 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
+    try {
+      const settings = await api.get('/settings');
+      if (settings.commercial && settings.commercial.currencies) setCurrencies(settings.commercial.currencies);
+    } catch (err) { /* ignore — falls back to GHS only, see QuotationsPage's identical comment */ }
   }, [canManage]);
 
   useEffect(() => { load(); }, [load]);
@@ -98,7 +104,8 @@ export default function CustomersPage() {
     setEditId(c.id);
     setForm({
       name: c.name, contactPerson: c.contactPerson || '', email: c.email || '', phone: c.phone || '',
-      address: c.address || '', category: c.category, accountManagerId: c.accountManagerId || '', notes: c.notes || ''
+      address: c.address || '', category: c.category, accountManagerId: c.accountManagerId || '', notes: c.notes || '',
+      preferredCurrency: c.preferredCurrency || 'GHS'
     });
     setDialogOpen(true);
   }
@@ -153,7 +160,10 @@ export default function CustomersPage() {
         </thead>
         <tbody>
           {visibleCustomers.map((c) => {
-            const canDelete = canManage && !(c.quotedTotal > 0 || c.invoicedTotal > 0);
+            const canDelete = canManage && !(c.quotedTotals.length || c.invoicedTotals.length);
+            const outstandingTotals = c.invoicedTotals.map((r) => ({ currency: r.currency, amount: r.outstanding }));
+            const paidTotals = c.invoicedTotals.map((r) => ({ currency: r.currency, amount: r.paid }));
+            const invoicedTotals = c.invoicedTotals.map((r) => ({ currency: r.currency, amount: r.invoiced }));
             return (
               <tr key={c.id}>
                 <td>
@@ -172,10 +182,10 @@ export default function CustomersPage() {
                 </td>
                 <td className="customers-contact-cell">{c.email}<br />{c.phone}</td>
                 <td><span className={'tag ' + tagClass(c.category)}>{c.category}</span></td>
-                <td>GHS {c.quotedTotal.toLocaleString()}</td>
-                <td>GHS {c.invoicedTotal.toLocaleString()}</td>
-                <td>GHS {c.paidTotal.toLocaleString()}</td>
-                <td style={{ fontWeight: 600 }}>GHS {c.outstandingTotal.toLocaleString()}</td>
+                <td>{moneyBreakdown(c.quotedTotals)}</td>
+                <td>{moneyBreakdown(invoicedTotals)}</td>
+                <td>{moneyBreakdown(paidTotals)}</td>
+                <td style={{ fontWeight: 600 }}>{moneyBreakdown(outstandingTotals)}</td>
                 <td className="table-actions">
                   {canManage && <button type="button" className="btn btn-secondary customers-row-btn" onClick={() => openEdit(c)}>Edit</button>}
                   {canDelete && <button type="button" className="btn btn-secondary customers-row-btn" onClick={() => setDeleteTarget(c)}>Delete</button>}
@@ -227,6 +237,12 @@ export default function CustomersPage() {
               <label htmlFor="cu-category">Category</label>
               <select id="cu-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="cu-currency">Preferred currency</label>
+              <select id="cu-currency" className="input" value={form.preferredCurrency} onChange={(e) => setForm({ ...form, preferredCurrency: e.target.value })}>
+                {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="field">

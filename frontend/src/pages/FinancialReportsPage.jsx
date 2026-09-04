@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
+import { money as moneyFmt, moneyBreakdown } from '../lib/currency';
 import './FinancialReportsPage.css';
 
 // Financial Reports: Profit & Loss, Cash Flow, Balance Sheet, AR Aging and
@@ -209,8 +210,8 @@ export default function FinancialReportsPage() {
     const rows = [
       ['AR Aging', 'as of ' + arAging.asOf],
       [],
-      ['Invoice', 'Customer', 'Balance due (GHS)', 'Due date', 'Days overdue', 'Bucket'],
-      ...arAging.invoices.map((r) => [r.invoiceNo, r.customerName, r.balanceDue, r.dueDate || '', r.daysOverdue, BUCKET_LABELS[r.bucket]])
+      ['Invoice', 'Customer', 'Currency', 'Balance due', 'Due date', 'Days overdue', 'Bucket'],
+      ...arAging.invoices.map((r) => [r.invoiceNo, r.customerName, r.currency, r.balanceDue, r.dueDate || '', r.daysOverdue, BUCKET_LABELS[r.bucket]])
     ];
     downloadCsv('ar-aging-' + arAging.asOf + '.csv', rowsToCsv(rows));
   }
@@ -241,7 +242,13 @@ export default function FinancialReportsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const bucketMax = arAging ? Math.max(1, ...Object.values(arAging.buckets)) : 1;
+  // Each bucket is now [{ currency, amount }] rather than one blended number
+  // (a customer's outstanding balance can be in any enabled currency — see
+  // reports.service.js's arAging()). bucketMax sums across currencies purely
+  // to size the bar's width proportionally; the displayed value itself is
+  // always the full per-currency breakdown, never that summed number.
+  const bucketSum = (arr) => (arr || []).reduce((s, r) => s + r.amount, 0);
+  const bucketMax = arAging ? Math.max(1, ...Object.values(arAging.buckets).map(bucketSum)) : 1;
 
   return (
     <div className="finreport">
@@ -280,6 +287,14 @@ export default function FinancialReportsPage() {
           {tab === 'taxsummary' && <button type="button" className="btn btn-secondary" onClick={exportTaxSummaryCsv}>Download CSV</button>}
         </div>
       </div>
+
+      {['pnl', 'cashflow', 'balancesheet', 'taxsummary'].includes(tab) && (
+        <p className="finreport-asof">
+          Totalled in the company's base currency
+          ({(pnl && pnl.baseCurrency) || (cashFlow && cashFlow.baseCurrency) || (balanceSheet && balanceSheet.baseCurrency) || (taxSummary && taxSummary.baseCurrency) || 'GHS'}) —
+          a document in another currency (Company settings → Enabled currencies) won't appear here, but still shows correctly on its own record and in the Invoices/Quotations lists.
+        </p>
+      )}
 
       <div ref={printRef}>
         {tab === 'pnl' && pnl && (
@@ -397,8 +412,8 @@ export default function FinancialReportsPage() {
               {Object.keys(BUCKET_LABELS).map((k) => (
                 <div className="finreport-kpi" key={k}>
                   <div className="finreport-kpi-label">{BUCKET_LABELS[k]}</div>
-                  <div className="finreport-kpi-value">{money(arAging.buckets[k])}</div>
-                  <div className="finreport-bar" style={{ width: Math.round((arAging.buckets[k] / bucketMax) * 100) + '%' }} />
+                  <div className="finreport-kpi-value">{moneyBreakdown(arAging.buckets[k])}</div>
+                  <div className="finreport-bar" style={{ width: Math.round((bucketSum(arAging.buckets[k]) / bucketMax) * 100) + '%' }} />
                 </div>
               ))}
             </div>
@@ -407,7 +422,7 @@ export default function FinancialReportsPage() {
               <tbody>
                 {arAging.invoices.map((r) => (
                   <tr key={r.invoiceNo}>
-                    <td style={{ fontWeight: 600 }}>{r.invoiceNo}</td><td>{r.customerName}</td><td>{money(r.balanceDue)}</td>
+                    <td style={{ fontWeight: 600 }}>{r.invoiceNo}</td><td>{r.customerName}</td><td>{moneyFmt(r.balanceDue, r.currency)}</td>
                     <td>{fmtDate(r.dueDate)}</td>
                     <td><span className={'tag ' + (r.bucket === 'current' ? 'tag-outline' : 'tag-accent')}>{BUCKET_LABELS[r.bucket]}</span></td>
                   </tr>

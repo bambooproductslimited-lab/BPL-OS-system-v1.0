@@ -58,6 +58,18 @@ async function nextDocNumber(client, kind) {
 function addDays(iso, n) { return new Date(new Date(iso + 'T00:00').getTime() + n * 86400000).toISOString().slice(0, 10); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
+// Multi-currency: a document's currency is freely chosen per document
+// (quotations/estimates/invoices), defaulting to the customer's own
+// preferred_currency when nothing is specified. Always validated against
+// commercial.currencies (Company settings' enabled-currency list) so a typo
+// or a disabled currency can't get stored on a real document.
+function resolveCurrency(commercial, requested, customerPreferred) {
+  var allowed = (commercial && commercial.currencies) || ['GHS'];
+  var code = (requested || customerPreferred || allowed[0] || 'GHS').toUpperCase();
+  if (allowed.indexOf(code) < 0) fail('invalid', '"' + code + '" isn\'t an enabled currency — add it in Company settings first.');
+  return code;
+}
+
 // Line items are stored in the shared document_line_items table; these two
 // helpers write/read them for any of quotation/estimate/sales_order/invoice.
 async function insertLineItems(client, documentType, documentId, items) {
@@ -81,4 +93,7 @@ async function loadLineItems(db, documentType, documentId) {
   });
 }
 
-module.exports = { buildLineItems: buildLineItems, computeDocTotals: computeDocTotals, nextDocNumber: nextDocNumber, addDays: addDays, todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems };
+module.exports = {
+  buildLineItems: buildLineItems, computeDocTotals: computeDocTotals, nextDocNumber: nextDocNumber, addDays: addDays,
+  todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems, resolveCurrency: resolveCurrency
+};

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { money } from '../lib/currency';
 import './MarketingDashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's marketing screen (screens.marketing
@@ -117,7 +118,7 @@ export default function MarketingDashboardPage() {
           <table className="table">
             <thead><tr><th>Customer</th><th>Total</th></tr></thead>
             <tbody>
-              {data.topCustomers.map((c, i) => <tr key={i}><td>{c.name}</td><td>GHS {c.total.toLocaleString()}</td></tr>)}
+              {data.topCustomers.map((c, i) => <tr key={i}><td>{c.name}</td><td>{money(c.total, c.currency)}</td></tr>)}
             </tbody>
           </table>
 
@@ -127,7 +128,7 @@ export default function MarketingDashboardPage() {
             <tbody>
               {data.recentQuotes.map((q, i) => (
                 <tr key={i}>
-                  <td>{q.quoteNo}</td><td>{q.customerName}</td><td>GHS {q.total.toLocaleString()}</td>
+                  <td>{q.quoteNo}</td><td>{q.customerName}</td><td>{money(q.total, q.currency)}</td>
                   <td><span className={'tag ' + docTagClass(q.status === 'accepted' ? 'approved' : (q.status === 'rejected' || q.status === 'expired') ? 'rejected' : 'pending')}>{q.status}</span></td>
                 </tr>
               ))}

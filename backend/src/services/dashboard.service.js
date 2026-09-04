@@ -74,8 +74,11 @@ async function load(ctx) {
   }
   var outstandingInvoices = null;
   if (ctx.can('invoice.read')) {
-    var r4 = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'paid'");
-    outstandingInvoices = Number(r4.rows[0].s);
+    // Grouped by currency rather than blended into one number — a company
+    // invoicing in more than one currency can't meaningfully sum GHS and
+    // USD amounts together (see documents.js's resolveCurrency()).
+    var r4 = await pool.query("SELECT currency, sum(grand_total) AS s FROM invoices WHERE status != 'paid' GROUP BY currency ORDER BY s DESC");
+    outstandingInvoices = r4.rows.map(function (r) { return { currency: r.currency, amount: Number(r.s) }; });
   }
   var pendingExpenses = null;
   if (ctx.can('expense.read.all')) {

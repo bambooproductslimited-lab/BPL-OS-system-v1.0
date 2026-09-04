@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { moneyBreakdown } from '../lib/currency';
 import './DashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's dashboard screen (screens.dashboard
@@ -107,7 +108,7 @@ export default function DashboardPage() {
   if (dash.lowStockCount != null) kpis.push({ key: 'lowstock', icon: 'box', tone: 'ops', label: 'Low stock products', value: dash.lowStockCount, note: 'At or below reorder level', route: '/inventory' });
   if (dash.pendingProcurement != null) kpis.push({ key: 'procure', icon: 'cart', tone: 'ops', label: 'Pending purchase requests', value: dash.pendingProcurement, note: 'Company-wide', route: '/procurement' });
   if (dash.assetsDueService != null) kpis.push({ key: 'assets', icon: 'wrench', tone: 'ops', label: 'Assets due service', value: dash.assetsDueService, note: 'Within 7 days', route: '/assets' });
-  if (dash.outstandingInvoices != null) kpis.push({ key: 'invoices', icon: 'document', tone: 'finance', label: 'Outstanding invoices', value: 'GHS ' + dash.outstandingInvoices.toLocaleString(), note: 'Unpaid balance', route: '/invoices' });
+  if (dash.outstandingInvoices != null && dash.outstandingInvoices.length) kpis.push({ key: 'invoices', icon: 'document', tone: 'finance', label: 'Outstanding invoices', value: moneyBreakdown(dash.outstandingInvoices), note: 'Unpaid balance', route: '/invoices' });
   if (dash.pendingExpenses != null) kpis.push({ key: 'expenses', icon: 'document', tone: 'finance', label: 'Pending expense claims', value: dash.pendingExpenses, note: 'Awaiting a decision', route: '/expenses' });
 
   const attention = [

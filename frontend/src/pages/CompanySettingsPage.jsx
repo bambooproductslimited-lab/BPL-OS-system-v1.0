@@ -44,6 +44,10 @@ export default function CompanySettingsPage() {
   const [toast, setToast] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const [currencyDraft, setCurrencyDraft] = useState('');
+  const [currencyError, setCurrencyError] = useState(null);
+  const [currencySaving, setCurrencySaving] = useState(false);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -82,6 +86,40 @@ export default function CompanySettingsPage() {
     }
   }
 
+  const currencyList = (settings && settings.commercial && settings.commercial.currencies) || ['GHS'];
+
+  async function addCurrency(e) {
+    e.preventDefault();
+    const code = currencyDraft.trim().toUpperCase();
+    if (!code) return;
+    if (currencyList.includes(code)) { setCurrencyError('"' + code + '" is already enabled.'); return; }
+    setCurrencySaving(true);
+    setCurrencyError(null);
+    try {
+      await api.patch('/settings', { currencies: [...currencyList, code] });
+      setCurrencyDraft('');
+      await load();
+    } catch (err) {
+      setCurrencyError(err.message);
+    } finally {
+      setCurrencySaving(false);
+    }
+  }
+
+  async function removeCurrency(code) {
+    if (currencyList.length <= 1) { setCurrencyError('Keep at least one currency enabled.'); return; }
+    setCurrencySaving(true);
+    setCurrencyError(null);
+    try {
+      await api.patch('/settings', { currencies: currencyList.filter((c) => c !== code) });
+      await load();
+    } catch (err) {
+      setCurrencyError(err.message);
+    } finally {
+      setCurrencySaving(false);
+    }
+  }
+
   if (loading) return <div className="eyebrow">Loading…</div>;
   if (!settings) return <div className="error-banner">{error}</div>;
 
@@ -108,8 +146,11 @@ export default function CompanySettingsPage() {
           <input id="cs-cy" className="input" value={form.country} disabled={locked} onChange={(e) => setForm({ ...form, country: e.target.value })} />
         </div>
         <div className="field">
-          <label htmlFor="cs-cu">Currency</label>
-          <input id="cs-cu" className="input" value={form.currency} disabled={locked} onChange={(e) => setForm({ ...form, currency: e.target.value })} />
+          <label htmlFor="cs-cu">Default currency</label>
+          <select id="cs-cu" className="input" value={form.currency} disabled={locked} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+            {currencyList.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <span className="field-hint">Used for P&amp;L, cash flow, balance sheet and tax reports, which only ever total one currency at a time.</span>
         </div>
         <div className="field">
           <label htmlFor="cs-ww">Work week</label>
@@ -124,6 +165,34 @@ export default function CompanySettingsPage() {
           <span className="cs-note">{locked ? 'Read-only — your role cannot change company settings.' : 'Changes are written to the audit log.'}</span>
         </div>
       </form>
+
+      <div className="cs-header" style={{ marginTop: 32 }}>
+        <h2 className="cs-header-title">Enabled currencies</h2>
+      </div>
+      <p className="field-hint">
+        Every quotation, estimate and invoice picks one of these when it's created. Removing a currency here only
+        stops it being offered for new documents — existing documents already in that currency are unaffected.
+      </p>
+      {currencyError && <div className="error-banner" style={{ marginBottom: 12 }}>{currencyError}</div>}
+      <div className="cs-currency-list">
+        {currencyList.map((c) => (
+          <span key={c} className="tag tag-outline cs-currency-chip">
+            {c}
+            {!locked && (
+              <button type="button" className="cs-currency-remove" disabled={currencySaving} onClick={() => removeCurrency(c)} aria-label={'Remove ' + c}>×</button>
+            )}
+          </span>
+        ))}
+      </div>
+      {!locked && (
+        <form className="cs-currency-add" onSubmit={addCurrency}>
+          <input
+            className="input" style={{ width: 100 }} maxLength={6} placeholder="e.g. NGN"
+            value={currencyDraft} onChange={(e) => setCurrencyDraft(e.target.value)}
+          />
+          <button type="submit" className="btn btn-secondary" disabled={currencySaving || !currencyDraft.trim()}>+ Add currency</button>
+        </form>
+      )}
 
       <div className="cs-meta">Leave approval chain: {(settings.leaveApprovalChain || []).join(' → ')}</div>
 

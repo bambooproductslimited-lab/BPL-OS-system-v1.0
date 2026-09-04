@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { money } from '../lib/currency';
 import './InvoicesPage.css';
 
 // Ported from Bamboo OS.dc.html's invoices screen (screens.invoices block,
@@ -59,7 +60,7 @@ function invoiceBucket(inv) {
 }
 function invoiceTagClass(inv) { return docTagClass(invoiceBucket(inv)); }
 
-const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '' };
+const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '' };
 const EMPTY_PAY = { amount: '', method: 'cash', date: new Date().toISOString().slice(0, 10), reference: '', notes: '' };
 const EMPTY_EDIT = { dueDate: '', poReference: '' };
 
@@ -75,6 +76,7 @@ export default function InvoicesPage() {
   const [customers, setCustomers] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [currencies, setCurrencies] = useState(['GHS']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -122,6 +124,10 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false);
     }
+    try {
+      const settings = await api.get('/settings');
+      if (settings.commercial && settings.commercial.currencies) setCurrencies(settings.commercial.currencies);
+    } catch (err) { /* ignore — falls back to GHS only, see QuotationsPage's identical comment */ }
   }, [canSeeCustomers, canSeeCatalog, canSeeSalesOrders]);
 
   useEffect(() => { load(); }, [load]);
@@ -144,7 +150,7 @@ export default function InvoicesPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.post('/invoices', { customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference });
+      await api.post('/invoices', { customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, currency: form.currency || undefined });
       setToast('Invoice created.');
       setDialogOpen(false);
       await load();
@@ -293,9 +299,9 @@ export default function InvoicesPage() {
                   </div>
                 </td>
                 <td>{inv.customerName}</td>
-                <td>GHS {inv.grandTotal.toLocaleString()}</td>
-                <td>GHS {inv.amountPaid.toLocaleString()}</td>
-                <td style={{ fontWeight: 600 }}>GHS {inv.balanceDue.toLocaleString()}</td>
+                <td>{money(inv.grandTotal, inv.currency)}</td>
+                <td>{money(inv.amountPaid, inv.currency)}</td>
+                <td style={{ fontWeight: 600 }}>{money(inv.balanceDue, inv.currency)}</td>
                 <td>{fmtDate(inv.dueDate)}</td>
                 <td><span className={'tag ' + invoiceTagClass(inv)}>{inv.overdue ? 'overdue' : inv.status}</span></td>
                 <td className="table-actions">
@@ -337,6 +343,13 @@ export default function InvoicesPage() {
                 </select>
               </div>
               <div className="field">
+                <label htmlFor="iv-currency">Currency</label>
+                <select id="iv-currency" className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+                  <option value="">Customer's default</option>
+                  {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="field">
                 <label htmlFor="iv-due">Due date</label>
                 <input id="iv-due" className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
               </div>
@@ -345,7 +358,10 @@ export default function InvoicesPage() {
                 <input id="iv-po" className="input" value={form.poReference} onChange={(e) => setForm({ ...form, poReference: e.target.value })} />
               </div>
             </div>
-            <DocItemsEditor items={items} onChange={setItems} catalogOptions={catalog} />
+            <DocItemsEditor
+              items={items} onChange={setItems} catalogOptions={catalog}
+              currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
+            />
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>Create invoice</button>
@@ -358,10 +374,10 @@ export default function InvoicesPage() {
         <div className="dialog-backdrop" onClick={() => setPayTarget(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
             <h2>Record payment</h2>
-            <p className="dialog-body">Outstanding balance: GHS {payTarget.balanceDue.toLocaleString()}</p>
+            <p className="dialog-body">Outstanding balance: {money(payTarget.balanceDue, payTarget.currency)}</p>
             {payError && <div className="error-banner">{payError}</div>}
             <div className="field">
-              <label htmlFor="pay-amount">Amount (GHS)</label>
+              <label htmlFor="pay-amount">Amount ({payTarget.currency})</label>
               <input id="pay-amount" className="input" type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
             </div>
             <div className="invoices-pay-grid">
@@ -435,15 +451,15 @@ export default function InvoicesPage() {
           subHeading={'Due ' + fmtDate(previewInv.dueDate)}
           blocks={[
             { title: 'Customer', lines: [previewInv.customerName, previewInv.customerEmail] },
-            { title: 'Invoice Details', lines: ['Issued ' + fmtDate(previewInv.issuedAt), 'GHS ' + previewInv.grandTotal.toLocaleString()] },
-            { title: 'Payment', lines: ['Due ' + fmtDate(previewInv.dueDate), 'GHS ' + previewInv.balanceDue.toLocaleString()] }
+            { title: 'Invoice Details', lines: ['Issued ' + fmtDate(previewInv.issuedAt), money(previewInv.grandTotal, previewInv.currency)] },
+            { title: 'Payment', lines: ['Due ' + fmtDate(previewInv.dueDate), money(previewInv.balanceDue, previewInv.currency)] }
           ]}
-          items={previewInv.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: 'GHS ' + i.unitPrice.toLocaleString(), lineTotal: 'GHS ' + Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)).toLocaleString() }))}
-          subtotal={'GHS ' + previewInv.subtotal.toLocaleString()}
+          items={previewInv.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: money(i.unitPrice, previewInv.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewInv.currency) }))}
+          subtotal={money(previewInv.subtotal, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
-          amountPaid={'GHS ' + previewInv.amountPaid.toLocaleString()}
+          amountPaid={money(previewInv.amountPaid, previewInv.currency)}
           totalLabel="Total Due"
-          total={'GHS ' + previewInv.balanceDue.toLocaleString()}
+          total={money(previewInv.balanceDue, previewInv.currency)}
           notesLabel="Payment instructions"
           notesValue={previewInv.bankInstructions}
           onClose={() => setPreviewInv(null)}

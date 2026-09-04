@@ -24,3 +24,13 @@
 .cs-form-footer { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; }
 .cs-note { font-size: 12px; color: var(--color-text-muted); }
 .cs-meta { margin-top: 16px; font-size: 12px; color: var(--color-text-muted); }
+
+.cs-currency-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.cs-currency-chip { display: inline-flex; align-items: center; gap: 6px; }
+.cs-currency-remove {
+  border: none; background: none; cursor: pointer; padding: 0; line-height: 1;
+  font-size: 14px; color: var(--color-text-muted);
+}
+.cs-currency-remove:hover { color: var(--color-danger); }
+.cs-currency-remove:disabled { opacity: 0.4; cursor: default; }
+.cs-currency-add { display: flex; align-items: center; gap: 8px; margin-top: 4px; }

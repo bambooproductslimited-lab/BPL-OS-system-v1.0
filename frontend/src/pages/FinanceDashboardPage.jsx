@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { money, moneyBreakdown } from '../lib/currency';
 import './FinanceDashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's finance dashboard screen
@@ -69,10 +70,10 @@ export default function FinanceDashboardPage() {
     (data.monthlyTrend || []).forEach((m) => rows.push([m.month, m.revenue, m.expense]));
     rows.push([]);
     rows.push(['Metric', 'Value']);
-    rows.push(['Cash collected this month', data.cashCollectedThisMonth || 0]);
-    rows.push(['Net position this month', data.netPositionThisMonth || 0]);
-    rows.push(['Outstanding (all invoices)', data.outstandingTotal || 0]);
-    rows.push(['Overdue total', data.overdueTotal || 0]);
+    (data.cashCollectedThisMonthByCurrency || []).forEach((r) => rows.push(['Cash collected this month (' + r.currency + ')', r.amount]));
+    rows.push(['Net position this month (' + (data.baseCurrency || 'GHS') + ')', data.netPositionThisMonth || 0]);
+    (data.outstandingByCurrency || []).forEach((r) => rows.push(['Outstanding (' + r.currency + ')', r.amount]));
+    (data.overdueTotalByCurrency || []).forEach((r) => rows.push(['Overdue total (' + r.currency + ')', r.amount]));
     rows.push(['Pending expense claims', data.pendingExpensesTotal || 0]);
     rows.push(['Expenses approved this month', data.approvedExpensesThisMonth || 0]);
     const csv = rows.map((r) => r.map((v) => (typeof v === 'string' && v.indexOf(',') >= 0 ? '"' + v + '"' : v)).join(',')).join('\n');
@@ -90,10 +91,10 @@ export default function FinanceDashboardPage() {
   if (!fin) return <p className="table-empty">No data yet.</p>;
 
   const kpis = [
-    { label: 'Cash collected this month', value: 'GHS ' + fin.cashCollectedThisMonth.toLocaleString(), note: '', icon: 'cash', tone: 'people' },
-    { label: 'Net position this month', value: 'GHS ' + (fin.netPositionThisMonth || 0).toLocaleString(), note: 'Collected minus approved expenses', icon: 'document', tone: 'ops' },
-    { label: 'Outstanding (all invoices)', value: 'GHS ' + fin.outstandingTotal.toLocaleString(), note: fin.unpaidCount + ' unpaid', icon: 'clock', tone: 'warning' },
-    { label: 'Overdue total', value: 'GHS ' + fin.overdueTotal.toLocaleString(), note: fin.overdueInvoices.length + ' invoice(s)', icon: 'warning', tone: 'danger' },
+    { label: 'Cash collected this month', value: moneyBreakdown(fin.cashCollectedThisMonthByCurrency), note: '', icon: 'cash', tone: 'people' },
+    { label: 'Net position this month', value: money(fin.netPositionThisMonth || 0, fin.baseCurrency), note: 'Collected minus approved expenses, in ' + fin.baseCurrency, icon: 'document', tone: 'ops' },
+    { label: 'Outstanding (all invoices)', value: moneyBreakdown(fin.outstandingByCurrency), note: fin.unpaidCount + ' unpaid', icon: 'clock', tone: 'warning' },
+    { label: 'Overdue total', value: moneyBreakdown(fin.overdueTotalByCurrency), note: fin.overdueInvoices.length + ' invoice(s)', icon: 'warning', tone: 'danger' },
     { label: 'Pending expense claims', value: 'GHS ' + fin.pendingExpensesTotal.toLocaleString(), note: fin.pendingExpenses.length + ' claim(s)', icon: 'receipt', tone: 'warning' },
     { label: 'Expenses approved this month', value: 'GHS ' + fin.approvedExpensesThisMonth.toLocaleString(), note: '', icon: 'receipt', tone: 'finance' }
   ];
@@ -120,7 +121,7 @@ export default function FinanceDashboardPage() {
       <div className="finance-columns">
         <section>
           <div className="finance-trend-header">
-            <h2 className="finance-section-title">Revenue vs. expenses</h2>
+            <h2 className="finance-section-title">Revenue vs. expenses ({fin.baseCurrency})</h2>
             <div className="finance-period-controls">
               <div className="finance-period-toggle">
                 <button type="button" className={periodType === 'months' ? 'is-active' : ''} onClick={() => setPeriodType('months')}>Months</button>
@@ -135,8 +136,8 @@ export default function FinanceDashboardPage() {
             {fin.monthlyTrend.map((m) => (
               <div className="finance-trend-col" key={m.month}>
                 <div className="finance-trend-bars">
-                  <div className="finance-trend-bar finance-trend-bar-revenue" title={'GHS ' + m.revenue.toLocaleString()} style={{ height: Math.round((m.revenue / trendMax) * 100) + '%' }} />
-                  <div className="finance-trend-bar finance-trend-bar-expense" title={'GHS ' + m.expense.toLocaleString()} style={{ height: Math.round((m.expense / trendMax) * 100) + '%' }} />
+                  <div className="finance-trend-bar finance-trend-bar-revenue" title={money(m.revenue, fin.baseCurrency)} style={{ height: Math.round((m.revenue / trendMax) * 100) + '%' }} />
+                  <div className="finance-trend-bar finance-trend-bar-expense" title={money(m.expense, fin.baseCurrency)} style={{ height: Math.round((m.expense / trendMax) * 100) + '%' }} />
                 </div>
                 <div className="finance-trend-label">{m.month}</div>
               </div>
@@ -156,7 +157,7 @@ export default function FinanceDashboardPage() {
               {fin.recentPayments.map((p, i) => (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{p.invoiceNo}</td><td>{p.customerName}</td>
-                  <td>GHS {p.amount.toLocaleString()}</td><td>{fmtDate(p.date)}</td>
+                  <td>{money(p.amount, p.currency)}</td><td>{fmtDate(p.date)}</td>
                   <td style={{ textTransform: 'capitalize' }}>{p.method.replace('_', ' ')}</td>
                 </tr>
               ))}
@@ -175,7 +176,7 @@ export default function FinanceDashboardPage() {
               {fin.overdueInvoices.map((inv, i) => (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{inv.invoiceNo}</td><td>{inv.customerName}</td>
-                  <td>GHS {inv.amount.toLocaleString()}</td>
+                  <td>{money(inv.amount, inv.currency)}</td>
                   <td><span className="tag tag-accent">{inv.daysOverdue} day(s)</span></td>
                 </tr>
               ))}

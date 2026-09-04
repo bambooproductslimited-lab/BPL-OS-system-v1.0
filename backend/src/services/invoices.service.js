@@ -2,13 +2,13 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency } = require('../utils/documents');
 
 async function rowToInvoice(db, r, extra) {
   var items = await loadLineItems(db, 'invoice', r.id);
   return Object.assign({
     id: r.id, invoiceNo: r.invoice_no, salesOrderId: r.sales_order_id, quotationId: r.quotation_id, customerId: r.customer_id,
-    items: items, subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
+    items: items, currency: r.currency, subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
     grandTotal: Number(r.grand_total), amount: Number(r.grand_total), amountPaid: Number(r.amount_paid), balanceDue: Number(r.balance_due),
     poReference: r.po_reference, bankInstructions: r.bank_instructions, status: r.status, issuedAt: r.issued_at, dueDate: r.due_date, paidAt: r.paid_at
   }, extra || {});
@@ -49,13 +49,13 @@ async function createFromOrder(ctx, salesOrderId) {
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, sales_order_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, bank_instructions) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10) RETURNING *",
-      [invoiceNo, o.id, o.customer_id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), commercial.paymentDetails.instructions]
+      "INSERT INTO invoices (invoice_no, sales_order_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, bank_instructions, currency) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11) RETURNING *",
+      [invoiceNo, o.id, o.customer_id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), commercial.paymentDetails.instructions, o.currency]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
-    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Issued ' + i.invoice_no + ' for ' + o.order_no + ' (GHS ' + totals.grandTotal.toLocaleString() + ').');
+    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Issued ' + i.invoice_no + ' for ' + o.order_no + ' (' + o.currency + ' ' + totals.grandTotal.toLocaleString() + ').');
     return i.id;
   });
 
@@ -79,13 +79,13 @@ async function createFromQuotation(ctx, quotationId, poReference) {
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, quotation_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11) RETURNING *",
-      [invoiceNo, q.id, q.customer_id, q.subtotal, q.discount_total, q.tax_total, q.grand_total, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), (poReference || '').trim(), commercial.paymentDetails.instructions]
+      "INSERT INTO invoices (invoice_no, quotation_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11,$12) RETURNING *",
+      [invoiceNo, q.id, q.customer_id, q.subtotal, q.discount_total, q.tax_total, q.grand_total, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), (poReference || '').trim(), commercial.paymentDetails.instructions, q.currency]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
-    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Issued ' + i.invoice_no + ' from ' + q.quote_no + ' (GHS ' + Number(q.grand_total).toLocaleString() + ').');
+    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Issued ' + i.invoice_no + ' from ' + q.quote_no + ' (' + q.currency + ' ' + Number(q.grand_total).toLocaleString() + ').');
     return i.id;
   });
 
@@ -96,23 +96,24 @@ async function createFromQuotation(ctx, quotationId, poReference) {
 // kernel.js: handlers['invoices.createManual']
 async function createManual(ctx, p) {
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
-  var custRes = await pool.query('SELECT id FROM customers WHERE id = $1', [p.customerId]);
+  var custRes = await pool.query('SELECT * FROM customers WHERE id = $1', [p.customerId]);
   if (!custRes.rows[0]) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
   var totals = computeDocTotals(items, p.discount, p.taxRate);
   var commercial = await getPaymentDetails();
   var dueDate = V.date(p.dueDate || addDays(todayISO(), commercial.templates.invoiceDueDays), 'Due date');
+  var currency = resolveCurrency(commercial, p.currency, custRes.rows[0].preferred_currency);
 
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10) RETURNING *",
-      [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions]
+      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11) RETURNING *",
+      [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions, currency]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
-    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Manually created ' + i.invoice_no + ' (GHS ' + totals.grandTotal.toLocaleString() + ').');
+    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Manually created ' + i.invoice_no + ' (' + currency + ' ' + totals.grandTotal.toLocaleString() + ').');
     return i.id;
   });
 
@@ -134,11 +135,11 @@ async function recordPayment(ctx, invoiceId, p) {
     if (!i) fail('notfound', 'Invoice not found.');
     if (i.status === 'void') fail('conflict', 'This invoice has been voided.');
     if (i.status === 'paid') fail('conflict', 'This invoice is already fully paid.');
-    if (amount > Number(i.balance_due) + 0.01) fail('invalid', 'That exceeds the outstanding balance of GHS ' + Number(i.balance_due).toLocaleString() + '.');
+    if (amount > Number(i.balance_due) + 0.01) fail('invalid', 'That exceeds the outstanding balance of ' + i.currency + ' ' + Number(i.balance_due).toLocaleString() + '.');
 
     var payRes = await client.query(
-      'INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, reference, received_by, notes) VALUES ($1,$2,$3,$4,\'GHS\',$5,$6,$7,$8) RETURNING *',
-      [i.id, i.customer_id, date, amount, method, (p.reference || '').trim(), ctx.employee.id, (p.notes || '').trim()]
+      'INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, reference, received_by, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+      [i.id, i.customer_id, date, amount, i.currency, method, (p.reference || '').trim(), ctx.employee.id, (p.notes || '').trim()]
     );
     var pay = payRes.rows[0];
 
@@ -160,7 +161,7 @@ async function recordPayment(ctx, invoiceId, p) {
     );
 
     var custRes = await client.query('SELECT name FROM customers WHERE id = $1', [i.customer_id]);
-    await audit(client, ctx, 'payment.record', 'invoice', i.id, 'Recorded GHS ' + amount.toLocaleString() + ' payment on ' + i.invoice_no + ' (' + (custRes.rows[0] ? custRes.rows[0].name : '—') + '); balance GHS ' + balanceDue.toLocaleString() + '.');
+    await audit(client, ctx, 'payment.record', 'invoice', i.id, 'Recorded ' + i.currency + ' ' + amount.toLocaleString() + ' payment on ' + i.invoice_no + ' (' + (custRes.rows[0] ? custRes.rows[0].name : '—') + '); balance ' + i.currency + ' ' + balanceDue.toLocaleString() + '.');
     if (status === 'paid') await audit(client, ctx, 'invoice.paid', 'invoice', i.id, i.invoice_no + ' fully paid.');
 
     return { paymentId: pay.id, receiptId: receiptRes.rows[0].id, invoiceId: i.id };
@@ -171,7 +172,7 @@ async function recordPayment(ctx, invoiceId, p) {
   var rctRes = await pool.query('SELECT * FROM receipts WHERE id = $1', [result.receiptId]);
   return {
     payment: rowToPayment(payRes.rows[0]),
-    receipt: rowToReceipt(rctRes.rows[0]),
+    receipt: rowToReceipt(rctRes.rows[0], invRes.rows[0].currency),
     invoice: await rowToInvoice(pool, invRes.rows[0])
   };
 }
@@ -179,8 +180,8 @@ async function recordPayment(ctx, invoiceId, p) {
 function rowToPayment(r) {
   return { id: r.id, invoiceId: r.invoice_id, customerId: r.customer_id, date: r.date, amount: Number(r.amount), currency: r.currency, method: r.method, reference: r.reference, receivedBy: r.received_by, notes: r.notes };
 }
-function rowToReceipt(r) {
-  return { id: r.id, receiptNo: r.receipt_no, paymentId: r.payment_id, invoiceId: r.invoice_id, customerId: r.customer_id, date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference, balanceAfter: Number(r.balance_after), receivedBy: r.received_by };
+function rowToReceipt(r, currency) {
+  return { id: r.id, receiptNo: r.receipt_no, paymentId: r.payment_id, invoiceId: r.invoice_id, customerId: r.customer_id, date: r.date, amount: Number(r.amount), currency: currency, method: r.method, reference: r.reference, balanceAfter: Number(r.balance_after), receivedBy: r.received_by };
 }
 
 // kernel.js: handlers['invoices.update']

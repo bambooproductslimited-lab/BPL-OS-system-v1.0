@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency } = require('../utils/documents');
 
 // kernel.js: autoExpireQuotations()
 async function autoExpireQuotations() {
@@ -15,7 +15,7 @@ async function autoExpireQuotations() {
 async function rowToQuotation(db, r, extra) {
   var items = await loadLineItems(db, 'quotation', r.id);
   return Object.assign({
-    id: r.id, quoteNo: r.quote_no, customerId: r.customer_id, title: r.title, items: items,
+    id: r.id, quoteNo: r.quote_no, customerId: r.customer_id, title: r.title, items: items, currency: r.currency,
     subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
     grandTotal: Number(r.grand_total), total: Number(r.grand_total), status: r.status, createdBy: r.created_by,
     createdAt: r.created_at, validUntil: r.valid_until, notes: r.notes, terms: r.terms, fromEstimateId: r.from_estimate_id
@@ -49,17 +49,18 @@ async function create(ctx, p) {
   var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
   var commercial = settingsRes.rows[0].commercial;
   var validUntil = V.date(p.validUntil || addDays(todayISO(), commercial.templates.validityDays), 'Valid until');
+  var currency = resolveCurrency(commercial, p.currency, cust.preferred_currency);
 
   var newId = await withTransaction(async function (client) {
     var quoteNo = await nextDocNumber(client, 'quotation');
     var res = await client.query(
-      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11) RETURNING *",
-      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions]
+      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12) RETURNING *",
+      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency]
     );
     var q = res.rows[0];
     await insertLineItems(client, 'quotation', q.id, items);
-    await audit(client, ctx, 'quotation.create', 'quotation', q.id, 'Created ' + q.quote_no + ' for ' + cust.name + ' (GHS ' + totals.grandTotal.toLocaleString() + ').');
+    await audit(client, ctx, 'quotation.create', 'quotation', q.id, 'Created ' + q.quote_no + ' for ' + cust.name + ' (' + currency + ' ' + totals.grandTotal.toLocaleString() + ').');
     return q.id;
   });
 

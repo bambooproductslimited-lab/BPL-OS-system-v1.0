@@ -42,6 +42,21 @@ async function save(ctx, p) {
   if (sets.length) {
     await pool.query('UPDATE settings SET ' + sets.join(', ') + ', updated_at = now() WHERE id = 1', values);
   }
+
+  // Multi-currency: the enabled-currency list every quotation/estimate/
+  // invoice currency picker (and documents.js's resolveCurrency()) draws
+  // from. Kept separate from the sets/values loop above since it lives in
+  // the commercial jsonb blob, not a plain column.
+  if (p.currencies !== undefined) {
+    var codes = (Array.isArray(p.currencies) ? p.currencies : []).map(function (c) { return V.text(c, 'Currency code', 6).toUpperCase(); });
+    var unique = codes.filter(function (c, i) { return codes.indexOf(c) === i; });
+    if (!unique.length) fail('invalid', 'Keep at least one currency enabled.');
+    var commercialRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
+    var commercial = commercialRes.rows[0].commercial;
+    commercial.currencies = unique;
+    await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(commercial)]);
+  }
+
   await audit(pool, ctx, 'settings.save', 'settings', 'company', 'Updated company settings.');
   return get(ctx);
 }

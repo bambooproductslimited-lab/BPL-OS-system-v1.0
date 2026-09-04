@@ -2,12 +2,12 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency } = require('../utils/documents');
 
 async function rowToEstimate(db, r, extra) {
   var items = await loadLineItems(db, 'estimate', r.id);
   return Object.assign({
-    id: r.id, estimateNo: r.estimate_no, customerId: r.customer_id, items: items,
+    id: r.id, estimateNo: r.estimate_no, customerId: r.customer_id, items: items, currency: r.currency,
     subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total), grandTotal: Number(r.grand_total),
     status: r.status, createdBy: r.created_by, createdAt: r.created_at, validUntil: r.valid_until,
     internalNotes: r.internal_notes, clientNotes: r.client_notes, terms: r.terms
@@ -35,17 +35,18 @@ async function create(ctx, p) {
   var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
   var commercial = settingsRes.rows[0].commercial;
   var validUntil = V.date(p.validUntil || addDays(todayISO(), commercial.templates.validityDays), 'Valid until');
+  var currency = resolveCurrency(commercial, p.currency, cust.preferred_currency);
 
   var newId = await withTransaction(async function (client) {
     var estimateNo = await nextDocNumber(client, 'estimate');
     var res = await client.query(
-      "INSERT INTO estimates (estimate_no, customer_id, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, internal_notes, client_notes, terms) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11) RETURNING *",
-      [estimateNo, cust.id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), p.terms || commercial.templates.termsAndConditions]
+      "INSERT INTO estimates (estimate_no, customer_id, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, internal_notes, client_notes, terms, currency) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12) RETURNING *",
+      [estimateNo, cust.id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency]
     );
     var es = res.rows[0];
     await insertLineItems(client, 'estimate', es.id, items);
-    await audit(client, ctx, 'estimate.create', 'estimate', es.id, 'Created ' + es.estimate_no + ' for ' + cust.name + ' (GHS ' + totals.grandTotal.toLocaleString() + ').');
+    await audit(client, ctx, 'estimate.create', 'estimate', es.id, 'Created ' + es.estimate_no + ' for ' + cust.name + ' (' + currency + ' ' + totals.grandTotal.toLocaleString() + ').');
     return es.id;
   });
 
@@ -72,16 +73,18 @@ async function update(ctx, id, p) {
   if (!existing) fail('notfound', 'Estimate not found.');
   if (existing.status !== 'draft') fail('conflict', 'Only a draft estimate can be edited.');
 
-  var custRes = await pool.query('SELECT id FROM customers WHERE id = $1', [p.customerId]);
+  var custRes = await pool.query('SELECT * FROM customers WHERE id = $1', [p.customerId]);
   if (!custRes.rows[0]) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
   var totals = computeDocTotals(items, p.discount, p.taxRate);
   var validUntil = p.validUntil ? V.date(p.validUntil, 'Valid until') : existing.valid_until;
+  var settingsRes2 = await pool.query('SELECT commercial FROM settings WHERE id = 1');
+  var currency = p.currency !== undefined ? resolveCurrency(settingsRes2.rows[0].commercial, p.currency, custRes.rows[0].preferred_currency) : existing.currency;
 
   await withTransaction(async function (client) {
     await client.query(
-      'UPDATE estimates SET customer_id = $1, subtotal = $2, discount_total = $3, tax_total = $4, grand_total = $5, valid_until = $6, internal_notes = $7, client_notes = $8 WHERE id = $9',
-      [p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), id]
+      'UPDATE estimates SET customer_id = $1, subtotal = $2, discount_total = $3, tax_total = $4, grand_total = $5, valid_until = $6, internal_notes = $7, client_notes = $8, currency = $9 WHERE id = $10',
+      [p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), currency, id]
     );
     await client.query('DELETE FROM document_line_items WHERE document_type = $1 AND document_id = $2', ['estimate', id]);
     await insertLineItems(client, 'estimate', id, items);
@@ -118,9 +121,9 @@ async function convertToQuotation(ctx, id) {
   var newQuoteId = await withTransaction(async function (client) {
     var quoteNo = await nextDocNumber(client, 'quotation');
     var insertRes = await client.query(
-      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, from_estimate_id) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12) RETURNING *",
-      [quoteNo, es.customer_id, 'Quotation for ' + (custRes.rows[0] ? custRes.rows[0].name : ''), es.subtotal, es.discount_total, es.tax_total, es.grand_total, ctx.employee.id, es.valid_until, es.client_notes, es.terms, es.id]
+      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, from_estimate_id, currency) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13) RETURNING *",
+      [quoteNo, es.customer_id, 'Quotation for ' + (custRes.rows[0] ? custRes.rows[0].name : ''), es.subtotal, es.discount_total, es.tax_total, es.grand_total, ctx.employee.id, es.valid_until, es.client_notes, es.terms, es.id, es.currency]
     );
     var q = insertRes.rows[0];
     await insertLineItems(client, 'quotation', q.id, items);

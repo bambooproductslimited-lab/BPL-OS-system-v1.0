@@ -1,3 +1,4 @@
+import { money } from '../lib/currency';
 import './ReceiptPreview.css';
 
 // Shared receipt preview dialog — originally only on ReceiptsPage, now also
@@ -48,8 +49,8 @@ export default function ReceiptPreview({ receipt, previewRef, sharing, shareErro
           <div>Received by <strong>{receipt.receivedByName}</strong></div>
         </div>
         <div className="receipt-preview-amounts">
-          <div>Remaining balance &nbsp; <strong>GHS {receipt.balanceAfter.toLocaleString()}</strong></div>
-          <div className="receipt-preview-amount-received">Amount received &nbsp; <strong>GHS {receipt.amount.toLocaleString()}</strong></div>
+          <div>Remaining balance &nbsp; <strong>{money(receipt.balanceAfter, receipt.currency)}</strong></div>
+          <div className="receipt-preview-amount-received">Amount received &nbsp; <strong>{money(receipt.amount, receipt.currency)}</strong></div>
         </div>
         {shareError && <div className="error-banner no-print">{shareError}</div>}
         <div className="dialog-actions no-print">
