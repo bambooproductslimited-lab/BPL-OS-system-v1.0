@@ -1,0 +1,29 @@
+.catpick-wrap { position: relative; width: 100%; margin-bottom: 4px; }
+.catpick-input-wrap { position: relative; display: flex; align-items: center; width: 100%; }
+.catpick-icon {
+  position: absolute; left: 8px; width: 13px; height: 13px;
+  color: var(--color-text-muted); pointer-events: none;
+}
+.catpick-input { width: 100%; padding-left: 26px; padding-right: 22px; font-size: 12px; }
+.catpick-clear {
+  position: absolute; right: 4px; border: none; background: none;
+  color: var(--color-text-muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 2px 4px;
+}
+.catpick-clear:hover { color: var(--color-text); }
+
+.catpick-panel {
+  position: fixed; z-index: 25;
+  width: max-content; max-width: 360px; max-height: 240px;
+  overflow-y: auto;
+  background: #fcfcfb;
+  border: 2px solid var(--color-border);
+  box-shadow: 0 4px 16px rgba(11,11,11,0.12);
+}
+.catpick-option {
+  display: block; width: 100%; text-align: left;
+  font-family: inherit; font-size: 12px; color: var(--color-text);
+  background: none; border: none; cursor: pointer;
+  padding: 8px 10px; white-space: nowrap;
+}
+.catpick-option:hover, .catpick-option-active { background: var(--color-accent-100); }
+.catpick-empty { padding: 10px; font-size: 12px; color: var(--color-text-muted); }

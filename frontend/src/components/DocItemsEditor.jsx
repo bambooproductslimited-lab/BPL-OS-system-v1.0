@@ -1,4 +1,5 @@
 import { money } from '../lib/currency';
+import CatalogPicker from './CatalogPicker';
 import './DocItemsEditor.css';
 
 // Shared line-item editor used identically by the New Quotation, New
@@ -76,10 +77,14 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
             {items.map((it, idx) => (
               <tr key={idx}>
                 <td className="doc-items-desc-cell">
-                  <select className="input doc-items-catalog-picker" value="" onChange={(e) => pickCatalog(idx, e.target.value)}>
-                    <option value="">From catalogue…</option>
-                    {(catalogOptions || []).map((c) => <option key={c.id} value={c.id}>{c.name} — {money(c.unitPrice, cur)}</option>)}
-                  </select>
+                  {catalogOptions && catalogOptions.length > 0 && (
+                    <CatalogPicker
+                      options={catalogOptions}
+                      placeholder="Search catalogue…"
+                      onPick={(c) => pickCatalog(idx, c.id)}
+                      renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur)}
+                    />
+                  )}
                   <input className="input" value={it.description} onChange={(e) => setField(idx, 'description', e.target.value)} placeholder="Description" />
                 </td>
                 <td><input className="input" type="number" value={it.qty} onChange={(e) => setField(idx, 'qty', e.target.value)} /></td>

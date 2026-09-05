@@ -8,7 +8,6 @@
 .doc-items-table th:nth-child(6), .doc-items-table td:nth-child(6) { width: 90px; }
 .doc-items-table th:nth-child(7), .doc-items-table td:nth-child(7) { width: 70px; }
 .doc-items-desc-cell { min-width: 220px; }
-.doc-items-catalog-picker { margin-bottom: 4px; font-size: 12px; }
 .doc-items-total-cell { font-weight: 600; white-space: nowrap; }
 .doc-items-remove { font-size: 12px; padding: 6px 10px; }
 .doc-items-add { font-size: 12px; width: fit-content; }

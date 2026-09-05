@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import WaybillPreview from '../components/WaybillPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import CatalogPicker from '../components/CatalogPicker';
 import './WaybillsPage.css';
 
 // Waybills document goods leaving the factory or showroom — a delivery
@@ -308,10 +309,11 @@ export default function WaybillsPage() {
                       <td><input className="input waybills-items-sn" value={it.itemNo} placeholder={String(idx + 1)} onChange={(e) => setItem(idx, 'itemNo', e.target.value)} /></td>
                       <td className="waybills-items-desc-cell">
                         {catalog.length > 0 && (
-                          <select className="input waybills-items-catalog-picker" value="" onChange={(e) => pickCatalogItem(idx, e.target.value)}>
-                            <option value="">From products &amp; services…</option>
-                            {catalog.map((c) => <option key={c.id} value={c.id}>{c.name}{c.code ? ' (' + c.code + ')' : ''}</option>)}
-                          </select>
+                          <CatalogPicker
+                            options={catalog}
+                            placeholder="Search products & services…"
+                            onPick={(c) => pickCatalogItem(idx, c.id)}
+                          />
                         )}
                         <input className="input" value={it.description} placeholder="Or type a custom item" onChange={(e) => setItem(idx, 'description', e.target.value)} required />
                       </td>
