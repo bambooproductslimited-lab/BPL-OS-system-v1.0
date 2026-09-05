@@ -96,6 +96,18 @@ async function decide(ctx, id, decision) {
 }
 
 // kernel.js: handlers['expenses.update']
+//
+// The expense.approve branch below doesn't call expenseVisible() (unlike
+// list()/decide(), which do) — a security review confirmed this is
+// intentional, not an oversight: every role holding expense.approve
+// (department_manager, finance_manager, finance_hr_manager,
+// general_manager — see referenceData.js's ROLE_DEFS) also holds
+// expense.read.all, so there's no employee whose claim an approver
+// couldn't already see via list() anyway. If expense.approve is ever
+// granted without expense.read.all to some future role, add an
+// expenseVisible(ctx, e) check back in here — without it, that would
+// silently become the same class of IDOR already fixed elsewhere (see
+// documents.service.js/tasks.service.js).
 async function update(ctx, id, p) {
   var res = await pool.query('SELECT * FROM expenses WHERE id = $1', [id]);
   var e = res.rows[0];
@@ -114,6 +126,8 @@ async function update(ctx, id, p) {
 }
 
 // kernel.js: handlers['expenses.delete']
+// Same "no expenseVisible() check on the approver branch — confirmed
+// intentional" note as update() above.
 async function remove(ctx, id) {
   var res = await pool.query('SELECT * FROM expenses WHERE id = $1', [id]);
   var e = res.rows[0];
@@ -128,6 +142,10 @@ async function remove(ctx, id) {
 }
 
 // kernel.js: handlers['expenses.markPaid']
+// Same "no expenseVisible() check — confirmed intentional" note as
+// update()/remove() above (no per-employee scoping check on this
+// permission at all, unlike them, but the same role-grant reasoning
+// applies: expense.approve always implies expense.read.all today).
 async function markPaid(ctx, id) {
   if (!ctx.can('expense.approve')) fail('forbidden', 'Your role does not allow this action (expense.approve).');
   var res = await pool.query('SELECT * FROM expenses WHERE id = $1', [id]);

@@ -78,6 +78,18 @@ function decryptPin(encrypted) {
 // kiosk.setPin — admin sets/resets an employee's PIN (employees.routes.js,
 // employee.write gated there). Exported here since the hashing/uniqueness
 // concern belongs with the rest of the kiosk PIN logic.
+//
+// No visibleEmployee() check on the target employeeId, here or in
+// clearPin()/getPin()/enrollFace()/clearFace()/getFaceStatus() below — all
+// six gate on employee.write alone. A security review confirmed this is
+// intentional, not an oversight: employee.write is only ever granted to
+// hr_manager/finance_hr_manager/general_manager (see referenceData.js's
+// ROLE_DEFS), all three explicitly company-wide. getPin() in particular
+// reveals a plaintext PIN and enrollFace()/getFaceStatus() touch biometric
+// data, so this is worth extra care if employee.write's grants ever
+// change — add a visibleEmployee(ctx, emp) check back into all six
+// functions if a narrower, department-scoped role is ever given
+// employee.write.
 async function setPin(ctx, employeeId, pin) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   if (!/^\d{4}$/.test(String(pin || ''))) fail('invalid', 'PIN must be exactly ' + PIN_LENGTH + ' digits.');
@@ -96,6 +108,7 @@ async function setPin(ctx, employeeId, pin) {
   return { ok: true };
 }
 
+// No visibleEmployee() check — see setPin()'s comment above.
 async function clearPin(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
@@ -111,6 +124,7 @@ async function clearPin(ctx, employeeId) {
 // anyone new, only to people who could already learn any employee's PIN
 // by resetting it. Every reveal is audit-logged, same principle as viewing
 // an ID document — it's sensitive enough to leave a trail of who looked.
+// No visibleEmployee() check — see setPin()'s comment above.
 async function getPin(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   var empRes = await pool.query('SELECT id, first_name, last_name, kiosk_pin_hash, kiosk_pin_encrypted FROM employees WHERE id = $1', [employeeId]);
@@ -200,6 +214,7 @@ function nearestDistance(enrolledSet, descriptor) {
   return min;
 }
 
+// No visibleEmployee() check — see setPin()'s comment above.
 async function enrollFace(ctx, employeeId, descriptorSet) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   validateDescriptorSet(descriptorSet);
@@ -214,6 +229,7 @@ async function enrollFace(ctx, employeeId, descriptorSet) {
   return { ok: true };
 }
 
+// No visibleEmployee() check — see setPin()'s comment above.
 async function clearFace(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
@@ -224,6 +240,7 @@ async function clearFace(ctx, employeeId) {
   return { ok: true };
 }
 
+// No visibleEmployee() check — see setPin()'s comment above.
 async function getFaceStatus(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   var res = await pool.query('SELECT face_enrolled_at FROM employees WHERE id = $1', [employeeId]);

@@ -65,7 +65,7 @@ export default function FinanceDashboardPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function downloadCsv() {
+  function handleDownloadCsv() {
     const data = fin || {};
     const rows = [['Period', 'Revenue collected (GHS)', 'Expenses approved (GHS)']];
     (data.monthlyTrend || []).forEach((m) => rows.push([m.month, m.revenue, m.expense]));
@@ -98,7 +98,7 @@ export default function FinanceDashboardPage() {
   return (
     <div>
       <div className="finance-toolbar">
-        <button type="button" className="btn btn-secondary" onClick={downloadCsv}>Download CSV</button>
+        <button type="button" className="btn btn-secondary" onClick={handleDownloadCsv}>Download CSV</button>
       </div>
 
       <div className="finance-kpis">

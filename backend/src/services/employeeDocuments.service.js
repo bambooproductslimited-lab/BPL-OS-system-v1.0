@@ -12,6 +12,17 @@ var storage = require('../lib/storage');
 var KINDS = ['id_front', 'id_back', 'passport'];
 var MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB — these are photos/scans, not large files
 
+// No visibleEmployee() check on the target employeeId here — list()/
+// upload()/getDownloadUrl() below all gate on employee.write alone. A
+// security review confirmed this is intentional, not an oversight:
+// employee.write is only ever granted to hr_manager/finance_hr_manager/
+// general_manager (see referenceData.js's ROLE_DEFS), all three
+// explicitly company-wide. Since these are sensitive ID/passport scans,
+// this is worth extra care if employee.write's grants ever change — add
+// a visibleEmployee(ctx, emp) check back into all three functions above
+// if a narrower, department-scoped role is ever given employee.write;
+// without it, that would expose other departments' identity documents,
+// not just editing rights.
 function requireManage(ctx) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
 }
