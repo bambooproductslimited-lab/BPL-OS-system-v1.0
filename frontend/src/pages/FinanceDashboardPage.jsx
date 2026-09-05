@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
+import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './FinanceDashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's finance dashboard screen
@@ -76,14 +77,7 @@ export default function FinanceDashboardPage() {
     (data.overdueTotalByCurrency || []).forEach((r) => rows.push(['Overdue total (' + r.currency + ')', r.amount]));
     rows.push(['Pending expense claims', data.pendingExpensesTotal || 0]);
     rows.push(['Expenses approved this month', data.approvedExpensesThisMonth || 0]);
-    const csv = rows.map((r) => r.map((v) => (typeof v === 'string' && v.indexOf(',') >= 0 ? '"' + v + '"' : v)).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'finance-summary-' + new Date().toISOString().slice(0, 10) + '.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv('finance-summary-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
   if (loading) return <div className="eyebrow">Loading…</div>;

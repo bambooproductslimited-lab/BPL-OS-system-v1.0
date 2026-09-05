@@ -51,12 +51,18 @@ function verifyWebhookChallenge(query) {
 // the Meta app secret (WhatsApp is configured as a product under the same
 // app already used for Facebook Login, so the same secret applies). This
 // is what stops anyone who finds the webhook URL from injecting fake
-// inbox items. Skipped (allowed through) only if META_APP_SECRET isn't
-// set at all, matching how the rest of this app treats an unconfigured
-// integration as inert rather than crashing.
+// inbox items. Fails CLOSED (rejects every POST) if META_APP_SECRET isn't
+// set — a security review flagged the previous behavior (silently
+// accepting unsigned webhook bodies whenever the secret was missing) as a
+// real auth bypass, not the same kind of "unconfigured = inert" tradeoff
+// used elsewhere for optional features: WHATSAPP_* can be fully configured
+// (phone number id, access token, verify token) independently of
+// META_APP_SECRET, so this specific gap could exist even on an otherwise
+// working WhatsApp integration. The GET verify-challenge handshake is
+// unaffected — it only depends on WHATSAPP_VERIFY_TOKEN, not this secret.
 function isValidSignature(rawBody, signatureHeader) {
   var appSecret = config.meta.appSecret;
-  if (!appSecret) return true;
+  if (!appSecret) return false;
   if (!signatureHeader || signatureHeader.indexOf('sha256=') !== 0) return false;
   var expected = crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
   var given = signatureHeader.slice('sha256='.length);

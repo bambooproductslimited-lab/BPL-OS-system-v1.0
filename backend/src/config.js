@@ -26,13 +26,21 @@ module.exports = {
     database: process.env.PGDATABASE || 'bamboo_os'
   },
   jwt: {
-    secret: required('JWT_SECRET', 'dev-only-insecure-secret-change-me'),
+    // No insecure fallback here on purpose — a security review flagged that
+    // a previous "dev-only-insecure-secret-change-me" default let the app
+    // start (and silently sign forgeable session tokens for any user) even
+    // in production if this env var was ever left unset. In test/development
+    // a fixed fallback is fine (nothing real is at stake), but production
+    // must refuse to boot rather than run with a secret anyone who's read
+    // this source file already knows.
+    secret: (process.env.NODE_ENV === 'production') ? required('JWT_SECRET') : required('JWT_SECRET', 'dev-only-insecure-secret-change-me'),
     expiresIn: process.env.JWT_EXPIRES_IN || '8h'
   },
   // HMAC key for kiosk.service.js's PIN hashing — see migration 0025's
   // comment for why a keyed hash rather than bcrypt. Never stored in the
   // database; a DB dump alone can't be used to reverse a PIN without it.
-  kioskPinPepper: required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
+  // Same fail-fast-in-production reasoning as JWT_SECRET above.
+  kioskPinPepper: (process.env.NODE_ENV === 'production') ? required('KIOSK_PIN_PEPPER') : required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
   ai: {

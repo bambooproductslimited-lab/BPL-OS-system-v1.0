@@ -39,6 +39,13 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 8h
+      # HMAC pepper for kiosk PIN hashing/encryption (kiosk.service.js) — was
+      # previously missing here entirely, which a security review flagged:
+      # without it, config.js fell back to a hardcoded, source-visible
+      # default pepper. Now required to boot in production (no more silent
+      # fallback), so it has to be set — generated the same way as JWT_SECRET.
+      - key: KIOSK_PIN_PEPPER
+        generateValue: true
       - key: BCRYPT_ROUNDS
         value: '12'
       # Set this on the Render dashboard to your real frontend origin (e.g.

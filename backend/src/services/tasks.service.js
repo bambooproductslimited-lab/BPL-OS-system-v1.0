@@ -162,6 +162,7 @@ async function update(ctx, id, p) {
   if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
   var existing = await loadTask(id);
   if (!existing) fail('notfound', 'Task not found.');
+  if (!(await taskVisible(ctx, existing))) fail('forbidden', 'Outside your scope.');
 
   var title = V.text(p.title, 'Title', 100);
   var priority = V.oneOf(p.priority || existing.priority, ['low', 'medium', 'high'], 'Priority');
@@ -190,10 +191,11 @@ async function update(ctx, id, p) {
 // kernel.js: handlers['tasks.delete']
 async function remove(ctx, id) {
   if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
-  var res = await pool.query('SELECT title FROM tasks WHERE id = $1', [id]);
-  if (!res.rows[0]) fail('notfound', 'Task not found.');
+  var existing = await loadTask(id);
+  if (!existing) fail('notfound', 'Task not found.');
+  if (!(await taskVisible(ctx, existing))) fail('forbidden', 'Outside your scope.');
   await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
-  await audit(pool, ctx, 'task.delete', 'task', id, 'Deleted task "' + res.rows[0].title + '".');
+  await audit(pool, ctx, 'task.delete', 'task', id, 'Deleted task "' + existing.title + '".');
   return true;
 }
 

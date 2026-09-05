@@ -10,7 +10,22 @@
  */
 var test = require('node:test');
 var assert = require('node:assert/strict');
+var crypto = require('crypto');
+// Set before requiring ../src/app (which loads src/config.js, evaluated
+// once at require time) so the webhook's signature check has something to
+// verify against — isValidSignature() now fails closed (rejects every
+// POST) when META_APP_SECRET isn't set, per the security fix that made the
+// old "no secret configured -> let it through" behavior a real auth
+// bypass. META_APP_ID stays unset, so config.meta.configured (which also
+// requires appId) is still false for every other Meta-OAuth "not
+// configured" test in this suite — only the signature check is affected.
+process.env.META_APP_SECRET = 'test-only-whatsapp-webhook-secret';
 var app = require('../src/app');
+
+function signedWebhookHeaders(bodyString) {
+  var sig = crypto.createHmac('sha256', process.env.META_APP_SECRET).update(bodyString).digest('hex');
+  return { 'Content-Type': 'application/json', 'x-hub-signature-256': 'sha256=' + sig };
+}
 
 var server;
 var base;
@@ -61,8 +76,9 @@ test('whatsapp webhook: POST logs an inbox item, and re-delivery of the same mes
     }]
   };
 
+  var body = JSON.stringify(payload);
   var post1 = await fetch(base + '/api/marketing/whatsapp/webhook', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    method: 'POST', headers: signedWebhookHeaders(body), body: body
   });
   assert.equal(post1.status, 200);
   var afterFirst = await countInbox();
@@ -71,11 +87,28 @@ test('whatsapp webhook: POST logs an inbox item, and re-delivery of the same mes
   // Meta retries undelivered webhooks — the same message id arriving twice
   // must not create a second inbox item.
   var post2 = await fetch(base + '/api/marketing/whatsapp/webhook', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    method: 'POST', headers: signedWebhookHeaders(body), body: body
   });
   assert.equal(post2.status, 200);
   var afterSecond = await countInbox();
   assert.equal(afterSecond, afterFirst);
+});
+
+test('whatsapp webhook: POST with a missing/wrong signature is rejected, not silently accepted', async function () {
+  var payload = { object: 'whatsapp_business_account', entry: [] };
+  var body = JSON.stringify(payload);
+
+  var noSig = await fetch(base + '/api/marketing/whatsapp/webhook', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body
+  });
+  assert.equal(noSig.status, 403);
+
+  var wrongSig = await fetch(base + '/api/marketing/whatsapp/webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': 'sha256=' + '0'.repeat(64) },
+    body: body
+  });
+  assert.equal(wrongSig.status, 403);
 });
 
 test('whatsapp reply: fails cleanly when WhatsApp is not configured on the server', async function () {

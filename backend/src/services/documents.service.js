@@ -74,8 +74,9 @@ async function getDownloadUrl(ctx, id) {
 // kernel.js: handlers['documents.delete']
 async function remove(ctx, id) {
   if (!ctx.can('document.manage')) fail('forbidden', 'Your role does not allow this action (document.manage).');
-  var res = await pool.query('SELECT title, object_key FROM documents WHERE id = $1', [id]);
+  var res = await pool.query('SELECT * FROM documents WHERE id = $1', [id]);
   if (!res.rows[0]) fail('notfound', 'Document not found.');
+  if (!documentVisible(ctx, res.rows[0])) fail('forbidden', 'You do not have access to this document.');
   await pool.query('DELETE FROM documents WHERE id = $1', [id]);
   if (res.rows[0].object_key && storage.configured) {
     try { await storage.deleteFile(res.rows[0].object_key); } catch (err) { /* row is already gone; a stray object in the bucket isn't worth failing the request over */ }
