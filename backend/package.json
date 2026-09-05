@@ -1,6 +1,6 @@
 {
   "name": "bamboo-os-backend",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Bamboo Products Limited — Company OS backend API (Node/Express + PostgreSQL). Real implementation of the design prototype's core/kernel.js server boundary.",
   "private": true,
   "type": "commonjs",
