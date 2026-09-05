@@ -40,10 +40,9 @@ function lineTotal(it) {
 // though catalogue items carry a tax rate. Replicated verbatim rather than
 // "fixed", since this build stays faithful to intentional (if odd) UI
 // behavior from the design tool unless it would actively break the flow.
-export function applyCatalogItem(items, idx, catalogId, catalogOptions) {
-  const c = (catalogOptions || []).find((x) => x.id === catalogId);
-  if (!c) return items;
-  return items.map((it, i) => (i === idx ? { ...it, description: c.name, unit: c.unit, unitPrice: c.unitPrice, qty: c.defaultQty || 1 } : it));
+export function applyCatalogItem(items, idx, item) {
+  if (!item) return items;
+  return items.map((it, i) => (i === idx ? { ...it, description: item.name, unit: item.unit, unitPrice: item.unitPrice, qty: item.defaultQty || 1 } : it));
 }
 
 export default function DocItemsEditor({ items, onChange, catalogOptions, currency }) {
@@ -60,8 +59,8 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
     if (items.length <= 1) return;
     onChange(items.filter((_, i) => i !== idx));
   }
-  function pickCatalog(idx, catalogId) {
-    onChange(applyCatalogItem(items, idx, catalogId, catalogOptions));
+  function pickCatalog(idx, item) {
+    onChange(applyCatalogItem(items, idx, item));
   }
 
   return (
@@ -77,15 +76,14 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
             {items.map((it, idx) => (
               <tr key={idx}>
                 <td className="doc-items-desc-cell">
-                  {catalogOptions && catalogOptions.length > 0 && (
-                    <CatalogPicker
-                      options={catalogOptions}
-                      placeholder="Search catalogue…"
-                      onPick={(c) => pickCatalog(idx, c.id)}
-                      renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur)}
-                    />
-                  )}
-                  <input className="input" value={it.description} onChange={(e) => setField(idx, 'description', e.target.value)} placeholder="Description" />
+                  <CatalogPicker
+                    value={it.description}
+                    onChange={(text) => setField(idx, 'description', text)}
+                    onPickOption={(c) => pickCatalog(idx, c)}
+                    options={catalogOptions || []}
+                    placeholder="Search catalogue or type a custom item…"
+                    renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur)}
+                  />
                 </td>
                 <td><input className="input" type="number" value={it.qty} onChange={(e) => setField(idx, 'qty', e.target.value)} /></td>
                 <td><input className="input" value={it.unit} onChange={(e) => setField(idx, 'unit', e.target.value)} /></td>

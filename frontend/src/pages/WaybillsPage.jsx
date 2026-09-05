@@ -124,8 +124,7 @@ export default function WaybillsPage() {
   function setItem(idx, key, value) {
     setForm({ ...form, items: form.items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)) });
   }
-  function pickCatalogItem(idx, catalogId) {
-    const c = catalog.find((x) => x.id === catalogId);
+  function pickCatalogItem(idx, c) {
     if (!c) return;
     setForm({
       ...form,
@@ -308,14 +307,14 @@ export default function WaybillsPage() {
                     <tr key={idx}>
                       <td><input className="input waybills-items-sn" value={it.itemNo} placeholder={String(idx + 1)} onChange={(e) => setItem(idx, 'itemNo', e.target.value)} /></td>
                       <td className="waybills-items-desc-cell">
-                        {catalog.length > 0 && (
-                          <CatalogPicker
-                            options={catalog}
-                            placeholder="Search products & services…"
-                            onPick={(c) => pickCatalogItem(idx, c.id)}
-                          />
-                        )}
-                        <input className="input" value={it.description} placeholder="Or type a custom item" onChange={(e) => setItem(idx, 'description', e.target.value)} required />
+                        <CatalogPicker
+                          value={it.description}
+                          onChange={(text) => setItem(idx, 'description', text)}
+                          onPickOption={(c) => pickCatalogItem(idx, c)}
+                          options={catalog}
+                          placeholder="Search products & services or type a custom item…"
+                          required
+                        />
                       </td>
                       <td><input className="input" type="number" min="0.01" step="0.01" value={it.qty} onChange={(e) => setItem(idx, 'qty', e.target.value)} required /></td>
                       <td><input className="input" value={it.unit} onChange={(e) => setItem(idx, 'unit', e.target.value)} /></td>

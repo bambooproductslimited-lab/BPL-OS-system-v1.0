@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './CatalogPicker.css';
 
-// Searchable replacement for the plain "From catalogue…" <select> used by
-// DocItemsEditor (Quotations/Estimates/Invoices) and WaybillsPage — once a
-// catalogue runs into dozens/hundreds of variations, scrolling a native
-// <select> to find one by eye stops working. Filters by name/code as you
-// type; same outside-click-to-close pattern as DateRangePicker.
+// Combined search-or-type-custom item field, used by DocItemsEditor
+// (Quotations/Estimates/Invoices) and WaybillsPage in place of what used
+// to be two separate inputs: a "From catalogue…" <select> plus a second
+// plain text box for a custom line. This is fully controlled — `value` is
+// the actual description text for the line, typed or picked — so there's
+// nothing extra to reset: type a name/code to see matching catalogue
+// items and click one to fill in its price/unit too, or just keep typing
+// your own text for a one-off item that isn't in the catalogue at all.
 //
 // The results panel is rendered through a portal into document.body,
 // positioned with fixed coordinates from the input's own
@@ -20,8 +23,7 @@ import './CatalogPicker.css';
 
 function normalize(v) { return (v == null ? '' : String(v)).toLowerCase().trim(); }
 
-export default function CatalogPicker({ options, onPick, placeholder, renderOption }) {
-  const [query, setQuery] = useState('');
+export default function CatalogPicker({ value, onChange, onPickOption, options, placeholder, renderOption, required }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [rect, setRect] = useState(null);
@@ -58,13 +60,16 @@ export default function CatalogPicker({ options, onPick, placeholder, renderOpti
     };
   }, [open]);
 
-  const q = normalize(query);
+  const q = normalize(value);
   const list = options || [];
-  const filtered = !q ? list : list.filter((c) => normalize(c.name).includes(q) || normalize(c.code).includes(q));
+  // An exact match (the field already holds a picked item's own display
+  // name) has nothing useful left to suggest — only show the panel for
+  // partial/prefix-style matches, so re-focusing an already-filled line
+  // doesn't immediately reopen a single-option dropdown.
+  const filtered = !q ? [] : list.filter((c) => (normalize(c.name).includes(q) || normalize(c.code).includes(q)) && normalize(c.name) !== q);
 
   function pick(item) {
-    onPick(item);
-    setQuery('');
+    onPickOption(item);
     setOpen(false);
     setHighlight(0);
   }
@@ -86,23 +91,20 @@ export default function CatalogPicker({ options, onPick, placeholder, renderOpti
         <input
           type="text"
           className="input catpick-input"
-          value={query}
-          placeholder={placeholder || 'Search products…'}
+          value={value}
+          required={required}
+          placeholder={placeholder || 'Search catalogue or type a custom item…'}
           onFocus={openPanel}
-          onChange={(e) => { setQuery(e.target.value); if (!open) openPanel(); setHighlight(0); }}
+          onChange={(e) => { onChange(e.target.value); if (!open) openPanel(); setHighlight(0); }}
           onKeyDown={onKeyDown}
         />
-        {query && (
-          <button type="button" className="catpick-clear" aria-label="Clear search" onClick={() => setQuery('')}>×</button>
-        )}
       </div>
-      {open && rect && createPortal(
+      {open && rect && filtered.length > 0 && createPortal(
         <div
           className="catpick-panel"
           ref={panelRef}
           style={{ top: rect.bottom + 3, left: rect.left, minWidth: rect.width }}
         >
-          {filtered.length === 0 && <div className="catpick-empty">No matching products.</div>}
           {filtered.map((c, i) => (
             <button
               type="button"
