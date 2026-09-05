@@ -110,7 +110,7 @@ function defaultIntegrations() {
 }
 function defaultCommercial() {
   return {
-    currencies: ['GHS', 'USD', 'EUR', 'GBP'],
+    currencies: ['GHS', 'USD', 'EUR', 'GBP', 'CNY'],
     taxRates: [
       { id: 'tx_vat', name: 'VAT', rate: 15 },
       { id: 'tx_nhil', name: 'NHIL', rate: 2.5 },
