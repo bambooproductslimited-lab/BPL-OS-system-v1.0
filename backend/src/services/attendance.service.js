@@ -220,6 +220,17 @@ async function report(ctx, from, to, filters) {
 }
 
 // kernel.js: handlers['attendance.adjust']
+//
+// No visibleEmployee() scoping on the target employee here — a security
+// review confirmed this is intentional, not an oversight: attendance.adjust
+// is only ever granted to hr_manager/finance_hr_manager/general_manager
+// (see referenceData.js's ROLE_DEFS), all three explicitly company-wide
+// with no department restriction. department_manager — the one role that
+// IS restricted to one department — gets attendance.read.all but not
+// attendance.adjust. If that ever changes (attendance.adjust attached to a
+// narrower role), add a visibleEmployee(ctx, emp) check back in here —
+// without it, that would silently become the same class of IDOR already
+// fixed elsewhere (see documents.service.js/tasks.service.js).
 async function adjust(ctx, p) {
   if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
 
@@ -252,6 +263,8 @@ async function adjust(ctx, p) {
 }
 
 // kernel.js: handlers['attendance.delete']
+// Same "no visibleEmployee() scoping — confirmed intentional, re-check if
+// attendance.adjust's role grants ever change" note as adjust() above.
 async function remove(ctx, id) {
   if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
   var res = await pool.query('SELECT * FROM attendance WHERE id = $1', [id]);

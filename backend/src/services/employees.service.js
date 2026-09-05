@@ -174,6 +174,17 @@ async function resolveShiftIdUpdate(p, e) {
 }
 
 // kernel.js: handlers['employees.update']
+//
+// No visibleEmployee() scoping here (unlike get()/profile()) — a security
+// review confirmed this is intentional, not an oversight: employee.write is
+// only ever granted to hr_manager/finance_hr_manager/general_manager (see
+// referenceData.js's ROLE_DEFS), and all three are explicitly company-wide
+// roles with no department restriction anywhere else in their permission
+// set. If employee.write is ever attached to a narrower, department-scoped
+// role in the future, add a visibleEmployee(ctx, e) check back in here —
+// without it, that would silently become the same class of IDOR already
+// fixed elsewhere (see documents.service.js/tasks.service.js), just for
+// editing/terminating any employee company-wide.
 async function update(ctx, id, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   // Pay rate/cycle are compensation data — gated separately behind
@@ -244,6 +255,8 @@ async function update(ctx, id, p) {
 }
 
 // kernel.js: handlers['employees.terminate']
+// Same "no visibleEmployee() scoping — confirmed intentional, re-check if
+// employee.write's role grants ever change" note as update() above.
 async function terminate(ctx, id, reason) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
   if (id === ctx.employee.id) fail('forbidden', 'You cannot terminate your own employee record.');
