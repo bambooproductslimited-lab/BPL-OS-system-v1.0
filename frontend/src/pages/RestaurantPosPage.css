@@ -17,6 +17,10 @@
 }
 .pos-topbar-company { font-weight: 700; font-size: 16px; }
 .pos-topbar-cashier { font-size: 13px; color: var(--color-text-muted); }
+.pos-topbar-actions { display: flex; align-items: center; gap: 10px; }
+.pos-printer-btn { font-size: 12px; padding: 6px 10px; }
+.pos-printer-status { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+.pos-printer-error { margin: 0 24px 12px; }
 
 .pos-body {
   flex: 1;

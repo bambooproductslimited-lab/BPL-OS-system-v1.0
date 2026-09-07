@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { API_URL, ApiError } from '../api/client';
 import { money } from '../lib/currency';
+import {
+  buildReceiptBytes, usbSupported, bluetoothSupported,
+  requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
+} from '../lib/thermalPrinter';
 import './KioskPage.css';
 import './RestaurantPosPage.css';
 
@@ -58,6 +62,64 @@ export default function RestaurantPosPage() {
   const [checkoutError, setCheckoutError] = useState(null);
 
   const [receipt, setReceipt] = useState(null);
+
+  // Direct thermal-printer output (Phase 3) — set once per till device,
+  // then reused for every sale's receipt for the rest of the shift (and
+  // silently reconnected on reload, same as the till session itself).
+  // Only ever a same-device convenience on top of the always-available
+  // "Print receipt" browser-print button below — see thermalPrinter.js's
+  // module comment for why WebUSB/WebBluetooth simply don't exist on an
+  // iPad in any browser, so this stays optional rather than replacing it.
+  const [printer, setPrinter] = useState(null); // { kind, name, write }
+  const [printerError, setPrinterError] = useState(null);
+  const [pairingKind, setPairingKind] = useState(null); // 'usb' | 'bluetooth' | null
+  const [printing, setPrinting] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const usb = await reconnectUsbPrinter();
+      if (usb) { setPrinter(usb); return; }
+      const bt = await reconnectBluetoothPrinter();
+      if (bt) setPrinter(bt);
+    })();
+  }, []);
+
+  async function pairUsb() {
+    setPrinterError(null);
+    setPairingKind('usb');
+    try {
+      const conn = await requestUsbPrinter();
+      setPrinter(conn);
+    } catch (err) {
+      setPrinterError(err.message);
+    } finally {
+      setPairingKind(null);
+    }
+  }
+  async function pairBluetooth() {
+    setPrinterError(null);
+    setPairingKind('bluetooth');
+    try {
+      const conn = await requestBluetoothPrinter();
+      setPrinter(conn);
+    } catch (err) {
+      setPrinterError(err.message);
+    } finally {
+      setPairingKind(null);
+    }
+  }
+  async function printToThermalPrinter(order) {
+    setPrinting(true);
+    setPrinterError(null);
+    try {
+      const bytes = buildReceiptBytes(order, session.companyName, session.employeeName, { kickDrawer: order.paymentMethod === 'cash' });
+      await printer.write(bytes);
+    } catch (err) {
+      setPrinterError('Could not print: ' + err.message);
+    } finally {
+      setPrinting(false);
+    }
+  }
 
   async function loadMenu(token) {
     setMenuLoading(true);
@@ -228,8 +290,14 @@ export default function RestaurantPosPage() {
           </div>
           <div className="pos-receipt-footer">Paid by {receipt.paymentMethod.replace('_', ' ')}</div>
         </div>
+        {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
         <div className="pos-receipt-actions">
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print receipt</button>
+          {printer && (
+            <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
+              {printing ? 'Printing…' : 'Print via ' + printer.name}
+            </button>
+          )}
           <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)}>New sale</button>
         </div>
       </div>
@@ -243,8 +311,27 @@ export default function RestaurantPosPage() {
           <div className="pos-topbar-company">{session.companyName}</div>
           <div className="pos-topbar-cashier">{session.employeeName}</div>
         </div>
-        <button type="button" className="btn btn-secondary" onClick={logout}>Log out</button>
+        <div className="pos-topbar-actions">
+          {printer ? (
+            <span className="pos-printer-status" title={printer.name}>🖨 {printer.name}</span>
+          ) : (
+            <>
+              {usbSupported() && (
+                <button type="button" className="btn btn-secondary pos-printer-btn" disabled={!!pairingKind} onClick={pairUsb}>
+                  {pairingKind === 'usb' ? 'Connecting…' : 'Connect USB printer'}
+                </button>
+              )}
+              {bluetoothSupported() && (
+                <button type="button" className="btn btn-secondary pos-printer-btn" disabled={!!pairingKind} onClick={pairBluetooth}>
+                  {pairingKind === 'bluetooth' ? 'Connecting…' : 'Connect Bluetooth printer'}
+                </button>
+              )}
+            </>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={logout}>Log out</button>
+        </div>
       </div>
+      {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
 
       <div className="pos-body">
         <div className="pos-menu">
