@@ -24,6 +24,7 @@ import WaybillsPage from './pages/WaybillsPage';
 import ToolRoomPage from './pages/ToolRoomPage';
 import ItDevicesPage from './pages/ItDevicesPage';
 import RestaurantsPage from './pages/RestaurantsPage';
+import RestaurantPosPage from './pages/RestaurantPosPage';
 import ProductionPage from './pages/ProductionPage';
 import ProcurementPage from './pages/ProcurementPage';
 import ApprovalsPage from './pages/ApprovalsPage';
@@ -78,6 +79,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/kiosk" element={<KioskPage />} />
+        <Route path="/pos" element={<RestaurantPosPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>

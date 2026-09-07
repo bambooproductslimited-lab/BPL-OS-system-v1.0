@@ -4,49 +4,22 @@ var { fail } = require('../utils/errors');
 var config = require('../config');
 var attendanceService = require('./attendance.service');
 var { audit } = require('../utils/audit');
+var pinAuth = require('../lib/pinAuth');
 
 // The clock-in/out kiosk (an unattended iPad, no login) — an employee
 // enters a 4-digit PIN and nothing else identifies them, so the PIN alone
 // has to resolve to exactly one active employee (see migration 0025's
 // comment on the hashing choice). Every attempt is rate-limited per
 // caller IP since a 4-digit space (10,000 combinations) is guessable
-// online if nothing throttles it.
+// online if nothing throttles it. Rate limiting and PIN hashing now live
+// in lib/pinAuth.js, shared with the restaurant POS's till login — both
+// resolve the same kiosk_pin_hash column, so they share one counter too.
 
-var PIN_LENGTH = 4;
-
-// Rate limiting: an in-memory sliding window keyed by IP. This app runs as
-// a single Node process (Render web service, no horizontal scaling), so
-// in-memory state is a real, sufficient limiter for this feature — it
-// resets on a redeploy, which is an acceptable tradeoff for a kiosk device
-// that's on a known, small set of IPs anyway.
-var MAX_ATTEMPTS = 5;
-var WINDOW_MS = 2 * 60 * 1000; // 2 minutes
-var LOCKOUT_MS = 5 * 60 * 1000; // 5 minutes once tripped
-var attemptsByIp = new Map(); // ip -> { count, windowStart, lockedUntil }
-
-function checkRateLimit(ip) {
-  var now = Date.now();
-  var entry = attemptsByIp.get(ip);
-  if (entry && entry.lockedUntil && now < entry.lockedUntil) {
-    fail('ratelimited', 'Too many attempts — please wait a few minutes and try again.');
-  }
-  if (!entry || now - entry.windowStart > WINDOW_MS) {
-    entry = { count: 0, windowStart: now, lockedUntil: 0 };
-    attemptsByIp.set(ip, entry);
-  }
-  return entry;
-}
-function recordFailure(ip) {
-  var entry = attemptsByIp.get(ip);
-  if (!entry) return;
-  entry.count += 1;
-  if (entry.count >= MAX_ATTEMPTS) entry.lockedUntil = Date.now() + LOCKOUT_MS;
-}
-function recordSuccess(ip) { attemptsByIp.delete(ip); }
-
-function hashPin(pin) {
-  return crypto.createHmac('sha256', config.kioskPinPepper).update(pin).digest('hex');
-}
+var PIN_LENGTH = pinAuth.PIN_LENGTH;
+var checkRateLimit = pinAuth.checkRateLimit;
+var recordFailure = pinAuth.recordFailure;
+var recordSuccess = pinAuth.recordSuccess;
+var hashPin = pinAuth.hashPin;
 
 // Reversible copy of the PIN, stored alongside the hash above — see
 // migration 0029's comment for why this exists as a second column instead

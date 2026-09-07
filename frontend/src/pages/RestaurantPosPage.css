@@ -1,0 +1,111 @@
+.pos-login-content { justify-content: center; }
+
+.pos-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.pos-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: var(--divider-width) solid var(--color-divider);
+}
+.pos-topbar-company { font-weight: 700; font-size: 16px; }
+.pos-topbar-cashier { font-size: 13px; color: var(--color-text-muted); }
+
+.pos-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.pos-menu {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+.pos-menu-group { margin-bottom: 24px; }
+.pos-menu-category { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 10px; }
+.pos-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.pos-menu-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease, transform 0.08s ease;
+}
+.pos-menu-tile:hover { border-color: var(--color-accent); }
+.pos-menu-tile:active { transform: scale(0.97); }
+.pos-menu-tile-name { font-weight: 600; font-size: 14px; }
+.pos-menu-tile-price { font-size: 13px; color: var(--color-text-muted); }
+.pos-empty { color: var(--color-text-muted); font-size: 13px; padding: 24px 0; }
+
+.pos-cart {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: var(--divider-width) solid var(--color-divider);
+  padding: 20px;
+}
+.pos-cart-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; }
+.pos-cart-empty { color: var(--color-text-muted); font-size: 13px; }
+.pos-cart-lines { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.pos-cart-line { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 8px; font-size: 13px; }
+.pos-cart-line-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pos-cart-line-controls { display: flex; align-items: center; gap: 6px; }
+.pos-cart-qty-btn {
+  width: 22px; height: 22px; border: 1px solid var(--color-border); background: var(--color-bg);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1; padding: 0;
+}
+.pos-cart-line-total { font-weight: 600; white-space: nowrap; }
+.pos-cart-remove { border: none; background: none; color: var(--color-text-muted); font-size: 16px; cursor: pointer; padding: 0 2px; }
+.pos-cart-remove:hover { color: var(--color-text); }
+.pos-cart-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 15px; padding: 14px 0; margin-top: 10px; border-top: var(--divider-width) solid var(--color-divider);
+}
+.pos-cart-total strong { font-size: 20px; }
+.pos-checkout-btn { width: 100%; padding: 14px 0; font-size: 15px; }
+
+.pos-checkout-total { font-size: 14px; margin: 4px 0 12px; }
+
+.pos-receipt-screen {
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px;
+}
+.pos-receipt-print {
+  width: 100%;
+  max-width: 320px;
+  padding: 24px;
+  background: #ffffff;
+  color: #111111;
+  border: 2px solid var(--color-border);
+  font-family: monospace;
+  font-size: 13px;
+}
+.pos-receipt-header { font-weight: 700; text-align: center; font-size: 15px; margin-bottom: 6px; }
+.pos-receipt-meta { text-align: center; font-size: 12px; margin-bottom: 10px; }
+.pos-receipt-rule { border-top: 1px dashed #999999; margin: 10px 0; }
+.pos-receipt-line { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.pos-receipt-total { display: flex; justify-content: space-between; font-weight: 700; font-size: 14px; }
+.pos-receipt-footer { text-align: center; margin-top: 10px; font-size: 12px; text-transform: capitalize; }
+.pos-receipt-actions { display: flex; gap: 10px; }
+
+@media print {
+  body * { visibility: hidden; }
+  #pos-receipt, #pos-receipt * { visibility: visible; }
+  #pos-receipt { position: absolute; top: 0; left: 0; width: 100%; max-width: none; border: none; }
+}

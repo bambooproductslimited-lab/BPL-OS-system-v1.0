@@ -18,6 +18,11 @@ import './RestaurantsPage.css';
 // Menu items are the foundation Phase 2 (POS) and Phase 4 (per-restaurant
 // Square import) both build on — a menu item is what a POS sale rings up,
 // and what a Square catalogue sync would upsert into.
+//
+// Phase 2 added the "Sales" tab and the "Open till (POS)" link: this page
+// only ever reads orders (list + void) — they're created exclusively by
+// the till itself (RestaurantPosPage.jsx, at /pos), which authenticates
+// with its own PIN-based session, not a login here.
 
 const EMPTY_MENU_FORM = { name: '', category: '', price: '' };
 const EMPTY_SUPPLY_FORM = { name: '', category: '', unit: 'each', stockQty: '', reorderLevel: '', unitCost: '' };
@@ -38,12 +43,13 @@ export default function RestaurantsPage() {
 
   const [departments, setDepartments] = useState([]);
   const [companyId, setCompanyId] = useState('');
-  const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients'
+  const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales'
   const [search, setSearch] = useState('');
 
   const [menuItems, setMenuItems] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [ingredients, setIngredients] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -84,14 +90,16 @@ export default function RestaurantsPage() {
     setError(null);
     try {
       const qs = forCompanyId ? '?companyId=' + forCompanyId : '';
-      const [menu, sup, ing] = await Promise.all([
+      const [menu, sup, ing, ord] = await Promise.all([
         api.get('/restaurant/menu-items' + qs),
         api.get('/restaurant/supplies' + qs),
-        api.get('/restaurant/ingredients' + qs)
+        api.get('/restaurant/ingredients' + qs),
+        api.get('/restaurant/orders' + qs)
       ]);
       setMenuItems(menu);
       setSupplies(sup);
       setIngredients(ing);
+      setOrders(ord);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -259,6 +267,20 @@ export default function RestaurantsPage() {
     }
   }
 
+  // ── sales (POS orders, read-only here — the till itself creates them) ──
+  async function voidOrderAction(o) {
+    setBusyId(o.id);
+    try {
+      await api.post('/restaurant/orders/' + o.id + '/void');
+      setToast('Order voided.');
+      await load(companyId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   // ── shared stock-adjust dialog (supplies + ingredients) ────────────
   function openStockDialog(kind, item) {
     setStockDialogError(null);
@@ -286,6 +308,7 @@ export default function RestaurantsPage() {
   const visibleMenuItems = menuItems.filter((m) => matchesQuery(search, m.name, m.category));
   const visibleSupplies = supplies.filter((s) => matchesQuery(search, s.name, s.category));
   const visibleIngredients = ingredients.filter((i) => matchesQuery(search, i.name));
+  const visibleOrders = orders.filter((o) => matchesQuery(search, o.orderNo, o.cashierName));
 
   return (
     <div>
@@ -309,7 +332,7 @@ export default function RestaurantsPage() {
 
           <div className="restaurants-toolbar">
             <div className="seg">
-              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }].map((opt) => (
+              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }, { key: 'sales', label: 'Sales' }].map((opt) => (
                 <label className="seg-opt" key={opt.key}>
                   <input type="radio" name="restaurant-tab" checked={tab === opt.key} onChange={() => setTab(opt.key)} />
                   <span>{opt.label}</span>
@@ -320,6 +343,7 @@ export default function RestaurantsPage() {
             {canManage && tab === 'menu' && <button type="button" className="btn btn-primary" onClick={openNewMenuItem}>Add menu item</button>}
             {canManage && tab === 'supplies' && <button type="button" className="btn btn-primary" onClick={openNewSupply}>Add supply</button>}
             {canManage && tab === 'ingredients' && <button type="button" className="btn btn-primary" onClick={openNewIngredient}>Add ingredient</button>}
+            <a className="btn btn-secondary" href="/pos" target="_blank" rel="noreferrer">Open till (POS) ↗</a>
           </div>
 
           {tab === 'menu' && (
@@ -390,6 +414,29 @@ export default function RestaurantsPage() {
             </table>
           )}
 
+          {tab === 'sales' && (
+            <table className="table">
+              <thead><tr><th>Order</th><th>Cashier</th><th>Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
+              <tbody>
+                {visibleOrders.map((o) => (
+                  <tr key={o.id}>
+                    <td style={{ fontWeight: 600 }}>{o.orderNo}</td>
+                    <td>{o.cashierName}</td>
+                    <td>{money(o.total)}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{o.paymentMethod.replace('_', ' ')}</td>
+                    <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
+                    <td>{new Date(o.createdAt).toLocaleString()}</td>
+                    <td className="table-actions">
+                      {canManage && o.status === 'completed' && (
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={() => voidOrderAction(o)}>Void</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
           {tab === 'menu' && !menuItems.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No menu items yet</p></div>
           )}
@@ -407,6 +454,12 @@ export default function RestaurantsPage() {
           )}
           {tab === 'ingredients' && !!ingredients.length && !visibleIngredients.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No ingredients match "{search}"</p></div>
+          )}
+          {tab === 'sales' && !orders.length && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales yet — rung-up orders from the till will show here</p></div>
+          )}
+          {tab === 'sales' && !!orders.length && !visibleOrders.length && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales match "{search}"</p></div>
           )}
         </>
       )}

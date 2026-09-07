@@ -1,7 +1,12 @@
 // Thin fetch wrapper around the backend API (../../backend). Keeps a single
 // place that knows about the base URL, bearer token, and error shape
 // (backend/src/utils/errors.js: { error: { code, message } }).
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+// Exported for the restaurant POS page (RestaurantPosPage.jsx), which
+// can't use the `api` object below for its own /pos/* calls — that object
+// always injects whatever user token happens to be in localStorage
+// (TOKEN_KEY), but a POS till has its own separate, unattended-device
+// session token (see restaurantPos.service.js) that has to win instead.
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 const TOKEN_KEY = 'bamboo.token';
 
 export class ApiError extends Error {
