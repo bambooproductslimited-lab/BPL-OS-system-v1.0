@@ -3,6 +3,7 @@
 .restaurants-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 .restaurants-lowstock { margin-left: 6px; }
 .restaurants-stock-current { font-size: 13px; color: var(--color-text-muted); margin: 0 0 4px; }
+.restaurants-square-result { font-size: 13px; color: var(--color-text-muted); margin: -8px 0 16px; }
 
 .restaurants-empty-state {
   display: flex;

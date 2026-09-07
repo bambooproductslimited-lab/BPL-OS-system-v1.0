@@ -172,6 +172,23 @@ module.exports = {
       configured: !!accessToken
     };
   }()),
+  // Restaurant module, Phase 4: Star Bar Restaurant and Bamboo Garden each
+  // run their own separate Square account (separate tills, separate
+  // catalogues, separate sales history) — a single shared token like the
+  // one above can't represent that. Keyed by the business's companies.code
+  // column (SQUARE_ACCESS_TOKEN_SBR, SQUARE_ACCESS_TOKEN_BGN, ...) so a
+  // future third restaurant needs only a new env var, no code change — same
+  // "scoped by company_id, no schema change for a new company" pattern the
+  // rest of the restaurant module already uses.
+  restaurantSquare: (function () {
+    var baseUrl = process.env.SQUARE_API_BASE_URL || 'https://connect.squareup.com';
+    return {
+      forCompanyCode: function (code) {
+        var accessToken = (process.env['SQUARE_ACCESS_TOKEN_' + code] || '').trim();
+        return { accessToken: accessToken, baseUrl: baseUrl, configured: !!accessToken };
+      }
+    };
+  }()),
   // TimeStation (time & attendance) employee sync — services/timestation.service.js.
   // A single API key authenticates as HTTP Basic Auth username with no
   // password (per TimeStation's own API v1.2 docs). One-way pull only: we

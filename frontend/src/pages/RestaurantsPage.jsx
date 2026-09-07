@@ -55,6 +55,10 @@ export default function RestaurantsPage() {
   const [toast, setToast] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
+  const [squareBusy, setSquareBusy] = useState(false);
+  const [squareResult, setSquareResult] = useState(null);
+  const [squareError, setSquareError] = useState(null);
+
   const [menuDialogOpen, setMenuDialogOpen] = useState(false);
   const [menuEditId, setMenuEditId] = useState(null);
   const [menuForm, setMenuForm] = useState(EMPTY_MENU_FORM);
@@ -122,6 +126,8 @@ export default function RestaurantsPage() {
   useEffect(() => {
     if (!companyId && companies.length) { setCompanyId(companies[0].id); return; }
     if (companyId) load(companyId);
+    setSquareResult(null);
+    setSquareError(null);
   }, [companyId, companies, load]);
 
   useEffect(() => {
@@ -281,6 +287,25 @@ export default function RestaurantsPage() {
     }
   }
 
+  // ── Square import (Phase 4): one-time historical pull from this
+  // restaurant's own Square account into its menu + sales — see
+  // restaurantSquareImport.service.js. Scoped to whichever company the
+  // segmented control above has selected, same as every other action here.
+  async function runSquareImport() {
+    setSquareBusy(true);
+    setSquareError(null);
+    setSquareResult(null);
+    try {
+      const result = await api.post('/restaurant/square-import', { companyId });
+      setSquareResult(result);
+      await load(companyId);
+    } catch (err) {
+      setSquareError(err.message);
+    } finally {
+      setSquareBusy(false);
+    }
+  }
+
   // ── shared stock-adjust dialog (supplies + ingredients) ────────────
   function openStockDialog(kind, item) {
     setStockDialogError(null);
@@ -344,7 +369,20 @@ export default function RestaurantsPage() {
             {canManage && tab === 'supplies' && <button type="button" className="btn btn-primary" onClick={openNewSupply}>Add supply</button>}
             {canManage && tab === 'ingredients' && <button type="button" className="btn btn-primary" onClick={openNewIngredient}>Add ingredient</button>}
             <a className="btn btn-secondary" href="/pos" target="_blank" rel="noreferrer">Open till (POS) ↗</a>
+            {canManage && (
+              <button type="button" className="btn btn-secondary" disabled={squareBusy} onClick={runSquareImport}>
+                {squareBusy ? 'Importing from Square…' : 'Import from Square'}
+              </button>
+            )}
           </div>
+
+          {squareError && <div className="error-banner" style={{ marginBottom: 16 }}>{squareError}</div>}
+          {squareResult && (
+            <div className="restaurants-square-result">
+              Menu items {squareResult.menuItems.imported} imported ({squareResult.menuItems.skipped} skipped) · Orders {squareResult.orders.imported} imported ({squareResult.orders.skipped} skipped)
+              {squareResult.errors.length > 0 && <> — {squareResult.errors.length} record(s) had errors; see server logs / audit trail.</>}
+            </div>
+          )}
 
           {tab === 'menu' && (
             <table className="table">

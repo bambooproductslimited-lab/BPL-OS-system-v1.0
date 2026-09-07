@@ -2,6 +2,7 @@ var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var restaurantService = require('../services/restaurant.service');
 var restaurantPosService = require('../services/restaurantPos.service');
+var restaurantSquareImportService = require('../services/restaurantSquareImport.service');
 
 var router = express.Router();
 router.use(requireAuth);
@@ -59,6 +60,13 @@ router.get('/orders', async function (req, res, next) {
 });
 router.post('/orders/:id/void', async function (req, res, next) {
   try { res.json(await restaurantPosService.voidOrder(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+// One-time historical import trigger, run per restaurant — see
+// restaurantSquareImport.service.js. Safe to call more than once: every row
+// it writes is upserted by external_id.
+router.post('/square-import', async function (req, res, next) {
+  try { res.json(await restaurantSquareImportService.runImport(req.ctx, req.body.companyId)); } catch (e) { next(e); }
 });
 
 module.exports = router;
