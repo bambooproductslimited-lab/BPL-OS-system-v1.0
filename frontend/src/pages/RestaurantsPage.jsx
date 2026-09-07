@@ -94,20 +94,46 @@ export default function RestaurantsPage() {
     setError(null);
     try {
       const qs = forCompanyId ? '?companyId=' + forCompanyId : '';
-      const [menu, sup, ing, ord] = await Promise.all([
+      const [menu, sup, ing] = await Promise.all([
         api.get('/restaurant/menu-items' + qs),
         api.get('/restaurant/supplies' + qs),
-        api.get('/restaurant/ingredients' + qs),
-        api.get('/restaurant/orders' + qs)
+        api.get('/restaurant/ingredients' + qs)
       ]);
       setMenuItems(menu);
       setSupplies(sup);
       setIngredients(ing);
-      setOrders(ord);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Sales is server-paginated separately from the other tabs: the Square
+  // historical import (Phase 4) can leave tens of thousands of orders for
+  // one restaurant, far more than a plain <table> (or the other tabs'
+  // load-everything-then-filter-client-side pattern) can handle.
+  const ORDERS_PAGE_SIZE = 50;
+  const [ordersOffset, setOrdersOffset] = useState(0);
+  const [ordersTotal, setOrdersTotal] = useState(0);
+  const [ordersFrom, setOrdersFrom] = useState('');
+  const [ordersTo, setOrdersTo] = useState('');
+  const [ordersLoading, setOrdersLoading] = useState(false);
+
+  const loadOrders = useCallback(async (forCompanyId, offset, from, to) => {
+    if (!forCompanyId) return;
+    setOrdersLoading(true);
+    try {
+      const params = new URLSearchParams({ companyId: forCompanyId, limit: ORDERS_PAGE_SIZE, offset });
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      const res = await api.get('/restaurant/orders?' + params.toString());
+      setOrders(res.orders);
+      setOrdersTotal(res.total);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setOrdersLoading(false);
     }
   }, []);
 
@@ -128,7 +154,12 @@ export default function RestaurantsPage() {
     if (companyId) load(companyId);
     setSquareResult(null);
     setSquareError(null);
+    setOrdersOffset(0);
   }, [companyId, companies, load]);
+
+  useEffect(() => {
+    if (tab === 'sales' && companyId) loadOrders(companyId, ordersOffset, ordersFrom, ordersTo);
+  }, [tab, companyId, ordersOffset, ordersFrom, ordersTo, loadOrders]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -279,7 +310,7 @@ export default function RestaurantsPage() {
     try {
       await api.post('/restaurant/orders/' + o.id + '/void');
       setToast('Order voided.');
-      await load(companyId);
+      await loadOrders(companyId, ordersOffset, ordersFrom, ordersTo);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -333,7 +364,6 @@ export default function RestaurantsPage() {
   const visibleMenuItems = menuItems.filter((m) => matchesQuery(search, m.name, m.category));
   const visibleSupplies = supplies.filter((s) => matchesQuery(search, s.name, s.category));
   const visibleIngredients = ingredients.filter((i) => matchesQuery(search, i.name));
-  const visibleOrders = orders.filter((o) => matchesQuery(search, o.orderNo, o.cashierName));
 
   return (
     <div>
@@ -364,7 +394,19 @@ export default function RestaurantsPage() {
                 </label>
               ))}
             </div>
-            <SearchInput value={search} onChange={setSearch} placeholder={'Search ' + (tab === 'ingredients' ? 'food' : tab) + '…'} />
+            {tab !== 'sales' && (
+              <SearchInput value={search} onChange={setSearch} placeholder={'Search ' + (tab === 'ingredients' ? 'food' : tab) + '…'} />
+            )}
+            {tab === 'sales' && (
+              <div className="restaurants-date-filter">
+                <input type="date" className="input" value={ordersFrom} onChange={(e) => { setOrdersFrom(e.target.value); setOrdersOffset(0); }} aria-label="From date" />
+                <span>to</span>
+                <input type="date" className="input" value={ordersTo} onChange={(e) => { setOrdersTo(e.target.value); setOrdersOffset(0); }} aria-label="To date" />
+                {(ordersFrom || ordersTo) && (
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setOrdersFrom(''); setOrdersTo(''); setOrdersOffset(0); }}>Clear</button>
+                )}
+              </div>
+            )}
             {canManage && tab === 'menu' && <button type="button" className="btn btn-primary" onClick={openNewMenuItem}>Add menu item</button>}
             {canManage && tab === 'supplies' && <button type="button" className="btn btn-primary" onClick={openNewSupply}>Add supply</button>}
             {canManage && tab === 'ingredients' && <button type="button" className="btn btn-primary" onClick={openNewIngredient}>Add ingredient</button>}
@@ -453,26 +495,35 @@ export default function RestaurantsPage() {
           )}
 
           {tab === 'sales' && (
-            <table className="table">
-              <thead><tr><th>Order</th><th>Cashier</th><th>Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
-              <tbody>
-                {visibleOrders.map((o) => (
-                  <tr key={o.id}>
-                    <td style={{ fontWeight: 600 }}>{o.orderNo}</td>
-                    <td>{o.cashierName}</td>
-                    <td>{money(o.total)}</td>
-                    <td style={{ textTransform: 'capitalize' }}>{o.paymentMethod.replace('_', ' ')}</td>
-                    <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
-                    <td>{new Date(o.createdAt).toLocaleString()}</td>
-                    <td className="table-actions">
-                      {canManage && o.status === 'completed' && (
-                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={() => voidOrderAction(o)}>Void</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              <table className="table" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
+                <thead><tr><th>Order</th><th>Cashier</th><th>Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
+                <tbody>
+                  {orders.map((o) => (
+                    <tr key={o.id}>
+                      <td style={{ fontWeight: 600 }}>{o.orderNo}</td>
+                      <td>{o.cashierName}</td>
+                      <td>{money(o.total)}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{o.paymentMethod.replace('_', ' ')}</td>
+                      <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
+                      <td>{new Date(o.createdAt).toLocaleString()}</td>
+                      <td className="table-actions">
+                        {canManage && o.status === 'completed' && (
+                          <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={() => voidOrderAction(o)}>Void</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {ordersTotal > 0 && (
+                <div className="restaurants-pager">
+                  <span>{ordersOffset + 1}–{Math.min(ordersOffset + ORDERS_PAGE_SIZE, ordersTotal)} of {ordersTotal.toLocaleString()}</span>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset === 0 || ordersLoading} onClick={() => setOrdersOffset(Math.max(0, ordersOffset - ORDERS_PAGE_SIZE))}>Previous</button>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset + ORDERS_PAGE_SIZE >= ordersTotal || ordersLoading} onClick={() => setOrdersOffset(ordersOffset + ORDERS_PAGE_SIZE)}>Next</button>
+                </div>
+              )}
+            </>
           )}
 
           {tab === 'menu' && !menuItems.length && (
@@ -493,11 +544,11 @@ export default function RestaurantsPage() {
           {tab === 'ingredients' && !!ingredients.length && !visibleIngredients.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No ingredients match "{search}"</p></div>
           )}
-          {tab === 'sales' && !orders.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales yet — rung-up orders from the till will show here</p></div>
+          {tab === 'sales' && !ordersLoading && !orders.length && (ordersFrom || ordersTo) && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales in that date range</p></div>
           )}
-          {tab === 'sales' && !!orders.length && !visibleOrders.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales match "{search}"</p></div>
+          {tab === 'sales' && !ordersLoading && !orders.length && !ordersFrom && !ordersTo && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales yet — rung-up orders from the till will show here</p></div>
           )}
         </>
       )}

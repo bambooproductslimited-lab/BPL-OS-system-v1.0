@@ -251,5 +251,5 @@ module.exports = {
   // network policy blocks the backend's own direct Square API calls.
   minorToMajor: minorToMajor, menuItemName: menuItemName, mapTenderType: mapTenderType,
   requireCompany: requireCompany, ensureImportCashier: ensureImportCashier,
-  upsertMenuItem: upsertMenuItem, upsertOrder: upsertOrder
+  upsertMenuItem: upsertMenuItem, upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation
 };

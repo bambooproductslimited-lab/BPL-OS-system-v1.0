@@ -134,22 +134,45 @@ async function createOrder(token, p) {
 
 // ── management view (inside the regular authenticated app, not the till) ──
 
-async function listOrders(ctx, companyId) {
+// Server-side paged, not the client-side "load everything, filter in the
+// browser" pattern every other list page here uses — fine for hundreds of
+// rows, but the Square historical import (Restaurant module Phase 4) can
+// leave tens of thousands of orders for one company, which a plain <table>
+// can't render without hanging the page. limit/offset + an optional
+// created_at date range (from/to, inclusive) keep a query cheap regardless
+// of how much history exists; total comes back via a window function so
+// the frontend can show "X of Y" without a second round trip.
+async function listOrders(ctx, companyId, opts) {
   if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  opts = opts || {};
+  var limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
+  var offset = Math.max(Number(opts.offset) || 0, 0);
+
   var args = [];
-  var where = '';
-  if (companyId) { args.push(companyId); where = 'WHERE o.company_id = $1'; }
+  var where = [];
+  if (companyId) { args.push(companyId); where.push('o.company_id = $' + args.length); }
+  if (opts.from) { args.push(opts.from); where.push('o.created_at >= $' + args.length); }
+  if (opts.to) { args.push(opts.to + ' 23:59:59'); where.push('o.created_at <= $' + args.length); }
+  var whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+  args.push(limit); var limitParam = '$' + args.length;
+  args.push(offset); var offsetParam = '$' + args.length;
+
   var res = await pool.query(
-    'SELECT o.*, e.first_name, e.last_name FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
-    where + ' ORDER BY o.created_at DESC LIMIT 200',
+    'SELECT o.*, e.first_name, e.last_name, count(*) OVER() AS total_count FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
+    whereSql + ' ORDER BY o.created_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
     args
   );
-  return res.rows.map(function (r) {
-    return {
-      id: r.id, companyId: r.company_id, orderNo: r.order_no, cashierName: r.first_name + ' ' + r.last_name,
-      subtotal: Number(r.subtotal), total: Number(r.total), paymentMethod: r.payment_method, status: r.status, createdAt: r.created_at
-    };
-  });
+  var total = res.rows[0] ? Number(res.rows[0].total_count) : 0;
+  return {
+    orders: res.rows.map(function (r) {
+      return {
+        id: r.id, companyId: r.company_id, orderNo: r.order_no, cashierName: r.first_name + ' ' + r.last_name,
+        subtotal: Number(r.subtotal), total: Number(r.total), paymentMethod: r.payment_method, status: r.status, createdAt: r.created_at
+      };
+    }),
+    total: total, limit: limit, offset: offset
+  };
 }
 
 async function voidOrder(ctx, id) {

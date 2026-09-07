@@ -120,12 +120,13 @@ test('restaurant POS: order creation re-prices against the live menu, order numb
   assert.equal(badItem.status, 400);
 
   var list = await (await fetch(base + '/api/restaurant/orders?companyId=' + sbrId, { headers: authed(admin) })).json();
-  assert.ok(list.some(function (o) { return o.id === order.id; }));
+  assert.ok(list.orders.some(function (o) { return o.id === order.id; }));
+  assert.ok(list.total >= 1);
 
   var voided = await fetch(base + '/api/restaurant/orders/' + order.id + '/void', { method: 'POST', headers: authed(isreal) });
   assert.equal(voided.status, 200);
   var listAfter = await (await fetch(base + '/api/restaurant/orders?companyId=' + sbrId, { headers: authed(admin) })).json();
-  assert.equal(listAfter.find(function (o) { return o.id === order.id; }).status, 'voided');
+  assert.equal(listAfter.orders.find(function (o) { return o.id === order.id; }).status, 'voided');
 
   // restaurant_orders.cashier_id has no ON DELETE action (a sale stays
   // attributed to whoever made it even if they later leave) — purging the

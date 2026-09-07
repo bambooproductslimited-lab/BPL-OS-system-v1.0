@@ -56,7 +56,11 @@ router.delete('/ingredients/:id', async function (req, res, next) {
 });
 
 router.get('/orders', async function (req, res, next) {
-  try { res.json(await restaurantPosService.listOrders(req.ctx, req.query.companyId)); } catch (e) { next(e); }
+  try {
+    res.json(await restaurantPosService.listOrders(req.ctx, req.query.companyId, {
+      limit: req.query.limit, offset: req.query.offset, from: req.query.from, to: req.query.to
+    }));
+  } catch (e) { next(e); }
 });
 router.post('/orders/:id/void', async function (req, res, next) {
   try { res.json(await restaurantPosService.voidOrder(req.ctx, req.params.id)); } catch (e) { next(e); }
