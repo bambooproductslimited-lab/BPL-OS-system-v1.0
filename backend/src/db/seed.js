@@ -16,10 +16,17 @@ var { PERMISSIONS, ROLE_DEFS, defaultSettingsRow } = require('./referenceData');
 function uuid() { return crypto.randomUUID(); }
 
 // ── companies — the top-level org unit ("Group" in the UI is now "Company")
+// Fixed ids (not a fresh uuid() per run, unlike everything else this file
+// seeds): restaurant_orders/restaurant_menu_items carry real Square-imported
+// financial history (Restaurant module Phase 4) that this script preserves
+// across a reseed — see snapshotRestaurantSquareData/restoreRestaurantSquareData
+// below — and that only works if company_id keeps pointing at the same row
+// after every truncate. Nothing else in the app hardcodes a company id
+// (everywhere else queries by the `code` column), so this is safe to fix.
 var COMPANY_DEFS = [
-  { key: 'c_bpl', code: 'BPL', name: 'Bamboo Products Limited' },
-  { key: 'c_sbr', code: 'SBR', name: 'Star Bar Restaurant' },
-  { key: 'c_bgn', code: 'BGN', name: 'Bamboo Garden' }
+  { key: 'c_bpl', code: 'BPL', name: 'Bamboo Products Limited', id: 'ede0cfe8-deae-4066-8da5-c18fcd5fbc90' },
+  { key: 'c_sbr', code: 'SBR', name: 'Star Bar Restaurant', id: '44607f8a-acff-4268-9455-43adce760470' },
+  { key: 'c_bgn', code: 'BGN', name: 'Bamboo Garden', id: 'feab6d23-cba1-4df2-ad98-85e10011e4c4' }
 ];
 
 // ── departments, each scoped to a company ─────────────────────────────────
@@ -142,8 +149,127 @@ async function truncateAll(client) {
   await client.query('TRUNCATE TABLE ' + tables.join(', ') + ' RESTART IDENTITY CASCADE');
 }
 
+// Restaurant module Phase 4's Square historical import writes real
+// financial data (restaurant_menu_items/restaurant_orders/restaurant_order_items,
+// source='square') into the same database this dev-only reset script
+// wipes on every run — TRUNCATE CASCADE on `employees` (needed to refresh
+// the demo staff list) unavoidably cascades to restaurant_orders too, since
+// cashier_id references employees. Snapshotting before the truncate and
+// restoring after re-seeding (once companies/departments exist again, at
+// their same fixed ids — see COMPANY_DEFS) means an import someone already
+// ran survives every future `npm run seed`, instead of silently vanishing.
+function chunk(arr, size) {
+  var out = [];
+  for (var i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+async function snapshotRestaurantSquareData(client) {
+  var menuItems = (await client.query("SELECT * FROM restaurant_menu_items WHERE source = 'square'")).rows;
+  var orders = (await client.query("SELECT * FROM restaurant_orders WHERE source = 'square'")).rows;
+  var orderIds = orders.map(function (o) { return o.id; });
+  var orderItems = orderIds.length
+    ? (await client.query('SELECT * FROM restaurant_order_items WHERE order_id = ANY($1)', [orderIds])).rows
+    : [];
+  return { menuItems: menuItems, orders: orders, orderItems: orderItems };
+}
+
+// Placeholder "Square Import" cashier, one per restaurant company — mirrors
+// restaurantSquareImport.service.js's ensureImportCashier exactly (same
+// code/email convention), reimplemented against the seed transaction's own
+// client rather than importing that service, since this script already
+// treats itself as self-contained. A future real import (via the app,
+// which calls the real ensureImportCashier) will find this same row by its
+// `code` and reuse it rather than creating a duplicate.
+async function ensureImportCashierForSeed(client, companyId, companyCode) {
+  var code = companyCode + '-SQIMPORT';
+  var existing = await client.query('SELECT id FROM employees WHERE code = $1', [code]);
+  if (existing.rows[0]) return existing.rows[0].id;
+  var deptRes = await client.query('SELECT id FROM departments WHERE company_id = $1 ORDER BY created_at LIMIT 1', [companyId]);
+  if (!deptRes.rows[0]) return null; // no department for this company yet — nothing to attribute the restored orders to
+  var id = uuid();
+  await client.query(
+    "INSERT INTO employees (id, code, first_name, last_name, email, department_id, position_title, hire_date, status) " +
+    "VALUES ($1,$2,'Square','Import',$3,$4,'Square import placeholder',CURRENT_DATE,'inactive')",
+    [id, code, 'square-import+' + companyCode.toLowerCase() + '@bamboo.internal', deptRes.rows[0].id]
+  );
+  return id;
+}
+
+async function restoreRestaurantSquareData(client, snapshot, companyIdByCode) {
+  if (!snapshot.menuItems.length && !snapshot.orders.length) return;
+
+  console.log('Restoring ' + snapshot.menuItems.length + ' Square-sourced menu item(s) and ' + snapshot.orders.length + ' order(s)...');
+
+  var menuBatches = chunk(snapshot.menuItems, 500);
+  for (var mb = 0; mb < menuBatches.length; mb++) {
+    var batch = menuBatches[mb];
+    var values = [], params = [];
+    batch.forEach(function (m) {
+      var base = params.length;
+      values.push('($' + (base + 1) + ',$' + (base + 2) + ',$' + (base + 3) + ',$' + (base + 4) + ',$' + (base + 5) + ',$' + (base + 6) + ',$' + (base + 7) + ',$' + (base + 8) + ',$' + (base + 9) + ')');
+      params.push(m.id, m.company_id, m.name, m.category, m.price, m.active, m.external_id, m.source, m.created_at);
+    });
+    await client.query(
+      'INSERT INTO restaurant_menu_items (id, company_id, name, category, price, active, external_id, source, created_at) VALUES ' + values.join(','),
+      params
+    );
+  }
+
+  // One placeholder cashier per distinct company among the restored orders.
+  var cashierIdByCompany = {};
+  var companies = Array.from(new Set(snapshot.orders.map(function (o) { return o.company_id; })));
+  for (var ci = 0; ci < companies.length; ci++) {
+    var code = Object.keys(companyIdByCode).filter(function (k) { return companyIdByCode[k] === companies[ci]; })[0];
+    cashierIdByCompany[companies[ci]] = code ? await ensureImportCashierForSeed(client, companies[ci], code) : null;
+  }
+
+  var orderBatches = chunk(snapshot.orders, 500);
+  for (var ob = 0; ob < orderBatches.length; ob++) {
+    var obatch = orderBatches[ob];
+    var ovalues = [], oparams = [];
+    obatch.forEach(function (o) {
+      var obase = oparams.length;
+      var slots = [];
+      for (var s = 1; s <= 10; s++) slots.push('$' + (obase + s));
+      ovalues.push('(' + slots.join(',') + ",'square')");
+      oparams.push(o.id, o.company_id, o.order_no, cashierIdByCompany[o.company_id], o.subtotal, o.total, o.payment_method, o.status, o.created_at, o.external_id);
+    });
+    await client.query(
+      'INSERT INTO restaurant_orders (id, company_id, order_no, cashier_id, subtotal, total, payment_method, status, created_at, external_id, source) VALUES ' + ovalues.join(','),
+      oparams
+    );
+  }
+
+  var itemBatches = chunk(snapshot.orderItems, 500);
+  for (var ib = 0; ib < itemBatches.length; ib++) {
+    var ibatch = itemBatches[ib];
+    var ivalues = [], iparams = [];
+    ibatch.forEach(function (it) {
+      var ibase = iparams.length;
+      var islots = [];
+      for (var s2 = 1; s2 <= 7; s2++) islots.push('$' + (ibase + s2));
+      ivalues.push('(' + islots.join(',') + ')');
+      iparams.push(it.id, it.order_id, it.menu_item_id, it.name, it.qty, it.unit_price, it.line_total);
+    });
+    // menu_item_id is preserved verbatim from the snapshot — the menu items
+    // above were reinserted with their original ids too, so the reference
+    // still resolves; NULL stays NULL (an ad hoc Square line item with no
+    // catalog match, same as at import time).
+    await client.query(
+      'INSERT INTO restaurant_order_items (id, order_id, menu_item_id, name, qty, unit_price, line_total) VALUES ' + ivalues.join(','),
+      iparams
+    );
+  }
+
+  console.log('Restaurant Square data restored.');
+}
+
 async function run() {
   await withTransaction(async function (client) {
+    console.log('Snapshotting Square-sourced restaurant data (if any)...');
+    var restaurantSquareSnapshot = await snapshotRestaurantSquareData(client);
+
     console.log('Truncating existing data...');
     await truncateAll(client);
 
@@ -170,7 +296,7 @@ async function run() {
 
     console.log('Seeding companies...');
     var companyIds = {};
-    COMPANY_DEFS.forEach(function (c) { companyIds[c.key] = uuid(); });
+    COMPANY_DEFS.forEach(function (c) { companyIds[c.key] = c.id; });
     for (i = 0; i < COMPANY_DEFS.length; i++) {
       var co = COMPANY_DEFS[i];
       await client.query('INSERT INTO companies (id, code, name, status) VALUES ($1,$2,$3,$4)', [companyIds[co.key], co.code, co.name, 'active']);
@@ -188,6 +314,10 @@ async function run() {
     }
     // manager_id references employees, which don't exist yet — inserted NULL
     // above, patched once employee ids are known (see the UPDATE loop below).
+
+    var companyIdByCode = {};
+    COMPANY_DEFS.forEach(function (c) { companyIdByCode[c.code] = c.id; });
+    await restoreRestaurantSquareData(client, restaurantSquareSnapshot, companyIdByCode);
 
     console.log('Seeding shifts...');
     var shiftIds = {};
