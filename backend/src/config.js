@@ -172,20 +172,31 @@ module.exports = {
       configured: !!accessToken
     };
   }()),
-  // Restaurant module, Phase 4: Star Bar Restaurant and Bamboo Garden each
-  // run their own separate Square account (separate tills, separate
-  // catalogues, separate sales history) — a single shared token like the
-  // one above can't represent that. Keyed by the business's companies.code
-  // column (SQUARE_ACCESS_TOKEN_SBR, SQUARE_ACCESS_TOKEN_BGN, ...) so a
-  // future third restaurant needs only a new env var, no code change — same
-  // "scoped by company_id, no schema change for a new company" pattern the
+  // Restaurant module, Phase 4: each restaurant's Square data, keyed by the
+  // business's companies.code column (SQUARE_ACCESS_TOKEN_SBR,
+  // SQUARE_ACCESS_TOKEN_BGN, ...) so a future third restaurant needs only a
+  // new env var, no code change — same "scoped by company_id" pattern the
   // rest of the restaurant module already uses.
+  //
+  // Two real-world shapes both need to work here: a restaurant with its own
+  // separate Square merchant account (its own token is enough — nothing
+  // else to filter, since everything the token can see belongs to that one
+  // restaurant), and — as turned out to be the actual case for Star Bar
+  // Restaurant / Bamboo Garden — two restaurants that are just two
+  // *locations* under one shared Square merchant account. For the latter,
+  // SQUARE_ACCESS_TOKEN_SBR and SQUARE_ACCESS_TOKEN_BGN can be set to the
+  // same token, with SQUARE_LOCATION_ID_<code> added to say which Square
+  // location that company's import should be restricted to — the importer
+  // uses it both to scope orders/search's location_ids and to filter which
+  // catalog items count as that restaurant's menu (see
+  // restaurantSquareImport.service.js's itemPresentAtLocation).
   restaurantSquare: (function () {
     var baseUrl = process.env.SQUARE_API_BASE_URL || 'https://connect.squareup.com';
     return {
       forCompanyCode: function (code) {
         var accessToken = (process.env['SQUARE_ACCESS_TOKEN_' + code] || '').trim();
-        return { accessToken: accessToken, baseUrl: baseUrl, configured: !!accessToken };
+        var locationId = (process.env['SQUARE_LOCATION_ID_' + code] || '').trim();
+        return { accessToken: accessToken, baseUrl: baseUrl, configured: !!accessToken, locationId: locationId || null };
       }
     };
   }()),

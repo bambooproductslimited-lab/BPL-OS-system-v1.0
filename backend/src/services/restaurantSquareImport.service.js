@@ -5,19 +5,28 @@ var config = require('../config');
 var square = require('./square.service');
 
 // Restaurant module, Phase 4: one-time historical Square import, run
-// separately per restaurant — Star Bar Restaurant and Bamboo Garden each
-// have their own Square account (own till, own catalogue, own sales
-// history), unlike the single shared-account import on the Integrations
-// page (squareImport.service.js), which this deliberately does not touch:
-// nothing here ever writes to catalog_items/invoices/payments, only to
-// this company's own restaurant_menu_items/restaurant_orders.
+// separately per restaurant. Star Bar Restaurant and Bamboo Garden turned
+// out to be two *locations* under one shared Square merchant account, not
+// two separate accounts/tokens — so when config.restaurantSquare gives us a
+// locationId alongside the token, everything below is scoped to that one
+// location: orders/search is restricted to it, and catalog items are kept
+// only if Square says they're actually sold there (itemPresentAtLocation).
+// A restaurant with a genuinely separate Square account (no locationId
+// configured) just imports everything the token can see, as before.
+//
+// This deliberately never touches catalog_items/invoices/payments — the
+// single shared-account import on the Integrations page
+// (squareImport.service.js) — only this company's own
+// restaurant_menu_items/restaurant_orders.
 //
 // Same "same one-time import, run per restaurant" shape the user asked
 // for, not a live/recurring sync — call it again later and it just
 // re-imports (upserts by external_id), same idempotency pattern as the
 // original Square importer (migration 0026) and this module's own
 // restaurant_menu_items table (migration 0041, written in anticipation of
-// this).
+// this). external_id uniqueness is per-company (migration 0044) — a
+// shared-catalog item present at both locations gets its own menu row per
+// restaurant, not one row fought over by both.
 
 function minorToMajor(money) {
   return money && typeof money.amount === 'number' ? Math.round(money.amount) / 100 : 0;
@@ -63,6 +72,25 @@ function menuItemName(item, variation) {
   return item.item_data.name + ' — ' + vName;
 }
 
+// Square's per-location catalog visibility: an object (item or variation)
+// is present at a location if present_at_all_locations is true and the
+// location isn't explicitly excluded, or if present_at_all_locations is
+// false and the location is explicitly included. Checked at the variation
+// level first since a variation can override its parent item's visibility;
+// falls back to the item's own fields when the variation doesn't set any.
+function presentAtLocation(obj, locationId) {
+  if (!locationId) return true; // no location filter configured — keep everything the token can see
+  var allLocations = obj.present_at_all_locations !== false;
+  var present = obj.present_at_location_ids || [];
+  var absent = obj.absent_at_location_ids || [];
+  if (allLocations) return absent.indexOf(locationId) === -1;
+  return present.indexOf(locationId) !== -1;
+}
+function itemPresentAtLocation(item, variation, locationId) {
+  if (!locationId) return true;
+  return presentAtLocation(item, locationId) && presentAtLocation(variation, locationId);
+}
+
 async function upsertMenuItem(company, item, variation, categoryNameByExternal) {
   var squareCategoryId = item.item_data.categories && item.item_data.categories[0] && item.item_data.categories[0].id;
   var category = (squareCategoryId && categoryNameByExternal[squareCategoryId]) || 'General';
@@ -73,7 +101,7 @@ async function upsertMenuItem(company, item, variation, categoryNameByExternal) 
   var res = await pool.query(
     "INSERT INTO restaurant_menu_items (company_id, name, category, price, active, external_id, source) " +
     "VALUES ($1,$2,$3,$4,$5,$6,'square') " +
-    "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
+    "ON CONFLICT (company_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
     "name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price, active = EXCLUDED.active, updated_at = now() " +
     "RETURNING id",
     [company.id, name, category, price, active, variation.id]
@@ -172,12 +200,21 @@ async function runImport(ctx, companyId) {
     categoryNameByExternal[squareCategories[ci].id] = squareCategories[ci].category_data.name;
   }
 
+  var locations = await client.listLocations();
+  var allLocationIds = locations.map(function (l) { return l.id; });
+  if (!allLocationIds.length) fail('invalid', 'Square returned no locations for ' + company.name + "'s account — nothing to import.");
+  if (creds.locationId && allLocationIds.indexOf(creds.locationId) === -1) {
+    fail('invalid', 'Configured Square location for ' + company.name + ' (' + creds.locationId + ") wasn't found on this account.");
+  }
+  var locationIds = creds.locationId ? [creds.locationId] : allLocationIds;
+
   var menuItemIdByVariation = {};
   for (var it = 0; it < squareItems.length; it++) {
     var item = squareItems[it];
     var variations = (item.item_data && item.item_data.variations) || [];
     for (var vi = 0; vi < variations.length; vi++) {
       var v = variations[vi];
+      if (!itemPresentAtLocation(item, v, creds.locationId)) continue; // not sold at this restaurant's location — not its menu item
       try {
         menuItemIdByVariation[v.id] = await upsertMenuItem(company, item, v, categoryNameByExternal);
         summary.menuItems.imported++;
@@ -187,10 +224,6 @@ async function runImport(ctx, companyId) {
       }
     }
   }
-
-  var locations = await client.listLocations();
-  var locationIds = locations.map(function (l) { return l.id; });
-  if (!locationIds.length) fail('invalid', 'Square returned no locations for ' + company.name + "'s account — nothing to import.");
 
   var orders = await client.searchAllOrders(locationIds);
   for (var oi = 0; oi < orders.length; oi++) {
@@ -210,6 +243,13 @@ async function runImport(ctx, companyId) {
 module.exports = {
   runImport: runImport,
   // Exported for unit testing pure mapping logic without hitting Square's
-  // real API — see test/restaurantSquareImport.test.js.
-  minorToMajor: minorToMajor, menuItemName: menuItemName, mapTenderType: mapTenderType
+  // real API — see test/restaurantSquareImport.test.js. requireCompany/
+  // ensureImportCashier/upsertMenuItem/upsertOrder are also exported so a
+  // one-off operational script can drive the exact same tested DB-write
+  // logic from Square data fetched through a different transport (e.g. an
+  // already-authorized MCP Square connector) when this environment's
+  // network policy blocks the backend's own direct Square API calls.
+  minorToMajor: minorToMajor, menuItemName: menuItemName, mapTenderType: mapTenderType,
+  requireCompany: requireCompany, ensureImportCashier: ensureImportCashier,
+  upsertMenuItem: upsertMenuItem, upsertOrder: upsertOrder
 };

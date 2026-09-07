@@ -1,0 +1,2 @@
+DROP INDEX idx_restaurant_menu_items_company_external;
+CREATE UNIQUE INDEX idx_restaurant_menu_items_external ON restaurant_menu_items(external_id) WHERE external_id IS NOT NULL;
