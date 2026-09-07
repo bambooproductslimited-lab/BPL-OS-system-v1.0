@@ -34,6 +34,9 @@ export const NAV_GROUPS = [
     { key: 'toolroom', label: 'Tool room inventory', perm: 'toolroom.read', icon: 'toolbox' },
     { key: 'itdevices', label: 'IT device inventory', perm: 'itdevice.read', icon: 'device' }
   ] },
+  { label: 'Restaurants', items: [
+    { key: 'restaurant', label: 'Menu & inventory', perm: 'restaurant.read', icon: 'utensils' }
+  ] },
   { label: 'Quotations & Invoicing', items: [
     { key: 'qioverview', label: 'Overview', perm: 'report.read', icon: 'chart' },
     { key: 'customers', label: 'Clients', perm: 'customer.read', icon: 'building' },

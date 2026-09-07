@@ -1,0 +1,24 @@
+.restaurants-company-seg { margin-bottom: 16px; width: fit-content; }
+.restaurants-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.restaurants-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+.restaurants-lowstock { margin-left: 6px; }
+.restaurants-stock-current { font-size: 13px; color: var(--color-text-muted); margin: 0 0 4px; }
+
+.restaurants-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 0;
+  color: var(--color-text-muted);
+}
+.restaurants-empty-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-faint);
+}
+.restaurants-empty-icon svg { width: 100%; height: 100%; }
+.restaurants-empty-title { font-size: 13px; margin: 0; }

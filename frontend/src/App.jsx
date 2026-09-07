@@ -23,6 +23,7 @@ import AssetsPage from './pages/AssetsPage';
 import WaybillsPage from './pages/WaybillsPage';
 import ToolRoomPage from './pages/ToolRoomPage';
 import ItDevicesPage from './pages/ItDevicesPage';
+import RestaurantsPage from './pages/RestaurantsPage';
 import ProductionPage from './pages/ProductionPage';
 import ProcurementPage from './pages/ProcurementPage';
 import ApprovalsPage from './pages/ApprovalsPage';
@@ -59,7 +60,7 @@ const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: TasksPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage,
-  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
+  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,

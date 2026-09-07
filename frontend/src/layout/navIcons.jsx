@@ -32,7 +32,8 @@ const ICON_PATHS = {
   plug: <><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 17v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
   shield: <><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
   sparkle: <><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" /></>,
-  bell: <><path d="M12 3.5a5 5 0 0 0-5 5v3.2c0 .7-.3 1.4-.8 1.9L5 15h14l-1.2-1.4a2.7 2.7 0 0 1-.8-1.9V8.5a5 5 0 0 0-5-5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+  bell: <><path d="M12 3.5a5 5 0 0 0-5 5v3.2c0 .7-.3 1.4-.8 1.9L5 15h14l-1.2-1.4a2.7 2.7 0 0 1-.8-1.9V8.5a5 5 0 0 0-5-5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  utensils: <><path d="M6 2.5v8M4 2.5v5a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-5M6 12.5V21.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /><path d="M18 2.5c-2 0-3 2-3 5s1 4 3 4v10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>
 };
 
 export default function Icon({ name }) {
