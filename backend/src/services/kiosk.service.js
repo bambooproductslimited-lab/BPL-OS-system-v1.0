@@ -335,7 +335,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   }
 
   var time = (action === 'in' ? rec.clock_in : rec.clock_out).slice(0, 5);
-  return { action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status };
+  return { action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status, minutesLate: rec.minutesLate || 0 };
 }
 
 module.exports = {

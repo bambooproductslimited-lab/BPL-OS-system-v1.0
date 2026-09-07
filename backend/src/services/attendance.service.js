@@ -21,6 +21,10 @@ function addMinutesToHM(hm, minutes) {
   var total = ((parts[0] * 60 + parts[1] + minutes) % 1440 + 1440) % 1440;
   return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
 }
+function hmToMinutes(hm) {
+  var parts = hm.split(':').map(Number);
+  return parts[0] * 60 + parts[1];
+}
 async function resolveLateAfter(employeeId) {
   var empRes = await pool.query(
     'SELECT e.shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
@@ -86,12 +90,20 @@ async function clockInEmployee(employeeId, source, occurredAt, location) {
 
   var lateAfter = await resolveLateAfter(employeeId);
   var status = resolved.time > lateAfter ? 'late' : 'present';
+  // Minutes past the late cutoff itself (not the shift's raw start time) —
+  // the same value that just decided 'late' vs 'present' above, so "5
+  // minutes late" always means 5 minutes past the point that actually
+  // matters, whether that came from a shift template's grace period or the
+  // company-wide settings.late_after fallback. Not persisted (attendance
+  // has no column for it) — computed fresh for the kiosk's own result
+  // screen, which is the only thing that currently reads it.
+  var minutesLate = status === 'late' ? Math.max(0, hmToMinutes(resolved.time) - hmToMinutes(lateAfter)) : 0;
 
   var res = await pool.query(
     'INSERT INTO attendance (employee_id, date, clock_in, status, source, clock_in_location) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
     [employeeId, resolved.date, resolved.time, status, source, sanitizeLocation(location)]
   );
-  return res.rows[0];
+  return Object.assign(res.rows[0], { minutesLate: minutesLate });
 }
 
 async function clockOutEmployee(employeeId, occurredAt, location) {

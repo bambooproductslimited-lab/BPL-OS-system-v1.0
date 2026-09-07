@@ -97,7 +97,7 @@ function useClock() {
 export default function KioskPage() {
   const [pin, setPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null); // { kind: 'ok'|'error'|'pending', action, employeeName, time, status, message }
+  const [result, setResult] = useState(null); // { kind: 'ok'|'error'|'pending', action, employeeName, time, status, minutesLate, message }
   const [pendingCount, setPendingCount] = useState(0);
   const [faceStage, setFaceStage] = useState(null); // { pin, optional } while the camera step is showing
   const resultTimerRef = useRef(null);
@@ -177,7 +177,7 @@ export default function KioskPage() {
     setSubmitting(true);
     try {
       const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
-      setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time, status: r.status });
+      setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time, status: r.status, minutesLate: r.minutesLate });
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
@@ -275,7 +275,9 @@ export default function KioskPage() {
                 <div className="kiosk-result-time">{result.time}</div>
                 {result.action === 'in' && result.status && (
                   <div className={'kiosk-result-late' + (result.status === 'late' ? ' kiosk-result-late-yes' : '')}>
-                    {result.status === 'late' ? "You're late" : "You're on time"}
+                    {result.status === 'late'
+                      ? "You're " + result.minutesLate + ' minute' + (result.minutesLate === 1 ? '' : 's') + ' late'
+                      : "You're on time"}
                   </div>
                 )}
               </>
