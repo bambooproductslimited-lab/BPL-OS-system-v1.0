@@ -1,4 +1,5 @@
-.invoices-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.invoices-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.invoices-status-filter { min-width: 160px; }
 .invoices-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
 .invoices-no-cell { display: flex; align-items: center; gap: 10px; }

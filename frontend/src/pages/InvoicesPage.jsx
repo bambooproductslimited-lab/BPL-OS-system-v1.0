@@ -60,6 +60,16 @@ function invoiceBucket(inv) {
 }
 function invoiceTagClass(inv) { return docTagClass(invoiceBucket(inv)); }
 
+// 'overdue' isn't a stored status (it's the unpaid/overdue flag computed by
+// invoices.service.js's list()) — treated as one here anyway so the status
+// filter's options line up 1:1 with what the Status column actually shows.
+const INVOICE_STATUS_OPTIONS = ['unpaid', 'partially_paid', 'paid', 'overdue', 'void'];
+function invoiceDisplayStatus(inv) { return inv.overdue ? 'overdue' : inv.status; }
+function invoiceStatusLabel(s) {
+  const label = String(s || '').replace(/_/g, ' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '' };
 const EMPTY_PAY = { amount: '', method: 'cash', date: new Date().toISOString().slice(0, 10), reference: '', notes: '' };
 const EMPTY_EDIT = { dueDate: '', poReference: '' };
@@ -105,6 +115,7 @@ export default function InvoicesPage() {
   const [deleting, setDeleting] = useState(false);
   const [previewInv, setPreviewInv] = useState(null);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -257,7 +268,9 @@ export default function InvoicesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visibleInvoices = invoices.filter((inv) => matchesQuery(search, inv.invoiceNo, inv.customerName));
+  const visibleInvoices = invoices.filter((inv) =>
+    matchesQuery(search, inv.invoiceNo, inv.customerName) && (!statusFilter || invoiceDisplayStatus(inv) === statusFilter)
+  );
 
   return (
     <div>
@@ -265,6 +278,10 @@ export default function InvoicesPage() {
 
       <div className="invoices-toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Search invoices…" />
+        <select className="input invoices-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+          <option value="">All statuses</option>
+          {INVOICE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{invoiceStatusLabel(s)}</option>)}
+        </select>
         {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>New manual invoice</button>}
       </div>
 
@@ -303,7 +320,7 @@ export default function InvoicesPage() {
                 <td>{money(inv.amountPaid, inv.currency)}</td>
                 <td style={{ fontWeight: 600 }}>{money(inv.balanceDue, inv.currency)}</td>
                 <td>{fmtDate(inv.dueDate)}</td>
-                <td><span className={'tag ' + invoiceTagClass(inv)}>{inv.overdue ? 'overdue' : inv.status}</span></td>
+                <td><span className={'tag ' + invoiceTagClass(inv)}>{invoiceStatusLabel(invoiceDisplayStatus(inv))}</span></td>
                 <td className="table-actions">
                   <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => openPreview(inv)}>Preview</button>
                   {canRecordPayment && canManage && <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => openPay(inv)}>Record payment</button>}
@@ -325,7 +342,7 @@ export default function InvoicesPage() {
       {!!invoices.length && !visibleInvoices.length && (
         <div className="invoices-empty-state">
           <span className="invoices-empty-icon"><DocIcon /></span>
-          <p className="invoices-empty-title">No invoices match "{search}"</p>
+          <p className="invoices-empty-title">{search ? 'No invoices match "' + search + '"' : 'No invoices match this filter'}</p>
         </div>
       )}
 

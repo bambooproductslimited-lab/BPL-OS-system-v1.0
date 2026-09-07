@@ -55,6 +55,12 @@ function quoteBucket(status) {
 }
 function quoteTagClass(status) { return docTagClass(quoteBucket(status)); }
 
+const QUOTATION_STATUS_OPTIONS = ['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired', 'cancelled'];
+function quoteStatusLabel(s) {
+  const label = String(s || '');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 const EMPTY_FORM = { customerId: '', title: '', validUntil: '', notes: '', currency: '' };
 
 export default function QuotationsPage() {
@@ -81,6 +87,7 @@ export default function QuotationsPage() {
   const [busyId, setBusyId] = useState(null);
   const [previewQ, setPreviewQ] = useState(null);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -174,7 +181,9 @@ export default function QuotationsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visibleQuotations = quotations.filter((q) => matchesQuery(search, q.quoteNo, q.customerName, q.title));
+  const visibleQuotations = quotations.filter((q) =>
+    matchesQuery(search, q.quoteNo, q.customerName, q.title) && (!statusFilter || q.status === statusFilter)
+  );
 
   return (
     <div>
@@ -182,6 +191,10 @@ export default function QuotationsPage() {
 
       <div className="quotations-toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Search quotations…" />
+        <select className="input quotations-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+          <option value="">All statuses</option>
+          {QUOTATION_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{quoteStatusLabel(s)}</option>)}
+        </select>
         {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New quotation</button>}
       </div>
 
@@ -207,7 +220,7 @@ export default function QuotationsPage() {
                 <td className="quotations-items-line">{q.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
                 <td>{money(q.grandTotal, q.currency)}</td>
                 <td>{fmtDate(q.validUntil)}</td>
-                <td><span className={'tag ' + quoteTagClass(q.status)}>{q.status}</span></td>
+                <td><span className={'tag ' + quoteTagClass(q.status)}>{quoteStatusLabel(q.status)}</span></td>
                 <td className="table-actions">
                   <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => openPreview(q)}>Preview</button>
                   {canSend && <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => setStatus(q, 'sent')}>Send</button>}
@@ -229,7 +242,7 @@ export default function QuotationsPage() {
       {!!quotations.length && !visibleQuotations.length && (
         <div className="quotations-empty-state">
           <span className="quotations-empty-icon"><DocIcon /></span>
-          <p className="quotations-empty-title">No quotations match "{search}"</p>
+          <p className="quotations-empty-title">{search ? 'No quotations match "' + search + '"' : 'No quotations match this filter'}</p>
         </div>
       )}
 

@@ -24,10 +24,10 @@ export default function ReceiptPreview({ receipt, previewRef, sharing, shareErro
             <div>
               <div className="receipt-preview-brand-name">Bamboo Products Limited</div>
               <div className="receipt-preview-brand-address">
-                Poki House, GT-191-1859 (GhanaPostGPS)<br />
+                Poki House<br />
                 35 J K Siaw St, Community 9, Tema, Ghana<br />
-                P.O. Box CO 131, Tema, Ghana<br />
-                Tel: 0591933925 / 0249186859
+                GT-191-1859 (GhanaPostGPS)<br />
+                Tel: 0591933925
               </div>
             </div>
           </div>
