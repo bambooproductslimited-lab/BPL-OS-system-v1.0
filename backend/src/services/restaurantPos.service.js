@@ -183,6 +183,29 @@ async function listOrders(ctx, companyId, opts) {
   };
 }
 
+// Single-order detail (with its line items) — deliberately not folded into
+// listOrders' one big query: at Square-import scale (tens of thousands of
+// orders) fetching every order's items up front would be a huge, mostly-
+// wasted payload, so this is fetched lazily, one order at a time, only when
+// someone actually opens it.
+async function getOrder(ctx, id) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  var orderRes = await pool.query(
+    'SELECT o.*, e.first_name, e.last_name FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id WHERE o.id = $1',
+    [id]
+  );
+  var order = orderRes.rows[0];
+  if (!order) fail('notfound', 'Order not found.');
+  var itemsRes = await pool.query(
+    'SELECT name, qty, unit_price, line_total FROM restaurant_order_items WHERE order_id = $1 ORDER BY name', [id]
+  );
+  return {
+    id: order.id, companyId: order.company_id, orderNo: order.order_no, cashierName: order.first_name + ' ' + order.last_name,
+    subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method, status: order.status, createdAt: order.created_at,
+    items: itemsRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total) }; })
+  };
+}
+
 async function voidOrder(ctx, id) {
   if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
   var res = await pool.query("UPDATE restaurant_orders SET status = 'voided' WHERE id = $1 AND status = 'completed' RETURNING *", [id]);
@@ -192,5 +215,5 @@ async function voidOrder(ctx, id) {
 
 module.exports = {
   login: login, menuForSession: menuForSession, createOrder: createOrder,
-  listOrders: listOrders, voidOrder: voidOrder
+  listOrders: listOrders, getOrder: getOrder, voidOrder: voidOrder
 };

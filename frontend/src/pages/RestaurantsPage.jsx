@@ -106,6 +106,30 @@ export default function RestaurantsPage() {
   const [stockDialogError, setStockDialogError] = useState(null);
   const [stockSaving, setStockSaving] = useState(false);
 
+  // Order detail — items are fetched lazily per-order (see getOrder in
+  // restaurantPos.service.js), not preloaded for every row in the list:
+  // at Square-import scale that would mean fetching line items for
+  // thousands of orders nobody ever opens. orderDetailOpen controls the
+  // dialog independently of orderDetail so it can show a loading state
+  // before the fetch resolves, rather than staying closed until then.
+  const [orderDetailOpen, setOrderDetailOpen] = useState(false);
+  const [orderDetail, setOrderDetail] = useState(null);
+  const [orderDetailLoading, setOrderDetailLoading] = useState(false);
+  const [orderDetailError, setOrderDetailError] = useState(null);
+  async function openOrderDetail(id) {
+    setOrderDetailOpen(true);
+    setOrderDetail(null);
+    setOrderDetailError(null);
+    setOrderDetailLoading(true);
+    try {
+      setOrderDetail(await api.get('/restaurant/orders/' + id));
+    } catch (err) {
+      setOrderDetailError(err.message);
+    } finally {
+      setOrderDetailLoading(false);
+    }
+  }
+
   // Same "derive companies from departments" pattern already used by
   // Tasks/Attendance/Payroll/Leave's company filters.
   const companies = useMemo(() => {
@@ -574,7 +598,7 @@ export default function RestaurantsPage() {
                 <thead><tr><th>Order</th><th>Cashier</th><th className="restaurants-amount-col">Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
                 <tbody>
                   {orders.map((o) => (
-                    <tr key={o.id} className={o.status === 'voided' ? 'restaurants-sales-row-voided' : ''}>
+                    <tr key={o.id} className={'restaurants-sales-row' + (o.status === 'voided' ? ' restaurants-sales-row-voided' : '')} onClick={() => openOrderDetail(o.id)}>
                       <td className="restaurants-order-no">{o.orderNo}</td>
                       <td>{o.cashierName}</td>
                       <td className="restaurants-amount-col restaurants-amount">{money(o.total)}</td>
@@ -583,7 +607,7 @@ export default function RestaurantsPage() {
                       <td className="restaurants-time">{new Date(o.createdAt).toLocaleString()}</td>
                       <td className="table-actions">
                         {canManage && o.status === 'completed' && (
-                          <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={() => voidOrderAction(o)}>Void</button>
+                          <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={(e) => { e.stopPropagation(); voidOrderAction(o); }}>Void</button>
                         )}
                       </td>
                     </tr>
@@ -749,6 +773,44 @@ export default function RestaurantsPage() {
               <button type="submit" className="btn btn-primary" disabled={stockSaving}>{stockSaving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {orderDetailOpen && (
+        <div className="dialog-backdrop" onClick={() => setOrderDetailOpen(false)}>
+          <div className="dialog restaurants-order-dialog" onClick={(e) => e.stopPropagation()}>
+            {orderDetailLoading && <div className="eyebrow">Loading…</div>}
+            {orderDetailError && <div className="error-banner">{orderDetailError}</div>}
+            {orderDetail && !orderDetailLoading && (
+              <>
+                <h2>{orderDetail.orderNo}</h2>
+                <div className="restaurants-order-dialog-meta">
+                  <span>{orderDetail.cashierName}</span>
+                  <span>·</span>
+                  <span>{new Date(orderDetail.createdAt).toLocaleString()}</span>
+                  <span>·</span>
+                  <span className={'tag ' + (orderDetail.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{orderDetail.status}</span>
+                </div>
+                <div className="restaurants-order-dialog-items">
+                  {orderDetail.items.map((it, i) => (
+                    <div className="restaurants-order-dialog-item" key={i}>
+                      <span className="restaurants-order-dialog-item-qty">{it.qty}×</span>
+                      <span className="restaurants-order-dialog-item-name">{it.name}</span>
+                      <span className="restaurants-order-dialog-item-total">{money(it.lineTotal)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="restaurants-order-dialog-total">
+                  <span>Total</span>
+                  <strong>{money(orderDetail.total)}</strong>
+                </div>
+                <div className="restaurants-order-dialog-meta">Paid by {orderDetail.paymentMethod.replace('_', ' ')}</div>
+              </>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setOrderDetailOpen(false)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
 

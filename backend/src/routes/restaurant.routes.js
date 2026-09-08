@@ -62,6 +62,9 @@ router.get('/orders', async function (req, res, next) {
     }));
   } catch (e) { next(e); }
 });
+router.get('/orders/:id', async function (req, res, next) {
+  try { res.json(await restaurantPosService.getOrder(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
 router.post('/orders/:id/void', async function (req, res, next) {
   try { res.json(await restaurantPosService.voidOrder(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
