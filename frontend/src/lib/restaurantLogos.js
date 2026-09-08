@@ -3,8 +3,8 @@
 // Bamboo Products Limited has no logo of its own here, so it intentionally
 // has no entry and callers fall back to plain text for it.
 var LOGO_BY_COMPANY_CODE = {
-  SBR: '/restaurant-logos/star-bar.png',
-  BGN: '/restaurant-logos/bamboo-garden.png'
+  SB: '/restaurant-logos/star-bar.png',
+  BG1: '/restaurant-logos/bamboo-garden.png'
 };
 
 export function restaurantLogoUrl(companyCode) {
