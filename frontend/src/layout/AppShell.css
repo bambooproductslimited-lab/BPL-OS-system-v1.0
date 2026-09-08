@@ -194,6 +194,17 @@
   --color-bg: #0f1626;
   --color-bg-subtle: #17203f;
   --color-text: #f2f5fb;
+  /* --color-text-muted/-faint are derived from --color-text via var() in
+     their :root declaration (theme.css). That inner var() substitution
+     happens once, where the custom property is SPECIFIED (:root) — not
+     lazily per element the way a var() used directly in a regular
+     property does — so inheriting elements get :root's baked-in light-
+     mode result (dark text at reduced alpha) regardless of this scope's
+     --color-text override, unless redeclared here too. Missing this is
+     what made every muted/faint label (table headers, KPI tile labels,
+     dialog body text, "empty state" copy, …) unreadable in dark mode. */
+  --color-text-muted: color-mix(in srgb, var(--color-text) 60%, transparent);
+  --color-text-faint: color-mix(in srgb, var(--color-text) 40%, transparent);
   --color-divider: #24304f;
   --color-border: #2c3a5e;
   --color-accent: #34d399;
