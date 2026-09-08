@@ -3,7 +3,7 @@
   width: 30px;
   height: 30px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--color-accent) 14%, white);
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg));
   color: var(--color-accent);
   display: flex;
   align-items: center;

@@ -26,7 +26,7 @@
   width: 28px;
   height: 28px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
   color: var(--tile-tone);
   display: flex;
   align-items: center;

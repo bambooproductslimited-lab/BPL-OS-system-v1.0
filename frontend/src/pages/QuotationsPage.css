@@ -12,7 +12,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
   color: var(--tile-tone);
 }
 .quotations-badge svg { width: 13px; height: 13px; }

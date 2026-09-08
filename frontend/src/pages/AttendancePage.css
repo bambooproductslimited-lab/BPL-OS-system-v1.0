@@ -42,7 +42,7 @@
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
   color: var(--tile-tone);
   display: flex;
   align-items: center;

@@ -29,7 +29,7 @@
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
   color: var(--tile-tone);
   display: flex;
   align-items: center;

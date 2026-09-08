@@ -22,14 +22,15 @@ function hashStr(s) {
 }
 function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
 
-// Pilot for the dark, glowing-stat-tile redesign shown to the user as a
-// reference screenshot — scoped to just these two routes rather than the
-// whole app so it can be reviewed before deciding on a wider rollout (see
-// shell-main-dark in AppShell.css, which re-themes the *existing* design
+// The dark, glowing-stat-tile redesign — piloted on Dashboard + Attendance
+// first (see shell-main-dark in AppShell.css) and approved, now the
+// default for every page rendered through this shell. It works app-wide
+// with no per-page rewrite because it re-themes the *existing* design
 // tokens locally: every shared class already built on top of them — .btn,
-// .table, .dialog, .tag, .card — re-themes for free, no page CSS rewrite
-// needed beyond the bespoke glow treatment on the stat tiles themselves).
-const DARK_PAGES = new Set(['dashboard', 'attendance']);
+// .table, .dialog, .tag, .card, .input, .seg — re-themes for free. Pages
+// outside this shell (the login screen, /pos, /kiosk) are untouched —
+// they already have their own separate visual identity.
+const isDarkPage = true;
 
 export default function AppShell() {
   const { session, logout, can } = useAuth();
@@ -38,7 +39,6 @@ export default function AppShell() {
   const currentKey = location.pathname.split('/')[1] || 'dashboard';
   const currentItem = ALL_NAV_ITEMS.find((item) => item.key === currentKey);
   const currentGroup = NAV_GROUPS.find((group) => group.items.some((item) => item.key === currentKey));
-  const isDarkPage = DARK_PAGES.has(currentKey);
 
   const employee = session && session.employee;
   const employeeName = employee ? employee.firstName + ' ' + employee.lastName : '';

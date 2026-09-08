@@ -151,7 +151,7 @@
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-accent) 14%, white);
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg));
   color: var(--color-accent);
   display: flex;
   align-items: center;
@@ -164,16 +164,17 @@
 
 .shell-content { padding: 32px; flex: 1; }
 
-/* ── dark pilot pages (Dashboard, Attendance) ──────────────────────────
-   Re-themes the app's existing design tokens locally rather than
-   introducing a parallel set of dark-only classes — every shared class
-   built on top of them (.btn, .table, .dialog, .tag, .card, .input, .seg,
-   .toast) picks this up automatically since CSS custom properties resolve
-   per-element at use time, not at :root's original definition time. Only
-   the genuinely new visual — the glowing icon badges on stat tiles — is
-   hand-written below; everything else is the same markup/classes the
-   light theme already uses. Sidebar is deliberately left untouched: this
-   is a page-content pilot, not a full shell change. */
+/* ── dark theme (app-wide) ──────────────────────────────────────────────
+   Piloted on Dashboard + Attendance first, approved, now applied to every
+   page AppShell.jsx renders (isDarkPage is always true there). Re-themes
+   the app's existing design tokens locally rather than introducing a
+   parallel set of dark-only classes — every shared class built on top of
+   them (.btn, .table, .dialog, .tag, .card, .input, .seg, .toast) picks
+   this up automatically since CSS custom properties resolve per-element
+   at use time, not at :root's original definition time. The genuinely
+   new visual — glowing icon badges on stat tiles — is hand-written below
+   and opt-in per page via the .glow-badge class. Sidebar is deliberately
+   left as its own dark-green identity, unchanged from before this. */
 .shell-main-dark {
   --color-bg: #0f1626;
   --color-bg-subtle: #17203f;
