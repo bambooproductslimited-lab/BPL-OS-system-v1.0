@@ -142,7 +142,7 @@ export default function DashboardPage() {
             className={'dashboard-kpi dashboard-kpi-' + k.tone}
             onClick={() => navigate(k.route)}
           >
-            <span className="dashboard-kpi-icon"><Icon name={k.icon} /></span>
+            <span className="dashboard-kpi-icon glow-badge"><Icon name={k.icon} /></span>
             <span className="dashboard-kpi-arrow"><Icon name="chevron" /></span>
             <span className="dashboard-kpi-value">{k.value == null ? '—' : k.value}</span>
             <span className="dashboard-kpi-label">{k.label}</span>
@@ -188,7 +188,7 @@ export default function DashboardPage() {
             <div className="dashboard-attention">
               {attention.map((row) => (
                 <button type="button" className="dashboard-attention-row" key={row.key} onClick={() => navigate(row.route)}>
-                  <span className="dashboard-attention-icon"><Icon name={row.icon} /></span>
+                  <span className="dashboard-attention-icon glow-badge"><Icon name={row.icon} /></span>
                   <span className="dashboard-attention-count">{row.count}</span>
                   <span className="dashboard-attention-label">{row.label}</span>
                   <span className="dashboard-attention-chevron"><Icon name="chevron" /></span>

@@ -65,6 +65,15 @@
 .dashboard-kpi-warning { --tile-tone: var(--color-warning); }
 .dashboard-kpi-ops { --tile-tone: #3f5a7d; }
 .dashboard-kpi-finance { --tile-tone: #7d3f5c; }
+.shell-main-dark .dashboard-kpi-ops { --tile-tone: #60a5fa; }
+.shell-main-dark .dashboard-kpi-finance { --tile-tone: #f472b6; }
+
+.shell-main-dark .dashboard-kpi {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--color-bg-subtle) 80%, white 3%), var(--color-bg) 65%);
+}
+.shell-main-dark .dashboard-kpi:hover { box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35); }
+.shell-main-dark .dashboard-kpi-value { font-size: 34px; }
+.shell-main-dark .dashboard-attention-icon { --tile-tone: var(--color-accent); }
 
 .dashboard-kpi-icon {
   width: 30px;

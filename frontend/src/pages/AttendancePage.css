@@ -23,7 +23,19 @@
   align-items: center;
   gap: 12px;
   border: var(--divider-width) solid var(--color-divider);
+  border-radius: var(--radius);
   padding: 14px;
+  background: var(--color-bg);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.shell-main-dark .attendance-summary-tile {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--color-bg-subtle) 80%, white 3%), var(--color-bg) 65%);
+  padding: 18px;
+}
+.shell-main-dark .attendance-summary-tile:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--tile-tone) 45%, var(--color-divider));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 
 .attendance-summary-icon {
@@ -44,6 +56,7 @@
 .attendance-summary-tile-danger { --tile-tone: var(--color-danger); }
 
 .attendance-summary-value { font-family: var(--font-heading); font-weight: 800; font-size: 24px; line-height: 1; }
+.shell-main-dark .attendance-summary-value { font-size: 27px; }
 .attendance-summary-label { font-size: 11px; color: var(--color-text-muted); margin-top: 3px; }
 
 /* ── filters row ────────────────────────────────────────────────────── */

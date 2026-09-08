@@ -395,7 +395,7 @@ export default function AttendancePage() {
       <div className="attendance-summary">
         {(isSingleDay ? summary : periodSummary).map((s) => (
           <div className={'attendance-summary-tile attendance-summary-tile-' + s.tone} key={s.label}>
-            <span className="attendance-summary-icon"><Icon name={s.icon} /></span>
+            <span className="attendance-summary-icon glow-badge"><Icon name={s.icon} /></span>
             <div>
               <div className="attendance-summary-value">{s.value}</div>
               <div className="attendance-summary-label">{s.label}</div>

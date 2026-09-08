@@ -163,3 +163,71 @@
 .shell-header-title { font-size: 22px; margin-top: 4px; }
 
 .shell-content { padding: 32px; flex: 1; }
+
+/* ── dark pilot pages (Dashboard, Attendance) ──────────────────────────
+   Re-themes the app's existing design tokens locally rather than
+   introducing a parallel set of dark-only classes — every shared class
+   built on top of them (.btn, .table, .dialog, .tag, .card, .input, .seg,
+   .toast) picks this up automatically since CSS custom properties resolve
+   per-element at use time, not at :root's original definition time. Only
+   the genuinely new visual — the glowing icon badges on stat tiles — is
+   hand-written below; everything else is the same markup/classes the
+   light theme already uses. Sidebar is deliberately left untouched: this
+   is a page-content pilot, not a full shell change. */
+.shell-main-dark {
+  --color-bg: #0f1626;
+  --color-bg-subtle: #17203f;
+  --color-text: #f2f5fb;
+  --color-divider: #24304f;
+  --color-border: #2c3a5e;
+  --color-accent: #34d399;
+  --color-accent-700: #10b981;
+  --color-accent-800: #0d9467;
+  --color-accent-100: rgba(52, 211, 153, 0.16);
+  --color-danger: #f87171;
+  --color-danger-100: rgba(248, 113, 113, 0.14);
+  --color-warning: #fbbf24;
+  --color-warning-100: rgba(251, 191, 36, 0.14);
+  --radius: 16px;
+  background: var(--color-bg);
+  /* Redeclaring the custom properties above isn't enough on its own: a
+     plain `color: var(--color-text)` set higher up (body) resolves ONCE
+     to the light theme's black and then inherits down as an already-
+     computed value — descendants only pick up this scope's override if
+     something in between explicitly re-references the token via `color`,
+     which most text here (h1/h2/p) doesn't do on its own. */
+  color: var(--color-text);
+}
+.shell-main-dark .shell-header-icon {
+  border-radius: 12px;
+  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--color-accent) 55%, transparent), color-mix(in srgb, var(--color-accent) 12%, transparent) 72%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 32%, transparent);
+}
+
+/* Glowing circular icon badge, reused by both pilot pages' stat tiles
+   (.attendance-summary-icon, .dashboard-kpi-icon) via this one shared
+   class — a soft radial-gradient glow behind the icon, tinted per tile
+   tone (people/warning/danger/ops/finance), rather than the light theme's
+   flat "color-mix with white" chip. */
+.shell-main-dark .glow-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--tile-tone) 65%, transparent), color-mix(in srgb, var(--tile-tone) 16%, transparent) 70%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tile-tone) 35%, transparent), 0 6px 18px color-mix(in srgb, var(--tile-tone) 30%, transparent);
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.shell-main-dark .glow-badge svg { width: 20px; height: 20px; }
+
+/* Shared-class rounding: .card/.dialog/.input/.btn have no border-radius
+   in the light theme (--radius: 0), so this pilot's --radius: 16px
+   override alone doesn't reach them without an explicit property here. */
+.shell-main-dark .card,
+.shell-main-dark .dialog,
+.shell-main-dark .input,
+.shell-main-dark .btn { border-radius: var(--radius); }
+.shell-main-dark .dialog { box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55); }
