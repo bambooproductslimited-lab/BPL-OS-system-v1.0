@@ -1,18 +1,23 @@
 /*
- * Chart chrome & ink follow the dataviz skill's reference palette (light
- * mode only — this app has no dark theme). Stat-card backgrounds are the
- * one deliberate departure from the skill's "thin marks, no saturated
- * blocks" default — this page explicitly targets Metricool's own visual
- * language, so solid per-channel cards are the point, not an accident.
+ * Chart chrome & ink follow the dataviz skill's reference palette, remapped
+ * onto the app's own theme tokens so the card re-themes with the rest of
+ * the page instead of staying pinned to light mode (color-mix trick is
+ * enough here since --color-text-muted/-faint already resolve correctly
+ * under .shell-main-dark — see AppShell.css). Stat-card backgrounds
+ * (soc-stat-card, inline style'd per channel) are the one deliberate
+ * departure from the skill's "thin marks, no saturated blocks" default —
+ * this page explicitly targets Metricool's own visual language, so solid
+ * per-channel cards are the point, not an accident, and stay theme-
+ * independent since they're real brand colors.
  */
 .soc-metrics-stack { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
 
 .soc-chart-card {
-  --soc-chart-surface: #fcfcfb;
-  --soc-chart-ink: #0b0b0b;
-  --soc-chart-ink-secondary: #52514e;
-  --soc-chart-ink-muted: #898781;
-  --soc-chart-gridline: #e1e0d9;
+  --soc-chart-surface: var(--color-bg);
+  --soc-chart-ink: var(--color-text);
+  --soc-chart-ink-secondary: var(--color-text-muted);
+  --soc-chart-ink-muted: var(--color-text-faint);
+  --soc-chart-gridline: var(--color-divider);
   background: var(--soc-chart-surface);
   border: 2px solid var(--color-border);
   padding: 16px;
@@ -49,7 +54,7 @@
   position: absolute;
   top: 8px;
   background: var(--soc-chart-ink);
-  color: #fff;
+  color: var(--color-bg);
   padding: 8px 10px;
   min-width: 140px;
   font-size: 12px;
