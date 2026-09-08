@@ -2,6 +2,9 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var storage = require('../lib/storage');
+
+var MAX_MENU_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB — a food photo, not a scanned document
 
 // Restaurant module, Phase 1 (inventory): Star Bar Restaurant and Bamboo
 // Garden each get their own sellable menu (restaurant_menu_items) and two
@@ -27,7 +30,8 @@ async function requireCompany(companyId) {
 function rowToMenuItem(r) {
   return {
     id: r.id, companyId: r.company_id, name: r.name, category: r.category,
-    price: Number(r.price), active: r.active, source: r.source
+    price: Number(r.price), active: r.active, source: r.source,
+    photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null
   };
 }
 
@@ -88,8 +92,60 @@ async function removeMenuItem(ctx, id) {
   var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
   await pool.query('DELETE FROM restaurant_menu_items WHERE id = $1', [id]);
+  if (existing.rows[0].photo_object_key) { try { await storage.deleteFile(existing.rows[0].photo_object_key); } catch (e) { /* orphaned object, not worth failing the delete over */ } }
   await audit(pool, ctx, 'restaurant.menu.delete', 'restaurant_menu_item', id, 'Removed ' + existing.rows[0].name + ' from the menu.');
   return true;
+}
+
+// A photo per menu item, for the POS till grid — same R2 storage the
+// Documents module and employee ID documents already use (migration
+// 0045). The uploaded file replaces any existing photo (old object
+// deleted, not left orphaned); see routes/menuPhotos.routes.js for how
+// this gets served back out as a plain, unauthenticated <img src>.
+async function setMenuItemPhoto(ctx, id, file) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  if (!storage.configured) fail('invalid', 'Photo storage is not configured on the server.');
+  if (!file) fail('invalid', 'Choose a photo to upload.');
+  if (file.size > MAX_MENU_PHOTO_BYTES) fail('invalid', 'Photo must be smaller than 5MB.');
+  var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
+  if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
+
+  var key = await storage.uploadFile(file.originalname, file.buffer, file.mimetype);
+  var res = await pool.query(
+    'UPDATE restaurant_menu_items SET photo_object_key = $1, photo_file_name = $2, updated_at = now() WHERE id = $3 RETURNING *',
+    [key, file.originalname, id]
+  );
+  var oldKey = existing.rows[0].photo_object_key;
+  if (oldKey) { try { await storage.deleteFile(oldKey); } catch (e) { /* best-effort cleanup */ } }
+  var item = res.rows[0];
+  await audit(pool, ctx, 'restaurant.menu.photo', 'restaurant_menu_item', id, 'Updated photo for ' + item.name + '.');
+  return rowToMenuItem(item);
+}
+
+async function removeMenuItemPhoto(ctx, id) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
+  if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
+  if (existing.rows[0].photo_object_key) { try { await storage.deleteFile(existing.rows[0].photo_object_key); } catch (e) { /* best-effort cleanup */ } }
+  var res = await pool.query(
+    'UPDATE restaurant_menu_items SET photo_object_key = NULL, photo_file_name = NULL, updated_at = now() WHERE id = $1 RETURNING *',
+    [id]
+  );
+  var item = res.rows[0];
+  await audit(pool, ctx, 'restaurant.menu.photo', 'restaurant_menu_item', id, 'Removed photo for ' + item.name + '.');
+  return rowToMenuItem(item);
+}
+
+// No permission gate — this backs a plain <img src>, which can't attach an
+// Authorization header at all, and needs to work from both the main app
+// and the separately-authenticated (PIN-token) POS till. Menu photos
+// aren't sensitive data the way ID documents are; the UUID in the URL is
+// unguessable in practice, which is the same protection level unlisted
+// (not access-controlled) images get on most sites.
+async function getMenuItemPhoto(id) {
+  var res = await pool.query('SELECT photo_object_key FROM restaurant_menu_items WHERE id = $1', [id]);
+  if (!res.rows[0] || !res.rows[0].photo_object_key) fail('notfound', 'No photo.');
+  return storage.getObjectStream(res.rows[0].photo_object_key);
 }
 
 // ── supplies (non-food, no expiry) ──────────────────────────────────────
@@ -258,6 +314,7 @@ async function removeIngredient(ctx, id) {
 module.exports = {
   listMenuItems: listMenuItems, createMenuItem: createMenuItem, updateMenuItem: updateMenuItem,
   setMenuItemActive: setMenuItemActive, removeMenuItem: removeMenuItem,
+  setMenuItemPhoto: setMenuItemPhoto, removeMenuItemPhoto: removeMenuItemPhoto, getMenuItemPhoto: getMenuItemPhoto,
   listSupplies: listSupplies, createSupply: createSupply, updateSupply: updateSupply,
   adjustSupplyStock: adjustSupplyStock, removeSupply: removeSupply,
   listIngredients: listIngredients, createIngredient: createIngredient, updateIngredient: updateIngredient,

@@ -1,8 +1,17 @@
 var express = require('express');
+var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
+var { allowlistFilter } = require('../lib/uploadFilters');
 var restaurantService = require('../services/restaurant.service');
 var restaurantPosService = require('../services/restaurantPos.service');
 var restaurantSquareImportService = require('../services/restaurantSquareImport.service');
+
+var MENU_PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+var photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: allowlistFilter(MENU_PHOTO_EXTENSIONS, 'That file type isn’t supported for menu photos.')
+});
 
 var router = express.Router();
 router.use(requireAuth);
@@ -21,6 +30,12 @@ router.post('/menu-items/:id/active', async function (req, res, next) {
 });
 router.delete('/menu-items/:id', async function (req, res, next) {
   try { res.json(await restaurantService.removeMenuItem(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/menu-items/:id/photo', photoUpload.single('file'), async function (req, res, next) {
+  try { res.json(await restaurantService.setMenuItemPhoto(req.ctx, req.params.id, req.file)); } catch (e) { next(e); }
+});
+router.delete('/menu-items/:id/photo', async function (req, res, next) {
+  try { res.json(await restaurantService.removeMenuItemPhoto(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
 router.get('/supplies', async function (req, res, next) {

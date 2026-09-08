@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../api/client';
+import { api, API_ORIGIN } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
@@ -124,6 +124,14 @@ export default function RestaurantsPage() {
   const [menuForm, setMenuForm] = useState(EMPTY_MENU_FORM);
   const [menuDialogError, setMenuDialogError] = useState(null);
   const [menuSaving, setMenuSaving] = useState(false);
+  // Photo for the POS till grid (Restaurant module photo feature) — a File
+  // picked in this dialog, plus whatever should currently preview (the
+  // item's existing photoUrl, a fresh object URL for a just-picked file,
+  // or null). Uploaded separately from the base fields, after they save,
+  // since a brand-new item has no id to attach a photo to until then.
+  const [menuPhotoFile, setMenuPhotoFile] = useState(null);
+  const [menuPhotoPreview, setMenuPhotoPreview] = useState(null);
+  const [menuPhotoRemoved, setMenuPhotoRemoved] = useState(false);
 
   const [supplyDialogOpen, setSupplyDialogOpen] = useState(false);
   const [supplyEditId, setSupplyEditId] = useState(null);
@@ -281,13 +289,30 @@ export default function RestaurantsPage() {
     setMenuDialogError(null);
     setMenuEditId(null);
     setMenuForm(EMPTY_MENU_FORM);
+    setMenuPhotoFile(null);
+    setMenuPhotoPreview(null);
+    setMenuPhotoRemoved(false);
     setMenuDialogOpen(true);
   }
   function openEditMenuItem(m) {
     setMenuDialogError(null);
     setMenuEditId(m.id);
     setMenuForm({ name: m.name, category: m.category, price: m.price });
+    setMenuPhotoFile(null);
+    setMenuPhotoPreview(m.photoUrl ? API_ORIGIN + m.photoUrl : null);
+    setMenuPhotoRemoved(false);
     setMenuDialogOpen(true);
+  }
+  function pickMenuPhoto(file) {
+    if (!file) return;
+    setMenuPhotoFile(file);
+    setMenuPhotoRemoved(false);
+    setMenuPhotoPreview(URL.createObjectURL(file));
+  }
+  function clearMenuPhoto() {
+    setMenuPhotoFile(null);
+    setMenuPhotoPreview(null);
+    setMenuPhotoRemoved(true);
   }
   async function submitMenuForm(e) {
     e.preventDefault();
@@ -295,6 +320,13 @@ export default function RestaurantsPage() {
     setMenuDialogError(null);
     try {
       const saved = menuEditId ? await api.put('/restaurant/menu-items/' + menuEditId, menuForm) : await api.post('/restaurant/menu-items', { ...menuForm, companyId });
+      if (menuPhotoFile) {
+        const body = new FormData();
+        body.append('file', menuPhotoFile);
+        await api.upload('/restaurant/menu-items/' + saved.id + '/photo', body);
+      } else if (menuPhotoRemoved && menuEditId) {
+        await api.del('/restaurant/menu-items/' + saved.id + '/photo');
+      }
       setToast(menuEditId ? 'Menu item updated.' : 'Menu item added.');
       setMenuDialogOpen(false);
       await load(companyId);
@@ -597,6 +629,7 @@ export default function RestaurantsPage() {
                     <div className="restaurants-menu-grid">
                       {group.items.map((m) => (
                         <div className={'restaurants-menu-card' + (flashId === m.id ? ' restaurants-flash' : '')} key={m.id}>
+                          {m.photoUrl && <img className="restaurants-menu-card-photo" src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />}
                           <div className="restaurants-menu-card-top">
                             <span className="restaurants-menu-card-name">{m.name}</span>
                             <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
@@ -741,6 +774,14 @@ export default function RestaurantsPage() {
             <div className="field">
               <label htmlFor="rm-price">Price</label>
               <input id="rm-price" className="input" type="number" min="0" step="0.01" value={menuForm.price} onChange={(e) => setMenuForm({ ...menuForm, price: e.target.value })} required />
+            </div>
+            <div className="field">
+              <label htmlFor="rm-photo">Photo (shown on the POS till)</label>
+              {menuPhotoPreview && <img className="restaurants-menu-photo-preview" src={menuPhotoPreview} alt="" />}
+              <div className="restaurants-menu-photo-actions">
+                <input id="rm-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => pickMenuPhoto(e.target.files[0])} />
+                {menuPhotoPreview && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={clearMenuPhoto}>Remove photo</button>}
+              </div>
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setMenuDialogOpen(false)}>Cancel</button>

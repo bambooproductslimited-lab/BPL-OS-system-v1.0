@@ -7,6 +7,11 @@
 // (TOKEN_KEY), but a POS till has its own separate, unattended-device
 // session token (see restaurantPos.service.js) that has to win instead.
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+// The server origin without the trailing /api — for plain <img src> tags
+// pointed at a public, unauthenticated route like /api/menu-photos/:id
+// (restaurant menu item photos), which are relative to the API server,
+// not the Vite dev server the frontend itself is served from.
+export const API_ORIGIN = API_URL.replace(/\/api\/?$/, '');
 const TOKEN_KEY = 'bamboo.token';
 
 export class ApiError extends Error {

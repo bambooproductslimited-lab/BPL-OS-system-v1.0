@@ -167,6 +167,29 @@
 .restaurants-menu-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .restaurants-menu-card-actions .restaurants-row-btn { margin-left: 0; }
 
+/* Photo bleeds to the card's edges — pulled out over the card's own 16px
+   padding rather than the card being restructured into a padded/unpadded
+   split, since only a minority of items (freshly uploaded ones) have one. */
+.restaurants-menu-card-photo {
+  width: calc(100% + 32px);
+  margin: -16px -16px 0;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--color-bg-subtle);
+  border-bottom: var(--divider-width) solid var(--color-divider);
+}
+
+/* ── menu item photo field (add/edit dialog) ──────────────────────── */
+.restaurants-menu-photo-preview {
+  width: 160px;
+  height: 120px;
+  object-fit: cover;
+  background: var(--color-bg-subtle);
+  border: var(--divider-width) solid var(--color-divider);
+  margin-bottom: 8px;
+}
+.restaurants-menu-photo-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
 /* ── sales table polish ────────────────────────────────────────────── */
 .restaurants-sales-table { transition: opacity 0.15s ease; }
 .restaurants-sales-table tbody tr { transition: background-color 0.1s ease; }

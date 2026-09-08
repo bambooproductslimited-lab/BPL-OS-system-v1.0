@@ -78,10 +78,12 @@ function rowToOrder(order, items) {
 async function menuForSession(token) {
   var session = verifyPosToken(token);
   var res = await pool.query(
-    'SELECT id, name, category, price FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
+    'SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
   );
-  return res.rows.map(function (r) { return { id: r.id, name: r.name, category: r.category, price: Number(r.price) }; });
+  return res.rows.map(function (r) {
+    return { id: r.id, name: r.name, category: r.category, price: Number(r.price), photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null };
+  });
 }
 
 // kernel-of-a-sale — rings up a completed order in one transaction: every

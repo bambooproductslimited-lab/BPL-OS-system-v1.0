@@ -49,4 +49,22 @@ async function deleteFile(key) {
   await client.send(new DeleteObjectCommand({ Bucket: r2.bucket, Key: key }));
 }
 
-module.exports = { configured: r2.configured, uploadFile: uploadFile, getDownloadUrl: getDownloadUrl, deleteFile: deleteFile };
+// Streams the object straight through our own server rather than a signed
+// URL — used for restaurant menu item photos (lib/storage.js's only other
+// consumers, the Documents module and employee ID docs, use signed URLs
+// instead because those files are sensitive and only ever opened one at a
+// time from a click). A menu photo needs to work as a plain <img src>,
+// rendered inline for potentially hundreds of tiles on the POS till grid,
+// from both the authenticated main app and the separately-authenticated
+// (PIN-token) POS till — a signed URL's 60s expiry would break mid-shift,
+// and <img> tags can't attach an Authorization header at all, so this has
+// to be a plain unauthenticated GET (see routes/menuPhotos.routes.js).
+async function getObjectStream(key) {
+  var res = await client.send(new GetObjectCommand({ Bucket: r2.bucket, Key: key }));
+  return { stream: res.Body, contentType: res.ContentType };
+}
+
+module.exports = {
+  configured: r2.configured, uploadFile: uploadFile, getDownloadUrl: getDownloadUrl,
+  deleteFile: deleteFile, getObjectStream: getObjectStream
+};
