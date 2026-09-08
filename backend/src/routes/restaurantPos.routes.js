@@ -24,6 +24,14 @@ router.get('/menu', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.menuForSession(req.posToken)); } catch (e) { next(e); }
 });
 
+router.get('/menu/mostly-bought', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.mostlyBought(req.posToken)); } catch (e) { next(e); }
+});
+
+router.post('/menu-items/:id/favorite', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.toggleFavorite(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+
 router.post('/orders', posAuth, async function (req, res, next) {
   try { res.status(201).json(await restaurantPosService.createOrder(req.posToken, req.body)); } catch (e) { next(e); }
 });

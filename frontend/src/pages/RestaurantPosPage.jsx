@@ -101,6 +101,20 @@ export default function RestaurantPosPage() {
   const [menuError, setMenuError] = useState(null);
   const [search, setSearch] = useState('');
 
+  // Quick-access tabs above the menu grid. 'all' is the default landing
+  // view (the existing category-grouped grid, unchanged) rather than
+  // 'favorites', since a brand-new till has no favorites yet and landing
+  // on an empty tab would be a worse first impression than the familiar
+  // full grid.
+  const [viewTab, setViewTab] = useState('all'); // 'favorites' | 'recent' | 'mostly' | 'all'
+  // Items tapped into the cart this shift, most-recent-first and deduped —
+  // deliberately session-only (not persisted), unlike favorites: it's a
+  // "what was I just doing" shortcut, not a lasting curation, so it
+  // resets on logout along with the cart.
+  const [recentIds, setRecentIds] = useState([]);
+  const [mostlyBought, setMostlyBought] = useState([]);
+  const [mostlyBoughtLoading, setMostlyBoughtLoading] = useState(false);
+
   const [cart, setCart] = useState([]); // [{ menuItemId, name, price, qty }]
   const [tappedId, setTappedId] = useState(null); // brief tap-feedback flash on the tile just added
 
@@ -196,13 +210,39 @@ export default function RestaurantPosPage() {
     }
   }
 
+  // Loaded alongside the menu rather than lazily on first tab switch —
+  // it's one cheap, already-windowed aggregate query (see
+  // restaurantPos.service.js's mostlyBought), and fetching it upfront
+  // avoids a loading flicker the first time someone taps the tab.
+  async function loadMostlyBought(token) {
+    setMostlyBoughtLoading(true);
+    try {
+      setMostlyBought(await posFetch('GET', '/pos/menu/mostly-bought', token));
+    } catch {
+      // Non-critical — the tab just shows its empty state if this fails.
+    } finally {
+      setMostlyBoughtLoading(false);
+    }
+  }
+
+  async function toggleFavorite(e, item) {
+    e.stopPropagation();
+    try {
+      const res = await posFetch('POST', '/pos/menu-items/' + item.id + '/favorite', session.token);
+      setMenu((prev) => prev.map((m) => (m.id === item.id ? { ...m, favorite: res.favorite } : m)));
+      setMostlyBought((prev) => prev.map((m) => (m.id === item.id ? { ...m, favorite: res.favorite } : m)));
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+    }
+  }
+
   useEffect(() => {
     const saved = localStorage.getItem(SESSION_KEY);
     if (!saved) { setSessionChecked(true); return; }
     let parsed;
     try { parsed = JSON.parse(saved); } catch { localStorage.removeItem(SESSION_KEY); setSessionChecked(true); return; }
     loadMenu(parsed.token).then((ok) => {
-      if (ok) setSession(parsed);
+      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); }
       setSessionChecked(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,6 +266,7 @@ export default function RestaurantPosPage() {
       setSession(s);
       setPin('');
       await loadMenu(s.token);
+      loadMostlyBought(s.token);
     } catch (err) {
       setLoginError(err.message);
       setPin('');
@@ -240,14 +281,19 @@ export default function RestaurantPosPage() {
     setCart([]);
     setMenu([]);
     setReceipt(null);
+    setRecentIds([]);
+    setMostlyBought([]);
+    setViewTab('all');
   }
 
+  var RECENT_LIMIT = 30;
   function addToCart(item) {
     setCart((prev) => {
       const idx = prev.findIndex((l) => l.menuItemId === item.id);
       if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l));
       return prev.concat([{ menuItemId: item.id, name: item.name, price: item.price, qty: 1 }]);
     });
+    setRecentIds((prev) => [item.id].concat(prev.filter((id) => id !== item.id)).slice(0, RECENT_LIMIT));
     setTappedId(item.id);
     setTimeout(() => setTappedId((cur) => (cur === item.id ? null : cur)), 260);
   }
@@ -294,15 +340,61 @@ export default function RestaurantPosPage() {
   // Star Bar's real Square-imported menu runs into the thousands of items —
   // a touch grid that size is unusable without a way to jump straight to
   // an item, so filtering here isn't cosmetic.
+  const searchedMenu = useMemo(() => menu.filter((m) => matchesQuery(search, m.name, m.category)), [menu, search]);
   const grouped = useMemo(() => {
-    const visible = menu.filter((m) => matchesQuery(search, m.name, m.category));
     const map = new Map();
-    visible.forEach((m) => {
+    searchedMenu.forEach((m) => {
       if (!map.has(m.category)) map.set(m.category, []);
       map.get(m.category).push(m);
     });
     return Array.from(map.entries());
-  }, [menu, search]);
+  }, [searchedMenu]);
+
+  const favoriteItems = useMemo(() => searchedMenu.filter((m) => m.favorite), [searchedMenu]);
+  const recentItems = useMemo(() => {
+    const byId = new Map(searchedMenu.map((m) => [m.id, m]));
+    return recentIds.map((id) => byId.get(id)).filter(Boolean);
+  }, [recentIds, searchedMenu]);
+  const mostlyBoughtItems = useMemo(() => mostlyBought.filter((m) => matchesQuery(search, m.name, m.category)), [mostlyBought, search]);
+
+  const VIEW_TABS = [
+    { key: 'all', label: 'All items' },
+    { key: 'favorites', label: 'Favorites', count: favoriteItems.length },
+    { key: 'recent', label: 'Recent', count: recentItems.length },
+    { key: 'mostly', label: 'Mostly bought' }
+  ];
+
+  function renderTile(m) {
+    const qty = cartQtyById.get(m.id);
+    return (
+      <button
+        key={m.id} type="button"
+        className={'pos-menu-tile' + (qty ? ' pos-menu-tile-selected' : '') + (tappedId === m.id ? ' pos-menu-tile-tapped' : '')}
+        onClick={() => addToCart(m)}
+      >
+        <span className="pos-menu-tile-photo" style={m.photoUrl ? undefined : { background: tileColor(m.name) }}>
+          {m.photoUrl ? (
+            <img src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />
+          ) : (
+            <span className="pos-menu-tile-fallback">{tileInitial(m.name)}</span>
+          )}
+          <span
+            role="button" tabIndex={0}
+            className={'pos-menu-tile-favorite' + (m.favorite ? ' pos-menu-tile-favorite-on' : '')}
+            onClick={(e) => toggleFavorite(e, m)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavorite(e, m); } }}
+            aria-label={m.favorite ? 'Remove from favorites' : 'Add to favorites'}
+            aria-pressed={m.favorite}
+          >★</span>
+          {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
+        </span>
+        <span className="pos-menu-tile-body">
+          <span className="pos-menu-tile-name">{m.name}</span>
+          <span className="pos-menu-tile-price">{money(m.price)}</span>
+        </span>
+      </button>
+    );
+  }
 
   if (!sessionChecked) return null;
 
@@ -417,42 +509,49 @@ export default function RestaurantPosPage() {
           <div className="pos-menu-search">
             <SearchInput value={search} onChange={setSearch} placeholder="Search the menu…" />
           </div>
+          <div className="pos-view-tabs">
+            {VIEW_TABS.map((t) => (
+              <button
+                key={t.key} type="button"
+                className={'pos-view-tab' + (viewTab === t.key ? ' pos-view-tab-active' : '')}
+                onClick={() => setViewTab(t.key)}
+              >
+                {t.label}{typeof t.count === 'number' && <span className="pos-view-tab-count">{t.count}</span>}
+              </button>
+            ))}
+          </div>
           {menuError && <div className="error-banner">{menuError}</div>}
           {menuLoading ? (
             <div className="eyebrow">Loading menu…</div>
-          ) : !grouped.length ? (
-            <div className="pos-empty">{search ? 'No items match "' + search + '"' : 'No menu items yet — add some from Restaurants → Menu in the main app.'}</div>
-          ) : (
-            grouped.map(([category, items]) => (
-              <div key={category} className="pos-menu-group">
-                <div className="pos-menu-category"><span className="pos-menu-category-pill">{category}<span className="pos-menu-category-count">{items.length}</span></span></div>
-                <div className="pos-menu-grid">
-                  {items.map((m) => {
-                    const qty = cartQtyById.get(m.id);
-                    return (
-                      <button
-                        key={m.id} type="button"
-                        className={'pos-menu-tile' + (qty ? ' pos-menu-tile-selected' : '') + (tappedId === m.id ? ' pos-menu-tile-tapped' : '')}
-                        onClick={() => addToCart(m)}
-                      >
-                        <span className="pos-menu-tile-photo" style={m.photoUrl ? undefined : { background: tileColor(m.name) }}>
-                          {m.photoUrl ? (
-                            <img src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />
-                          ) : (
-                            <span className="pos-menu-tile-fallback">{tileInitial(m.name)}</span>
-                          )}
-                          {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
-                        </span>
-                        <span className="pos-menu-tile-body">
-                          <span className="pos-menu-tile-name">{m.name}</span>
-                          <span className="pos-menu-tile-price">{money(m.price)}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
+          ) : viewTab === 'all' ? (
+            !grouped.length ? (
+              <div className="pos-empty">{search ? 'No items match "' + search + '"' : 'No menu items yet — add some from Restaurants → Menu in the main app.'}</div>
+            ) : (
+              grouped.map(([category, items]) => (
+                <div key={category} className="pos-menu-group">
+                  <div className="pos-menu-category"><span className="pos-menu-category-pill">{category}<span className="pos-menu-category-count">{items.length}</span></span></div>
+                  <div className="pos-menu-grid">{items.map(renderTile)}</div>
                 </div>
-              </div>
-            ))
+              ))
+            )
+          ) : viewTab === 'favorites' ? (
+            !favoriteItems.length ? (
+              <div className="pos-empty">{search ? 'No favorites match "' + search + '"' : 'No favorites yet — tap the ★ on any item to pin it here.'}</div>
+            ) : (
+              <div className="pos-menu-grid pos-menu-grid-flat">{favoriteItems.map(renderTile)}</div>
+            )
+          ) : viewTab === 'recent' ? (
+            !recentItems.length ? (
+              <div className="pos-empty">{search ? 'No recent items match "' + search + '"' : 'Nothing added to an order yet this shift.'}</div>
+            ) : (
+              <div className="pos-menu-grid pos-menu-grid-flat">{recentItems.map(renderTile)}</div>
+            )
+          ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
+            <div className="eyebrow">Loading…</div>
+          ) : !mostlyBoughtItems.length ? (
+            <div className="pos-empty">{search ? 'No results match "' + search + '"' : 'Not enough sales yet to rank — check back once a few orders have gone through.'}</div>
+          ) : (
+            <div className="pos-menu-grid pos-menu-grid-flat">{mostlyBoughtItems.map(renderTile)}</div>
           )}
         </div>
 

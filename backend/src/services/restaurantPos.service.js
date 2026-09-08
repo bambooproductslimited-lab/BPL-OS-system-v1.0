@@ -79,11 +79,62 @@ function rowToOrder(order, items) {
 async function menuForSession(token) {
   var session = verifyPosToken(token);
   var res = await pool.query(
-    'SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
+    'SELECT id, name, category, price, photo_object_key, favorite FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
   );
+  return res.rows.map(rowToTile);
+}
+
+function rowToTile(r) {
+  return {
+    id: r.id, name: r.name, category: r.category, price: Number(r.price),
+    photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null,
+    favorite: r.favorite
+  };
+}
+
+// Shared across whoever's on the till, not per-cashier — see migration
+// 0046's comment. Scoped to the caller's own company_id in the WHERE
+// clause (not just the id), so a Star Bar session can never toggle a
+// Bamboo Garden item even if it somehow guessed its id.
+async function toggleFavorite(token, itemId) {
+  var session = verifyPosToken(token);
+  var res = await pool.query(
+    'UPDATE restaurant_menu_items SET favorite = NOT favorite, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id, favorite',
+    [itemId, session.posCompanyId]
+  );
+  if (!res.rows[0]) fail('notfound', 'Menu item not found.');
+  return res.rows[0];
+}
+
+// "Mostly bought" quick-access tab — real sales frequency, not a manual
+// curation like favorites. Windowed to the last 90 days rather than
+// all-time: at Square-import scale (tens of thousands of historical
+// orders per restaurant) an all-time ranking would mostly reflect
+// whatever sold heavily back when the data was imported, not what's
+// actually popular right now, and the window also keeps the aggregate
+// query scanning a bounded slice of restaurant_order_items instead of
+// the entire history on every till load.
+var MOSTLY_BOUGHT_WINDOW_DAYS = 90;
+var MOSTLY_BOUGHT_LIMIT = 24;
+async function mostlyBought(token) {
+  var session = verifyPosToken(token);
+  var res = await pool.query(
+    'SELECT mi.id, mi.name, mi.category, mi.price, mi.photo_object_key, mi.favorite, SUM(oi.qty) AS qty_sold ' +
+    'FROM restaurant_order_items oi ' +
+    'JOIN restaurant_orders o ON o.id = oi.order_id ' +
+    'JOIN restaurant_menu_items mi ON mi.id = oi.menu_item_id ' +
+    "WHERE o.company_id = $1 AND o.status != 'voided' AND o.created_at >= now() - ($2 || ' days')::interval " +
+    'AND mi.active = true ' +
+    'GROUP BY mi.id ' +
+    'ORDER BY qty_sold DESC ' +
+    'LIMIT $3',
+    [session.posCompanyId, MOSTLY_BOUGHT_WINDOW_DAYS, MOSTLY_BOUGHT_LIMIT]
+  );
   return res.rows.map(function (r) {
-    return { id: r.id, name: r.name, category: r.category, price: Number(r.price), photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null };
+    var tile = rowToTile(r);
+    tile.qtySold = Number(r.qty_sold);
+    return tile;
   });
 }
 
@@ -218,5 +269,6 @@ async function voidOrder(ctx, id) {
 
 module.exports = {
   login: login, menuForSession: menuForSession, createOrder: createOrder,
-  listOrders: listOrders, getOrder: getOrder, voidOrder: voidOrder
+  listOrders: listOrders, getOrder: getOrder, voidOrder: voidOrder,
+  toggleFavorite: toggleFavorite, mostlyBought: mostlyBought
 };

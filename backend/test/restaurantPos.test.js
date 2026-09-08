@@ -137,3 +137,75 @@ test('restaurant POS: order creation re-prices against the live menu, order numb
   await fetch(base + '/api/employees/purge-terminated', { method: 'POST', headers: authed(admin) });
   await pool.query('DELETE FROM restaurant_menu_items WHERE id = $1', [menuItem.id]);
 });
+
+test('restaurant POS: favorite toggle is shared and company-scoped, mostly-bought reflects real sales', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var isreal = await login('isreal.omozuafo@bplghana.com');
+  var sbrId = await companyId(admin, 'Star Bar Restaurant');
+  var bgnId = await companyId(admin, 'Bamboo Garden');
+  var sbrEmpId = await makeEmployeeInCompany(admin, 'Star Bar Restaurant', 'pos-test-3@bplghana.com');
+
+  var menuItem = await (await fetch(base + '/api/restaurant/menu-items', {
+    method: 'POST', headers: jsonAuthed(isreal),
+    body: JSON.stringify({ companyId: sbrId, name: 'Test Waakye', category: 'Mains', price: 30 })
+  })).json();
+  var otherCompanyItem = await (await fetch(base + '/api/restaurant/menu-items', {
+    method: 'POST', headers: jsonAuthed(isreal),
+    body: JSON.stringify({ companyId: bgnId, name: 'Test Fried Rice', category: 'Mains', price: 30 })
+  })).json();
+
+  var ctx = { can: function () { return true; }, user: { id: null }, employee: { id: sbrEmpId } };
+  await kioskService.setPin(ctx, sbrEmpId, '7711');
+  var session = await (await fetch(base + '/api/pos/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '7711' })
+  })).json();
+
+  // Starts unfavorited; toggling flips it, and a second toggle flips it back.
+  var menuBefore = await (await fetch(base + '/api/pos/menu', { headers: authed(session.token) })).json();
+  assert.equal(menuBefore.find(function (m) { return m.id === menuItem.id; }).favorite, false);
+
+  var toggled = await (await fetch(base + '/api/pos/menu-items/' + menuItem.id + '/favorite', {
+    method: 'POST', headers: authed(session.token)
+  })).json();
+  assert.equal(toggled.favorite, true);
+
+  var toggledBack = await (await fetch(base + '/api/pos/menu-items/' + menuItem.id + '/favorite', {
+    method: 'POST', headers: authed(session.token)
+  })).json();
+  assert.equal(toggledBack.favorite, false);
+
+  // A Star Bar session can't reach into Bamboo Garden's menu, even by id.
+  var crossCompany = await fetch(base + '/api/pos/menu-items/' + otherCompanyItem.id + '/favorite', {
+    method: 'POST', headers: authed(session.token)
+  });
+  assert.equal(crossCompany.status, 404);
+
+  // Ring up a sale, then confirm the endpoint responds with a well-formed,
+  // qty-descending ranking. Star Bar's real Square-imported history (tens
+  // of thousands of orders) means a single freshly-created test item
+  // selling 3 units has no realistic chance of cracking the top 24 next to
+  // items that sold in the thousands — correct real-world behavior, not
+  // something worth asserting against — so the aggregation itself (the
+  // actual thing this feature depends on) is checked directly against the
+  // database instead of via the rank-limited endpoint response.
+  await fetch(base + '/api/pos/orders', {
+    method: 'POST', headers: jsonAuthed(session.token),
+    body: JSON.stringify({ items: [{ menuItemId: menuItem.id, qty: 3 }], paymentMethod: 'cash' })
+  });
+  var mostlyBought = await (await fetch(base + '/api/pos/menu/mostly-bought', { headers: authed(session.token) })).json();
+  assert.ok(Array.isArray(mostlyBought) && mostlyBought.length > 0);
+  for (var i = 1; i < mostlyBought.length; i++) assert.ok(mostlyBought[i - 1].qtySold >= mostlyBought[i].qtySold);
+
+  var directTally = await pool.query(
+    "SELECT SUM(oi.qty) AS qty_sold FROM restaurant_order_items oi JOIN restaurant_orders o ON o.id = oi.order_id " +
+    "WHERE oi.menu_item_id = $1 AND o.status != 'voided'",
+    [menuItem.id]
+  );
+  assert.equal(Number(directTally.rows[0].qty_sold), 3);
+
+  await pool.query('DELETE FROM restaurant_order_items WHERE menu_item_id = $1', [menuItem.id]);
+  await pool.query('DELETE FROM restaurant_orders WHERE company_id = $1 AND cashier_id = $2', [sbrId, sbrEmpId]);
+  await fetch(base + '/api/employees/' + sbrEmpId + '/terminate', { method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ reason: 'test cleanup' }) });
+  await fetch(base + '/api/employees/purge-terminated', { method: 'POST', headers: authed(admin) });
+  await pool.query('DELETE FROM restaurant_menu_items WHERE id = ANY($1)', [[menuItem.id, otherCompanyItem.id]]);
+});

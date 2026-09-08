@@ -124,10 +124,44 @@
 }
 .pos-menu-search .search-input:focus { border-color: var(--pos-accent); }
 .pos-menu-search .search-input-icon { color: var(--pos-text-faint); }
+
+/* Quick-access tabs (Favorites/Recent/Mostly bought/All items) — sticky
+   right below the search bar, above whichever view is active. */
+.pos-view-tabs {
+  position: sticky;
+  top: 62px;
+  z-index: 2;
+  background: var(--pos-bg);
+  display: flex;
+  gap: 8px;
+  padding: 0 0 14px;
+  overflow-x: auto;
+}
+.pos-view-tab {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--pos-text-muted);
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+.pos-view-tab:hover { border-color: var(--pos-accent); color: var(--pos-text); }
+.pos-view-tab-active { background: var(--pos-accent); border-color: var(--pos-accent); color: #06281c; }
+.pos-view-tab-count { font-size: 11px; font-weight: 800; opacity: 0.7; }
+.pos-view-tab-active .pos-view-tab-count { opacity: 0.85; }
+
+.pos-menu-grid-flat { margin-top: 6px; animation: pos-fade-up 0.2s ease-out both; }
 .pos-menu-group { margin-bottom: 26px; animation: pos-fade-up 0.2s ease-out both; }
 .pos-menu-category {
   position: sticky;
-  top: 62px;
+  top: 108px;
   z-index: 1;
   background: var(--pos-bg);
   padding: 4px 0 12px;
@@ -177,6 +211,27 @@
 }
 .pos-menu-tile-photo img { width: 100%; height: 100%; object-fit: cover; }
 .pos-menu-tile-fallback { font-family: var(--font-heading); font-size: 34px; font-weight: 800; color: rgba(6, 12, 27, 0.55); }
+.pos-menu-tile-favorite {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.55);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.12s ease;
+}
+.pos-menu-tile-favorite:hover { transform: scale(1.12); color: #fbbf24; }
+.pos-menu-tile-favorite-on { color: #fbbf24; background: rgba(11, 18, 32, 0.7); }
 .pos-menu-tile-badge {
   position: absolute;
   top: 8px;
