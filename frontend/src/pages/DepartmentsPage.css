@@ -62,7 +62,7 @@
 }
 .departments-chevron-open { transform: rotate(90deg); }
 
-.departments-nested-cell { background: var(--color-surface-sunken, #f7f7f5); padding: 12px 12px 12px 32px; }
+.departments-nested-cell { background: var(--color-bg-subtle); padding: 12px 12px 12px 32px; }
 .departments-nested-table { margin-bottom: 0; }
 .departments-nested-empty { font-size: 13px; color: var(--color-text-muted); margin: 4px 0; }
 

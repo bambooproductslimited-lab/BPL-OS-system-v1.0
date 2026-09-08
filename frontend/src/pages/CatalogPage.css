@@ -56,7 +56,7 @@
 }
 .catalog-chevron-open { transform: rotate(90deg); }
 
-.catalog-variations-cell { background: var(--color-surface-sunken, #f7f7f5); padding: 12px 12px 12px 32px; }
+.catalog-variations-cell { background: var(--color-bg-subtle); padding: 12px 12px 12px 32px; }
 .catalog-variations-table { margin-bottom: 10px; }
 .catalog-add-variation { font-size: 12px; padding: 6px 10px; }
 
