@@ -1,11 +1,37 @@
 .pos-login-content { justify-content: center; }
 
+/* height, not min-height: the till's own content (a Square-imported menu
+   can run into the thousands of items, or a cart with many lines) must
+   never be allowed to grow the whole page taller than the viewport — that
+   was the actual bug behind "why do I have to scroll all the way down to
+   charge": min-height let .pos-shell grow to fit content instead of
+   locking to the viewport, so .pos-menu's own overflow-y:auto never
+   kicked in and the browser scrolled the whole document instead, taking
+   the always-meant-to-be-visible Charge button down with it. 100dvh (the
+   viewport height with mobile browser chrome subtracted) is preferred
+   where supported, with a plain 100vh fallback for engines that don't. */
 .pos-shell {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
   color: var(--color-text);
+  overflow: hidden;
+}
+
+@keyframes pos-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pos-tap-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+@keyframes pos-badge-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .pos-topbar {
@@ -14,13 +40,14 @@
   justify-content: space-between;
   padding: 16px 24px;
   border-bottom: var(--divider-width) solid var(--color-divider);
+  flex-shrink: 0;
 }
-.pos-topbar-company { font-weight: 700; font-size: 16px; }
-.pos-topbar-cashier { font-size: 13px; color: var(--color-text-muted); }
+.pos-topbar-company { font-family: var(--font-heading); font-weight: 800; font-size: 18px; }
+.pos-topbar-cashier { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
 .pos-topbar-actions { display: flex; align-items: center; gap: 10px; }
 .pos-printer-btn { font-size: 12px; padding: 6px 10px; }
 .pos-printer-status { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
-.pos-printer-error { margin: 0 24px 12px; }
+.pos-printer-error { margin: 0 24px 12px; flex-shrink: 0; }
 
 .pos-body {
   flex: 1;
@@ -31,12 +58,39 @@
 .pos-menu {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 0 24px 24px;
 }
-.pos-menu-group { margin-bottom: 24px; }
-.pos-menu-category { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 10px; }
+.pos-menu-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-bg);
+  padding: 16px 0 12px;
+  margin-bottom: 4px;
+}
+.pos-menu-search .search-input-wrap { max-width: none; }
+.pos-menu-group { margin-bottom: 24px; animation: pos-fade-up 0.2s ease-out both; }
+.pos-menu-category {
+  position: sticky;
+  top: 56px;
+  z-index: 1;
+  background: var(--color-bg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 6px 0;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--color-divider);
+}
+.pos-menu-category-count { color: var(--color-text-faint); font-weight: 600; }
 .pos-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 .pos-menu-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -46,41 +100,72 @@
   border: 2px solid var(--color-border);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.12s ease, transform 0.08s ease;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
 }
-.pos-menu-tile:hover { border-color: var(--color-accent); }
-.pos-menu-tile:active { transform: scale(0.97); }
+.pos-menu-tile:hover { border-color: var(--color-accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06); }
+.pos-menu-tile-tapped { animation: pos-tap-pop 0.26s ease; }
+.pos-menu-tile-selected { border-color: var(--color-accent); background: var(--color-accent-100); }
+.pos-menu-tile-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pos-badge-pop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 .pos-menu-tile-name { font-weight: 600; font-size: 14px; }
 .pos-menu-tile-price { font-size: 13px; color: var(--color-text-muted); }
 .pos-empty { color: var(--color-text-muted); font-size: 13px; padding: 24px 0; }
 
 .pos-cart {
-  width: 340px;
+  width: 360px;
   flex: none;
   display: flex;
   flex-direction: column;
+  background: var(--color-bg-subtle);
   border-left: var(--divider-width) solid var(--color-divider);
   padding: 20px;
 }
-.pos-cart-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; }
+.pos-cart-title { font-family: var(--font-heading); font-weight: 800; font-size: 15px; margin-bottom: 14px; }
 .pos-cart-empty { color: var(--color-text-muted); font-size: 13px; }
-.pos-cart-lines { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.pos-cart-line { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 8px; font-size: 13px; }
+.pos-cart-lines { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.pos-cart-line {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  padding: 10px 10px;
+  animation: pos-fade-up 0.18s ease-out;
+}
 .pos-cart-line-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pos-cart-line-controls { display: flex; align-items: center; gap: 6px; }
 .pos-cart-qty-btn {
-  width: 22px; height: 22px; border: 1px solid var(--color-border); background: var(--color-bg);
+  width: 24px; height: 24px; border: 1px solid var(--color-border); background: var(--color-bg);
   cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1; padding: 0;
+  transition: border-color 0.1s ease;
 }
-.pos-cart-line-total { font-weight: 600; white-space: nowrap; }
+.pos-cart-qty-btn:hover { border-color: var(--color-accent); color: var(--color-accent-700); }
+.pos-cart-line-total { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pos-cart-remove { border: none; background: none; color: var(--color-text-muted); font-size: 16px; cursor: pointer; padding: 0 2px; }
-.pos-cart-remove:hover { color: var(--color-text); }
+.pos-cart-remove:hover { color: var(--color-danger); }
 .pos-cart-total {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 15px; padding: 14px 0; margin-top: 10px; border-top: var(--divider-width) solid var(--color-divider);
+  font-size: 15px; padding: 16px 0; margin-top: 10px; border-top: var(--divider-width) solid var(--color-divider);
 }
-.pos-cart-total strong { font-size: 20px; }
-.pos-checkout-btn { width: 100%; padding: 14px 0; font-size: 15px; }
+.pos-cart-total strong { font-family: var(--font-heading); font-size: 24px; font-variant-numeric: tabular-nums; }
+.pos-checkout-btn { width: 100%; padding: 16px 0; font-size: 16px; font-weight: 700; letter-spacing: 0.01em; }
 
 .pos-checkout-total { font-size: 14px; margin: 4px 0 12px; }
 

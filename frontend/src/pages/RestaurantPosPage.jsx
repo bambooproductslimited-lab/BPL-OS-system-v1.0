@@ -1,12 +1,40 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL, ApiError } from '../api/client';
 import { money } from '../lib/currency';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
 import {
   buildReceiptBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
 import './KioskPage.css';
 import './RestaurantPosPage.css';
+
+// Same "animate a live-data-driven number, not a CSS keyframe" hook as
+// RestaurantsPage.jsx's — small enough, and specific enough to each page's
+// own values, that a shared component isn't worth it yet.
+function useCountUp(target, durationMs) {
+  const [display, setDisplay] = useState(target);
+  const fromRef = useRef(target);
+  const rafRef = useRef(null);
+  useEffect(() => {
+    const from = fromRef.current;
+    const to = Number(target) || 0;
+    if (from === to) return undefined;
+    const start = performance.now();
+    const duration = durationMs || 400;
+    function tick(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(from + (to - from) * eased);
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      else fromRef.current = to;
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+  return display;
+}
 
 // The restaurant POS's own till page — a full-screen, standalone page
 // meant to be opened on a shared counter device (tablet/PC) at Star Bar
@@ -53,8 +81,10 @@ export default function RestaurantPosPage() {
   const [menu, setMenu] = useState([]);
   const [menuLoading, setMenuLoading] = useState(false);
   const [menuError, setMenuError] = useState(null);
+  const [search, setSearch] = useState('');
 
   const [cart, setCart] = useState([]); // [{ menuItemId, name, price, qty }]
+  const [tappedId, setTappedId] = useState(null); // brief tap-feedback flash on the tile just added
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -189,6 +219,8 @@ export default function RestaurantPosPage() {
       if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l));
       return prev.concat([{ menuItemId: item.id, name: item.name, price: item.price, qty: 1 }]);
     });
+    setTappedId(item.id);
+    setTimeout(() => setTappedId((cur) => (cur === item.id ? null : cur)), 260);
   }
   function changeQty(menuItemId, delta) {
     setCart((prev) => prev.map((l) => (l.menuItemId === menuItemId ? { ...l, qty: Math.max(0, l.qty + delta) } : l)).filter((l) => l.qty > 0));
@@ -198,6 +230,12 @@ export default function RestaurantPosPage() {
   }
 
   const cartTotal = cart.reduce((sum, l) => sum + l.price * l.qty, 0);
+  const animatedCartTotal = useCountUp(cartTotal);
+  const cartQtyById = useMemo(() => {
+    const map = new Map();
+    cart.forEach((l) => map.set(l.menuItemId, l.qty));
+    return map;
+  }, [cart]);
 
   function openCheckout() {
     setCheckoutError(null);
@@ -224,14 +262,18 @@ export default function RestaurantPosPage() {
     }
   }
 
+  // Star Bar's real Square-imported menu runs into the thousands of items —
+  // a touch grid that size is unusable without a way to jump straight to
+  // an item, so filtering here isn't cosmetic.
   const grouped = useMemo(() => {
+    const visible = menu.filter((m) => matchesQuery(search, m.name, m.category));
     const map = new Map();
-    menu.forEach((m) => {
+    visible.forEach((m) => {
       if (!map.has(m.category)) map.set(m.category, []);
       map.get(m.category).push(m);
     });
     return Array.from(map.entries());
-  }, [menu]);
+  }, [menu, search]);
 
   if (!sessionChecked) return null;
 
@@ -335,22 +377,33 @@ export default function RestaurantPosPage() {
 
       <div className="pos-body">
         <div className="pos-menu">
+          <div className="pos-menu-search">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search the menu…" />
+          </div>
           {menuError && <div className="error-banner">{menuError}</div>}
           {menuLoading ? (
             <div className="eyebrow">Loading menu…</div>
           ) : !grouped.length ? (
-            <div className="pos-empty">No menu items yet — add some from Restaurants → Menu in the main app.</div>
+            <div className="pos-empty">{search ? 'No items match "' + search + '"' : 'No menu items yet — add some from Restaurants → Menu in the main app.'}</div>
           ) : (
             grouped.map(([category, items]) => (
               <div key={category} className="pos-menu-group">
-                <div className="pos-menu-category">{category}</div>
+                <div className="pos-menu-category">{category}<span className="pos-menu-category-count">{items.length}</span></div>
                 <div className="pos-menu-grid">
-                  {items.map((m) => (
-                    <button key={m.id} type="button" className="pos-menu-tile" onClick={() => addToCart(m)}>
-                      <span className="pos-menu-tile-name">{m.name}</span>
-                      <span className="pos-menu-tile-price">{money(m.price)}</span>
-                    </button>
-                  ))}
+                  {items.map((m) => {
+                    const qty = cartQtyById.get(m.id);
+                    return (
+                      <button
+                        key={m.id} type="button"
+                        className={'pos-menu-tile' + (qty ? ' pos-menu-tile-selected' : '') + (tappedId === m.id ? ' pos-menu-tile-tapped' : '')}
+                        onClick={() => addToCart(m)}
+                      >
+                        {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
+                        <span className="pos-menu-tile-name">{m.name}</span>
+                        <span className="pos-menu-tile-price">{money(m.price)}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))
@@ -376,7 +429,7 @@ export default function RestaurantPosPage() {
           </div>
           <div className="pos-cart-total">
             <span>Total</span>
-            <strong>{money(cartTotal)}</strong>
+            <strong>{money(animatedCartTotal)}</strong>
           </div>
           <button type="button" className="btn btn-primary pos-checkout-btn" disabled={!cart.length} onClick={openCheckout}>Charge {money(cartTotal)}</button>
         </div>
