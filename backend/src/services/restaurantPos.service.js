@@ -158,12 +158,20 @@ async function listOrders(ctx, companyId, opts) {
   args.push(limit); var limitParam = '$' + args.length;
   args.push(offset); var offsetParam = '$' + args.length;
 
+  // revenue_total/voided_count are window functions too — computed over the
+  // whole WHERE-filtered set before LIMIT clips it to one page, same as
+  // total_count, so the Sales tab's stat tiles show true range-wide figures
+  // rather than a partial, misleadingly-small sum of just the visible page.
   var res = await pool.query(
-    'SELECT o.*, e.first_name, e.last_name, count(*) OVER() AS total_count FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
+    'SELECT o.*, e.first_name, e.last_name, count(*) OVER() AS total_count, ' +
+    "coalesce(sum(o.total) OVER(), 0) AS revenue_total, count(*) FILTER (WHERE o.status = 'voided') OVER() AS voided_count " +
+    'FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
     whereSql + ' ORDER BY o.created_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
     args
   );
   var total = res.rows[0] ? Number(res.rows[0].total_count) : 0;
+  var revenueTotal = res.rows[0] ? Number(res.rows[0].revenue_total) : 0;
+  var voidedCount = res.rows[0] ? Number(res.rows[0].voided_count) : 0;
   return {
     orders: res.rows.map(function (r) {
       return {
@@ -171,7 +179,7 @@ async function listOrders(ctx, companyId, opts) {
         subtotal: Number(r.subtotal), total: Number(r.total), paymentMethod: r.payment_method, status: r.status, createdAt: r.created_at
       };
     }),
-    total: total, limit: limit, offset: offset
+    total: total, revenueTotal: revenueTotal, voidedCount: voidedCount, limit: limit, offset: offset
   };
 }
 

@@ -35,6 +35,10 @@
   gap: 10px;
   margin-bottom: 20px;
 }
+/* Sales' Revenue figure can run long (real Square-imported totals, e.g.
+   "GHS 18,123,349.49") — a wider minimum column keeps it from wrapping
+   awkwardly or crowding the tile next to it. */
+.restaurants-stats-wide { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .restaurants-stat-tile {
   display: flex;
   align-items: center;
@@ -58,8 +62,9 @@
 .restaurants-stat-tile-ops { --tile-tone: #3f5a7d; }
 .restaurants-stat-tile-warning { --tile-tone: var(--color-warning); }
 .restaurants-stat-tile-danger { --tile-tone: var(--color-danger); }
-.restaurants-stat-value { font-family: var(--font-heading); font-weight: 800; font-size: 20px; line-height: 1; }
-.restaurants-stat-label { font-size: 10.5px; color: var(--color-text-muted); margin-top: 2px; }
+.restaurants-stat-text { min-width: 0; }
+.restaurants-stat-value { font-family: var(--font-heading); font-weight: 800; font-size: 20px; line-height: 1.15; overflow-wrap: break-word; }
+.restaurants-stat-label { font-size: 10.5px; color: var(--color-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── menu — grouped card grid instead of a plain table. The 2px gap on a
    divider-colored background (rather than a border per card) draws thin
@@ -93,3 +98,12 @@
 .restaurants-menu-card-price { font-size: 15px; font-weight: 600; color: var(--color-accent-700); }
 .restaurants-menu-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .restaurants-menu-card-actions .restaurants-row-btn { margin-left: 0; }
+
+/* ── sales table polish ────────────────────────────────────────────── */
+.restaurants-sales-table tbody tr { transition: background-color 0.1s ease; }
+.restaurants-sales-table tbody tr:hover { background: var(--color-bg-subtle); }
+.restaurants-sales-table tbody tr.restaurants-sales-row-voided { opacity: 0.55; }
+.restaurants-order-no { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; letter-spacing: -0.01em; }
+.restaurants-amount-col { text-align: right; }
+.restaurants-amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+.restaurants-time { color: var(--color-text-muted); font-size: 12.5px; white-space: nowrap; }

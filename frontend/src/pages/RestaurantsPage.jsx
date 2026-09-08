@@ -45,14 +45,18 @@ const STAT_ICONS = {
   check: <svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   tag: <svg viewBox="0 0 24 24" fill="none"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24H4a1 1 0 0 0-1 1v5.59a2 2 0 0 0 .59 1.41l9.58 9.58a2 2 0 0 0 2.83 0l5.59-5.59a2 2 0 0 0 0-2.82Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" /></svg>,
   alert: <svg viewBox="0 0 24 24" fill="none"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 9v4M12 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>,
-  clock: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  clock: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  money: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5v9M9.5 9.5a2 2 0 0 1 2-1.5h1a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a2 2 0 0 0 2-1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  ban: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="m5.5 5.5 13 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
 };
 function StatTile({ icon, tone, value, label }) {
   return (
     <div className={'restaurants-stat-tile restaurants-stat-tile-' + tone}>
       <span className="restaurants-stat-icon">{STAT_ICONS[icon]}</span>
-      <span className="restaurants-stat-value">{value}</span>
-      <span className="restaurants-stat-label">{label}</span>
+      <div className="restaurants-stat-text">
+        <div className="restaurants-stat-value">{value}</div>
+        <div className="restaurants-stat-label">{label}</div>
+      </div>
     </div>
   );
 }
@@ -136,6 +140,8 @@ export default function RestaurantsPage() {
   const ORDERS_PAGE_SIZE = 50;
   const [ordersOffset, setOrdersOffset] = useState(0);
   const [ordersTotal, setOrdersTotal] = useState(0);
+  const [ordersRevenueTotal, setOrdersRevenueTotal] = useState(0);
+  const [ordersVoidedCount, setOrdersVoidedCount] = useState(0);
   const [ordersFrom, setOrdersFrom] = useState('');
   const [ordersTo, setOrdersTo] = useState('');
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -150,6 +156,8 @@ export default function RestaurantsPage() {
       const res = await api.get('/restaurant/orders?' + params.toString());
       setOrders(res.orders);
       setOrdersTotal(res.total);
+      setOrdersRevenueTotal(res.revenueTotal);
+      setOrdersVoidedCount(res.voidedCount);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -481,6 +489,13 @@ export default function RestaurantsPage() {
               <StatTile icon="clock" tone="danger" value={ingredientStats.expiringSoon} label="Expiring soon" />
             </div>
           )}
+          {tab === 'sales' && ordersTotal > 0 && (
+            <div className="restaurants-stats restaurants-stats-wide">
+              <StatTile icon="list" tone="people" value={ordersTotal.toLocaleString()} label={(ordersFrom || ordersTo) ? 'Orders in range' : 'Orders'} />
+              <StatTile icon="money" tone="ops" value={money(ordersRevenueTotal)} label={(ordersFrom || ordersTo) ? 'Revenue in range' : 'Revenue'} />
+              <StatTile icon="ban" tone="danger" value={ordersVoidedCount.toLocaleString()} label="Voided" />
+            </div>
+          )}
 
           {tab === 'menu' && menuGroups.map((group) => (
             <div className="restaurants-menu-group" key={group.category}>
@@ -555,17 +570,17 @@ export default function RestaurantsPage() {
 
           {tab === 'sales' && (
             <>
-              <table className="table" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
-                <thead><tr><th>Order</th><th>Cashier</th><th>Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
+              <table className="table restaurants-sales-table" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
+                <thead><tr><th>Order</th><th>Cashier</th><th className="restaurants-amount-col">Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
                 <tbody>
                   {orders.map((o) => (
-                    <tr key={o.id}>
-                      <td style={{ fontWeight: 600 }}>{o.orderNo}</td>
+                    <tr key={o.id} className={o.status === 'voided' ? 'restaurants-sales-row-voided' : ''}>
+                      <td className="restaurants-order-no">{o.orderNo}</td>
                       <td>{o.cashierName}</td>
-                      <td>{money(o.total)}</td>
-                      <td style={{ textTransform: 'capitalize' }}>{o.paymentMethod.replace('_', ' ')}</td>
+                      <td className="restaurants-amount-col restaurants-amount">{money(o.total)}</td>
+                      <td><span className="tag tag-neutral">{o.paymentMethod.replace('_', ' ')}</span></td>
                       <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
-                      <td>{new Date(o.createdAt).toLocaleString()}</td>
+                      <td className="restaurants-time">{new Date(o.createdAt).toLocaleString()}</td>
                       <td className="table-actions">
                         {canManage && o.status === 'completed' && (
                           <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={() => voidOrderAction(o)}>Void</button>
