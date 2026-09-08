@@ -26,3 +26,70 @@
 }
 .restaurants-empty-icon svg { width: 100%; height: 100%; }
 .restaurants-empty-title { font-size: 13px; margin: 0; }
+
+/* ── stat tiles — same "icon chip + value + label" vocabulary as
+   Dashboard's KPI tiles / Projects' summary tiles ─────────────────────── */
+.restaurants-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.restaurants-stat-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: var(--divider-width) solid var(--color-divider);
+  padding: 12px 14px;
+}
+.restaurants-stat-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tile-tone) 14%, white);
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.restaurants-stat-icon svg { width: 16px; height: 16px; }
+.restaurants-stat-tile-people { --tile-tone: var(--color-accent); }
+.restaurants-stat-tile-ops { --tile-tone: #3f5a7d; }
+.restaurants-stat-tile-warning { --tile-tone: var(--color-warning); }
+.restaurants-stat-tile-danger { --tile-tone: var(--color-danger); }
+.restaurants-stat-value { font-family: var(--font-heading); font-weight: 800; font-size: 20px; line-height: 1; }
+.restaurants-stat-label { font-size: 10.5px; color: var(--color-text-muted); margin-top: 2px; }
+
+/* ── menu — grouped card grid instead of a plain table. The 2px gap on a
+   divider-colored background (rather than a border per card) draws thin
+   hairlines between cards without doubling up borders at shared edges —
+   same trick Projects' card grid already uses. ──────────────────────── */
+.restaurants-menu-group { margin-bottom: 28px; }
+.restaurants-menu-category {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+}
+.restaurants-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px;
+  background: var(--color-divider);
+  border: var(--divider-width) solid var(--color-divider);
+}
+.restaurants-menu-card {
+  background: var(--color-bg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.restaurants-menu-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.restaurants-menu-card-name { font-family: var(--font-heading); font-weight: 800; font-size: 15px; line-height: 1.3; }
+.restaurants-menu-card-price { font-size: 15px; font-weight: 600; color: var(--color-accent-700); }
+.restaurants-menu-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.restaurants-menu-card-actions .restaurants-row-btn { margin-left: 0; }

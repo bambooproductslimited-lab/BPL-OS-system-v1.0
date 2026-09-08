@@ -37,6 +37,26 @@ function UtensilsIcon() {
   );
 }
 
+// Small stat-tile icon set — same "icon chip + value + label" vocabulary as
+// Dashboard's KPI tiles and Projects' summary tiles, reused here rather than
+// inventing a new pattern for this one page.
+const STAT_ICONS = {
+  list: <svg viewBox="0 0 24 24" fill="none"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  check: <svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  tag: <svg viewBox="0 0 24 24" fill="none"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24H4a1 1 0 0 0-1 1v5.59a2 2 0 0 0 .59 1.41l9.58 9.58a2 2 0 0 0 2.83 0l5.59-5.59a2 2 0 0 0 0-2.82Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" /></svg>,
+  alert: <svg viewBox="0 0 24 24" fill="none"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 9v4M12 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>,
+  clock: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+};
+function StatTile({ icon, tone, value, label }) {
+  return (
+    <div className={'restaurants-stat-tile restaurants-stat-tile-' + tone}>
+      <span className="restaurants-stat-icon">{STAT_ICONS[icon]}</span>
+      <span className="restaurants-stat-value">{value}</span>
+      <span className="restaurants-stat-label">{label}</span>
+    </div>
+  );
+}
+
 export default function RestaurantsPage() {
   const { can } = useAuth();
   const canManage = can('restaurant.manage');
@@ -365,6 +385,21 @@ export default function RestaurantsPage() {
   const visibleSupplies = supplies.filter((s) => matchesQuery(search, s.name, s.category));
   const visibleIngredients = ingredients.filter((i) => matchesQuery(search, i.name));
 
+  // Menu items already come back sorted by category, name (see
+  // restaurant.service.js's listMenuItems) — grouping into a Map preserves
+  // that order, so categories appear in the same order the card grid below
+  // renders them, no extra client-side sort needed.
+  const menuGroups = [];
+  const menuGroupIndex = new Map();
+  visibleMenuItems.forEach((m) => {
+    if (!menuGroupIndex.has(m.category)) { menuGroupIndex.set(m.category, menuGroups.length); menuGroups.push({ category: m.category, items: [] }); }
+    menuGroups[menuGroupIndex.get(m.category)].items.push(m);
+  });
+
+  const menuStats = { total: menuItems.length, active: menuItems.filter((m) => m.active).length, categories: new Set(menuItems.map((m) => m.category)).size };
+  const supplyStats = { total: supplies.length, lowStock: supplies.filter((s) => s.lowStock).length };
+  const ingredientStats = { total: ingredients.length, lowStock: ingredients.filter((i) => i.lowStock).length, expiringSoon: ingredients.filter((i) => i.expiringSoon).length };
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -427,25 +462,49 @@ export default function RestaurantsPage() {
           )}
 
           {tab === 'menu' && (
-            <table className="table">
-              <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Status</th><th /></tr></thead>
-              <tbody>
-                {visibleMenuItems.map((m) => (
-                  <tr key={m.id}>
-                    <td style={{ fontWeight: 600 }}>{m.name}</td>
-                    <td>{m.category}</td>
-                    <td>{money(m.price)}</td>
-                    <td><span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span></td>
-                    <td className="table-actions">
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="restaurants-stats">
+              <StatTile icon="list" tone="people" value={menuStats.total} label="Menu items" />
+              <StatTile icon="check" tone="people" value={menuStats.active} label="Active" />
+              <StatTile icon="tag" tone="ops" value={menuStats.categories} label="Categories" />
+            </div>
           )}
+          {tab === 'supplies' && (
+            <div className="restaurants-stats">
+              <StatTile icon="list" tone="people" value={supplyStats.total} label="Supplies tracked" />
+              <StatTile icon="alert" tone="warning" value={supplyStats.lowStock} label="Low stock" />
+            </div>
+          )}
+          {tab === 'ingredients' && (
+            <div className="restaurants-stats">
+              <StatTile icon="list" tone="people" value={ingredientStats.total} label="Ingredients tracked" />
+              <StatTile icon="alert" tone="warning" value={ingredientStats.lowStock} label="Low stock" />
+              <StatTile icon="clock" tone="danger" value={ingredientStats.expiringSoon} label="Expiring soon" />
+            </div>
+          )}
+
+          {tab === 'menu' && menuGroups.map((group) => (
+            <div className="restaurants-menu-group" key={group.category}>
+              <h3 className="restaurants-menu-category">{group.category}</h3>
+              <div className="restaurants-menu-grid">
+                {group.items.map((m) => (
+                  <div className="restaurants-menu-card" key={m.id}>
+                    <div className="restaurants-menu-card-top">
+                      <span className="restaurants-menu-card-name">{m.name}</span>
+                      <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
+                    </div>
+                    <div className="restaurants-menu-card-price">{money(m.price)}</div>
+                    {canManage && (
+                      <div className="restaurants-menu-card-actions">
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
 
           {tab === 'supplies' && (
             <table className="table">
