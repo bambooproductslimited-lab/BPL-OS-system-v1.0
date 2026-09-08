@@ -68,6 +68,8 @@
   border-bottom: 1px solid var(--pos-border);
   flex-shrink: 0;
 }
+.pos-topbar-brand { display: flex; align-items: center; gap: 12px; }
+.pos-topbar-logo { height: 38px; width: auto; flex-shrink: 0; }
 .pos-topbar-company { font-family: var(--font-heading); font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
 .pos-topbar-cashier { font-size: 13px; color: var(--pos-text-muted); margin-top: 2px; }
 .pos-topbar-actions { display: flex; align-items: center; gap: 10px; }
@@ -283,6 +285,7 @@
   font-family: monospace;
   font-size: 13px;
 }
+.pos-receipt-logo { display: block; height: 56px; width: auto; margin: 0 auto 8px; }
 .pos-receipt-header { font-weight: 700; text-align: center; font-size: 15px; margin-bottom: 6px; }
 .pos-receipt-meta { text-align: center; font-size: 12px; margin-bottom: 10px; }
 .pos-receipt-rule { border-top: 1px dashed #999999; margin: 10px 0; }

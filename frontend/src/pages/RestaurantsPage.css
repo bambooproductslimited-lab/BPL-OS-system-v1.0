@@ -27,6 +27,7 @@
 }
 .restaurants-flash { animation: restaurants-flash 1s ease-out; }
 
+.restaurants-brand-logo { display: block; height: 44px; width: auto; margin-bottom: 10px; animation: restaurants-fade-up 0.2s ease-out both; }
 .restaurants-company-seg { margin-bottom: 16px; width: fit-content; }
 .restaurants-company-seg .seg-opt, .restaurants-toolbar .seg-opt { transition: background-color 0.15s ease, color 0.15s ease; }
 .restaurants-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }

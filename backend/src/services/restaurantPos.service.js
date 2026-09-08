@@ -27,7 +27,7 @@ async function login(pin, ip) {
   pinAuth.validatePinFormat(pin);
   var hash = pinAuth.hashPin(pin);
   var res = await pool.query(
-    "SELECT e.id, e.first_name, e.last_name, d.company_id, c.name AS company_name FROM employees e " +
+    "SELECT e.id, e.first_name, e.last_name, d.company_id, c.name AS company_name, c.code AS company_code FROM employees e " +
     "JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
     "WHERE e.kiosk_pin_hash = $1 AND e.status = 'active'",
     [hash]
@@ -43,7 +43,8 @@ async function login(pin, ip) {
     token: token,
     employeeName: emp.first_name + ' ' + emp.last_name,
     companyId: emp.company_id,
-    companyName: emp.company_name
+    companyName: emp.company_name,
+    companyCode: emp.company_code
   };
 }
 

@@ -3,6 +3,7 @@ import { api, API_ORIGIN } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import './RestaurantsPage.css';
 
 // Restaurant module, Phase 1: each restaurant company (Star Bar Restaurant,
@@ -102,6 +103,10 @@ export default function RestaurantsPage() {
   const canManage = can('restaurant.manage');
 
   const [departments, setDepartments] = useState([]);
+  // companies (departments.service.js) don't carry the company's short
+  // code, only its full name — fetched once, separately, just to map the
+  // selected company to its restaurantLogos.js logo (SBR/BGN/BPL).
+  const [companyCodeById, setCompanyCodeById] = useState({});
   const [companyId, setCompanyId] = useState('');
   const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales'
   const [search, setSearch] = useState('');
@@ -263,6 +268,12 @@ export default function RestaurantsPage() {
         setError(err.message);
         setLoading(false);
       }
+    })();
+    (async () => {
+      try {
+        const list = await api.get('/companies');
+        setCompanyCodeById(Object.fromEntries(list.map((c) => [c.id, c.code])));
+      } catch { /* logo is cosmetic — a failed fetch just means no logo shows */ }
     })();
   }, []);
 
@@ -534,6 +545,13 @@ export default function RestaurantsPage() {
         </div>
       ) : (
         <>
+          {restaurantLogoUrl(companyCodeById[companyId]) && (
+            <img
+              className="restaurants-brand-logo"
+              src={restaurantLogoUrl(companyCodeById[companyId])}
+              alt={companies.find((c) => c.id === companyId)?.name || ''}
+            />
+          )}
           <div className="seg restaurants-company-seg">
             {companies.map((c) => (
               <label className="seg-opt" key={c.id}>

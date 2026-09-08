@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL, API_ORIGIN, ApiError } from '../api/client';
 import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
   buildReceiptBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
@@ -328,6 +329,9 @@ export default function RestaurantPosPage() {
     return (
       <div className="pos-shell pos-receipt-screen">
         <div className="pos-receipt-print" id="pos-receipt">
+          {restaurantLogoUrl(session.companyCode) && (
+            <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
+          )}
           <div className="pos-receipt-header">{session.companyName}</div>
           <div className="pos-receipt-meta">
             Order {receipt.orderNo}<br />
@@ -366,9 +370,14 @@ export default function RestaurantPosPage() {
   return (
     <div className="pos-shell">
       <div className="pos-topbar">
-        <div>
-          <div className="pos-topbar-company">{session.companyName}</div>
-          <div className="pos-topbar-cashier">{session.employeeName}</div>
+        <div className="pos-topbar-brand">
+          {restaurantLogoUrl(session.companyCode) && (
+            <img className="pos-topbar-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
+          )}
+          <div>
+            <div className="pos-topbar-company">{session.companyName}</div>
+            <div className="pos-topbar-cashier">{session.employeeName}</div>
+          </div>
         </div>
         <div className="pos-topbar-actions">
           {printer ? (
