@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { money, moneyBreakdown } from '../lib/currency';
 import './QIOverviewPage.css';
 
 // Ported from Bamboo OS.dc.html's qioverview screen (screens.qioverview
@@ -61,15 +62,15 @@ export default function QIOverviewPage() {
     { label: 'Accepted', value: data.acceptedQuotations, icon: 'check', tone: 'people' },
     { label: 'Rejected', value: data.rejectedQuotations, icon: 'warning', tone: 'danger' },
     { label: 'Expired', value: data.expiredQuotations, icon: 'clock', tone: 'danger' },
-    { label: 'Quotation value', value: 'GHS ' + data.totalQuotationValue.toLocaleString(), icon: 'cash', tone: 'finance' },
+    { label: 'Quotation value', value: moneyBreakdown(data.totalQuotationValueByCurrency), icon: 'cash', tone: 'finance' },
     { label: 'Conversion rate', value: data.conversionRate + '%', icon: 'check', tone: 'people' },
     { label: 'Total invoices', value: data.totalInvoices, icon: 'document', tone: 'ops' },
-    { label: 'Invoiced amount', value: 'GHS ' + data.totalInvoicedAmount.toLocaleString(), icon: 'cash', tone: 'finance' },
-    { label: 'Total paid', value: 'GHS ' + data.totalPaid.toLocaleString(), icon: 'cash', tone: 'people' },
-    { label: 'Outstanding balance', value: 'GHS ' + data.outstandingBalance.toLocaleString(), icon: 'clock', tone: 'warning' },
-    { label: 'Overdue invoices', value: data.overdueCount, note: 'GHS ' + data.overdueAmount.toLocaleString(), icon: 'warning', tone: 'danger' },
-    { label: 'Revenue this month', value: 'GHS ' + data.revenueThisMonth.toLocaleString(), icon: 'cash', tone: 'people' },
-    { label: 'Revenue this year', value: 'GHS ' + data.revenueThisYear.toLocaleString(), icon: 'cash', tone: 'people' }
+    { label: 'Invoiced amount', value: moneyBreakdown(data.totalInvoicedByCurrency), icon: 'cash', tone: 'finance' },
+    { label: 'Total paid', value: moneyBreakdown(data.totalPaidByCurrency), icon: 'cash', tone: 'people' },
+    { label: 'Outstanding balance', value: moneyBreakdown(data.outstandingByCurrency), icon: 'clock', tone: 'warning' },
+    { label: 'Overdue invoices', value: data.overdueCount, note: moneyBreakdown(data.overdueAmountByCurrency), icon: 'warning', tone: 'danger' },
+    { label: 'Revenue this month', value: moneyBreakdown(data.revenueThisMonthByCurrency), icon: 'cash', tone: 'people' },
+    { label: 'Revenue this year', value: moneyBreakdown(data.revenueThisYearByCurrency), icon: 'cash', tone: 'people' }
   ];
 
   const maxInvoiced = data.monthly.length ? Math.max(...data.monthly.map((m) => m.invoiced)) : 0;
@@ -88,15 +89,15 @@ export default function QIOverviewPage() {
       </div>
 
       <section>
-        <h2 className="qio-section-title">Invoiced vs collected — last 6 months</h2>
+        <h2 className="qio-section-title">Invoiced vs collected — last 6 months ({data.baseCurrency})</h2>
         <table className="table">
           <thead><tr><th>Month</th><th>Invoiced</th><th>Collected</th><th className="qio-bar-col">Invoiced share</th></tr></thead>
           <tbody>
             {data.monthly.map((m) => (
               <tr key={m.month}>
                 <td>{m.month}</td>
-                <td>GHS {m.invoiced.toLocaleString()}</td>
-                <td>GHS {m.paid.toLocaleString()}</td>
+                <td>{money(m.invoiced, data.baseCurrency)}</td>
+                <td>{money(m.paid, data.baseCurrency)}</td>
                 <td>
                   <div className="qio-bar-track">
                     <div className="qio-bar-fill" style={{ width: (maxInvoiced ? Math.round((m.invoiced / maxInvoiced) * 100) : 0) + '%' }} />
@@ -116,7 +117,7 @@ export default function QIOverviewPage() {
             <tbody>
               {data.recentQuotes.map((q, i) => (
                 <tr key={i}>
-                  <td>{q.quoteNo}</td><td>{q.customerName}</td><td>GHS {q.grandTotal.toLocaleString()}</td>
+                  <td>{q.quoteNo}</td><td>{q.customerName}</td><td>{money(q.grandTotal, q.currency)}</td>
                   <td><span className={'tag ' + docTagClass(q.status === 'accepted' ? 'approved' : 'pending')}>{q.status}</span></td>
                 </tr>
               ))}
@@ -128,7 +129,7 @@ export default function QIOverviewPage() {
             <tbody>
               {data.recentInvoices.map((iv, i) => (
                 <tr key={i}>
-                  <td>{iv.invoiceNo}</td><td>{iv.customerName}</td><td>GHS {iv.grandTotal.toLocaleString()}</td>
+                  <td>{iv.invoiceNo}</td><td>{iv.customerName}</td><td>{money(iv.grandTotal, iv.currency)}</td>
                   <td><span className={'tag ' + docTagClass(iv.status === 'paid' ? 'approved' : 'pending')}>{iv.status}</span></td>
                 </tr>
               ))}
@@ -141,7 +142,7 @@ export default function QIOverviewPage() {
             <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Due</th></tr></thead>
             <tbody>
               {data.upcomingDue.map((iv, i) => (
-                <tr key={i}><td>{iv.invoiceNo}</td><td>{iv.customerName}</td><td>GHS {iv.balanceDue.toLocaleString()}</td><td>{fmtDate(iv.dueDate)}</td></tr>
+                <tr key={i}><td>{iv.invoiceNo}</td><td>{iv.customerName}</td><td>{money(iv.balanceDue, iv.currency)}</td><td>{fmtDate(iv.dueDate)}</td></tr>
               ))}
             </tbody>
           </table>
@@ -150,7 +151,7 @@ export default function QIOverviewPage() {
             <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Due</th></tr></thead>
             <tbody>
               {data.overdueInvoices.map((iv, i) => (
-                <tr key={i}><td>{iv.invoiceNo}</td><td className="qio-overdue-customer">{iv.customerName}</td><td>GHS {iv.balanceDue.toLocaleString()}</td><td>{fmtDate(iv.dueDate)}</td></tr>
+                <tr key={i}><td>{iv.invoiceNo}</td><td className="qio-overdue-customer">{iv.customerName}</td><td>{money(iv.balanceDue, iv.currency)}</td><td>{fmtDate(iv.dueDate)}</td></tr>
               ))}
             </tbody>
           </table>
@@ -159,7 +160,7 @@ export default function QIOverviewPage() {
             <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th></tr></thead>
             <tbody>
               {data.recentPayments.map((p, i) => (
-                <tr key={i}><td>{p.invoiceNo}</td><td>{p.customerName}</td><td>GHS {p.amount.toLocaleString()}</td><td>{fmtDate(p.date)}</td></tr>
+                <tr key={i}><td>{p.invoiceNo}</td><td>{p.customerName}</td><td>{money(p.amount, p.currency)}</td><td>{fmtDate(p.date)}</td></tr>
               ))}
             </tbody>
           </table>

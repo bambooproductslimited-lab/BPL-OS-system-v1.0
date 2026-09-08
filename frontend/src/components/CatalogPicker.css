@@ -10,7 +10,7 @@
   position: fixed; z-index: 25;
   width: max-content; max-width: 360px; max-height: 240px;
   overflow-y: auto;
-  background: #fcfcfb;
+  background: var(--color-bg);
   border: 2px solid var(--color-border);
   box-shadow: 0 4px 16px rgba(11,11,11,0.12);
 }
