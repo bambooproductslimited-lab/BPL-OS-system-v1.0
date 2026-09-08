@@ -162,19 +162,34 @@
 
 .shell-header-title { font-size: 22px; margin-top: 4px; }
 
+.shell-header-actions { display: flex; align-items: center; gap: 8px; }
+
+.theme-toggle-btn {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-toggle-icon { width: 18px; height: 18px; color: var(--color-text); }
+.theme-toggle-icon svg { width: 100%; height: 100%; }
+
 .shell-content { padding: 32px; flex: 1; }
 
-/* ── dark theme (app-wide) ──────────────────────────────────────────────
-   Piloted on Dashboard + Attendance first, approved, now applied to every
-   page AppShell.jsx renders (isDarkPage is always true there). Re-themes
-   the app's existing design tokens locally rather than introducing a
-   parallel set of dark-only classes — every shared class built on top of
-   them (.btn, .table, .dialog, .tag, .card, .input, .seg, .toast) picks
-   this up automatically since CSS custom properties resolve per-element
-   at use time, not at :root's original definition time. The genuinely
-   new visual — glowing icon badges on stat tiles — is hand-written below
-   and opt-in per page via the .glow-badge class. Sidebar is deliberately
-   left as its own dark-green identity, unchanged from before this. */
+/* ── dark theme (app-wide, user-toggleable) ─────────────────────────────
+   Piloted on Dashboard + Attendance first, approved, then rolled out to
+   every page AppShell.jsx renders. AppShell.jsx now toggles this class on
+   and off based on a header button + localStorage preference, defaulting
+   to dark. Re-themes the app's existing design tokens locally rather than
+   introducing a parallel set of dark-only classes — every shared class
+   built on top of them (.btn, .table, .dialog, .tag, .card, .input, .seg,
+   .toast) picks this up automatically since CSS custom properties resolve
+   per-element at use time, not at :root's original definition time. The
+   genuinely new visual — glowing icon badges on stat tiles — is hand-
+   written below and opt-in per page via the .glow-badge class. Sidebar is
+   deliberately left as its own dark-green identity, unchanged either way. */
 .shell-main-dark {
   --color-bg: #0f1626;
   --color-bg-subtle: #17203f;

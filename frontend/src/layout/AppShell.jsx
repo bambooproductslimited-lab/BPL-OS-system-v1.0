@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { NAV_GROUPS, ALL_NAV_ITEMS } from './navModel';
@@ -23,18 +24,34 @@ function hashStr(s) {
 function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
 
 // The dark, glowing-stat-tile redesign — piloted on Dashboard + Attendance
-// first (see shell-main-dark in AppShell.css) and approved, now the
-// default for every page rendered through this shell. It works app-wide
+// first (see shell-main-dark in AppShell.css), then rolled out app-wide,
+// and now user-toggleable via the header button below. It works app-wide
 // with no per-page rewrite because it re-themes the *existing* design
 // tokens locally: every shared class already built on top of them — .btn,
 // .table, .dialog, .tag, .card, .input, .seg — re-themes for free. Pages
 // outside this shell (the login screen, /pos, /kiosk) are untouched —
 // they already have their own separate visual identity.
-const isDarkPage = true;
+const THEME_KEY = 'bamboo-os-theme';
+
+function getInitialTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'light' || stored === 'dark') return stored;
+  } catch { /* private mode / storage blocked — fall through to default */ }
+  return 'dark';
+}
 
 export default function AppShell() {
   const { session, logout, can } = useAuth();
   const location = useLocation();
+  const [theme, setTheme] = useState(getInitialTheme);
+  const isDarkPage = theme === 'dark';
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* storage blocked — theme just won't persist */ }
+  }
 
   const currentKey = location.pathname.split('/')[1] || 'dashboard';
   const currentItem = ALL_NAV_ITEMS.find((item) => item.key === currentKey);
@@ -106,7 +123,18 @@ export default function AppShell() {
               <h1 className="shell-header-title">{currentItem ? currentItem.label : 'Not found'}</h1>
             </div>
           </div>
-          <NotificationsBell />
+          <div className="shell-header-actions">
+            <button
+              type="button"
+              className="btn btn-secondary theme-toggle-btn"
+              onClick={toggleTheme}
+              aria-label={isDarkPage ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={isDarkPage ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              <span className="theme-toggle-icon"><Icon name={isDarkPage ? 'sun' : 'moon'} /></span>
+            </button>
+            <NotificationsBell />
+          </div>
         </header>
         <div className="shell-content">
           <Outlet />
