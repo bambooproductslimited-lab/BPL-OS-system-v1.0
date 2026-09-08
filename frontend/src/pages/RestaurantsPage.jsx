@@ -493,6 +493,7 @@ export default function RestaurantsPage() {
             </div>
           )}
 
+          <div key={tab} className="restaurants-tab-content">
           {tab === 'menu' && (
             <div className="restaurants-stats">
               <StatTile icon="list" tone="people" value={menuStats.total} label="Menu items" />
@@ -648,12 +649,13 @@ export default function RestaurantsPage() {
           {tab === 'sales' && !ordersLoading && !orders.length && !ordersFrom && !ordersTo && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales yet — rung-up orders from the till will show here</p></div>
           )}
+          </div>
         </>
       )}
 
       {menuDialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setMenuDialogOpen(false)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitMenuForm}>
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setMenuDialogOpen(false)}>
+          <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitMenuForm}>
             <h2>{menuEditId ? 'Edit menu item' : 'Add menu item'}</h2>
             {menuDialogError && <div className="error-banner">{menuDialogError}</div>}
             <div className="field">
@@ -677,8 +679,8 @@ export default function RestaurantsPage() {
       )}
 
       {supplyDialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setSupplyDialogOpen(false)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitSupplyForm}>
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setSupplyDialogOpen(false)}>
+          <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitSupplyForm}>
             <h2>{supplyEditId ? 'Edit supply item' : 'Add supply item'}</h2>
             {supplyDialogError && <div className="error-banner">{supplyDialogError}</div>}
             <div className="field">
@@ -716,8 +718,8 @@ export default function RestaurantsPage() {
       )}
 
       {ingredientDialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setIngredientDialogOpen(false)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitIngredientForm}>
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setIngredientDialogOpen(false)}>
+          <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitIngredientForm}>
             <h2>{ingredientEditId ? 'Edit ingredient' : 'Add ingredient'}</h2>
             {ingredientDialogError && <div className="error-banner">{ingredientDialogError}</div>}
             <div className="field">
@@ -755,8 +757,8 @@ export default function RestaurantsPage() {
       )}
 
       {stockDialog && (
-        <div className="dialog-backdrop" onClick={() => setStockDialog(null)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitStockDialog}>
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setStockDialog(null)}>
+          <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitStockDialog}>
             <h2>Adjust stock — {stockDialog.name}</h2>
             {stockDialogError && <div className="error-banner">{stockDialogError}</div>}
             <p className="restaurants-stock-current">Currently in stock: <strong>{Number(stockDialog.stockQty).toLocaleString()}</strong></p>
@@ -777,8 +779,8 @@ export default function RestaurantsPage() {
       )}
 
       {orderDetailOpen && (
-        <div className="dialog-backdrop" onClick={() => setOrderDetailOpen(false)}>
-          <div className="dialog restaurants-order-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setOrderDetailOpen(false)}>
+          <div className="dialog restaurants-order-dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()}>
             {orderDetailLoading && <div className="eyebrow">Loading…</div>}
             {orderDetailError && <div className="error-banner">{orderDetailError}</div>}
             {orderDetail && !orderDetailLoading && (
