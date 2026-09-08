@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { API_URL, ApiError } from '../api/client';
+import { API_URL, API_ORIGIN, ApiError } from '../api/client';
 import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import {
@@ -55,6 +55,23 @@ function useCountUp(target, durationMs) {
 // since the token is self-contained, but is still worth handling).
 var SESSION_KEY = 'bamboo.pos.session';
 var PIN_LENGTH = 4;
+
+// The real Square-imported menus (1,600+ items each) have no photos yet —
+// uploading one is a per-item, opt-in action from the management page
+// (RestaurantsPage.jsx), so most tiles fall back to a flat colour + initial
+// rather than a generic placeholder icon; a small fixed palette keeps the
+// grid visually varied without pulling in an image for every item.
+var TILE_PALETTE = ['#2dd4bf', '#f59e0b', '#f472b6', '#818cf8', '#fb7185', '#34d399', '#60a5fa', '#facc15'];
+function tileColor(seed) {
+  var s = String(seed || '');
+  var hash = 0;
+  for (var i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  return TILE_PALETTE[hash % TILE_PALETTE.length];
+}
+function tileInitial(name) {
+  var trimmed = String(name || '').trim();
+  return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
+}
 
 async function posFetch(method, path, token, body) {
   var headers = {};
@@ -388,7 +405,7 @@ export default function RestaurantPosPage() {
           ) : (
             grouped.map(([category, items]) => (
               <div key={category} className="pos-menu-group">
-                <div className="pos-menu-category">{category}<span className="pos-menu-category-count">{items.length}</span></div>
+                <div className="pos-menu-category"><span className="pos-menu-category-pill">{category}<span className="pos-menu-category-count">{items.length}</span></span></div>
                 <div className="pos-menu-grid">
                   {items.map((m) => {
                     const qty = cartQtyById.get(m.id);
@@ -398,9 +415,18 @@ export default function RestaurantPosPage() {
                         className={'pos-menu-tile' + (qty ? ' pos-menu-tile-selected' : '') + (tappedId === m.id ? ' pos-menu-tile-tapped' : '')}
                         onClick={() => addToCart(m)}
                       >
-                        {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
-                        <span className="pos-menu-tile-name">{m.name}</span>
-                        <span className="pos-menu-tile-price">{money(m.price)}</span>
+                        <span className="pos-menu-tile-photo" style={m.photoUrl ? undefined : { background: tileColor(m.name) }}>
+                          {m.photoUrl ? (
+                            <img src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />
+                          ) : (
+                            <span className="pos-menu-tile-fallback">{tileInitial(m.name)}</span>
+                          )}
+                          {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
+                        </span>
+                        <span className="pos-menu-tile-body">
+                          <span className="pos-menu-tile-name">{m.name}</span>
+                          <span className="pos-menu-tile-price">{money(m.price)}</span>
+                        </span>
                       </button>
                     );
                   })}
