@@ -17,6 +17,16 @@
 .restaurants-dialog-backdrop { animation: restaurants-backdrop-fade 0.15s ease-out; }
 .restaurants-dialog-pop { animation: restaurants-dialog-pop 0.2s cubic-bezier(0.2, 0.9, 0.3, 1); }
 
+/* Brief highlight after an edit/void succeeds, so the eye catches what
+   just changed instead of a save silently landing somewhere in a long
+   list. Ends at transparent, not the card's own background, so it works
+   the same whether or not that row/card is also mid-hover. */
+@keyframes restaurants-flash {
+  0% { background-color: var(--color-accent-100); }
+  100% { background-color: transparent; }
+}
+.restaurants-flash { animation: restaurants-flash 1s ease-out; }
+
 .restaurants-company-seg { margin-bottom: 16px; width: fit-content; }
 .restaurants-company-seg .seg-opt, .restaurants-toolbar .seg-opt { transition: background-color 0.15s ease, color 0.15s ease; }
 .restaurants-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -100,13 +110,32 @@
    same trick Projects' card grid already uses. ──────────────────────── */
 .restaurants-menu-group { margin-bottom: 28px; }
 .restaurants-menu-category {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-text-muted);
   margin: 0 0 10px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.12s ease;
 }
+.restaurants-menu-category:hover { color: var(--color-text); }
+.restaurants-menu-category-chevron { width: 13px; height: 13px; flex-shrink: 0; transition: transform 0.2s ease; }
+.restaurants-menu-category-chevron-collapsed { transform: rotate(-90deg); }
+.restaurants-menu-category-count { color: var(--color-text-faint); font-weight: 600; }
+
+/* Animating to/from "auto" height via a grid-template-rows fr transition —
+   the collapsed body never needs JS to measure scrollHeight. */
+.restaurants-menu-group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.25s ease; }
+.restaurants-menu-group-collapsed { grid-template-rows: 0fr; }
+.restaurants-menu-group-body-inner { overflow: hidden; min-height: 0; }
 .restaurants-menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

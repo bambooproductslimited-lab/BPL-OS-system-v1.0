@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -49,12 +49,48 @@ const STAT_ICONS = {
   money: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5v9M9.5 9.5a2 2 0 0 1 2-1.5h1a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a2 2 0 0 0 2-1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   ban: <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><path d="m5.5 5.5 13 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
 };
-function StatTile({ icon, tone, value, label }) {
+// Animates a number from wherever it last was to `target` — not a CSS
+// keyframe (those can't interpolate a value driven by live data), so this
+// drives its own requestAnimationFrame loop with an ease-out curve. Reruns
+// automatically whenever `target` changes (a new company/tab, a fresh
+// Square import, a date-range filter), starting from the previous
+// animated value rather than 0 every time.
+function useCountUp(target, durationMs) {
+  const [display, setDisplay] = useState(target);
+  const fromRef = useRef(target);
+  const rafRef = useRef(null);
+  useEffect(() => {
+    const from = fromRef.current;
+    const to = Number(target) || 0;
+    if (from === to) return undefined;
+    const start = performance.now();
+    const duration = durationMs || 700;
+    function tick(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      const current = from + (to - from) * eased;
+      setDisplay(current);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        fromRef.current = to;
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+  return display;
+}
+
+function StatTile({ icon, tone, value, label, format }) {
+  const animated = useCountUp(value);
+  const text = format ? format(animated) : Math.round(animated).toLocaleString();
   return (
     <div className={'restaurants-stat-tile restaurants-stat-tile-' + tone}>
       <span className="restaurants-stat-icon">{STAT_ICONS[icon]}</span>
       <div className="restaurants-stat-text">
-        <div className="restaurants-stat-value">{value}</div>
+        <div className="restaurants-stat-value">{text}</div>
         <div className="restaurants-stat-label">{label}</div>
       </div>
     </div>
@@ -105,6 +141,27 @@ export default function RestaurantsPage() {
   const [stockDialog, setStockDialog] = useState(null);
   const [stockDialogError, setStockDialogError] = useState(null);
   const [stockSaving, setStockSaving] = useState(false);
+
+  // Menu category groups collapse/expand (animated — see
+  // .restaurants-menu-group-body's grid-template-rows transition in the
+  // CSS); open by default so collapsing is an option, not a default that
+  // hides items someone expects to see.
+  const [collapsedCategories, setCollapsedCategories] = useState(() => new Set());
+  function toggleCategory(category) {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category); else next.add(category);
+      return next;
+    });
+  }
+
+  // Flashes a brief highlight on the row/card just edited or voided, so the
+  // eye catches what changed instead of a save just silently landing.
+  const [flashId, setFlashId] = useState(null);
+  function flash(id) {
+    setFlashId(id);
+    setTimeout(() => setFlashId((cur) => (cur === id ? null : cur)), 1000);
+  }
 
   // Order detail — items are fetched lazily per-order (see getOrder in
   // restaurantPos.service.js), not preloaded for every row in the list:
@@ -237,11 +294,11 @@ export default function RestaurantsPage() {
     setMenuSaving(true);
     setMenuDialogError(null);
     try {
-      if (menuEditId) await api.put('/restaurant/menu-items/' + menuEditId, menuForm);
-      else await api.post('/restaurant/menu-items', { ...menuForm, companyId });
+      const saved = menuEditId ? await api.put('/restaurant/menu-items/' + menuEditId, menuForm) : await api.post('/restaurant/menu-items', { ...menuForm, companyId });
       setToast(menuEditId ? 'Menu item updated.' : 'Menu item added.');
       setMenuDialogOpen(false);
       await load(companyId);
+      flash(saved.id);
     } catch (err) {
       setMenuDialogError(err.message);
     } finally {
@@ -253,6 +310,7 @@ export default function RestaurantsPage() {
     try {
       await api.post('/restaurant/menu-items/' + m.id + '/active', { active: !m.active });
       await load(companyId);
+      flash(m.id);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -363,6 +421,7 @@ export default function RestaurantsPage() {
       await api.post('/restaurant/orders/' + o.id + '/void');
       setToast('Order voided.');
       await loadOrders(companyId, ordersOffset, ordersFrom, ordersTo);
+      flash(o.id);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -516,35 +575,48 @@ export default function RestaurantsPage() {
           )}
           {tab === 'sales' && ordersTotal > 0 && (
             <div className="restaurants-stats restaurants-stats-wide">
-              <StatTile icon="list" tone="people" value={ordersTotal.toLocaleString()} label={(ordersFrom || ordersTo) ? 'Orders in range' : 'Orders'} />
-              <StatTile icon="money" tone="ops" value={money(ordersRevenueTotal)} label={(ordersFrom || ordersTo) ? 'Revenue in range' : 'Revenue'} />
-              <StatTile icon="ban" tone="danger" value={ordersVoidedCount.toLocaleString()} label="Voided" />
+              <StatTile icon="list" tone="people" value={ordersTotal} label={(ordersFrom || ordersTo) ? 'Orders in range' : 'Orders'} />
+              <StatTile icon="money" tone="ops" value={ordersRevenueTotal} format={money} label={(ordersFrom || ordersTo) ? 'Revenue in range' : 'Revenue'} />
+              <StatTile icon="ban" tone="danger" value={ordersVoidedCount} label="Voided" />
             </div>
           )}
 
-          {tab === 'menu' && menuGroups.map((group) => (
-            <div className="restaurants-menu-group" key={group.category}>
-              <h3 className="restaurants-menu-category">{group.category}</h3>
-              <div className="restaurants-menu-grid">
-                {group.items.map((m) => (
-                  <div className="restaurants-menu-card" key={m.id}>
-                    <div className="restaurants-menu-card-top">
-                      <span className="restaurants-menu-card-name">{m.name}</span>
-                      <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
+          {tab === 'menu' && menuGroups.map((group) => {
+            const isCollapsed = collapsedCategories.has(group.category);
+            return (
+              <div className="restaurants-menu-group" key={group.category}>
+                <button type="button" className="restaurants-menu-category" onClick={() => toggleCategory(group.category)} aria-expanded={!isCollapsed}>
+                  <svg className={'restaurants-menu-category-chevron' + (isCollapsed ? ' restaurants-menu-category-chevron-collapsed' : '')} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {group.category}
+                  <span className="restaurants-menu-category-count">{group.items.length}</span>
+                </button>
+                <div className={'restaurants-menu-group-body' + (isCollapsed ? ' restaurants-menu-group-collapsed' : '')}>
+                  <div className="restaurants-menu-group-body-inner">
+                    <div className="restaurants-menu-grid">
+                      {group.items.map((m) => (
+                        <div className={'restaurants-menu-card' + (flashId === m.id ? ' restaurants-flash' : '')} key={m.id}>
+                          <div className="restaurants-menu-card-top">
+                            <span className="restaurants-menu-card-name">{m.name}</span>
+                            <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
+                          </div>
+                          <div className="restaurants-menu-card-price">{money(m.price)}</div>
+                          {canManage && (
+                            <div className="restaurants-menu-card-actions">
+                              <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>
+                              <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
+                              <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    <div className="restaurants-menu-card-price">{money(m.price)}</div>
-                    {canManage && (
-                      <div className="restaurants-menu-card-actions">
-                        <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>
-                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
-                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>
-                      </div>
-                    )}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {tab === 'supplies' && (
             <table className="table">
@@ -599,7 +671,7 @@ export default function RestaurantsPage() {
                 <thead><tr><th>Order</th><th>Cashier</th><th className="restaurants-amount-col">Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
                 <tbody>
                   {orders.map((o) => (
-                    <tr key={o.id} className={'restaurants-sales-row' + (o.status === 'voided' ? ' restaurants-sales-row-voided' : '')} onClick={() => openOrderDetail(o.id)}>
+                    <tr key={o.id} className={'restaurants-sales-row' + (o.status === 'voided' ? ' restaurants-sales-row-voided' : '') + (flashId === o.id ? ' restaurants-flash' : '')} onClick={() => openOrderDetail(o.id)}>
                       <td className="restaurants-order-no">{o.orderNo}</td>
                       <td>{o.cashierName}</td>
                       <td className="restaurants-amount-col restaurants-amount">{money(o.total)}</td>
