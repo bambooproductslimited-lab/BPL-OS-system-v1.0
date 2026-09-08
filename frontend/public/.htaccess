@@ -7,20 +7,22 @@
   RewriteEngine On
   RewriteBase /
 
-  # /kiosk gets its own static HTML shell (kiosk.html, a second Vite build
-  # entry — see vite.config.js) instead of the main index.html, so its
-  # <link rel="manifest"> points at kiosk-manifest.webmanifest from the
-  # first byte of the response. That matters because iOS Safari's "Add to
-  # Home Screen" resolves the manifest from the served document itself,
-  # not from anything client-side JS does after the page loads — mutating
-  # the tag from React after mount was too late to affect it (tried first,
-  # didn't work). Matches exactly "/kiosk" and
-  # "/kiosk/"; a kiosk.html request itself, and every other static asset
-  # (JS/CSS/icons/kiosk-sw.js/kiosk-manifest.webmanifest), already exists
-  # as a real file so it never reaches this rule.
+  # /kiosk and /pos each get their own static HTML shell (kiosk.html,
+  # pos.html — additional Vite build entries, see vite.config.js) instead
+  # of the main index.html, so their <link rel="manifest"> points at their
+  # own manifest from the first byte of the response. That matters because
+  # iOS Safari's "Add to Home Screen" resolves the manifest from the served
+  # document itself, not from anything client-side JS does after the page
+  # loads — mutating the tag from React after mount was too late to affect
+  # it (tried first, didn't work). Matches exactly "/kiosk"/"/kiosk/" and
+  # "/pos"/"/pos/"; a kiosk.html or pos.html request itself, and every
+  # other static asset (JS/CSS/icons/*-sw.js/*-manifest.webmanifest),
+  # already exists as a real file so it never reaches this rule.
   RewriteRule ^index\.html$ - [L]
   RewriteRule ^kiosk\.html$ - [L]
+  RewriteRule ^pos\.html$ - [L]
   RewriteRule ^kiosk/?$ /kiosk.html [L]
+  RewriteRule ^pos/?$ /pos.html [L]
 
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d

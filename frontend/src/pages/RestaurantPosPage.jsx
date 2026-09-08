@@ -132,6 +132,17 @@ export default function RestaurantPosPage() {
     })();
   }, []);
 
+  // Own service worker, scoped to /pos only (same pattern as KioskPage.jsx's
+  // /kiosk one) — makes a till device's "Add to Home Screen" install open
+  // straight into the POS with its own icon/name (pos-manifest.webmanifest,
+  // pos.html) instead of landing on the main app's dashboard, and caches
+  // the app shell so a till that loses wifi mid-shift still loads.
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/pos-sw.js', { scope: '/pos' }).catch(() => {});
+    }
+  }, []);
+
   async function pairUsb() {
     setPrinterError(null);
     setPairingKind('usb');
