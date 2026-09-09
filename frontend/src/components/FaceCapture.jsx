@@ -48,6 +48,15 @@ const DETECT_DELAY_MS = 250;
 const WARMUP_MS = 900;
 const KIOSK_SAMPLE_COUNT = 4; // consecutive good detections, post-warmup, averaged into one capture
 const MAX_CONSECUTIVE_ERRORS = 6;
+// iOS/WebKit can take a moment to actually free the camera after a
+// previous FaceCapture session stopped its tracks — back-to-back kiosk
+// taps (a queue at the door during shift change) can land while the
+// hardware is still mid-release, which surfaces as NotReadableError
+// ("could not start video source") even though nothing is really wrong.
+// Retrying through that short window turns most of those into a normal
+// start instead of a hard "camera not accessible" failure.
+const CAMERA_BUSY_RETRY_DELAYS_MS = [500, 1000];
+function isCameraBusyError(err) { return !!err && (err.name === 'NotReadableError' || err.name === 'TrackStartError'); }
 
 const ENROLL_POSES = [
   { label: 'Look straight at the camera' },
@@ -105,12 +114,27 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
   useEffect(() => {
     let cancelled = false;
 
+    // Retries a camera-busy failure through CAMERA_BUSY_RETRY_DELAYS_MS
+    // before giving up — see that constant's comment. Any other error
+    // (permission denied, no camera at all, constraints unsupported) still
+    // fails on the first attempt, same as before.
+    async function openCamera(constraints) {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+          if (cancelled || !isCameraBusyError(err) || attempt >= CAMERA_BUSY_RETRY_DELAYS_MS.length) throw err;
+          await wait(CAMERA_BUSY_RETRY_DELAYS_MS[attempt]);
+        }
+      }
+    }
+
     async function start() {
       try {
         const idealSize = mode === 'kiosk' ? 480 : 720;
         const [faceapi, stream] = await Promise.all([
           loadFaceModels(mode),
-          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: idealSize }, height: { ideal: idealSize } } })
+          openCamera({ video: { facingMode: 'user', width: { ideal: idealSize }, height: { ideal: idealSize } } })
         ]);
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
