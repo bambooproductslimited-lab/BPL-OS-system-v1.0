@@ -30,6 +30,27 @@ function hashStr(s) {
 }
 function avatarColor(name) { return AVATAR_COLORS[hashStr(name) % AVATAR_COLORS.length]; }
 
+// Length of a shift in hours, from HH:MM start/end (overnight shifts wrap
+// past midnight) — used only to turn a Daily rate into an Hourly rate, the
+// same "span of the shift" convention as hoursBetween() in
+// AttendancePage.jsx's report builder.
+function shiftSpanHours(startStr, endStr) {
+  if (!startStr || !endStr) return null;
+  const [sh, sm] = startStr.split(':').map(Number);
+  const [eh, em] = endStr.split(':').map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins <= 0) mins += 24 * 60;
+  return mins / 60;
+}
+
+// Prefers the picked shift template's own hours, then the per-employee
+// manual override, then a standard 8-hour day when neither is set.
+function effectiveShiftHours(form, shifts) {
+  const tpl = form.shiftId ? shifts.find((s) => s.id === form.shiftId) : null;
+  const hrs = tpl ? shiftSpanHours(tpl.startTime, tpl.endTime) : shiftSpanHours(form.shiftStart, form.shiftEnd);
+  return hrs || 8;
+}
+
 // Row actions beyond "View" (Edit/ID docs/Kiosk PIN/Delete) are tucked
 // behind this menu instead of five buttons crowding every row — same
 // click-outside-to-close pattern as DateRangePicker.jsx.
@@ -700,7 +721,15 @@ export default function EmployeesPage() {
                   </select>
                 </div>
                 <div className="field"><label htmlFor="emp-daily-rate">Daily rate (GHS)</label>
-                  <input id="emp-daily-rate" className="input" type="number" min="0" step="0.01" value={form.dailyRate} onChange={(e) => setForm({ ...form, dailyRate: e.target.value })} />
+                  <input
+                    id="emp-daily-rate" className="input" type="number" min="0" step="0.01" value={form.dailyRate}
+                    onChange={(e) => {
+                      const dailyRate = e.target.value;
+                      const hrs = effectiveShiftHours(form, shifts);
+                      const hourlyRate = dailyRate === '' ? '' : Math.round((Number(dailyRate) / hrs) * 100) / 100;
+                      setForm({ ...form, dailyRate, hourlyRate });
+                    }}
+                  />
                 </div>
                 <div className="field">
                   <label htmlFor="emp-hourly-rate">Hourly rate (GHS)</label>
@@ -708,6 +737,9 @@ export default function EmployeesPage() {
                     id="emp-hourly-rate" className="input" type="number" min="0" step="0.01" placeholder="Not set"
                     value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
                   />
+                  <p style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '4px 0 0' }}>
+                    Auto-filled from Daily rate ÷ shift hours ({effectiveShiftHours(form, shifts)}h/day) — edit it directly to override.
+                  </p>
                 </div>
               </>
             )}
