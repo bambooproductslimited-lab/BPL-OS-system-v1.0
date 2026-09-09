@@ -216,6 +216,12 @@ export default function AttendancePage() {
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
+  // Own Company/Department pickers, decoupled from the page's own filters
+  // above (defaulted from them on open, purely for convenience) — so
+  // downloading, say, just Bamboo Garden's report doesn't require first
+  // changing what the live roster on this page is filtered to.
+  const [reportCompanyId, setReportCompanyId] = useState('');
+  const [reportDeptId, setReportDeptId] = useState('');
   const reportPrintRef = useRef(null);
 
   // A single day keeps the exact roster this screen always had (one row per
@@ -380,6 +386,8 @@ export default function AttendancePage() {
   function openReport() {
     setReportError(null);
     setReportData(null);
+    setReportCompanyId(companyFilter);
+    setReportDeptId(deptFilter);
     setReportOpen(true);
   }
 
@@ -389,14 +397,20 @@ export default function AttendancePage() {
     setReportData(null);
     try {
       const params = new URLSearchParams({ from: reportRange.from, to: reportRange.to });
-      if (companyFilter) params.set('companyId', companyFilter);
-      if (deptFilter) params.set('departmentId', deptFilter);
+      if (reportCompanyId) params.set('companyId', reportCompanyId);
+      if (reportDeptId) params.set('departmentId', reportDeptId);
       setReportData(await api.get('/attendance/report?' + params.toString()));
     } catch (err) {
       setReportError(err.message);
     } finally {
       setReportLoading(false);
     }
+  }
+
+  function reportFilenameBase() {
+    const company = reportCompanyId && companies.find((c) => c.id === reportCompanyId);
+    const slug = company ? '-' + company.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '';
+    return 'attendance-report' + slug + '-' + reportRange.from + '-to-' + reportRange.to;
   }
 
   function downloadReportCsv() {
@@ -410,13 +424,13 @@ export default function AttendancePage() {
       e.hourlyRate != null ? e.hourlyRate : '',
       e.totalPay != null ? e.totalPay : ''
     ]);
-    downloadCsv('attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.csv', rowsToCsv([header, ...body]));
+    downloadCsv(reportFilenameBase() + '.csv', rowsToCsv([header, ...body]));
   }
 
   async function downloadReportPdf() {
     setReportError(null);
     try {
-      const filename = 'attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.pdf';
+      const filename = reportFilenameBase() + '.pdf';
       await shareOrDownloadPdf(reportPrintRef.current, filename, filename, filename);
     } catch (err) {
       setReportError(err.message);
@@ -728,14 +742,35 @@ export default function AttendancePage() {
             <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 900 }} onClick={(e) => e.stopPropagation()}>
               <h2 className="employees-dialog-title">Attendance report</h2>
               <p className="dialog-body">
-                A TimeStation-style timesheet for the date range below, scoped to what you can already see on this
-                page — everyone if you have company-wide access (narrowed further by the Company/Department filter
-                above, if one is set), otherwise just your own record. One row per employee, one column per day,
-                hours computed from clock in/out.
+                A TimeStation-style timesheet for the date range and company/department below, scoped to what you
+                can already see — everyone in the picked scope if you have company-wide access, otherwise just your
+                own record. One row per employee, one column per day, hours computed from clock in/out.
               </p>
               <div className="field">
                 <label>Period</label>
                 <DateRangePicker value={reportRange} onChange={setReportRange} />
+              </div>
+              <div className="field">
+                <label htmlFor="rpt-company">Company</label>
+                <select
+                  id="rpt-company" className="input" value={reportCompanyId} aria-label="Report company"
+                  onChange={(e) => { setReportCompanyId(e.target.value); setReportDeptId(''); }}
+                >
+                  <option value="">All companies</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="rpt-department">Department</label>
+                <select
+                  id="rpt-department" className="input" value={reportDeptId} aria-label="Report department"
+                  onChange={(e) => setReportDeptId(e.target.value)}
+                >
+                  <option value="">All departments</option>
+                  {departments.filter((d) => !reportCompanyId || d.companyId === reportCompanyId).map((d) => (
+                    <option key={d.id} value={d.id}>{reportCompanyId ? d.name : d.name + ' — ' + d.companyName}</option>
+                  ))}
+                </select>
               </div>
               {reportError && <div className="error-banner">{reportError}</div>}
               <div className="dialog-actions">
@@ -749,7 +784,9 @@ export default function AttendancePage() {
                 <>
                   <div ref={reportPrintRef}>
                     <p className="itdevices-import-summary">
-                      {reportRange.from} to {reportRange.to} — {pivot.rows.length.toLocaleString()} employee(s), {reportData.rows.length.toLocaleString()} record(s).
+                      {(companies.find((c) => c.id === reportCompanyId) || { name: 'All companies' }).name}
+                      {reportDeptId ? ' — ' + (departments.find((d) => d.id === reportDeptId) || { name: '' }).name : ''}
+                      , {reportRange.from} to {reportRange.to} — {pivot.rows.length.toLocaleString()} employee(s), {reportData.rows.length.toLocaleString()} record(s).
                       {!canSeePay && ' Hourly rate/pay is hidden — your role doesn\'t have payroll access.'}
                     </p>
                     {!showDetailTable && (
