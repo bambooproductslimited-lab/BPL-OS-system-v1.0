@@ -257,6 +257,12 @@ export default function AttendancePage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // The single-day and period summary tiles below use different statusFilter
+  // vocabularies (a per-day status vs. an aggregated day-count bucket, incl.
+  // the period-only "absentLeaveOff" combined key) — clear a tile selection
+  // made in one view before it's misread, or matches nothing, in the other.
+  useEffect(() => { setStatusFilter(''); }, [isSingleDay]);
+
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
@@ -268,20 +274,27 @@ export default function AttendancePage() {
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || r.status === statusFilter);
   const summary = [
-    { label: 'In scope', value: rows.length, icon: 'users', tone: 'people' },
-    { label: 'Present', value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people' },
-    { label: 'Late', value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning' },
-    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger' }
+    { label: 'In scope', value: rows.length, icon: 'users', tone: 'people', filterKey: null },
+    { label: 'Present', value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people', filterKey: 'present' },
+    { label: 'Late', value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning', filterKey: 'late' },
+    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger', filterKey: 'absent' }
   ];
 
+  // periodStatusMatches lets the "Absent/leave/off days" tile below filter
+  // on all three at once — the one summary bucket with no single matching
+  // statusFilter option (present/late/absent/leave/off are otherwise a
+  // straight r[key] > 0 lookup, same field names the per-day dropdown uses).
+  function periodStatusMatches(r, key) {
+    return key === 'absentLeaveOff' ? (r.absent + r.leave + r.off) > 0 : r[key] > 0;
+  }
   const visiblePeriodRows = periodRows
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
-    .filter((r) => !statusFilter || r[statusFilter] > 0);
+    .filter((r) => !statusFilter || periodStatusMatches(r, statusFilter));
   const periodSummary = [
-    { label: 'Employees with records', value: periodRows.length, icon: 'users', tone: 'people' },
-    { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people' },
-    { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning' },
-    { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger' }
+    { label: 'Employees with records', value: periodRows.length, icon: 'users', tone: 'people', filterKey: null },
+    { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people', filterKey: 'present' },
+    { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning', filterKey: 'late' },
+    { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger', filterKey: 'absentLeaveOff' }
   ];
 
   function openCorrection(row) {
@@ -455,15 +468,25 @@ export default function AttendancePage() {
       </div>
 
       <div className="attendance-summary">
-        {(isSingleDay ? summary : periodSummary).map((s) => (
-          <div className={'attendance-summary-tile attendance-summary-tile-' + s.tone} key={s.label}>
-            <span className="attendance-summary-icon glow-badge"><Icon name={s.icon} /></span>
-            <div>
-              <div className="attendance-summary-value">{s.value}</div>
-              <div className="attendance-summary-label">{s.label}</div>
-            </div>
-          </div>
-        ))}
+        {(isSingleDay ? summary : periodSummary).map((s) => {
+          const active = s.filterKey ? statusFilter === s.filterKey : !statusFilter;
+          return (
+            <button
+              type="button"
+              key={s.label}
+              className={'attendance-summary-tile attendance-summary-tile-' + s.tone + (active ? ' attendance-summary-tile-active' : '')}
+              aria-pressed={active}
+              title={s.filterKey ? 'Show only ' + s.label.toLowerCase() : 'Clear the status filter'}
+              onClick={() => setStatusFilter(s.filterKey && statusFilter !== s.filterKey ? s.filterKey : '')}
+            >
+              <span className="attendance-summary-icon glow-badge"><Icon name={s.icon} /></span>
+              <div>
+                <div className="attendance-summary-value">{s.value}</div>
+                <div className="attendance-summary-label">{s.label}</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <div className="attendance-filters">
@@ -488,9 +511,10 @@ export default function AttendancePage() {
           <option value="">All statuses</option>
           <option value="present">Present</option>
           <option value="late">Late</option>
-          <option value="absent">Absent</option>
+          <option value="absent">{isSingleDay ? 'No record' : 'Absent'}</option>
           <option value="leave">Leave</option>
           <option value="off">Off</option>
+          {!isSingleDay && <option value="absentLeaveOff">Absent/leave/off</option>}
         </select>
       </div>
 
