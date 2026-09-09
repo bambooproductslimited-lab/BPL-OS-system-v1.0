@@ -109,6 +109,62 @@ function aggregateByEmployee(rows) {
   return Object.values(byEmp).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Wide, TimeStation-style layout for the downloadable report — one row per
+// employee, one column per calendar day in the range, hours computed from
+// clock in/out (matching the shape of an actual TimeStation export, which
+// this was built to mirror). hourlyRate/totalPay stay null when the field
+// isn't on the API payload at all (payroll.manage-gated server-side, see
+// attendance.service.js's report()) or isn't set for that employee — the
+// CSV/PDF render those as blank rather than 0, so "no rate on file" reads
+// differently from "genuinely zero pay."
+function hoursBetween(clockIn, clockOut) {
+  if (!clockIn || !clockOut) return 0;
+  const [inH, inM] = clockIn.split(':').map(Number);
+  const [outH, outM] = clockOut.split(':').map(Number);
+  let mins = (outH * 60 + outM) - (inH * 60 + inM);
+  if (mins < 0) mins += 24 * 60; // crossed midnight
+  return Math.round((mins / 60) * 10) / 10;
+}
+
+function enumerateDates(from, to) {
+  const dates = [];
+  let d = new Date(from + 'T00:00');
+  const end = new Date(to + 'T00:00');
+  while (d <= end) {
+    dates.push(d.toISOString().slice(0, 10));
+    d = new Date(d.getTime() + 86400000);
+  }
+  return dates;
+}
+
+function dayHeader(iso) {
+  const d = new Date(iso + 'T00:00');
+  const weekday = d.toLocaleDateString('en-GB', { weekday: 'short' });
+  return weekday + ' ' + iso.slice(5, 7) + '/' + iso.slice(8, 10);
+}
+
+function buildPivotReport(rows, from, to) {
+  const dates = enumerateDates(from, to);
+  const byEmp = {};
+  rows.forEach((r) => {
+    if (!byEmp[r.employeeId]) {
+      byEmp[r.employeeId] = {
+        employeeId: r.employeeId, code: r.code, positionTitle: r.positionTitle || '', name: r.name, department: r.department,
+        hourlyRate: r.hourlyRate != null ? r.hourlyRate : null, byDate: {}
+      };
+    }
+    const e = byEmp[r.employeeId];
+    e.byDate[r.date] = (e.byDate[r.date] || 0) + hoursBetween(r.clockIn, r.clockOut);
+  });
+  const empRows = Object.values(byEmp).map((e) => {
+    const totalHours = Math.round(dates.reduce((sum, d) => sum + (e.byDate[d] || 0), 0) * 10) / 10;
+    const totalPay = e.hourlyRate != null ? Math.round(totalHours * e.hourlyRate * 100) / 100 : null;
+    return { ...e, totalHours, totalPay };
+  });
+  empRows.sort((a, b) => a.name.localeCompare(b.name));
+  return { dates, rows: empRows };
+}
+
 const CORRECTION_STATUSES = ['present', 'late', 'absent', 'leave', 'off'];
 
 export default function AttendancePage() {
@@ -343,26 +399,18 @@ export default function AttendancePage() {
     }
   }
 
-  function summarizeReport(rows) {
-    const counts = { present: 0, late: 0, absent: 0, leave: 0, off: 0 };
-    rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
-    return counts;
-  }
-
   function downloadReportCsv() {
     if (!reportData) return;
-    const counts = summarizeReport(reportData.rows);
-    const rows = [
-      ['Attendance report', reportRange.from + ' to ' + reportRange.to],
-      [],
-      ['Status', 'Count'],
-      ['Present', counts.present], ['Late', counts.late], ['Absent', counts.absent], ['Leave', counts.leave], ['Off', counts.off],
-      ['Total records', reportData.rows.length],
-      [],
-      ['Date', 'Employee', 'Code', 'Company', 'Department', 'Clock in', 'Clock out', 'Status', 'Source', 'Note'],
-      ...reportData.rows.map((r) => [r.date, r.name, r.code, r.company, r.department, r.clockIn || '', r.clockOut || '', r.status, r.source, r.note || ''])
-    ];
-    downloadCsv('attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.csv', rowsToCsv(rows));
+    const { dates, rows: pivotRows } = buildPivotReport(reportData.rows, reportRange.from, reportRange.to);
+    const header = ['Employee ID', 'Title', 'Employee', 'Department', ...dates.map(dayHeader), 'Total Hours', 'Hourly Rate', 'Total Pay'];
+    const body = pivotRows.map((e) => [
+      e.code, e.positionTitle, e.name, e.department,
+      ...dates.map((d) => e.byDate[d] || 0),
+      e.totalHours,
+      e.hourlyRate != null ? e.hourlyRate : '',
+      e.totalPay != null ? e.totalPay : ''
+    ]);
+    downloadCsv('attendance-report-' + reportRange.from + '-to-' + reportRange.to + '.csv', rowsToCsv([header, ...body]));
   }
 
   async function downloadReportPdf() {
@@ -671,17 +719,19 @@ export default function AttendancePage() {
       )}
 
       {reportOpen && (() => {
-        const DETAIL_ROW_CAP = 2000; // beyond this, rendering every row into the DOM (for the on-screen table and PDF screenshot) gets slow — CSV export still covers the full list either way, since that's built as a plain string, not DOM
-        const counts = reportData ? summarizeReport(reportData.rows) : null;
-        const showDetailTable = reportData && reportData.rows.length <= DETAIL_ROW_CAP;
+        const DETAIL_ROW_CAP = 300; // employee rows, not raw records — beyond this, rendering every row x every day column into the DOM (for the on-screen table and PDF screenshot) gets slow; CSV export still covers the full list either way, since that's built as a plain string, not DOM
+        const pivot = reportData ? buildPivotReport(reportData.rows, reportRange.from, reportRange.to) : null;
+        const showDetailTable = pivot && pivot.rows.length <= DETAIL_ROW_CAP;
+        const canSeePay = reportData && reportData.canViewPay;
         return (
           <div className="dialog-backdrop" onClick={() => setReportOpen(false)}>
             <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 900 }} onClick={(e) => e.stopPropagation()}>
               <h2 className="employees-dialog-title">Attendance report</h2>
               <p className="dialog-body">
-                Every attendance record in the date range below, scoped to what you can already see on this page —
-                everyone if you have company-wide access (narrowed further by the Company/Department filter above,
-                if one is set), otherwise just your own record.
+                A TimeStation-style timesheet for the date range below, scoped to what you can already see on this
+                page — everyone if you have company-wide access (narrowed further by the Company/Department filter
+                above, if one is set), otherwise just your own record. One row per employee, one column per day,
+                hours computed from clock in/out.
               </p>
               <div className="field">
                 <label>Period</label>
@@ -699,32 +749,35 @@ export default function AttendancePage() {
                 <>
                   <div ref={reportPrintRef}>
                     <p className="itdevices-import-summary">
-                      {reportRange.from} to {reportRange.to} — {reportData.rows.length.toLocaleString()} record(s):
-                      {' '}{counts.present} present, {counts.late} late, {counts.absent} absent, {counts.leave} leave, {counts.off} off.
+                      {reportRange.from} to {reportRange.to} — {pivot.rows.length.toLocaleString()} employee(s), {reportData.rows.length.toLocaleString()} record(s).
+                      {!canSeePay && ' Hourly rate/pay is hidden — your role doesn\'t have payroll access.'}
                     </p>
                     {!showDetailTable && (
                       <p className="itdevices-import-summary">
-                        Too many records ({reportData.rows.length.toLocaleString()}) to list on screen — download the CSV for the full detail.
+                        Too many employees ({pivot.rows.length.toLocaleString()}) to list on screen — download the CSV for the full detail.
                       </p>
                     )}
                     {showDetailTable && (
                       <div className="itdevices-import-scroll">
                         <table className="table itdevices-import-table">
                           <thead>
-                            <tr><th>Date</th><th>Employee</th><th>Code</th><th>Company</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Source</th></tr>
+                            <tr>
+                              <th>Employee ID</th><th>Title</th><th>Employee</th><th>Department</th>
+                              {pivot.dates.map((d) => <th key={d}>{dayHeader(d)}</th>)}
+                              <th>Total Hours</th><th>Hourly Rate</th><th>Total Pay</th>
+                            </tr>
                           </thead>
                           <tbody>
-                            {reportData.rows.map((r, i) => (
-                              <tr key={i}>
-                                <td>{r.date}</td>
-                                <td style={{ fontWeight: 600 }}>{r.name}</td>
-                                <td>{r.code}</td>
-                                <td>{r.company}</td>
-                                <td>{r.department}</td>
-                                <td>{r.clockIn || '—'} <LocationLink loc={r.clockInLocation} /></td>
-                                <td>{r.clockOut || '—'} <LocationLink loc={r.clockOutLocation} /></td>
-                                <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
-                                <td>{r.source}</td>
+                            {pivot.rows.map((e) => (
+                              <tr key={e.employeeId}>
+                                <td>{e.code}</td>
+                                <td>{e.positionTitle || '—'}</td>
+                                <td style={{ fontWeight: 600 }}>{e.name}</td>
+                                <td>{e.department}</td>
+                                {pivot.dates.map((d) => <td key={d}>{e.byDate[d] || 0}</td>)}
+                                <td style={{ fontWeight: 600 }}>{e.totalHours}</td>
+                                <td>{e.hourlyRate != null ? e.hourlyRate : '—'}</td>
+                                <td>{e.totalPay != null ? e.totalPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
                               </tr>
                             ))}
                           </tbody>

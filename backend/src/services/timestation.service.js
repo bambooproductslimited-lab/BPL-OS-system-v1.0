@@ -19,10 +19,12 @@ var attendanceService = require('./attendance.service');
 //
 // Compensation: TimeStation only ever exposes a flat hourly_rate, and this
 // account has zero custom fields configured, so there is no Monthly/Daily
-// Rate, allowance, Staff Type or Report Group data to pull — hourly_rate is
-// surfaced in the preview as a reference figure only; HR still sets the OS's
-// real dailyRate the same way as for any other new hire (payroll.manage-
-// gated, via the Employees screen), never guess-converted here.
+// Rate, allowance, Staff Type or Report Group data to pull. That hourly_rate
+// is copied as-is into the new employee's own hourlyRate field (used by the
+// Attendance report's Total Pay column, matching TimeStation's own report
+// layout) — a straight import of the same figure, not a guess-converted
+// dailyRate, which HR still sets separately the same way as for any other
+// new hire (payroll.manage-gated, via the Employees screen).
 //
 // Kiosk PIN: TimeStation's own pin is auto-imported as the new employee's
 // Bamboo OS kiosk PIN (owner's explicit choice), via the same
@@ -253,7 +255,8 @@ async function commit(ctx, rows) {
         email: r.email,
         departmentId: deptId,
         positionTitle: r.positionTitle || 'Staff',
-        employmentType: 'permanent'
+        employmentType: 'permanent',
+        hourlyRate: r.hourlyRate || undefined
       });
       if (r.timestationEmployeeId) {
         await pool.query('UPDATE employees SET timestation_employee_id = $1 WHERE id = $2', [r.timestationEmployeeId, newEmployee.id]);

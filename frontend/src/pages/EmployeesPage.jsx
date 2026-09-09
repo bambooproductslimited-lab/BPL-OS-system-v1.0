@@ -78,7 +78,7 @@ const EMPLOYMENT_TYPES = [
 const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
-  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0,
+  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '',
   shiftStart: '', shiftEnd: ''
 };
 
@@ -216,6 +216,7 @@ export default function EmployeesPage() {
       shiftId: emp.shiftId || '', managerId: emp.managerId || '',
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
       roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
+      hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || ''
     });
     setDialog('employee');
@@ -236,6 +237,7 @@ export default function EmployeesPage() {
         if (canManagePayroll) {
           body.payCycle = form.payCycle;
           body.dailyRate = form.dailyRate;
+          body.hourlyRate = form.hourlyRate === '' ? null : form.hourlyRate;
         }
         const updated = await api.patch('/employees/' + editId, body);
         setToast('Updated ' + updated.firstName + ' ' + updated.lastName + '.');
@@ -700,6 +702,13 @@ export default function EmployeesPage() {
                 <div className="field"><label htmlFor="emp-daily-rate">Daily rate (GHS)</label>
                   <input id="emp-daily-rate" className="input" type="number" min="0" step="0.01" value={form.dailyRate} onChange={(e) => setForm({ ...form, dailyRate: e.target.value })} />
                 </div>
+                <div className="field">
+                  <label htmlFor="emp-hourly-rate">Hourly rate (GHS)</label>
+                  <input
+                    id="emp-hourly-rate" className="input" type="number" min="0" step="0.01" placeholder="Not set"
+                    value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
+                  />
+                </div>
               </>
             )}
 
@@ -843,8 +852,9 @@ export default function EmployeesPage() {
               Groups that don't already exist here are created automatically. Records with no email on
               TimeStation are shown with a blank field below — type one in to import that person, use "Fill in all
               missing emails" to import everyone at once with a placeholder address, or leave a field blank to skip
-              just that person. Hourly rate is shown for reference only — HR still sets the real daily rate via
-              Payroll. TimeStation's PIN is imported as the kiosk PIN automatically; if it clashes with one already
+              just that person. Hourly rate is imported as-is (used by the Attendance report's pay column) — HR
+              still sets the real daily rate for Payroll separately. TimeStation's PIN is imported as the kiosk
+              PIN automatically; if it clashes with one already
               in use here, that employee is still created with the PIN left unset for HR to assign manually. Live
               clock in/out status isn't imported — it's a snapshot, not an employment status.
             </p>

@@ -146,7 +146,8 @@ async function clockOut(ctx) {
 async function scopedEmployees(ctx, filters) {
   var canAll = ctx.can('attendance.read.all');
   var baseQuery =
-    'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, d.name AS department_name, d.company_id, c.name AS company_name ' +
+    'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, e.position_title, e.hourly_rate, ' +
+    'd.name AS department_name, d.company_id, c.name AS company_name ' +
     'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id ' +
     "WHERE e.status != 'terminated'";
   if (!canAll) {
@@ -206,7 +207,12 @@ async function report(ctx, from, to, filters) {
 
   var scopeEmployees = await scopedEmployees(ctx, filters);
   var ids = scopeEmployees.map(function (e) { return e.id; });
-  if (!ids.length) return { from: from, to: to, rows: [] };
+  // Returned as an explicit flag rather than left for the caller to infer
+  // from whether any row happens to carry hourlyRate — an empty result set
+  // (no records in range) would otherwise look identical to "no payroll
+  // access" and silently mislabel a real permission as a data gap.
+  var canSeeHourlyRate = ctx.can('payroll.manage');
+  if (!ids.length) return { from: from, to: to, rows: [], canViewPay: canSeeHourlyRate };
 
   var empById = {};
   scopeEmployees.forEach(function (e) { empById[e.id] = e; });
@@ -216,17 +222,24 @@ async function report(ctx, from, to, filters) {
     [ids, from, to]
   );
 
+  // hourlyRate is compensation data — same payroll.manage gate as
+  // employees.service.js's rowToEmployee(), omitted from the payload
+  // entirely (not just hidden client-side) for anyone without it. The
+  // TimeStation-style pivot report's Total Pay column blanks out when this
+  // is absent.
   return {
-    from: from, to: to,
+    from: from, to: to, canViewPay: canSeeHourlyRate,
     rows: attRes.rows.map(function (r) {
       var e = empById[r.employee_id];
-      return {
-        employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name,
+      var row = {
+        employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name, positionTitle: e.position_title || '',
         department: e.department_name || '—', company: e.company_name || '—',
         date: r.date, clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
         clockInLocation: r.clock_in_location, clockOutLocation: r.clock_out_location,
         status: r.status, source: r.source, note: r.note
       };
+      if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
+      return row;
     })
   };
 }

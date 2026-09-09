@@ -31,6 +31,7 @@ function rowToEmployee(r, ctx) {
   if (ctx && ctx.can('payroll.manage')) {
     out.payCycle = r.pay_cycle;
     out.dailyRate = Number(r.daily_rate);
+    out.hourlyRate = r.hourly_rate == null ? null : Number(r.hourly_rate);
   }
   return out;
 }
@@ -98,6 +99,15 @@ async function create(ctx, p) {
   var existing = await pool.query('SELECT id FROM employees WHERE email = $1', [email]);
   if (existing.rows[0]) fail('invalid', 'That email is already in use.');
 
+  // Same compensation gate as update() — but silently ignored rather than
+  // a hard failure when unset/lacking payroll.manage, since this is
+  // optional reference data (e.g. an imported TimeStation rate), not a
+  // user-facing form field where failing loudly would matter.
+  var hourlyRate = null;
+  if (p.hourlyRate !== undefined && p.hourlyRate !== null && p.hourlyRate !== '' && ctx.can('payroll.manage')) {
+    hourlyRate = Math.max(0, Number(p.hourlyRate) || 0);
+  }
+
   var countRes = await pool.query('SELECT count(*)::int AS n FROM employees');
   var code = 'BPL-' + String(countRes.rows[0].n + 1).padStart(3, '0');
   var settingsRes = await pool.query('SELECT plants FROM settings WHERE id = 1');
@@ -105,10 +115,10 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
-        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId]
+        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate]
     );
     var e = insertRes.rows[0];
 
@@ -190,7 +200,7 @@ async function update(ctx, id, p) {
   // Pay rate/cycle are compensation data — gated separately behind
   // payroll.manage so a department manager with plain employee.write
   // (who can otherwise edit this same record) can't set someone's pay.
-  if ((p.payCycle !== undefined || p.dailyRate !== undefined) && !ctx.can('payroll.manage')) {
+  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined) && !ctx.can('payroll.manage')) {
     fail('forbidden', 'Your role does not allow this action (payroll.manage).');
   }
 
@@ -232,6 +242,14 @@ async function update(ctx, id, p) {
   if (p.dailyRate !== undefined) {
     var dailyRate = Math.max(0, Number(p.dailyRate) || 0);
     if (dailyRate !== Number(e.daily_rate)) { changed.push('dailyRate'); values.push(dailyRate); sets.push('daily_rate = $' + values.length); }
+  }
+  // Nullable, unlike dailyRate — "" clears back to "not set" rather than 0,
+  // since a report should be able to tell "no rate on file" apart from
+  // "genuinely unpaid."
+  if (p.hourlyRate !== undefined) {
+    var hourlyRate = p.hourlyRate === null || p.hourlyRate === '' ? null : Math.max(0, Number(p.hourlyRate) || 0);
+    var curHourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
+    if (hourlyRate !== curHourlyRate) { changed.push('hourlyRate'); values.push(hourlyRate); sets.push('hourly_rate = $' + values.length); }
   }
 
   var newEmail = null;

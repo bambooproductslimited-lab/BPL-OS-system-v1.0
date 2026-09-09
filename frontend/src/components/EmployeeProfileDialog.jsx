@@ -121,6 +121,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                 <>
                   <div><div className="employee-profile-label">Pay cycle</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
                   <div><div className="employee-profile-label">Daily rate</div><div>{fmtMoney(e.dailyRate)}</div></div>
+                  <div><div className="employee-profile-label">Hourly rate</div><div>{e.hourlyRate == null ? 'Not set' : fmtMoney(e.hourlyRate) + '/hr'}</div></div>
                 </>
               )}
               {canViewIdDocs && (
