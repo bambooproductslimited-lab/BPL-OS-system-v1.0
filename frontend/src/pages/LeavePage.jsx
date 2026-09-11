@@ -11,8 +11,6 @@ import './LeavePage.css';
 // a balance chip on the request form, counts on the status tabs, and an
 // icon'd empty state.
 
-const STATUS_FILTERS = ['pending', 'approved', 'rejected', 'all'];
-
 // Ported from kernel.js's UI helper tag(status).
 function tagClass(status) {
   if (status === 'approved') return 'tag-neutral';
@@ -36,7 +34,8 @@ function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_C
 const ICON_PATHS = {
   checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
   xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
-  calendar: <><rect x="4" y="5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+  calendar: <><rect x="4" y="5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>
 };
 function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
@@ -182,10 +181,37 @@ export default function LeavePage() {
     rejected: leaveRequests.filter((l) => l.status === 'rejected').length,
     all: leaveRequests.length
   };
+  // Same clickable-tile treatment as AttendancePage.jsx's summary row —
+  // each tile IS the status filter (no separate segmented control needed).
+  const leaveSummary = [
+    { key: 'pending', label: 'Pending', value: filterCounts.pending, icon: 'clock', tone: 'warning' },
+    { key: 'approved', label: 'Approved', value: filterCounts.approved, icon: 'checkCircle', tone: 'people' },
+    { key: 'rejected', label: 'Rejected', value: filterCounts.rejected, icon: 'xCircle', tone: 'danger' },
+    { key: 'all', label: 'All requests', value: filterCounts.all, icon: 'calendar', tone: 'people' }
+  ];
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <div className="leave-summary">
+        {leaveSummary.map((s) => (
+          <button
+            type="button"
+            key={s.key}
+            className={'leave-summary-tile leave-summary-tile-' + s.tone + (filter === s.key ? ' leave-summary-tile-active' : '')}
+            aria-pressed={filter === s.key}
+            title={'Show ' + s.label.toLowerCase()}
+            onClick={() => setFilter(s.key)}
+          >
+            <span className="leave-summary-icon glow-badge"><Icon name={s.icon} /></span>
+            <div>
+              <div className="leave-summary-value">{s.value}</div>
+              <div className="leave-summary-label">{s.label}</div>
+            </div>
+          </button>
+        ))}
+      </div>
 
       <div className="leave-grid">
         {can('leave.request') && (
@@ -248,14 +274,6 @@ export default function LeavePage() {
         <section className="leave-list-section">
           <div className="leave-list-header">
             <h2 className="leave-list-title">{listTitle}</h2>
-            <div className="seg">
-              {STATUS_FILTERS.map((k) => (
-                <label className="seg-opt" key={k}>
-                  <input type="radio" name="leave-filter" checked={filter === k} onChange={() => setFilter(k)} />
-                  <span>{k.charAt(0).toUpperCase() + k.slice(1)}{filterCounts[k] > 0 ? ' (' + filterCounts[k] + ')' : ''}</span>
-                </label>
-              ))}
-            </div>
           </div>
 
           <div className="leave-filters-row">

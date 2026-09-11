@@ -1,3 +1,60 @@
+/* ── summary tiles ─────────────────────────────────────────────────── */
+/* Same clickable-tile pattern as AttendancePage.css's .attendance-summary
+   — each tile doubles as the status filter. */
+.leave-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.leave-summary-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: var(--divider-width) solid var(--color-divider);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--color-bg);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
+.leave-summary-tile:hover { border-color: color-mix(in srgb, var(--tile-tone) 45%, var(--color-divider)); }
+.leave-summary-tile-active { border-color: var(--tile-tone); box-shadow: 0 0 0 1px var(--tile-tone) inset; }
+.shell-main-dark .leave-summary-tile {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--color-bg-subtle) 80%, white 3%), var(--color-bg) 65%);
+  padding: 18px;
+}
+.shell-main-dark .leave-summary-tile:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--tile-tone) 45%, var(--color-divider));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+.shell-main-dark .leave-summary-tile-active {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--tile-tone) inset;
+}
+.leave-summary-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
+  color: var(--tile-tone);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.leave-summary-icon svg { width: 18px; height: 18px; }
+.leave-summary-tile-people { --tile-tone: var(--color-accent); }
+.leave-summary-tile-warning { --tile-tone: var(--color-warning); }
+.leave-summary-tile-danger { --tile-tone: var(--color-danger); }
+.leave-summary-value { font-family: var(--font-heading); font-weight: 800; font-size: 24px; line-height: 1; }
+.shell-main-dark .leave-summary-value { font-size: 27px; }
+.leave-summary-label { font-size: 11px; color: var(--color-text-muted); margin-top: 3px; }
+
 .leave-grid {
   display: grid;
   grid-template-columns: 2fr 3fr;

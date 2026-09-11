@@ -27,7 +27,11 @@ function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_C
 const ICON_PATHS = {
   checklist: <><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M8 12.5l2.3 2.3L16 9.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
   clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
-  message: <><rect x="3.5" y="5" width="17" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8 20l3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
+  message: <><rect x="3.5" y="5" width="17" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8 20l3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
+  circle: <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />,
+  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" /></>,
+  checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
+  xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>
 };
 function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
@@ -117,11 +121,15 @@ export default function TasksPage() {
     return () => clearTimeout(t);
   }, [qInput]);
 
+  // status is deliberately NOT sent as a query param — it's applied
+  // client-side below (visibleTasks) instead, same as AttendancePage/
+  // LeavePage, so the summary tiles can show true counts across every
+  // status in the current scope/company/department/search, not just
+  // whichever one status happens to be selected.
   const load = useCallback(async () => {
     setError(null);
     try {
       const params = new URLSearchParams({ scope: scope });
-      if (statusFilter) params.set('status', statusFilter);
       if (q) params.set('q', q);
       if (companyFilter) params.set('companyId', companyFilter);
       if (deptFilter) params.set('departmentId', deptFilter);
@@ -142,7 +150,7 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [scope, statusFilter, q, companyFilter, deptFilter, canManage]);
+  }, [scope, q, companyFilter, deptFilter, canManage]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -276,11 +284,43 @@ export default function TasksPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const overdueCount = tasks.filter((t) => t.overdue).length;
+  // tasks is already scoped/company/department/search-filtered server-side
+  // (see load()'s comment) but NOT status-filtered — so these counts cover
+  // every status in view, and visibleTasks (what the table actually shows)
+  // narrows that down by statusFilter, same split as AttendancePage's
+  // rows/visibleRows.
+  const visibleTasks = tasks.filter((t) => !statusFilter || (statusFilter === 'overdue' ? t.overdue : t.status === statusFilter));
+  const taskSummary = [
+    { key: '', label: 'All tasks', value: tasks.length, icon: 'checklist', tone: 'people' },
+    { key: 'not_started', label: 'Not started', value: tasks.filter((t) => t.status === 'not_started').length, icon: 'circle', tone: 'people' },
+    { key: 'in_progress', label: 'In progress', value: tasks.filter((t) => t.status === 'in_progress').length, icon: 'clock', tone: 'warning' },
+    { key: 'under_review', label: 'Under review', value: tasks.filter((t) => t.status === 'under_review').length, icon: 'eye', tone: 'warning' },
+    { key: 'completed', label: 'Completed', value: tasks.filter((t) => t.status === 'completed').length, icon: 'checkCircle', tone: 'people' },
+    { key: 'overdue', label: 'Overdue', value: tasks.filter((t) => t.overdue).length, icon: 'xCircle', tone: 'danger' }
+  ];
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <div className="tasks-summary">
+        {taskSummary.map((s) => (
+          <button
+            type="button"
+            key={s.label}
+            className={'tasks-summary-tile tasks-summary-tile-' + s.tone + (statusFilter === s.key ? ' tasks-summary-tile-active' : '')}
+            aria-pressed={statusFilter === s.key}
+            title={s.key ? 'Show only ' + s.label.toLowerCase() : 'Clear the status filter'}
+            onClick={() => setStatusFilter(statusFilter === s.key ? '' : s.key)}
+          >
+            <span className="tasks-summary-icon glow-badge"><Icon name={s.icon} /></span>
+            <div>
+              <div className="tasks-summary-value">{s.value}</div>
+              <div className="tasks-summary-label">{s.label}</div>
+            </div>
+          </button>
+        ))}
+      </div>
 
       <div className="tasks-toolbar">
         <div className="seg">
@@ -294,6 +334,7 @@ export default function TasksPage() {
         <select className="input tasks-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
+          <option value="overdue">Overdue</option>
         </select>
         <select
           className="input tasks-status-filter" value={companyFilter} aria-label="Filter by company"
@@ -312,9 +353,6 @@ export default function TasksPage() {
           ))}
         </select>
         <input className="input tasks-search" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search tasks…" />
-        {overdueCount > 0 && (
-          <span className="tasks-overdue-badge"><Icon name="clock" /> {overdueCount} overdue</span>
-        )}
       </div>
 
       {canManage && (
@@ -350,7 +388,7 @@ export default function TasksPage() {
           <tr><th>Task</th><th>Project</th><th>Assignee(s)</th><th>Priority</th><th>Started</th><th>Due</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          {tasks.map((t) => (
+          {visibleTasks.map((t) => (
             <tr key={t.id}>
               <td>
                 <button type="button" className="tasks-title-btn" onClick={() => openDetail(t)}>{t.title}</button>
@@ -380,7 +418,7 @@ export default function TasksPage() {
           ))}
         </tbody>
       </table>
-      {!tasks.length && (
+      {!visibleTasks.length && (
         <div className="tasks-empty-state">
           <span className="tasks-empty-icon"><Icon name="checklist" /></span>
           <p className="tasks-empty-title">No tasks here</p>
