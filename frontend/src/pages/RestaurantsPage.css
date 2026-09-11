@@ -191,6 +191,20 @@
 }
 .restaurants-menu-photo-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
+/* ── menu item price variations ────────────────────────────────────── */
+.restaurants-variations-field { border-top: var(--divider-width) solid var(--color-divider); padding-top: 12px; }
+.restaurants-variations-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.restaurants-variation-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: var(--radius-sm, 6px);
+  background: var(--color-bg-subtle);
+}
+.restaurants-variation-name { flex: 1; font-weight: 500; }
+.restaurants-variation-price { color: var(--color-text-secondary); }
+.restaurants-variation-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.restaurants-variation-add .input { flex: 1; min-width: 100px; }
+.restaurants-variations-hint { color: var(--color-text-secondary); font-size: 13px; margin: 0; }
+
 /* ── sales table polish ────────────────────────────────────────────── */
 .restaurants-sales-table { transition: opacity 0.15s ease; }
 .restaurants-sales-table tbody tr { transition: background-color 0.1s ease; }

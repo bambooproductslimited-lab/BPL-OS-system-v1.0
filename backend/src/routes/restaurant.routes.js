@@ -37,6 +37,15 @@ router.post('/menu-items/:id/photo', photoUpload.single('file'), async function 
 router.delete('/menu-items/:id/photo', async function (req, res, next) {
   try { res.json(await restaurantService.removeMenuItemPhoto(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
+router.post('/menu-items/:id/variations', async function (req, res, next) {
+  try { res.status(201).json(await restaurantService.createVariation(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.put('/menu-items/:id/variations/:variationId', async function (req, res, next) {
+  try { res.json(await restaurantService.updateVariation(req.ctx, req.params.id, req.params.variationId, req.body)); } catch (e) { next(e); }
+});
+router.delete('/menu-items/:id/variations/:variationId', async function (req, res, next) {
+  try { res.json(await restaurantService.removeVariation(req.ctx, req.params.id, req.params.variationId)); } catch (e) { next(e); }
+});
 
 router.get('/supplies', async function (req, res, next) {
   try { res.json(await restaurantService.listSupplies(req.ctx, req.query.companyId)); } catch (e) { next(e); }

@@ -31,8 +31,32 @@ function rowToMenuItem(r) {
   return {
     id: r.id, companyId: r.company_id, name: r.name, category: r.category,
     price: Number(r.price), active: r.active, source: r.source,
-    photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null
+    photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null,
+    variations: []
   };
+}
+
+function rowToVariation(r) {
+  return { id: r.id, menuItemId: r.menu_item_id, name: r.name, price: Number(r.price) };
+}
+
+// Attaches each item's named price variations (Square-style: e.g. one dish,
+// "M" vs "Jellyfish", each its own price) — a second query rather than a
+// join, since an item can have any number of variations and a join would
+// duplicate the parent row per variation.
+async function attachVariations(items) {
+  if (!items.length) return items;
+  var res = await pool.query(
+    'SELECT * FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1) ORDER BY sort_order, created_at',
+    [items.map(function (i) { return i.id; })]
+  );
+  var byItem = new Map();
+  res.rows.forEach(function (r) {
+    if (!byItem.has(r.menu_item_id)) byItem.set(r.menu_item_id, []);
+    byItem.get(r.menu_item_id).push(rowToVariation(r));
+  });
+  items.forEach(function (i) { i.variations = byItem.get(i.id) || []; });
+  return items;
 }
 
 async function listMenuItems(ctx, companyId) {
@@ -41,7 +65,7 @@ async function listMenuItems(ctx, companyId) {
   var where = '';
   if (companyId) { args.push(companyId); where = 'WHERE company_id = $1'; }
   var res = await pool.query('SELECT * FROM restaurant_menu_items ' + where + ' ORDER BY category, name', args);
-  return res.rows.map(rowToMenuItem);
+  return attachVariations(res.rows.map(rowToMenuItem));
 }
 
 async function createMenuItem(ctx, p) {
@@ -94,6 +118,51 @@ async function removeMenuItem(ctx, id) {
   await pool.query('DELETE FROM restaurant_menu_items WHERE id = $1', [id]);
   if (existing.rows[0].photo_object_key) { try { await storage.deleteFile(existing.rows[0].photo_object_key); } catch (e) { /* orphaned object, not worth failing the delete over */ } }
   await audit(pool, ctx, 'restaurant.menu.delete', 'restaurant_menu_item', id, 'Removed ' + existing.rows[0].name + ' from the menu.');
+  return true;
+}
+
+// ── menu item price variations ──────────────────────────────────────────
+
+async function requireMenuItem(menuItemId) {
+  var res = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [menuItemId]);
+  if (!res.rows[0]) fail('notfound', 'Menu item not found.');
+  return res.rows[0];
+}
+
+async function createVariation(ctx, menuItemId, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var item = await requireMenuItem(menuItemId);
+  var name = V.text(p.name, 'Name', 60);
+  var price = Math.max(0, Number(p.price) || 0);
+  var countRes = await pool.query('SELECT count(*) AS n FROM restaurant_menu_item_variations WHERE menu_item_id = $1', [menuItemId]);
+  var res = await pool.query(
+    'INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order) VALUES ($1,$2,$3,$4) RETURNING *',
+    [menuItemId, name, price, Number(countRes.rows[0].n)]
+  );
+  await audit(pool, ctx, 'restaurant.menu.variation.create', 'restaurant_menu_item', item.id, 'Added variation "' + name + '" to ' + item.name + '.');
+  return rowToVariation(res.rows[0]);
+}
+
+async function updateVariation(ctx, menuItemId, variationId, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var item = await requireMenuItem(menuItemId);
+  var name = V.text(p.name, 'Name', 60);
+  var price = Math.max(0, Number(p.price) || 0);
+  var res = await pool.query(
+    'UPDATE restaurant_menu_item_variations SET name = $1, price = $2 WHERE id = $3 AND menu_item_id = $4 RETURNING *',
+    [name, price, variationId, menuItemId]
+  );
+  if (!res.rows[0]) fail('notfound', 'Variation not found.');
+  await audit(pool, ctx, 'restaurant.menu.variation.update', 'restaurant_menu_item', item.id, 'Updated variation "' + name + '" on ' + item.name + '.');
+  return rowToVariation(res.rows[0]);
+}
+
+async function removeVariation(ctx, menuItemId, variationId) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var item = await requireMenuItem(menuItemId);
+  var res = await pool.query('DELETE FROM restaurant_menu_item_variations WHERE id = $1 AND menu_item_id = $2 RETURNING *', [variationId, menuItemId]);
+  if (!res.rows[0]) fail('notfound', 'Variation not found.');
+  await audit(pool, ctx, 'restaurant.menu.variation.delete', 'restaurant_menu_item', item.id, 'Removed variation "' + res.rows[0].name + '" from ' + item.name + '.');
   return true;
 }
 
@@ -424,6 +493,7 @@ module.exports = {
   listMenuItems: listMenuItems, createMenuItem: createMenuItem, updateMenuItem: updateMenuItem,
   setMenuItemActive: setMenuItemActive, removeMenuItem: removeMenuItem,
   setMenuItemPhoto: setMenuItemPhoto, removeMenuItemPhoto: removeMenuItemPhoto, getMenuItemPhoto: getMenuItemPhoto,
+  createVariation: createVariation, updateVariation: updateVariation, removeVariation: removeVariation,
   listSupplies: listSupplies, createSupply: createSupply, updateSupply: updateSupply,
   adjustSupplyStock: adjustSupplyStock, removeSupply: removeSupply,
   listIngredients: listIngredients, createIngredient: createIngredient, updateIngredient: updateIngredient,

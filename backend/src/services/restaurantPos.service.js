@@ -83,15 +83,35 @@ async function menuForSession(token) {
     'SELECT id, name, category, price, photo_object_key, favorite FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
   );
-  return res.rows.map(rowToTile);
+  return attachVariationsToTiles(res.rows.map(rowToTile));
 }
 
 function rowToTile(r) {
   return {
     id: r.id, name: r.name, category: r.category, price: Number(r.price),
     photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null,
-    favorite: r.favorite
+    favorite: r.favorite, variations: []
   };
+}
+
+// Attaches each tile's named price variations (a second query, same
+// pattern as restaurant.service.js's attachVariations, kept separate since
+// this module never imports that one) — a tile with none sells at its own
+// flat price exactly as before; the till only opens a variation picker for
+// tiles that have some.
+async function attachVariationsToTiles(tiles) {
+  if (!tiles.length) return tiles;
+  var res = await pool.query(
+    'SELECT id, menu_item_id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1) ORDER BY sort_order, created_at',
+    [tiles.map(function (t) { return t.id; })]
+  );
+  var byItem = new Map();
+  res.rows.forEach(function (r) {
+    if (!byItem.has(r.menu_item_id)) byItem.set(r.menu_item_id, []);
+    byItem.get(r.menu_item_id).push({ id: r.id, name: r.name, price: Number(r.price) });
+  });
+  tiles.forEach(function (t) { t.variations = byItem.get(t.id) || []; });
+  return tiles;
 }
 
 // Shared across whoever's on the till, not per-cashier — see migration
@@ -132,11 +152,12 @@ async function mostlyBought(token) {
     'LIMIT $3',
     [session.posCompanyId, MOSTLY_BOUGHT_WINDOW_DAYS, MOSTLY_BOUGHT_LIMIT]
   );
-  return res.rows.map(function (r) {
+  var tiles = res.rows.map(function (r) {
     var tile = rowToTile(r);
     tile.qtySold = Number(r.qty_sold);
     return tile;
   });
+  return attachVariationsToTiles(tiles);
 }
 
 // Active tables for the till's own company — the fixed, management-set
@@ -239,9 +260,27 @@ async function createOrder(token, p) {
       );
       var m = menuRes.rows[0];
       if (!m) fail('invalid', 'One of the items in this order is no longer available.');
-      var lineTotal = Math.round(qty * Number(m.price) * 100) / 100;
+
+      // If the item has any price variations (Square-style "M" vs
+      // "Jellyfish" pricing), the till must say which one was picked —
+      // never fall back to the item's own flat price, which isn't
+      // meaningful once variations exist. An item with none ignores
+      // whatever variationId the client sends.
+      var variationRes = await client.query('SELECT id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = $1', [m.id]);
+      var name = m.name;
+      var unitPrice = Number(m.price);
+      var variationId = null;
+      if (variationRes.rows.length) {
+        var picked = items[i].variationId && variationRes.rows.find(function (v) { return v.id === items[i].variationId; });
+        if (!picked) fail('invalid', m.name + ' has price variations — pick one.');
+        variationId = picked.id;
+        name = m.name + ' — ' + picked.name;
+        unitPrice = Number(picked.price);
+      }
+
+      var lineTotal = Math.round(qty * unitPrice * 100) / 100;
       subtotal += lineTotal;
-      lines.push({ menuItemId: m.id, name: m.name, qty: qty, unitPrice: Number(m.price), lineTotal: lineTotal });
+      lines.push({ menuItemId: m.id, variationId: variationId, name: name, qty: qty, unitPrice: unitPrice, lineTotal: lineTotal });
     }
     subtotal = Math.round(subtotal * 100) / 100;
 
@@ -257,8 +296,8 @@ async function createOrder(token, p) {
     var order = orderRes.rows[0];
     for (var j = 0; j < lines.length; j++) {
       await client.query(
-        'INSERT INTO restaurant_order_items (order_id, menu_item_id, name, qty, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6)',
-        [order.id, lines[j].menuItemId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal]
+        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal]
       );
     }
     return rowToOrder(order, lines);

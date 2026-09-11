@@ -115,8 +115,13 @@ export default function RestaurantPosPage() {
   const [mostlyBought, setMostlyBought] = useState([]);
   const [mostlyBoughtLoading, setMostlyBoughtLoading] = useState(false);
 
-  const [cart, setCart] = useState([]); // [{ menuItemId, name, price, qty }]
+  const [cart, setCart] = useState([]); // [{ menuItemId, variationId, name, price, qty }]
   const [tappedId, setTappedId] = useState(null); // brief tap-feedback flash on the tile just added
+
+  // Variation picker — mirrors the real Square POS's own item-detail modal:
+  // tapping an item that has named price variations (e.g. "M" ₵98 vs
+  // "Jellyfish" ₵238) opens this instead of adding straight to the cart.
+  const [variantPickerItem, setVariantPickerItem] = useState(null); // the menu tile being picked for, or null
 
   // Table/waiter/guest — all optional, attached to the CURRENT in-progress
   // order only (like the cart itself: reset after each sale, never
@@ -487,28 +492,45 @@ export default function RestaurantPosPage() {
   }
 
   var RECENT_LIMIT = 30;
-  function addToCart(item) {
+  // A cart line is keyed by menuItemId + variationId so two variations of
+  // the same dish ("M" and "Jellyfish") ring up as separate lines with
+  // their own price, instead of colliding into one.
+  function lineKey(menuItemId, variationId) { return menuItemId + '::' + (variationId || ''); }
+
+  function tapItem(item) {
+    if (item.variations && item.variations.length) { setVariantPickerItem(item); return; }
+    addToCart(item, null);
+  }
+  function addToCart(item, variation) {
+    const key = lineKey(item.id, variation && variation.id);
     setCart((prev) => {
-      const idx = prev.findIndex((l) => l.menuItemId === item.id);
+      const idx = prev.findIndex((l) => lineKey(l.menuItemId, l.variationId) === key);
       if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l));
-      return prev.concat([{ menuItemId: item.id, name: item.name, price: item.price, qty: 1 }]);
+      return prev.concat([{
+        menuItemId: item.id, variationId: variation ? variation.id : null,
+        name: variation ? item.name + ' — ' + variation.name : item.name,
+        price: variation ? variation.price : item.price, qty: 1
+      }]);
     });
     setRecentIds((prev) => [item.id].concat(prev.filter((id) => id !== item.id)).slice(0, RECENT_LIMIT));
     setTappedId(item.id);
     setTimeout(() => setTappedId((cur) => (cur === item.id ? null : cur)), 260);
+    setVariantPickerItem(null);
   }
-  function changeQty(menuItemId, delta) {
-    setCart((prev) => prev.map((l) => (l.menuItemId === menuItemId ? { ...l, qty: Math.max(0, l.qty + delta) } : l)).filter((l) => l.qty > 0));
+  function changeQty(menuItemId, variationId, delta) {
+    const key = lineKey(menuItemId, variationId);
+    setCart((prev) => prev.map((l) => (lineKey(l.menuItemId, l.variationId) === key ? { ...l, qty: Math.max(0, l.qty + delta) } : l)).filter((l) => l.qty > 0));
   }
-  function removeLine(menuItemId) {
-    setCart((prev) => prev.filter((l) => l.menuItemId !== menuItemId));
+  function removeLine(menuItemId, variationId) {
+    const key = lineKey(menuItemId, variationId);
+    setCart((prev) => prev.filter((l) => lineKey(l.menuItemId, l.variationId) !== key));
   }
 
   const cartTotal = cart.reduce((sum, l) => sum + l.price * l.qty, 0);
   const animatedCartTotal = useCountUp(cartTotal);
   const cartQtyById = useMemo(() => {
     const map = new Map();
-    cart.forEach((l) => map.set(l.menuItemId, l.qty));
+    cart.forEach((l) => map.set(l.menuItemId, (map.get(l.menuItemId) || 0) + l.qty));
     return map;
   }, [cart]);
 
@@ -523,7 +545,7 @@ export default function RestaurantPosPage() {
     setCheckoutError(null);
     try {
       const order = await posFetch('POST', '/pos/orders', session.token, {
-        items: cart.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty })),
+        items: cart.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty })),
         paymentMethod: paymentMethod,
         tableId: selectedTable ? selectedTable.id : undefined,
         waiterId: selectedWaiter ? selectedWaiter.id : undefined,
@@ -573,13 +595,17 @@ export default function RestaurantPosPage() {
     { key: 'mostly', label: 'Mostly bought' }
   ];
 
+  function tilePriceLabel(m) {
+    if (!m.variations || !m.variations.length) return money(m.price);
+    return m.variations.length + ' prices';
+  }
   function renderTile(m) {
     const qty = cartQtyById.get(m.id);
     return (
       <button
         key={m.id} type="button"
         className={'pos-menu-tile' + (qty ? ' pos-menu-tile-selected' : '') + (tappedId === m.id ? ' pos-menu-tile-tapped' : '')}
-        onClick={() => addToCart(m)}
+        onClick={() => tapItem(m)}
       >
         <span className="pos-menu-tile-photo" style={m.photoUrl ? undefined : { background: tileColor(m.name) }}>
           {m.photoUrl ? (
@@ -599,7 +625,7 @@ export default function RestaurantPosPage() {
         </span>
         <span className="pos-menu-tile-body">
           <span className="pos-menu-tile-name">{m.name}</span>
-          <span className="pos-menu-tile-price">{money(m.price)}</span>
+          <span className="pos-menu-tile-price">{tilePriceLabel(m)}</span>
         </span>
       </button>
     );
@@ -878,15 +904,15 @@ export default function RestaurantPosPage() {
           {!cart.length && <div className="pos-cart-empty">Tap a menu item to add it</div>}
           <div className="pos-cart-lines">
             {cart.map((l) => (
-              <div key={l.menuItemId} className="pos-cart-line">
+              <div key={lineKey(l.menuItemId, l.variationId)} className="pos-cart-line">
                 <div className="pos-cart-line-name">{l.name}</div>
                 <div className="pos-cart-line-controls">
-                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, -1)} aria-label="Decrease">−</button>
+                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, -1)} aria-label="Decrease">−</button>
                   <span>{l.qty}</span>
-                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, 1)} aria-label="Increase">+</button>
+                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label="Increase">+</button>
                 </div>
                 <div className="pos-cart-line-total">{money(l.price * l.qty)}</div>
-                <button type="button" className="pos-cart-remove" onClick={() => removeLine(l.menuItemId)} aria-label="Remove">×</button>
+                <button type="button" className="pos-cart-remove" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label="Remove">×</button>
               </div>
             ))}
           </div>
@@ -1005,6 +1031,28 @@ export default function RestaurantPosPage() {
               <button type="submit" className="btn btn-primary" disabled={closingDrawer}>{closingDrawer ? 'Closing…' : 'Close drawer'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {variantPickerItem && (
+        <div className="dialog-backdrop" onClick={() => setVariantPickerItem(null)}>
+          <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>{variantPickerItem.name}</h2>
+            <div className="pos-picker-list">
+              {variantPickerItem.variations.map((v) => (
+                <button
+                  key={v.id} type="button" className="pos-picker-row"
+                  onClick={() => addToCart(variantPickerItem, v)}
+                >
+                  <span>{v.name}</span>
+                  <span>{money(v.price)}</span>
+                </button>
+              ))}
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setVariantPickerItem(null)}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 

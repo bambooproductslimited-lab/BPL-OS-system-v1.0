@@ -142,6 +142,15 @@ export default function RestaurantsPage() {
   const [menuPhotoPreview, setMenuPhotoPreview] = useState(null);
   const [menuPhotoRemoved, setMenuPhotoRemoved] = useState(false);
 
+  // Named price variations (Square-style: one dish, several named options
+  // each with its own price) — only manageable once the item itself has
+  // been saved and has an id, so this mini add/edit form lives inside the
+  // same "Edit menu item" dialog rather than its own separate dialog.
+  const [variationEditId, setVariationEditId] = useState(null);
+  const [variationForm, setVariationForm] = useState({ name: '', price: '' });
+  const [variationError, setVariationError] = useState(null);
+  const [variationSaving, setVariationSaving] = useState(false);
+
   const [supplyDialogOpen, setSupplyDialogOpen] = useState(false);
   const [supplyEditId, setSupplyEditId] = useState(null);
   const [supplyForm, setSupplyForm] = useState(EMPTY_SUPPLY_FORM);
@@ -223,6 +232,14 @@ export default function RestaurantsPage() {
     departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
     return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [departments]);
+
+  // The menu-item dialog's own variations list always reflects the latest
+  // load() response (re-fetched after every add/edit/remove below), not a
+  // stale copy grabbed when the dialog opened.
+  const editingMenuItemVariations = useMemo(() => {
+    const item = menuItems.find((m) => m.id === menuEditId);
+    return (item && item.variations) || [];
+  }, [menuItems, menuEditId]);
 
   const load = useCallback(async (forCompanyId) => {
     setError(null);
@@ -374,6 +391,9 @@ export default function RestaurantsPage() {
     setMenuPhotoFile(null);
     setMenuPhotoPreview(null);
     setMenuPhotoRemoved(false);
+    setVariationEditId(null);
+    setVariationForm({ name: '', price: '' });
+    setVariationError(null);
     setMenuDialogOpen(true);
   }
   function openEditMenuItem(m) {
@@ -383,6 +403,9 @@ export default function RestaurantsPage() {
     setMenuPhotoFile(null);
     setMenuPhotoPreview(m.photoUrl ? API_ORIGIN + m.photoUrl : null);
     setMenuPhotoRemoved(false);
+    setVariationEditId(null);
+    setVariationForm({ name: '', price: '' });
+    setVariationError(null);
     setMenuDialogOpen(true);
   }
   function pickMenuPhoto(file) {
@@ -419,6 +442,45 @@ export default function RestaurantsPage() {
       setMenuSaving(false);
     }
   }
+
+  function startAddVariation() {
+    setVariationEditId(null);
+    setVariationForm({ name: '', price: '' });
+    setVariationError(null);
+  }
+  function startEditVariation(v) {
+    setVariationEditId(v.id);
+    setVariationForm({ name: v.name, price: v.price });
+    setVariationError(null);
+  }
+  async function submitVariationForm() {
+    if (!variationForm.name.trim()) { setVariationError('Name a variation before adding it.'); return; }
+    setVariationSaving(true);
+    setVariationError(null);
+    try {
+      if (variationEditId) await api.put('/restaurant/menu-items/' + menuEditId + '/variations/' + variationEditId, variationForm);
+      else await api.post('/restaurant/menu-items/' + menuEditId + '/variations', variationForm);
+      setVariationEditId(null);
+      setVariationForm({ name: '', price: '' });
+      await load(companyId);
+    } catch (err) {
+      setVariationError(err.message);
+    } finally {
+      setVariationSaving(false);
+    }
+  }
+  async function deleteVariation(v) {
+    setBusyId(v.id);
+    try {
+      await api.del('/restaurant/menu-items/' + menuEditId + '/variations/' + v.id);
+      await load(companyId);
+    } catch (err) {
+      setVariationError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function toggleMenuActive(m) {
     setBusyId(m.id);
     try {
@@ -1080,9 +1142,38 @@ export default function RestaurantsPage() {
               <input id="rm-category" className="input" value={menuForm.category} onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })} placeholder="Mains, Drinks, Starters…" />
             </div>
             <div className="field">
-              <label htmlFor="rm-price">Price</label>
+              <label htmlFor="rm-price">Price{!!editingMenuItemVariations.length && ' (fallback — sold price comes from the variation below)'}</label>
               <input id="rm-price" className="input" type="number" min="0" step="0.01" value={menuForm.price} onChange={(e) => setMenuForm({ ...menuForm, price: e.target.value })} required />
             </div>
+            {menuEditId && (
+              <div className="field restaurants-variations-field">
+                <label>Price variations (optional — e.g. "M" ₵98 vs "Jellyfish" ₵238)</label>
+                {!!editingMenuItemVariations.length && (
+                  <div className="restaurants-variations-list">
+                    {editingMenuItemVariations.map((v) => (
+                      <div key={v.id} className="restaurants-variation-row">
+                        <span className="restaurants-variation-name">{v.name}</span>
+                        <span className="restaurants-variation-price">{money(v.price)}</span>
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => startEditVariation(v)}>Edit</button>
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === v.id} onClick={() => deleteVariation(v)}>Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {variationError && <div className="error-banner">{variationError}</div>}
+                <div className="restaurants-variation-add">
+                  <input className="input" placeholder="Name (e.g. M, Large, Jellyfish…)" value={variationForm.name} onChange={(e) => setVariationForm({ ...variationForm, name: e.target.value })} />
+                  <input className="input" type="number" min="0" step="0.01" placeholder="Price" value={variationForm.price} onChange={(e) => setVariationForm({ ...variationForm, price: e.target.value })} />
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={variationSaving} onClick={submitVariationForm}>
+                    {variationEditId ? 'Save' : 'Add'}
+                  </button>
+                  {variationEditId && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={startAddVariation}>Cancel</button>}
+                </div>
+              </div>
+            )}
+            {!menuEditId && (
+              <p className="restaurants-variations-hint">Save this item first, then reopen it here to add price variations.</p>
+            )}
             <div className="field">
               <label htmlFor="rm-photo">Photo (shown on the POS till)</label>
               {menuPhotoPreview && <img className="restaurants-menu-photo-preview" src={menuPhotoPreview} alt="" />}
