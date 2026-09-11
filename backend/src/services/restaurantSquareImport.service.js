@@ -109,6 +109,65 @@ async function upsertMenuItem(company, item, variation, categoryNameByExternal) 
   return res.rows[0].id;
 }
 
+// A Square ITEM with more than one qualifying variation — e.g. "Cucumber
+// with Garlic" sold as "M" ₵98 or "Jellyfish" ₵238 — now upserts as ONE
+// restaurant_menu_items row (keyed by the ITEM's own external_id, which no
+// variation-keyed row has ever used) plus one restaurant_menu_item_variations
+// row per variation, matching the named-price-variation feature the till
+// and management UI already support. Single-variation items are untouched
+// (still upsertMenuItem's one-flat-row shape) — grouping only changes
+// behavior for items that genuinely have more than one price.
+//
+// A restaurant re-importing after this shipped will have OLD flat rows
+// sitting around from before — one per variation, keyed by that
+// variation's own external_id (see upsertMenuItem above). Those are left
+// in place (never deleted: real historical orders' restaurant_order_items
+// rows may still reference them, and that FK has no ON DELETE) but
+// deactivated, since the new grouped item now supersedes them as what's
+// actually sold.
+async function upsertGroupedMenuItem(company, item, variations, categoryNameByExternal) {
+  if (variations.length <= 1) {
+    var menuItemId = await upsertMenuItem(company, item, variations[0], categoryNameByExternal);
+    return { menuItemId: menuItemId, variationRowIdByExternalId: {} };
+  }
+
+  var squareCategoryId = item.item_data.categories && item.item_data.categories[0] && item.item_data.categories[0].id;
+  var category = (squareCategoryId && categoryNameByExternal[squareCategoryId]) || 'General';
+  var fallbackPrice = minorToMajor(variations[0].item_variation_data.price_money);
+  var active = !item.is_deleted;
+
+  var parentRes = await pool.query(
+    "INSERT INTO restaurant_menu_items (company_id, name, category, price, active, external_id, source) " +
+    "VALUES ($1,$2,$3,$4,$5,$6,'square') " +
+    "ON CONFLICT (company_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
+    "name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price, active = EXCLUDED.active, updated_at = now() " +
+    "RETURNING id",
+    [company.id, item.item_data.name, category, fallbackPrice, active, item.id]
+  );
+  var menuItemId = parentRes.rows[0].id;
+
+  var variationRowIdByExternalId = {};
+  for (var i = 0; i < variations.length; i++) {
+    var v = variations[i];
+    var vName = (v.item_variation_data.name || '').trim() || 'Regular';
+    var vPrice = minorToMajor(v.item_variation_data.price_money);
+    var vRes = await pool.query(
+      "INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order, external_id) " +
+      "VALUES ($1,$2,$3,$4,$5) " +
+      "ON CONFLICT (menu_item_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
+      "name = EXCLUDED.name, price = EXCLUDED.price " +
+      "RETURNING id",
+      [menuItemId, vName, vPrice, i, v.id]
+    );
+    variationRowIdByExternalId[v.id] = vRes.rows[0].id;
+    await pool.query(
+      'UPDATE restaurant_menu_items SET active = false, updated_at = now() WHERE company_id = $1 AND external_id = $2 AND id <> $3',
+      [company.id, v.id, menuItemId]
+    );
+  }
+  return { menuItemId: menuItemId, variationRowIdByExternalId: variationRowIdByExternalId };
+}
+
 // Square Orders don't reliably carry a payment method on the order object
 // itself (tenders is a legacy field, absent on most modern orders) — where
 // present it's mapped onto restaurant_orders' CHECK constraint values the
@@ -126,10 +185,10 @@ function orderPaymentMethod(order) {
   return tender ? mapTenderType(tender.type) : 'other';
 }
 
-function buildOrderItems(order, menuItemIdByVariation) {
+function buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation) {
   var lineItems = order.line_items || [];
   if (!lineItems.length) {
-    return [{ menuItemId: null, name: 'Square order total', qty: 1, unitPrice: minorToMajor(order.total_money), lineTotal: minorToMajor(order.total_money) }];
+    return [{ menuItemId: null, variationId: null, name: 'Square order total', qty: 1, unitPrice: minorToMajor(order.total_money), lineTotal: minorToMajor(order.total_money) }];
   }
   return lineItems.map(function (li) {
     var qty = Math.max(0.01, Number(li.quantity) || 1);
@@ -137,14 +196,15 @@ function buildOrderItems(order, menuItemIdByVariation) {
     var unitPrice = li.base_price_money ? minorToMajor(li.base_price_money) : Math.round((lineTotal / qty) * 100) / 100;
     return {
       menuItemId: (li.catalog_object_id && menuItemIdByVariation[li.catalog_object_id]) || null,
+      variationId: (li.catalog_object_id && variationRowIdByVariation && variationRowIdByVariation[li.catalog_object_id]) || null,
       name: li.name || 'Item', qty: qty, unitPrice: unitPrice, lineTotal: lineTotal
     };
   });
 }
 
-async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation) {
+async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation) {
   var total = minorToMajor(order.total_money);
-  var items = buildOrderItems(order, menuItemIdByVariation);
+  var items = buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation);
   var subtotal = items.reduce(function (sum, it) { return sum + it.lineTotal; }, 0);
   var orderNo = 'SQ-' + order.id;
   // Every imported order lands as 'completed' — an OPEN Square order (still
@@ -170,8 +230,8 @@ async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       await client.query(
-        'INSERT INTO restaurant_order_items (order_id, menu_item_id, name, qty, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6)',
-        [orderId, it.menuItemId, it.name, it.qty, it.unitPrice, it.lineTotal]
+        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [orderId, it.menuItemId, it.variationId, it.name, it.qty, it.unitPrice, it.lineTotal]
       );
     }
     await audit(client, ctx, 'restaurant.square_import.order', 'restaurant_order', orderId, 'Imported from Square order ' + order.id + ' (GHS ' + total.toLocaleString() + ').');
@@ -209,19 +269,27 @@ async function runImport(ctx, companyId) {
   var locationIds = creds.locationId ? [creds.locationId] : allLocationIds;
 
   var menuItemIdByVariation = {};
+  var variationRowIdByVariation = {};
   for (var it = 0; it < squareItems.length; it++) {
     var item = squareItems[it];
-    var variations = (item.item_data && item.item_data.variations) || [];
-    for (var vi = 0; vi < variations.length; vi++) {
-      var v = variations[vi];
-      if (!itemPresentAtLocation(item, v, creds.locationId)) continue; // not sold at this restaurant's location — not its menu item
-      try {
-        menuItemIdByVariation[v.id] = await upsertMenuItem(company, item, v, categoryNameByExternal);
-        summary.menuItems.imported++;
-      } catch (e) {
-        summary.menuItems.skipped++;
-        summary.errors.push({ type: 'menuItem', externalId: v.id, message: e.message });
+    var allVariations = (item.item_data && item.item_data.variations) || [];
+    // Qualifying = actually sold at this restaurant's location and not
+    // itself deleted in Square's catalog — grouped as ONE menu item when
+    // there's more than one (see upsertGroupedMenuItem's comment).
+    var qualifying = allVariations.filter(function (v) { return itemPresentAtLocation(item, v, creds.locationId) && !v.is_deleted; });
+    if (!qualifying.length) continue;
+    try {
+      var grouped = await upsertGroupedMenuItem(company, item, qualifying, categoryNameByExternal);
+      for (var qi = 0; qi < qualifying.length; qi++) {
+        menuItemIdByVariation[qualifying[qi].id] = grouped.menuItemId;
+        if (grouped.variationRowIdByExternalId[qualifying[qi].id]) {
+          variationRowIdByVariation[qualifying[qi].id] = grouped.variationRowIdByExternalId[qualifying[qi].id];
+        }
       }
+      summary.menuItems.imported += qualifying.length;
+    } catch (e) {
+      summary.menuItems.skipped += qualifying.length;
+      summary.errors.push({ type: 'menuItem', externalId: item.id, message: e.message });
     }
   }
 
@@ -229,7 +297,7 @@ async function runImport(ctx, companyId) {
   for (var oi = 0; oi < orders.length; oi++) {
     var order = orders[oi];
     try {
-      await upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation);
+      await upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation);
       summary.orders.imported++;
     } catch (e) {
       summary.orders.skipped++;
@@ -251,5 +319,6 @@ module.exports = {
   // network policy blocks the backend's own direct Square API calls.
   minorToMajor: minorToMajor, menuItemName: menuItemName, mapTenderType: mapTenderType,
   requireCompany: requireCompany, ensureImportCashier: ensureImportCashier,
-  upsertMenuItem: upsertMenuItem, upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation
+  upsertMenuItem: upsertMenuItem, upsertGroupedMenuItem: upsertGroupedMenuItem,
+  upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation
 };

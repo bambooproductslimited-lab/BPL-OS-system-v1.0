@@ -1,0 +1,2 @@
+DROP INDEX idx_restaurant_menu_item_variations_item_external;
+ALTER TABLE restaurant_menu_item_variations DROP COLUMN external_id;
