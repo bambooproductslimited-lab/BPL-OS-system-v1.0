@@ -90,6 +90,47 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
 }
 function money2(n) { return 'GHS ' + Number(n || 0).toFixed(2); }
 
+// buildDrawerReportBytes(report, companyName, cashierName) -> same shape
+// as the reference "Drawer Report" receipt this was built to match:
+// header, Starting/Cash Sales/Refunds/Paid In-Out/Expected/Actual/
+// Difference block, then the individual Paid In/Out log lines.
+export function buildDrawerReportBytes(report, companyName, cashierName, opts) {
+  opts = opts || {};
+  var width = opts.lineWidth || LINE_WIDTH_58MM;
+  var out = [];
+  out = out.concat(INIT);
+  out = out.concat(ALIGN_LEFT, BOLD_ON);
+  out = out.concat(line('Drawer Report: ' + (cashierName || '')));
+  out = out.concat(BOLD_OFF);
+  var opened = new Date(report.session.openedAt);
+  var closed = report.session.closedAt ? new Date(report.session.closedAt) : null;
+  out = out.concat(line(opened.toLocaleString() + (closed ? ' -' : '')));
+  if (closed) out = out.concat(line(closed.toLocaleString()));
+  out = out.concat(line(companyName || ''));
+  out = out.concat(line(new Array(width + 1).join('-')));
+  out = out.concat(line(twoColumn('Starting Cash', money2(report.startingCash), width)));
+  out = out.concat(line(twoColumn('Cash Sales', money2(report.cashSales), width)));
+  out = out.concat(line(twoColumn('Cash Refunds', money2(report.cashRefunds), width)));
+  out = out.concat(line(twoColumn('Paid In/Out', (report.netPaidInOut < 0 ? '-' : '') + money2(Math.abs(report.netPaidInOut)), width)));
+  out = out.concat(line(twoColumn('Expected in Drawer', money2(report.expected), width)));
+  out = out.concat(line(twoColumn('Actual in Drawer', report.actual == null ? '' : money2(report.actual), width)));
+  out = out.concat(line(twoColumn('Difference', report.difference == null ? '' : ((report.difference < 0 ? '-' : '') + money2(Math.abs(report.difference))), width)));
+  out = out.concat(line(new Array(width + 1).join('-')));
+  if (report.movements.length) {
+    out = out.concat(BOLD_ON, line('PAID IN/OUT'), BOLD_OFF);
+    report.movements.forEach(function (m) {
+      var label = (m.direction === 'in' ? 'Paid in at ' : 'Paid out at ') + new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      out = out.concat(line(label));
+      if (m.note) out = out.concat(line(m.note));
+      out = out.concat(line(twoColumn('', (m.direction === 'out' ? '-' : '') + money2(m.amount), width)));
+    });
+    out = out.concat(line(twoColumn('Total Paid In/Out', (report.netPaidInOut < 0 ? '-' : '') + money2(Math.abs(report.netPaidInOut)), width)));
+  }
+  out = out.concat(FEED(3));
+  if (opts.cutAfter !== false) out = out.concat(CUT);
+  return out;
+}
+
 // ── WebUSB ──────────────────────────────────────────────────────────────
 
 export function usbSupported() {

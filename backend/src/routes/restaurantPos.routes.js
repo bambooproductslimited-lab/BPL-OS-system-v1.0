@@ -36,4 +36,17 @@ router.post('/orders', posAuth, async function (req, res, next) {
   try { res.status(201).json(await restaurantPosService.createOrder(req.posToken, req.body)); } catch (e) { next(e); }
 });
 
+router.get('/drawer', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.getOpenDrawerSession(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/drawer/open', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await restaurantPosService.openDrawerSession(req.posToken, req.body.startingCash)); } catch (e) { next(e); }
+});
+router.post('/drawer/movements', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await restaurantPosService.addDrawerMovement(req.posToken, req.body)); } catch (e) { next(e); }
+});
+router.post('/drawer/close', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.closeDrawerSession(req.posToken, req.body)); } catch (e) { next(e); }
+});
+
 module.exports = router;

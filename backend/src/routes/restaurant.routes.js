@@ -84,6 +84,17 @@ router.post('/orders/:id/void', async function (req, res, next) {
   try { res.json(await restaurantPosService.voidOrder(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
+router.get('/drawer-sessions', async function (req, res, next) {
+  try {
+    res.json(await restaurantPosService.listDrawerSessions(req.ctx, req.query.companyId, {
+      limit: req.query.limit, offset: req.query.offset, from: req.query.from, to: req.query.to
+    }));
+  } catch (e) { next(e); }
+});
+router.get('/drawer-sessions/:id', async function (req, res, next) {
+  try { res.json(await restaurantPosService.getDrawerSession(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
 // One-time historical import trigger, run per restaurant — see
 // restaurantSquareImport.service.js. Safe to call more than once: every row
 // it writes is upserted by external_id.

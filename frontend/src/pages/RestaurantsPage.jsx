@@ -108,7 +108,7 @@ export default function RestaurantsPage() {
   // selected company to its restaurantLogos.js logo (SBR/BGN/BPL).
   const [companyCodeById, setCompanyCodeById] = useState({});
   const [companyId, setCompanyId] = useState('');
-  const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales'
+  const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales' | 'drawer'
   const [search, setSearch] = useState('');
 
   const [menuItems, setMenuItems] = useState([]);
@@ -259,6 +259,52 @@ export default function RestaurantsPage() {
     }
   }, []);
 
+  // Drawer sessions — same server-paginated, from/to-filtered shape as
+  // Sales above (restaurantPos.service.js's listDrawerSessions), just a
+  // much smaller table in practice (one row per shift, not per sale).
+  const DRAWER_PAGE_SIZE = 50;
+  const [drawerSessions, setDrawerSessions] = useState([]);
+  const [drawerSessionsOffset, setDrawerSessionsOffset] = useState(0);
+  const [drawerSessionsTotal, setDrawerSessionsTotal] = useState(0);
+  const [drawerSessionsFrom, setDrawerSessionsFrom] = useState('');
+  const [drawerSessionsTo, setDrawerSessionsTo] = useState('');
+  const [drawerSessionsLoading, setDrawerSessionsLoading] = useState(false);
+
+  const loadDrawerSessions = useCallback(async (forCompanyId, offset, from, to) => {
+    if (!forCompanyId) return;
+    setDrawerSessionsLoading(true);
+    try {
+      const params = new URLSearchParams({ companyId: forCompanyId, limit: DRAWER_PAGE_SIZE, offset });
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      const res = await api.get('/restaurant/drawer-sessions?' + params.toString());
+      setDrawerSessions(res.sessions);
+      setDrawerSessionsTotal(res.total);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDrawerSessionsLoading(false);
+    }
+  }, []);
+
+  const [drawerDetailOpen, setDrawerDetailOpen] = useState(false);
+  const [drawerDetail, setDrawerDetail] = useState(null);
+  const [drawerDetailLoading, setDrawerDetailLoading] = useState(false);
+  const [drawerDetailError, setDrawerDetailError] = useState(null);
+  async function openDrawerDetail(id) {
+    setDrawerDetailOpen(true);
+    setDrawerDetail(null);
+    setDrawerDetailError(null);
+    setDrawerDetailLoading(true);
+    try {
+      setDrawerDetail(await api.get('/restaurant/drawer-sessions/' + id));
+    } catch (err) {
+      setDrawerDetailError(err.message);
+    } finally {
+      setDrawerDetailLoading(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -283,11 +329,16 @@ export default function RestaurantsPage() {
     setSquareResult(null);
     setSquareError(null);
     setOrdersOffset(0);
+    setDrawerSessionsOffset(0);
   }, [companyId, companies, load]);
 
   useEffect(() => {
     if (tab === 'sales' && companyId) loadOrders(companyId, ordersOffset, ordersFrom, ordersTo);
   }, [tab, companyId, ordersOffset, ordersFrom, ordersTo, loadOrders]);
+
+  useEffect(() => {
+    if (tab === 'drawer' && companyId) loadDrawerSessions(companyId, drawerSessionsOffset, drawerSessionsFrom, drawerSessionsTo);
+  }, [tab, companyId, drawerSessionsOffset, drawerSessionsFrom, drawerSessionsTo, loadDrawerSessions]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -563,14 +614,14 @@ export default function RestaurantsPage() {
 
           <div className="restaurants-toolbar">
             <div className="seg">
-              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }, { key: 'sales', label: 'Sales' }].map((opt) => (
+              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }, { key: 'sales', label: 'Sales' }, { key: 'drawer', label: 'Drawer' }].map((opt) => (
                 <label className="seg-opt" key={opt.key}>
                   <input type="radio" name="restaurant-tab" checked={tab === opt.key} onChange={() => setTab(opt.key)} />
                   <span>{opt.label}</span>
                 </label>
               ))}
             </div>
-            {tab !== 'sales' && (
+            {tab !== 'sales' && tab !== 'drawer' && (
               <SearchInput value={search} onChange={setSearch} placeholder={'Search ' + (tab === 'ingredients' ? 'food' : tab) + '…'} />
             )}
             {tab === 'sales' && (
@@ -580,6 +631,16 @@ export default function RestaurantsPage() {
                 <input type="date" className="input" value={ordersTo} onChange={(e) => { setOrdersTo(e.target.value); setOrdersOffset(0); }} aria-label="To date" />
                 {(ordersFrom || ordersTo) && (
                   <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setOrdersFrom(''); setOrdersTo(''); setOrdersOffset(0); }}>Clear</button>
+                )}
+              </div>
+            )}
+            {tab === 'drawer' && (
+              <div className="restaurants-date-filter">
+                <input type="date" className="input" value={drawerSessionsFrom} onChange={(e) => { setDrawerSessionsFrom(e.target.value); setDrawerSessionsOffset(0); }} aria-label="From date" />
+                <span>to</span>
+                <input type="date" className="input" value={drawerSessionsTo} onChange={(e) => { setDrawerSessionsTo(e.target.value); setDrawerSessionsOffset(0); }} aria-label="To date" />
+                {(drawerSessionsFrom || drawerSessionsTo) && (
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setDrawerSessionsFrom(''); setDrawerSessionsTo(''); setDrawerSessionsOffset(0); }}>Clear</button>
                 )}
               </div>
             )}
@@ -628,6 +689,13 @@ export default function RestaurantsPage() {
               <StatTile icon="list" tone="people" value={ordersTotal} label={(ordersFrom || ordersTo) ? 'Orders in range' : 'Orders'} />
               <StatTile icon="money" tone="ops" value={ordersRevenueTotal} format={money} label={(ordersFrom || ordersTo) ? 'Revenue in range' : 'Revenue'} />
               <StatTile icon="ban" tone="danger" value={ordersVoidedCount} label="Voided" />
+            </div>
+          )}
+          {tab === 'drawer' && drawerSessionsTotal > 0 && (
+            <div className="restaurants-stats restaurants-stats-wide">
+              <StatTile icon="list" tone="people" value={drawerSessionsTotal} label={(drawerSessionsFrom || drawerSessionsTo) ? 'Sessions in range' : 'Sessions'} />
+              <StatTile icon="clock" tone="ops" value={drawerSessions.filter((s) => s.session.status === 'open').length} label="Open now (this page)" />
+              <StatTile icon="ban" tone="danger" value={drawerSessions.filter((s) => s.difference != null && Math.abs(s.difference) > 0.01).length} label="With a discrepancy (this page)" />
             </div>
           )}
 
@@ -748,6 +816,50 @@ export default function RestaurantsPage() {
             </>
           )}
 
+          {tab === 'drawer' && (
+            <>
+              <table className="table restaurants-sales-table" style={{ opacity: drawerSessionsLoading ? 0.6 : 1 }}>
+                <thead>
+                  <tr>
+                    <th>Cashier</th><th>Opened</th><th>Closed</th>
+                    <th className="restaurants-amount-col">Starting</th><th className="restaurants-amount-col">Cash Sales</th>
+                    <th className="restaurants-amount-col">Paid In/Out</th><th className="restaurants-amount-col">Expected</th>
+                    <th className="restaurants-amount-col">Actual</th><th className="restaurants-amount-col">Difference</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {drawerSessions.map((s) => (
+                    <tr key={s.session.id} className="restaurants-sales-row" onClick={() => openDrawerDetail(s.session.id)}>
+                      <td style={{ fontWeight: 600 }}>{s.cashierName}</td>
+                      <td className="restaurants-time">{new Date(s.session.openedAt).toLocaleString()}</td>
+                      <td className="restaurants-time">{s.session.closedAt ? new Date(s.session.closedAt).toLocaleString() : '—'}</td>
+                      <td className="restaurants-amount-col restaurants-amount">{money(s.startingCash)}</td>
+                      <td className="restaurants-amount-col restaurants-amount">{money(s.cashSales)}</td>
+                      <td className="restaurants-amount-col restaurants-amount">{s.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(s.netPaidInOut))}</td>
+                      <td className="restaurants-amount-col restaurants-amount">{money(s.expected)}</td>
+                      <td className="restaurants-amount-col restaurants-amount">{s.actual == null ? '—' : money(s.actual)}</td>
+                      <td className="restaurants-amount-col restaurants-amount">
+                        {s.difference == null ? '—' : (
+                          <span className={Math.abs(s.difference) > 0.01 ? 'tag tag-accent' : ''}>
+                            {s.difference < 0 ? '-' : ''}{money(Math.abs(s.difference))}
+                          </span>
+                        )}
+                      </td>
+                      <td><span className={'tag ' + (s.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{s.session.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {drawerSessionsTotal > 0 && (
+                <div className="restaurants-pager">
+                  <span>{drawerSessionsOffset + 1}–{Math.min(drawerSessionsOffset + DRAWER_PAGE_SIZE, drawerSessionsTotal)} of {drawerSessionsTotal.toLocaleString()}</span>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset === 0 || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(Math.max(0, drawerSessionsOffset - DRAWER_PAGE_SIZE))}>Previous</button>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset + DRAWER_PAGE_SIZE >= drawerSessionsTotal || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(drawerSessionsOffset + DRAWER_PAGE_SIZE)}>Next</button>
+                </div>
+              )}
+            </>
+          )}
+
           {tab === 'menu' && !menuItems.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No menu items yet</p></div>
           )}
@@ -771,6 +883,12 @@ export default function RestaurantsPage() {
           )}
           {tab === 'sales' && !ordersLoading && !orders.length && !ordersFrom && !ordersTo && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales yet — rung-up orders from the till will show here</p></div>
+          )}
+          {tab === 'drawer' && !drawerSessionsLoading && !drawerSessions.length && (drawerSessionsFrom || drawerSessionsTo) && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No drawer sessions in that date range</p></div>
+          )}
+          {tab === 'drawer' && !drawerSessionsLoading && !drawerSessions.length && !drawerSessionsFrom && !drawerSessionsTo && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No drawer sessions yet — opened/closed on the till, they'll show here</p></div>
           )}
           </div>
         </>
@@ -942,6 +1060,60 @@ export default function RestaurantsPage() {
             )}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setOrderDetailOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {drawerDetailOpen && (
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setDrawerDetailOpen(false)}>
+          <div className="dialog restaurants-order-dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()}>
+            {drawerDetailLoading && <div className="eyebrow">Loading…</div>}
+            {drawerDetailError && <div className="error-banner">{drawerDetailError}</div>}
+            {drawerDetail && !drawerDetailLoading && (
+              <>
+                <h2>Drawer Report: {drawerDetail.cashierName}</h2>
+                <div className="restaurants-order-dialog-meta">
+                  <span>{new Date(drawerDetail.session.openedAt).toLocaleString()}</span>
+                  <span>–</span>
+                  <span>{drawerDetail.session.closedAt ? new Date(drawerDetail.session.closedAt).toLocaleString() : 'still open'}</span>
+                  <span>·</span>
+                  <span className={'tag ' + (drawerDetail.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{drawerDetail.session.status}</span>
+                </div>
+                <div className="restaurants-order-dialog-items">
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Starting Cash</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.startingCash)}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Cash Sales</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.cashSales)}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Cash Refunds</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.cashRefunds)}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Paid In/Out</span><span className="restaurants-order-dialog-item-total">{drawerDetail.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawerDetail.netPaidInOut))}</span></div>
+                </div>
+                <div className="restaurants-order-dialog-total">
+                  <span>Expected in Drawer</span>
+                  <strong>{money(drawerDetail.expected)}</strong>
+                </div>
+                <div className="restaurants-order-dialog-meta">
+                  Actual in Drawer: {drawerDetail.actual == null ? '—' : money(drawerDetail.actual)}
+                  {drawerDetail.difference != null && <> · Difference: {drawerDetail.difference < 0 ? '-' : ''}{money(Math.abs(drawerDetail.difference))}</>}
+                </div>
+                {drawerDetail.session.closingNote && <div className="restaurants-order-dialog-meta">Note: {drawerDetail.session.closingNote}</div>}
+                {!!drawerDetail.movements.length && (
+                  <>
+                    <h3 style={{ fontSize: 13, margin: '14px 0 6px' }}>Paid In/Out</h3>
+                    <div className="restaurants-order-dialog-items">
+                      {drawerDetail.movements.map((m) => (
+                        <div className="restaurants-order-dialog-item" key={m.id}>
+                          <span className="restaurants-order-dialog-item-name">
+                            {m.direction === 'in' ? 'Paid in' : 'Paid out'} at {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}
+                          </span>
+                          <span className="restaurants-order-dialog-item-total">{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setDrawerDetailOpen(false)}>Close</button>
             </div>
           </div>
         </div>

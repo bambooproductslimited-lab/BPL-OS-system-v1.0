@@ -267,8 +267,174 @@ async function voidOrder(ctx, id) {
   return true;
 }
 
+// ── cash drawer sessions (till-side, PIN-scoped — same posToken as the
+// rest of this file) ──────────────────────────────────────────────────
+
+function rowToSession(r) {
+  return {
+    id: r.id, companyId: r.company_id, cashierId: r.cashier_id,
+    openedAt: r.opened_at, closedAt: r.closed_at,
+    startingCash: Number(r.starting_cash),
+    closingActualCash: r.closing_actual_cash == null ? null : Number(r.closing_actual_cash),
+    closingNote: r.closing_note, status: r.status
+  };
+}
+
+// Every figure the reference "Drawer Report" receipt prints, computed
+// fresh rather than stored — so it's always consistent with whatever
+// orders/movements actually happened, even if this is called mid-shift
+// (session still open, closedAt not set yet) to show a running total.
+async function buildReport(session, client) {
+  var db = client || pool;
+  var endTime = session.closed_at || new Date();
+  var salesRes = await db.query(
+    "SELECT coalesce(sum(total), 0) AS cash_sales FROM restaurant_orders " +
+    "WHERE cashier_id = $1 AND company_id = $2 AND payment_method = 'cash' AND status = 'completed' " +
+    'AND created_at >= $3 AND created_at <= $4',
+    [session.cashier_id, session.company_id, session.opened_at, endTime]
+  );
+  var movementsRes = await db.query(
+    "SELECT direction, coalesce(sum(amount), 0) AS total FROM restaurant_drawer_movements WHERE session_id = $1 GROUP BY direction",
+    [session.id]
+  );
+  var paidIn = 0, paidOut = 0;
+  movementsRes.rows.forEach(function (r) {
+    if (r.direction === 'in') paidIn = Number(r.total); else paidOut = Number(r.total);
+  });
+  var movementsListRes = await db.query(
+    'SELECT id, direction, amount, note, created_at FROM restaurant_drawer_movements WHERE session_id = $1 ORDER BY created_at',
+    [session.id]
+  );
+  var startingCash = Number(session.starting_cash);
+  var cashSales = Number(salesRes.rows[0].cash_sales);
+  // No refund tender exists on the till (voids are a manager-only action
+  // on already-settled orders, not a cash-back-to-customer event) — kept
+  // as an explicit zero, not omitted, so this report's shape always
+  // matches the reference receipt's line items.
+  var cashRefunds = 0;
+  var netPaidInOut = paidIn - paidOut;
+  var expected = Math.round((startingCash + cashSales - cashRefunds + netPaidInOut) * 100) / 100;
+  var actual = session.closing_actual_cash == null ? null : Number(session.closing_actual_cash);
+  return {
+    session: rowToSession(session),
+    startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds,
+    paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut,
+    expected: expected, actual: actual, difference: actual == null ? null : Math.round((actual - expected) * 100) / 100,
+    movements: movementsListRes.rows.map(function (m) {
+      return { id: m.id, direction: m.direction, amount: Number(m.amount), note: m.note, createdAt: m.created_at };
+    })
+  };
+}
+
+// Current cashier's open session, or null — checked on POS login/reload
+// so the till knows whether to prompt for a starting-cash count before
+// letting them sell anything.
+async function getOpenDrawerSession(token) {
+  var session = verifyPosToken(token);
+  var res = await pool.query(
+    "SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]
+  );
+  if (!res.rows[0]) return null;
+  return buildReport(res.rows[0]);
+}
+
+async function openDrawerSession(token, startingCash) {
+  var session = verifyPosToken(token);
+  // Idempotent — a reload right after opening (or two tabs on the same
+  // PIN) resumes the existing open session instead of erroring, same
+  // spirit as the till-session token restore already does.
+  var existing = await pool.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]);
+  if (existing.rows[0]) return buildReport(existing.rows[0]);
+
+  var amount = Math.max(0, Number(startingCash) || 0);
+  var res = await pool.query(
+    'INSERT INTO restaurant_drawer_sessions (company_id, cashier_id, starting_cash) VALUES ($1,$2,$3) RETURNING *',
+    [session.posCompanyId, session.posEmployeeId, amount]
+  );
+  return buildReport(res.rows[0]);
+}
+
+async function addDrawerMovement(token, p) {
+  var session = verifyPosToken(token);
+  var direction = V.oneOf(p.direction, ['in', 'out'], 'Direction');
+  var amount = Number(p.amount);
+  if (!(amount > 0)) fail('invalid', 'Enter an amount greater than zero.');
+
+  var openRes = await pool.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]);
+  var drawer = openRes.rows[0];
+  if (!drawer) fail('conflict', 'No open drawer session — open one first.');
+
+  await pool.query(
+    'INSERT INTO restaurant_drawer_movements (session_id, direction, amount, note) VALUES ($1,$2,$3,$4)',
+    [drawer.id, direction, Math.round(amount * 100) / 100, (p.note || '').trim()]
+  );
+  return buildReport(drawer);
+}
+
+async function closeDrawerSession(token, p) {
+  var session = verifyPosToken(token);
+  return withTransaction(async function (client) {
+    var openRes = await client.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open' FOR UPDATE", [session.posEmployeeId]);
+    var drawer = openRes.rows[0];
+    if (!drawer) fail('conflict', 'No open drawer session to close.');
+    var actualCash = Math.max(0, Number(p.actualCash) || 0);
+    var closedRes = await client.query(
+      "UPDATE restaurant_drawer_sessions SET status = 'closed', closed_at = now(), closing_actual_cash = $1, closing_note = $2 WHERE id = $3 RETURNING *",
+      [actualCash, (p.note || '').trim(), drawer.id]
+    );
+    return buildReport(closedRes.rows[0], client);
+  });
+}
+
+// ── management view (inside the regular authenticated app) ────────────
+
+async function listDrawerSessions(ctx, companyId, opts) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  opts = opts || {};
+  var limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
+  var offset = Math.max(Number(opts.offset) || 0, 0);
+  var args = [];
+  var where = [];
+  if (companyId) { args.push(companyId); where.push('s.company_id = $' + args.length); }
+  if (opts.from) { args.push(opts.from); where.push('s.opened_at >= $' + args.length); }
+  if (opts.to) { args.push(opts.to + ' 23:59:59'); where.push('s.opened_at <= $' + args.length); }
+  var whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  args.push(limit); var limitParam = '$' + args.length;
+  args.push(offset); var offsetParam = '$' + args.length;
+
+  var res = await pool.query(
+    'SELECT s.*, e.first_name, e.last_name, count(*) OVER() AS total_count ' +
+    'FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id ' +
+    whereSql + ' ORDER BY s.opened_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
+    args
+  );
+  var total = res.rows[0] ? Number(res.rows[0].total_count) : 0;
+  var reports = await Promise.all(res.rows.map(function (r) { return buildReport(r); }));
+  return {
+    sessions: reports.map(function (rep, i) {
+      var r = res.rows[i];
+      return Object.assign({ cashierName: r.first_name + ' ' + r.last_name }, rep);
+    }),
+    total: total, limit: limit, offset: offset
+  };
+}
+
+async function getDrawerSession(ctx, id) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  var res = await pool.query(
+    'SELECT s.*, e.first_name, e.last_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id WHERE s.id = $1', [id]
+  );
+  var r = res.rows[0];
+  if (!r) fail('notfound', 'Drawer session not found.');
+  var report = await buildReport(r);
+  return Object.assign({ cashierName: r.first_name + ' ' + r.last_name }, report);
+}
+
 module.exports = {
   login: login, menuForSession: menuForSession, createOrder: createOrder,
   listOrders: listOrders, getOrder: getOrder, voidOrder: voidOrder,
-  toggleFavorite: toggleFavorite, mostlyBought: mostlyBought
+  toggleFavorite: toggleFavorite, mostlyBought: mostlyBought,
+  getOpenDrawerSession: getOpenDrawerSession, openDrawerSession: openDrawerSession,
+  addDrawerMovement: addDrawerMovement, closeDrawerSession: closeDrawerSession,
+  listDrawerSessions: listDrawerSessions, getDrawerSession: getDrawerSession
 };

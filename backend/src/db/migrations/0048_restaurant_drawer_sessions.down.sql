@@ -1,0 +1,2 @@
+DROP TABLE restaurant_drawer_movements;
+DROP TABLE restaurant_drawer_sessions;

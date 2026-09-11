@@ -4,7 +4,7 @@ import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
-  buildReceiptBytes, usbSupported, bluetoothSupported,
+  buildReceiptBytes, buildDrawerReportBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
 import './KioskPage.css';
@@ -125,6 +125,31 @@ export default function RestaurantPosPage() {
 
   const [receipt, setReceipt] = useState(null);
 
+  // Cash drawer session (per cashier — see restaurantPos.service.js's
+  // buildReport). drawer is the current open session's live report (or
+  // null); drawerChecked gates the till behind an "open your drawer"
+  // prompt until we know one way or the other, same pattern as
+  // sessionChecked above so there's no flash of the wrong screen.
+  const [drawer, setDrawer] = useState(null);
+  const [drawerChecked, setDrawerChecked] = useState(false);
+  const [openingCash, setOpeningCash] = useState('');
+  const [openingDrawer, setOpeningDrawer] = useState(false);
+  const [openDrawerError, setOpenDrawerError] = useState(null);
+
+  const [drawerPanelOpen, setDrawerPanelOpen] = useState(false);
+  const [movementDirection, setMovementDirection] = useState(null); // 'in' | 'out' | null
+  const [movementAmount, setMovementAmount] = useState('');
+  const [movementNote, setMovementNote] = useState('');
+  const [addingMovement, setAddingMovement] = useState(false);
+  const [movementError, setMovementError] = useState(null);
+
+  const [closeDrawerOpen, setCloseDrawerOpen] = useState(false);
+  const [closeActualCash, setCloseActualCash] = useState('');
+  const [closeNote, setCloseNote] = useState('');
+  const [closingDrawer, setClosingDrawer] = useState(false);
+  const [closeDrawerError, setCloseDrawerError] = useState(null);
+  const [closedReport, setClosedReport] = useState(null); // set once closed — shows the printable report screen
+
   // Direct thermal-printer output (Phase 3) — set once per till device,
   // then reused for every sale's receipt for the rest of the shift (and
   // silently reconnected on reload, same as the till session itself).
@@ -236,13 +261,24 @@ export default function RestaurantPosPage() {
     }
   }
 
+  async function loadDrawer(token) {
+    try {
+      setDrawer(await posFetch('GET', '/pos/drawer', token));
+    } catch {
+      // Non-critical to the till loading — the open-drawer prompt below
+      // just won't have anything to show and the cashier can retry via it.
+    } finally {
+      setDrawerChecked(true);
+    }
+  }
+
   useEffect(() => {
     const saved = localStorage.getItem(SESSION_KEY);
     if (!saved) { setSessionChecked(true); return; }
     let parsed;
     try { parsed = JSON.parse(saved); } catch { localStorage.removeItem(SESSION_KEY); setSessionChecked(true); return; }
     loadMenu(parsed.token).then((ok) => {
-      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); }
+      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); loadDrawer(parsed.token); }
       setSessionChecked(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,6 +303,7 @@ export default function RestaurantPosPage() {
       setPin('');
       await loadMenu(s.token);
       loadMostlyBought(s.token);
+      loadDrawer(s.token);
     } catch (err) {
       setLoginError(err.message);
       setPin('');
@@ -284,6 +321,88 @@ export default function RestaurantPosPage() {
     setRecentIds([]);
     setMostlyBought([]);
     setViewTab('all');
+    setDrawer(null);
+    setDrawerChecked(false);
+    setClosedReport(null);
+  }
+
+  async function submitOpenDrawer(e) {
+    e.preventDefault();
+    setOpeningDrawer(true);
+    setOpenDrawerError(null);
+    try {
+      setDrawer(await posFetch('POST', '/pos/drawer/open', session.token, { startingCash: openingCash === '' ? 0 : openingCash }));
+      setOpeningCash('');
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+      else setOpenDrawerError(err.message);
+    } finally {
+      setOpeningDrawer(false);
+    }
+  }
+
+  function openMovement(direction) {
+    setMovementError(null);
+    setMovementAmount('');
+    setMovementNote('');
+    setMovementDirection(direction);
+  }
+
+  async function submitMovement(e) {
+    e.preventDefault();
+    setAddingMovement(true);
+    setMovementError(null);
+    try {
+      setDrawer(await posFetch('POST', '/pos/drawer/movements', session.token, {
+        direction: movementDirection, amount: movementAmount, note: movementNote
+      }));
+      setMovementDirection(null);
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+      else setMovementError(err.message);
+    } finally {
+      setAddingMovement(false);
+    }
+  }
+
+  function openCloseDrawer() {
+    setCloseDrawerError(null);
+    setCloseActualCash('');
+    setCloseNote('');
+    setCloseDrawerOpen(true);
+  }
+
+  async function submitCloseDrawer(e) {
+    e.preventDefault();
+    setClosingDrawer(true);
+    setCloseDrawerError(null);
+    try {
+      const report = await posFetch('POST', '/pos/drawer/close', session.token, {
+        actualCash: closeActualCash === '' ? 0 : closeActualCash, note: closeNote
+      });
+      setClosedReport(report);
+      setDrawer(null);
+      setCloseDrawerOpen(false);
+      setDrawerPanelOpen(false);
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+      else setCloseDrawerError(err.message);
+    } finally {
+      setClosingDrawer(false);
+    }
+  }
+
+  async function printDrawerReportThermal(report) {
+    setPrinting(true);
+    setPrinterError(null);
+    try {
+      const bytes = buildDrawerReportBytes(report, session.companyName, session.employeeName);
+      await printer.write(bytes);
+    } catch (err) {
+      setPrinterError('Could not print: ' + err.message);
+    } finally {
+      setPrinting(false);
+    }
   }
 
   var RECENT_LIMIT = 30;
@@ -428,6 +547,98 @@ export default function RestaurantPosPage() {
     );
   }
 
+  if (!drawerChecked) return null;
+
+  // A cashier can't ring anything up until their own drawer is open — same
+  // "count starting cash before you sell" step a real POS shift begins
+  // with, and what makes the report at close-out complete (see
+  // restaurantPos.service.js's buildReport: Cash Sales is summed from
+  // this session's own opened_at onward).
+  if (!drawer && !closedReport) {
+    return (
+      <div className="kiosk-root">
+        <div className="kiosk-content pos-login-content">
+          <div className="kiosk-header">
+            <div className="kiosk-brand">RESTAURANT POS</div>
+            <button type="button" className="btn btn-secondary" onClick={logout}>Log out</button>
+          </div>
+          <div className="kiosk-pad-wrap">
+            <div className="kiosk-prompt">Open your drawer to start, {session.employeeName}</div>
+            {openDrawerError && <div className="error-banner" style={{ marginBottom: 16 }}>{openDrawerError}</div>}
+            <form className="pos-open-drawer-form" onSubmit={submitOpenDrawer}>
+              <div className="field">
+                <label htmlFor="opening-cash">Starting cash in drawer</label>
+                <input
+                  id="opening-cash" className="input" type="number" min="0" step="0.01" autoFocus
+                  value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0.00"
+                />
+              </div>
+              <button type="submit" className="btn btn-primary btn-block" disabled={openingDrawer}>
+                {openingDrawer ? 'Opening…' : 'Open drawer'}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (closedReport) {
+    const r = closedReport;
+    return (
+      <div className="pos-shell pos-receipt-screen">
+        <div className="pos-receipt-print" id="pos-receipt">
+          {restaurantLogoUrl(session.companyCode) && (
+            <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
+          )}
+          <div className="pos-receipt-header">Drawer Report: {session.employeeName}</div>
+          <div className="pos-receipt-meta">
+            {new Date(r.session.openedAt).toLocaleString()} –<br />
+            {new Date(r.session.closedAt).toLocaleString()}<br />
+            {session.companyName}
+          </div>
+          <div className="pos-receipt-rule" />
+          <div className="pos-receipt-lines">
+            <div className="pos-receipt-line"><span>Starting Cash</span><span>{money(r.startingCash)}</span></div>
+            <div className="pos-receipt-line"><span>Cash Sales</span><span>{money(r.cashSales)}</span></div>
+            <div className="pos-receipt-line"><span>Cash Refunds</span><span>{money(r.cashRefunds)}</span></div>
+            <div className="pos-receipt-line"><span>Paid In/Out</span><span>{r.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(r.netPaidInOut))}</span></div>
+            <div className="pos-receipt-line"><span>Expected in Drawer</span><span>{money(r.expected)}</span></div>
+            <div className="pos-receipt-line"><span>Actual in Drawer</span><span>{money(r.actual)}</span></div>
+          </div>
+          <div className="pos-receipt-rule" />
+          <div className="pos-receipt-total">
+            <span>Difference</span><span>{r.difference < 0 ? '-' : ''}{money(Math.abs(r.difference))}</span>
+          </div>
+          {!!r.movements.length && (
+            <>
+              <div className="pos-receipt-rule" />
+              <div className="pos-receipt-footer" style={{ fontWeight: 700, marginBottom: 6 }}>PAID IN/OUT</div>
+              <div className="pos-receipt-lines">
+                {r.movements.map((m) => (
+                  <div key={m.id} className="pos-receipt-line">
+                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} at {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
+        <div className="pos-receipt-actions">
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print report</button>
+          {printer && (
+            <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printDrawerReportThermal(closedReport)}>
+              {printing ? 'Printing…' : 'Print via ' + printer.name}
+            </button>
+          )}
+          <button type="button" className="btn btn-primary" onClick={logout}>Done</button>
+        </div>
+      </div>
+    );
+  }
+
   if (receipt) {
     return (
       <div className="pos-shell pos-receipt-screen">
@@ -483,6 +694,9 @@ export default function RestaurantPosPage() {
           </div>
         </div>
         <div className="pos-topbar-actions">
+          <button type="button" className="btn btn-secondary pos-drawer-btn" onClick={() => setDrawerPanelOpen(true)}>
+            Drawer · {money(drawer.expected)}
+          </button>
           {printer ? (
             <span className="pos-printer-status" title={printer.name}>🖨 {printer.name}</span>
           ) : (
@@ -598,6 +812,93 @@ export default function RestaurantPosPage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? 'Processing…' : 'Complete sale'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {drawerPanelOpen && (
+        <div className="dialog-backdrop" onClick={() => setDrawerPanelOpen(false)}>
+          <div className="dialog pos-drawer-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Drawer — {session.employeeName}</h2>
+            <p className="pos-checkout-total" style={{ marginBottom: 0 }}>
+              Opened {new Date(drawer.session.openedAt).toLocaleString()}
+            </p>
+            <div className="pos-drawer-lines">
+              <div className="pos-drawer-line"><span>Starting Cash</span><span>{money(drawer.startingCash)}</span></div>
+              <div className="pos-drawer-line"><span>Cash Sales</span><span>{money(drawer.cashSales)}</span></div>
+              <div className="pos-drawer-line"><span>Paid In/Out</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
+              <div className="pos-drawer-line pos-drawer-line-total"><span>Expected in Drawer</span><span>{money(drawer.expected)}</span></div>
+            </div>
+            <div className="dialog-actions" style={{ justifyContent: 'flex-start' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => openMovement('in')}>Paid in…</button>
+              <button type="button" className="btn btn-secondary" onClick={() => openMovement('out')}>Paid out…</button>
+            </div>
+            {!!drawer.movements.length && (
+              <div className="pos-drawer-movements">
+                {drawer.movements.slice().reverse().map((m) => (
+                  <div key={m.id} className="pos-drawer-movement-row">
+                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} at {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setDrawerPanelOpen(false)}>Close</button>
+              <button type="button" className="btn btn-primary" onClick={openCloseDrawer}>Close drawer…</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {movementDirection && (
+        <div className="dialog-backdrop" onClick={() => !addingMovement && setMovementDirection(null)}>
+          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitMovement}>
+            <h2>{movementDirection === 'in' ? 'Paid in' : 'Paid out'}</h2>
+            {movementError && <div className="error-banner">{movementError}</div>}
+            <div className="field">
+              <label htmlFor="movement-amount">Amount</label>
+              <input
+                id="movement-amount" className="input" type="number" min="0.01" step="0.01" autoFocus required
+                value={movementAmount} onChange={(e) => setMovementAmount(e.target.value)} placeholder="0.00"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="movement-note">Note</label>
+              <input
+                id="movement-note" className="input" value={movementNote} onChange={(e) => setMovementNote(e.target.value)}
+                placeholder={movementDirection === 'in' ? 'e.g. Change fund top-up' : 'e.g. Delivery'}
+              />
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setMovementDirection(null)} disabled={addingMovement}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={addingMovement}>{addingMovement ? 'Saving…' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {closeDrawerOpen && (
+        <div className="dialog-backdrop" onClick={() => !closingDrawer && setCloseDrawerOpen(false)}>
+          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitCloseDrawer}>
+            <h2>Close drawer</h2>
+            {closeDrawerError && <div className="error-banner">{closeDrawerError}</div>}
+            <p className="pos-checkout-total">Expected in drawer: <strong>{money(drawer.expected)}</strong></p>
+            <div className="field">
+              <label htmlFor="close-actual">Actual cash counted</label>
+              <input
+                id="close-actual" className="input" type="number" min="0" step="0.01" autoFocus required
+                value={closeActualCash} onChange={(e) => setCloseActualCash(e.target.value)} placeholder="0.00"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="close-note">Note (optional)</label>
+              <input id="close-note" className="input" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} />
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setCloseDrawerOpen(false)} disabled={closingDrawer}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={closingDrawer}>{closingDrawer ? 'Closing…' : 'Close drawer'}</button>
             </div>
           </form>
         </div>

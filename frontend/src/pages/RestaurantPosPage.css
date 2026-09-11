@@ -94,6 +94,23 @@
 }
 .pos-printer-error { margin: 0 28px 12px; flex-shrink: 0; }
 
+.pos-drawer-btn { font-size: 12px; padding: 8px 12px; white-space: nowrap; }
+
+/* ── open-drawer prompt (before the till unlocks) ──────────────────── */
+.pos-open-drawer-form { width: 100%; max-width: 280px; margin: 0 auto; }
+.pos-open-drawer-form .field { margin-bottom: 16px; text-align: left; }
+.pos-open-drawer-form label { color: var(--pos-text-muted); font-size: 13px; }
+
+/* ── drawer panel + report lines (shared shape with .pos-receipt-line) ── */
+.pos-drawer-dialog { max-width: 380px; }
+.pos-drawer-lines { margin: 12px 0; }
+.pos-drawer-line { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 14px; color: var(--pos-text); }
+.pos-drawer-line-total { font-weight: 700; border-top: 1px solid var(--pos-border); margin-top: 4px; padding-top: 8px; }
+.pos-drawer-movements {
+  max-height: 160px; overflow-y: auto; border-top: 1px solid var(--pos-border); margin-top: 4px; padding-top: 8px;
+}
+.pos-drawer-movement-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--pos-text-muted); padding: 3px 0; }
+
 .pos-body {
   flex: 1;
   display: flex;
