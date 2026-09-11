@@ -311,6 +311,115 @@ async function removeIngredient(ctx, id) {
   return true;
 }
 
+// ── tables (fixed per-restaurant list, assigned to an order at the till) ──
+
+function rowToTable(r) {
+  return { id: r.id, companyId: r.company_id, name: r.name, status: r.status };
+}
+
+async function listTables(ctx, companyId) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  var args = [];
+  var where = '';
+  if (companyId) { args.push(companyId); where = 'WHERE company_id = $1'; }
+  var res = await pool.query('SELECT * FROM restaurant_tables ' + where + ' ORDER BY name', args);
+  return res.rows.map(rowToTable);
+}
+
+async function createTable(ctx, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var company = await requireCompany(p.companyId);
+  var name = V.text(p.name, 'Name', 40);
+  var existing = await pool.query('SELECT id FROM restaurant_tables WHERE company_id = $1 AND name = $2', [company.id, name]);
+  if (existing.rows[0]) fail('invalid', company.name + ' already has a table named "' + name + '".');
+  var res = await pool.query('INSERT INTO restaurant_tables (company_id, name) VALUES ($1,$2) RETURNING *', [company.id, name]);
+  var t = res.rows[0];
+  await audit(pool, ctx, 'restaurant.table.create', 'restaurant_table', t.id, 'Added table "' + t.name + '" to ' + company.name + '.');
+  return rowToTable(t);
+}
+
+async function updateTable(ctx, id, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var existing = await pool.query('SELECT * FROM restaurant_tables WHERE id = $1', [id]);
+  if (!existing.rows[0]) fail('notfound', 'Table not found.');
+  var name = V.text(p.name, 'Name', 40);
+  var res = await pool.query('UPDATE restaurant_tables SET name = $1 WHERE id = $2 RETURNING *', [name, id]);
+  var t = res.rows[0];
+  await audit(pool, ctx, 'restaurant.table.update', 'restaurant_table', t.id, 'Renamed table to "' + t.name + '".');
+  return rowToTable(t);
+}
+
+async function setTableActive(ctx, id, active) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var res = await pool.query("UPDATE restaurant_tables SET status = $1 WHERE id = $2 RETURNING *", [active ? 'active' : 'archived', id]);
+  if (!res.rows[0]) fail('notfound', 'Table not found.');
+  var t = res.rows[0];
+  await audit(pool, ctx, 'restaurant.table.active', 'restaurant_table', t.id, (active ? 'Reactivated ' : 'Archived ') + 'table "' + t.name + '".');
+  return rowToTable(t);
+}
+
+async function removeTable(ctx, id) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var existing = await pool.query('SELECT * FROM restaurant_tables WHERE id = $1', [id]);
+  if (!existing.rows[0]) fail('notfound', 'Table not found.');
+  await pool.query('DELETE FROM restaurant_tables WHERE id = $1', [id]);
+  await audit(pool, ctx, 'restaurant.table.delete', 'restaurant_table', id, 'Removed table "' + existing.rows[0].name + '".');
+  return true;
+}
+
+// ── guests (lightweight, restaurant-scoped — not the B2B customers module) ──
+
+function rowToGuest(r) {
+  return { id: r.id, companyId: r.company_id, name: r.name, phone: r.phone, notes: r.notes };
+}
+
+async function listGuests(ctx, companyId, q) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  var args = [];
+  var where = [];
+  if (companyId) { args.push(companyId); where.push('company_id = $' + args.length); }
+  if (q) { args.push('%' + q + '%'); where.push('(name ILIKE $' + args.length + ' OR phone ILIKE $' + args.length + ')'); }
+  var whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  var res = await pool.query('SELECT * FROM restaurant_guests ' + whereSql + ' ORDER BY name LIMIT 200', args);
+  return res.rows.map(rowToGuest);
+}
+
+async function createGuest(ctx, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var company = await requireCompany(p.companyId);
+  var name = V.text(p.name, 'Name', 100);
+  var res = await pool.query(
+    'INSERT INTO restaurant_guests (company_id, name, phone, notes) VALUES ($1,$2,$3,$4) RETURNING *',
+    [company.id, name, (p.phone || '').trim(), (p.notes || '').trim()]
+  );
+  var g = res.rows[0];
+  await audit(pool, ctx, 'restaurant.guest.create', 'restaurant_guest', g.id, 'Added guest ' + g.name + ' for ' + company.name + '.');
+  return rowToGuest(g);
+}
+
+async function updateGuest(ctx, id, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var existing = await pool.query('SELECT * FROM restaurant_guests WHERE id = $1', [id]);
+  if (!existing.rows[0]) fail('notfound', 'Guest not found.');
+  var name = V.text(p.name, 'Name', 100);
+  var res = await pool.query(
+    'UPDATE restaurant_guests SET name = $1, phone = $2, notes = $3, updated_at = now() WHERE id = $4 RETURNING *',
+    [name, (p.phone || '').trim(), (p.notes || '').trim(), id]
+  );
+  var g = res.rows[0];
+  await audit(pool, ctx, 'restaurant.guest.update', 'restaurant_guest', g.id, 'Updated guest ' + g.name + '.');
+  return rowToGuest(g);
+}
+
+async function removeGuest(ctx, id) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  var existing = await pool.query('SELECT * FROM restaurant_guests WHERE id = $1', [id]);
+  if (!existing.rows[0]) fail('notfound', 'Guest not found.');
+  await pool.query('DELETE FROM restaurant_guests WHERE id = $1', [id]);
+  await audit(pool, ctx, 'restaurant.guest.delete', 'restaurant_guest', id, 'Removed guest ' + existing.rows[0].name + '.');
+  return true;
+}
+
 module.exports = {
   listMenuItems: listMenuItems, createMenuItem: createMenuItem, updateMenuItem: updateMenuItem,
   setMenuItemActive: setMenuItemActive, removeMenuItem: removeMenuItem,
@@ -318,5 +427,8 @@ module.exports = {
   listSupplies: listSupplies, createSupply: createSupply, updateSupply: updateSupply,
   adjustSupplyStock: adjustSupplyStock, removeSupply: removeSupply,
   listIngredients: listIngredients, createIngredient: createIngredient, updateIngredient: updateIngredient,
-  adjustIngredientStock: adjustIngredientStock, removeIngredient: removeIngredient
+  adjustIngredientStock: adjustIngredientStock, removeIngredient: removeIngredient,
+  listTables: listTables, createTable: createTable, updateTable: updateTable,
+  setTableActive: setTableActive, removeTable: removeTable,
+  listGuests: listGuests, createGuest: createGuest, updateGuest: updateGuest, removeGuest: removeGuest
 };

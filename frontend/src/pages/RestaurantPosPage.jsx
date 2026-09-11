@@ -118,6 +118,29 @@ export default function RestaurantPosPage() {
   const [cart, setCart] = useState([]); // [{ menuItemId, name, price, qty }]
   const [tappedId, setTappedId] = useState(null); // brief tap-feedback flash on the tile just added
 
+  // Table/waiter/guest — all optional, attached to the CURRENT in-progress
+  // order only (like the cart itself: reset after each sale, never
+  // persisted mid-shift). Cashier ≠ waiter: whoever's logged into the till
+  // rings up the payment, but the person actually serving the table is
+  // recorded separately (restaurantPos.service.js's createOrder), same
+  // split Square's own POS makes.
+  const [tables, setTables] = useState([]);
+  const [waiters, setWaiters] = useState([]);
+  const [selectedTable, setSelectedTable] = useState(null); // { id, name } | null
+  const [selectedWaiter, setSelectedWaiter] = useState(null); // { id, name } | null
+  const [selectedGuest, setSelectedGuest] = useState(null); // { id, name, phone } | null
+
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [waiterPickerOpen, setWaiterPickerOpen] = useState(false);
+  const [guestPickerOpen, setGuestPickerOpen] = useState(false);
+  const [guestSearch, setGuestSearch] = useState('');
+  const [guestResults, setGuestResults] = useState([]);
+  const [guestSearching, setGuestSearching] = useState(false);
+  const [newGuestName, setNewGuestName] = useState('');
+  const [newGuestPhone, setNewGuestPhone] = useState('');
+  const [addingGuest, setAddingGuest] = useState(false);
+  const [guestError, setGuestError] = useState(null);
+
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [checkingOut, setCheckingOut] = useState(false);
@@ -250,6 +273,22 @@ export default function RestaurantPosPage() {
     }
   }
 
+  // Tables/waiters are per-company catalogues (management-set for tables,
+  // any active employee for waiters) — cheap, loaded alongside the menu
+  // same as mostlyBought above rather than lazily when a picker opens.
+  async function loadTablesAndWaiters(token) {
+    try {
+      const [t, w] = await Promise.all([
+        posFetch('GET', '/pos/tables', token),
+        posFetch('GET', '/pos/waiters', token)
+      ]);
+      setTables(t);
+      setWaiters(w);
+    } catch {
+      // Non-critical — the pickers just show an empty list if this fails.
+    }
+  }
+
   async function toggleFavorite(e, item) {
     e.stopPropagation();
     try {
@@ -278,7 +317,7 @@ export default function RestaurantPosPage() {
     let parsed;
     try { parsed = JSON.parse(saved); } catch { localStorage.removeItem(SESSION_KEY); setSessionChecked(true); return; }
     loadMenu(parsed.token).then((ok) => {
-      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); loadDrawer(parsed.token); }
+      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); loadDrawer(parsed.token); loadTablesAndWaiters(parsed.token); }
       setSessionChecked(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,6 +343,7 @@ export default function RestaurantPosPage() {
       await loadMenu(s.token);
       loadMostlyBought(s.token);
       loadDrawer(s.token);
+      loadTablesAndWaiters(s.token);
     } catch (err) {
       setLoginError(err.message);
       setPin('');
@@ -324,6 +364,47 @@ export default function RestaurantPosPage() {
     setDrawer(null);
     setDrawerChecked(false);
     setClosedReport(null);
+    setTables([]);
+    setWaiters([]);
+    setSelectedTable(null);
+    setSelectedWaiter(null);
+    setSelectedGuest(null);
+  }
+
+  async function searchGuests(q) {
+    setGuestSearching(true);
+    try {
+      setGuestResults(await posFetch('GET', '/pos/guests' + (q ? '?q=' + encodeURIComponent(q) : ''), session.token));
+    } catch {
+      // Non-critical — the picker just shows no results if this fails.
+    } finally {
+      setGuestSearching(false);
+    }
+  }
+
+  function openGuestPicker() {
+    setGuestError(null);
+    setGuestSearch('');
+    setNewGuestName('');
+    setNewGuestPhone('');
+    setGuestPickerOpen(true);
+    searchGuests('');
+  }
+
+  async function submitNewGuest(e) {
+    e.preventDefault();
+    setAddingGuest(true);
+    setGuestError(null);
+    try {
+      const g = await posFetch('POST', '/pos/guests', session.token, { name: newGuestName, phone: newGuestPhone });
+      setSelectedGuest(g);
+      setGuestPickerOpen(false);
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+      else setGuestError(err.message);
+    } finally {
+      setAddingGuest(false);
+    }
   }
 
   async function submitOpenDrawer(e) {
@@ -443,10 +524,19 @@ export default function RestaurantPosPage() {
     try {
       const order = await posFetch('POST', '/pos/orders', session.token, {
         items: cart.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty })),
-        paymentMethod: paymentMethod
+        paymentMethod: paymentMethod,
+        tableId: selectedTable ? selectedTable.id : undefined,
+        waiterId: selectedWaiter ? selectedWaiter.id : undefined,
+        guestId: selectedGuest ? selectedGuest.id : undefined
       });
-      setReceipt(order);
+      // The order response only carries ids (see restaurantPos.service.js's
+      // rowToOrder) — names come from what's already selected here, so the
+      // receipt can show them without a second round trip.
+      setReceipt({ ...order, tableName: selectedTable && selectedTable.name, waiterName: selectedWaiter && selectedWaiter.name, guestName: selectedGuest && selectedGuest.name });
       setCart([]);
+      setSelectedTable(null);
+      setSelectedWaiter(null);
+      setSelectedGuest(null);
       setCheckoutOpen(false);
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); setCheckoutOpen(false); }
@@ -651,6 +741,9 @@ export default function RestaurantPosPage() {
             Order {receipt.orderNo}<br />
             {new Date(receipt.createdAt).toLocaleString()}<br />
             Served by {session.employeeName}
+            {receipt.tableName && <> at {receipt.tableName}</>}
+            {receipt.waiterName && <><br />Waiter: {receipt.waiterName}</>}
+            {receipt.guestName && <><br />Guest: {receipt.guestName}</>}
           </div>
           <div className="pos-receipt-rule" />
           <div className="pos-receipt-lines">
@@ -771,6 +864,17 @@ export default function RestaurantPosPage() {
 
         <div className="pos-cart">
           <div className="pos-cart-title">Current order</div>
+          <div className="pos-order-info-row">
+            <button type="button" className={'pos-order-info-pill' + (selectedTable ? ' pos-order-info-pill-set' : '')} onClick={() => setTablePickerOpen(true)}>
+              Table: {selectedTable ? selectedTable.name : 'Select'}
+            </button>
+            <button type="button" className={'pos-order-info-pill' + (selectedWaiter ? ' pos-order-info-pill-set' : '')} onClick={() => setWaiterPickerOpen(true)}>
+              Waiter: {selectedWaiter ? selectedWaiter.name : 'Select'}
+            </button>
+            <button type="button" className={'pos-order-info-pill' + (selectedGuest ? ' pos-order-info-pill-set' : '')} onClick={openGuestPicker}>
+              Guest: {selectedGuest ? selectedGuest.name : 'Select'}
+            </button>
+          </div>
           {!cart.length && <div className="pos-cart-empty">Tap a menu item to add it</div>}
           <div className="pos-cart-lines">
             {cart.map((l) => (
@@ -901,6 +1005,92 @@ export default function RestaurantPosPage() {
               <button type="submit" className="btn btn-primary" disabled={closingDrawer}>{closingDrawer ? 'Closing…' : 'Close drawer'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {tablePickerOpen && (
+        <div className="dialog-backdrop" onClick={() => setTablePickerOpen(false)}>
+          <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Table</h2>
+            <div className="pos-picker-grid">
+              {tables.map((t) => (
+                <button
+                  key={t.id} type="button"
+                  className={'pos-picker-tile' + (selectedTable && selectedTable.id === t.id ? ' pos-picker-tile-selected' : '')}
+                  onClick={() => { setSelectedTable(t); setTablePickerOpen(false); }}
+                >
+                  {t.name}
+                </button>
+              ))}
+              {!tables.length && <div className="pos-empty">No tables set up yet — add some from Restaurants → Tables in the main app.</div>}
+            </div>
+            <div className="dialog-actions">
+              {selectedTable && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedTable(null); setTablePickerOpen(false); }}>Clear</button>}
+              <button type="button" className="btn btn-primary" onClick={() => setTablePickerOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {waiterPickerOpen && (
+        <div className="dialog-backdrop" onClick={() => setWaiterPickerOpen(false)}>
+          <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Waiter</h2>
+            <div className="pos-picker-list">
+              {waiters.map((w) => (
+                <button
+                  key={w.id} type="button"
+                  className={'pos-picker-row' + (selectedWaiter && selectedWaiter.id === w.id ? ' pos-picker-row-selected' : '')}
+                  onClick={() => { setSelectedWaiter(w); setWaiterPickerOpen(false); }}
+                >
+                  {w.name}
+                </button>
+              ))}
+              {!waiters.length && <div className="pos-empty">No staff found for this company.</div>}
+            </div>
+            <div className="dialog-actions">
+              {selectedWaiter && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedWaiter(null); setWaiterPickerOpen(false); }}>Clear</button>}
+              <button type="button" className="btn btn-primary" onClick={() => setWaiterPickerOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {guestPickerOpen && (
+        <div className="dialog-backdrop" onClick={() => setGuestPickerOpen(false)}>
+          <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Guest</h2>
+            <div className="field">
+              <input
+                className="input" value={guestSearch} placeholder="Search name or phone…" autoFocus
+                onChange={(e) => { setGuestSearch(e.target.value); searchGuests(e.target.value); }}
+              />
+            </div>
+            <div className="pos-picker-list">
+              {guestSearching && <div className="eyebrow">Searching…</div>}
+              {!guestSearching && guestResults.map((g) => (
+                <button
+                  key={g.id} type="button"
+                  className={'pos-picker-row' + (selectedGuest && selectedGuest.id === g.id ? ' pos-picker-row-selected' : '')}
+                  onClick={() => { setSelectedGuest(g); setGuestPickerOpen(false); }}
+                >
+                  {g.name}{g.phone ? ' · ' + g.phone : ''}
+                </button>
+              ))}
+              {!guestSearching && !guestResults.length && <div className="pos-empty">No matching guests.</div>}
+            </div>
+            <div className="pos-picker-divider">Or add a new guest</div>
+            {guestError && <div className="error-banner">{guestError}</div>}
+            <form onSubmit={submitNewGuest} className="pos-new-guest-form">
+              <input className="input" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} placeholder="Name" required />
+              <input className="input" value={newGuestPhone} onChange={(e) => setNewGuestPhone(e.target.value)} placeholder="Phone (optional)" />
+              <button type="submit" className="btn btn-primary" disabled={addingGuest}>{addingGuest ? 'Adding…' : 'Add & select'}</button>
+            </form>
+            <div className="dialog-actions">
+              {selectedGuest && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedGuest(null); setGuestPickerOpen(false); }}>Clear</button>}
+              <button type="button" className="btn btn-secondary" onClick={() => setGuestPickerOpen(false)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

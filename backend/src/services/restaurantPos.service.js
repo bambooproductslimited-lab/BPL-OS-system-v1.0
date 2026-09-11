@@ -69,6 +69,7 @@ function rowToOrder(order, items) {
     id: order.id, companyId: order.company_id, orderNo: order.order_no, cashierId: order.cashier_id,
     subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method,
     status: order.status, createdAt: order.created_at,
+    tableId: order.table_id, waiterId: order.waiter_id, guestId: order.guest_id,
     items: items.map(function (it) { return { menuItemId: it.menuItemId, name: it.name, qty: it.qty, unitPrice: it.unitPrice, lineTotal: it.lineTotal }; })
   };
 }
@@ -138,6 +139,56 @@ async function mostlyBought(token) {
   });
 }
 
+// Active tables for the till's own company — the fixed, management-set
+// list (restaurant.service.js's createTable), not free text.
+async function tablesForSession(token) {
+  var session = verifyPosToken(token);
+  var res = await pool.query(
+    "SELECT id, name FROM restaurant_tables WHERE company_id = $1 AND status = 'active' ORDER BY name",
+    [session.posCompanyId]
+  );
+  return res.rows;
+}
+
+// Waiters — any active employee at the till's company, not just whoever
+// has a kiosk PIN (the person serving a table doesn't need till access
+// themselves; the cashier picks their name from this list). Same
+// department-join pattern login() already uses to resolve a company from
+// an employee.
+async function waitersForSession(token) {
+  var session = verifyPosToken(token);
+  var res = await pool.query(
+    "SELECT e.id, e.first_name, e.last_name FROM employees e JOIN departments d ON d.id = e.department_id " +
+    "WHERE d.company_id = $1 AND e.status = 'active' ORDER BY e.first_name, e.last_name",
+    [session.posCompanyId]
+  );
+  return res.rows.map(function (r) { return { id: r.id, name: r.first_name + ' ' + r.last_name }; });
+}
+
+function rowToGuestTile(r) { return { id: r.id, name: r.name, phone: r.phone }; }
+
+async function guestsForSession(token, q) {
+  var session = verifyPosToken(token);
+  var args = [session.posCompanyId];
+  var where = 'company_id = $1';
+  if (q) { args.push('%' + q + '%'); where += ' AND (name ILIKE $2 OR phone ILIKE $2)'; }
+  var res = await pool.query('SELECT id, name, phone FROM restaurant_guests WHERE ' + where + ' ORDER BY name LIMIT 50', args);
+  return res.rows.map(rowToGuestTile);
+}
+
+// Quick-add from the till itself — a walk-in the cashier hasn't seen
+// before shouldn't require leaving the sale screen to go set them up in
+// the management app first.
+async function createGuestForSession(token, p) {
+  var session = verifyPosToken(token);
+  var name = V.text(p.name, 'Name', 100);
+  var res = await pool.query(
+    'INSERT INTO restaurant_guests (company_id, name, phone) VALUES ($1,$2,$3) RETURNING id, name, phone',
+    [session.posCompanyId, name, (p.phone || '').trim()]
+  );
+  return rowToGuestTile(res.rows[0]);
+}
+
 // kernel-of-a-sale — rings up a completed order in one transaction: every
 // line is re-priced against the LIVE menu (never trusts a client-supplied
 // price), a company-scoped order number comes from restaurant_order_seq
@@ -151,6 +202,33 @@ async function createOrder(token, p) {
   var paymentMethod = V.oneOf(p.paymentMethod || 'cash', ['cash', 'bank_transfer', 'mobile_money', 'card', 'cheque', 'other'], 'Payment method');
 
   return withTransaction(async function (client) {
+    // table/waiter/guest are all optional, and each re-checked against
+    // this till's own company_id — same "never trust a client-supplied id
+    // without scoping it" rule the menu item lookup below already
+    // follows, so a Star Bar sale can't attribute itself to a Bamboo
+    // Garden table/guest/waiter even if it somehow guessed the id.
+    var tableId = null;
+    if (p.tableId) {
+      var tableRes = await client.query("SELECT id FROM restaurant_tables WHERE id = $1 AND company_id = $2 AND status = 'active'", [p.tableId, session.posCompanyId]);
+      if (!tableRes.rows[0]) fail('invalid', 'That table is no longer available.');
+      tableId = tableRes.rows[0].id;
+    }
+    var waiterId = null;
+    if (p.waiterId) {
+      var waiterRes = await client.query(
+        "SELECT e.id FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.id = $1 AND d.company_id = $2 AND e.status = 'active'",
+        [p.waiterId, session.posCompanyId]
+      );
+      if (!waiterRes.rows[0]) fail('invalid', 'That waiter is no longer available.');
+      waiterId = waiterRes.rows[0].id;
+    }
+    var guestId = null;
+    if (p.guestId) {
+      var guestRes = await client.query('SELECT id FROM restaurant_guests WHERE id = $1 AND company_id = $2', [p.guestId, session.posCompanyId]);
+      if (!guestRes.rows[0]) fail('invalid', 'That guest is no longer available.');
+      guestId = guestRes.rows[0].id;
+    }
+
     var lines = [];
     var subtotal = 0;
     for (var i = 0; i < items.length; i++) {
@@ -172,8 +250,9 @@ async function createOrder(token, p) {
     var orderNo = companyRes.rows[0].code + '-' + String(seqRes.rows[0].n).padStart(6, '0');
 
     var orderRes = await client.query(
-      'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method) VALUES ($1,$2,$3,$4,$4,$5) RETURNING *',
-      [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, paymentMethod]
+      'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id) ' +
+      'VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8) RETURNING *',
+      [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, paymentMethod, tableId, waiterId, guestId]
     );
     var order = orderRes.rows[0];
     for (var j = 0; j < lines.length; j++) {
@@ -217,9 +296,11 @@ async function listOrders(ctx, companyId, opts) {
   // total_count, so the Sales tab's stat tiles show true range-wide figures
   // rather than a partial, misleadingly-small sum of just the visible page.
   var res = await pool.query(
-    'SELECT o.*, e.first_name, e.last_name, count(*) OVER() AS total_count, ' +
+    'SELECT o.*, e.first_name, e.last_name, t.name AS table_name, w.first_name AS waiter_first_name, w.last_name AS waiter_last_name, ' +
+    'g.name AS guest_name, count(*) OVER() AS total_count, ' +
     "coalesce(sum(o.total) OVER(), 0) AS revenue_total, count(*) FILTER (WHERE o.status = 'voided') OVER() AS voided_count " +
     'FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
+    'LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN employees w ON w.id = o.waiter_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
     whereSql + ' ORDER BY o.created_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
     args
   );
@@ -230,6 +311,7 @@ async function listOrders(ctx, companyId, opts) {
     orders: res.rows.map(function (r) {
       return {
         id: r.id, companyId: r.company_id, orderNo: r.order_no, cashierName: r.first_name + ' ' + r.last_name,
+        tableName: r.table_name, waiterName: r.waiter_first_name ? r.waiter_first_name + ' ' + r.waiter_last_name : null, guestName: r.guest_name,
         subtotal: Number(r.subtotal), total: Number(r.total), paymentMethod: r.payment_method, status: r.status, createdAt: r.created_at
       };
     }),
@@ -245,7 +327,10 @@ async function listOrders(ctx, companyId, opts) {
 async function getOrder(ctx, id) {
   if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
   var orderRes = await pool.query(
-    'SELECT o.*, e.first_name, e.last_name FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id WHERE o.id = $1',
+    'SELECT o.*, e.first_name, e.last_name, t.name AS table_name, w.first_name AS waiter_first_name, w.last_name AS waiter_last_name, g.name AS guest_name, g.phone AS guest_phone ' +
+    'FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
+    'LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN employees w ON w.id = o.waiter_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
+    'WHERE o.id = $1',
     [id]
   );
   var order = orderRes.rows[0];
@@ -255,6 +340,8 @@ async function getOrder(ctx, id) {
   );
   return {
     id: order.id, companyId: order.company_id, orderNo: order.order_no, cashierName: order.first_name + ' ' + order.last_name,
+    tableName: order.table_name, waiterName: order.waiter_first_name ? order.waiter_first_name + ' ' + order.waiter_last_name : null,
+    guestName: order.guest_name, guestPhone: order.guest_phone,
     subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method, status: order.status, createdAt: order.created_at,
     items: itemsRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total) }; })
   };
@@ -436,5 +523,7 @@ module.exports = {
   toggleFavorite: toggleFavorite, mostlyBought: mostlyBought,
   getOpenDrawerSession: getOpenDrawerSession, openDrawerSession: openDrawerSession,
   addDrawerMovement: addDrawerMovement, closeDrawerSession: closeDrawerSession,
-  listDrawerSessions: listDrawerSessions, getDrawerSession: getDrawerSession
+  listDrawerSessions: listDrawerSessions, getDrawerSession: getDrawerSession,
+  tablesForSession: tablesForSession, waitersForSession: waitersForSession,
+  guestsForSession: guestsForSession, createGuestForSession: createGuestForSession
 };

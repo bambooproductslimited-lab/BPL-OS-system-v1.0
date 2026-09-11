@@ -49,4 +49,17 @@ router.post('/drawer/close', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.closeDrawerSession(req.posToken, req.body)); } catch (e) { next(e); }
 });
 
+router.get('/tables', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.tablesForSession(req.posToken)); } catch (e) { next(e); }
+});
+router.get('/waiters', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.waitersForSession(req.posToken)); } catch (e) { next(e); }
+});
+router.get('/guests', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.guestsForSession(req.posToken, req.query.q)); } catch (e) { next(e); }
+});
+router.post('/guests', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await restaurantPosService.createGuestForSession(req.posToken, req.body)); } catch (e) { next(e); }
+});
+
 module.exports = router;

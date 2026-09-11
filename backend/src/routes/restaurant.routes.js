@@ -70,6 +70,35 @@ router.delete('/ingredients/:id', async function (req, res, next) {
   try { res.json(await restaurantService.removeIngredient(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
+router.get('/tables', async function (req, res, next) {
+  try { res.json(await restaurantService.listTables(req.ctx, req.query.companyId)); } catch (e) { next(e); }
+});
+router.post('/tables', async function (req, res, next) {
+  try { res.status(201).json(await restaurantService.createTable(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.put('/tables/:id', async function (req, res, next) {
+  try { res.json(await restaurantService.updateTable(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/tables/:id/active', async function (req, res, next) {
+  try { res.json(await restaurantService.setTableActive(req.ctx, req.params.id, req.body.active)); } catch (e) { next(e); }
+});
+router.delete('/tables/:id', async function (req, res, next) {
+  try { res.json(await restaurantService.removeTable(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+router.get('/guests', async function (req, res, next) {
+  try { res.json(await restaurantService.listGuests(req.ctx, req.query.companyId, req.query.q)); } catch (e) { next(e); }
+});
+router.post('/guests', async function (req, res, next) {
+  try { res.status(201).json(await restaurantService.createGuest(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.put('/guests/:id', async function (req, res, next) {
+  try { res.json(await restaurantService.updateGuest(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.delete('/guests/:id', async function (req, res, next) {
+  try { res.json(await restaurantService.removeGuest(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
 router.get('/orders', async function (req, res, next) {
   try {
     res.json(await restaurantPosService.listOrders(req.ctx, req.query.companyId, {

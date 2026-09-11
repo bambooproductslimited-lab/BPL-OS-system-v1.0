@@ -68,7 +68,9 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(DOUBLE_OFF, BOLD_OFF);
   out = out.concat(line('Order ' + order.orderNo));
   out = out.concat(line(new Date(order.createdAt).toLocaleString()));
-  out = out.concat(line('Served by ' + (cashierName || '')));
+  out = out.concat(line('Served by ' + (cashierName || '') + (order.tableName ? ' at ' + order.tableName : '')));
+  if (order.waiterName) out = out.concat(line('Waiter: ' + order.waiterName));
+  if (order.guestName) out = out.concat(line('Guest: ' + order.guestName));
   out = out.concat(ALIGN_LEFT);
   out = out.concat(line(new Array(width + 1).join('-')));
   (order.items || []).forEach(function (it) {

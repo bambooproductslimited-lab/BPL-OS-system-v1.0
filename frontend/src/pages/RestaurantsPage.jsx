@@ -28,6 +28,8 @@ import './RestaurantsPage.css';
 const EMPTY_MENU_FORM = { name: '', category: '', price: '' };
 const EMPTY_SUPPLY_FORM = { name: '', category: '', unit: 'each', stockQty: '', reorderLevel: '', unitCost: '' };
 const EMPTY_INGREDIENT_FORM = { name: '', unit: 'kg', stockQty: '', reorderLevel: '', unitCost: '', expiryDate: '' };
+const EMPTY_TABLE_FORM = { name: '' };
+const EMPTY_GUEST_FORM = { name: '', phone: '', notes: '' };
 
 function UtensilsIcon() {
   return (
@@ -108,12 +110,14 @@ export default function RestaurantsPage() {
   // selected company to its restaurantLogos.js logo (SBR/BGN/BPL).
   const [companyCodeById, setCompanyCodeById] = useState({});
   const [companyId, setCompanyId] = useState('');
-  const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales' | 'drawer'
+  const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales' | 'drawer' | 'tables' | 'guests'
   const [search, setSearch] = useState('');
 
   const [menuItems, setMenuItems] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [ingredients, setIngredients] = useState([]);
+  const [tables, setTables] = useState([]);
+  const [guests, setGuests] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -143,6 +147,18 @@ export default function RestaurantsPage() {
   const [supplyForm, setSupplyForm] = useState(EMPTY_SUPPLY_FORM);
   const [supplyDialogError, setSupplyDialogError] = useState(null);
   const [supplySaving, setSupplySaving] = useState(false);
+
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [tableEditId, setTableEditId] = useState(null);
+  const [tableForm, setTableForm] = useState(EMPTY_TABLE_FORM);
+  const [tableDialogError, setTableDialogError] = useState(null);
+  const [tableSaving, setTableSaving] = useState(false);
+
+  const [guestDialogOpen, setGuestDialogOpen] = useState(false);
+  const [guestEditId, setGuestEditId] = useState(null);
+  const [guestForm, setGuestForm] = useState(EMPTY_GUEST_FORM);
+  const [guestDialogError, setGuestDialogError] = useState(null);
+  const [guestSaving, setGuestSaving] = useState(false);
 
   const [ingredientDialogOpen, setIngredientDialogOpen] = useState(false);
   const [ingredientEditId, setIngredientEditId] = useState(null);
@@ -212,14 +228,18 @@ export default function RestaurantsPage() {
     setError(null);
     try {
       const qs = forCompanyId ? '?companyId=' + forCompanyId : '';
-      const [menu, sup, ing] = await Promise.all([
+      const [menu, sup, ing, tbl, gst] = await Promise.all([
         api.get('/restaurant/menu-items' + qs),
         api.get('/restaurant/supplies' + qs),
-        api.get('/restaurant/ingredients' + qs)
+        api.get('/restaurant/ingredients' + qs),
+        api.get('/restaurant/tables' + qs),
+        api.get('/restaurant/guests' + qs)
       ]);
       setMenuItems(menu);
       setSupplies(sup);
       setIngredients(ing);
+      setTables(tbl);
+      setGuests(gst);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -466,6 +486,102 @@ export default function RestaurantsPage() {
     }
   }
 
+  // ── tables ──────────────────────────────────────────────────────────
+  function openNewTable() {
+    setTableDialogError(null);
+    setTableEditId(null);
+    setTableForm(EMPTY_TABLE_FORM);
+    setTableDialogOpen(true);
+  }
+  function openEditTable(t) {
+    setTableDialogError(null);
+    setTableEditId(t.id);
+    setTableForm({ name: t.name });
+    setTableDialogOpen(true);
+  }
+  async function submitTableForm(e) {
+    e.preventDefault();
+    setTableSaving(true);
+    setTableDialogError(null);
+    try {
+      if (tableEditId) await api.put('/restaurant/tables/' + tableEditId, tableForm);
+      else await api.post('/restaurant/tables', { ...tableForm, companyId });
+      setToast(tableEditId ? 'Table updated.' : 'Table added.');
+      setTableDialogOpen(false);
+      await load(companyId);
+    } catch (err) {
+      setTableDialogError(err.message);
+    } finally {
+      setTableSaving(false);
+    }
+  }
+  async function toggleTableActive(t) {
+    setBusyId(t.id);
+    try {
+      await api.post('/restaurant/tables/' + t.id + '/active', { active: t.status !== 'active' });
+      setToast(t.status === 'active' ? 'Table archived.' : 'Table reactivated.');
+      await load(companyId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+  async function deleteTable(t) {
+    setBusyId(t.id);
+    try {
+      await api.del('/restaurant/tables/' + t.id);
+      setToast('Table removed.');
+      await load(companyId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // ── guests ──────────────────────────────────────────────────────────
+  function openNewGuest() {
+    setGuestDialogError(null);
+    setGuestEditId(null);
+    setGuestForm(EMPTY_GUEST_FORM);
+    setGuestDialogOpen(true);
+  }
+  function openEditGuest(g) {
+    setGuestDialogError(null);
+    setGuestEditId(g.id);
+    setGuestForm({ name: g.name, phone: g.phone, notes: g.notes });
+    setGuestDialogOpen(true);
+  }
+  async function submitGuestForm(e) {
+    e.preventDefault();
+    setGuestSaving(true);
+    setGuestDialogError(null);
+    try {
+      if (guestEditId) await api.put('/restaurant/guests/' + guestEditId, guestForm);
+      else await api.post('/restaurant/guests', { ...guestForm, companyId });
+      setToast(guestEditId ? 'Guest updated.' : 'Guest added.');
+      setGuestDialogOpen(false);
+      await load(companyId);
+    } catch (err) {
+      setGuestDialogError(err.message);
+    } finally {
+      setGuestSaving(false);
+    }
+  }
+  async function deleteGuest(g) {
+    setBusyId(g.id);
+    try {
+      await api.del('/restaurant/guests/' + g.id);
+      setToast('Guest removed.');
+      await load(companyId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   // ── ingredients ─────────────────────────────────────────────────────
   function openNewIngredient() {
     setIngredientDialogError(null);
@@ -569,6 +685,8 @@ export default function RestaurantsPage() {
   const visibleMenuItems = menuItems.filter((m) => matchesQuery(search, m.name, m.category));
   const visibleSupplies = supplies.filter((s) => matchesQuery(search, s.name, s.category));
   const visibleIngredients = ingredients.filter((i) => matchesQuery(search, i.name));
+  const visibleTables = tables.filter((t) => matchesQuery(search, t.name));
+  const visibleGuests = guests.filter((g) => matchesQuery(search, g.name, g.phone));
 
   // Menu items already come back sorted by category, name (see
   // restaurant.service.js's listMenuItems) — grouping into a Map preserves
@@ -614,7 +732,7 @@ export default function RestaurantsPage() {
 
           <div className="restaurants-toolbar">
             <div className="seg">
-              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }, { key: 'sales', label: 'Sales' }, { key: 'drawer', label: 'Drawer' }].map((opt) => (
+              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }, { key: 'sales', label: 'Sales' }, { key: 'drawer', label: 'Drawer' }, { key: 'tables', label: 'Tables' }, { key: 'guests', label: 'Guests' }].map((opt) => (
                 <label className="seg-opt" key={opt.key}>
                   <input type="radio" name="restaurant-tab" checked={tab === opt.key} onChange={() => setTab(opt.key)} />
                   <span>{opt.label}</span>
@@ -647,6 +765,8 @@ export default function RestaurantsPage() {
             {canManage && tab === 'menu' && <button type="button" className="btn btn-primary" onClick={openNewMenuItem}>Add menu item</button>}
             {canManage && tab === 'supplies' && <button type="button" className="btn btn-primary" onClick={openNewSupply}>Add supply</button>}
             {canManage && tab === 'ingredients' && <button type="button" className="btn btn-primary" onClick={openNewIngredient}>Add ingredient</button>}
+            {canManage && tab === 'tables' && <button type="button" className="btn btn-primary" onClick={openNewTable}>Add table</button>}
+            {canManage && tab === 'guests' && <button type="button" className="btn btn-primary" onClick={openNewGuest}>Add guest</button>}
             <a className="btn btn-secondary" href="/pos" target="_blank" rel="noreferrer">Open till (POS) ↗</a>
             {canManage && (
               <button type="button" className="btn btn-secondary" disabled={squareBusy} onClick={runSquareImport}>
@@ -784,15 +904,55 @@ export default function RestaurantsPage() {
             </table>
           )}
 
+          {tab === 'tables' && (
+            <table className="table">
+              <thead><tr><th>Name</th><th>Status</th><th /></tr></thead>
+              <tbody>
+                {visibleTables.map((t) => (
+                  <tr key={t.id}>
+                    <td style={{ fontWeight: 600 }}>{t.name}</td>
+                    <td><span className={'tag ' + (t.status === 'active' ? 'tag-neutral' : 'tag-outline')}>{t.status}</span></td>
+                    <td className="table-actions">
+                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditTable(t)}>Rename</button>}
+                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === t.id} onClick={() => toggleTableActive(t)}>{t.status === 'active' ? 'Archive' : 'Reactivate'}</button>}
+                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === t.id} onClick={() => deleteTable(t)}>Delete</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {tab === 'guests' && (
+            <table className="table">
+              <thead><tr><th>Name</th><th>Phone</th><th>Notes</th><th /></tr></thead>
+              <tbody>
+                {visibleGuests.map((g) => (
+                  <tr key={g.id}>
+                    <td style={{ fontWeight: 600 }}>{g.name}</td>
+                    <td>{g.phone || '—'}</td>
+                    <td>{g.notes || '—'}</td>
+                    <td className="table-actions">
+                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditGuest(g)}>Edit</button>}
+                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === g.id} onClick={() => deleteGuest(g)}>Delete</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
           {tab === 'sales' && (
             <>
               <table className="table restaurants-sales-table" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
-                <thead><tr><th>Order</th><th>Cashier</th><th className="restaurants-amount-col">Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
+                <thead><tr><th>Order</th><th>Cashier</th><th>Table</th><th>Waiter</th><th className="restaurants-amount-col">Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
                 <tbody>
                   {orders.map((o) => (
                     <tr key={o.id} className={'restaurants-sales-row' + (o.status === 'voided' ? ' restaurants-sales-row-voided' : '') + (flashId === o.id ? ' restaurants-flash' : '')} onClick={() => openOrderDetail(o.id)}>
                       <td className="restaurants-order-no">{o.orderNo}</td>
                       <td>{o.cashierName}</td>
+                      <td>{o.tableName || '—'}</td>
+                      <td>{o.waiterName || '—'}</td>
                       <td className="restaurants-amount-col restaurants-amount">{money(o.total)}</td>
                       <td><span className="tag tag-neutral">{o.paymentMethod.replace('_', ' ')}</span></td>
                       <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
@@ -878,6 +1038,18 @@ export default function RestaurantsPage() {
           {tab === 'ingredients' && !!ingredients.length && !visibleIngredients.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No ingredients match "{search}"</p></div>
           )}
+          {tab === 'tables' && !tables.length && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No tables set up yet</p></div>
+          )}
+          {tab === 'tables' && !!tables.length && !visibleTables.length && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No tables match "{search}"</p></div>
+          )}
+          {tab === 'guests' && !guests.length && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No guests saved yet</p></div>
+          )}
+          {tab === 'guests' && !!guests.length && !visibleGuests.length && (
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No guests match "{search}"</p></div>
+          )}
           {tab === 'sales' && !ordersLoading && !orders.length && (ordersFrom || ordersTo) && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales in that date range</p></div>
           )}
@@ -961,6 +1133,48 @@ export default function RestaurantsPage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setSupplyDialogOpen(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={supplySaving}>{supplyEditId ? 'Save changes' : 'Add item'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {tableDialogOpen && (
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setTableDialogOpen(false)}>
+          <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitTableForm}>
+            <h2>{tableEditId ? 'Rename table' : 'Add table'}</h2>
+            {tableDialogError && <div className="error-banner">{tableDialogError}</div>}
+            <div className="field">
+              <label htmlFor="rt-name">Name</label>
+              <input id="rt-name" className="input" value={tableForm.name} onChange={(e) => setTableForm({ ...tableForm, name: e.target.value })} placeholder="Table 5, Bar, Patio 3…" required />
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setTableDialogOpen(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={tableSaving}>{tableEditId ? 'Save changes' : 'Add table'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {guestDialogOpen && (
+        <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setGuestDialogOpen(false)}>
+          <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitGuestForm}>
+            <h2>{guestEditId ? 'Edit guest' : 'Add guest'}</h2>
+            {guestDialogError && <div className="error-banner">{guestDialogError}</div>}
+            <div className="field">
+              <label htmlFor="rg-name">Name</label>
+              <input id="rg-name" className="input" value={guestForm.name} onChange={(e) => setGuestForm({ ...guestForm, name: e.target.value })} required />
+            </div>
+            <div className="field">
+              <label htmlFor="rg-phone">Phone</label>
+              <input id="rg-phone" className="input" value={guestForm.phone} onChange={(e) => setGuestForm({ ...guestForm, phone: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="rg-notes">Notes</label>
+              <input id="rg-notes" className="input" value={guestForm.notes} onChange={(e) => setGuestForm({ ...guestForm, notes: e.target.value })} placeholder="Allergies, preferences…" />
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setGuestDialogOpen(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={guestSaving}>{guestEditId ? 'Save changes' : 'Add guest'}</button>
             </div>
           </form>
         </div>
@@ -1056,6 +1270,13 @@ export default function RestaurantsPage() {
                   <strong>{money(orderDetail.total)}</strong>
                 </div>
                 <div className="restaurants-order-dialog-meta">Paid by {orderDetail.paymentMethod.replace('_', ' ')}</div>
+                {(orderDetail.tableName || orderDetail.waiterName || orderDetail.guestName) && (
+                  <div className="restaurants-order-dialog-meta">
+                    {orderDetail.tableName && <>Table: {orderDetail.tableName}</>}
+                    {orderDetail.waiterName && <>{orderDetail.tableName ? ' · ' : ''}Waiter: {orderDetail.waiterName}</>}
+                    {orderDetail.guestName && <>{(orderDetail.tableName || orderDetail.waiterName) ? ' · ' : ''}Guest: {orderDetail.guestName}{orderDetail.guestPhone ? ' (' + orderDetail.guestPhone + ')' : ''}</>}
+                  </div>
+                )}
               </>
             )}
             <div className="dialog-actions">
