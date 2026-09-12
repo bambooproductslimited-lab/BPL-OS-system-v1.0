@@ -9,15 +9,60 @@
 .roles-delete-btn:hover { opacity: 1; text-decoration: underline; }
 .roles-delete-btn:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
 .roles-field-hint { font-size: 11px; color: var(--color-text-muted); margin: -4px 0 12px; }
-.roles-scroll { overflow-x: auto; }
-.roles-table { min-width: 820px; }
+/* The matrix can run to a couple dozen permission rows by a dozen role
+   columns — sticking the header row (top) and permission column (left)
+   means you never lose track of which role/permission a cell belongs to
+   while scrolling either direction. Both need an opaque background (not
+   transparent) or scrolled content shows through underneath them. */
+.roles-scroll { overflow-x: auto; overflow-y: auto; max-height: 70vh; border: var(--divider-width) solid var(--color-divider); }
+.roles-table { min-width: 820px; border-collapse: separate; border-spacing: 0; }
+.roles-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--color-bg);
+  box-shadow: inset 0 -1px 0 var(--color-divider);
+}
 .roles-perm-col { min-width: 240px; }
-.roles-role-col { text-align: center; }
+.roles-corner-cell { position: sticky; left: 0; z-index: 3; }
+.roles-role-col {
+  text-align: center; min-width: 128px; max-width: 168px;
+  white-space: normal; vertical-align: bottom; padding-bottom: 10px;
+}
+.roles-role-col-locked { background: var(--color-bg-subtle) !important; }
+.roles-role-name { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.roles-lock-icon { width: 12px; height: 12px; flex-shrink: 0; color: var(--color-text-faint); }
+.roles-lock-icon svg { width: 100%; height: 100%; }
 .roles-usercount { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 10px; opacity: 0.7; }
+
+/* Collapsible group header row — one per p.group, spanning every column,
+   so the group name is a real visual section break instead of being
+   crammed into each row's own label text ("Group · Label"). */
+.roles-group-cell { padding: 0; background: var(--color-bg-subtle); border-top: var(--divider-width) solid var(--color-divider); border-bottom: var(--divider-width) solid var(--color-divider); }
+.roles-group-toggle {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px;
+  position: sticky; left: 0;
+  background: none; border: none; cursor: pointer; text-align: left;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--color-text);
+}
+.roles-group-toggle:hover { color: var(--color-accent); }
+.roles-group-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-muted); transition: transform 0.15s ease; }
+.roles-group-chevron svg { width: 100%; height: 100%; }
+.roles-group-chevron-open { transform: rotate(90deg); }
+.roles-group-count { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--color-text-faint); }
+
+.roles-perm-row:hover td { background: var(--color-bg-subtle); }
+.roles-perm-cell { position: sticky; left: 0; z-index: 1; background: var(--color-bg); box-shadow: inset -1px 0 0 var(--color-divider); }
 .roles-perm-label { font-size: 13px; }
 .roles-perm-key { font-size: 11px; color: var(--color-text-faint); }
-.roles-checkbox-cell { text-align: center; }
-.roles-checkbox { accent-color: var(--color-accent); width: 16px; height: 16px; }
+
+/* The checkbox itself stays small, but the whole cell is the click/tap
+   target via a label filling it — the original 16px box with no padding
+   was the actual "hard to select" complaint. */
+.roles-checkbox-cell { text-align: center; padding: 0; }
+.roles-checkbox-cell-locked { background: var(--color-bg-subtle); }
+.roles-checkbox-label { display: flex; align-items: center; justify-content: center; padding: 12px 8px; cursor: pointer; }
+.roles-checkbox-cell:has(.roles-checkbox:disabled) .roles-checkbox-label { cursor: not-allowed; }
+.roles-checkbox { accent-color: var(--color-accent); width: 18px; height: 18px; cursor: inherit; }
 
 .roles-empty-state {
   display: flex;

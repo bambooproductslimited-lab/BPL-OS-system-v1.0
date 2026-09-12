@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -30,6 +30,37 @@ function KeyIcon() {
   );
 }
 
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="10.5" width="14" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Groups the (already search-filtered) catalogue by its own p.group, in the
+// order each group first appears — the API's own ordering, not resorted —
+// so the permission matrix can render one collapsible section per group
+// instead of the group name being buried inside every row's label text.
+function groupCatalogue(list) {
+  var order = [];
+  var byGroup = new Map();
+  list.forEach(function (p) {
+    if (!byGroup.has(p.group)) { byGroup.set(p.group, []); order.push(p.group); }
+    byGroup.get(p.group).push(p);
+  });
+  return order.map(function (g) { return { group: g, permissions: byGroup.get(g) }; });
+}
+
 export default function RolesPage() {
   const { can } = useAuth();
   const canManage = can('role.manage');
@@ -46,6 +77,18 @@ export default function RolesPage() {
   const [newRoleError, setNewRoleError] = useState('');
   const [newRoleSaving, setNewRoleSaving] = useState(false);
   const [deletingRoleId, setDeletingRoleId] = useState(null);
+
+  // Collapsed permission-group sections — expanded by default. Ignored
+  // while searching, since a search result should always show every
+  // matching row regardless of what the user last collapsed.
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+  function toggleGroup(group) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      return next;
+    });
+  }
 
   const load = useCallback(async () => {
     setError(null);
@@ -114,6 +157,7 @@ export default function RolesPage() {
   if (loading) return <div className="eyebrow">Loading…</div>;
 
   const visibleCatalogue = catalogue.filter((p) => matchesQuery(search, p.group, p.label, p.key));
+  const groups = groupCatalogue(visibleCatalogue);
 
   return (
     <div>
@@ -132,48 +176,72 @@ export default function RolesPage() {
         <table className="table roles-table">
           <thead>
             <tr>
-              <th className="roles-perm-col">Permission</th>
-              {roles.map((r) => (
-                <th key={r.id} className="roles-role-col">
-                  {r.name}
-                  <div className="roles-usercount">{r.userCount} users</div>
-                  {canManage && !r.isSystem && (
-                    <button
-                      type="button" className="roles-delete-btn" disabled={deletingRoleId === r.id}
-                      onClick={() => deleteRole(r)}
-                    >
-                      {deletingRoleId === r.id ? 'Deleting…' : 'Delete'}
-                    </button>
-                  )}
-                </th>
-              ))}
+              <th className="roles-perm-col roles-corner-cell">Permission</th>
+              {roles.map((r) => {
+                const isLockedCol = r.key === 'administrator';
+                return (
+                  <th key={r.id} className={'roles-role-col' + (isLockedCol ? ' roles-role-col-locked' : '')}>
+                    <div className="roles-role-name">
+                      {isLockedCol && <span className="roles-lock-icon" title="Always full access"><LockIcon /></span>}
+                      {r.name}
+                    </div>
+                    <div className="roles-usercount">{r.userCount} users</div>
+                    {canManage && !r.isSystem && (
+                      <button
+                        type="button" className="roles-delete-btn" disabled={deletingRoleId === r.id}
+                        onClick={() => deleteRole(r)}
+                      >
+                        {deletingRoleId === r.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {visibleCatalogue.map((p) => (
-              <tr key={p.key}>
-                <td>
-                  <div className="roles-perm-label">{p.group} · {p.label}</div>
-                  <div className="roles-perm-key">{p.key}</div>
-                </td>
-                {roles.map((r) => {
-                  const on = r.permissions.indexOf(p.key) >= 0;
-                  const locked = r.key === 'administrator' || !canManage;
-                  const cellKey = r.id + ':' + p.key;
-                  return (
-                    <td key={r.id} className="roles-checkbox-cell">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        disabled={locked || busyKey === cellKey}
-                        onChange={(e) => toggle(r, p.key, e.target.checked)}
-                        className="roles-checkbox"
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {groups.map(({ group, permissions }) => {
+              const isCollapsed = !search && collapsedGroups.has(group);
+              return (
+                <Fragment key={group}>
+                  <tr className="roles-group-row">
+                    <th colSpan={1 + roles.length} className="roles-group-cell">
+                      <button type="button" className="roles-group-toggle" onClick={() => toggleGroup(group)}>
+                        <span className={'roles-group-chevron' + (isCollapsed ? '' : ' roles-group-chevron-open')}><ChevronIcon /></span>
+                        {group}
+                        <span className="roles-group-count">{permissions.length}</span>
+                      </button>
+                    </th>
+                  </tr>
+                  {!isCollapsed && permissions.map((p) => (
+                    <tr key={p.key} className="roles-perm-row">
+                      <td className="roles-perm-cell">
+                        <div className="roles-perm-label">{p.label}</div>
+                        <div className="roles-perm-key">{p.key}</div>
+                      </td>
+                      {roles.map((r) => {
+                        const on = r.permissions.indexOf(p.key) >= 0;
+                        const locked = r.key === 'administrator' || !canManage;
+                        const cellKey = r.id + ':' + p.key;
+                        return (
+                          <td key={r.id} className={'roles-checkbox-cell' + (locked ? ' roles-checkbox-cell-locked' : '')}>
+                            <label className="roles-checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                disabled={locked || busyKey === cellKey}
+                                onChange={(e) => toggle(r, p.key, e.target.checked)}
+                                className="roles-checkbox"
+                              />
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
