@@ -94,8 +94,10 @@ function fmtDate(iso) {
 // One row per scoped employee, counting a status across every calendar
 // day in the range — /attendance/report itself now returns a row per
 // employee per day (a day with no clock-in record comes back as 'absent',
-// same rule the single-day roster already used), so present+late+absent+
-// leave+off always sums to the full number of days in the filtered range.
+// same rule the single-day roster already used). Total is the count of
+// days they actually came to work (present + late, i.e. every day with a
+// clock-in) — not the calendar days in the range, since absent/leave/off
+// days aren't days worked.
 function aggregateByEmployee(rows) {
   const byEmp = {};
   rows.forEach((r) => {
@@ -104,8 +106,8 @@ function aggregateByEmployee(rows) {
     }
     const e = byEmp[r.employeeId];
     if (e[r.status] !== undefined) e[r.status]++;
-    e.total++;
   });
+  Object.values(byEmp).forEach((e) => { e.total = e.present + e.late; });
   return Object.values(byEmp).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -568,7 +570,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th>Total</th></tr>
+              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th title="Days they came to work (present + late)">Total</th></tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
