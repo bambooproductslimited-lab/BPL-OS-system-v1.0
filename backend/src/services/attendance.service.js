@@ -25,6 +25,20 @@ function hmToMinutes(hm) {
   var parts = hm.split(':').map(Number);
   return parts[0] * 60 + parts[1];
 }
+// Bamboo Products Limited runs a Mon-Sat week — Sunday is a paid rest day
+// for its staff, EXCEPT the Security department, which (like both
+// restaurants, Star Bar and Bamboo Garden) is staffed every day of the
+// week. A rest day only matters when there's no actual attendance record
+// for it — someone who did clock in on their rest day keeps whatever
+// their real record says (e.g. still shows late if they came in late).
+var BPL_COMPANY_NAME = 'Bamboo Products Limited';
+var SECURITY_DEPARTMENT_NAME = 'Security';
+function isRestDay(companyName, departmentName, dateISO) {
+  if (companyName !== BPL_COMPANY_NAME) return false;
+  if (departmentName === SECURITY_DEPARTMENT_NAME) return false;
+  return new Date(dateISO + 'T00:00').getDay() === 0; // Sunday
+}
+
 async function resolveLateAfter(employeeId) {
   var empRes = await pool.query(
     'SELECT e.shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
@@ -184,7 +198,7 @@ async function list(ctx, params) {
         department: e.department_name || '—', company: e.company_name || '—',
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
-        status: r ? r.status : 'absent', note: r ? r.note : ''
+        status: r ? r.status : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), note: r ? r.note : ''
       };
     })
   };
@@ -193,16 +207,13 @@ async function list(ctx, params) {
 var MAX_REPORT_RANGE_DAYS = 5 * 365; // sanity bound (catches a typo'd year), not a real operational limit
 
 // kernel.js: handlers['attendance.report'] — one row per scoped employee per
-// calendar day in the range, same "no record on a day = absent" rule
+// calendar day in the range, same "no record on a day = absent, unless it's
+// that employee's rest day (see isRestDay), in which case it's off" rule
 // list() already applies to a single day, now extended across the whole
-// range: a gap in the attendance table reads as a real absence rather than
-// being left out of the report entirely. (An earlier version of this only
-// returned days with an actual record, on the theory that a gap might just
-// be a rest day — but this system has no stored concept of which days an
-// employee is actually scheduled to work, so silently excluding gaps just
-// hid genuine absences instead. Revisit if a real weekly-schedule model
-// ever gets added.) Same visibility scoping as list(): attendance.read.all
-// sees everyone in reach, otherwise just your own record.
+// range: a gap in the attendance table reads as a real absence (or a rest
+// day) rather than being left out of the report entirely. Same visibility
+// scoping as list(): attendance.read.all sees everyone in reach, otherwise
+// just your own record.
 async function report(ctx, from, to, filters) {
   from = V.date(from, 'From date');
   to = V.date(to, 'To date');
@@ -245,7 +256,7 @@ async function report(ctx, from, to, filters) {
         department: e.department_name || '—', company: e.company_name || '—',
         date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
-        status: r ? r.status : 'absent', source: r ? r.source : null, note: r ? r.note : ''
+        status: r ? r.status : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
       rows.push(row);

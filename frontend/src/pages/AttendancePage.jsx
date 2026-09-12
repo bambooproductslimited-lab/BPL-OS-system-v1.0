@@ -94,10 +94,12 @@ function fmtDate(iso) {
 // One row per scoped employee, counting a status across every calendar
 // day in the range — /attendance/report itself now returns a row per
 // employee per day (a day with no clock-in record comes back as 'absent',
-// same rule the single-day roster already used). Total is the count of
-// days they actually came to work (present + late, i.e. every day with a
-// clock-in) — not the calendar days in the range, since absent/leave/off
-// days aren't days worked.
+// or 'off' on that employee's rest day — see attendance.service.js's
+// isRestDay: Sunday is a rest day for Bamboo Products Limited staff other
+// than Security, while Star Bar, Bamboo Garden, and BPL Security work
+// every day). Total is the number of days they were actually supposed to
+// be at work — every status except 'off', so a Sunday rest day doesn't
+// count against (or for) them the way a real absence does.
 function aggregateByEmployee(rows) {
   const byEmp = {};
   rows.forEach((r) => {
@@ -107,7 +109,7 @@ function aggregateByEmployee(rows) {
     const e = byEmp[r.employeeId];
     if (e[r.status] !== undefined) e[r.status]++;
   });
-  Object.values(byEmp).forEach((e) => { e.total = e.present + e.late; });
+  Object.values(byEmp).forEach((e) => { e.total = e.present + e.late + e.absent + e.leave; });
   return Object.values(byEmp).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -279,7 +281,8 @@ export default function AttendancePage() {
     { label: 'In scope', value: rows.length, icon: 'users', tone: 'people', filterKey: null },
     { label: 'Present', value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people', filterKey: 'present' },
     { label: 'Late', value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning', filterKey: 'late' },
-    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger', filterKey: 'absent' }
+    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger', filterKey: 'absent' },
+    { label: 'Off (rest day)', value: rows.filter((r) => r.status === 'off').length, icon: 'calendar', tone: 'people', filterKey: 'off' }
   ];
 
   // periodStatusMatches lets the "Absent/leave/off days" tile below filter
@@ -522,8 +525,8 @@ export default function AttendancePage() {
 
       {!isSingleDay && (
         <p className="eyebrow" style={{ marginTop: 12 }}>
-          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}, per-employee totals. Only employees with at least one
-          attendance record in this range are listed — pick a single day above to see and correct individual records.
+          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}, per-employee totals. Total excludes rest days (e.g.
+          Sundays off for most Bamboo Products Limited staff) — pick a single day above to see and correct individual records.
         </p>
       )}
 
@@ -570,7 +573,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th title="Days they came to work (present + late)">Total</th></tr>
+              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th title="Days they were supposed to be at work (excludes rest days)">Total</th></tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
