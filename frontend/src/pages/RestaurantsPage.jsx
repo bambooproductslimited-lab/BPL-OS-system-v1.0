@@ -199,6 +199,20 @@ export default function RestaurantsPage() {
     });
   }
 
+  // Clicking a menu card that has price variations expands them inline,
+  // right there in the grid — no need to open the full edit dialog just to
+  // see what "M" vs "Jellyfish" actually cost. listMenuItems already
+  // attaches each item's variations (see restaurant.service.js), so this
+  // is a pure client-side toggle, no extra fetch.
+  const [expandedMenuItemIds, setExpandedMenuItemIds] = useState(() => new Set());
+  function toggleMenuItemExpanded(id) {
+    setExpandedMenuItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   // Flashes a brief highlight on the row/card just edited or voided, so the
   // eye catches what changed instead of a save just silently landing.
   const [flashId, setFlashId] = useState(null);
@@ -909,23 +923,55 @@ export default function RestaurantsPage() {
                 <div className={'restaurants-menu-group-body' + (isCollapsed ? ' restaurants-menu-group-collapsed' : '')}>
                   <div className="restaurants-menu-group-body-inner">
                     <div className="restaurants-menu-grid">
-                      {group.items.map((m) => (
-                        <div className={'restaurants-menu-card' + (flashId === m.id ? ' restaurants-flash' : '')} key={m.id}>
-                          {m.photoUrl && <img className="restaurants-menu-card-photo" src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />}
-                          <div className="restaurants-menu-card-top">
-                            <span className="restaurants-menu-card-name">{m.name}</span>
-                            <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
-                          </div>
-                          <div className="restaurants-menu-card-price">{money(m.price)}</div>
-                          {canManage && (
-                            <div className="restaurants-menu-card-actions">
-                              <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>
-                              <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
-                              <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>
+                      {group.items.map((m) => {
+                        const hasVariations = !!(m.variations && m.variations.length);
+                        const isExpanded = hasVariations && expandedMenuItemIds.has(m.id);
+                        return (
+                          <div
+                            className={'restaurants-menu-card' + (flashId === m.id ? ' restaurants-flash' : '') + (hasVariations ? ' restaurants-menu-card-clickable' : '')}
+                            key={m.id}
+                            onClick={hasVariations ? () => toggleMenuItemExpanded(m.id) : undefined}
+                            role={hasVariations ? 'button' : undefined}
+                            tabIndex={hasVariations ? 0 : undefined}
+                            aria-expanded={hasVariations ? isExpanded : undefined}
+                            onKeyDown={hasVariations ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenuItemExpanded(m.id); } } : undefined}
+                          >
+                            {m.photoUrl && <img className="restaurants-menu-card-photo" src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />}
+                            <div className="restaurants-menu-card-top">
+                              <span className="restaurants-menu-card-name">{m.name}</span>
+                              <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            <div className="restaurants-menu-card-price">
+                              {money(m.price)}
+                              {hasVariations && (
+                                <span className="restaurants-menu-card-variation-toggle">
+                                  {m.variations.length} variation{m.variations.length > 1 ? 's' : ''}
+                                  <svg className={'restaurants-menu-category-chevron' + (isExpanded ? '' : ' restaurants-menu-category-chevron-collapsed')} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                </span>
+                              )}
+                            </div>
+                            {isExpanded && (
+                              <div className="restaurants-menu-card-variations">
+                                {m.variations.map((v) => (
+                                  <div key={v.id} className="restaurants-menu-card-variation-row">
+                                    <span className="restaurants-menu-card-variation-name">{v.name}</span>
+                                    <span className="restaurants-menu-card-variation-price">{money(v.price)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {canManage && (
+                              <div className="restaurants-menu-card-actions" onClick={(e) => e.stopPropagation()}>
+                                <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>
+                                <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
+                                <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
