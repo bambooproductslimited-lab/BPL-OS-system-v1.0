@@ -192,12 +192,17 @@ async function list(ctx, params) {
 
 var MAX_REPORT_RANGE_DAYS = 5 * 365; // sanity bound (catches a typo'd year), not a real operational limit
 
-// kernel.js: handlers['attendance.report'] — every actual attendance record
-// in the range, not a per-day roster like list() (no synthesized "absent"
-// placeholder rows for days with nothing recorded — a report should show
-// what's really in the table, not an assumption about what "should" have
-// happened). Same visibility scoping as list(): attendance.read.all sees
-// everyone in reach, otherwise just your own record.
+// kernel.js: handlers['attendance.report'] — one row per scoped employee per
+// calendar day in the range, same "no record on a day = absent" rule
+// list() already applies to a single day, now extended across the whole
+// range: a gap in the attendance table reads as a real absence rather than
+// being left out of the report entirely. (An earlier version of this only
+// returned days with an actual record, on the theory that a gap might just
+// be a rest day — but this system has no stored concept of which days an
+// employee is actually scheduled to work, so silently excluding gaps just
+// hid genuine absences instead. Revisit if a real weekly-schedule model
+// ever gets added.) Same visibility scoping as list(): attendance.read.all
+// sees everyone in reach, otherwise just your own record.
 async function report(ctx, from, to, filters) {
   from = V.date(from, 'From date');
   to = V.date(to, 'To date');
@@ -214,34 +219,40 @@ async function report(ctx, from, to, filters) {
   var canSeeHourlyRate = ctx.can('payroll.manage');
   if (!ids.length) return { from: from, to: to, rows: [], canViewPay: canSeeHourlyRate };
 
-  var empById = {};
-  scopeEmployees.forEach(function (e) { empById[e.id] = e; });
-
   var attRes = await pool.query(
     'SELECT * FROM attendance WHERE employee_id = ANY($1) AND date BETWEEN $2 AND $3 ORDER BY date, employee_id',
     [ids, from, to]
   );
+  var recordByEmpDate = {};
+  attRes.rows.forEach(function (r) { recordByEmpDate[r.employee_id + '|' + r.date] = r; });
+
+  var dates = [];
+  for (var d = new Date(from + 'T00:00'); d <= new Date(to + 'T00:00'); d.setDate(d.getDate() + 1)) {
+    dates.push(d.toISOString().slice(0, 10));
+  }
 
   // hourlyRate is compensation data — same payroll.manage gate as
   // employees.service.js's rowToEmployee(), omitted from the payload
   // entirely (not just hidden client-side) for anyone without it. The
   // TimeStation-style pivot report's Total Pay column blanks out when this
   // is absent.
-  return {
-    from: from, to: to, canViewPay: canSeeHourlyRate,
-    rows: attRes.rows.map(function (r) {
-      var e = empById[r.employee_id];
+  var rows = [];
+  scopeEmployees.forEach(function (e) {
+    dates.forEach(function (date) {
+      var r = recordByEmpDate[e.id + '|' + date];
       var row = {
-        employeeId: r.employee_id, code: e.code, name: e.first_name + ' ' + e.last_name, positionTitle: e.position_title || '',
+        employeeId: e.id, code: e.code, name: e.first_name + ' ' + e.last_name, positionTitle: e.position_title || '',
         department: e.department_name || '—', company: e.company_name || '—',
-        date: r.date, clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
-        clockInLocation: r.clock_in_location, clockOutLocation: r.clock_out_location,
-        status: r.status, source: r.source, note: r.note
+        date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
+        clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
+        status: r ? r.status : 'absent', source: r ? r.source : null, note: r ? r.note : ''
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
-      return row;
-    })
-  };
+      rows.push(row);
+    });
+  });
+
+  return { from: from, to: to, canViewPay: canSeeHourlyRate, rows: rows };
 }
 
 // kernel.js: handlers['attendance.adjust']

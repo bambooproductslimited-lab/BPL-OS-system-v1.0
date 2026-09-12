@@ -91,11 +91,11 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// Only employees with at least one actual attendance record in the range
-// show up here — same "report what's really there, don't invent absence
-// rows for a period with nothing recorded" rule as /attendance/report
-// itself (see attendance.service.js). Called out in the UI with a caption
-// rather than left as a silent gap.
+// One row per scoped employee, counting a status across every calendar
+// day in the range — /attendance/report itself now returns a row per
+// employee per day (a day with no clock-in record comes back as 'absent',
+// same rule the single-day roster already used), so present+late+absent+
+// leave+off always sums to the full number of days in the filtered range.
 function aggregateByEmployee(rows) {
   const byEmp = {};
   rows.forEach((r) => {
@@ -291,7 +291,7 @@ export default function AttendancePage() {
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || periodStatusMatches(r, statusFilter));
   const periodSummary = [
-    { label: 'Employees with records', value: periodRows.length, icon: 'users', tone: 'people', filterKey: null },
+    { label: 'Employees', value: periodRows.length, icon: 'users', tone: 'people', filterKey: null },
     { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people', filterKey: 'present' },
     { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning', filterKey: 'late' },
     { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger', filterKey: 'absentLeaveOff' }
@@ -592,7 +592,7 @@ export default function AttendancePage() {
               ))}
             </tbody>
           </table>
-          {!periodRows.length && <EmptyState title="No attendance records in this range" />}
+          {!periodRows.length && <EmptyState title="No employees in scope for this filter" />}
           {!!periodRows.length && !visiblePeriodRows.length && (
             <p className="table-empty">
               No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
