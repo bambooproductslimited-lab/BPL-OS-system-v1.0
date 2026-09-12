@@ -97,9 +97,10 @@ function fmtDate(iso) {
 // or 'off' on that employee's rest day — see attendance.service.js's
 // isRestDay: Sunday is a rest day for Bamboo Products Limited staff other
 // than Security, while Star Bar, Bamboo Garden, and BPL Security work
-// every day). Total is the number of days they were actually supposed to
-// be at work — every status except 'off', so a Sunday rest day doesn't
-// count against (or for) them the way a real absence does.
+// every day). Total is the number of days they actually came to work
+// (present + late) — Off already keeps rest days out of Absent, so Absent
+// only ever means "was scheduled to work, didn't show up," and Total only
+// ever means "did show up."
 function aggregateByEmployee(rows) {
   const byEmp = {};
   rows.forEach((r) => {
@@ -109,7 +110,7 @@ function aggregateByEmployee(rows) {
     const e = byEmp[r.employeeId];
     if (e[r.status] !== undefined) e[r.status]++;
   });
-  Object.values(byEmp).forEach((e) => { e.total = e.present + e.late + e.absent + e.leave; });
+  Object.values(byEmp).forEach((e) => { e.total = e.present + e.late; });
   return Object.values(byEmp).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -525,8 +526,9 @@ export default function AttendancePage() {
 
       {!isSingleDay && (
         <p className="eyebrow" style={{ marginTop: 12 }}>
-          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}, per-employee totals. Total excludes rest days (e.g.
-          Sundays off for most Bamboo Products Limited staff) — pick a single day above to see and correct individual records.
+          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}, per-employee totals. Total is days actually worked
+          (present + late) — Off already excludes rest days (e.g. Sundays for most Bamboo Products Limited staff) from
+          Absent, so Absent only counts real missed workdays. Pick a single day above to see and correct individual records.
         </p>
       )}
 
@@ -573,7 +575,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th title="Days they were supposed to be at work (excludes rest days)">Total</th></tr>
+              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th title="Days they actually came to work (present + late)">Total</th></tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
