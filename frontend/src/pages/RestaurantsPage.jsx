@@ -112,6 +112,12 @@ export default function RestaurantsPage() {
   const [companyId, setCompanyId] = useState('');
   const [tab, setTab] = useState('menu'); // 'menu' | 'supplies' | 'ingredients' | 'sales' | 'drawer' | 'tables' | 'guests'
   const [search, setSearch] = useState('');
+  // Defaults to on: a Square re-import deactivates old flat per-variation
+  // rows rather than deleting them (real historical orders may still
+  // reference them), so without this the menu tab fills up with disabled
+  // duplicates every grouped item leaves behind. Off just shows everything,
+  // for the rare case someone needs to find and re-enable one.
+  const [hideDisabled, setHideDisabled] = useState(true);
 
   const [menuItems, setMenuItems] = useState([]);
   const [supplies, setSupplies] = useState([]);
@@ -744,7 +750,9 @@ export default function RestaurantsPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visibleMenuItems = menuItems.filter((m) => matchesQuery(search, m.name, m.category));
+  const visibleMenuItems = menuItems
+    .filter((m) => matchesQuery(search, m.name, m.category))
+    .filter((m) => !hideDisabled || m.active);
   const visibleSupplies = supplies.filter((s) => matchesQuery(search, s.name, s.category));
   const visibleIngredients = ingredients.filter((i) => matchesQuery(search, i.name));
   const visibleTables = tables.filter((t) => matchesQuery(search, t.name));
@@ -803,6 +811,12 @@ export default function RestaurantsPage() {
             </div>
             {tab !== 'sales' && tab !== 'drawer' && (
               <SearchInput value={search} onChange={setSearch} placeholder={'Search ' + (tab === 'ingredients' ? 'food' : tab) + '…'} />
+            )}
+            {tab === 'menu' && (
+              <label className="checkbox-field restaurants-hide-disabled">
+                <input type="checkbox" checked={hideDisabled} onChange={(e) => setHideDisabled(e.target.checked)} />
+                Hide disabled
+              </label>
             )}
             {tab === 'sales' && (
               <div className="restaurants-date-filter">
@@ -1086,7 +1100,15 @@ export default function RestaurantsPage() {
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No menu items yet</p></div>
           )}
           {tab === 'menu' && !!menuItems.length && !visibleMenuItems.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No menu items match "{search}"</p></div>
+            <div className="restaurants-empty-state">
+              <span className="restaurants-empty-icon"><UtensilsIcon /></span>
+              <p className="restaurants-empty-title">
+                {search ? 'No menu items match "' + search + '"' : 'Every menu item here is disabled'}
+              </p>
+              {!search && hideDisabled && (
+                <button type="button" className="btn btn-secondary" onClick={() => setHideDisabled(false)}>Show disabled items</button>
+              )}
+            </div>
           )}
           {tab === 'supplies' && !supplies.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No supplies tracked yet</p></div>

@@ -32,6 +32,8 @@
 .restaurants-company-seg .seg-opt, .restaurants-toolbar .seg-opt { transition: background-color 0.15s ease, color 0.15s ease; }
 .restaurants-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .restaurants-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+.checkbox-field { display: flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.restaurants-hide-disabled { color: var(--color-text-muted); }
 .restaurants-lowstock { margin-left: 6px; }
 .restaurants-stock-current { font-size: 13px; color: var(--color-text-muted); margin: 0 0 4px; }
 .restaurants-square-result { font-size: 13px; color: var(--color-text-muted); margin: -8px 0 16px; }
