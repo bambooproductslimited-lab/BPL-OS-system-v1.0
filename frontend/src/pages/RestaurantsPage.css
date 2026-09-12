@@ -175,21 +175,60 @@
    grid — the common case ("what does M vs L actually cost") shouldn't
    need the full edit dialog. */
 .restaurants-menu-card-clickable { cursor: pointer; }
+.restaurants-menu-card-clickable:hover {
+  box-shadow: inset 0 0 0 var(--divider-width) var(--color-accent), 0 6px 18px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+.restaurants-menu-card-expanded {
+  box-shadow: inset 0 0 0 1.5px var(--color-accent), 0 8px 22px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg));
+}
+.restaurants-menu-card-price-highlight { color: var(--color-accent-700); font-weight: 800; }
 .restaurants-menu-card-variation-toggle {
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; font-weight: 600; color: var(--color-text-muted);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  font-size: 11px; font-weight: 700; color: var(--color-accent-700);
   text-transform: none; letter-spacing: normal;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
 }
+.restaurants-menu-card-clickable:hover .restaurants-menu-card-variation-toggle { transform: translateY(-1px); }
+.restaurants-menu-card-variation-toggle-open { background: var(--color-accent); color: #fff; }
 .restaurants-menu-card-variation-toggle .restaurants-menu-category-chevron { width: 10px; height: 10px; }
+
+/* Same grid-template-rows fr trick as the category collapse above, so the
+   variation list slides open/closed smoothly instead of popping in — a
+   conditionally-rendered block can't be transitioned, so this one always
+   stays mounted and animates between a 0fr and 1fr row instead. */
+.restaurants-menu-card-variations-wrap { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.22s ease; margin-top: 2px; }
+.restaurants-menu-card-variations-collapsed { grid-template-rows: 0fr; margin-top: 0; }
+.restaurants-menu-card-variations-inner { overflow: hidden; min-height: 0; }
 .restaurants-menu-card-variations {
   display: flex; flex-direction: column; gap: 4px;
-  padding-top: 8px; margin-top: 2px;
+  padding-top: 8px;
   border-top: var(--divider-width) solid var(--color-divider);
-  animation: restaurants-fade-up 0.15s ease-out both;
 }
-.restaurants-menu-card-variation-row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.restaurants-menu-card-variation-name { color: var(--color-text); }
-.restaurants-menu-card-variation-price { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.restaurants-menu-card-variation-row {
+  display: flex; align-items: center; gap: 8px; font-size: 13px;
+  padding: 5px 8px;
+  border-radius: var(--radius, 6px);
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+  animation: restaurants-fade-up 0.2s ease-out both;
+  transition: background-color 0.12s ease;
+}
+.restaurants-menu-card-variation-row:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.restaurants-menu-card-variation-dot {
+  width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%;
+  background: var(--color-text-faint);
+}
+.restaurants-menu-card-variation-name { flex: 1; color: var(--color-text); }
+.restaurants-menu-card-variation-price { color: var(--color-text-muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+/* The cheapest option (when prices actually differ) gets a small accent
+   nudge — a quiet "best value" cue, not a loud badge. */
+.restaurants-menu-card-variation-row-best { background: color-mix(in srgb, var(--color-accent) 9%, transparent); }
+.restaurants-menu-card-variation-row-best .restaurants-menu-card-variation-dot { background: var(--color-accent); }
+.restaurants-menu-card-variation-row-best .restaurants-menu-card-variation-price { color: var(--color-accent-700); }
 
 /* Photo bleeds to the card's edges — pulled out over the card's own 16px
    padding rather than the card being restructured into a padded/unpadded

@@ -926,9 +926,12 @@ export default function RestaurantsPage() {
                       {group.items.map((m) => {
                         const hasVariations = !!(m.variations && m.variations.length);
                         const isExpanded = hasVariations && expandedMenuItemIds.has(m.id);
+                        const variationPrices = hasVariations ? m.variations.map((v) => Number(v.price)) : [];
+                        const minVariationPrice = hasVariations ? Math.min(...variationPrices) : null;
+                        const maxVariationPrice = hasVariations ? Math.max(...variationPrices) : null;
                         return (
                           <div
-                            className={'restaurants-menu-card' + (flashId === m.id ? ' restaurants-flash' : '') + (hasVariations ? ' restaurants-menu-card-clickable' : '')}
+                            className={'restaurants-menu-card' + (flashId === m.id ? ' restaurants-flash' : '') + (hasVariations ? ' restaurants-menu-card-clickable' : '') + (isExpanded ? ' restaurants-menu-card-expanded' : '')}
                             key={m.id}
                             onClick={hasVariations ? () => toggleMenuItemExpanded(m.id) : undefined}
                             role={hasVariations ? 'button' : undefined}
@@ -942,9 +945,11 @@ export default function RestaurantsPage() {
                               <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
                             </div>
                             <div className="restaurants-menu-card-price">
-                              {money(m.price)}
+                              {hasVariations
+                                ? (minVariationPrice === maxVariationPrice ? money(minVariationPrice) : <>From <span className="restaurants-menu-card-price-highlight">{money(minVariationPrice)}</span></>)
+                                : money(m.price)}
                               {hasVariations && (
-                                <span className="restaurants-menu-card-variation-toggle">
+                                <span className={'restaurants-menu-card-variation-toggle' + (isExpanded ? ' restaurants-menu-card-variation-toggle-open' : '')}>
                                   {m.variations.length} variation{m.variations.length > 1 ? 's' : ''}
                                   <svg className={'restaurants-menu-category-chevron' + (isExpanded ? '' : ' restaurants-menu-category-chevron-collapsed')} viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                     <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -952,14 +957,23 @@ export default function RestaurantsPage() {
                                 </span>
                               )}
                             </div>
-                            {isExpanded && (
-                              <div className="restaurants-menu-card-variations">
-                                {m.variations.map((v) => (
-                                  <div key={v.id} className="restaurants-menu-card-variation-row">
-                                    <span className="restaurants-menu-card-variation-name">{v.name}</span>
-                                    <span className="restaurants-menu-card-variation-price">{money(v.price)}</span>
+                            {hasVariations && (
+                              <div className={'restaurants-menu-card-variations-wrap' + (isExpanded ? '' : ' restaurants-menu-card-variations-collapsed')}>
+                                <div className="restaurants-menu-card-variations-inner">
+                                  <div className="restaurants-menu-card-variations">
+                                    {m.variations.map((v, i) => (
+                                      <div
+                                        key={v.id}
+                                        className={'restaurants-menu-card-variation-row' + (Number(v.price) === minVariationPrice && minVariationPrice !== maxVariationPrice ? ' restaurants-menu-card-variation-row-best' : '')}
+                                        style={{ animationDelay: isExpanded ? (i * 0.03) + 's' : '0s' }}
+                                      >
+                                        <span className="restaurants-menu-card-variation-dot" aria-hidden="true" />
+                                        <span className="restaurants-menu-card-variation-name">{v.name}</span>
+                                        <span className="restaurants-menu-card-variation-price">{money(v.price)}</span>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
+                                </div>
                               </div>
                             )}
                             {canManage && (
