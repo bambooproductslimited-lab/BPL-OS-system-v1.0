@@ -221,6 +221,95 @@ async function getFaceStatus(ctx, employeeId) {
   return { enrolled: !!res.rows[0].face_enrolled_at, enrolledAt: res.rows[0].face_enrolled_at };
 }
 
+// Self-enrollment link — lets an employee walk through the same camera
+// pose sequence themselves, from their own phone, instead of an HR
+// staffer running FaceCapture on their behalf. expires_at is mandatory
+// (unlike document_shares' nullable one) and the link is deleted the
+// moment it's consumed: see migration 0055's comment for why a biometric
+// enrollment link needs tighter handling than a read-only document link —
+// a link that outlived its use, or that anyone but the intended employee
+// could replay, would let them enroll THEIR face against someone else's
+// clock-in identity.
+var FACE_ENROLL_LINK_DEFAULT_DAYS = 3;
+var FACE_ENROLL_LINK_MAX_DAYS = 14;
+
+// No visibleEmployee() check — see setPin()'s comment above.
+async function createFaceEnrollLink(ctx, employeeId, expiresInDays) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var empRes = await pool.query('SELECT id, first_name, last_name, status FROM employees WHERE id = $1', [employeeId]);
+  var emp = empRes.rows[0];
+  if (!emp) fail('notfound', 'Employee not found.');
+  if (emp.status !== 'active') fail('conflict', 'Only an active employee can be sent a self-enrollment link.');
+  var days = Math.max(1, Math.min(FACE_ENROLL_LINK_MAX_DAYS, Number(expiresInDays) || FACE_ENROLL_LINK_DEFAULT_DAYS));
+  var token = crypto.randomBytes(24).toString('base64url');
+  var expiresAt = new Date(Date.now() + days * 86400000);
+  await pool.query(
+    'INSERT INTO face_enroll_links (token, employee_id, expires_at, created_by) VALUES ($1,$2,$3,$4)',
+    [token, employeeId, expiresAt, ctx.employee.id]
+  );
+  await audit(pool, ctx, 'employee.face.linkCreate', 'employee', employeeId, 'Generated a self-enrollment link for ' + emp.first_name + ' ' + emp.last_name + ' (expires ' + expiresAt.toISOString().slice(0, 10) + ').');
+  return { token: token, expiresAt: expiresAt };
+}
+
+async function loadFaceEnrollLink(token) {
+  var res = await pool.query(
+    'SELECT l.id, l.employee_id, l.expires_at, e.first_name, e.last_name, e.status, e.face_enrolled_at ' +
+    'FROM face_enroll_links l JOIN employees e ON e.id = l.employee_id WHERE l.token = $1',
+    [token]
+  );
+  var row = res.rows[0];
+  if (!row) fail('notfound', 'This link is invalid or has already been used.');
+  if (new Date(row.expires_at) < new Date()) {
+    await pool.query('DELETE FROM face_enroll_links WHERE id = $1', [row.id]);
+    fail('notfound', 'This link has expired — ask HR to send a new one.');
+  }
+  if (row.status !== 'active') fail('conflict', 'This employee record is no longer active.');
+  return row;
+}
+
+// Public (token is the authorization) — returns only what the enrollment
+// page needs to greet the right person; nothing else about the employee.
+async function getFaceEnrollTarget(token) {
+  var row = await loadFaceEnrollLink(token);
+  return { firstName: row.first_name, lastName: row.last_name, alreadyEnrolled: !!row.face_enrolled_at };
+}
+
+// Public — see module comment above. actor is null in the audit entry
+// (this wasn't done by any logged-in user); the summary makes clear it
+// was a self-enrollment via link, not an HR-driven one.
+async function enrollFaceViaLink(token, descriptorSet) {
+  var row = await loadFaceEnrollLink(token);
+  validateDescriptorSet(descriptorSet);
+  await pool.query(
+    'UPDATE employees SET face_descriptor = $1, face_enrolled_at = now(), face_enrolled_by = NULL WHERE id = $2',
+    [JSON.stringify(descriptorSet), row.employee_id]
+  );
+  await pool.query('DELETE FROM face_enroll_links WHERE id = $1', [row.id]);
+  await audit(pool, null, 'employee.face.enroll', 'employee', row.employee_id, row.first_name + ' ' + row.last_name + ' self-enrolled a kiosk face match (' + descriptorSet.length + ' angles) via link.');
+  return { ok: true };
+}
+
+// Reuses the existing WhatsApp Business Cloud API integration — same
+// Ghana-specific "0" -> "233" normalization and same 24-hour customer-
+// service-window platform limitation as shares.service.js's
+// shareViaWhatsApp, which this mirrors. No visibleEmployee() check — see
+// setPin()'s comment above (employee.write is checked by
+// createFaceEnrollLink already having been called for this token to exist).
+async function sendFaceEnrollLinkViaWhatsApp(ctx, employeeId, url) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var empRes = await pool.query('SELECT first_name, last_name, phone FROM employees WHERE id = $1', [employeeId]);
+  var emp = empRes.rows[0];
+  if (!emp) fail('notfound', 'Employee not found.');
+  if (!emp.phone) fail('invalid', 'This employee has no phone number on file.');
+
+  var digits = String(emp.phone).replace(/\D/g, '');
+  if (digits.length === 10 && digits.charAt(0) === '0') digits = '233' + digits.slice(1);
+
+  var whatsapp = require('./whatsapp.service');
+  await whatsapp.sendMessage(digits, 'Hi ' + emp.first_name + ', please open this link to set up face recognition for the clock-in kiosk: ' + url + ' — it expires soon and only works once.');
+  return { sent: true };
+}
+
 // kiosk.identify — resolves a PIN to the employee it belongs to, without
 // clocking anything, so the kiosk knows before capturing a camera frame
 // whether that employee has a face on file to check it against (see
@@ -313,5 +402,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
 
 module.exports = {
   setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify,
-  enrollFace: enrollFace, clearFace: clearFace, getFaceStatus: getFaceStatus
+  enrollFace: enrollFace, clearFace: clearFace, getFaceStatus: getFaceStatus,
+  createFaceEnrollLink: createFaceEnrollLink, getFaceEnrollTarget: getFaceEnrollTarget, enrollFaceViaLink: enrollFaceViaLink,
+  sendFaceEnrollLinkViaWhatsApp: sendFaceEnrollLinkViaWhatsApp
 };

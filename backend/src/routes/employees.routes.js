@@ -110,4 +110,14 @@ router.delete('/:id/kiosk-face', async function (req, res, next) {
   try { res.json(await kioskService.clearFace(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
+// Self-enrollment link generation — same admin-only gate as the face
+// endpoints above; the resulting token itself is what makes GET/POST
+// /api/kiosk/face-enroll/:token (kiosk.routes.js) safe to leave public.
+router.post('/:id/kiosk-face-link', async function (req, res, next) {
+  try { res.status(201).json(await kioskService.createFaceEnrollLink(req.ctx, req.params.id, req.body.expiresInDays)); } catch (e) { next(e); }
+});
+router.post('/:id/kiosk-face-link/whatsapp', async function (req, res, next) {
+  try { res.json(await kioskService.sendFaceEnrollLinkViaWhatsApp(req.ctx, req.params.id, req.body.url)); } catch (e) { next(e); }
+});
+
 module.exports = router;

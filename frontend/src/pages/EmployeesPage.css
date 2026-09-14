@@ -113,3 +113,16 @@
 }
 .employees-dialog-title { grid-column: 1 / -1; font-size: 20px; }
 .employees-dialog-span { grid-column: 1 / -1; }
+
+.employees-face-link {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: var(--divider-width) solid var(--color-divider);
+}
+.employees-face-link-head { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.employees-face-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.employees-face-link-row label { font-size: 12px; color: var(--color-text-muted); }
+.employees-face-link-row select { width: auto; }
+.employees-face-link-url { display: flex; gap: 8px; margin-top: 10px; }
+.employees-face-link-url input { flex: 1; font-size: 12px; }
+.employees-face-link-wa-ok { margin-top: 8px; font-size: 12px; color: var(--color-accent-700, #1a7f37); }

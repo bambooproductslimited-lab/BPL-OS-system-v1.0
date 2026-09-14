@@ -156,6 +156,13 @@ export default function EmployeesPage() {
   const [kioskFaceTarget, setKioskFaceTarget] = useState(null);
   const [kioskFaceStatus, setKioskFaceStatus] = useState(null); // { enrolled, enrolledAt }
   const [kioskFaceCapturing, setKioskFaceCapturing] = useState(false);
+  const [faceLinkExpiryDays, setFaceLinkExpiryDays] = useState('3');
+  const [faceLinkUrl, setFaceLinkUrl] = useState(null);
+  const [faceLinkGenerating, setFaceLinkGenerating] = useState(false);
+  const [faceLinkError, setFaceLinkError] = useState(null);
+  const [faceLinkCopied, setFaceLinkCopied] = useState(false);
+  const [faceLinkWaSending, setFaceLinkWaSending] = useState(false);
+  const [faceLinkWaResult, setFaceLinkWaResult] = useState(null);
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncPreview, setSyncPreview] = useState(null);
@@ -345,6 +352,10 @@ export default function EmployeesPage() {
     setKioskFaceCapturing(false);
     setKioskFaceTarget(emp);
     setKioskFaceStatus(null);
+    setFaceLinkUrl(null);
+    setFaceLinkError(null);
+    setFaceLinkCopied(false);
+    setFaceLinkWaResult(null);
     setDialog('kioskFace');
     try {
       setKioskFaceStatus(await api.get('/employees/' + emp.id + '/kiosk-face'));
@@ -380,6 +391,48 @@ export default function EmployeesPage() {
       setDialogError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function generateFaceLink() {
+    setFaceLinkError(null);
+    setFaceLinkGenerating(true);
+    setFaceLinkCopied(false);
+    setFaceLinkWaResult(null);
+    try {
+      const res = await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face-link', { expiresInDays: faceLinkExpiryDays });
+      setFaceLinkUrl(window.location.origin + '/enroll-face/' + res.token);
+    } catch (err) {
+      setFaceLinkError(err.message);
+    } finally {
+      setFaceLinkGenerating(false);
+    }
+  }
+
+  async function copyFaceLink() {
+    try {
+      await navigator.clipboard.writeText(faceLinkUrl);
+      setFaceLinkCopied(true);
+      setTimeout(() => setFaceLinkCopied(false), 2000);
+    } catch { /* clipboard permission denied — link is still selectable text */ }
+  }
+
+  async function sendFaceLinkWhatsApp() {
+    setFaceLinkWaResult(null);
+    setFaceLinkWaSending(true);
+    try {
+      let url = faceLinkUrl;
+      if (!url) {
+        const res = await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face-link', { expiresInDays: faceLinkExpiryDays });
+        url = window.location.origin + '/enroll-face/' + res.token;
+        setFaceLinkUrl(url);
+      }
+      await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face-link/whatsapp', { url });
+      setFaceLinkWaResult({ ok: true, message: 'Sent via WhatsApp.' });
+    } catch (err) {
+      setFaceLinkWaResult({ ok: false, message: err.message });
+    } finally {
+      setFaceLinkWaSending(false);
     }
   }
 
@@ -856,6 +909,36 @@ export default function EmployeesPage() {
                   <button type="button" className="btn btn-primary" disabled={kioskFaceStatus === null} onClick={() => setKioskFaceCapturing(true)}>
                     {kioskFaceStatus && kioskFaceStatus.enrolled ? 'Re-enroll' : 'Enroll face'}
                   </button>
+                </div>
+
+                <div className="employees-face-link">
+                  <div className="employees-face-link-head">Or, send {kioskFaceTarget.firstName} a link to do this themselves</div>
+                  <p className="dialog-body">
+                    Opens on their own phone and walks them through the same camera steps — no need to hand them
+                    this device. The link only works once and expires on its own.
+                  </p>
+                  <div className="employees-face-link-row">
+                    <label htmlFor="face-link-expiry">Expires in</label>
+                    <select id="face-link-expiry" className="input" value={faceLinkExpiryDays} onChange={(e) => { setFaceLinkExpiryDays(e.target.value); setFaceLinkUrl(null); }}>
+                      <option value="1">1 day</option>
+                      <option value="3">3 days</option>
+                      <option value="7">7 days</option>
+                    </select>
+                    <button type="button" className="btn btn-secondary" disabled={faceLinkGenerating} onClick={generateFaceLink}>
+                      {faceLinkGenerating ? 'Generating…' : faceLinkUrl ? 'Regenerate link' : 'Generate link'}
+                    </button>
+                    <button type="button" className="btn btn-secondary" disabled={faceLinkWaSending} onClick={sendFaceLinkWhatsApp}>
+                      {faceLinkWaSending ? 'Sending…' : 'Send via WhatsApp'}
+                    </button>
+                  </div>
+                  {faceLinkError && <div className="error-banner">{faceLinkError}</div>}
+                  {faceLinkUrl && (
+                    <div className="employees-face-link-url">
+                      <input className="input" readOnly value={faceLinkUrl} onFocus={(e) => e.target.select()} />
+                      <button type="button" className="btn btn-secondary" onClick={copyFaceLink}>{faceLinkCopied ? 'Copied!' : 'Copy'}</button>
+                    </div>
+                  )}
+                  {faceLinkWaResult && <div className={faceLinkWaResult.ok ? 'employees-face-link-wa-ok' : 'error-banner'}>{faceLinkWaResult.message}</div>}
                 </div>
               </>
             )}

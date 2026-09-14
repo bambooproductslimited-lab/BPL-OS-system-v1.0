@@ -20,4 +20,16 @@ router.post('/clock', async function (req, res, next) {
   } catch (e) { next(e); }
 });
 
+// Face self-enrollment link — also deliberately public, same reasoning as
+// the rest of this router: the employee opening this on their own phone
+// has no logged-in session either. The token itself is the authorization
+// (see migration 0055 and kiosk.service.js's module comment on why it's
+// single-use and always expiring).
+router.get('/face-enroll/:token', async function (req, res, next) {
+  try { res.json(await kioskService.getFaceEnrollTarget(req.params.token)); } catch (e) { next(e); }
+});
+router.post('/face-enroll/:token', async function (req, res, next) {
+  try { res.json(await kioskService.enrollFaceViaLink(req.params.token, req.body.descriptors)); } catch (e) { next(e); }
+});
+
 module.exports = router;
