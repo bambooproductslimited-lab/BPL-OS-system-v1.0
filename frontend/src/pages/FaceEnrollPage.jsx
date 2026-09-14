@@ -12,12 +12,23 @@ import './FaceEnrollPage.css';
 // The link is single-use and always expires — see kiosk.service.js's
 // module comment on enrollFaceViaLink for why a biometric enrollment link
 // needs tighter handling than a read-only document share link.
+//
+// The link alone only proves possession of a URL, not identity — a
+// forwarded/leaked link would otherwise let anyone enroll THEIR face
+// against this employee's clock-in record. The PIN step below closes
+// that gap: it's the same kiosk PIN only this employee (and HR) know,
+// checked server-side before the camera runs and again right before the
+// enrollment is actually written (see kiosk.service.js's
+// verifyPinAgainstEmployee).
 
 export default function FaceEnrollPage() {
   const { token } = useParams();
-  const [status, setStatus] = useState('loading'); // loading | ready | capturing | submitting | success | error
+  const [status, setStatus] = useState('loading'); // loading | ready | pin | capturing | submitting | success | error
   const [target, setTarget] = useState(null);
   const [error, setError] = useState(null);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState(null);
+  const [pinChecking, setPinChecking] = useState(false);
 
   useEffect(() => {
     api.get('/kiosk/face-enroll/' + token)
@@ -25,14 +36,28 @@ export default function FaceEnrollPage() {
       .catch((err) => { setError(err.message); setStatus('error'); });
   }, [token]);
 
+  async function verifyPin(e) {
+    e.preventDefault();
+    setPinError(null);
+    setPinChecking(true);
+    try {
+      await api.post('/kiosk/face-enroll/' + token + '/verify-pin', { pin });
+      setStatus('capturing');
+    } catch (err) {
+      setPinError(err.message);
+    } finally {
+      setPinChecking(false);
+    }
+  }
+
   async function submit(descriptors) {
     setStatus('submitting');
     try {
-      await api.post('/kiosk/face-enroll/' + token, { descriptors });
+      await api.post('/kiosk/face-enroll/' + token, { descriptors, pin });
       setStatus('success');
     } catch (err) {
-      setError(err.message);
-      setStatus('ready');
+      setPinError(err.message);
+      setStatus('pin');
     }
   }
 
@@ -48,7 +73,6 @@ export default function FaceEnrollPage() {
 
         {status === 'ready' && target && (
           <>
-            {error && <div className="face-enroll-error-banner">{error}</div>}
             <p className="face-enroll-body">
               Hi {target.firstName}, this sets up face recognition for the clock-in kiosk — once done, you'll
               need to look at the kiosk's camera (in addition to your PIN) every time you clock in or out.
@@ -61,10 +85,28 @@ export default function FaceEnrollPage() {
             {target.alreadyEnrolled && (
               <p className="face-enroll-body face-enroll-muted">You already have a face on file — continuing replaces it.</p>
             )}
-            <button type="button" className="btn btn-primary face-enroll-start" onClick={() => setStatus('capturing')}>
+            <button type="button" className="btn btn-primary face-enroll-start" onClick={() => setStatus('pin')}>
               Start
             </button>
           </>
+        )}
+
+        {status === 'pin' && (
+          <form onSubmit={verifyPin} className="face-enroll-pin-form">
+            <p className="face-enroll-body">First, confirm it's you — enter your kiosk PIN.</p>
+            {pinError && <div className="face-enroll-error-banner">{pinError}</div>}
+            <input
+              className="input face-enroll-pin-input" inputMode="numeric" pattern="\d{4}" maxLength={4} autoFocus
+              value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+            />
+            <div className="face-enroll-pin-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { setStatus('ready'); setPinError(null); }}>Back</button>
+              <button type="submit" className="btn btn-primary" disabled={pin.length !== 4 || pinChecking}>
+                {pinChecking ? 'Checking…' : 'Continue'}
+              </button>
+            </div>
+          </form>
         )}
 
         {status === 'capturing' && (

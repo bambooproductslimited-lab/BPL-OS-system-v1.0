@@ -28,8 +28,15 @@ router.post('/clock', async function (req, res, next) {
 router.get('/face-enroll/:token', async function (req, res, next) {
   try { res.json(await kioskService.getFaceEnrollTarget(req.params.token)); } catch (e) { next(e); }
 });
+// Checks the employee's kiosk PIN before the camera walk starts — the
+// actual proof that whoever's completing this is the employee it was sent
+// to, not just whoever has the link. See kiosk.service.js's
+// verifyPinAgainstEmployee comment.
+router.post('/face-enroll/:token/verify-pin', async function (req, res, next) {
+  try { res.json(await kioskService.verifyFaceEnrollPin(req.params.token, req.body.pin, req.ip)); } catch (e) { next(e); }
+});
 router.post('/face-enroll/:token', async function (req, res, next) {
-  try { res.json(await kioskService.enrollFaceViaLink(req.params.token, req.body.descriptors)); } catch (e) { next(e); }
+  try { res.json(await kioskService.enrollFaceViaLink(req.params.token, req.body.descriptors, req.body.pin, req.ip)); } catch (e) { next(e); }
 });
 
 module.exports = router;

@@ -236,10 +236,15 @@ var FACE_ENROLL_LINK_MAX_DAYS = 14;
 // No visibleEmployee() check — see setPin()'s comment above.
 async function createFaceEnrollLink(ctx, employeeId, expiresInDays) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
-  var empRes = await pool.query('SELECT id, first_name, last_name, status FROM employees WHERE id = $1', [employeeId]);
+  var empRes = await pool.query('SELECT id, first_name, last_name, status, kiosk_pin_hash FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
   if (emp.status !== 'active') fail('conflict', 'Only an active employee can be sent a self-enrollment link.');
+  // The PIN is what proves the person on the other end of the link is
+  // actually this employee (see verifyFaceEnrollPin below) — a link sent
+  // before a PIN exists would have no way to check that, so it's required
+  // up front rather than failing confusingly once the employee opens it.
+  if (!emp.kiosk_pin_hash) fail('conflict', 'Set a kiosk PIN for this employee first — the self-enrollment link asks them to confirm it.');
   var days = Math.max(1, Math.min(FACE_ENROLL_LINK_MAX_DAYS, Number(expiresInDays) || FACE_ENROLL_LINK_DEFAULT_DAYS));
   var token = crypto.randomBytes(24).toString('base64url');
   var expiresAt = new Date(Date.now() + days * 86400000);
@@ -253,7 +258,7 @@ async function createFaceEnrollLink(ctx, employeeId, expiresInDays) {
 
 async function loadFaceEnrollLink(token) {
   var res = await pool.query(
-    'SELECT l.id, l.employee_id, l.expires_at, e.first_name, e.last_name, e.status, e.face_enrolled_at ' +
+    'SELECT l.id, l.employee_id, l.expires_at, e.first_name, e.last_name, e.status, e.face_enrolled_at, e.kiosk_pin_hash ' +
     'FROM face_enroll_links l JOIN employees e ON e.id = l.employee_id WHERE l.token = $1',
     [token]
   );
@@ -269,23 +274,55 @@ async function loadFaceEnrollLink(token) {
 
 // Public (token is the authorization) — returns only what the enrollment
 // page needs to greet the right person; nothing else about the employee.
+// requiresPin is always true in practice (createFaceEnrollLink refuses to
+// generate a link for an employee with no PIN set) but is still reported
+// explicitly rather than assumed, in case a link predates that guard.
 async function getFaceEnrollTarget(token) {
   var row = await loadFaceEnrollLink(token);
-  return { firstName: row.first_name, lastName: row.last_name, alreadyEnrolled: !!row.face_enrolled_at };
+  return { firstName: row.first_name, lastName: row.last_name, alreadyEnrolled: !!row.face_enrolled_at, requiresPin: !!row.kiosk_pin_hash };
+}
+
+// The link alone only proves someone has the URL, not that they're the
+// employee it was sent for — see migration 0055 and kiosk.service.js's
+// module comment. Requiring their kiosk PIN too (known only to them and
+// HR, same as at the kiosk itself) closes that gap: whoever completes
+// enrollment has to know something private to the employee, not just have
+// forwarded/leaked access to a link. Same IP rate limiting as the kiosk's
+// own PIN checks — this resolves the same kiosk_pin_hash secret space.
+function verifyPinAgainstEmployee(row, pin, ip) {
+  checkRateLimit(ip);
+  pinAuth.validatePinFormat(pin);
+  if (!row.kiosk_pin_hash || hashPin(pin) !== row.kiosk_pin_hash) {
+    recordFailure(ip);
+    fail('invalid', 'Incorrect PIN.');
+  }
+  recordSuccess(ip);
+}
+
+// Public — lets the enrollment page check the PIN before running the
+// camera walk, so a wrong PIN fails fast instead of after 10 seconds of
+// posing. Doesn't consume the link; enrollFaceViaLink re-checks the PIN
+// itself right before writing, since this step alone is just a UX
+// shortcut, not the actual authorization boundary.
+async function verifyFaceEnrollPin(token, pin, ip) {
+  var row = await loadFaceEnrollLink(token);
+  verifyPinAgainstEmployee(row, pin, ip);
+  return { ok: true };
 }
 
 // Public — see module comment above. actor is null in the audit entry
 // (this wasn't done by any logged-in user); the summary makes clear it
 // was a self-enrollment via link, not an HR-driven one.
-async function enrollFaceViaLink(token, descriptorSet) {
+async function enrollFaceViaLink(token, descriptorSet, pin, ip) {
   var row = await loadFaceEnrollLink(token);
+  verifyPinAgainstEmployee(row, pin, ip);
   validateDescriptorSet(descriptorSet);
   await pool.query(
     'UPDATE employees SET face_descriptor = $1, face_enrolled_at = now(), face_enrolled_by = NULL WHERE id = $2',
     [JSON.stringify(descriptorSet), row.employee_id]
   );
   await pool.query('DELETE FROM face_enroll_links WHERE id = $1', [row.id]);
-  await audit(pool, null, 'employee.face.enroll', 'employee', row.employee_id, row.first_name + ' ' + row.last_name + ' self-enrolled a kiosk face match (' + descriptorSet.length + ' angles) via link.');
+  await audit(pool, null, 'employee.face.enroll', 'employee', row.employee_id, row.first_name + ' ' + row.last_name + ' self-enrolled a kiosk face match (' + descriptorSet.length + ' angles) via link, PIN-verified.');
   return { ok: true };
 }
 
@@ -404,5 +441,5 @@ module.exports = {
   setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify,
   enrollFace: enrollFace, clearFace: clearFace, getFaceStatus: getFaceStatus,
   createFaceEnrollLink: createFaceEnrollLink, getFaceEnrollTarget: getFaceEnrollTarget, enrollFaceViaLink: enrollFaceViaLink,
-  sendFaceEnrollLinkViaWhatsApp: sendFaceEnrollLinkViaWhatsApp
+  verifyFaceEnrollPin: verifyFaceEnrollPin, sendFaceEnrollLinkViaWhatsApp: sendFaceEnrollLinkViaWhatsApp
 };
