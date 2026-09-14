@@ -25,7 +25,7 @@
 .docwizard-step-active .docwizard-step-num { background: var(--color-accent); color: #fff; }
 .docwizard-step-done .docwizard-step-num { background: var(--color-accent-100); color: var(--color-accent-700); }
 
-.docwizard-panel { display: flex; flex-direction: column; gap: 14px; min-height: 220px; }
+.docwizard-panel { display: flex; flex-direction: column; gap: 14px; min-height: 220px; flex-shrink: 0; }
 
 .docwizard-recap { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .docwizard-recap-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: var(--divider-width) solid var(--color-divider); }
