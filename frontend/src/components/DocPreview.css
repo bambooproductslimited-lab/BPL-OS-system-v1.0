@@ -42,6 +42,14 @@
 .doc-preview-terms-body { margin: 0; font-size: 12px; color: #666; }
 .doc-preview-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 
+.doc-preview-communication { margin-top: 24px; padding-top: 16px; border-top: 1px solid #ccc; }
+.doc-preview-share-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+.doc-preview-share-row label { color: #4a4a4a; }
+.doc-preview-share-row select { width: auto; padding: 4px 8px; font-size: 12px; }
+.doc-preview-share-link { display: flex; gap: 8px; margin-top: 10px; }
+.doc-preview-share-link input { flex: 1; font-size: 12px; color: #333; }
+.doc-preview-wa-ok { margin-top: 8px; font-size: 12px; color: #1a7f37; }
+
 @media print {
   body * { visibility: hidden; }
   .doc-preview, .doc-preview * { visibility: visible; }

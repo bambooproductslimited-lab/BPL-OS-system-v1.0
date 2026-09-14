@@ -298,6 +298,7 @@ export default function QuotationsPage() {
 
       {previewQ && (
         <DocPreview
+          documentType="quotation" documentId={previewQ.id}
           docLabel={'Quotation #' + previewQ.quoteNo}
           dateLabel="Issue date"
           dateValue={fmtDate(previewQ.createdAt)}

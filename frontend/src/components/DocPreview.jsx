@@ -1,16 +1,40 @@
 import { useRef, useState } from 'react';
 import { shareOrDownloadPdf } from '../lib/documentShare';
+import { api } from '../api/client';
 import './DocPreview.css';
 
 // Shared print-style preview modal for Estimates/Quotations/Invoices,
 // ported from Bamboo OS.dc.html's dialog.estimatePreview / .quotationPreview
 // / .invoicePreview blocks (nearly identical white-page layouts, only the
 // label text and the third detail column differ per document kind).
+//
+// documentType/documentId (only present once the document actually exists
+// — never during DocWizard's create flow) enable the Communication section:
+// a generated, unauthenticated /share/:token link (see SharePage.jsx and
+// backend/src/services/shares.service.js) with an optional expiry, and a
+// one-click send of that link through the existing WhatsApp Business
+// integration — Square's own "Share via email/text/link" step, minus
+// email/SMS, which need a real provider this app doesn't have configured
+// yet (see shares.service.js's comments).
 
-export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, onClose }) {
+const EXPIRY_OPTIONS = [
+  { value: '', label: 'Never' },
+  { value: '7', label: '7 days' },
+  { value: '30', label: '30 days' }
+];
+
+export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, documentType, documentId, onClose }) {
   const nodeRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
+
+  const [expiryDays, setExpiryDays] = useState('');
+  const [shareUrl, setShareUrl] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [linkError, setLinkError] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [waSending, setWaSending] = useState(false);
+  const [waResult, setWaResult] = useState(null);
 
   async function handleShare() {
     setShareError(null);
@@ -22,6 +46,47 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
       if (err.name !== 'AbortError') setShareError(err.message || 'Could not share this document.');
     } finally {
       setSharing(false);
+    }
+  }
+
+  async function generateLink() {
+    setLinkError(null);
+    setGenerating(true);
+    setCopied(false);
+    try {
+      const res = await api.post('/shares', { documentType, documentId, expiresInDays: expiryDays || undefined });
+      setShareUrl(window.location.origin + '/share/' + res.token);
+    } catch (err) {
+      setLinkError(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard permission denied — link is still selectable text */ }
+  }
+
+  async function sendWhatsApp() {
+    setWaResult(null);
+    setWaSending(true);
+    try {
+      let url = shareUrl;
+      if (!url) {
+        const res = await api.post('/shares', { documentType, documentId, expiresInDays: expiryDays || undefined });
+        url = window.location.origin + '/share/' + res.token;
+        setShareUrl(url);
+      }
+      await api.post('/shares/whatsapp', { documentType, documentId, url });
+      setWaResult({ ok: true, message: 'Sent via WhatsApp.' });
+    } catch (err) {
+      setWaResult({ ok: false, message: err.message });
+    } finally {
+      setWaSending(false);
     }
   }
 
@@ -93,6 +158,31 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           <div className="doc-preview-notes">
             <div className="doc-preview-notes-label">{termsLabel}</div>
             <p className="doc-preview-terms-body">{termsValue}</p>
+          </div>
+        )}
+        {documentType && documentId && (
+          <div className="doc-preview-communication no-print">
+            <div className="doc-preview-notes-label">Communication</div>
+            <div className="doc-preview-share-row">
+              <label htmlFor="dp-expiry">Share link expires</label>
+              <select id="dp-expiry" className="input" value={expiryDays} onChange={(e) => { setExpiryDays(e.target.value); setShareUrl(null); }}>
+                {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <button type="button" className="btn btn-secondary" disabled={generating} onClick={generateLink}>
+                {generating ? 'Generating…' : shareUrl ? 'Regenerate link' : 'Generate share link'}
+              </button>
+              <button type="button" className="btn btn-secondary" disabled={waSending} onClick={sendWhatsApp}>
+                {waSending ? 'Sending…' : 'Share via WhatsApp'}
+              </button>
+            </div>
+            {linkError && <div className="error-banner">{linkError}</div>}
+            {shareUrl && (
+              <div className="doc-preview-share-link">
+                <input className="input" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
+                <button type="button" className="btn btn-secondary" onClick={copyLink}>{copied ? 'Copied!' : 'Copy'}</button>
+              </div>
+            )}
+            {waResult && <div className={waResult.ok ? 'doc-preview-wa-ok' : 'error-banner'}>{waResult.message}</div>}
           </div>
         )}
         {shareError && <div className="error-banner no-print">{shareError}</div>}

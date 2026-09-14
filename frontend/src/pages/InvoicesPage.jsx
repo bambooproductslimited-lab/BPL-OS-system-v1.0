@@ -470,6 +470,7 @@ export default function InvoicesPage() {
 
       {previewInv && (
         <DocPreview
+          documentType="invoice" documentId={previewInv.id}
           docLabel={'Invoice #' + previewInv.invoiceNo}
           dateLabel="Issue date"
           dateValue={fmtDate(previewInv.issuedAt)}

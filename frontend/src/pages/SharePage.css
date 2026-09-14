@@ -1,0 +1,25 @@
+.share-page {
+  min-height: 100vh;
+  background: #f2f2f2;
+  padding: 24px 16px 60px;
+  display: flex;
+  justify-content: center;
+}
+.share-page .doc-preview {
+  max-height: none;
+  overflow: visible;
+  margin: 16px 0;
+}
+.share-page-status {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  color: #444;
+  background: #f2f2f2;
+  padding: 16px;
+  text-align: center;
+}
+.share-page-error { color: #b42318; }

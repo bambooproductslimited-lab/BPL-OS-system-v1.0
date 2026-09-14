@@ -332,6 +332,7 @@ export default function EstimatesPage() {
 
       {previewEs && (
         <DocPreview
+          documentType="estimate" documentId={previewEs.id}
           docLabel={'Estimate #' + previewEs.estimateNo}
           dateLabel="Issue date"
           dateValue={fmtDate(previewEs.createdAt)}

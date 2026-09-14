@@ -52,6 +52,7 @@ import CompanySettingsPage from './pages/CompanySettingsPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import AssistantPage from './pages/AssistantPage';
 import PlaceholderPage from './pages/PlaceholderPage';
+import SharePage from './pages/SharePage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
 // not yet built render a placeholder rather than a dead link, matching the
@@ -80,6 +81,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/kiosk" element={<KioskPage />} />
         <Route path="/pos" element={<RestaurantPosPage />} />
+        <Route path="/share/:token" element={<SharePage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
