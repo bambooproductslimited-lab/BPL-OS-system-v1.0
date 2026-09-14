@@ -11,7 +11,7 @@ import './DocItemsEditor.css';
 // discount/tax fields exist in these dialogs — only per-line ones).
 
 export function blankDocItem() {
-  return { description: '', qty: 1, unit: 'each', unitPrice: 0, discount: 0, discountType: 'fixed', taxRate: 0 };
+  return { description: '', notes: '', qty: 1, unit: 'each', unitPrice: 0, discount: 0, discountType: 'fixed', taxRate: 0 };
 }
 
 export function computeDocTotals(items) {
@@ -42,7 +42,13 @@ function lineTotal(it) {
 // behavior from the design tool unless it would actively break the flow.
 export function applyCatalogItem(items, idx, item) {
   if (!item) return items;
-  return items.map((it, i) => (i === idx ? { ...it, description: item.name, unit: item.unit, unitPrice: item.unitPrice, qty: item.defaultQty || 1 } : it));
+  return items.map((it, i) => (i === idx ? {
+    ...it, description: item.name, unit: item.unit, unitPrice: item.unitPrice, qty: item.defaultQty || 1,
+    // Only prefills notes from the catalogue item's own description when the
+    // line's notes field is still empty — never clobbers something the user
+    // already typed by hand.
+    notes: it.notes ? it.notes : (item.description || '')
+  } : it));
 }
 
 export default function DocItemsEditor({ items, onChange, catalogOptions, currency }) {
@@ -83,6 +89,13 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
                     options={catalogOptions || []}
                     placeholder="Search catalogue or type a custom item…"
                     renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur)}
+                  />
+                  <textarea
+                    className="input doc-items-notes"
+                    rows={2}
+                    value={it.notes || ''}
+                    placeholder="Add a description (optional)…"
+                    onChange={(e) => setField(idx, 'notes', e.target.value)}
                   />
                 </td>
                 <td><input className="input" type="number" value={it.qty} onChange={(e) => setField(idx, 'qty', e.target.value)} /></td>

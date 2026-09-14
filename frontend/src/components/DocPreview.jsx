@@ -62,7 +62,13 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           <thead><tr><th>Items</th><th className="doc-preview-num">Quantity</th><th className="doc-preview-num">Price</th><th className="doc-preview-num">Amount</th></tr></thead>
           <tbody>
             {items.map((it, i) => (
-              <tr key={i}><td className="doc-preview-desc">{it.description}</td><td className="doc-preview-num">{it.qty}</td><td className="doc-preview-num">{it.unitPrice}</td><td className="doc-preview-num">{it.lineTotal}</td></tr>
+              <tr key={i}>
+                <td className="doc-preview-desc">
+                  {it.description}
+                  {it.notes && <div className="doc-preview-desc-notes">{it.notes}</div>}
+                </td>
+                <td className="doc-preview-num">{it.qty}</td><td className="doc-preview-num">{it.unitPrice}</td><td className="doc-preview-num">{it.lineTotal}</td>
+              </tr>
             ))}
           </tbody>
         </table>

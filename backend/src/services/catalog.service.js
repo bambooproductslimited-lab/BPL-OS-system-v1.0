@@ -32,10 +32,10 @@ function variationDisplayName(itemName, variationName) {
 async function list(ctx) {
   if (!ctx.can('catalog.read')) fail('forbidden', 'Your role does not allow this action (catalog.read).');
   var res = await pool.query(
-    'SELECT v.*, i.name AS item_name FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.name'
+    'SELECT v.*, i.name AS item_name, i.description AS item_description FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.name'
   );
   return res.rows.map(function (r) {
-    return Object.assign(rowToVariation(r), { name: variationDisplayName(r.item_name, r.name) });
+    return Object.assign(rowToVariation(r), { name: variationDisplayName(r.item_name, r.name), description: r.item_description || '' });
   });
 }
 

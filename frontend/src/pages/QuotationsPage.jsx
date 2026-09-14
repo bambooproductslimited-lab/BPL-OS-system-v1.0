@@ -303,7 +303,7 @@ export default function QuotationsPage() {
             { title: 'Quotation Details', lines: ['Created ' + fmtDate(previewQ.createdAt), money(previewQ.grandTotal, previewQ.currency)] },
             { title: 'Validity', lines: ['Valid until ' + fmtDate(previewQ.validUntil), money(previewQ.grandTotal, previewQ.currency)] }
           ]}
-          items={previewQ.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: money(i.unitPrice, previewQ.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewQ.currency) }))}
+          items={previewQ.items.map((i) => ({ description: i.description, notes: i.notes, qty: i.qty, unitPrice: money(i.unitPrice, previewQ.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewQ.currency) }))}
           subtotal={money(previewQ.subtotal, previewQ.currency)}
           totalLabel="Grand Total"
           total={money(previewQ.grandTotal, previewQ.currency)}

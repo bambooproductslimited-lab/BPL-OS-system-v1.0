@@ -32,6 +32,7 @@
 .doc-preview-table tbody tr { border-bottom: 1px solid #eee; }
 .doc-preview-table td { padding: 8px 0; }
 .doc-preview-desc { color: #4a4a4a; }
+.doc-preview-desc-notes { color: #888; font-size: 11px; margin-top: 2px; white-space: pre-wrap; }
 .doc-preview-table th.doc-preview-num, .doc-preview-table td.doc-preview-num { text-align: right; }
 .doc-preview-row { display: flex; justify-content: space-between; padding-top: 10px; font-size: 12px; color: #4a4a4a; }
 .doc-preview-grand-row { display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #ccc; margin-top: 6px; font-size: 20px; font-weight: 700; }

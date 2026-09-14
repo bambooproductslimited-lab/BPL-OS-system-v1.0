@@ -337,7 +337,7 @@ export default function EstimatesPage() {
             { title: 'Estimate Details', lines: ['Created ' + fmtDate(previewEs.createdAt), money(previewEs.grandTotal, previewEs.currency)] },
             { title: 'Validity', lines: ['Valid until ' + fmtDate(previewEs.validUntil), money(previewEs.grandTotal, previewEs.currency)] }
           ]}
-          items={previewEs.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: money(i.unitPrice, previewEs.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewEs.currency) }))}
+          items={previewEs.items.map((i) => ({ description: i.description, notes: i.notes, qty: i.qty, unitPrice: money(i.unitPrice, previewEs.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewEs.currency) }))}
           subtotal={money(previewEs.subtotal, previewEs.currency)}
           totalLabel="Grand Total"
           total={money(previewEs.grandTotal, previewEs.currency)}

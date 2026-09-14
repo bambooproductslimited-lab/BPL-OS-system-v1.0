@@ -471,7 +471,7 @@ export default function InvoicesPage() {
             { title: 'Invoice Details', lines: ['Issued ' + fmtDate(previewInv.issuedAt), money(previewInv.grandTotal, previewInv.currency)] },
             { title: 'Payment', lines: ['Due ' + fmtDate(previewInv.dueDate), money(previewInv.balanceDue, previewInv.currency)] }
           ]}
-          items={previewInv.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: money(i.unitPrice, previewInv.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewInv.currency) }))}
+          items={previewInv.items.map((i) => ({ description: i.description, notes: i.notes, qty: i.qty, unitPrice: money(i.unitPrice, previewInv.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewInv.currency) }))}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
