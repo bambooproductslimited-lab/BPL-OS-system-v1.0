@@ -58,6 +58,7 @@ var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
 var squareRoutes = require('./routes/square.routes');
 var timestationRoutes = require('./routes/timestation.routes');
+var sharesRoutes = require('./routes/shares.routes');
 
 var app = express();
 
@@ -146,6 +147,9 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/receipts', receiptsRoutes);
 app.use('/api/expenses', expensesRoutes);
 app.use('/api/commercial-settings', commercialSettingsRoutes);
+// Defines POST /shares (requireAuth, staff generating a link) and GET
+// /share/:token (deliberately public) — see shares.routes.js.
+app.use('/api', sharesRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 // oauthRoutes and whatsappRoutes are mounted first and at a more specific

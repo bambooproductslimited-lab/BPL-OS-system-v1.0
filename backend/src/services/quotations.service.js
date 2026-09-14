@@ -18,7 +18,8 @@ async function rowToQuotation(db, r, extra) {
     id: r.id, quoteNo: r.quote_no, customerId: r.customer_id, title: r.title, items: items, currency: r.currency,
     subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
     grandTotal: Number(r.grand_total), total: Number(r.grand_total), status: r.status, createdBy: r.created_by,
-    createdAt: r.created_at, validUntil: r.valid_until, notes: r.notes, terms: r.terms, fromEstimateId: r.from_estimate_id
+    createdAt: r.created_at, validUntil: r.valid_until, notes: r.notes, terms: r.terms, fromEstimateId: r.from_estimate_id,
+    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate)
   }, extra || {});
 }
 
@@ -51,12 +52,16 @@ async function create(ctx, p) {
   var validUntil = V.date(p.validUntil || addDays(todayISO(), commercial.templates.validityDays), 'Valid until');
   var currency = resolveCurrency(commercial, p.currency, cust.preferred_currency);
 
+  var docDiscountValue = Number((p.discount && p.discount.value) || 0);
+  var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
+  var docTaxRate = Number(p.taxRate) || 0;
+
   var newId = await withTransaction(async function (client) {
     var quoteNo = await nextDocNumber(client, 'quotation');
     var res = await client.query(
-      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12) RETURNING *",
-      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency]
+      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency, discount_value, discount_type, tax_rate) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *",
+      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate]
     );
     var q = res.rows[0];
     await insertLineItems(client, 'quotation', q.id, items);
