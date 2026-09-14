@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { blankDocItem } from '../components/DocItemsEditor';
 import DocWizard from '../components/DocWizard';
+import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
@@ -276,15 +277,12 @@ export default function EstimatesPage() {
 
       {dialogOpen && (
         <DocWizard
-          title={editId ? 'Edit estimate' : 'New estimate'}
+          title={editId ? 'Edit estimate' : 'New estimate'} docKind="estimate"
           detailsSlot={
             <div className="estimates-dialog-fields">
               <div className="field">
                 <label htmlFor="es-customer">Customer</label>
-                <select id="es-customer" className="input" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })} required>
-                  <option value="">Choose a customer</option>
-                  {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <CustomerPicker id="es-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required />
               </div>
               <div className="field">
                 <label htmlFor="es-currency">Currency</label>

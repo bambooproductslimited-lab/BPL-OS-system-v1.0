@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import DocItemsEditor from './DocItemsEditor';
+import DocPreview from './DocPreview';
 import { money } from '../lib/currency';
 import './DocWizard.css';
 
@@ -18,12 +19,13 @@ import './DocWizard.css';
 const STEPS = ['Details', 'Items & pricing', 'Finish'];
 
 export default function DocWizard({
-  title, detailsSlot, message, onMessageChange, messageLabel,
+  title, docKind, detailsSlot, message, onMessageChange, messageLabel,
   items, onItemsChange, catalogOptions, currency,
   docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
   recapBlocks, submitLabel, saving, error, onSubmit, onClose
 }) {
   const [step, setStep] = useState(0);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const totals = computeRecapTotals(items, docDiscount, docTaxRate);
 
   async function handleSubmit(e) {
@@ -31,7 +33,17 @@ export default function DocWizard({
     await onSubmit();
   }
 
+  // Draft preview — before anything's been created, so there's no real
+  // document id to attach a share link/WhatsApp send to (DocPreview only
+  // shows that Communication section when documentType+documentId are
+  // both passed, which they deliberately aren't here).
+  const customerName = (recapBlocks && recapBlocks[0] && recapBlocks[0].value) || '';
+  const secondBlock = (recapBlocks && recapBlocks[1]) || null;
+  const kindLabel = docKind ? docKind.charAt(0).toUpperCase() + docKind.slice(1) : 'Document';
+  const previewItems = items.map((it) => ({ description: it.description, notes: it.notes, qty: it.qty, unitPrice: money(it.unitPrice, currency), lineTotal: money(lineTotal(it), currency) }));
+
   return (
+    <>
     <div className="dialog-backdrop" onClick={onClose}>
       <form className="dialog docwizard" onClick={(e) => e.stopPropagation()} onSubmit={step === STEPS.length - 1 ? handleSubmit : (e) => e.preventDefault()}>
         <h2 className="docwizard-title">{title}</h2>
@@ -87,7 +99,10 @@ export default function DocWizard({
         )}
 
         <div className="dialog-actions docwizard-actions">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <div className="docwizard-actions-left">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setPreviewOpen(true)}>Preview</button>
+          </div>
           <div className="docwizard-actions-right">
             {step > 0 && <button type="button" className="btn btn-secondary" onClick={() => setStep(step - 1)}>Back</button>}
             {step < STEPS.length - 1 && <button type="button" className="btn btn-primary" onClick={() => setStep(step + 1)}>Next</button>}
@@ -96,7 +111,37 @@ export default function DocWizard({
         </div>
       </form>
     </div>
+
+    {previewOpen && (
+      <DocPreview
+        docLabel={title}
+        dateLabel="Status"
+        dateValue="Draft — not yet created"
+        heading={kindLabel + (customerName ? ' for ' + customerName : '')}
+        subHeading={secondBlock ? secondBlock.label + ': ' + secondBlock.value : ''}
+        blocks={[
+          { title: 'Customer', lines: [customerName || '—'] },
+          { title: kindLabel + ' Details', lines: [items.length + ' item' + (items.length === 1 ? '' : 's'), money(totals.grandTotal, currency)] },
+          secondBlock ? { title: secondBlock.label, lines: [secondBlock.value] } : { title: '', lines: [] }
+        ]}
+        items={previewItems}
+        subtotal={money(totals.subtotal, currency)}
+        totalLabel="Grand Total"
+        total={money(totals.grandTotal, currency)}
+        notesLabel={messageLabel || 'Message to customer'}
+        notesValue={message}
+        onClose={() => setPreviewOpen(false)}
+      />
+    )}
+    </>
   );
+}
+
+function lineTotal(it) {
+  const qty = Number(it.qty) || 0, price = Number(it.unitPrice) || 0;
+  const line = qty * price;
+  const disc = it.discountType === 'percent' ? (line * (Number(it.discount) || 0)) / 100 : Number(it.discount) || 0;
+  return Math.max(0, line - disc);
 }
 
 // Local mirror of DocItemsEditor's computeDocTotals, kept private to this

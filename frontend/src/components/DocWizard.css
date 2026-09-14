@@ -34,4 +34,5 @@
 .docwizard-recap-hint { font-size: 12px; color: var(--color-text-faint); margin: 0; }
 
 .docwizard-actions { justify-content: space-between; }
+.docwizard-actions-left { display: flex; gap: 8px; }
 .docwizard-actions-right { display: flex; gap: 8px; }
