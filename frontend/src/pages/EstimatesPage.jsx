@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
+import { blankDocItem } from '../components/DocItemsEditor';
+import DocWizard from '../components/DocWizard';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
@@ -84,6 +85,8 @@ export default function EstimatesPage() {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([blankDocItem()]);
+  const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
+  const [docTaxRate, setDocTaxRate] = useState(0);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -128,6 +131,8 @@ export default function EstimatesPage() {
     setEditId(null);
     setForm(EMPTY_FORM);
     setItems([blankDocItem()]);
+    setDocDiscount({ value: 0, type: 'fixed' });
+    setDocTaxRate(0);
     setDialogOpen(true);
   }
 
@@ -136,15 +141,19 @@ export default function EstimatesPage() {
     setEditId(es.id);
     setForm({ customerId: es.customerId, validUntil: es.validUntil, internalNotes: es.internalNotes || '', clientNotes: es.clientNotes || '', currency: es.currency || '' });
     setItems(es.items.map((it) => ({ ...it })));
+    setDocDiscount(es.discount || { value: 0, type: 'fixed' });
+    setDocTaxRate(es.taxRate || 0);
     setDialogOpen(true);
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSubmit() {
     setSaving(true);
     setDialogError(null);
     try {
-      const payload = { customerId: form.customerId, items, validUntil: form.validUntil, internalNotes: form.internalNotes, clientNotes: form.clientNotes, currency: form.currency || undefined };
+      const payload = {
+        customerId: form.customerId, items, validUntil: form.validUntil, internalNotes: form.internalNotes, clientNotes: form.clientNotes,
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate
+      };
       if (editId) await api.put('/estimates/' + editId, payload);
       else await api.post('/estimates', payload);
       setToast(editId ? 'Estimate updated.' : 'Estimate created.');
@@ -266,10 +275,9 @@ export default function EstimatesPage() {
       )}
 
       {dialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
-          <form className="dialog estimates-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="estimates-dialog-title">{editId ? 'Edit estimate' : 'New estimate'}</h2>
-            {dialogError && <div className="error-banner">{dialogError}</div>}
+        <DocWizard
+          title={editId ? 'Edit estimate' : 'New estimate'}
+          detailsSlot={
             <div className="estimates-dialog-fields">
               <div className="field">
                 <label htmlFor="es-customer">Customer</label>
@@ -289,27 +297,24 @@ export default function EstimatesPage() {
                 <label htmlFor="es-valid">Valid until</label>
                 <input id="es-valid" className="input" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
               </div>
-            </div>
-            <DocItemsEditor
-              items={items} onChange={setItems} catalogOptions={catalog}
-              currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
-            />
-            <div className="estimates-dialog-fields">
               <div className="field">
                 <label htmlFor="es-internal">Internal notes</label>
-                <textarea id="es-internal" className="input" value={form.internalNotes} onChange={(e) => setForm({ ...form, internalNotes: e.target.value })} />
-              </div>
-              <div className="field">
-                <label htmlFor="es-client">Client notes</label>
-                <textarea id="es-client" className="input" value={form.clientNotes} onChange={(e) => setForm({ ...form, clientNotes: e.target.value })} />
+                <textarea id="es-internal" className="input" value={form.internalNotes} onChange={(e) => setForm({ ...form, internalNotes: e.target.value })} placeholder="Not shown to the customer" />
               </div>
             </div>
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Create estimate'}</button>
-            </div>
-          </form>
-        </div>
+          }
+          message={form.clientNotes} onMessageChange={(v) => setForm({ ...form, clientNotes: v })} messageLabel="Message to customer"
+          items={items} onItemsChange={setItems} catalogOptions={catalog}
+          currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
+          docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
+          docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          recapBlocks={[
+            { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
+            { label: 'Valid until', value: fmtDate(form.validUntil) }
+          ]}
+          submitLabel={editId ? 'Save changes' : 'Create estimate'} saving={saving} error={dialogError}
+          onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
+        />
       )}
 
       {deleteTarget && (

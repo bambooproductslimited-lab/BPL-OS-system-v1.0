@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { money } from '../lib/currency';
 import CatalogPicker from './CatalogPicker';
 import './DocItemsEditor.css';
@@ -14,7 +15,12 @@ export function blankDocItem() {
   return { description: '', notes: '', qty: 1, unit: 'each', unitPrice: 0, discount: 0, discountType: 'fixed', taxRate: 0 };
 }
 
-export function computeDocTotals(items) {
+// Mirrors backend/src/utils/documents.js's computeDocTotals(items,
+// docDiscount, docTaxRate) exactly, so the wizard's live total matches
+// what the server actually persists — docDiscount/docTaxRate are the
+// document-level "Add discount" amount and a document-level tax rate, on
+// top of whatever each line already carries.
+export function computeDocTotals(items, docDiscount, docTaxRate) {
   let subtotal = 0, discountTotal = 0, taxTotal = 0;
   items.forEach((it) => {
     const qty = Number(it.qty) || 0, price = Number(it.unitPrice) || 0;
@@ -24,6 +30,11 @@ export function computeDocTotals(items) {
     const tax = (afterDisc * (Number(it.taxRate) || 0)) / 100;
     subtotal += line; discountTotal += disc; taxTotal += tax;
   });
+  let docDiscountAmt = 0;
+  if (docDiscount && docDiscount.value) docDiscountAmt = docDiscount.type === 'percent' ? ((subtotal - discountTotal) * docDiscount.value) / 100 : Number(docDiscount.value) || 0;
+  discountTotal += docDiscountAmt;
+  const docTaxAmt = docTaxRate ? (Math.max(0, subtotal - discountTotal) * (Number(docTaxRate) || 0)) / 100 : 0;
+  taxTotal += docTaxAmt;
   const grandTotal = Math.max(0, subtotal - discountTotal) + taxTotal;
   return { subtotal, discountTotal, taxTotal, grandTotal };
 }
@@ -51,9 +62,10 @@ export function applyCatalogItem(items, idx, item) {
   } : it));
 }
 
-export default function DocItemsEditor({ items, onChange, catalogOptions, currency }) {
-  const totals = computeDocTotals(items);
+export default function DocItemsEditor({ items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange }) {
+  const totals = computeDocTotals(items, docDiscount, docTaxRate);
   const cur = currency || 'GHS';
+  const [discountOpen, setDiscountOpen] = useState(!!(docDiscount && docDiscount.value));
 
   function setField(idx, key, value) {
     onChange(items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)));
@@ -61,9 +73,22 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
   function addLine() {
     onChange(items.concat([blankDocItem()]));
   }
+  // A shipping/service charge is just a regular line, pre-named, the way
+  // Square's own "Add shipping fee or service charge" works underneath —
+  // no new data model needed, just a shortcut into the existing one.
+  function addShippingLine() {
+    onChange(items.concat([{ ...blankDocItem(), description: 'Shipping / Service charge' }]));
+  }
   function removeLine(idx) {
     if (items.length <= 1) return;
     onChange(items.filter((_, i) => i !== idx));
+  }
+  function moveLine(idx, dir) {
+    const target = idx + dir;
+    if (target < 0 || target >= items.length) return;
+    const next = items.slice();
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
   }
   function pickCatalog(idx, item) {
     onChange(applyCatalogItem(items, idx, item));
@@ -75,12 +100,16 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
         <table className="table doc-items-table">
           <thead>
             <tr>
-              <th>Item</th><th>Qty</th><th>Unit</th><th>Price ({cur})</th><th>Disc.</th><th>Type</th><th>Tax %</th><th>Line total</th><th></th>
+              <th></th><th>Item</th><th>Qty</th><th>Unit</th><th>Price ({cur})</th><th>Disc.</th><th>Type</th><th>Tax %</th><th>Line total</th><th></th>
             </tr>
           </thead>
           <tbody>
             {items.map((it, idx) => (
               <tr key={idx}>
+                <td className="doc-items-reorder-cell">
+                  <button type="button" className="doc-items-reorder-btn" disabled={idx === 0} onClick={() => moveLine(idx, -1)} aria-label="Move up" title="Move up">▲</button>
+                  <button type="button" className="doc-items-reorder-btn" disabled={idx === items.length - 1} onClick={() => moveLine(idx, 1)} aria-label="Move down" title="Move down">▼</button>
+                </td>
                 <td className="doc-items-desc-cell">
                   <CatalogPicker
                     value={it.description}
@@ -115,11 +144,40 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
           </tbody>
         </table>
       </div>
-      <button type="button" className="btn btn-secondary doc-items-add" onClick={addLine}>+ Add line</button>
+      <div className="doc-items-quick-actions">
+        <button type="button" className="btn btn-secondary doc-items-add" onClick={addLine}>+ Add line</button>
+        <button type="button" className="btn btn-secondary doc-items-add" onClick={addShippingLine}>+ Add shipping fee or service charge</button>
+        {onDocDiscountChange && !discountOpen && (
+          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => setDiscountOpen(true)}>+ Add discount</button>
+        )}
+      </div>
+      {onDocDiscountChange && discountOpen && (
+        <div className="doc-items-doc-discount">
+          <span>Discount for the whole document</span>
+          <input
+            className="input" type="number" min="0" value={(docDiscount && docDiscount.value) || ''}
+            placeholder="0" onChange={(e) => onDocDiscountChange({ value: e.target.value, type: (docDiscount && docDiscount.type) || 'fixed' })}
+          />
+          <select
+            className="input" value={(docDiscount && docDiscount.type) || 'fixed'}
+            onChange={(e) => onDocDiscountChange({ value: (docDiscount && docDiscount.value) || 0, type: e.target.value })}
+          >
+            <option value="fixed">{cur}</option><option value="percent">%</option>
+          </select>
+          <button type="button" className="btn btn-secondary doc-items-remove" onClick={() => { setDiscountOpen(false); onDocDiscountChange({ value: 0, type: 'fixed' }); }}>✕</button>
+        </div>
+      )}
       <div className="doc-items-footer">
         <div>Subtotal <strong>{money(totals.subtotal, cur)}</strong></div>
         <div>Discount <strong>{money(totals.discountTotal, cur)}</strong></div>
-        <div>Tax <strong>{money(totals.taxTotal, cur)}</strong></div>
+        <div>
+          Tax <strong>{money(totals.taxTotal, cur)}</strong>
+          {onDocTaxRateChange && (
+            <span className="doc-items-doc-tax">
+              (<input className="input" type="number" min="0" step="0.1" value={docTaxRate || ''} placeholder="0" onChange={(e) => onDocTaxRateChange(e.target.value)} />%)
+            </span>
+          )}
+        </div>
         <div>Total <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
       </div>
     </div>

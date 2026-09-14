@@ -1,0 +1,37 @@
+/* .dialog (theme.css, shared by every other dialog in the app) caps
+   max-width at 520px — too narrow for the items table below, so this
+   overrides it with a same-specificity-defeating compound selector
+   rather than relying on cascade order between the two stylesheets. */
+.dialog.docwizard { width: min(900px, 94vw); max-width: min(900px, 94vw); max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.docwizard-title { margin: 0; }
+
+.docwizard-steps { display: flex; gap: 6px; border-bottom: var(--divider-width) solid var(--color-divider); padding-bottom: 12px; }
+.docwizard-step {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 10px;
+  background: none; border: var(--divider-width) solid var(--color-divider);
+  color: var(--color-text-muted); font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.docwizard-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--color-bg-subtle); color: var(--color-text-muted);
+  font-size: 11px; flex-shrink: 0;
+}
+.docwizard-step-active { border-color: var(--color-accent); color: var(--color-text); }
+.docwizard-step-active .docwizard-step-num { background: var(--color-accent); color: #fff; }
+.docwizard-step-done .docwizard-step-num { background: var(--color-accent-100); color: var(--color-accent-700); }
+
+.docwizard-panel { display: flex; flex-direction: column; gap: 14px; min-height: 220px; }
+
+.docwizard-recap { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.docwizard-recap-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: var(--divider-width) solid var(--color-divider); }
+.docwizard-recap-total { font-weight: 700; font-size: 15px; border-bottom: none; padding-top: 8px; }
+.docwizard-recap-message { font-size: 12px; color: var(--color-text-muted); font-style: italic; margin-top: 4px; }
+.docwizard-recap-hint { font-size: 12px; color: var(--color-text-faint); margin: 0; }
+
+.docwizard-actions { justify-content: space-between; }
+.docwizard-actions-right { display: flex; gap: 8px; }

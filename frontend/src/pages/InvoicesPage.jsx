@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
+import { blankDocItem } from '../components/DocItemsEditor';
+import DocWizard from '../components/DocWizard';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
@@ -70,7 +71,7 @@ function invoiceStatusLabel(s) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '' };
+const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '', notes: '' };
 const EMPTY_PAY = { amount: '', method: 'cash', date: new Date().toISOString().slice(0, 10), reference: '', notes: '' };
 const EMPTY_EDIT = { dueDate: '', poReference: '' };
 
@@ -94,6 +95,8 @@ export default function InvoicesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([blankDocItem()]);
+  const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
+  const [docTaxRate, setDocTaxRate] = useState(0);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -153,15 +156,19 @@ export default function InvoicesPage() {
     setDialogError(null);
     setForm(EMPTY_FORM);
     setItems([blankDocItem()]);
+    setDocDiscount({ value: 0, type: 'fixed' });
+    setDocTaxRate(0);
     setDialogOpen(true);
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSubmit() {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.post('/invoices', { customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, currency: form.currency || undefined });
+      await api.post('/invoices', {
+        customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, notes: form.notes,
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate
+      });
       setToast('Invoice created.');
       setDialogOpen(false);
       await load();
@@ -347,10 +354,9 @@ export default function InvoicesPage() {
       )}
 
       {dialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
-          <form className="dialog invoices-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="invoices-dialog-title">New manual invoice</h2>
-            {dialogError && <div className="error-banner">{dialogError}</div>}
+        <DocWizard
+          title="New manual invoice"
+          detailsSlot={
             <div className="invoices-dialog-fields">
               <div className="field">
                 <label htmlFor="iv-customer">Customer</label>
@@ -375,16 +381,19 @@ export default function InvoicesPage() {
                 <input id="iv-po" className="input" value={form.poReference} onChange={(e) => setForm({ ...form, poReference: e.target.value })} />
               </div>
             </div>
-            <DocItemsEditor
-              items={items} onChange={setItems} catalogOptions={catalog}
-              currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
-            />
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>Create invoice</button>
-            </div>
-          </form>
-        </div>
+          }
+          message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel="Message to customer"
+          items={items} onItemsChange={setItems} catalogOptions={catalog}
+          currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
+          docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
+          docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          recapBlocks={[
+            { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
+            { label: 'Due date', value: fmtDate(form.dueDate) }
+          ]}
+          submitLabel="Create invoice" saving={saving} error={dialogError}
+          onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
+        />
       )}
 
       {payTarget && (

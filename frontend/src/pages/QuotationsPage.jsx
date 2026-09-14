@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import DocItemsEditor, { blankDocItem } from '../components/DocItemsEditor';
+import { blankDocItem } from '../components/DocItemsEditor';
+import DocWizard from '../components/DocWizard';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
@@ -82,6 +83,8 @@ export default function QuotationsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([blankDocItem()]);
+  const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
+  const [docTaxRate, setDocTaxRate] = useState(0);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -127,15 +130,19 @@ export default function QuotationsPage() {
     setDialogError(null);
     setForm(EMPTY_FORM);
     setItems([blankDocItem()]);
+    setDocDiscount({ value: 0, type: 'fixed' });
+    setDocTaxRate(0);
     setDialogOpen(true);
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSubmit() {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.post('/quotations', { customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes, currency: form.currency || undefined });
+      await api.post('/quotations', {
+        customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes,
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate
+      });
       setToast('Quotation created.');
       setDialogOpen(false);
       await load();
@@ -247,10 +254,9 @@ export default function QuotationsPage() {
       )}
 
       {dialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
-          <form className="dialog quotations-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="quotations-dialog-title">New quotation</h2>
-            {dialogError && <div className="error-banner">{dialogError}</div>}
+        <DocWizard
+          title="New quotation"
+          detailsSlot={
             <div className="quotations-dialog-fields">
               <div className="field">
                 <label htmlFor="q-customer">Customer</label>
@@ -275,20 +281,19 @@ export default function QuotationsPage() {
                 <input id="q-valid" className="input" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
               </div>
             </div>
-            <DocItemsEditor
-              items={items} onChange={setItems} catalogOptions={catalog}
-              currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
-            />
-            <div className="field">
-              <label htmlFor="q-notes">Notes to client</label>
-              <textarea id="q-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            </div>
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>Create quotation</button>
-            </div>
-          </form>
-        </div>
+          }
+          message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel="Message to customer"
+          items={items} onItemsChange={setItems} catalogOptions={catalog}
+          currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
+          docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
+          docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          recapBlocks={[
+            { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
+            { label: 'Valid until', value: fmtDate(form.validUntil) }
+          ]}
+          submitLabel="Create quotation" saving={saving} error={dialogError}
+          onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
+        />
       )}
 
       {previewQ && (
