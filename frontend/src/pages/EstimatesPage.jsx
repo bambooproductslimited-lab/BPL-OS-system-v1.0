@@ -7,6 +7,8 @@ import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
+import { groupPackageItems } from '../lib/packages';
+import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './EstimatesPage.css';
 
 // Ported from Bamboo OS.dc.html's estimates screen (screens.estimates block,
@@ -88,6 +90,7 @@ export default function EstimatesPage() {
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
+  const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -134,6 +137,7 @@ export default function EstimatesPage() {
     setItems([blankDocItem()]);
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
+    setPaymentSchedule([]);
     setDialogOpen(true);
   }
 
@@ -144,6 +148,7 @@ export default function EstimatesPage() {
     setItems(es.items.map((it) => ({ ...it })));
     setDocDiscount(es.discount || { value: 0, type: 'fixed' });
     setDocTaxRate(es.taxRate || 0);
+    setPaymentSchedule((es.paymentSchedule || []).map((r) => ({ label: r.label, type: r.type, value: r.value, dueDate: r.dueDate || '' })));
     setDialogOpen(true);
   }
 
@@ -153,7 +158,7 @@ export default function EstimatesPage() {
     try {
       const payload = {
         customerId: form.customerId, items, validUntil: form.validUntil, internalNotes: form.internalNotes, clientNotes: form.clientNotes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       };
       if (editId) await api.put('/estimates/' + editId, payload);
       else await api.post('/estimates', payload);
@@ -306,6 +311,7 @@ export default function EstimatesPage() {
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
             { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
             { label: 'Valid until', value: fmtDate(form.validUntil) }
@@ -341,7 +347,7 @@ export default function EstimatesPage() {
             { title: 'Estimate Details', lines: ['Created ' + fmtDate(previewEs.createdAt), money(previewEs.grandTotal, previewEs.currency)] },
             { title: 'Validity', lines: ['Valid until ' + fmtDate(previewEs.validUntil), money(previewEs.grandTotal, previewEs.currency)] }
           ]}
-          items={previewEs.items.map((i) => ({ description: i.description, notes: i.notes, qty: i.qty, unitPrice: money(i.unitPrice, previewEs.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewEs.currency) }))}
+          items={groupPackageItems(previewEs.items, previewEs.currency)}
           subtotal={money(previewEs.subtotal, previewEs.currency)}
           totalLabel="Grand Total"
           total={money(previewEs.grandTotal, previewEs.currency)}
@@ -349,6 +355,7 @@ export default function EstimatesPage() {
           notesValue={previewEs.clientNotes}
           termsLabel="Terms & conditions"
           termsValue={previewEs.terms}
+          paymentSchedule={formatPaymentSchedule(previewEs.paymentSchedule, previewEs.currency)}
           onClose={() => setPreviewEs(null)}
         />
       )}

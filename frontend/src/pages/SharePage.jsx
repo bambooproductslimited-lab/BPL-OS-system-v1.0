@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { money } from '../lib/currency';
+import { groupPackageItems } from '../lib/packages';
+import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import '../components/DocPreview.css';
 import './SharePage.css';
 
@@ -22,12 +24,6 @@ function fmtDate(value) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function lineTotal(it) {
-  const line = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
-  const disc = it.discountType === 'percent' ? (line * (Number(it.discount) || 0)) / 100 : Number(it.discount) || 0;
-  return Math.max(0, line - disc);
-}
-
 export default function SharePage() {
   const { token } = useParams();
   const [doc, setDoc] = useState(null);
@@ -46,6 +42,8 @@ export default function SharePage() {
   if (!doc) return null;
 
   const cur = doc.currency;
+  const displayItems = groupPackageItems(doc.items, cur);
+  const schedule = formatPaymentSchedule(doc.paymentSchedule, cur);
   const isInvoice = doc.documentType === 'invoice';
   const dateLabel = isInvoice ? 'Issue date' : 'Issue date';
   const dateValue = fmtDate(doc.dateValue);
@@ -98,15 +96,15 @@ export default function SharePage() {
         <table className="doc-preview-table">
           <thead><tr><th>Items</th><th className="doc-preview-num">Quantity</th><th className="doc-preview-num">Price</th><th className="doc-preview-num">Amount</th></tr></thead>
           <tbody>
-            {doc.items.map((it, i) => (
+            {displayItems.map((it, i) => (
               <tr key={i}>
                 <td className="doc-preview-desc">
                   {it.description}
                   {it.notes && <div className="doc-preview-desc-notes">{it.notes}</div>}
                 </td>
                 <td className="doc-preview-num">{it.qty}</td>
-                <td className="doc-preview-num">{money(it.unitPrice, cur)}</td>
-                <td className="doc-preview-num">{money(lineTotal(it), cur)}</td>
+                <td className="doc-preview-num">{it.unitPrice}</td>
+                <td className="doc-preview-num">{it.lineTotal}</td>
               </tr>
             ))}
           </tbody>
@@ -123,6 +121,16 @@ export default function SharePage() {
           <div>{isInvoice ? 'Total Due' : 'Grand Total'}</div>
           <div>{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
         </div>
+        {schedule.length > 0 && (
+          <div className="doc-preview-schedule">
+            <div className="doc-preview-notes-label">Payment schedule</div>
+            {schedule.map((row, i) => (
+              <div className="doc-preview-schedule-row" key={i}>
+                <span>{row.label}</span><span>Due {row.dueDate}</span><span>{row.amount}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {doc.notes && (
           <div className="doc-preview-notes">
             <div className="doc-preview-notes-label">{isInvoice ? 'Payment instructions' : 'Notes'}</div>

@@ -12,9 +12,35 @@ function buildLineItems(rawItems) {
     return {
       description: V.text(it.description, 'Item description', 160), qty: qty, unit: it.unit || 'each', unitPrice: price,
       discount: Math.max(0, Number(it.discount) || 0), discountType: it.discountType === 'percent' ? 'percent' : 'fixed',
-      taxRate: Math.max(0, Number(it.taxRate) || 0), notes: (it.notes || '').trim()
+      taxRate: Math.max(0, Number(it.taxRate) || 0), notes: (it.notes || '').trim(),
+      packageLabel: (it.packageLabel || '').trim().slice(0, 80)
     };
   });
+}
+
+function roundMoney(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+// Payment schedule: an ordered list of installments against a document's
+// grand total, each either a percentage of it or a fixed amount, with its
+// own due date — Square's "Payment schedule" step. `amount` is snapshotted
+// here (against the grandTotal at save time) rather than recomputed live,
+// same reasoning as line-item pricing: what was agreed shouldn't drift if
+// the document is edited later. Entries with no value are dropped rather
+// than rejected, so an empty/half-filled row in the editor doesn't block
+// saving the rest of the document.
+function buildPaymentSchedule(raw, grandTotal) {
+  var arr = Array.isArray(raw) ? raw : [];
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var it = arr[i];
+    var value = Math.max(0, Number(it && it.value) || 0);
+    if (!it || !value) continue;
+    var type = it.type === 'fixed' ? 'fixed' : 'percent';
+    var amount = type === 'percent' ? roundMoney((grandTotal * value) / 100) : roundMoney(value);
+    var dueDate = V.date(it.dueDate, 'Payment schedule due date');
+    out.push({ label: V.text(it.label || 'Installment', 'Payment schedule label', 80), type: type, value: value, amount: amount, dueDate: dueDate });
+  }
+  return out;
 }
 
 // Ported verbatim from kernel.js's computeDocTotals(items, docDiscount, docTaxRate).
@@ -76,9 +102,9 @@ async function insertLineItems(client, documentType, documentId, items) {
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     await client.query(
-      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate, notes) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
-      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate, it.notes || '']
+      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate, notes, package_label) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate, it.notes || '', it.packageLabel || '']
     );
   }
 }
@@ -89,11 +115,12 @@ async function loadLineItems(db, documentType, documentId) {
     [documentType, documentId]
   );
   return res.rows.map(function (r) {
-    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), notes: r.notes };
+    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), notes: r.notes, packageLabel: r.package_label || '' };
   });
 }
 
 module.exports = {
   buildLineItems: buildLineItems, computeDocTotals: computeDocTotals, nextDocNumber: nextDocNumber, addDays: addDays,
-  todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems, resolveCurrency: resolveCurrency
+  todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems, resolveCurrency: resolveCurrency,
+  buildPaymentSchedule: buildPaymentSchedule, roundMoney: roundMoney
 };

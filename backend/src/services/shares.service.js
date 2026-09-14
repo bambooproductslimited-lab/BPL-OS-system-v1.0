@@ -46,7 +46,7 @@ async function getSharedDocument(token) {
     [share.document_type, share.document_id]
   );
   var items = itemsRes.rows.map(function (r) {
-    return { description: r.description, notes: r.notes, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate) };
+    return { description: r.description, notes: r.notes, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), packageLabel: r.package_label || '' };
   });
 
   var custRes = await pool.query('SELECT name, email, phone, address FROM customers WHERE id = $1', [d.customer_id]);
@@ -61,7 +61,7 @@ async function getSharedDocument(token) {
     dateValue: dateValue, validUntil: d.valid_until || null, dueDate: d.due_date || null,
     items: items, subtotal: Number(d.subtotal), discountTotal: Number(d.discount_total), taxTotal: Number(d.tax_total), grandTotal: Number(d.grand_total),
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,
-    notes: notes || '', terms: d.terms || '', customer: cust
+    notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || []
   };
 }
 

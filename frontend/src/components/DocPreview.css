@@ -36,6 +36,10 @@
 .doc-preview-table th.doc-preview-num, .doc-preview-table td.doc-preview-num { text-align: right; }
 .doc-preview-row { display: flex; justify-content: space-between; padding-top: 10px; font-size: 12px; color: #4a4a4a; }
 .doc-preview-grand-row { display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #ccc; margin-top: 6px; font-size: 20px; font-weight: 700; }
+.doc-preview-schedule { margin-top: 20px; }
+.doc-preview-schedule-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #4a4a4a; padding: 4px 0; border-bottom: 1px solid #eee; }
+.doc-preview-schedule-row span:first-child { flex: 1; color: #111; font-weight: 600; }
+
 .doc-preview-notes { margin-top: 24px; }
 .doc-preview-notes-label { font-weight: 700; font-size: 12px; margin-bottom: 4px; }
 .doc-preview-notes-body { margin: 0; font-size: 12px; }

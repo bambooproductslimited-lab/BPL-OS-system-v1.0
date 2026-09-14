@@ -7,6 +7,8 @@ import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
+import { groupPackageItems } from '../lib/packages';
+import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './QuotationsPage.css';
 
 // Ported from Bamboo OS.dc.html's quotations screen (screens.quotations
@@ -86,6 +88,7 @@ export default function QuotationsPage() {
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
+  const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -133,6 +136,7 @@ export default function QuotationsPage() {
     setItems([blankDocItem()]);
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
+    setPaymentSchedule([]);
     setDialogOpen(true);
   }
 
@@ -142,7 +146,7 @@ export default function QuotationsPage() {
     try {
       await api.post('/quotations', {
         customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       });
       setToast('Quotation created.');
       setDialogOpen(false);
@@ -285,6 +289,7 @@ export default function QuotationsPage() {
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
             { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
             { label: 'Valid until', value: fmtDate(form.validUntil) }
@@ -307,7 +312,7 @@ export default function QuotationsPage() {
             { title: 'Quotation Details', lines: ['Created ' + fmtDate(previewQ.createdAt), money(previewQ.grandTotal, previewQ.currency)] },
             { title: 'Validity', lines: ['Valid until ' + fmtDate(previewQ.validUntil), money(previewQ.grandTotal, previewQ.currency)] }
           ]}
-          items={previewQ.items.map((i) => ({ description: i.description, notes: i.notes, qty: i.qty, unitPrice: money(i.unitPrice, previewQ.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewQ.currency) }))}
+          items={groupPackageItems(previewQ.items, previewQ.currency)}
           subtotal={money(previewQ.subtotal, previewQ.currency)}
           totalLabel="Grand Total"
           total={money(previewQ.grandTotal, previewQ.currency)}
@@ -315,6 +320,7 @@ export default function QuotationsPage() {
           notesValue={previewQ.notes}
           termsLabel="Terms & conditions"
           termsValue={previewQ.terms}
+          paymentSchedule={formatPaymentSchedule(previewQ.paymentSchedule, previewQ.currency)}
           onClose={() => setPreviewQ(null)}
         />
       )}

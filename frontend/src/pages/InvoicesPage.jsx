@@ -7,6 +7,8 @@ import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
+import { groupPackageItems } from '../lib/packages';
+import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './InvoicesPage.css';
 
 // Ported from Bamboo OS.dc.html's invoices screen (screens.invoices block,
@@ -98,6 +100,7 @@ export default function InvoicesPage() {
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
+  const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -159,6 +162,7 @@ export default function InvoicesPage() {
     setItems([blankDocItem()]);
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
+    setPaymentSchedule([]);
     setDialogOpen(true);
   }
 
@@ -168,7 +172,7 @@ export default function InvoicesPage() {
     try {
       await api.post('/invoices', {
         customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, notes: form.notes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       });
       setToast('Invoice created.');
       setDialogOpen(false);
@@ -385,6 +389,7 @@ export default function InvoicesPage() {
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
             { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
             { label: 'Due date', value: fmtDate(form.dueDate) }
@@ -479,7 +484,7 @@ export default function InvoicesPage() {
             { title: 'Invoice Details', lines: ['Issued ' + fmtDate(previewInv.issuedAt), money(previewInv.grandTotal, previewInv.currency)] },
             { title: 'Payment', lines: ['Due ' + fmtDate(previewInv.dueDate), money(previewInv.balanceDue, previewInv.currency)] }
           ]}
-          items={previewInv.items.map((i) => ({ description: i.description, notes: i.notes, qty: i.qty, unitPrice: money(i.unitPrice, previewInv.currency), lineTotal: money(Math.max(0, i.qty * i.unitPrice - (i.discountType === 'percent' ? (i.qty * i.unitPrice * (i.discount || 0)) / 100 : i.discount || 0)), previewInv.currency) }))}
+          items={groupPackageItems(previewInv.items, previewInv.currency)}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
@@ -487,6 +492,7 @@ export default function InvoicesPage() {
           total={money(previewInv.balanceDue, previewInv.currency)}
           notesLabel="Payment instructions"
           notesValue={previewInv.bankInstructions}
+          paymentSchedule={formatPaymentSchedule(previewInv.paymentSchedule, previewInv.currency)}
           onClose={() => setPreviewInv(null)}
         />
       )}

@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule } = require('../utils/documents');
 
 async function rowToInvoice(db, r, extra) {
   var items = await loadLineItems(db, 'invoice', r.id);
@@ -11,7 +11,7 @@ async function rowToInvoice(db, r, extra) {
     items: items, currency: r.currency, subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
     grandTotal: Number(r.grand_total), amount: Number(r.grand_total), amountPaid: Number(r.amount_paid), balanceDue: Number(r.balance_due),
     poReference: r.po_reference, bankInstructions: r.bank_instructions, status: r.status, issuedAt: r.issued_at, dueDate: r.due_date, paidAt: r.paid_at,
-    notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate)
+    notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || []
   }, extra || {});
 }
 
@@ -80,9 +80,9 @@ async function createFromQuotation(ctx, quotationId, poReference) {
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, quotation_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
-      [invoiceNo, q.id, q.customer_id, q.subtotal, q.discount_total, q.tax_total, q.grand_total, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), (poReference || '').trim(), commercial.paymentDetails.instructions, q.currency, q.notes, q.terms, q.discount_value, q.discount_type, q.tax_rate]
+      "INSERT INTO invoices (invoice_no, quotation_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *",
+      [invoiceNo, q.id, q.customer_id, q.subtotal, q.discount_total, q.tax_total, q.grand_total, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), (poReference || '').trim(), commercial.paymentDetails.instructions, q.currency, q.notes, q.terms, q.discount_value, q.discount_type, q.tax_rate, JSON.stringify(q.payment_schedule || [])]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
@@ -107,13 +107,14 @@ async function createManual(ctx, p) {
   var docDiscountValue = Number((p.discount && p.discount.value) || 0);
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
   var docTaxRate = Number(p.taxRate) || 0;
+  var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
 
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *",
-      [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions, currency, (p.notes || '').trim(), (p.terms || '').trim(), docDiscountValue, docDiscountType, docTaxRate]
+      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
+      [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions, currency, (p.notes || '').trim(), (p.terms || '').trim(), docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule)]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
@@ -197,8 +198,9 @@ async function update(ctx, id, p) {
   var poReference = p.poReference !== undefined ? (p.poReference || '').trim() : existing.rows[0].po_reference;
   var notes = p.notes !== undefined ? (p.notes || '').trim() : existing.rows[0].notes;
   var terms = p.terms !== undefined ? (p.terms || '').trim() : existing.rows[0].terms;
+  var paymentSchedule = p.paymentSchedule !== undefined ? buildPaymentSchedule(p.paymentSchedule, Number(existing.rows[0].grand_total)) : existing.rows[0].payment_schedule;
 
-  var res = await pool.query('UPDATE invoices SET due_date = $1, po_reference = $2, notes = $3, terms = $4 WHERE id = $5 RETURNING *', [dueDate, poReference, notes, terms, id]);
+  var res = await pool.query('UPDATE invoices SET due_date = $1, po_reference = $2, notes = $3, terms = $4, payment_schedule = $5 WHERE id = $6 RETURNING *', [dueDate, poReference, notes, terms, JSON.stringify(paymentSchedule), id]);
   var i = res.rows[0];
   await audit(pool, ctx, 'invoice.update', 'invoice', i.id, 'Updated ' + i.invoice_no + '.');
   return rowToInvoice(pool, i);

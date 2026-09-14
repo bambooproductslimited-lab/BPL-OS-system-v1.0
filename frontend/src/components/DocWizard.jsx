@@ -2,6 +2,7 @@ import { useState } from 'react';
 import DocItemsEditor from './DocItemsEditor';
 import DocPreview from './DocPreview';
 import { money } from '../lib/currency';
+import { groupPackageItems } from '../lib/packages';
 import './DocWizard.css';
 
 // Shared 3-step create flow for Quotations/Estimates/Invoices, modeled on
@@ -22,6 +23,7 @@ export default function DocWizard({
   title, docKind, detailsSlot, message, onMessageChange, messageLabel,
   items, onItemsChange, catalogOptions, currency,
   docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
+  paymentSchedule, onPaymentScheduleChange,
   recapBlocks, submitLabel, saving, error, onSubmit, onClose
 }) {
   const [step, setStep] = useState(0);
@@ -40,7 +42,12 @@ export default function DocWizard({
   const customerName = (recapBlocks && recapBlocks[0] && recapBlocks[0].value) || '';
   const secondBlock = (recapBlocks && recapBlocks[1]) || null;
   const kindLabel = docKind ? docKind.charAt(0).toUpperCase() + docKind.slice(1) : 'Document';
-  const previewItems = items.map((it) => ({ description: it.description, notes: it.notes, qty: it.qty, unitPrice: money(it.unitPrice, currency), lineTotal: money(lineTotal(it), currency) }));
+  const previewItems = groupPackageItems(items, currency);
+  const previewSchedule = (paymentSchedule || []).filter((r) => Number(r.value) > 0).map((r) => ({
+    label: r.label || 'Installment',
+    dueDate: r.dueDate || '—',
+    amount: money(r.type === 'fixed' ? Number(r.value) || 0 : (totals.grandTotal * (Number(r.value) || 0)) / 100, currency)
+  }));
 
   return (
     <>
@@ -77,6 +84,7 @@ export default function DocWizard({
               items={items} onChange={onItemsChange} catalogOptions={catalogOptions} currency={currency}
               docDiscount={docDiscount} onDocDiscountChange={onDocDiscountChange}
               docTaxRate={docTaxRate} onDocTaxRateChange={onDocTaxRateChange}
+              paymentSchedule={paymentSchedule} onPaymentScheduleChange={onPaymentScheduleChange}
             />
           </div>
         )}
@@ -94,6 +102,14 @@ export default function DocWizard({
               <div className="docwizard-recap-row docwizard-recap-total"><span>Total</span><span>{money(totals.grandTotal, currency)}</span></div>
               {message && <div className="docwizard-recap-message">"{message}"</div>}
             </div>
+            {previewSchedule.length > 0 && (
+              <div className="docwizard-recap">
+                <div className="docwizard-recap-row"><span><strong>Payment schedule</strong></span><span></span></div>
+                {previewSchedule.map((row, i) => (
+                  <div className="docwizard-recap-row" key={i}><span>{row.label} — due {row.dueDate}</span><span>{row.amount}</span></div>
+                ))}
+              </div>
+            )}
             <p className="docwizard-recap-hint">You can generate a share link or send this by WhatsApp once it's created — open it from the list and click Preview.</p>
           </div>
         )}
@@ -130,18 +146,12 @@ export default function DocWizard({
         total={money(totals.grandTotal, currency)}
         notesLabel={messageLabel || 'Message to customer'}
         notesValue={message}
+        paymentSchedule={previewSchedule}
         onClose={() => setPreviewOpen(false)}
       />
     )}
     </>
   );
-}
-
-function lineTotal(it) {
-  const qty = Number(it.qty) || 0, price = Number(it.unitPrice) || 0;
-  const line = qty * price;
-  const disc = it.discountType === 'percent' ? (line * (Number(it.discount) || 0)) / 100 : Number(it.discount) || 0;
-  return Math.max(0, line - disc);
 }
 
 // Local mirror of DocItemsEditor's computeDocTotals, kept private to this

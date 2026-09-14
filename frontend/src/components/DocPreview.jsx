@@ -23,7 +23,7 @@ const EXPIRY_OPTIONS = [
   { value: '30', label: '30 days' }
 ];
 
-export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, documentType, documentId, onClose }) {
+export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, onClose }) {
   const nodeRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
@@ -148,6 +148,16 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
         <div className="doc-preview-grand-row">
           <div>{totalLabel}</div><div>{total}</div>
         </div>
+        {paymentSchedule && paymentSchedule.length > 0 && (
+          <div className="doc-preview-schedule">
+            <div className="doc-preview-notes-label">Payment schedule</div>
+            {paymentSchedule.map((row, i) => (
+              <div className="doc-preview-schedule-row" key={i}>
+                <span>{row.label}</span><span>Due {row.dueDate}</span><span>{row.amount}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {notesValue && (
           <div className="doc-preview-notes">
             <div className="doc-preview-notes-label">{notesLabel}</div>

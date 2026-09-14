@@ -11,8 +11,19 @@ import './DocItemsEditor.css';
 // totals shown here match what the server will compute (no document-level
 // discount/tax fields exist in these dialogs — only per-line ones).
 
+// packageLabel: a "package" bundles two or more lines under one heading
+// with a single combined price shown to the customer (Square's packages).
+// Lines sharing the same hand-typed label get grouped in DocPreview/
+// SharePage — see lib/packages.js's groupPackageItems — while staying
+// individually priced/tracked here and in the stored data.
 export function blankDocItem() {
-  return { description: '', notes: '', qty: 1, unit: 'each', unitPrice: 0, discount: 0, discountType: 'fixed', taxRate: 0 };
+  return { description: '', notes: '', qty: 1, unit: 'each', unitPrice: 0, discount: 0, discountType: 'fixed', taxRate: 0, packageLabel: '' };
+}
+
+// One row of a document's payment schedule — a percentage or fixed-amount
+// installment against the grand total, with its own due date.
+export function blankScheduleRow() {
+  return { label: '', type: 'percent', value: 0, dueDate: '' };
 }
 
 // Mirrors backend/src/utils/documents.js's computeDocTotals(items,
@@ -62,10 +73,14 @@ export function applyCatalogItem(items, idx, item) {
   } : it));
 }
 
-export default function DocItemsEditor({ items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange }) {
+export default function DocItemsEditor({
+  items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
+  paymentSchedule, onPaymentScheduleChange
+}) {
   const totals = computeDocTotals(items, docDiscount, docTaxRate);
   const cur = currency || 'GHS';
   const [discountOpen, setDiscountOpen] = useState(!!(docDiscount && docDiscount.value));
+  const [scheduleOpen, setScheduleOpen] = useState(!!(paymentSchedule && paymentSchedule.length));
 
   function setField(idx, key, value) {
     onChange(items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)));
@@ -92,6 +107,21 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
   }
   function pickCatalog(idx, item) {
     onChange(applyCatalogItem(items, idx, item));
+  }
+
+  const schedule = paymentSchedule || [];
+  const scheduledAmount = schedule.reduce((sum, row) => {
+    const value = Number(row.value) || 0;
+    return sum + (row.type === 'fixed' ? value : (totals.grandTotal * value) / 100);
+  }, 0);
+  function addScheduleRow() {
+    onPaymentScheduleChange(schedule.concat([blankScheduleRow()]));
+  }
+  function setScheduleField(idx, key, value) {
+    onPaymentScheduleChange(schedule.map((r, i) => (i === idx ? { ...r, [key]: value } : r)));
+  }
+  function removeScheduleRow(idx) {
+    onPaymentScheduleChange(schedule.filter((_, i) => i !== idx));
   }
 
   return (
@@ -126,6 +156,12 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
                     placeholder="Add a description (optional)…"
                     onChange={(e) => setField(idx, 'notes', e.target.value)}
                   />
+                  <input
+                    className="input doc-items-package"
+                    value={it.packageLabel || ''}
+                    placeholder="Package name (optional) — groups with other lines under one price"
+                    onChange={(e) => setField(idx, 'packageLabel', e.target.value)}
+                  />
                 </td>
                 <td><input className="input" type="number" value={it.qty} onChange={(e) => setField(idx, 'qty', e.target.value)} /></td>
                 <td><input className="input" value={it.unit} onChange={(e) => setField(idx, 'unit', e.target.value)} /></td>
@@ -150,6 +186,9 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
         {onDocDiscountChange && !discountOpen && (
           <button type="button" className="btn btn-secondary doc-items-add" onClick={() => setDiscountOpen(true)}>+ Add discount</button>
         )}
+        {onPaymentScheduleChange && !scheduleOpen && (
+          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => { setScheduleOpen(true); if (!schedule.length) addScheduleRow(); }}>+ Add payment schedule</button>
+        )}
       </div>
       {onDocDiscountChange && discountOpen && (
         <div className="doc-items-doc-discount">
@@ -165,6 +204,35 @@ export default function DocItemsEditor({ items, onChange, catalogOptions, curren
             <option value="fixed">{cur}</option><option value="percent">%</option>
           </select>
           <button type="button" className="btn btn-secondary doc-items-remove" onClick={() => { setDiscountOpen(false); onDocDiscountChange({ value: 0, type: 'fixed' }); }}>✕</button>
+        </div>
+      )}
+      {onPaymentScheduleChange && scheduleOpen && (
+        <div className="doc-items-schedule">
+          <div className="doc-items-schedule-head">
+            <span>Payment schedule</span>
+            <button type="button" className="btn btn-secondary doc-items-remove" onClick={() => { setScheduleOpen(false); onPaymentScheduleChange([]); }}>✕</button>
+          </div>
+          {schedule.map((row, idx) => (
+            <div className="doc-items-schedule-row" key={idx}>
+              <input className="input" value={row.label} placeholder="e.g. Deposit" onChange={(e) => setScheduleField(idx, 'label', e.target.value)} />
+              <input className="input" type="number" min="0" value={row.value} onChange={(e) => setScheduleField(idx, 'value', e.target.value)} />
+              <select className="input" value={row.type} onChange={(e) => setScheduleField(idx, 'type', e.target.value)}>
+                <option value="percent">%</option>
+                <option value="fixed">{cur}</option>
+              </select>
+              <input className="input" type="date" value={row.dueDate} onChange={(e) => setScheduleField(idx, 'dueDate', e.target.value)} />
+              <span className="doc-items-schedule-amount">
+                {money(row.type === 'fixed' ? Number(row.value) || 0 : (totals.grandTotal * (Number(row.value) || 0)) / 100, cur)}
+              </span>
+              <button type="button" className="btn btn-secondary doc-items-remove" onClick={() => removeScheduleRow(idx)}>✕</button>
+            </div>
+          ))}
+          <div className="doc-items-schedule-foot">
+            <button type="button" className="btn btn-secondary doc-items-add" onClick={addScheduleRow}>+ Add installment</button>
+            <span className={'doc-items-schedule-check' + (Math.abs(scheduledAmount - totals.grandTotal) > 0.01 ? ' doc-items-schedule-mismatch' : '')}>
+              Scheduled {money(scheduledAmount, cur)} of {money(totals.grandTotal, cur)}
+            </span>
+          </div>
         </div>
       )}
       <div className="doc-items-footer">

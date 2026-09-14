@@ -25,6 +25,13 @@
   color: var(--color-text-muted);
   min-height: 32px;
 }
+.doc-items-package {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
 .doc-items-total-cell { font-weight: 600; white-space: nowrap; }
 .doc-items-remove { font-size: 12px; padding: 6px 10px; }
 .doc-items-add { font-size: 12px; width: fit-content; }
@@ -34,6 +41,20 @@
   padding: 8px 10px; background: var(--color-bg-subtle); border-radius: var(--radius, 6px); width: fit-content;
 }
 .doc-items-doc-discount .input { width: 90px; }
+.doc-items-schedule {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px; background: var(--color-bg-subtle); border-radius: var(--radius, 6px);
+}
+.doc-items-schedule-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
+.doc-items-schedule-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.doc-items-schedule-row .input:first-child { flex: 1; min-width: 120px; }
+.doc-items-schedule-row .input[type="number"] { width: 70px; }
+.doc-items-schedule-row select.input { width: 60px; }
+.doc-items-schedule-row .input[type="date"] { width: 140px; }
+.doc-items-schedule-amount { font-size: 12px; font-weight: 600; min-width: 80px; text-align: right; }
+.doc-items-schedule-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.doc-items-schedule-check { font-size: 12px; color: var(--color-text-muted); }
+.doc-items-schedule-mismatch { color: var(--color-danger, #d33); font-weight: 600; }
 .doc-items-footer {
   display: flex;
   justify-content: flex-end;
