@@ -41,6 +41,7 @@ export const NAV_GROUPS = [
     { key: 'pokidash', label: 'Overview', perm: 'poki.read', icon: 'chart' },
     { key: 'pokiproperties', label: 'Properties & units', perm: 'poki.read', icon: 'building' },
     { key: 'pokitenants', label: 'Tenants', perm: 'poki.read', icon: 'users' },
+    { key: 'pokiestimates', label: 'Letting offers', perm: 'poki.read', icon: 'receipt' },
     { key: 'pokileases', label: 'Leases', perm: 'poki.read', icon: 'document' },
     { key: 'pokibilling', label: 'Rent & utilities', perm: 'poki.read', icon: 'cash' },
     { key: 'pokimaintenance', label: 'Maintenance', perm: 'poki.read', icon: 'wrench' }

@@ -2,6 +2,7 @@ var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var poki = require('../services/poki.service');
 var billing = require('../services/pokiBilling.service');
+var estimates = require('../services/pokiEstimates.service');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
 // requireAuth; the poki.read / poki.manage gates live in the services so
@@ -175,6 +176,34 @@ router.patch('/maintenance/:id', async function (req, res, next) {
 });
 router.post('/maintenance/:id/charge', async function (req, res, next) {
   try { res.json(await billing.chargeRequestToTenant(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+// ── estimates (letting offers, on the shared estimates table) ──────────
+router.get('/estimates', async function (req, res, next) {
+  try { res.json(await estimates.list(req.ctx, { status: req.query.status, unitId: req.query.unitId })); } catch (e) { next(e); }
+});
+router.get('/estimates/:id', async function (req, res, next) {
+  try { res.json(await estimates.get(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+// Costed offer for a unit, computed but not saved — the screen calls this
+// when a unit is picked so the operator edits real figures, not a blank form.
+router.post('/estimates/letting-draft', async function (req, res, next) {
+  try { res.json(await estimates.lettingDraft(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.post('/estimates', async function (req, res, next) {
+  try { res.status(201).json(await estimates.create(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.patch('/estimates/:id', async function (req, res, next) {
+  try { res.json(await estimates.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/estimates/:id/status', async function (req, res, next) {
+  try { res.json(await estimates.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
+});
+router.post('/estimates/:id/convert-to-lease', async function (req, res, next) {
+  try { res.status(201).json(await estimates.convertToLease(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.delete('/estimates/:id', async function (req, res, next) {
+  try { res.json({ ok: await estimates.remove(req.ctx, req.params.id) }); } catch (e) { next(e); }
 });
 
 module.exports = router;

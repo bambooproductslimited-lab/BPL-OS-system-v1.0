@@ -149,3 +149,42 @@ textarea.poki-agreement-body {
 @media (max-width: 720px) {
   .poki-dialog { grid-template-columns: 1fr; }
 }
+
+/* ── letting offer line editor ───────────────────────────────────────── */
+/* Wider than the standard dialog: the offer carries its line items, and a
+   640px box turns every description into a two-word column. */
+.poki-offer-dialog { max-width: min(880px, 94vw); width: min(880px, 94vw); }
+
+.poki-lines-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+}
+/* Description takes the slack; the numeric fields stay fixed so the columns
+   line up down the list. */
+.poki-line-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 88px 104px 100px 34px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.poki-line-row .input { padding: 6px 8px; font-size: 12.5px; }
+.poki-line-total {
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  /* Stacked rather than squeezed — six columns in 400px is unusable. */
+  .poki-line-row { grid-template-columns: 1fr 1fr; }
+  .poki-line-row .input:first-child { grid-column: 1 / -1; }
+  .poki-line-total { grid-column: 1 / -1; text-align: left; }
+}
