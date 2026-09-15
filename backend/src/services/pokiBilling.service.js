@@ -38,6 +38,40 @@ function periodEndFor(startDate, cycle) {
   return addDays(addMonths(startDate, months), -1);
 }
 
+function daysInclusive(fromISO, toISO) {
+  return Math.round(
+    (new Date(toISO + 'T00:00:00Z').getTime() - new Date(fromISO + 'T00:00:00Z').getTime()) / 86400000
+  ) + 1;
+}
+
+// A lease's term is rarely a whole number of billing cycles, so the last
+// period usually runs past the end date — a tenancy ending 21 Oct whose
+// period opens 14 Oct would otherwise be charged a full month for eight
+// days, and the invoice would claim to cover time the tenant has no right
+// to occupy.
+//
+// So the final period is clamped to the lease end and charged for the days
+// actually covered, as a fraction of the days the full period would have
+// run. Pro-rating against the real period length (31 days in that example)
+// rather than an averaged month keeps the arithmetic something a tenant can
+// check against their own calendar.
+//
+// Every other period returns factor 1 and is untouched.
+function billingPeriod(periodStart, cycle, leaseEndISO) {
+  var fullEnd = periodEndFor(periodStart, cycle);
+  var partial = !!leaseEndISO && fullEnd > leaseEndISO;
+  var periodEnd = partial ? leaseEndISO : fullEnd;
+  var fullDays = daysInclusive(periodStart, fullEnd);
+  var billedDays = daysInclusive(periodStart, periodEnd);
+  return {
+    periodEnd: periodEnd,
+    partial: partial,
+    fullDays: fullDays,
+    billedDays: billedDays,
+    factor: partial && fullDays > 0 ? billedDays / fullDays : 1
+  };
+}
+
 // Rent is due on the lease's payment day in the month the period opens —
 // but never before the period itself starts.
 function dueDateFor(periodStart, paymentDay) {
@@ -111,14 +145,21 @@ async function rentRunPreview(ctx, asOf) {
 
   return res.rows.map(function (r) {
     var periodStart = String(r.next_invoice_on).slice(0, 10);
-    var periodEnd = periodEndFor(periodStart, r.rent_cycle);
-    var fixedUtility = r.utility_mode === 'fixed' ? Number(r.fixed_utility_amount) : 0;
+    var period = billingPeriod(periodStart, r.rent_cycle, String(r.end_date).slice(0, 10));
+    var fullRent = Number(r.rent_amount);
+    var fullUtility = r.utility_mode === 'fixed' ? Number(r.fixed_utility_amount) : 0;
+    var rentAmount = money(fullRent * period.factor);
+    var fixedUtility = money(fullUtility * period.factor);
     return {
       leaseId: r.id, leaseNo: r.lease_no, tenantName: r.tenant_name,
       propertyName: r.property_name, unitCode: r.unit_code,
-      periodStart: periodStart, periodEnd: periodEnd,
-      rentAmount: Number(r.rent_amount), fixedUtility: fixedUtility,
-      total: money(Number(r.rent_amount) + fixedUtility),
+      periodStart: periodStart, periodEnd: period.periodEnd,
+      rentAmount: rentAmount, fixedUtility: fixedUtility,
+      total: money(rentAmount + fixedUtility),
+      // Surfaced so the rent-run screen can show that a short final period
+      // is intentional, not a mispriced lease.
+      partial: period.partial, billedDays: period.billedDays, fullDays: period.fullDays,
+      fullRentAmount: fullRent, fullUtility: fullUtility,
       currency: r.currency, rentCycle: r.rent_cycle,
       dueDate: dueDateFor(periodStart, r.payment_day)
     };
@@ -157,25 +198,41 @@ async function runRent(ctx, p) {
         [l.tenant_id]
       );
 
+      // Recomputed from the locked row rather than trusted from the
+      // preview: if someone edited the rent or shortened the lease between
+      // previewing and running, the invoice must follow the lease as it is
+      // now, not as it was on screen.
+      var period = billingPeriod(d.periodStart, l.rent_cycle, String(l.end_date).slice(0, 10));
+      var rentDue = money(Number(l.rent_amount) * period.factor);
+      var utilityDue = money(d.fullUtility * period.factor);
+      var periodNote = 'Period ' + d.periodStart + ' to ' + period.periodEnd;
+      if (period.partial) {
+        // Spelled out on the invoice itself. A tenant who sees a smaller
+        // final charge should be able to check it without asking.
+        periodNote += ' — part period, ' + period.billedDays + ' of ' + period.fullDays +
+          ' days (lease ends ' + String(l.end_date).slice(0, 10) + ')';
+      }
+
       var items = [{
         description: 'Rent — ' + d.propertyName + ' · ' + d.unitCode,
-        notes: 'Period ' + d.periodStart + ' to ' + d.periodEnd,
-        qty: 1, unit: d.rentCycle, unitPrice: Number(l.rent_amount)
+        notes: periodNote,
+        qty: 1, unit: period.partial ? 'part ' + d.rentCycle : d.rentCycle, unitPrice: rentDue
       }];
-      if (d.fixedUtility > 0) {
+      if (utilityDue > 0) {
         items.push({
           description: 'Utilities (fixed charge) — ' + d.unitCode,
-          notes: 'Period ' + d.periodStart + ' to ' + d.periodEnd,
-          qty: 1, unit: 'each', unitPrice: d.fixedUtility
+          notes: periodNote,
+          qty: 1, unit: 'each', unitPrice: utilityDue
         });
       }
 
       var inv = await insertPokiInvoice(client, {
         customerId: cust.rows[0].id, companyId: companyId, docKind: 'rent', leaseId: l.id,
-        periodStart: d.periodStart, periodEnd: d.periodEnd,
+        periodStart: d.periodStart, periodEnd: period.periodEnd,
         items: buildLineItems(items), dueDate: d.dueDate, currency: l.currency,
         instructions: instructions,
-        notes: 'Rent for ' + d.propertyName + ' · ' + d.unitCode + ' (' + d.periodStart + ' – ' + d.periodEnd + ').'
+        notes: 'Rent for ' + d.propertyName + ' · ' + d.unitCode + ' (' + d.periodStart + ' – ' + period.periodEnd + ')' +
+          (period.partial ? ', pro-rated for ' + period.billedDays + ' of ' + period.fullDays + ' days.' : '.')
       });
 
       var nextOn = addMonths(d.periodStart, CYCLE_MONTHS[l.rent_cycle] || 1);
@@ -973,5 +1030,5 @@ module.exports = {
   listRequests: listRequests, createRequest: createRequest, updateRequest: updateRequest, chargeRequestToTenant: chargeRequestToTenant,
   listTemplates: listTemplates, saveTemplate: saveTemplate, ensureDefaultTemplate: ensureDefaultTemplate,
   generateAgreement: generateAgreement, saveAgreement: saveAgreement,
-  periodEndFor: periodEndFor, dueDateFor: dueDateFor
+  periodEndFor: periodEndFor, dueDateFor: dueDateFor, billingPeriod: billingPeriod
 };

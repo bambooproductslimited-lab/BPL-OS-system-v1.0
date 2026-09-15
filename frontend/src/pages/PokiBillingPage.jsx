@@ -209,6 +209,7 @@ export default function PokiBillingPage() {
               </p>
             </div>
           ) : (
+            <div className="poki-table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -230,20 +231,37 @@ export default function PokiBillingPage() {
                       <div className="poki-muted">{p.propertyName}</div>
                     </td>
                     <td>{p.tenantName}</td>
-                    <td>{fmtDate(p.periodStart)} → {fmtDate(p.periodEnd)}</td>
-                    <td>{fmtDate(p.dueDate)}</td>
-                    <td className="poki-num">{money(p.rentAmount, p.currency)}</td>
+                    <td className="poki-nowrap">
+                      {fmtDate(p.periodStart)} → {fmtDate(p.periodEnd)}
+                      {p.partial && (
+                        <div className="poki-muted">
+                          part period · {p.billedDays} of {p.fullDays} days
+                        </div>
+                      )}
+                    </td>
+                    <td className="poki-nowrap">{fmtDate(p.dueDate)}</td>
+                    <td className="poki-num">
+                      {money(p.rentAmount, p.currency)}
+                      {/* The reduced figure is deliberate, so say why next to
+                          it rather than leaving it looking like a mispriced
+                          lease. */}
+                      {p.partial && (
+                        <div className="poki-muted">pro-rated from {money(p.fullRentAmount, p.currency)}</div>
+                      )}
+                    </td>
                     <td className="poki-num">{p.fixedUtility ? money(p.fixedUtility, p.currency) : <span className="poki-muted">—</span>}</td>
                     <td className="poki-num poki-strong">{money(p.total, p.currency)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           {preview.length > 0 && (
             <p className="poki-section-sub" style={{ marginTop: 10 }}>
               Tick rows to bill only those; with nothing ticked, the button raises all of them. Each lease then advances to its
               next period, so running twice can't double-bill.
+              {preview.some((p) => p.partial) && ' A lease ending mid-period is charged only for the days up to its end date.'}
             </p>
           )}
         </div>

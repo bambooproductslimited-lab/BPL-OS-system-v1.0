@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
-import { perCycle } from '../lib/rentCycle';
+import { perCycle, monthlyEquivalent } from '../lib/rentCycle';
 import './PokiPages.css';
 
 // Leases — who occupies which unit, on what terms. Also where the tenancy
@@ -27,7 +27,7 @@ function fmtDate(iso) {
 
 const EMPTY = {
   unitId: '', tenantId: '', startDate: '', endDate: '', rentAmount: '', currency: 'GHS',
-  rentCycle: 'monthly', paymentDay: 1, depositAmount: '', escalationPercent: '', status: 'draft', notes: ''
+  rentCycle: 'monthly', paymentDay: 1, depositAmount: '', depositMonths: 1, escalationPercent: '', status: 'draft', notes: ''
 };
 
 export default function PokiLeasesPage() {
@@ -77,7 +77,15 @@ export default function PokiLeasesPage() {
     setDialogError(null);
     setEditId(l ? l.id : null);
     setForm(l
-      ? { ...EMPTY, ...l, startDate: String(l.startDate).slice(0, 10), endDate: String(l.endDate).slice(0, 10) }
+      ? {
+        ...EMPTY, ...l,
+        startDate: String(l.startDate).slice(0, 10),
+        endDate: String(l.endDate).slice(0, 10),
+        // Derived from what was actually agreed, not defaulted to one
+        // month — otherwise editing the rent on a two-month deposit would
+        // quietly halve it.
+        depositMonths: monthsFromDeposit(l.depositAmount, l.rentAmount, l.rentCycle)
+      }
       : EMPTY);
     setDialog('lease');
   }
@@ -87,12 +95,48 @@ export default function PokiLeasesPage() {
   // allowing a negotiated figure.
   function onUnitChange(unitId) {
     const u = units.find((x) => x.id === unitId);
+    setForm((f) => {
+      const rentAmount = u && !editId ? u.baseRent : f.rentAmount;
+      const rentCycle = u && !editId ? u.rentCycle : f.rentCycle;
+      return {
+        ...f,
+        unitId,
+        rentAmount,
+        currency: u ? u.currency : f.currency,
+        rentCycle,
+        depositAmount: u && !editId
+          ? depositFor(rentAmount, rentCycle, f.depositMonths)
+          : f.depositAmount
+      };
+    });
+  }
+
+  // Deposits are agreed in months of rent, so that is what the operator
+  // enters; the amount follows. It stays an ordinary editable field —
+  // typing a negotiated figure straight into it is still allowed, and does
+  // not get overwritten unless the months or the rent change.
+  function monthsFromDeposit(depositAmount, rent, cycle) {
+    const per = monthlyEquivalent(rent, cycle);
+    const amount = Number(depositAmount) || 0;
+    if (!per || !amount) return '';
+    return Math.round((amount / per) * 100) / 100;
+  }
+
+  function depositFor(rent, cycle, months) {
+    const m = Number(months);
+    if (!Number.isFinite(m) || m <= 0) return '';
+    return monthlyEquivalent(rent, cycle) * m;
+  }
+
+  function onDepositMonthsChange(months) {
+    setForm((f) => ({ ...f, depositMonths: months, depositAmount: depositFor(f.rentAmount, f.rentCycle, months) }));
+  }
+
+  function onRentChange(rentAmount) {
     setForm((f) => ({
       ...f,
-      unitId,
-      rentAmount: u && !editId ? u.baseRent : f.rentAmount,
-      currency: u ? u.currency : f.currency,
-      rentCycle: u && !editId ? u.rentCycle : f.rentCycle
+      rentAmount,
+      depositAmount: f.depositMonths ? depositFor(rentAmount, f.rentCycle, f.depositMonths) : f.depositAmount
     }));
   }
 
@@ -359,7 +403,7 @@ export default function PokiLeasesPage() {
             </div>
             <div className="field">
               <label htmlFor="pl-rent">Rent</label>
-              <input id="pl-rent" className="input" type="number" step="0.01" value={form.rentAmount} onChange={set('rentAmount')} required />
+              <input id="pl-rent" className="input" type="number" step="0.01" value={form.rentAmount} onChange={(e) => onRentChange(e.target.value)} required />
             </div>
             <div className="field">
               <label htmlFor="pl-cycle">Billed</label>
@@ -372,8 +416,18 @@ export default function PokiLeasesPage() {
               <input id="pl-day" className="input" type="number" min="1" max="28" value={form.paymentDay} onChange={set('paymentDay')} />
             </div>
             <div className="field">
+              <label htmlFor="pl-dep-months">Deposit (months of rent)</label>
+              <input id="pl-dep-months" className="input" type="number" min="0" step="0.5"
+                value={form.depositMonths} onChange={(e) => onDepositMonthsChange(e.target.value)} />
+            </div>
+            <div className="field">
               <label htmlFor="pl-dep">Deposit due</label>
               <input id="pl-dep" className="input" type="number" step="0.01" value={form.depositAmount} onChange={set('depositAmount')} />
+              {form.rentCycle !== 'monthly' && form.rentCycle !== 'one_off' && Number(form.rentAmount) > 0 && (
+                <p className="poki-dialog-hint">
+                  {money(monthlyEquivalent(form.rentAmount, form.rentCycle), form.currency)} per month
+                </p>
+              )}
             </div>
             <div className="field">
               <label htmlFor="pl-esc">Renewal increase (%)</label>
