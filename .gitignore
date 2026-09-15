@@ -1,0 +1,5 @@
+# Deployment archives. The frontend zip uploaded to Hostinger is built from
+# frontend/dist (itself ignored), so it is reproducible from source — and at
+# ~9MB a binary that changes on every build would bloat the history for good.
+# Rebuild with: cd frontend && npm run build && (cd dist && zip -r ../../bpl-os-frontend.zip .)
+*.zip
