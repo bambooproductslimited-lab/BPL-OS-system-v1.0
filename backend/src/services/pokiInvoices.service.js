@@ -111,9 +111,25 @@ async function get(ctx, id) {
 }
 
 async function recordPayment(ctx, id, p) {
-  return actingOnPokiInvoice(ctx, id, function (e) {
+  var result = await actingOnPokiInvoice(ctx, id, function (e) {
     return invoicesService.recordPayment(e, id, p);
   });
+
+  // A booking's invoice carries its deposit as a line, so paying that
+  // invoice IS handing over the deposit. Without this the deposit ledger and
+  // the invoice would disagree — the invoice settled, the booking still
+  // showing nothing held, and the end-of-tenancy refund calculated against
+  // zero. Only on full settlement: a part payment cannot be assumed to have
+  // covered the deposit line rather than the rent.
+  var inv = await pool.query(
+    'SELECT poki_booking_id, balance_due FROM invoices WHERE id = $1', [id]);
+  var row = inv.rows[0];
+  if (row && row.poki_booking_id && Number(row.balance_due) <= 0) {
+    await pool.query(
+      'UPDATE poki_bookings SET deposit_held = deposit_amount, updated_at = now() ' +
+      'WHERE id = $1 AND deposit_held < deposit_amount', [row.poki_booking_id]);
+  }
+  return result;
 }
 
 async function voidInvoice(ctx, id) {

@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { nextDocNumber, todayISO } = require('../utils/documents');
+var { nextDocNumber, todayISO, buildLineItems } = require('../utils/documents');
 
 // Poki — the group's property-rental business (migration 0056). Properties
 // hold units; units are let to tenants under bookings; bookings drive rent and
@@ -576,7 +576,8 @@ async function getBooking(ctx, id) {
 async function createBooking(ctx, p) {
   canManage(ctx);
   var unit = await pool.query(
-    'SELECT u.*, p.company_id FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
+    'SELECT u.*, p.company_id, p.name AS property_name ' +
+    'FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
     [p.unitId]
   );
   if (!unit.rows[0]) fail('invalid', 'Choose a unit.');
@@ -616,13 +617,79 @@ async function createBooking(ctx, p) {
     if (status === 'active') {
       await client.query("UPDATE poki_units SET status = 'occupied', updated_at = now() WHERE id = $1", [p.unitId]);
     }
+    var full = await client.query('SELECT * FROM poki_bookings WHERE id = $1', [res.rows[0].id]);
+    var inv = await raiseBookingInvoice(client, ctx, full.rows[0], unit.rows[0]);
     await audit(client, ctx, 'poki.booking.create', 'poki_booking', res.rows[0].id,
       'Created booking ' + bookingNo + ' on unit ' + unit.rows[0].code + ' (' +
-      describeDuration(duration.months, duration.days) + ').');
+      describeDuration(duration.months, duration.days) + ')' +
+      (inv ? ', invoiced as ' + inv.invoice_no : '') + '.');
     return res.rows[0].id;
   });
 
   return getBooking(ctx, bookingId);
+}
+
+// The one invoice a booking produces. Raised when the booking is created,
+// because it is the document the tenant is sent in order to pay — and the
+// terms say rent and deposit are payable in full before keys are handed
+// over. Nothing else invoices rent: there is no run, no schedule, no second
+// charge later.
+//
+// Rent and deposit go on the same invoice rather than two, because the
+// tenant makes one payment for one figure — the same figure the booking
+// screen quoted. Split across two documents they would be asked to pay a
+// number neither document showed.
+async function raiseBookingInvoice(client, ctx, booking, unit) {
+  var items = [];
+  var label = unit.property_name + ' \u00b7 ' + unit.code;
+
+  if (booking.duration_months > 0) {
+    items.push({
+      description: 'Rent \u2014 ' + label,
+      qty: booking.duration_months, unit: 'month', unitPrice: Number(booking.monthly_rate),
+      notes: describeDuration(booking.duration_months, booking.duration_days) +
+        ' from ' + String(booking.start_date).slice(0, 10) + '.'
+    });
+  }
+  if (booking.duration_days > 0) {
+    items.push({
+      description: 'Rent (days) \u2014 ' + label,
+      qty: booking.duration_days, unit: 'day', unitPrice: Number(booking.daily_rate), notes: ''
+    });
+  }
+  if (Number(booking.deposit_amount) > 0) {
+    items.push({
+      description: 'Security deposit \u2014 ' + label,
+      qty: 1, unit: 'each', unitPrice: Number(booking.deposit_amount),
+      notes: 'Refundable at the end of the tenancy, less any arrears or damage.'
+    });
+  }
+  if (!items.length) return null;
+
+  var billing = require('./pokiBilling.service');
+  var tenant = await client.query(
+    'SELECT t.customer_id FROM poki_tenants t WHERE t.id = $1', [booking.tenant_id]);
+
+  // Due before occupation — but never dated in the past, which would show a
+  // booking backdated into the system as instantly overdue.
+  var start = String(booking.start_date).slice(0, 10);
+  var today = new Date().toISOString().slice(0, 10);
+  var dueDate = start < today ? today : start;
+
+  return billing.insertPokiInvoice(client, {
+    customerId: tenant.rows[0].customer_id,
+    companyId: unit.company_id,
+    docKind: 'rent',
+    bookingId: booking.id,
+    periodStart: start,
+    periodEnd: String(booking.end_date).slice(0, 10),
+    items: buildLineItems(items),
+    dueDate: dueDate,
+    currency: booking.currency,
+    instructions: await billing.pokiPaymentInstructions(),
+    notes: 'Booking ' + booking.booking_no + ' \u2014 ' +
+      describeDuration(booking.duration_months, booking.duration_days) + '.'
+  });
 }
 
 function describeDuration(months, days) {
