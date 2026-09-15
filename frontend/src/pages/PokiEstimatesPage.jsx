@@ -8,7 +8,7 @@ import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
 
-// Letting offers — what a unit costs to take, quoted before any lease
+// Letting offers — what a unit costs to take, quoted before any booking
 // exists.
 //
 // The point of this screen over the general estimate builder is that the
@@ -19,7 +19,7 @@ import './PokiPages.css';
 // stay fully editable afterwards; the pre-fill is a starting point, not a
 // rule.
 //
-// When the prospect accepts, the offer converts to a DRAFT lease on that
+// When the prospect accepts, the offer converts to a DRAFT booking on that
 // unit. Draft, not active: activating is the deliberate step that checks
 // the unit is still free and flips it to occupied.
 
@@ -213,24 +213,31 @@ export default function PokiEstimatesPage() {
     }
   }
 
-  // Pre-fill the lease terms from the offer and the unit it quoted, then
+  // Pre-fill the booking terms from the offer and the unit it quoted, then
   // let the operator confirm. What is confirmed here is what gets written —
   // the figures are never re-derived from the line descriptions, which the
   // operator may well have edited.
   function openConvert(est) {
     const unit = units.find((u) => u.id === est.unitId);
-    const rentLine = est.items.find((i) => /^rent/i.test(i.description || ''));
+    // "Rent (days) — ..." must not be mistaken for the months line: it
+    // starts with "Rent" too, and matching it first would read the day
+    // count as a number of months.
+    const dayLine = est.items.find((i) => /^rent \(days\)/i.test(i.description || ''));
+    const rentLine = est.items.find((i) => /^rent/i.test(i.description || '') && i !== dayLine);
     const depLine = est.items.find((i) => /deposit/i.test(i.description || ''));
     const start = new Date().toISOString().slice(0, 10);
     setDialogError(null);
     setConvert({
       est,
       startDate: start,
-      endDate: addYear(start),
-      rentAmount: rentLine ? rentLine.unitPrice : (unit ? unit.baseRent : ''),
+      // The offer already priced a duration; carry its months and days
+      // across rather than defaulting to a year, so the booking matches
+      // what the tenant accepted.
+      durationMonths: rentLine ? rentLine.qty : 12,
+      durationDays: dayLine ? dayLine.qty : 0,
+      monthlyRate: rentLine ? rentLine.unitPrice : (unit ? unit.baseRent : ''),
+      dailyRate: dayLine ? dayLine.unitPrice : (unit ? unit.dailyRate : ''),
       depositAmount: depLine ? depLine.unitPrice : '',
-      rentCycle: unit ? unit.rentCycle : 'monthly',
-      paymentDay: 1,
       escalationPercent: ''
     });
     setDialog('convert');
@@ -241,13 +248,14 @@ export default function PokiEstimatesPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      const res = await api.post('/poki/estimates/' + convert.est.id + '/convert-to-lease', {
-        startDate: convert.startDate, endDate: convert.endDate,
-        rentAmount: convert.rentAmount, depositAmount: convert.depositAmount,
-        rentCycle: convert.rentCycle, paymentDay: convert.paymentDay,
+      const res = await api.post('/poki/estimates/' + convert.est.id + '/convert-to-booking', {
+        startDate: convert.startDate,
+        durationMonths: convert.durationMonths, durationDays: convert.durationDays,
+        monthlyRate: convert.monthlyRate, dailyRate: convert.dailyRate,
+        depositAmount: convert.depositAmount,
         escalationPercent: convert.escalationPercent
       });
-      setToast('Created draft lease ' + res.lease.leaseNo + '. Activate it on the Leases screen.');
+      setToast('Created draft booking ' + res.booking.bookingNo + '. Activate it on the Bookings screen.');
       setDialog(null);
       await load();
     } catch (err) {
@@ -280,7 +288,7 @@ export default function PokiEstimatesPage() {
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
           <option value="finalized">Sent</option>
-          <option value="converted">Became a lease</option>
+          <option value="converted">Became a booking</option>
           <option value="archived">Archived</option>
         </select>
         <div className="poki-toolbar-spacer" />
@@ -298,7 +306,7 @@ export default function PokiEstimatesPage() {
             {estimates.length
               ? 'Try a different search or status filter.'
               : tenants.length
-                ? 'Quote a prospect what a unit costs to take. The offer is costed from the unit’s own rent, deposit and utility terms, and becomes a lease once accepted.'
+                ? 'Quote a prospect what a unit costs to take. The offer is costed from the unit’s own rent, deposit and utility terms, and becomes a booking once accepted.'
                 : 'Add someone to the tenant register first — a prospect who hasn’t signed still belongs there.'}
           </p>
         </div>
@@ -316,7 +324,7 @@ export default function PokiEstimatesPage() {
                 <tr key={e.id}>
                   <td className="poki-strong poki-nowrap">
                     {e.estimateNo}
-                    {e.leaseNo && <div className="poki-muted">→ {e.leaseNo}</div>}
+                    {e.bookingNo && <div className="poki-muted">→ {e.bookingNo}</div>}
                   </td>
                   <td><span className="poki-chip poki-chip-open">{e.docKind}</span></td>
                   <td className="poki-nowrap">{e.customerName}</td>
@@ -328,7 +336,7 @@ export default function PokiEstimatesPage() {
                   <td className="poki-num">{money(e.grandTotal, e.currency)}</td>
                   <td>
                     <span className={'poki-chip poki-chip-' + (e.status === 'converted' ? 'active' : e.status === 'finalized' ? 'expiring' : 'open')}>
-                      {e.status === 'converted' ? 'leased' : e.status === 'finalized' ? 'sent' : e.status}
+                      {e.status === 'converted' ? 'bookingd' : e.status === 'finalized' ? 'sent' : e.status}
                     </span>
                   </td>
                   <td className="table-actions">
@@ -340,7 +348,7 @@ export default function PokiEstimatesPage() {
                       <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === e.id} onClick={() => setStatus(e, 'finalized')}>Mark sent</button>
                     )}
                     {canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived' && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openConvert(e)}>Accept → lease</button>
+                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openConvert(e)}>Accept → booking</button>
                     )}
                     {canManage && e.status !== 'converted' && (
                       <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === e.id} onClick={() => remove(e)}>Delete</button>
@@ -465,7 +473,7 @@ export default function PokiEstimatesPage() {
             <h2 className="poki-dialog-title">Accept {convert.est.estimateNo}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
               {convert.est.customerName} · {convert.est.propertyName} · {convert.est.unitCode}. This creates a
-              <strong> draft </strong> lease — activate it on the Leases screen once it is signed, which is what
+              <strong> draft </strong> booking — activate it on the Bookings screen once it is signed, which is what
               marks the unit occupied.
             </p>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
@@ -475,12 +483,16 @@ export default function PokiEstimatesPage() {
               <input id="pc-start" className="input" type="date" value={convert.startDate} onChange={setConv('startDate')} required />
             </div>
             <div className="field">
-              <label htmlFor="pc-end">End date</label>
-              <input id="pc-end" className="input" type="date" value={convert.endDate} onChange={setConv('endDate')} required />
+              <label htmlFor="pc-months">Months</label>
+              <input id="pc-months" className="input" type="number" min="0" step="1" value={convert.durationMonths} onChange={setConv('durationMonths')} />
             </div>
             <div className="field">
-              <label htmlFor="pc-rent">Rent</label>
-              <input id="pc-rent" className="input" type="number" step="0.01" value={convert.rentAmount} onChange={setConv('rentAmount')} required />
+              <label htmlFor="pc-days">…plus days</label>
+              <input id="pc-days" className="input" type="number" min="0" step="1" value={convert.durationDays} onChange={setConv('durationDays')} />
+            </div>
+            <div className="field">
+              <label htmlFor="pc-rate">Rent per month</label>
+              <input id="pc-rate" className="input" type="number" step="0.01" value={convert.monthlyRate} onChange={setConv('monthlyRate')} required />
             </div>
             <div className="field">
               <label htmlFor="pc-dep">Deposit due</label>
@@ -497,7 +509,7 @@ export default function PokiEstimatesPage() {
 
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create draft lease'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create draft booking'}</button>
             </div>
           </form>
         </div>

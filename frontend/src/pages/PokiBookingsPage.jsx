@@ -3,20 +3,11 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
-import { perCycle, monthlyEquivalent, leaseRentTotal } from '../lib/rentCycle';
 import './PokiPages.css';
 
-// Leases — who occupies which unit, on what terms. Also where the tenancy
-// agreement gets generated (from a template, with the lease's own details
+// Bookings — who occupies which unit, on what terms. Also where the tenancy
+// agreement gets generated (from a template, with the booking's own details
 // filled in) and where deposits and renewals are handled.
-
-const RENT_CYCLES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'semiannual', label: 'Every 6 months' },
-  { value: 'annual', label: 'Annually' },
-  { value: 'one_off', label: 'One-off (whole term)' }
-];
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -26,15 +17,16 @@ function fmtDate(iso) {
 }
 
 const EMPTY = {
-  unitId: '', tenantId: '', startDate: '', endDate: '', rentAmount: '', currency: 'GHS',
-  rentCycle: 'monthly', paymentDay: 1, depositAmount: '', depositMonths: 1, escalationPercent: '', status: 'draft', notes: ''
+  unitId: '', tenantId: '', startDate: '', durationMonths: 12, durationDays: 0,
+  monthlyRate: '', dailyRate: '', currency: 'GHS',
+  depositAmount: '', depositMonths: 1, escalationPercent: '', status: 'draft', notes: ''
 };
 
-export default function PokiLeasesPage() {
+export default function PokiBookingsPage() {
   const { can } = useAuth();
   const canManage = can('poki.manage');
 
-  const [leases, setLeases] = useState([]);
+  const [bookings, setBookings] = useState([]);
   const [units, setUnits] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,10 +36,11 @@ export default function PokiLeasesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState(null);
 
-  const [dialog, setDialog] = useState(null); // 'lease' | 'deposit' | 'refund' | 'renew' | 'end' | 'agreement'
+  const [dialog, setDialog] = useState(null); // 'booking' | 'deposit' | 'refund' | 'renew' | 'end' | 'agreement'
   const [editId, setEditId] = useState(null);
   const [target, setTarget] = useState(null);
   const [form, setForm] = useState(EMPTY);
+  const [quote, setQuote] = useState(null);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [agreementBody, setAgreementBody] = useState('');
@@ -55,8 +48,8 @@ export default function PokiLeasesPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [l, u, t] = await Promise.all([api.get('/poki/leases'), api.get('/poki/units'), api.get('/poki/tenants')]);
-      setLeases(l);
+      const [l, u, t] = await Promise.all([api.get('/poki/bookings'), api.get('/poki/units'), api.get('/poki/tenants')]);
+      setBookings(l);
       setUnits(u);
       setTenants(t);
     } catch (err) {
@@ -73,81 +66,108 @@ export default function PokiLeasesPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function openLease(l) {
+  // The price and the availability both come from the server, not from
+  // arithmetic repeated here. The booking screen and the invoice it will
+  // raise then cannot disagree — a quoted total the tenant is not actually
+  // charged is worse than showing no total at all. Debounced, because it
+  // fires on every keystroke in the rate and duration fields.
+  useEffect(() => {
+    if (dialog !== 'booking' || !form.unitId || !form.startDate) { setQuote(null); return undefined; }
+    const months = Number(form.durationMonths) || 0;
+    const days = Number(form.durationDays) || 0;
+    if (months <= 0 && days <= 0) { setQuote(null); return undefined; }
+
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api.post('/poki/bookings/quote', {
+        unitId: form.unitId,
+        startDate: form.startDate,
+        durationMonths: months,
+        durationDays: days,
+        monthlyRate: form.monthlyRate === '' ? undefined : form.monthlyRate,
+        dailyRate: form.dailyRate === '' ? undefined : form.dailyRate,
+        depositAmount: form.depositAmount === '' ? 0 : form.depositAmount,
+        currency: form.currency,
+        exceptId: editId || undefined
+      })
+        .then((q) => { if (!cancelled) setQuote(q); })
+        .catch(() => { if (!cancelled) setQuote(null); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [dialog, editId, form.unitId, form.startDate, form.durationMonths, form.durationDays,
+      form.monthlyRate, form.dailyRate, form.depositAmount, form.currency]);
+
+  function openBooking(l) {
     setDialogError(null);
     setEditId(l ? l.id : null);
+    setQuote(null);
     setForm(l
       ? {
         ...EMPTY, ...l,
         startDate: String(l.startDate).slice(0, 10),
-        endDate: String(l.endDate).slice(0, 10),
-        // Derived from what was actually agreed, not defaulted to one
-        // month — otherwise editing the rent on a two-month deposit would
+        // Derived from what was actually agreed rather than defaulted to
+        // one month, so editing the rate on a two-month deposit does not
         // quietly halve it.
-        depositMonths: monthsFromDeposit(l.depositAmount, l.rentAmount, l.rentCycle)
+        depositMonths: monthsFromDeposit(l.depositAmount, l.monthlyRate)
       }
       : EMPTY);
-    setDialog('lease');
+    setDialog('booking');
   }
 
-  // Picking a vacant unit prefills the asking rent and terms so the common
-  // case (letting at the advertised price) is one click, while still
-  // allowing a negotiated figure.
+  // Picking a unit prefills its asking rates, so letting at the advertised
+  // price is one click while a negotiated figure is still allowed.
   function onUnitChange(unitId) {
     const u = units.find((x) => x.id === unitId);
     setForm((f) => {
-      const rentAmount = u && !editId ? u.baseRent : f.rentAmount;
-      const rentCycle = u && !editId ? u.rentCycle : f.rentCycle;
+      const monthlyRate = u && !editId ? u.baseRent : f.monthlyRate;
+      const dailyRate = u && !editId ? (u.dailyRate || '') : f.dailyRate;
       return {
         ...f,
         unitId,
-        rentAmount,
+        monthlyRate,
+        dailyRate,
         currency: u ? u.currency : f.currency,
-        rentCycle,
-        depositAmount: u && !editId
-          ? depositFor(rentAmount, rentCycle, f.depositMonths)
-          : f.depositAmount
+        depositAmount: u && !editId ? depositFor(monthlyRate, f.depositMonths) : f.depositAmount
       };
     });
   }
 
-  // Deposits are agreed in months of rent, so that is what the operator
-  // enters; the amount follows. It stays an ordinary editable field —
-  // typing a negotiated figure straight into it is still allowed, and does
-  // not get overwritten unless the months or the rent change.
-  function monthsFromDeposit(depositAmount, rent, cycle) {
-    const per = monthlyEquivalent(rent, cycle);
+  // Deposits are agreed in months of rent, so that is what gets entered and
+  // the amount follows. It stays an ordinary editable field: a negotiated
+  // figure typed straight in is kept unless the months or the rate change.
+  function monthsFromDeposit(depositAmount, monthlyRate) {
+    const per = Number(monthlyRate) || 0;
     const amount = Number(depositAmount) || 0;
     if (!per || !amount) return '';
     return Math.round((amount / per) * 100) / 100;
   }
 
-  function depositFor(rent, cycle, months) {
+  function depositFor(monthlyRate, months) {
     const m = Number(months);
     if (!Number.isFinite(m) || m <= 0) return '';
-    return monthlyEquivalent(rent, cycle) * m;
+    return Math.round((Number(monthlyRate) || 0) * m * 100) / 100;
   }
 
   function onDepositMonthsChange(months) {
-    setForm((f) => ({ ...f, depositMonths: months, depositAmount: depositFor(f.rentAmount, f.rentCycle, months) }));
+    setForm((f) => ({ ...f, depositMonths: months, depositAmount: depositFor(f.monthlyRate, months) }));
   }
 
-  function onRentChange(rentAmount) {
+  function onRateChange(monthlyRate) {
     setForm((f) => ({
       ...f,
-      rentAmount,
-      depositAmount: f.depositMonths ? depositFor(rentAmount, f.rentCycle, f.depositMonths) : f.depositAmount
+      monthlyRate,
+      depositAmount: f.depositMonths ? depositFor(monthlyRate, f.depositMonths) : f.depositAmount
     }));
   }
 
-  async function submitLease(e) {
+  async function submitBooking(e) {
     e.preventDefault();
     setSaving(true);
     setDialogError(null);
     try {
-      if (editId) await api.patch('/poki/leases/' + editId, form);
-      else await api.post('/poki/leases', form);
-      setToast(editId ? 'Lease updated.' : 'Lease created.');
+      if (editId) await api.patch('/poki/bookings/' + editId, form);
+      else await api.post('/poki/bookings', form);
+      setToast(editId ? 'Booking updated.' : 'Booking created.');
       setDialog(null);
       await load();
     } catch (err) {
@@ -157,11 +177,11 @@ export default function PokiLeasesPage() {
     }
   }
 
-  async function act(lease, path, body, message) {
-    setBusyId(lease.id);
+  async function act(booking, path, body, message) {
+    setBusyId(booking.id);
     setError(null);
     try {
-      await api.post('/poki/leases/' + lease.id + path, body || {});
+      await api.post('/poki/bookings/' + booking.id + path, body || {});
       setToast(message);
       await load();
     } catch (err) {
@@ -171,11 +191,11 @@ export default function PokiLeasesPage() {
     }
   }
 
-  function openSimple(kind, lease) {
+  function openSimple(kind, booking) {
     setDialogError(null);
-    setTarget(lease);
+    setTarget(booking);
     setForm(kind === 'renew'
-      ? { escalationPercent: lease.escalationPercent || 0, startDate: '', endDate: '', rentAmount: '', notes: '' }
+      ? { escalationPercent: booking.escalationPercent || 0, startDate: '', endDate: '', rentTotal: '', notes: '' }
       : { amount: '', deductions: '', notes: '', reason: '', status: 'terminated' });
     setDialog(kind);
   }
@@ -186,24 +206,25 @@ export default function PokiLeasesPage() {
     setDialogError(null);
     try {
       if (dialog === 'deposit') {
-        await api.post('/poki/leases/' + target.id + '/deposit', { amount: form.amount, notes: form.notes });
+        await api.post('/poki/bookings/' + target.id + '/deposit', { amount: form.amount, notes: form.notes });
         setToast('Deposit recorded.');
       } else if (dialog === 'refund') {
-        await api.post('/poki/leases/' + target.id + '/deposit-refund', {
+        await api.post('/poki/bookings/' + target.id + '/deposit-refund', {
           amount: form.amount, deductions: form.deductions, notes: form.notes
         });
         setToast('Deposit refund recorded.');
       } else if (dialog === 'renew') {
         const body = { escalationPercent: form.escalationPercent };
         if (form.startDate) body.startDate = form.startDate;
-        if (form.endDate) body.endDate = form.endDate;
-        if (form.rentAmount) body.rentAmount = form.rentAmount;
+        if (form.durationMonths !== '') body.durationMonths = form.durationMonths;
+        if (form.durationDays !== '') body.durationDays = form.durationDays;
+        if (form.monthlyRate) body.monthlyRate = form.monthlyRate;
         if (form.notes) body.notes = form.notes;
-        await api.post('/poki/leases/' + target.id + '/renew', body);
-        setToast('Lease renewed.');
+        await api.post('/poki/bookings/' + target.id + '/renew', body);
+        setToast('Booking renewed.');
       } else if (dialog === 'end') {
-        await api.post('/poki/leases/' + target.id + '/end', { reason: form.reason, status: form.status });
-        setToast('Lease ended — the unit is now vacant.');
+        await api.post('/poki/bookings/' + target.id + '/end', { reason: form.reason, status: form.status });
+        setToast('Booking ended — the unit is now vacant.');
       }
       setDialog(null);
       await load();
@@ -214,19 +235,19 @@ export default function PokiLeasesPage() {
     }
   }
 
-  async function openAgreement(lease) {
+  async function openAgreement(booking) {
     setDialogError(null);
-    setTarget(lease);
-    setAgreementBody(lease.agreementBody || '');
+    setTarget(booking);
+    setAgreementBody(booking.agreementBody || '');
     setDialog('agreement');
-    if (!lease.agreementBody) await generateAgreement(lease);
+    if (!booking.agreementBody) await generateAgreement(booking);
   }
 
-  async function generateAgreement(lease) {
+  async function generateAgreement(booking) {
     setSaving(true);
     setDialogError(null);
     try {
-      const res = await api.post('/poki/leases/' + (lease || target).id + '/agreement', {});
+      const res = await api.post('/poki/bookings/' + (booking || target).id + '/agreement', {});
       setAgreementBody(res.body);
       await load();
     } catch (err) {
@@ -240,7 +261,7 @@ export default function PokiLeasesPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.put('/poki/leases/' + target.id + '/agreement', { body: agreementBody });
+      await api.put('/poki/bookings/' + target.id + '/agreement', { body: agreementBody });
       setToast('Agreement saved.');
       setDialog(null);
       await load();
@@ -256,7 +277,7 @@ export default function PokiLeasesPage() {
     if (!w) return;
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     w.document.write(
-      '<html><head><title>' + esc(target.leaseNo) + ' — Tenancy Agreement</title>' +
+      '<html><head><title>' + esc(target.bookingNo) + ' — Tenancy Agreement</title>' +
       '<style>body{font-family:Georgia,serif;line-height:1.7;max-width:720px;margin:40px auto;padding:0 24px;white-space:pre-wrap;font-size:13px}</style>' +
       '</head><body>' + esc(agreementBody) + '</body></html>'
     );
@@ -267,10 +288,15 @@ export default function PokiLeasesPage() {
 
   if (loading) return <div className="eyebrow">Loading…</div>;
 
-  const visible = leases.filter((l) =>
-    matchesQuery(search, l.leaseNo, l.tenantName, l.unitCode, l.propertyName) && (!statusFilter || l.status === statusFilter)
+  const visible = bookings.filter((l) =>
+    matchesQuery(search, l.bookingNo, l.tenantName, l.unitCode, l.propertyName) && (!statusFilter || l.status === statusFilter)
   );
-  const vacantUnits = units.filter((u) => u.status === 'vacant' || (editId && form.unitId === u.id));
+  // Every active unit, not just the ones marked vacant. Occupancy is a
+  // question about dates now: a unit let until August is perfectly bookable
+  // for September, and filtering on the status flag made that impossible to
+  // enter. The quote says whether the chosen dates are free, and the
+  // database refuses an overlap regardless.
+  const bookableUnits = units.filter((u) => u.active !== false || (editId && form.unitId === u.id));
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   return (
@@ -278,7 +304,7 @@ export default function PokiLeasesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search leases…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search bookings…" />
         <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
@@ -289,19 +315,19 @@ export default function PokiLeasesPage() {
         </select>
         <div className="poki-toolbar-spacer" />
         {canManage && (
-          <button type="button" className="btn btn-primary" disabled={!tenants.length || !units.length} onClick={() => openLease(null)}>
-            New lease
+          <button type="button" className="btn btn-primary" disabled={!tenants.length || !units.length} onClick={() => openBooking(null)}>
+            New booking
           </button>
         )}
       </div>
 
       {visible.length === 0 ? (
         <div className="poki-empty">
-          <p className="poki-empty-title">{leases.length ? 'No leases match' : 'No leases yet'}</p>
+          <p className="poki-empty-title">{bookings.length ? 'No bookings match' : 'No bookings yet'}</p>
           <p className="poki-empty-sub">
-            {leases.length
+            {bookings.length
               ? 'Try a different search or status filter.'
-              : 'A lease puts a tenant in a unit and drives rent billing. Add a property, a unit and a tenant first.'}
+              : 'A booking puts a tenant in a unit and drives rent billing. Add a property, a unit and a tenant first.'}
           </p>
         </div>
       ) : (
@@ -309,7 +335,7 @@ export default function PokiLeasesPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Lease</th><th>Unit</th><th>Tenant</th><th>Term</th>
+              <th>Booking</th><th>Unit</th><th>Tenant</th><th>Term</th>
               <th className="poki-num">Rent</th><th className="poki-num">Deposit</th><th className="poki-num">Owing</th>
               <th>Status</th><th></th>
             </tr>
@@ -318,7 +344,7 @@ export default function PokiLeasesPage() {
             {visible.map((l) => (
               <tr key={l.id}>
                 <td className="poki-nowrap">
-                  <div className="poki-strong">{l.leaseNo}</div>
+                  <div className="poki-strong">{l.bookingNo}</div>
                   {l.agreementGeneratedAt && <div className="poki-muted">agreement ready</div>}
                 </td>
                 <td className="poki-nowrap">
@@ -329,13 +355,11 @@ export default function PokiLeasesPage() {
                 <td className="poki-nowrap">
                   <div>{fmtDate(l.startDate)}</div>
                   <div className="poki-muted">→ {fmtDate(l.endDate)}</div>
-                  {l.status === 'active' && l.nextInvoiceOn && (
-                    <div className="poki-muted">next bill {fmtDate(l.nextInvoiceOn)}</div>
-                  )}
+                  <div className="poki-muted">{l.durationLabel}</div>
                 </td>
                 <td className="poki-num">
-                  {money(l.rentAmount, l.currency)}
-                  <div className="poki-muted">{perCycle(l.rentCycle)}</div>
+                  {money(l.rentTotal, l.currency)}
+                  <div className="poki-muted">{money(l.monthlyRate, l.currency)}/month</div>
                 </td>
                 <td className="poki-num">
                   {money(l.depositHeld, l.currency)}
@@ -349,10 +373,10 @@ export default function PokiLeasesPage() {
                   <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openAgreement(l)}>Agreement</button>
                   {canManage && l.status === 'draft' && (
                     <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === l.id}
-                      onClick={() => act(l, '/activate', {}, 'Lease activated — the unit is now occupied.')}>Activate</button>
+                      onClick={() => act(l, '/activate', {}, 'Booking activated — the unit is now occupied.')}>Activate</button>
                   )}
                   {canManage && (l.status === 'draft' || l.status === 'active') && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openLease(l)}>Edit</button>
+                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openBooking(l)}>Edit</button>
                   )}
                   {canManage && l.status === 'active' && (
                     <>
@@ -372,16 +396,16 @@ export default function PokiLeasesPage() {
         </div>
       )}
 
-      {dialog === 'lease' && (
+      {dialog === 'booking' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
-          <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitLease}>
-            <h2 className="poki-dialog-title">{editId ? 'Edit lease' : 'New lease'}</h2>
+          <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitBooking}>
+            <h2 className="poki-dialog-title">{editId ? 'Edit booking' : 'New booking'}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="pl-unit">Unit</label>
               <select id="pl-unit" className="input" value={form.unitId} onChange={(e) => onUnitChange(e.target.value)} required disabled={!!editId}>
-                <option value="">Choose a vacant unit…</option>
-                {vacantUnits.map((u) => (
+                <option value="">Choose a unit…</option>
+                {bookableUnits.map((u) => (
                   <option key={u.id} value={u.id}>{u.propertyName} · {u.code}{u.name ? ' — ' + u.name : ''}</option>
                 ))}
               </select>
@@ -398,22 +422,26 @@ export default function PokiLeasesPage() {
               <input id="pl-start" className="input" type="date" value={form.startDate} onChange={set('startDate')} required />
             </div>
             <div className="field">
-              <label htmlFor="pl-end">End date</label>
-              <input id="pl-end" className="input" type="date" value={form.endDate} onChange={set('endDate')} required />
+              <label htmlFor="pl-months">For how many months</label>
+              <input id="pl-months" className="input" type="number" min="0" step="1"
+                value={form.durationMonths} onChange={set('durationMonths')} />
             </div>
             <div className="field">
-              <label htmlFor="pl-rent">Rent</label>
-              <input id="pl-rent" className="input" type="number" step="0.01" value={form.rentAmount} onChange={(e) => onRentChange(e.target.value)} required />
+              <label htmlFor="pl-days">…plus how many days</label>
+              <input id="pl-days" className="input" type="number" min="0" step="1"
+                value={form.durationDays} onChange={set('durationDays')} />
+              <p className="poki-dialog-hint">Leave months at 0 for a booking of days only.</p>
             </div>
             <div className="field">
-              <label htmlFor="pl-cycle">Billed</label>
-              <select id="pl-cycle" className="input" value={form.rentCycle} onChange={set('rentCycle')}>
-                {RENT_CYCLES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+              <label htmlFor="pl-rate">Rent per month</label>
+              <input id="pl-rate" className="input" type="number" step="0.01"
+                value={form.monthlyRate} onChange={(e) => onRateChange(e.target.value)} required />
             </div>
             <div className="field">
-              <label htmlFor="pl-day">Due on day</label>
-              <input id="pl-day" className="input" type="number" min="1" max="28" value={form.paymentDay} onChange={set('paymentDay')} />
+              <label htmlFor="pl-daily">Rent per day</label>
+              <input id="pl-daily" className="input" type="number" step="0.01"
+                value={form.dailyRate} onChange={set('dailyRate')} placeholder="from the unit" />
+              <p className="poki-dialog-hint">Blank uses a thirtieth of the monthly rate.</p>
             </div>
             <div className="field">
               <label htmlFor="pl-dep-months">Deposit (months of rent)</label>
@@ -423,11 +451,6 @@ export default function PokiLeasesPage() {
             <div className="field">
               <label htmlFor="pl-dep">Deposit due</label>
               <input id="pl-dep" className="input" type="number" step="0.01" value={form.depositAmount} onChange={set('depositAmount')} />
-              {form.rentCycle !== 'monthly' && form.rentCycle !== 'one_off' && Number(form.rentAmount) > 0 && (
-                <p className="poki-dialog-hint">
-                  {money(monthlyEquivalent(form.rentAmount, form.rentCycle), form.currency)} per month
-                </p>
-              )}
             </div>
             <div className="field">
               <label htmlFor="pl-esc">Renewal increase (%)</label>
@@ -446,46 +469,48 @@ export default function PokiLeasesPage() {
               <label htmlFor="pl-notes">Notes</label>
               <textarea id="pl-notes" className="input" rows={2} value={form.notes} onChange={set('notes')} />
             </div>
-            {(() => {
-              // What the whole tenancy comes to, recalculated as the dates,
-              // rent and deposit are typed. The rent figure is not
-              // rent x periods: the last period is pro-rated when the lease
-              // ends mid-cycle, exactly as the rent run will invoice it, so
-              // this total and the invoices that follow agree.
-              const term = leaseRentTotal(form.startDate, form.endDate, form.rentAmount, form.rentCycle);
-              if (!term) return null;
-              const deposit = Number(form.depositAmount) || 0;
-              const part = term.partialPeriod;
-              return (
-                <div className="poki-term-total poki-dialog-span">
-                  <div className="poki-term-row">
-                    <span>
-                      Rent — {term.periods} {term.periods === 1 ? 'period' : 'periods'}
-                      {part && (
-                        <span className="poki-muted">
-                          {' '}(last one part-period, {part.billedDays} of {part.fullDays} days — {money(part.amount, form.currency)})
-                        </span>
-                      )}
+            {quote && (
+              <div className="poki-term-total poki-dialog-span">
+                <div className="poki-term-row">
+                  <span>
+                    Rent — {quote.durationLabel}
+                    <span className="poki-muted">
+                      {' '}({fmtDate(quote.startDate)} to {fmtDate(quote.endDate)})
                     </span>
-                    <strong>{money(term.rentTotal, form.currency)}</strong>
-                  </div>
-                  <div className="poki-term-row">
-                    <span>Deposit</span>
-                    <strong>{money(deposit, form.currency)}</strong>
-                  </div>
-                  <div className="poki-term-row poki-term-grand">
-                    <span>Total over the term</span>
-                    <strong>{money(term.rentTotal + deposit, form.currency)}</strong>
-                  </div>
+                  </span>
+                  <strong>{money(quote.rentTotal, quote.currency)}</strong>
                 </div>
-              );
-            })()}
+                {quote.daysAmount > 0 && (
+                  <div className="poki-term-row poki-muted">
+                    <span>
+                      of which {quote.durationDays} {quote.durationDays === 1 ? 'day' : 'days'} at {money(quote.dailyRate, quote.currency)}
+                    </span>
+                    <span>{money(quote.daysAmount, quote.currency)}</span>
+                  </div>
+                )}
+                <div className="poki-term-row">
+                  <span>Deposit</span>
+                  <strong>{money(quote.depositAmount, quote.currency)}</strong>
+                </div>
+                <div className="poki-term-row poki-term-grand">
+                  <span>Payable before occupation</span>
+                  <strong>{money(quote.total, quote.currency)}</strong>
+                </div>
+                {!quote.available && (
+                  <div className="poki-term-clash">
+                    Unavailable — {quote.clashesWith.bookingNo} has this unit from{' '}
+                    {fmtDate(quote.clashesWith.startDate)} to {fmtDate(quote.clashesWith.endDate)}.
+                  </div>
+                )}
+              </div>
+            )}
             <p className="poki-dialog-hint">
-              Rent invoices are raised from the Rent &amp; utilities screen once the lease is active — the first period starts on the start date.
+              The whole booking is invoiced once, when it is made — there is no monthly rent run. Utilities, where the unit
+              has them, are billed separately as they are used.
             </p>
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || (quote && !quote.available)}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
         </div>
@@ -495,10 +520,10 @@ export default function PokiLeasesPage() {
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitSimple}>
             <h2 className="poki-dialog-title">
-              {dialog === 'deposit' && 'Record deposit — ' + target.leaseNo}
-              {dialog === 'refund' && 'Refund deposit — ' + target.leaseNo}
-              {dialog === 'renew' && 'Renew lease — ' + target.leaseNo}
-              {dialog === 'end' && 'End lease — ' + target.leaseNo}
+              {dialog === 'deposit' && 'Record deposit — ' + target.bookingNo}
+              {dialog === 'refund' && 'Refund deposit — ' + target.bookingNo}
+              {dialog === 'renew' && 'Renew booking — ' + target.bookingNo}
+              {dialog === 'end' && 'End booking — ' + target.bookingNo}
             </h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
@@ -522,7 +547,7 @@ export default function PokiLeasesPage() {
             {dialog === 'refund' && (
               <>
                 <p className="poki-dialog-hint">
-                  {money(target.depositHeld - target.depositRefunded, target.currency)} is held on this lease. Anything you withhold
+                  {money(target.depositHeld - target.depositRefunded, target.currency)} is held on this booking. Anything you withhold
                   for damage or unpaid rent goes in deductions and is not refunded.
                 </p>
                 <div className="field">
@@ -543,25 +568,32 @@ export default function PokiLeasesPage() {
             {dialog === 'renew' && (
               <>
                 <p className="poki-dialog-hint">
-                  Creates a new lease continuing from {fmtDate(target.endDate)}, so this term keeps its own rent and signed
-                  agreement. Leave the dates blank for a 12-month renewal.
+                  Books the same unit again, starting the day after {fmtDate(target.endDate)} — this booking keeps its own
+                  price and signed agreement. Leave the fields blank to repeat the same length at the increased rate.
                 </p>
                 <div className="field">
                   <label htmlFor="prn-esc">Rent increase (%)</label>
                   <input id="prn-esc" className="input" type="number" step="0.01" value={form.escalationPercent} onChange={set('escalationPercent')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="prn-rent">Or set rent directly</label>
-                  <input id="prn-rent" className="input" type="number" step="0.01" value={form.rentAmount} onChange={set('rentAmount')}
-                    placeholder={String(target.rentAmount)} />
+                  <label htmlFor="prn-rate">Or set the monthly rate directly</label>
+                  <input id="prn-rate" className="input" type="number" step="0.01" value={form.monthlyRate} onChange={set('monthlyRate')}
+                    placeholder={String(target.monthlyRate)} />
                 </div>
                 <div className="field">
                   <label htmlFor="prn-start">New start date</label>
-                  <input id="prn-start" className="input" type="date" value={form.startDate} onChange={set('startDate')} />
+                  <input id="prn-start" className="input" type="date" value={form.startDate} onChange={set('startDate')}
+                    placeholder="day after this one ends" />
                 </div>
                 <div className="field">
-                  <label htmlFor="prn-end">New end date</label>
-                  <input id="prn-end" className="input" type="date" value={form.endDate} onChange={set('endDate')} />
+                  <label htmlFor="prn-months">Months</label>
+                  <input id="prn-months" className="input" type="number" min="0" step="1" value={form.durationMonths} onChange={set('durationMonths')}
+                    placeholder={String(target.durationMonths)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="prn-days">…plus days</label>
+                  <input id="prn-days" className="input" type="number" min="0" step="1" value={form.durationDays} onChange={set('durationDays')}
+                    placeholder={String(target.durationDays)} />
                 </div>
               </>
             )}
@@ -597,7 +629,7 @@ export default function PokiLeasesPage() {
       {dialog === 'agreement' && target && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <div className="dialog poki-agreement-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ margin: 0 }}>Tenancy agreement — {target.leaseNo}</h2>
+            <h2 style={{ margin: 0 }}>Tenancy agreement — {target.bookingNo}</h2>
             <p className="poki-muted" style={{ margin: 0 }}>
               {target.tenantName} · {target.propertyName} · {target.unitCode} ·{' '}
               {fmtDate(target.startDate)} → {fmtDate(target.endDate)}

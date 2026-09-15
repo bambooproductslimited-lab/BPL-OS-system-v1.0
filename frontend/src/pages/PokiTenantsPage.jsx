@@ -117,7 +117,7 @@ export default function PokiTenantsPage() {
           <p className="poki-empty-sub">
             {tenants.length
               ? 'Try a different search or status filter.'
-              : 'Add the people and companies renting from Poki. You can then put them on a lease against a unit.'}
+              : 'Add the people and companies renting from Poki. You can then put them on a booking against a unit.'}
           </p>
         </div>
       ) : (
@@ -142,7 +142,7 @@ export default function PokiTenantsPage() {
                 <td><span className={'poki-chip poki-chip-' + t.status}>{t.status}</span></td>
                 <td className="table-actions">
                   {canManage && <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openDialog(t)}>Edit</button>}
-                  {canManage && !t.activeLeases && (
+                  {canManage && !t.activeBookings && (
                     <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => remove(t)}>Delete</button>
                   )}
                 </td>

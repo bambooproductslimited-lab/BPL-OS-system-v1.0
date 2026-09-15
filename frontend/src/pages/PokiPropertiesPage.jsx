@@ -3,33 +3,18 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
-import { perCycle } from '../lib/rentCycle';
 import './PokiPages.css';
 
 // Properties and the units inside them. A unit is the thing that actually
 // gets let — a flat, a single room, an office suite, a shop, a warehouse
 // bay — so this is where the asking rent and the utility arrangement are
-// set. Occupancy is read-only here: it follows the unit's lease.
+// set. Occupancy is read-only here: it follows the unit's booking.
 
 const UNIT_TYPES = ['apartment', 'room', 'office', 'shop', 'warehouse', 'land', 'other'];
-const RENT_CYCLES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'semiannual', label: 'Every 6 months' },
-  { value: 'annual', label: 'Annually' },
-  { value: 'one_off', label: 'One-off' }
-];
-const UTILITY_MODES = [
-  { value: 'none', label: 'Tenant pays provider directly' },
-  { value: 'metered', label: 'Sub-meter — billed on consumption' },
-  { value: 'fixed', label: 'Fixed charge per period' },
-  { value: 'apportioned', label: 'Share of the building master bill' }
-];
-
 const EMPTY_PROPERTY = { code: '', name: '', propertyType: 'mixed', address: '', city: 'Tema', region: 'Greater Accra', ghanaPostGps: '', notes: '' };
 const EMPTY_UNIT = {
   propertyId: '', code: '', name: '', unitType: 'room', floor: '', sizeSqm: '', bedrooms: '', bathrooms: '',
-  baseRent: '', currency: 'GHS', rentCycle: 'monthly', utilityMode: 'none', fixedUtilityAmount: '', apportionShare: '', amenities: '', notes: ''
+  baseRent: '', currency: 'GHS', dailyRate: '', utilityMode: 'none', fixedUtilityAmount: '', apportionShare: '', amenities: '', notes: ''
 };
 
 export default function PokiPropertiesPage() {
@@ -208,7 +193,7 @@ export default function PokiPropertiesPage() {
                       <td>{u.tenantName || <span className="poki-muted">—</span>}</td>
                       <td className="poki-num">
                         {money(u.baseRent, u.currency)}
-                        <div className="poki-muted">{perCycle(u.rentCycle)}</div>
+                        <div className="poki-muted">per month</div>
                       </td>
                       <td className="poki-muted">
                         {u.utilityMode === 'none' && 'Direct to provider'}
@@ -218,7 +203,7 @@ export default function PokiPropertiesPage() {
                       </td>
                       <td className="table-actions">
                         {canManage && <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openUnit(u)}>Edit</button>}
-                        {canManage && !u.leaseId && (
+                        {canManage && !u.bookingId && (
                           <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => removeUnit(u)}>Delete</button>
                         )}
                       </td>
@@ -328,14 +313,15 @@ export default function PokiPropertiesPage() {
               </>
             )}
             <div className="field">
-              <label htmlFor="pu-rent">Asking rent</label>
+              <label htmlFor="pu-rent">Asking rent, per month</label>
               <input id="pu-rent" className="input" type="number" step="0.01" value={form.baseRent} onChange={set('baseRent')} />
             </div>
             <div className="field">
-              <label htmlFor="pu-cycle">Rent cycle</label>
-              <select id="pu-cycle" className="input" value={form.rentCycle} onChange={set('rentCycle')}>
-                {RENT_CYCLES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+              <label htmlFor="pu-daily">Rent per day</label>
+              <input id="pu-daily" className="input" type="number" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder="optional" />
+              <p className="poki-dialog-hint">
+                For bookings measured in days. Left blank, a day is charged at a thirtieth of the monthly rate.
+              </p>
             </div>
             <div className="field poki-dialog-span">
               <label htmlFor="pu-utility">Utilities</label>
@@ -366,7 +352,7 @@ export default function PokiPropertiesPage() {
             </div>
             {editId && (
               <p className="poki-dialog-hint">
-                Occupancy isn't set here — a unit becomes occupied when a lease on it is activated, and frees up when that lease ends.
+                Occupancy isn't set here — a unit becomes occupied when a booking on it is activated, and frees up when that booking ends.
               </p>
             )}
             <div className="poki-dialog-actions">

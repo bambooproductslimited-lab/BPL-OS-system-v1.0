@@ -61,7 +61,7 @@ export default function PokiDashboardPage() {
         <div className="poki-stat poki-stat-good">
           <div className="poki-stat-label">Monthly rent roll</div>
           <div className="poki-stat-value">{money(data.monthlyRecurringRevenue, 'GHS')}</div>
-          <div className="poki-stat-sub">active leases, normalised to a month</div>
+          <div className="poki-stat-sub">active bookings, normalised to a month</div>
         </div>
         <div className={'poki-stat' + (data.outstanding > 0 ? ' poki-stat-danger' : '')}>
           <div className="poki-stat-label">Outstanding</div>
@@ -85,27 +85,27 @@ export default function PokiDashboardPage() {
       </div>
 
       <div className="poki-section">
-        <h2 className="poki-section-title">Leases ending in the next 90 days</h2>
+        <h2 className="poki-section-title">Bookings ending in the next 90 days</h2>
         <p className="poki-section-sub">
-          Chase a renewal or start re-letting. A lease left to lapse frees its unit automatically on the end date.
+          Chase a renewal or start re-letting. A booking left to lapse frees its unit automatically on the end date.
         </p>
-        {data.expiringLeases.length === 0 ? (
+        {data.expiringBookings.length === 0 ? (
           <div className="poki-empty">
             <p className="poki-empty-title">Nothing expiring soon</p>
-            <p className="poki-empty-sub">No active lease ends within the next 90 days.</p>
+            <p className="poki-empty-sub">No active booking ends within the next 90 days.</p>
           </div>
         ) : (
           <div className="poki-table-wrap">
 <table className="table">
             <thead>
-              <tr><th>Lease</th><th>Unit</th><th>Tenant</th><th>Ends</th><th className="poki-num">Rent</th><th className="poki-num">Owing</th></tr>
+              <tr><th>Booking</th><th>Unit</th><th>Tenant</th><th>Ends</th><th className="poki-num">Rent</th><th className="poki-num">Owing</th></tr>
             </thead>
             <tbody>
-              {data.expiringLeases.map((l) => {
+              {data.expiringBookings.map((l) => {
                 const days = daysUntil(l.endDate);
                 return (
                   <tr key={l.id}>
-                    <td className="poki-strong poki-nowrap">{l.leaseNo}</td>
+                    <td className="poki-strong poki-nowrap">{l.bookingNo}</td>
                     <td className="poki-nowrap">{l.unitCode}<div className="poki-muted">{l.propertyName}</div></td>
                     <td className="poki-nowrap">{l.tenantName}</td>
                     <td className="poki-nowrap">
@@ -114,7 +114,7 @@ export default function PokiDashboardPage() {
                         {days <= 0 ? 'due now' : days + ' days'}
                       </span>
                     </td>
-                    <td className="poki-num">{money(l.rentAmount, l.currency)}</td>
+                    <td className="poki-num">{money(l.rentTotal, l.currency)}</td>
                     <td className={'poki-num' + (l.balanceTotal > 0 ? ' poki-overdue' : '')}>
                       {money(l.balanceTotal || 0, l.currency)}
                     </td>

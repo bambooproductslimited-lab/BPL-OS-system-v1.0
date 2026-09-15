@@ -24,7 +24,7 @@ export default function PokiBillingPage() {
   const { can } = useAuth();
   const canManage = can('poki.manage');
 
-  const [tab, setTab] = useState('rent');
+  const [tab, setTab] = useState('utilities');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -37,7 +37,6 @@ export default function PokiBillingPage() {
   const [invError, setInvError] = useState(null);
 
   const [asOf, setAsOf] = useState(todayISO());
-  const [preview, setPreview] = useState([]);
   const [selected, setSelected] = useState({});
 
   const [units, setUnits] = useState([]);
@@ -47,7 +46,7 @@ export default function PokiBillingPage() {
   const [properties, setProperties] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [tenants, setTenants] = useState([]);
-  const [leases, setLeases] = useState([]);
+  const [bookings, setBookings] = useState([]);
 
   const [dialog, setDialog] = useState(null);
   const [form, setForm] = useState({});
@@ -56,7 +55,6 @@ export default function PokiBillingPage() {
 
   const loadPreview = useCallback(async (date) => {
     try {
-      setPreview(await api.get('/poki/rent-run/preview?asOf=' + (date || asOf)));
     } catch (err) {
       setError(err.message);
     }
@@ -65,24 +63,22 @@ export default function PokiBillingPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [p, u, m, r, mb, inv, tn, ls] = await Promise.all([
-        api.get('/poki/rent-run/preview?asOf=' + asOf),
+      const [u, m, r, mb, inv, tn, ls] = await Promise.all([
         api.get('/poki/units'),
         api.get('/poki/meters'),
         api.get('/poki/readings'),
         api.get('/poki/master-bills'),
         api.get('/poki/invoices'),
         api.get('/poki/tenants'),
-        api.get('/poki/leases')
+        api.get('/poki/bookings')
       ]);
-      setPreview(p);
       setUnits(u);
       setMeters(m);
       setReadings(r);
       setMasterBills(mb);
       setInvoices(inv);
       setTenants(tn);
-      setLeases(ls);
+      setBookings(ls);
       setProperties(await api.get('/poki/properties'));
     } catch (err) {
       setError(err.message);
@@ -151,7 +147,7 @@ export default function PokiBillingPage() {
   function openNewInvoice() {
     setInvError(null);
     setNewInv({
-      tenantId: '', leaseId: '', docKind: 'other', dueDate: '',
+      tenantId: '', bookingId: '', docKind: 'other', dueDate: '',
       notes: '', items: [{ description: '', qty: 1, unitPrice: '' }]
     });
   }
@@ -163,7 +159,7 @@ export default function PokiBillingPage() {
     try {
       const res = await api.post('/poki/invoices', {
         ...newInv,
-        leaseId: newInv.leaseId || undefined,
+        bookingId: newInv.bookingId || undefined,
         dueDate: newInv.dueDate || undefined,
         items: newInv.items.filter((i) => String(i.description).trim())
       });
@@ -173,24 +169,6 @@ export default function PokiBillingPage() {
       await load();
     } catch (err) {
       setInvError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function runRent() {
-    const ids = Object.keys(selected).filter((k) => selected[k]);
-    if (!window.confirm('Raise ' + (ids.length || preview.length) + ' rent invoice(s)?')) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await api.post('/poki/rent-run', { asOf, leaseIds: ids.length ? ids : undefined });
-      setToast('Raised ' + res.created + ' rent invoice(s).');
-      setSelected({});
-      await load();
-      await loadPreview(asOf);
-    } catch (err) {
-      setError(err.message);
     } finally {
       setBusy(false);
     }
@@ -228,7 +206,7 @@ export default function PokiBillingPage() {
     try {
       const res = await api.post('/poki/readings/bill', { readingIds: ids });
       setToast('Raised ' + res.created + ' utility invoice(s).' +
-        (res.skippedUnits && res.skippedUnits.length ? ' Skipped ' + res.skippedUnits.join(', ') + ' — no active lease.' : ''));
+        (res.skippedUnits && res.skippedUnits.length ? ' Skipped ' + res.skippedUnits.join(', ') + ' — no active booking.' : ''));
       setSelected({});
       await load();
     } catch (err) {
@@ -265,102 +243,21 @@ export default function PokiBillingPage() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const unbilled = readings.filter((r) => !r.invoiceId);
-  const previewTotal = preview
-    .filter((p) => !Object.keys(selected).some((k) => selected[k]) || selected[p.leaseId])
-    .reduce((s, p) => s + p.total, 0);
-
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <button type="button" className={'btn ' + (tab === 'rent' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('rent')}>Rent run</button>
         <button type="button" className={'btn ' + (tab === 'utilities' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('utilities')}>Utilities</button>
         <button type="button" className={'btn ' + (tab === 'invoices' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('invoices')}>Invoices</button>
       </div>
 
-      {tab === 'rent' && (
-        <div>
-          <div className="poki-toolbar">
-            <label className="poki-muted" htmlFor="pb-asof">Bill everything due as at</label>
-            <input id="pb-asof" className="input" type="date" value={asOf}
-              onChange={(e) => { setAsOf(e.target.value); loadPreview(e.target.value); }} />
-            <div className="poki-toolbar-spacer" />
-            {canManage && preview.length > 0 && (
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={runRent}>
-                {busy ? 'Raising…' : 'Raise ' + money(previewTotal, preview[0].currency)}
-              </button>
-            )}
-          </div>
-
-          {preview.length === 0 ? (
-            <div className="poki-empty">
-              <p className="poki-empty-title">Nothing due</p>
-              <p className="poki-empty-sub">
-                No active lease has a rent period starting on or before {fmtDate(asOf)} that hasn't already been billed.
-              </p>
-            </div>
-          ) : (
-            <div className="poki-table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: 32 }}></th>
-                  <th>Unit</th><th>Tenant</th><th>Period</th><th>Due</th>
-                  <th className="poki-num">Rent</th><th className="poki-num">Utilities</th><th className="poki-num">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.map((p) => (
-                  <tr key={p.leaseId}>
-                    <td>
-                      <input type="checkbox" checked={!!selected[p.leaseId]}
-                        onChange={(e) => setSelected({ ...selected, [p.leaseId]: e.target.checked })}
-                        aria-label={'Select ' + p.unitCode} />
-                    </td>
-                    <td>
-                      <div className="poki-strong">{p.unitCode}</div>
-                      <div className="poki-muted">{p.propertyName}</div>
-                    </td>
-                    <td>{p.tenantName}</td>
-                    <td className="poki-nowrap">
-                      {fmtDate(p.periodStart)} → {fmtDate(p.periodEnd)}
-                      {p.partial && (
-                        <div className="poki-muted">
-                          part period · {p.billedDays} of {p.fullDays} days
-                        </div>
-                      )}
-                    </td>
-                    <td className="poki-nowrap">{fmtDate(p.dueDate)}</td>
-                    <td className="poki-num">
-                      {money(p.rentAmount, p.currency)}
-                      {/* The reduced figure is deliberate, so say why next to
-                          it rather than leaving it looking like a mispriced
-                          lease. */}
-                      {p.partial && (
-                        <div className="poki-muted">pro-rated from {money(p.fullRentAmount, p.currency)}</div>
-                      )}
-                    </td>
-                    <td className="poki-num">{p.fixedUtility ? money(p.fixedUtility, p.currency) : <span className="poki-muted">—</span>}</td>
-                    <td className="poki-num poki-strong">{money(p.total, p.currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          )}
-          {preview.length > 0 && (
-            <p className="poki-section-sub" style={{ marginTop: 10 }}>
-              Tick rows to bill only those; with nothing ticked, the button raises all of them. Each lease then advances to its
-              next period, so running twice can't double-bill.
-              {preview.some((p) => p.partial) && ' A lease ending mid-period is charged only for the days up to its end date.'}
-            </p>
-          )}
-        </div>
-      )}
-
       {tab === 'utilities' && (
         <div>
+          <p className="poki-muted" style={{ marginBottom: 12 }}>
+            Rent is invoiced when a booking is made, not from here — a booking is paid for up front.
+            Utilities are the only charge still raised after the fact.
+          </p>
           <div className="poki-section" style={{ marginTop: 0 }}>
             <div className="poki-toolbar">
               <h2 className="poki-section-title" style={{ margin: 0 }}>Meter readings</h2>
@@ -772,7 +669,7 @@ export default function PokiBillingPage() {
             <div className="field">
               <label htmlFor="pn-tenant">Tenant</label>
               <select id="pn-tenant" className="input" value={newInv.tenantId}
-                onChange={(e) => setNewInv({ ...newInv, tenantId: e.target.value, leaseId: '' })} required>
+                onChange={(e) => setNewInv({ ...newInv, tenantId: e.target.value, bookingId: '' })} required>
                 <option value="">Choose a tenant…</option>
                 {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
@@ -787,15 +684,15 @@ export default function PokiBillingPage() {
               </select>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pn-lease">Against lease (optional)</label>
-              <select id="pn-lease" className="input" value={newInv.leaseId}
-                onChange={(e) => setNewInv({ ...newInv, leaseId: e.target.value })}>
-                <option value="">Not tied to a lease</option>
-                {leases.filter((l) => !newInv.tenantId || l.tenantId === newInv.tenantId).map((l) => (
-                  <option key={l.id} value={l.id}>{l.leaseNo} · {l.propertyName} · {l.unitCode}</option>
+              <label htmlFor="pn-booking">Against booking (optional)</label>
+              <select id="pn-booking" className="input" value={newInv.bookingId}
+                onChange={(e) => setNewInv({ ...newInv, bookingId: e.target.value })}>
+                <option value="">Not tied to a booking</option>
+                {bookings.filter((l) => !newInv.tenantId || l.tenantId === newInv.tenantId).map((l) => (
+                  <option key={l.id} value={l.id}>{l.bookingNo} · {l.propertyName} · {l.unitCode}</option>
                 ))}
               </select>
-              <p className="poki-dialog-hint">Attaching the lease makes the charge show in that tenancy&rsquo;s arrears.</p>
+              <p className="poki-dialog-hint">Attaching the booking makes the charge show in that tenancy&rsquo;s arrears.</p>
             </div>
 
             <div className="poki-dialog-span">
@@ -867,7 +764,7 @@ export default function PokiBillingPage() {
             {
               title: 'Property',
               lines: previewInv.unitCode
-                ? [previewInv.propertyName + ' · ' + previewInv.unitCode, previewInv.leaseNo || '']
+                ? [previewInv.propertyName + ' · ' + previewInv.unitCode, previewInv.bookingNo || '']
                 : ['—', '']
             },
             {

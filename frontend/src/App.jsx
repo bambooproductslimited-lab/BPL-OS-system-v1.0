@@ -55,7 +55,7 @@ import PlaceholderPage from './pages/PlaceholderPage';
 import PokiDashboardPage from './pages/PokiDashboardPage';
 import PokiPropertiesPage from './pages/PokiPropertiesPage';
 import PokiTenantsPage from './pages/PokiTenantsPage';
-import PokiLeasesPage from './pages/PokiLeasesPage';
+import PokiBookingsPage from './pages/PokiBookingsPage';
 import PokiEstimatesPage from './pages/PokiEstimatesPage';
 import PokiBillingPage from './pages/PokiBillingPage';
 import PokiMaintenancePage from './pages/PokiMaintenancePage';
@@ -77,7 +77,7 @@ const BUILT_SCREENS = {
   marketing: MarketingDashboardPage, socialtracker: SocialTrackerPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
   audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage,
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
-  pokileases: PokiLeasesPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage
+  pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];
