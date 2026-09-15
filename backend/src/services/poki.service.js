@@ -657,11 +657,20 @@ async function raiseBookingInvoice(client, ctx, booking, unit) {
       qty: booking.duration_days, unit: 'day', unitPrice: Number(booking.daily_rate), notes: ''
     });
   }
-  if (Number(booking.deposit_amount) > 0) {
+  // Only what is still outstanding on the deposit, not the whole figure.
+  // One rule covers every case: a new booking holds nothing so the full
+  // deposit is charged; a renewal carries the previous one over so nothing
+  // is charged; and a renewal that raises the deposit charges only the
+  // difference. Re-charging a deposit the tenant already paid is the kind
+  // of error that gets noticed by the tenant rather than by us.
+  var depositOwing = money(Number(booking.deposit_amount) - Number(booking.deposit_held));
+  if (depositOwing > 0) {
     items.push({
       description: 'Security deposit \u2014 ' + label,
-      qty: 1, unit: 'each', unitPrice: Number(booking.deposit_amount),
-      notes: 'Refundable at the end of the tenancy, less any arrears or damage.'
+      qty: 1, unit: 'each', unitPrice: depositOwing,
+      notes: Number(booking.deposit_held) > 0
+        ? 'The balance of the deposit; the rest carried over from the previous booking.'
+        : 'Refundable at the end of the tenancy, less any arrears or damage.'
     });
   }
   if (!items.length) return null;
@@ -883,8 +892,20 @@ async function renewBooking(ctx, id, p) {
       ]
     );
     await client.query("UPDATE poki_units SET status = 'occupied', updated_at = now() WHERE id = $1", [prev.unit_id]);
+
+    // A renewal is another block of time and needs paying like any other.
+    // The deposit carried over above, so raiseBookingInvoice charges only
+    // rent unless the renewal raised the deposit.
+    var unit = await client.query(
+      'SELECT u.*, p.company_id, p.name AS property_name ' +
+      'FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
+      [prev.unit_id]);
+    var full = await client.query('SELECT * FROM poki_bookings WHERE id = $1', [res.rows[0].id]);
+    var inv = await raiseBookingInvoice(client, ctx, full.rows[0], unit.rows[0]);
+
     await audit(client, ctx, 'poki.booking.renew', 'poki_booking', res.rows[0].id,
-      'Renewed ' + prev.booking_no + ' as ' + bookingNo + ' (' + describeDuration(duration.months, duration.days) + ').');
+      'Renewed ' + prev.booking_no + ' as ' + bookingNo + ' (' + describeDuration(duration.months, duration.days) + ')' +
+      (inv ? ', invoiced as ' + inv.invoice_no : '') + '.');
     return res.rows[0].id;
   });
 
