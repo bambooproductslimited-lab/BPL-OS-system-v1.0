@@ -3,6 +3,9 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
+import DocPreview from '../components/DocPreview';
+import { groupPackageItems } from '../lib/packages';
+import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
 
 // Letting offers — what a unit costs to take, quoted before any lease
@@ -67,6 +70,7 @@ export default function PokiEstimatesPage() {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [convert, setConvert] = useState(null);
+  const [previewEst, setPreviewEst] = useState(null);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -93,6 +97,17 @@ export default function PokiEstimatesPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // The row carries enough to list, but printing needs the line items and
+  // Poki's letterhead, so fetch the full record.
+  async function openPreview(est) {
+    setError(null);
+    try {
+      setPreviewEst(await api.get('/poki/estimates/' + est.id));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   function openOffer(est) {
     setDialogError(null);
@@ -317,6 +332,7 @@ export default function PokiEstimatesPage() {
                     </span>
                   </td>
                   <td className="table-actions">
+                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openPreview(e)}>Print</button>
                     {canManage && e.status === 'draft' && (
                       <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openOffer(e)}>Edit</button>
                     )}
@@ -485,6 +501,37 @@ export default function PokiEstimatesPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {previewEst && (
+        <DocPreview
+          documentType="estimate" documentId={previewEst.id}
+          company={previewEst.company}
+          shareApi={{
+            create: (expiresInDays) => api.post('/poki/estimates/' + previewEst.id + '/share', { expiresInDays: expiresInDays || undefined }),
+            whatsapp: (url) => api.post('/poki/estimates/' + previewEst.id + '/share/whatsapp', { url })
+          }}
+          docLabel={'Offer #' + previewEst.estimateNo}
+          dateLabel="Valid until"
+          dateValue={fmtDate(previewEst.validUntil)}
+          heading={'Letting offer for ' + previewEst.customerName}
+          subHeading={previewEst.unitCode ? previewEst.propertyName + ' \u00b7 ' + previewEst.unitCode : ''}
+          blocks={[
+            { title: 'Prospect', lines: [previewEst.customerName, previewEst.customerEmail || previewEst.customerPhone || ''] },
+            { title: 'Unit', lines: [previewEst.unitCode || '—', previewEst.propertyName || ''] },
+            { title: 'Offer', lines: ['Valid until ' + fmtDate(previewEst.validUntil), money(previewEst.grandTotal, previewEst.currency)] }
+          ]}
+          items={groupPackageItems(previewEst.items, previewEst.currency)}
+          subtotal={money(previewEst.subtotal, previewEst.currency)}
+          totalLabel="Total"
+          total={money(previewEst.grandTotal, previewEst.currency)}
+          notesLabel="Notes"
+          notesValue={previewEst.clientNotes}
+          termsLabel="Terms"
+          termsValue={previewEst.terms}
+          paymentSchedule={formatPaymentSchedule(previewEst.paymentSchedule, previewEst.currency)}
+          onClose={() => setPreviewEst(null)}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}

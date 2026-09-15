@@ -225,6 +225,12 @@ router.patch('/estimates/:id', async function (req, res, next) {
 router.post('/estimates/:id/status', async function (req, res, next) {
   try { res.json(await estimates.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
 });
+router.post('/estimates/:id/share', async function (req, res, next) {
+  try { res.status(201).json(await estimates.createShareLink(req.ctx, req.params.id, req.body.expiresInDays)); } catch (e) { next(e); }
+});
+router.post('/estimates/:id/share/whatsapp', async function (req, res, next) {
+  try { res.json(await estimates.shareViaWhatsApp(req.ctx, req.params.id, req.body.url)); } catch (e) { next(e); }
+});
 router.post('/estimates/:id/convert-to-lease', async function (req, res, next) {
   try { res.status(201).json(await estimates.convertToLease(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });

@@ -49,6 +49,28 @@ function elevate(ctx) {
   return e;
 }
 
+// The letterhead of the company that issued the document. Poki heads its
+// paperwork with its own wordmark and the office behind it, not the group's
+// logo — a tenant's invoice has to say who is charging them.
+async function letterhead(companyId) {
+  var res = await pool.query(
+    'SELECT name, legal_name, letterhead_subtitle, address, ghana_post_gps, phone, email, tax_id, invoice_footer ' +
+    'FROM companies WHERE id = $1',
+    [companyId]
+  );
+  var c = res.rows[0] || {};
+  return {
+    name: c.legal_name || c.name || '',
+    subtitle: c.letterhead_subtitle || '',
+    address: c.address || '',
+    ghanaPostGps: c.ghana_post_gps || '',
+    phone: c.phone || '',
+    email: c.email || '',
+    taxId: c.tax_id || '',
+    invoiceFooter: c.invoice_footer || ''
+  };
+}
+
 async function get(ctx, id) {
   poki.canRead(ctx);
   var inv = await assertPokiInvoice(id);
@@ -69,23 +91,8 @@ async function get(ctx, id) {
   // Poki bills its own tenants under its own name and address, and an
   // invoice going out under "Bamboo Products Limited" would undo the whole
   // point of keeping the two businesses' books apart.
-  var co = await pool.query(
-    'SELECT name, legal_name, address, ghana_post_gps, phone, email, tax_id, invoice_footer ' +
-    'FROM companies WHERE id = $1',
-    [inv.company_id]
-  );
-  var c = co.rows[0] || {};
-
   return invoicesService.rowToInvoice(pool, inv, {
-    company: {
-      name: c.legal_name || c.name || 'Poki',
-      address: c.address || '',
-      ghanaPostGps: c.ghana_post_gps || '',
-      phone: c.phone || '',
-      email: c.email || '',
-      taxId: c.tax_id || '',
-      invoiceFooter: c.invoice_footer || ''
-    },
+    company: await letterhead(inv.company_id),
     customerName: x.customer_name, customerEmail: x.email, customerPhone: x.phone, customerAddress: x.address,
     leaseNo: x.lease_no, unitCode: x.unit_code, propertyName: x.property_name,
     docKind: inv.doc_kind, periodStart: inv.period_start, periodEnd: inv.period_end
@@ -180,5 +187,5 @@ async function create(ctx, p) {
 module.exports = {
   get: get, recordPayment: recordPayment, voidInvoice: voidInvoice,
   createShareLink: createShareLink, shareViaWhatsApp: shareViaWhatsApp,
-  create: create, MANUAL_KINDS: MANUAL_KINDS
+  create: create, MANUAL_KINDS: MANUAL_KINDS, letterhead: letterhead
 };

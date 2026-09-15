@@ -104,37 +104,36 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
       <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
         <div className="doc-preview-head">
           <div className="doc-preview-brand">
-            {/* Only the group's own logo, and only where it belongs.
-                A sister company billing under its own name shouldn't carry
-                Bamboo Products' mark; it shows its own if one is set, and
-                otherwise just the name and address. */}
-            {(!company || company.logoUrl) && (
-              <img src={(company && company.logoUrl) || '/logo.png'} alt="" className="doc-preview-logo" />
-            )}
+            {/* The group's logo belongs only on the group's own documents.
+                A sister company heads its paperwork with its own wordmark
+                instead — the name set large and bold, standing in for a
+                logo it doesn't have — so a tenant can see at a glance who
+                is charging them. */}
+            {!company && <img src="/logo.png" alt="" className="doc-preview-logo" />}
+            {company && company.logoUrl && <img src={company.logoUrl} alt="" className="doc-preview-logo" />}
             <div>
-              {/* The issuing company, not the group. Sister businesses bill
-                  under their own name and address — a Poki rent invoice
-                  headed "Bamboo Products Limited" would undo the company
-                  separation the books rely on. Defaults keep every existing
-                  caller exactly as it was. */}
-              <div className="doc-preview-brand-name">{(company && company.name) || 'Bamboo Products Limited'}</div>
-              <div className="doc-preview-brand-address">
-                {company ? (
-                  <>
+              {company ? (
+                <>
+                  <div className="doc-preview-wordmark">{company.name}</div>
+                  {company.subtitle && <div className="doc-preview-wordmark-sub">{company.subtitle}</div>}
+                  <div className="doc-preview-brand-address">
                     {company.address && <>{company.address}<br /></>}
                     {company.ghanaPostGps && <>{company.ghanaPostGps} (GhanaPostGPS)<br /></>}
                     {company.phone && <>Tel: {company.phone}<br /></>}
                     {company.email && <>{company.email}</>}
-                  </>
-                ) : (
-                  <>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+                  <div className="doc-preview-brand-address">
                     Poki House<br />
                     35 J K Siaw St, Community 9, Tema, Ghana<br />
                     GT-191-1859 (GhanaPostGPS)<br />
                     Tel: 0591933925
-                  </>
-                )}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <div className="doc-preview-headright">

@@ -7,6 +7,7 @@ var {
   insertLineItems, loadLineItems, roundMoney, buildPaymentSchedule
 } = require('../utils/documents');
 var poki = require('./poki.service');
+var sharesService = require('./shares.service');
 
 // Poki's estimates: what it costs a prospect to take a unit, quoted before
 // any lease exists.
@@ -208,7 +209,35 @@ async function get(ctx, id) {
   var companyId = await poki.pokiCompanyId();
   var res = await pool.query(ESTIMATE_SELECT + 'WHERE e.id = $1 AND e.company_id = $2', [id, companyId]);
   if (!res.rows[0]) fail('notfound', 'Estimate not found.');
-  return rowToEstimate(res.rows[0]);
+  var out = await rowToEstimate(res.rows[0]);
+  // Required to print the offer under Poki's own name rather than the
+  // group's. Shared with the invoice side so the two documents can't drift.
+  out.company = await require('./pokiInvoices.service').letterhead(companyId);
+  return out;
+}
+
+// Same elevation reasoning as the invoice side: Poki's managers hold
+// poki.manage, not quotation.manage, and the offer has already been proved
+// to belong to Poki by get() before the delegate runs.
+function elevate(ctx) {
+  var e = Object.create(ctx);
+  e.can = function (perm) {
+    if (perm === 'quotation.manage' || perm === 'quotation.read') return true;
+    return ctx.can(perm);
+  };
+  return e;
+}
+
+async function createShareLink(ctx, id, expiresInDays) {
+  poki.canManage(ctx);
+  await get(ctx, id);
+  return sharesService.createShareLink(elevate(ctx), 'estimate', id, expiresInDays);
+}
+
+async function shareViaWhatsApp(ctx, id, url) {
+  poki.canManage(ctx);
+  await get(ctx, id);
+  return sharesService.shareViaWhatsApp(elevate(ctx), 'estimate', id, url);
 }
 
 // The customer on a Poki estimate is always someone in the tenant register
@@ -241,6 +270,13 @@ async function create(ctx, p) {
   var settings = await pool.query('SELECT commercial FROM settings WHERE id = 1');
   var commercial = settings.rows[0].commercial;
   var validUntil = V.date(p.validUntil || addDays(todayISO(), commercial.templates.validityDays), 'Valid until');
+  // Only the validity window is taken from the group's commercial settings.
+  // The terms come from Poki's own record, because the group's template
+  // names Bamboo Products and describes a sale of goods, neither of which
+  // is true of a tenancy. Blank until Poki sets its own — an empty Terms
+  // block is better than a confidently wrong one on a document going to a
+  // prospect.
+  var company = await require('./pokiInvoices.service').letterhead(companyId);
   var currency = (p.currency || (unit && unit.currency) || tenant.preferred_currency || 'GHS').toUpperCase();
 
   var discountValue = Number((p.discount && p.discount.value) || 0);
@@ -260,7 +296,7 @@ async function create(ctx, p) {
         totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal,
         ctx.employee ? ctx.employee.id : null, validUntil,
         (p.internalNotes || '').trim(), (p.clientNotes || '').trim(),
-        p.terms || commercial.templates.termsAndConditions, currency,
+        p.terms || company.invoiceFooter || '', currency,
         discountValue, discountType, taxRate, JSON.stringify(schedule)
       ]
     );
@@ -382,5 +418,6 @@ async function convertToLease(ctx, id, p) {
 module.exports = {
   lettingDraft: lettingDraft, list: list, get: get, create: create, update: update,
   setStatus: setStatus, remove: remove, convertToLease: convertToLease,
+  createShareLink: createShareLink, shareViaWhatsApp: shareViaWhatsApp,
   monthlyEquivalent: monthlyEquivalent, lettingLines: lettingLines
 };

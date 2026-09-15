@@ -70,3 +70,11 @@
     padding: 0;
   }
 }
+
+/* A sister company's wordmark stands in for the logo it doesn't have, so it
+   is set larger and heavier than the group's own brand line — it has to
+   carry the top of the page on its own. */
+.doc-preview-wordmark { font-weight: 800; font-size: 19px; letter-spacing: -0.01em; line-height: 1.15; }
+.doc-preview-wordmark-sub { font-size: 10px; color: #555; margin-top: 2px; letter-spacing: 0.02em; }
+.doc-preview-wordmark + .doc-preview-brand-address,
+.doc-preview-wordmark-sub + .doc-preview-brand-address { margin-top: 5px; }
