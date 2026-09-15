@@ -4,6 +4,7 @@ var poki = require('../services/poki.service');
 var billing = require('../services/pokiBilling.service');
 var estimates = require('../services/pokiEstimates.service');
 var reminders = require('../services/pokiReminders.service');
+var pokiInvoices = require('../services/pokiInvoices.service');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
 // requireAuth; the poki.read / poki.manage gates live in the services so
@@ -167,6 +168,26 @@ router.post('/master-bills/:id/bill', async function (req, res, next) {
 // ── invoices (Poki's side of the shared invoices table) ────────────────
 router.get('/invoices', async function (req, res, next) {
   try { res.json(await billing.listInvoices(req.ctx, { docKind: req.query.docKind, leaseId: req.query.leaseId })); } catch (e) { next(e); }
+});
+// A one-off charge outside rent/utilities/maintenance (service charge, late
+// fee, damages).
+router.post('/invoices', async function (req, res, next) {
+  try { res.status(201).json(await pokiInvoices.create(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.get('/invoices/:id', async function (req, res, next) {
+  try { res.json(await pokiInvoices.get(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/invoices/:id/payments', async function (req, res, next) {
+  try { res.status(201).json(await pokiInvoices.recordPayment(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/invoices/:id/void', async function (req, res, next) {
+  try { res.json(await pokiInvoices.voidInvoice(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/invoices/:id/share', async function (req, res, next) {
+  try { res.status(201).json(await pokiInvoices.createShareLink(req.ctx, req.params.id, req.body.expiresInDays)); } catch (e) { next(e); }
+});
+router.post('/invoices/:id/share/whatsapp', async function (req, res, next) {
+  try { res.json(await pokiInvoices.shareViaWhatsApp(req.ctx, req.params.id, req.body.url)); } catch (e) { next(e); }
 });
 
 // ── maintenance ─────────────────────────────────────────────────────────

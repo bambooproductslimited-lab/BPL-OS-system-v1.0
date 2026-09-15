@@ -1030,5 +1030,8 @@ module.exports = {
   listRequests: listRequests, createRequest: createRequest, updateRequest: updateRequest, chargeRequestToTenant: chargeRequestToTenant,
   listTemplates: listTemplates, saveTemplate: saveTemplate, ensureDefaultTemplate: ensureDefaultTemplate,
   generateAgreement: generateAgreement, saveAgreement: saveAgreement,
-  periodEndFor: periodEndFor, dueDateFor: dueDateFor, billingPeriod: billingPeriod
+  periodEndFor: periodEndFor, dueDateFor: dueDateFor, billingPeriod: billingPeriod,
+  // Shared with pokiInvoices.service.js so a manually raised charge is
+  // built exactly like an automatic one.
+  insertPokiInvoice: insertPokiInvoice, pokiPaymentInstructions: pokiPaymentInstructions
 };

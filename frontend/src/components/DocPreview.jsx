@@ -23,7 +23,7 @@ const EXPIRY_OPTIONS = [
   { value: '30', label: '30 days' }
 ];
 
-export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, onClose }) {
+export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, shareApi, company, onClose }) {
   const nodeRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
@@ -49,12 +49,21 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
     }
   }
 
+  // Poki's invoices are rows in the same table, but its managers hold
+  // poki.manage rather than invoice.manage, so they reach share links
+  // through their own endpoints. Callers that don't pass shareApi keep the
+  // original /shares behaviour.
+  const share = shareApi || {
+    create: (expiresInDays) => api.post('/shares', { documentType, documentId, expiresInDays: expiresInDays || undefined }),
+    whatsapp: (url) => api.post('/shares/whatsapp', { documentType, documentId, url })
+  };
+
   async function generateLink() {
     setLinkError(null);
     setGenerating(true);
     setCopied(false);
     try {
-      const res = await api.post('/shares', { documentType, documentId, expiresInDays: expiryDays || undefined });
+      const res = await share.create(expiryDays);
       setShareUrl(window.location.origin + '/share/' + res.token);
     } catch (err) {
       setLinkError(err.message);
@@ -77,11 +86,11 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
     try {
       let url = shareUrl;
       if (!url) {
-        const res = await api.post('/shares', { documentType, documentId, expiresInDays: expiryDays || undefined });
+        const res = await share.create(expiryDays);
         url = window.location.origin + '/share/' + res.token;
         setShareUrl(url);
       }
-      await api.post('/shares/whatsapp', { documentType, documentId, url });
+      await share.whatsapp(url);
       setWaResult({ ok: true, message: 'Sent via WhatsApp.' });
     } catch (err) {
       setWaResult({ ok: false, message: err.message });
@@ -95,14 +104,36 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
       <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
         <div className="doc-preview-head">
           <div className="doc-preview-brand">
-            <img src="/logo.png" alt="" className="doc-preview-logo" />
+            {/* Only the group's own logo, and only where it belongs.
+                A sister company billing under its own name shouldn't carry
+                Bamboo Products' mark; it shows its own if one is set, and
+                otherwise just the name and address. */}
+            {(!company || company.logoUrl) && (
+              <img src={(company && company.logoUrl) || '/logo.png'} alt="" className="doc-preview-logo" />
+            )}
             <div>
-              <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+              {/* The issuing company, not the group. Sister businesses bill
+                  under their own name and address — a Poki rent invoice
+                  headed "Bamboo Products Limited" would undo the company
+                  separation the books rely on. Defaults keep every existing
+                  caller exactly as it was. */}
+              <div className="doc-preview-brand-name">{(company && company.name) || 'Bamboo Products Limited'}</div>
               <div className="doc-preview-brand-address">
-                Poki House<br />
-                35 J K Siaw St, Community 9, Tema, Ghana<br />
-                GT-191-1859 (GhanaPostGPS)<br />
-                Tel: 0591933925
+                {company ? (
+                  <>
+                    {company.address && <>{company.address}<br /></>}
+                    {company.ghanaPostGps && <>{company.ghanaPostGps} (GhanaPostGPS)<br /></>}
+                    {company.phone && <>Tel: {company.phone}<br /></>}
+                    {company.email && <>{company.email}</>}
+                  </>
+                ) : (
+                  <>
+                    Poki House<br />
+                    35 J K Siaw St, Community 9, Tema, Ghana<br />
+                    GT-191-1859 (GhanaPostGPS)<br />
+                    Tel: 0591933925
+                  </>
+                )}
               </div>
             </div>
           </div>

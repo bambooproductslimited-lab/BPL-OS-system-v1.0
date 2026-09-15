@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { money } from '../lib/currency';
+import DocPreview from '../components/DocPreview';
+import { groupPackageItems } from '../lib/packages';
+import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
 
 // Rent & utilities — the billing desk. Three tabs because the three jobs
@@ -27,6 +30,12 @@ export default function PokiBillingPage() {
   const [toast, setToast] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const [previewInv, setPreviewInv] = useState(null);
+  const [payFor, setPayFor] = useState(null);
+  const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', notes: '' });
+  const [newInv, setNewInv] = useState(null);
+  const [invError, setInvError] = useState(null);
+
   const [asOf, setAsOf] = useState(todayISO());
   const [preview, setPreview] = useState([]);
   const [selected, setSelected] = useState({});
@@ -37,6 +46,8 @@ export default function PokiBillingPage() {
   const [masterBills, setMasterBills] = useState([]);
   const [properties, setProperties] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [tenants, setTenants] = useState([]);
+  const [leases, setLeases] = useState([]);
 
   const [dialog, setDialog] = useState(null);
   const [form, setForm] = useState({});
@@ -54,13 +65,15 @@ export default function PokiBillingPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [p, u, m, r, mb, inv] = await Promise.all([
+      const [p, u, m, r, mb, inv, tn, ls] = await Promise.all([
         api.get('/poki/rent-run/preview?asOf=' + asOf),
         api.get('/poki/units'),
         api.get('/poki/meters'),
         api.get('/poki/readings'),
         api.get('/poki/master-bills'),
-        api.get('/poki/invoices')
+        api.get('/poki/invoices'),
+        api.get('/poki/tenants'),
+        api.get('/poki/leases')
       ]);
       setPreview(p);
       setUnits(u);
@@ -68,6 +81,8 @@ export default function PokiBillingPage() {
       setReadings(r);
       setMasterBills(mb);
       setInvoices(inv);
+      setTenants(tn);
+      setLeases(ls);
       setProperties(await api.get('/poki/properties'));
     } catch (err) {
       setError(err.message);
@@ -85,6 +100,83 @@ export default function PokiBillingPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // The list row carries enough to display, but the printable invoice needs
+  // its line items and the tenant's contact block, so fetch the full record.
+  async function openPreview(inv) {
+    setError(null);
+    try {
+      setPreviewInv(await api.get('/poki/invoices/' + inv.id));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function openPay(inv) {
+    setInvError(null);
+    setPayForm({ amount: String(inv.balanceDue), method: 'bank_transfer', reference: '', notes: '' });
+    setPayFor(inv);
+  }
+
+  async function submitPayment(e) {
+    e.preventDefault();
+    setBusy(true);
+    setInvError(null);
+    try {
+      await api.post('/poki/invoices/' + payFor.id + '/payments', payForm);
+      setToast('Payment recorded on ' + payFor.invoiceNo + '.');
+      setPayFor(null);
+      await load();
+    } catch (err) {
+      setInvError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function voidInvoice(inv) {
+    if (!window.confirm('Void ' + inv.invoiceNo + '? The number stays used, but the charge is cancelled.')) return;
+    setBusy(true);
+    try {
+      await api.post('/poki/invoices/' + inv.id + '/void', {});
+      setToast(inv.invoiceNo + ' voided.');
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openNewInvoice() {
+    setInvError(null);
+    setNewInv({
+      tenantId: '', leaseId: '', docKind: 'other', dueDate: '',
+      notes: '', items: [{ description: '', qty: 1, unitPrice: '' }]
+    });
+  }
+
+  async function submitNewInvoice(e) {
+    e.preventDefault();
+    setBusy(true);
+    setInvError(null);
+    try {
+      const res = await api.post('/poki/invoices', {
+        ...newInv,
+        leaseId: newInv.leaseId || undefined,
+        dueDate: newInv.dueDate || undefined,
+        items: newInv.items.filter((i) => String(i.description).trim())
+      });
+      setToast('Raised ' + res.invoiceNo + '.');
+      setNewInv(null);
+      setTab('invoices');
+      await load();
+    } catch (err) {
+      setInvError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function runRent() {
     const ids = Object.keys(selected).filter((k) => selected[k]);
@@ -390,14 +482,25 @@ export default function PokiBillingPage() {
           <div className="poki-empty">
             <p className="poki-empty-title">No invoices raised yet</p>
             <p className="poki-empty-sub">Rent, utility and repair invoices raised for Poki tenants appear here.</p>
+            {canManage && (
+              <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} onClick={openNewInvoice}>
+                New invoice
+              </button>
+            )}
           </div>
         ) : (
+          <>
+          <div className="poki-toolbar">
+            <span className="poki-muted">{invoices.length} invoice(s)</span>
+            <div className="poki-toolbar-spacer" />
+            {canManage && <button type="button" className="btn btn-primary" onClick={openNewInvoice}>New invoice</button>}
+          </div>
           <div className="poki-table-wrap">
           <table className="table">
             <thead>
               <tr>
                 <th>Invoice</th><th>Kind</th><th>Tenant</th><th>Unit</th><th>Period</th><th>Due</th>
-                <th className="poki-num">Total</th><th className="poki-num">Balance</th><th>Status</th>
+                <th className="poki-num">Total</th><th className="poki-num">Balance</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -419,15 +522,25 @@ export default function PokiBillingPage() {
                   <td className="poki-num">{money(i.grandTotal, i.currency)}</td>
                   <td className={'poki-num' + (i.balanceDue > 0 ? ' poki-overdue' : '')}>{money(i.balanceDue, i.currency)}</td>
                   <td>
-                    <span className={'poki-chip poki-chip-' + (i.status === 'paid' ? 'active' : i.overdue ? 'expired' : 'open')}>
-                      {i.overdue && i.status !== 'paid' ? 'overdue' : i.status.replace('_', ' ')}
+                    <span className={'poki-chip poki-chip-' + (i.status === 'void' ? 'expired' : i.status === 'paid' ? 'active' : i.overdue ? 'expired' : 'open')}>
+                      {i.status === 'void' ? 'void' : i.overdue && i.status !== 'paid' ? 'overdue' : i.status.replace('_', ' ')}
                     </span>
+                  </td>
+                  <td className="table-actions">
+                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openPreview(i)}>Print</button>
+                    {canManage && i.status !== 'paid' && i.status !== 'void' && (
+                      <button type="button" className="btn btn-secondary poki-row-btn" disabled={busy} onClick={() => openPay(i)}>Record payment</button>
+                    )}
+                    {canManage && i.status !== 'void' && Number(i.amountPaid) === 0 && (
+                      <button type="button" className="btn btn-secondary poki-row-btn" disabled={busy} onClick={() => voidInvoice(i)}>Void</button>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           </div>
+          </>
         )
       )}
 
@@ -604,6 +717,177 @@ export default function PokiBillingPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {payFor && (
+        <div className="dialog-backdrop" onClick={() => setPayFor(null)}>
+          <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
+            <h2 className="poki-dialog-title">Record payment — {payFor.invoiceNo}</h2>
+            <p className="poki-dialog-hint poki-dialog-span">
+              {payFor.customerName} · outstanding {money(payFor.balanceDue, payFor.currency)}. A receipt is generated
+              automatically, and part payments are fine.
+            </p>
+            {invError && <div className="error-banner poki-dialog-span">{invError}</div>}
+            <div className="field">
+              <label htmlFor="pp-amount">Amount</label>
+              <input id="pp-amount" className="input" type="number" step="0.01" value={payForm.amount}
+                onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} required />
+            </div>
+            <div className="field">
+              <label htmlFor="pp-method">Method</label>
+              <select id="pp-method" className="input" value={payForm.method}
+                onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="mobile_money">Mobile money</option>
+                <option value="cash">Cash</option>
+                <option value="cheque">Cheque</option>
+                <option value="card">Card</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="field poki-dialog-span">
+              <label htmlFor="pp-ref">Reference</label>
+              <input id="pp-ref" className="input" value={payForm.reference}
+                onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })}
+                placeholder="momo transaction id, cheque no…" />
+            </div>
+            <div className="poki-dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setPayFor(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {newInv && (
+        <div className="dialog-backdrop" onClick={() => setNewInv(null)}>
+          <form className="dialog poki-dialog poki-offer-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitNewInvoice}>
+            <h2 className="poki-dialog-title">New invoice</h2>
+            <p className="poki-dialog-hint poki-dialog-span">
+              For one-off charges — service charge, late fee, cleaning, damages. Rent and metered utilities are raised
+              from the Rent run and Utilities tabs so their bookkeeping stays in step.
+            </p>
+            {invError && <div className="error-banner poki-dialog-span">{invError}</div>}
+
+            <div className="field">
+              <label htmlFor="pn-tenant">Tenant</label>
+              <select id="pn-tenant" className="input" value={newInv.tenantId}
+                onChange={(e) => setNewInv({ ...newInv, tenantId: e.target.value, leaseId: '' })} required>
+                <option value="">Choose a tenant…</option>
+                {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="pn-kind">Charge kind</label>
+              <select id="pn-kind" className="input" value={newInv.docKind}
+                onChange={(e) => setNewInv({ ...newInv, docKind: e.target.value })}>
+                <option value="other">Other</option>
+                <option value="deposit">Deposit</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
+            </div>
+            <div className="field poki-dialog-span">
+              <label htmlFor="pn-lease">Against lease (optional)</label>
+              <select id="pn-lease" className="input" value={newInv.leaseId}
+                onChange={(e) => setNewInv({ ...newInv, leaseId: e.target.value })}>
+                <option value="">Not tied to a lease</option>
+                {leases.filter((l) => !newInv.tenantId || l.tenantId === newInv.tenantId).map((l) => (
+                  <option key={l.id} value={l.id}>{l.leaseNo} · {l.propertyName} · {l.unitCode}</option>
+                ))}
+              </select>
+              <p className="poki-dialog-hint">Attaching the lease makes the charge show in that tenancy&rsquo;s arrears.</p>
+            </div>
+
+            <div className="poki-dialog-span">
+              <div className="poki-lines-head">
+                <span>Lines</span>
+                <span className="poki-muted">
+                  Total {money(newInv.items.reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0), 'GHS')}
+                </span>
+              </div>
+              {newInv.items.map((it, idx) => (
+                <div className="poki-line-row" key={idx}>
+                  <input className="input" placeholder="Description" value={it.description}
+                    aria-label={'Line ' + (idx + 1) + ' description'}
+                    onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, description: e.target.value } : x)) })} />
+                  <input className="input" type="number" step="0.01" placeholder="Qty" value={it.qty}
+                    aria-label={'Line ' + (idx + 1) + ' quantity'}
+                    onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, qty: e.target.value } : x)) })} />
+                  <input className="input" placeholder="Unit" value={it.unit || ''}
+                    aria-label={'Line ' + (idx + 1) + ' unit'}
+                    onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unit: e.target.value } : x)) })} />
+                  <input className="input" type="number" step="0.01" placeholder="Price" value={it.unitPrice}
+                    aria-label={'Line ' + (idx + 1) + ' price'}
+                    onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unitPrice: e.target.value } : x)) })} />
+                  <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 'GHS')}</span>
+                  <button type="button" className="btn btn-secondary poki-row-btn" aria-label={'Remove line ' + (idx + 1)}
+                    onClick={() => setNewInv({ ...newInv, items: newInv.items.length > 1 ? newInv.items.filter((_, j) => j !== idx) : newInv.items })}>×</button>
+                </div>
+              ))}
+              <button type="button" className="btn btn-secondary poki-row-btn"
+                onClick={() => setNewInv({ ...newInv, items: [...newInv.items, { description: '', qty: 1, unitPrice: '' }] })}>Add line</button>
+            </div>
+
+            <div className="field">
+              <label htmlFor="pn-due">Due date</label>
+              <input id="pn-due" className="input" type="date" value={newInv.dueDate}
+                onChange={(e) => setNewInv({ ...newInv, dueDate: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="pn-notes">Note on the invoice</label>
+              <input id="pn-notes" className="input" value={newInv.notes}
+                onChange={(e) => setNewInv({ ...newInv, notes: e.target.value })} />
+            </div>
+
+            <div className="poki-dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setNewInv(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Raising…' : 'Raise invoice'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {previewInv && (
+        <DocPreview
+          documentType="invoice" documentId={previewInv.id}
+          company={previewInv.company}
+          // Poki managers hold poki.manage, not invoice.manage, so share
+          // links go through Poki's own endpoints.
+          shareApi={{
+            create: (expiresInDays) => api.post('/poki/invoices/' + previewInv.id + '/share', { expiresInDays: expiresInDays || undefined }),
+            whatsapp: (url) => api.post('/poki/invoices/' + previewInv.id + '/share/whatsapp', { url })
+          }}
+          docLabel={'Invoice #' + previewInv.invoiceNo}
+          dateLabel="Issue date"
+          dateValue={fmtDate(previewInv.issuedAt)}
+          heading={'Invoice for ' + previewInv.customerName}
+          subHeading={'Due ' + fmtDate(previewInv.dueDate)}
+          blocks={[
+            { title: 'Tenant', lines: [previewInv.customerName, previewInv.customerEmail || previewInv.customerPhone || ''] },
+            {
+              title: 'Property',
+              lines: previewInv.unitCode
+                ? [previewInv.propertyName + ' · ' + previewInv.unitCode, previewInv.leaseNo || '']
+                : ['—', '']
+            },
+            {
+              title: previewInv.periodStart ? 'Period' : 'Invoice',
+              lines: previewInv.periodStart
+                ? [fmtDate(previewInv.periodStart) + ' → ' + fmtDate(previewInv.periodEnd), money(previewInv.grandTotal, previewInv.currency)]
+                : ['Issued ' + fmtDate(previewInv.issuedAt), money(previewInv.grandTotal, previewInv.currency)]
+            }
+          ]}
+          items={groupPackageItems(previewInv.items, previewInv.currency)}
+          subtotal={money(previewInv.subtotal, previewInv.currency)}
+          isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
+          amountPaid={money(previewInv.amountPaid, previewInv.currency)}
+          totalLabel="Total Due"
+          total={money(previewInv.balanceDue, previewInv.currency)}
+          notesLabel="Payment instructions"
+          notesValue={previewInv.bankInstructions}
+          paymentSchedule={formatPaymentSchedule(previewInv.paymentSchedule, previewInv.currency)}
+          onClose={() => setPreviewInv(null)}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}
