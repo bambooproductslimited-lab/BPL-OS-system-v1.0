@@ -28,3 +28,61 @@
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
 </IfModule>
+
+# ── security headers ────────────────────────────────────────────────────
+# The API on Render sets these itself via helmet, but this static site is a
+# different origin and was serving none at all — which is what a header
+# scan of the domain reports. Apache applies these to every response here.
+<IfModule mod_headers.c>
+  # HTTPS only, for a year, including subdomains. Hostinger already serves
+  # this domain over TLS; this stops a first request downgrading to http.
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+  # Don't let a browser second-guess a declared Content-Type.
+  Header always set X-Content-Type-Options "nosniff"
+
+  # Belt and braces with frame-ancestors below: X-Frame-Options is what
+  # older browsers understand, CSP is what current ones enforce.
+  Header always set X-Frame-Options "DENY"
+
+  # Send the origin, not the full path, to other sites — a Referer carrying
+  # /pokileases or a share token would leak more than it needs to.
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+  # The app asks for camera (kiosk face capture) and that is all. Geolocation
+  # is used by the kiosk clock-in, so it stays. Everything else is denied
+  # outright rather than left to default.
+  Header always set Permissions-Policy "camera=(self), geolocation=(self), microphone=(), payment=(), usb=(self), interest-cohort=()"
+
+  # Cross-origin isolation. "allow-popups" rather than a bare "same-origin"
+  # because the tenancy-agreement print view opens a blank popup and writes
+  # into it (PokiLeasesPage.printAgreement) — a bare same-origin COOP severs
+  # that handle and the print window comes up empty. This still stops a
+  # cross-origin opener from keeping a reference to our window.
+  Header always set Cross-Origin-Opener-Policy "same-origin-allow-popups"
+
+  # Nothing here is meant to be pulled into someone else's page.
+  Header always set Cross-Origin-Resource-Policy "same-origin"
+
+  # Deliberately NOT set: Cross-Origin-Embedder-Policy. require-corp would
+  # block the Google Fonts stylesheet (a plain <link>, not CORS-loaded, and
+  # fonts.googleapis.com sends no CORP header), and the app gains nothing
+  # from it — it uses no SharedArrayBuffer or high-resolution timers.
+
+  # Content-Security-Policy. Every source here is one the app genuinely
+  # uses, established by reading the build rather than guessed:
+  #   script-src  the bundle is same-origin ES modules; there are no inline
+  #               scripts in index.html, so no 'unsafe-inline' is needed.
+  #   style-src   React sets inline style props and the Google Fonts
+  #               stylesheet is remote, so both are allowed. 'unsafe-inline'
+  #               for styles is not the risk it is for scripts.
+  #   img-src     data: and blob: are required — html2canvas renders the
+  #               invoice preview to a canvas, and menu-photo previews use
+  #               createObjectURL before upload.
+  #   connect-src the API on Render, plus blob:/data: for the generated PDF.
+  #   worker-src  the three service workers (app, POS, kiosk) register from
+  #               same-origin files; blob: covers workers created at runtime.
+  #   frame-ancestors  nothing may embed this app — clickjacking on a
+  #               payroll and invoicing system is worth closing properly.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bamboo-os-backend.onrender.com blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+</IfModule>
