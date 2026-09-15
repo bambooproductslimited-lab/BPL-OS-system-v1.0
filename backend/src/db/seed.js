@@ -23,10 +23,27 @@ function uuid() { return crypto.randomUUID(); }
 // below — and that only works if company_id keeps pointing at the same row
 // after every truncate. Nothing else in the app hardcodes a company id
 // (everywhere else queries by the `code` column), so this is safe to fix.
+//
+// Poki is here for a second reason. Its company row is created by migration
+// 0056 and given its letterhead by 0059, but this script TRUNCATEs
+// companies — so a reseed deleted it and the migrations could not put it
+// back, being already recorded as applied. Every Poki endpoint then answers
+// "The Poki company record is missing — run database migrations" to
+// everyone, administrators included, and running them changes nothing. A
+// reseed silently destroyed the whole rentals module. Seeding the row here
+// keeps `npm run db:reset` a reset rather than a demolition; the letterhead
+// values below are exactly what 0056 and 0059 set.
 var COMPANY_DEFS = [
   { key: 'c_bpl', code: 'BPL', name: 'Bamboo Products Limited', id: 'ede0cfe8-deae-4066-8da5-c18fcd5fbc90' },
   { key: 'c_sbr', code: 'SBR', name: 'Star Bar Restaurant', id: '44607f8a-acff-4268-9455-43adce760470' },
-  { key: 'c_bgn', code: 'BGN', name: 'Bamboo Garden', id: 'feab6d23-cba1-4df2-ad98-85e10011e4c4' }
+  { key: 'c_bgn', code: 'BGN', name: 'Bamboo Garden', id: 'feab6d23-cba1-4df2-ad98-85e10011e4c4' },
+  {
+    key: 'c_pki', code: 'PKI', name: 'Poki', id: '3d2a3f4e-6a1c-4d9b-9f27-1c8b5a0d77e2',
+    legalName: 'Poki Properties',
+    letterheadSubtitle: 'The Office Of Sen-Lin Chou',
+    address: 'Poki House, 35 J.K. Siaw Street, Community 9, Tema, Greater Accra Region, Republic of Ghana',
+    ghanaPostGps: 'GT-191-1859'
+  }
 ];
 
 // ── departments, each scoped to a company ─────────────────────────────────
@@ -299,7 +316,11 @@ async function run() {
     COMPANY_DEFS.forEach(function (c) { companyIds[c.key] = c.id; });
     for (i = 0; i < COMPANY_DEFS.length; i++) {
       var co = COMPANY_DEFS[i];
-      await client.query('INSERT INTO companies (id, code, name, status) VALUES ($1,$2,$3,$4)', [companyIds[co.key], co.code, co.name, 'active']);
+      await client.query(
+        'INSERT INTO companies (id, code, name, status, legal_name, letterhead_subtitle, address, ghana_post_gps) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [companyIds[co.key], co.code, co.name, 'active',
+         co.legalName || '', co.letterheadSubtitle || '', co.address || '', co.ghanaPostGps || '']);
     }
 
     console.log('Seeding departments...');

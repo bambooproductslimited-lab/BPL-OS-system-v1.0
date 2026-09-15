@@ -15,6 +15,14 @@
  * allowlist is the artifact worth reviewing: it is the complete, explicit
  * set of things any signed-in employee may reach.
  *
+ * Every one of the 374 routes is now accounted for: 336 refuse, 38 are
+ * allowlisted. Nothing is indeterminate. A route that validates its body or
+ * looks its subject up before checking permission gets a request good enough
+ * to reach that check, from the PROBES map below — real ids, real query
+ * parameters, real uploaded files. Set AUTHZ_SHOW_INDETERMINATE=1 to list
+ * anything that slips back into that state, which means a new route needs a
+ * probe writing for it.
+ *
  * Known blind spot: a route registered after a same-prefix parameter route
  * (a new '/summary' added below an existing '/:id') never matches, so this
  * test sees the parameter route's 404 and files it under indeterminate.
@@ -53,6 +61,9 @@ function databaseLooksLocal() {
 
 var EMAIL = 'authz.nobody@bplghana.com';
 var PASSWORD = 'AuthzNobody!12345';
+// Stamped into every row this test plants, so the scoping assertions can
+// look for it and teardown can find it again.
+var FIXTURE_MARK = 'AUTHZ-FIXTURE';
 
 // ---------------------------------------------------------------------------
 // Routes reachable without holding any permission. Every entry needs a
@@ -89,6 +100,7 @@ var ALLOWED = {
   'GET /api/leave/': 'own leave requests — scoped, asserted below',
   'GET /api/leave/types': 'leave-type catalogue, needed to file a request',
   'GET /api/attendance/': 'own attendance row — scoped, asserted below',
+  'GET /api/attendance/report': 'own attendance only, and canViewPay is false — scoped, asserted below',
   'GET /api/dashboard/': 'own KPI tiles — scoped, asserted below',
   'GET /api/tasks/': 'own tasks — scoped, asserted below',
   'GET /api/announcements/': 'company noticeboard; audience_scope decides who sees what',
@@ -100,6 +112,42 @@ var ALLOWED = {
   'GET /api/messages/:peerId': 'own conversation with one colleague',
   'POST /api/messages/:peerId': 'internal messaging — staff may message each other by design',
   'POST /api/ai/chat': 'assistant; its snapshot is permission-scoped, asserted below'
+};
+
+// ---------------------------------------------------------------------------
+// Realistic probes.
+//
+// The sweep below fills :params with a random UUID, which is enough for a
+// route that checks permission first. A route that validates its body, or
+// looks its subject up, before reaching that check answers 400/404 to such a
+// probe and the check is never exercised — the result says nothing either
+// way, and counting it as a pass would be exactly the false comfort this
+// file exists to remove.
+//
+// So the routes that behave that way get a request good enough to reach
+// their permission check: real ids (always belonging to someone else), real
+// query parameters, real uploaded files. Anything still landing in
+// "indeterminate" is a route nobody has written a probe for yet.
+// ---------------------------------------------------------------------------
+function csvUpload(text) {
+  var form = new FormData();
+  form.append('file', new Blob([text], { type: 'text/csv' }), 'probe.csv');
+  return form;
+}
+
+var PROBES = {
+  'POST /api/leave/:id/cancel': function (f) { return { path: '/api/leave/' + f.leave.id + '/cancel' }; },
+  'GET /api/tasks/:id': function (f) { return { path: '/api/tasks/' + f.task.id }; },
+  'POST /api/tasks/:id/status': function (f) { return { path: '/api/tasks/' + f.task.id + '/status', body: { status: 'completed' } }; },
+  'POST /api/tasks/:id/comments': function (f) { return { path: '/api/tasks/' + f.task.id + '/comments', body: { body: 'probe' } }; },
+  'PATCH /api/expenses/:id': function (f) { return { path: '/api/expenses/' + f.expense.id, body: { amount: 1 } }; },
+  'DELETE /api/expenses/:id': function (f) { return { path: '/api/expenses/' + f.expenseForDelete.id }; },
+  'POST /api/shares': function (f) { return { path: '/api/shares', body: { documentType: 'invoice', documentId: f.peer.id } }; },
+  'POST /api/shares/whatsapp': function (f) { return { path: '/api/shares/whatsapp', body: { documentType: 'invoice', documentId: f.peer.id, url: 'https://example.invalid/x' } }; },
+  'GET /api/attendance/report': function () { return { path: '/api/attendance/report?from=2026-01-01&to=2026-01-31' }; },
+  'POST /api/employees/import/preview': function () { return { path: '/api/employees/import/preview', form: csvUpload('Code,First name,Last name\nE1,Probe,Probe\n') }; },
+  'POST /api/tool-room/import/preview': function () { return { path: '/api/tool-room/import/preview', form: csvUpload('Name,Kind,Quantity\nProbe,material,1\n') }; },
+  'POST /api/it-devices/import/preview': function () { return { path: '/api/it-devices/import/preview', form: csvUpload('Name,Type,Total\nProbe,laptop,1\n') }; }
 };
 
 // ---------------------------------------------------------------------------
@@ -166,25 +214,53 @@ test.before(async function () {
   assert.ok(body.token, 'the zero-permission account must still be able to sign in');
   token = body.token;
 
+  // Subjects for the probes, all owned by someone who is not the test
+  // account. Planted rather than picked out of the seed: tasks and expenses
+  // are empty on a fresh seed, and a probe against a table with no rows
+  // cannot tell a refusal from an empty result. FIXTURE_MARK makes them
+  // identifiable, both for cleanup and for the scoping assertions.
   var pick = async function (sql) { return (await pool.query(sql)).rows[0]; };
   fixtures.peer = await pick("SELECT id FROM employees WHERE email <> '" + EMAIL + "' LIMIT 1");
-  fixtures.task = await pick('SELECT id FROM tasks LIMIT 1');
-  fixtures.expense = await pick('SELECT id FROM expenses LIMIT 1');
   fixtures.leave = await pick('SELECT id FROM leave_requests LIMIT 1');
+
+  fixtures.task = await pick(
+    "INSERT INTO tasks (title, created_by, status) " +
+    "VALUES ('" + FIXTURE_MARK + " task', '" + fixtures.peer.id + "', 'not_started') RETURNING id");
+  fixtures.expense = await pick(
+    "INSERT INTO expenses (requester_id, category, amount, date, description, status) " +
+    "VALUES ('" + fixtures.peer.id + "', 'travel', 4242.42, current_date, '" + FIXTURE_MARK + " expense', 'pending') RETURNING id");
+  // The sweep's DELETE probe gets its own expense. Sharing one with the
+  // other probes is fine while the route refuses — but if it ever does not,
+  // the row is gone and the later tests fail with a confusing "not found"
+  // instead of the real problem.
+  fixtures.expenseForDelete = await pick(
+    "INSERT INTO expenses (requester_id, category, amount, date, description, status) " +
+    "VALUES ('" + fixtures.peer.id + "', 'travel', 11.11, current_date, '" + FIXTURE_MARK + " expense to delete', 'pending') RETURNING id");
+  fixtures.procurement = await pick(
+    "INSERT INTO procurement_requests (requester_id, item, quantity, status) " +
+    "VALUES ('" + fixtures.peer.id + "', '" + FIXTURE_MARK + " procurement', 1, 'pending') RETURNING id");
 });
 
 test.after(async function () {
   if (server) server.close();
   await pool.query('DELETE FROM messages WHERE from_id = $1 OR to_id = $1', [nobody.employeeId]);
+  await pool.query('DELETE FROM task_comments WHERE task_id = $1', [fixtures.task.id]).catch(function () {});
+  await pool.query("DELETE FROM tasks WHERE title LIKE '" + FIXTURE_MARK + "%'");
+  await pool.query("DELETE FROM expenses WHERE description LIKE '" + FIXTURE_MARK + "%'");
+  await pool.query("DELETE FROM procurement_requests WHERE item LIKE '" + FIXTURE_MARK + "%'");
   await pool.query('DELETE FROM users WHERE email = $1', [EMAIL]);
   await pool.query('DELETE FROM employees WHERE email = $1', [EMAIL]);
   await pool.query("DELETE FROM roles WHERE key = 'authz_test_nobody'");
   await pool.end();
 });
 
-async function callAs(method, path, body) {
+async function callAs(method, path, body, form) {
   var opts = { method: method, headers: { Authorization: 'Bearer ' + token }, redirect: 'manual' };
-  if (body !== undefined) {
+  if (form !== undefined) {
+    // No Content-Type here on purpose — fetch sets it with the multipart
+    // boundary, and overriding it makes multer reject the body.
+    opts.body = form;
+  } else if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
@@ -209,8 +285,14 @@ test('no route answers a caller holding zero permissions, unless allowlisted', a
     var key = r.method + ' ' + r.path;
     if (ALLOWED[key]) continue;
 
-    var probe = r.path.replace(/:[A-Za-z0-9_]+/g, crypto.randomUUID());
-    var res = await callAs(r.method, probe, r.method === 'GET' || r.method === 'DELETE' ? undefined : {});
+    var res;
+    if (PROBES[key]) {
+      var p = PROBES[key](fixtures);
+      res = await callAs(r.method, p.path, p.body, p.form);
+    } else {
+      var probe = r.path.replace(/:[A-Za-z0-9_]+/g, crypto.randomUUID());
+      res = await callAs(r.method, probe, r.method === 'GET' || r.method === 'DELETE' ? undefined : {});
+    }
 
     if (res.status === 401 || res.status === 403) guarded++;
     else if (res.status >= 200 && res.status < 300) unguarded.push(key + '  -> ' + res.status + ' ' + brief(res.text));
@@ -224,6 +306,7 @@ test('no route answers a caller holding zero permissions, unless allowlisted', a
   // here so it stays visible rather than being mistaken for coverage.
   console.log('    ' + guarded + ' guarded, ' + Object.keys(ALLOWED).length + ' allowlisted, ' +
               indeterminate.length + ' indeterminate (validation ran first), of ' + routes.length + ' routes');
+  if (process.env.AUTHZ_SHOW_INDETERMINATE) indeterminate.forEach(function (x) { console.log('      ? ' + x); });
 
   assert.deepEqual(unguarded, [],
     'These routes answered a caller with no permissions at all. Gate them, or add them to ALLOWED with a reason:\n  ' +
@@ -269,40 +352,31 @@ test('a real id belonging to someone else is still refused', async function () {
 
 test('list endpoints any employee may call return only their own rows', async function () {
   // These are allowlisted above on the grounds that they self-scope. That
-  // claim is worth an assertion: an empty list proves nothing when the
-  // table is empty, so plant a row owned by someone else and look for it.
-  var owner = fixtures.peer.id;
-  var planted = [];
-  var mark = 'AUTHZ-SCOPE-' + crypto.randomUUID().slice(0, 8);
-
-  var t = await pool.query(
-    "INSERT INTO tasks (title, created_by, status) VALUES ($1, $2, 'not_started') RETURNING id", [mark + ' task', owner]);
-  planted.push(['tasks', t.rows[0].id]);
-  var e = await pool.query(
-    "INSERT INTO expenses (requester_id, category, amount, date, description, status) " +
-    "VALUES ($1, 'travel', 4242.42, current_date, $2, 'pending') RETURNING id", [owner, mark + ' expense']);
-  planted.push(['expenses', e.rows[0].id]);
-  var p = await pool.query(
-    "INSERT INTO procurement_requests (requester_id, item, quantity, status) VALUES ($1, $2, 1, 'pending') RETURNING id",
-    [owner, mark + ' procurement']);
-  planted.push(['procurement_requests', p.rows[0].id]);
-
-  try {
-    var leaks = [];
-    for (var path of ['/api/tasks/', '/api/expenses/', '/api/procurement/', '/api/leave/', '/api/messages/']) {
-      var res = await callAs('GET', path);
-      if (res.text.indexOf(mark) >= 0) leaks.push(path + ' returned another employee\'s row');
-    }
-    // attendance and dashboard report on a population rather than a list
-    var att = JSON.parse((await callAs('GET', '/api/attendance/')).text);
-    if (att.scopeSize !== 1) leaks.push('/api/attendance/ scopeSize=' + att.scopeSize + ', expected 1 (self only)');
-    var dash = JSON.parse((await callAs('GET', '/api/dashboard/')).text);
-    if (dash.headcount !== 1) leaks.push('/api/dashboard/ headcount=' + dash.headcount + ', expected 1 (self only)');
-
-    assert.deepEqual(leaks, [], 'Self-scoped endpoints leaked another employee\'s data:\n  ' + leaks.join('\n  '));
-  } finally {
-    for (var row of planted) await pool.query('DELETE FROM ' + row[0] + ' WHERE id = $1', [row[1]]);
+  // claim is worth an assertion: the fixtures planted in before() belong to
+  // another employee, so if any of these lists is unscoped the mark shows up.
+  var leaks = [];
+  for (var path of ['/api/tasks/', '/api/expenses/', '/api/procurement/', '/api/leave/', '/api/messages/']) {
+    var res = await callAs('GET', path);
+    if (res.text.indexOf(FIXTURE_MARK) >= 0) leaks.push(path + " returned another employee's row");
   }
+  // attendance and dashboard report on a population rather than a list
+  var att = JSON.parse((await callAs('GET', '/api/attendance/')).text);
+  if (att.scopeSize !== 1) leaks.push('/api/attendance/ scopeSize=' + att.scopeSize + ', expected 1 (self only)');
+  var dash = JSON.parse((await callAs('GET', '/api/dashboard/')).text);
+  if (dash.headcount !== 1) leaks.push('/api/dashboard/ headcount=' + dash.headcount + ', expected 1 (self only)');
+
+  // The report answers rather than refusing — it is a self-service view, and
+  // a probe with a valid date range reaches it where the sweep's random one
+  // stopped at validation. What matters is that it narrows to the caller: it
+  // returns a row per day, so count distinct employees, not rows.
+  var report = JSON.parse((await callAs('GET', '/api/attendance/report?from=2026-01-01&to=2026-01-31')).text);
+  var whose = Array.from(new Set((report.rows || []).map(function (r) { return r.employeeId; })));
+  if (whose.length > 1 || (whose.length === 1 && whose[0] !== nobody.employeeId)) {
+    leaks.push('/api/attendance/report returned ' + whose.length + ' employee(s), expected only the caller');
+  }
+  if (report.canViewPay !== false) leaks.push('/api/attendance/report set canViewPay=true without payroll permission');
+
+  assert.deepEqual(leaks, [], "Self-scoped endpoints leaked another employee's data:\n  " + leaks.join('\n  '));
 });
 
 test('the AI assistant snapshot is permission-scoped', async function () {

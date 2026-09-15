@@ -267,7 +267,11 @@ connection:
   permissions at all and calls every route the Express router exposes,
   asserting each one refuses. Anything that answers has to be listed in that
   file's `ALLOWED` map with a reason, so the map doubles as the reviewed
-  list of what any signed-in employee can reach.
+  list of what any signed-in employee can reach. All 374 routes are
+  accounted for — 336 refuse, 38 allowlisted, none untested. Routes that
+  validate before checking permission get a real request (real ids, query
+  parameters and uploaded files) from that file's `PROBES` map, so the
+  permission check is genuinely reached rather than skipped behind a 400.
 
 ### The test database
 
