@@ -4,13 +4,32 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { withLiveConfigState } = require('./envConfiguredIntegrations');
 
+// A stored integration secret must never travel back to a browser. It was
+// riding along on settings.get, which only needs employee.read — so every
+// employee could read any connected integration's key, while the properly
+// gated integrations list sat next to it requiring settings.manage. Nothing
+// leaks today only because no key has been set through this path yet.
+//
+// The Integrations screen shows this field in a disabled input as
+// `apiKey || MASK`, so it never needed the real value: dropping it shows
+// the mask, which is what that field was always meant to look like.
+// hasApiKey carries the one bit the UI legitimately needs.
+function redactIntegrations(list) {
+  return (Array.isArray(list) ? list : []).map(function (i) {
+    var copy = Object.assign({}, i);
+    copy.hasApiKey = !!(i && i.apiKey);
+    delete copy.apiKey;
+    return copy;
+  });
+}
+
 function rowToSettings(r) {
   return {
     companyName: r.company_name, shortName: r.short_name, country: r.country, currency: r.currency,
     timezone: r.timezone, fiscalYearStart: r.fiscal_year_start, workWeek: r.work_week,
     standardHours: r.standard_hours, lateAfter: r.late_after ? r.late_after.slice(0, 5) : null,
     plants: r.plants, leaveApprovalChain: r.leave_approval_chain,
-    commercial: r.commercial, integrations: r.integrations
+    commercial: r.commercial, integrations: redactIntegrations(r.integrations)
   };
 }
 
@@ -65,7 +84,7 @@ async function save(ctx, p) {
 async function listIntegrations(ctx) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
   var res = await pool.query('SELECT integrations FROM settings WHERE id = 1');
-  return withLiveConfigState(res.rows[0].integrations || []);
+  return redactIntegrations(withLiveConfigState(res.rows[0].integrations || []));
 }
 
 async function findIntegration(id) {
@@ -84,7 +103,7 @@ async function connect(ctx, id, apiKey) {
   found.list[found.index].connected = true;
   await pool.query('UPDATE settings SET integrations = $1, updated_at = now() WHERE id = 1', [JSON.stringify(found.list)]);
   await audit(pool, ctx, 'integration.connect', 'integration', id, 'Connected ' + found.list[found.index].name + '.');
-  return found.list[found.index];
+  return redactIntegrations([found.list[found.index]])[0];
 }
 
 // kernel.js: handlers['integrations.disconnect']
