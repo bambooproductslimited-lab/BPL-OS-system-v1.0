@@ -12,14 +12,27 @@ var TABLE_BY_TYPE = { quotation: 'quotations', estimate: 'estimates', invoice: '
 var MANAGE_PERM_BY_TYPE = { quotation: 'quotation.manage', estimate: 'quotation.manage', invoice: 'invoice.manage' };
 var VALID_TYPES = Object.keys(TABLE_BY_TYPE);
 
+// See migration 0060. 30 days is both the default and the ceiling.
+var SHARE_DEFAULT_DAYS = 30;
+var SHARE_MAX_DAYS = 30;
+
 async function createShareLink(ctx, documentType, documentId, expiresInDays) {
   if (VALID_TYPES.indexOf(documentType) < 0) fail('invalid', 'Unknown document type.');
   if (!ctx.can(MANAGE_PERM_BY_TYPE[documentType])) fail('forbidden', 'Your role does not allow this action.');
   var exists = await pool.query('SELECT id FROM ' + TABLE_BY_TYPE[documentType] + ' WHERE id = $1', [documentId]);
   if (!exists.rows[0]) fail('notfound', 'Document not found.');
 
-  var days = expiresInDays ? Math.max(1, Number(expiresInDays) || 0) : 0;
-  var expiresAt = days ? new Date(Date.now() + days * 86400000) : null;
+  // Always expires. A share link is a bearer URL to the customer's contact
+  // details and the document's figures, so a perpetual one is a standing
+  // grant to anyone it is ever forwarded to. Absent or unparseable means
+  // the default, not "forever"; anything above the ceiling is clamped
+  // rather than rejected, so an old client asking for no expiry gets 30
+  // days instead of an error.
+  var requested = Number(expiresInDays);
+  var days = Number.isFinite(requested) && requested > 0
+    ? Math.min(SHARE_MAX_DAYS, Math.max(1, Math.floor(requested)))
+    : SHARE_DEFAULT_DAYS;
+  var expiresAt = new Date(Date.now() + days * 86400000);
   var token = crypto.randomBytes(24).toString('base64url');
 
   var res = await pool.query(
@@ -93,4 +106,5 @@ async function shareViaWhatsApp(ctx, documentType, documentId, url) {
   return { sent: true };
 }
 
-module.exports = { createShareLink: createShareLink, getSharedDocument: getSharedDocument, shareViaWhatsApp: shareViaWhatsApp };
+module.exports = { createShareLink: createShareLink, getSharedDocument: getSharedDocument, shareViaWhatsApp: shareViaWhatsApp,
+  SHARE_DEFAULT_DAYS: SHARE_DEFAULT_DAYS, SHARE_MAX_DAYS: SHARE_MAX_DAYS };

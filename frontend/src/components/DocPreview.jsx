@@ -17,9 +17,12 @@ import './DocPreview.css';
 // email/SMS, which need a real provider this app doesn't have configured
 // yet (see shares.service.js's comments).
 
+// No "Never": a share link is a bearer URL to the customer's details and
+// the document's figures, so every one expires (see migration 0060). 30
+// days is the server's default and its ceiling.
 const EXPIRY_OPTIONS = [
-  { value: '', label: 'Never' },
   { value: '7', label: '7 days' },
+  { value: '14', label: '14 days' },
   { value: '30', label: '30 days' }
 ];
 
@@ -28,7 +31,8 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
 
-  const [expiryDays, setExpiryDays] = useState('');
+  const [expiryDays, setExpiryDays] = useState('30');
+  const [shareExpiresAt, setShareExpiresAt] = useState(null);
   const [shareUrl, setShareUrl] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [linkError, setLinkError] = useState(null);
@@ -65,6 +69,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
     try {
       const res = await share.create(expiryDays);
       setShareUrl(window.location.origin + '/share/' + res.token);
+      setShareExpiresAt(res.expiresAt || null);
     } catch (err) {
       setLinkError(err.message);
     } finally {
@@ -88,6 +93,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
       if (!url) {
         const res = await share.create(expiryDays);
         url = window.location.origin + '/share/' + res.token;
+        setShareExpiresAt(res.expiresAt || null);
         setShareUrl(url);
       }
       await share.whatsapp(url);
@@ -207,7 +213,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
             <div className="doc-preview-notes-label">Communication</div>
             <div className="doc-preview-share-row">
               <label htmlFor="dp-expiry">Share link expires</label>
-              <select id="dp-expiry" className="input" value={expiryDays} onChange={(e) => { setExpiryDays(e.target.value); setShareUrl(null); }}>
+              <select id="dp-expiry" className="input" value={expiryDays} onChange={(e) => { setExpiryDays(e.target.value); setShareUrl(null); setShareExpiresAt(null); }}>
                 {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               <button type="button" className="btn btn-secondary" disabled={generating} onClick={generateLink}>
@@ -222,6 +228,15 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
               <div className="doc-preview-share-link">
                 <input className="input" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
                 <button type="button" className="btn btn-secondary" onClick={copyLink}>{copied ? 'Copied!' : 'Copy'}</button>
+              </div>
+            )}
+            {shareUrl && shareExpiresAt && (
+              // Whoever sends the link should know when it dies, so they can
+              // tell the customer rather than field a "the link is broken"
+              // call a month later.
+              <div className="doc-preview-share-expiry">
+                Anyone with this link can view the document until{' '}
+                {new Date(shareExpiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.
               </div>
             )}
             {waResult && <div className={waResult.ok ? 'doc-preview-wa-ok' : 'error-banner'}>{waResult.message}</div>}
