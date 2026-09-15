@@ -10,7 +10,7 @@ var poki = require('./poki.service');
 var sharesService = require('./shares.service');
 
 // Poki's estimates: what it costs a prospect to take a unit, quoted before
-// any lease exists.
+// any booking exists.
 //
 // Like rent invoices, these are ordinary rows in the shared `estimates`
 // table tagged with company_id = Poki (migration 0056) plus doc_kind and
@@ -24,27 +24,8 @@ var sharesService = require('./shares.service');
 // estimate is typed; a letting offer is derived from the unit's own terms
 // (base rent, cycle, utility arrangement), so the operator picks a unit and
 // gets a costed offer to adjust rather than a blank form. And an accepted
-// offer converts to a draft lease instead of a quotation.
+// offer converts to a draft booking instead of a quotation.
 
-var CYCLE_MONTHS = poki.CYCLE_MONTHS;
-
-// What one period is called on the quote, so a line reads "3 months" rather
-// than "3 each".
-var PERIOD_NOUN = {
-  monthly: 'month', quarterly: 'quarter', semiannual: 'half-year',
-  annual: 'year', one_off: 'term'
-};
-
-// Rent stated per cycle, expressed per month. Deposits are conventionally
-// quoted in months of rent whatever the billing cycle, so an annual unit at
-// GHS 24,000 has to resolve to GHS 2,000/month before a "2 months deposit"
-// figure means anything. A one-off term has no monthly rate — the whole
-// figure is the rent — so it is returned as-is.
-function monthlyEquivalent(rent, cycle) {
-  var months = CYCLE_MONTHS[cycle];
-  if (!months) return roundMoney(rent);
-  return roundMoney(Number(rent || 0) / months);
-}
 
 // Utilities never become a rent line unless they are a flat charge, but the
 // prospect still has to be told the arrangement — it is the question every
@@ -54,7 +35,7 @@ function utilityNote(unit) {
   var share = Number(unit.apportion_share || 0);
   if (unit.utility_mode === 'fixed') {
     return 'Utilities are charged at a flat ' + unit.currency + ' ' + amount.toLocaleString() +
-      ' per ' + (PERIOD_NOUN[unit.rent_cycle] || 'period') + ', included above.';
+      ' per month, included above.';
   }
   if (unit.utility_mode === 'metered') {
     return 'Electricity and water are sub-metered for this unit and billed on actual usage each period, separately from rent.';
@@ -70,33 +51,53 @@ function utilityNote(unit) {
 // Returned as plain line items so the caller can edit them before saving —
 // nothing here is binding, it is a starting point.
 function lettingLines(unit, opts) {
-  var periods = Math.max(1, parseInt(opts.rentPeriods, 10) || 1);
+  // Mirrors what the booking itself will cost: whole months at the unit's
+  // monthly rate, plus any leftover days at its daily rate, plus the
+  // deposit. Priced the same way as poki.service.js's priceBooking so the
+  // offer a prospect accepts and the booking they get are the same number.
+  var months = Math.max(0, parseInt(opts.durationMonths, 10) || 0);
+  var days = Math.max(0, parseInt(opts.durationDays, 10) || 0);
+  if (months === 0 && days === 0) months = 1;
   var depositMonths = Math.max(0, Number(opts.depositMonths) || 0);
-  var label = unit.property_name + ' · ' + unit.code;
-  var noun = PERIOD_NOUN[unit.rent_cycle] || 'period';
-  var lines = [{
-    description: 'Rent — ' + label,
-    qty: periods,
-    unit: noun,
-    unitPrice: roundMoney(unit.base_rent),
-    notes: (unit.name || unit.unit_type) + ', payable ' + (unit.rent_cycle === 'one_off' ? 'for the term' : noun + 'ly') + '.'
-  }];
+  var label = unit.property_name + ' \u00b7 ' + unit.code;
+  var monthlyRate = roundMoney(unit.base_rent);
+  var dailyRate = Number(unit.daily_rate) > 0 ? roundMoney(unit.daily_rate) : roundMoney(monthlyRate / 30);
+
+  var lines = [];
+  if (months > 0) {
+    lines.push({
+      description: 'Rent \u2014 ' + label,
+      qty: months,
+      unit: 'month',
+      unitPrice: monthlyRate,
+      notes: (unit.name || unit.unit_type) + ', payable in full before occupation.'
+    });
+  }
+  if (days > 0) {
+    lines.push({
+      description: 'Rent (days) \u2014 ' + label,
+      qty: days,
+      unit: 'day',
+      unitPrice: dailyRate,
+      notes: Number(unit.daily_rate) > 0 ? 'At this unit\'s daily rate.' : 'Charged at one thirtieth of the monthly rate.'
+    });
+  }
 
   if (depositMonths > 0) {
     lines.push({
-      description: 'Security deposit — ' + label,
+      description: 'Security deposit \u2014 ' + label,
       qty: 1,
       unit: 'each',
-      unitPrice: roundMoney(monthlyEquivalent(unit.base_rent, unit.rent_cycle) * depositMonths),
+      unitPrice: roundMoney(monthlyRate * depositMonths),
       notes: depositMonths + ' month(s) rent, refundable at the end of the tenancy less any arrears or damage.'
     });
   }
 
-  if (unit.utility_mode === 'fixed' && Number(unit.fixed_utility_amount) > 0) {
+  if (unit.utility_mode === 'fixed' && Number(unit.fixed_utility_amount) > 0 && months > 0) {
     lines.push({
-      description: 'Utilities (flat charge) — ' + label,
-      qty: periods,
-      unit: noun,
+      description: 'Utilities (flat charge) \u2014 ' + label,
+      qty: months,
+      unit: 'month',
       unitPrice: roundMoney(unit.fixed_utility_amount),
       notes: 'Flat utility charge for this unit.'
     });
@@ -136,10 +137,9 @@ async function lettingDraft(ctx, p) {
     propertyName: unit.property_name,
     unitStatus: unit.status,
     currency: unit.currency,
-    rentCycle: unit.rent_cycle,
     baseRent: Number(unit.base_rent),
-    monthlyEquivalent: monthlyEquivalent(unit.base_rent, unit.rent_cycle),
-    depositAmount: roundMoney(monthlyEquivalent(unit.base_rent, unit.rent_cycle) * (Number(p.depositMonths) || 0)),
+    dailyRate: Number(unit.daily_rate) > 0 ? Number(unit.daily_rate) : roundMoney(Number(unit.base_rent) / 30),
+    depositAmount: roundMoney(Number(unit.base_rent) * (Number(p.depositMonths) || 0)),
     items: items,
     clientNotes: utilityNote(unit),
     grandTotal: totals.grandTotal
@@ -149,12 +149,12 @@ async function lettingDraft(ctx, p) {
 var ESTIMATE_SELECT =
   'SELECT e.*, c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone, ' +
   '       u.code AS unit_code, u.status AS unit_status, pr.name AS property_name, ' +
-  '       l.id AS lease_id, l.lease_no ' +
+  '       l.id AS booking_id, l.booking_no ' +
   'FROM estimates e ' +
   'JOIN customers c ON c.id = e.customer_id ' +
   'LEFT JOIN poki_units u ON u.id = e.poki_unit_id ' +
   'LEFT JOIN poki_properties pr ON pr.id = u.property_id ' +
-  'LEFT JOIN poki_leases l ON l.from_estimate_id = e.id ';
+  'LEFT JOIN poki_bookings l ON l.from_estimate_id = e.id ';
 
 async function rowToEstimate(r) {
   var items = await loadLineItems(pool, 'estimate', r.id);
@@ -170,8 +170,8 @@ async function rowToEstimate(r) {
     unitCode: r.unit_code,
     unitStatus: r.unit_status,
     propertyName: r.property_name,
-    leaseId: r.lease_id,
-    leaseNo: r.lease_no,
+    bookingId: r.booking_id,
+    bookingNo: r.booking_no,
     items: items,
     currency: r.currency,
     subtotal: Number(r.subtotal),
@@ -251,7 +251,7 @@ async function shareViaWhatsApp(ctx, id, url) {
 // The customer on a Poki estimate is always someone in the tenant register
 // — a prospect who has not signed is still a tenant record, which is what
 // the 'prospect' status on poki_tenants is for. Quoting a name that exists
-// nowhere would leave a document that cannot become a lease.
+// nowhere would leave a document that cannot become a booking.
 async function resolveTenant(tenantId) {
   var res = await pool.query(
     'SELECT t.id, t.customer_id, c.name, c.preferred_currency ' +
@@ -358,11 +358,11 @@ async function update(ctx, id, p) {
 async function setStatus(ctx, id, status) {
   poki.canManage(ctx);
   var existing = await get(ctx, id);
-  // 'converted' is set by convertToLease alone — it means a lease exists,
+  // 'converted' is set by convertToBooking alone — it means a booking exists,
   // and letting anyone set it by hand would strand an offer that claims a
   // tenancy it never created.
   status = V.oneOf(status, ['draft', 'finalized', 'archived'], 'Status');
-  if (existing.status === 'converted') fail('conflict', 'This offer has already become lease ' + existing.leaseNo + '.');
+  if (existing.status === 'converted') fail('conflict', 'This offer has already become booking ' + existing.bookingNo + '.');
   await pool.query('UPDATE estimates SET status = $1 WHERE id = $2', [status, id]);
   await audit(pool, ctx, 'poki.estimate.status', 'estimate', id, 'Set ' + existing.estimateNo + ' to ' + status + '.');
   return get(ctx, id);
@@ -371,39 +371,39 @@ async function setStatus(ctx, id, status) {
 async function remove(ctx, id) {
   poki.canManage(ctx);
   var existing = await get(ctx, id);
-  if (existing.status === 'converted') fail('conflict', 'Cannot delete an offer that has become lease ' + existing.leaseNo + '.');
+  if (existing.status === 'converted') fail('conflict', 'Cannot delete an offer that has become booking ' + existing.bookingNo + '.');
   await pool.query('DELETE FROM estimates WHERE id = $1', [id]);
   await audit(pool, ctx, 'poki.estimate.delete', 'estimate', id, 'Deleted estimate ' + existing.estimateNo + '.');
   return true;
 }
 
-// The prospect accepted: turn the offer into a draft lease on the unit it
+// The prospect accepted: turn the offer into a draft booking on the unit it
 // quoted.
 //
-// The lease terms come from the caller rather than being parsed back out of
+// The booking terms come from the caller rather than being parsed back out of
 // the line items. Descriptions are free text the operator may well have
 // edited, and re-deriving a rent or deposit figure from them would be a
 // guess dressed up as a calculation. The screen pre-fills the dialog from
 // the estimate and the unit; what is confirmed there is what is written.
 //
-// A draft, not an active lease: activating is a separate, deliberate step
+// A draft, not an active booking: activating is a separate, deliberate step
 // that checks the unit is free and flips it to occupied.
-async function convertToLease(ctx, id, p) {
+async function convertToBooking(ctx, id, p) {
   poki.canManage(ctx);
   var est = await get(ctx, id);
-  if (est.docKind !== 'letting') fail('conflict', 'Only a letting offer can become a lease.');
-  if (est.status === 'converted') fail('conflict', 'This offer has already become lease ' + est.leaseNo + '.');
+  if (est.docKind !== 'letting') fail('conflict', 'Only a letting offer can become a booking.');
+  if (est.status === 'converted') fail('conflict', 'This offer has already become booking ' + est.bookingNo + '.');
   if (!est.unitId) fail('conflict', 'This offer has no unit attached.');
 
   var tenantRes = await pool.query('SELECT id FROM poki_tenants WHERE customer_id = $1', [est.customerId]);
   if (!tenantRes.rows[0]) fail('conflict', 'The customer on this offer is not in the Poki tenant register.');
 
-  var lease = await poki.createLease(ctx, {
+  var booking = await poki.createBooking(ctx, {
     unitId: est.unitId,
     tenantId: tenantRes.rows[0].id,
     startDate: p.startDate,
     endDate: p.endDate,
-    rentAmount: p.rentAmount,
+    rentTotal: p.rentTotal,
     depositAmount: p.depositAmount,
     rentCycle: p.rentCycle,
     paymentDay: p.paymentDay,
@@ -414,18 +414,18 @@ async function convertToLease(ctx, id, p) {
   });
 
   await withTransaction(async function (client) {
-    await client.query('UPDATE poki_leases SET from_estimate_id = $1 WHERE id = $2', [est.id, lease.id]);
+    await client.query('UPDATE poki_bookings SET from_estimate_id = $1 WHERE id = $2', [est.id, booking.id]);
     await client.query("UPDATE estimates SET status = 'converted' WHERE id = $1", [est.id]);
     await audit(client, ctx, 'poki.estimate.convert', 'estimate', est.id,
-      'Converted ' + est.estimateNo + ' to lease ' + lease.leaseNo + '.');
+      'Converted ' + est.estimateNo + ' to booking ' + booking.bookingNo + '.');
   });
 
-  return { estimate: await get(ctx, id), lease: await poki.getLease(ctx, lease.id) };
+  return { estimate: await get(ctx, id), booking: await poki.getBooking(ctx, booking.id) };
 }
 
 module.exports = {
   lettingDraft: lettingDraft, list: list, get: get, create: create, update: update,
-  setStatus: setStatus, remove: remove, convertToLease: convertToLease,
+  setStatus: setStatus, remove: remove, convertToBooking: convertToBooking,
   createShareLink: createShareLink, shareViaWhatsApp: shareViaWhatsApp,
-  monthlyEquivalent: monthlyEquivalent, lettingLines: lettingLines
+  lettingLines: lettingLines
 };

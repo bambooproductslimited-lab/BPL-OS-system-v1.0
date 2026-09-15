@@ -69,40 +69,46 @@ router.delete('/tenants/:id', async function (req, res, next) {
   try { res.json(await poki.removeTenant(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
-// ── leases ──────────────────────────────────────────────────────────────
-router.get('/leases', async function (req, res, next) {
+// ── bookings ──────────────────────────────────────────────────────────────
+router.get('/bookings', async function (req, res, next) {
   try {
-    await poki.autoExpireLeases();
+    await poki.autoExpireBookings();
     await reminders.sweep();
-    res.json(await poki.listLeases(req.ctx, { status: req.query.status, tenantId: req.query.tenantId, unitId: req.query.unitId }));
+    res.json(await poki.listBookings(req.ctx, { status: req.query.status, tenantId: req.query.tenantId, unitId: req.query.unitId }));
   } catch (e) { next(e); }
 });
-router.get('/leases/:id', async function (req, res, next) {
-  try { res.json(await poki.getLease(req.ctx, req.params.id)); } catch (e) { next(e); }
+// Ahead of '/bookings/:id' deliberately: registered after it, this would
+// never match — Express would take "quote" as the id.
+router.post('/bookings/quote', async function (req, res, next) {
+  try { res.json(await poki.quoteBooking(req.ctx, req.body)); } catch (e) { next(e); }
 });
-router.post('/leases', async function (req, res, next) {
-  try { res.status(201).json(await poki.createLease(req.ctx, req.body)); } catch (e) { next(e); }
+
+router.get('/bookings/:id', async function (req, res, next) {
+  try { res.json(await poki.getBooking(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
-router.patch('/leases/:id', async function (req, res, next) {
-  try { res.json(await poki.updateLease(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+router.post('/bookings', async function (req, res, next) {
+  try { res.status(201).json(await poki.createBooking(req.ctx, req.body)); } catch (e) { next(e); }
 });
-router.post('/leases/:id/activate', async function (req, res, next) {
-  try { res.json(await poki.activateLease(req.ctx, req.params.id)); } catch (e) { next(e); }
+router.patch('/bookings/:id', async function (req, res, next) {
+  try { res.json(await poki.updateBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
-router.post('/leases/:id/end', async function (req, res, next) {
-  try { res.json(await poki.endLease(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+router.post('/bookings/:id/activate', async function (req, res, next) {
+  try { res.json(await poki.activateBooking(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
-router.post('/leases/:id/renew', async function (req, res, next) {
-  try { res.status(201).json(await poki.renewLease(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+router.post('/bookings/:id/end', async function (req, res, next) {
+  try { res.json(await poki.endBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
-router.post('/leases/:id/deposit', async function (req, res, next) {
+router.post('/bookings/:id/renew', async function (req, res, next) {
+  try { res.status(201).json(await poki.renewBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/bookings/:id/deposit', async function (req, res, next) {
   try { res.json(await poki.recordDeposit(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
-router.post('/leases/:id/deposit-refund', async function (req, res, next) {
+router.post('/bookings/:id/deposit-refund', async function (req, res, next) {
   try { res.json(await poki.refundDeposit(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
-// ── lease agreements ────────────────────────────────────────────────────
+// ── booking agreements ────────────────────────────────────────────────────
 router.get('/agreement-templates', async function (req, res, next) {
   try {
     await billing.ensureDefaultTemplate(req.ctx);
@@ -115,20 +121,16 @@ router.post('/agreement-templates', async function (req, res, next) {
 router.patch('/agreement-templates/:id', async function (req, res, next) {
   try { res.json(await billing.saveTemplate(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
-router.post('/leases/:id/agreement', async function (req, res, next) {
+router.post('/bookings/:id/agreement', async function (req, res, next) {
   try { res.json(await billing.generateAgreement(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
-router.put('/leases/:id/agreement', async function (req, res, next) {
+router.put('/bookings/:id/agreement', async function (req, res, next) {
   try { res.json(await billing.saveAgreement(req.ctx, req.params.id, req.body.body)); } catch (e) { next(e); }
 });
 
-// ── rent billing ────────────────────────────────────────────────────────
-router.get('/rent-run/preview', async function (req, res, next) {
-  try { res.json(await billing.rentRunPreview(req.ctx, req.query.asOf)); } catch (e) { next(e); }
-});
-router.post('/rent-run', async function (req, res, next) {
-  try { res.json(await billing.runRent(req.ctx, req.body)); } catch (e) { next(e); }
-});
+// Rent has no run of its own: a booking is paid up front and its invoice is
+// raised with the booking, so there is nothing periodic to sweep. Utilities
+// below still are periodic.
 
 // ── utilities ───────────────────────────────────────────────────────────
 router.get('/meters', async function (req, res, next) {
@@ -167,7 +169,7 @@ router.post('/master-bills/:id/bill', async function (req, res, next) {
 
 // ── invoices (Poki's side of the shared invoices table) ────────────────
 router.get('/invoices', async function (req, res, next) {
-  try { res.json(await billing.listInvoices(req.ctx, { docKind: req.query.docKind, leaseId: req.query.leaseId })); } catch (e) { next(e); }
+  try { res.json(await billing.listInvoices(req.ctx, { docKind: req.query.docKind, bookingId: req.query.bookingId })); } catch (e) { next(e); }
 });
 // A one-off charge outside rent/utilities/maintenance (service charge, late
 // fee, damages).
@@ -231,8 +233,8 @@ router.post('/estimates/:id/share', async function (req, res, next) {
 router.post('/estimates/:id/share/whatsapp', async function (req, res, next) {
   try { res.json(await estimates.shareViaWhatsApp(req.ctx, req.params.id, req.body.url)); } catch (e) { next(e); }
 });
-router.post('/estimates/:id/convert-to-lease', async function (req, res, next) {
-  try { res.status(201).json(await estimates.convertToLease(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+router.post('/estimates/:id/convert-to-booking', async function (req, res, next) {
+  try { res.status(201).json(await estimates.convertToBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 router.delete('/estimates/:id', async function (req, res, next) {
   try { res.json({ ok: await estimates.remove(req.ctx, req.params.id) }); } catch (e) { next(e); }

@@ -3,16 +3,16 @@ var { notify } = require('../utils/notify');
 var { todayISO } = require('../utils/documents');
 var poki = require('./poki.service');
 
-// Lease expiry reminders.
+// Booking expiry reminders.
 //
-// A lease left to lapse frees its unit and stops billing on its end date,
+// A booking left to lapse frees its unit and stops billing on its end date,
 // so the useful moment to act is weeks before that, not after. The Poki
 // overview already shows what is expiring; this pushes the same facts into
 // the notification bell so nobody has to go looking.
 //
 // There is no scheduler in this deployment, so this runs as a lazy sweep
-// when someone opens the leases or overview screen — the established
-// pattern here (autoExpireLeases, autoExpireQuotations). That has one real
+// when someone opens the bookings or overview screen — the established
+// pattern here (autoExpireBookings, autoExpireQuotations). That has one real
 // consequence: the sweep is NOT guaranteed to run on any particular day,
 // and may run many times on others. Both are handled below.
 
@@ -28,7 +28,7 @@ var MILESTONES = [
 ];
 var WIDEST = MILESTONES[0].days;
 
-// Whoever can act on a lease gets told about it. Read-only Poki staff are
+// Whoever can act on a booking gets told about it. Read-only Poki staff are
 // deliberately left out: a reminder they cannot act on is just noise.
 async function recipients() {
   var res = await pool.query(
@@ -73,9 +73,9 @@ async function sweep(opts) {
     var companyId = await poki.pokiCompanyId();
 
     var res = await pool.query(
-      'SELECT l.id, l.lease_no, l.end_date, l.status, u.code AS unit_code, p.name AS property_name, ' +
+      'SELECT l.id, l.booking_no, l.end_date, l.status, u.code AS unit_code, p.name AS property_name, ' +
       '       c.name AS tenant_name ' +
-      'FROM poki_leases l ' +
+      'FROM poki_bookings l ' +
       'JOIN poki_units u ON u.id = l.unit_id ' +
       'JOIN poki_properties p ON p.id = u.property_id ' +
       'JOIN poki_tenants t ON t.id = l.tenant_id ' +
@@ -96,23 +96,23 @@ async function sweep(opts) {
     }
     return sent;
   } catch (err) {
-    console.error('poki lease reminder sweep failed:', err.message);
+    console.error('poki booking reminder sweep failed:', err.message);
     return 0;
   }
 }
 
-async function remindFor(lease, today, who) {
-  var endISO = String(lease.end_date).slice(0, 10);
+async function remindFor(booking, today, who) {
+  var endISO = String(booking.end_date).slice(0, 10);
   var daysLeft = daysBetween(today, endISO);
 
-  // Which milestones this lease has now passed. If the sweep hasn't run in
+  // Which milestones this booking has now passed. If the sweep hasn't run in
   // a while — nobody opened the screen for a month — several will have been
   // crossed at once. Only the most urgent is worth a notification; the rest
   // are recorded as sent so they don't fire later out of order. Sending
   // "90 days", "60 days" and "30 days" in one burst would be noise that
   // misstates the position.
   var crossed = [];
-  if (daysLeft < 0 || lease.status === 'expired') {
+  if (daysLeft < 0 || booking.status === 'expired') {
     crossed = MILESTONES.map(function (m) { return m.key; }).concat(['expired']);
   } else {
     for (var i = 0; i < MILESTONES.length; i++) {
@@ -123,8 +123,8 @@ async function remindFor(lease, today, who) {
 
   var urgent = crossed[crossed.length - 1];
   var already = await pool.query(
-    'SELECT milestone FROM poki_lease_reminders WHERE lease_id = $1 AND end_date = $2',
-    [lease.id, endISO]
+    'SELECT milestone FROM poki_booking_reminders WHERE booking_id = $1 AND end_date = $2',
+    [booking.id, endISO]
   );
   var done = {};
   already.rows.forEach(function (r) { done[r.milestone] = true; });
@@ -133,13 +133,13 @@ async function remindFor(lease, today, who) {
   if (!fresh.length) return 0;
 
   var announce = fresh.indexOf(urgent) !== -1;
-  var where = lease.property_name + ' · ' + lease.unit_code;
+  var where = booking.property_name + ' · ' + booking.unit_code;
   var title = urgent === 'expired'
-    ? 'Lease expired — ' + where
-    : 'Lease ends in ' + (MILESTONES.filter(function (m) { return m.key === urgent; })[0] || {}).label + ' — ' + where;
+    ? 'Booking expired — ' + where
+    : 'Booking ends in ' + (MILESTONES.filter(function (m) { return m.key === urgent; })[0] || {}).label + ' — ' + where;
   var body = urgent === 'expired'
-    ? lease.lease_no + ' for ' + lease.tenant_name + ' ended ' + fmtDate(endISO) + '. The unit is now free to re-let.'
-    : lease.lease_no + ' for ' + lease.tenant_name + ' ends ' + fmtDate(endISO) + '. Renew it or start re-letting.';
+    ? booking.booking_no + ' for ' + booking.tenant_name + ' ended ' + fmtDate(endISO) + '. The unit is now free to re-let.'
+    : booking.booking_no + ' for ' + booking.tenant_name + ' ends ' + fmtDate(endISO) + '. Renew it or start re-letting.';
 
   // One transaction so a reminder is never marked sent without the
   // notifications actually being written, nor written twice if two
@@ -149,13 +149,13 @@ async function remindFor(lease, today, who) {
     await withTransaction(async function (client) {
       for (var i = 0; i < fresh.length; i++) {
         await client.query(
-          'INSERT INTO poki_lease_reminders (lease_id, milestone, end_date) VALUES ($1,$2,$3)',
-          [lease.id, fresh[i], endISO]
+          'INSERT INTO poki_booking_reminders (booking_id, milestone, end_date) VALUES ($1,$2,$3)',
+          [booking.id, fresh[i], endISO]
         );
       }
       if (announce) {
         for (var j = 0; j < who.length; j++) {
-          await notify(client, who[j], title, body, 'pokileases');
+          await notify(client, who[j], title, body, 'pokibookings');
         }
       }
     });

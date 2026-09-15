@@ -86,11 +86,11 @@ async function get(ctx, id) {
   poki.canRead(ctx);
   var inv = await assertPokiInvoice(id);
   var extra = await pool.query(
-    'SELECT c.name AS customer_name, c.email, c.phone, c.address, l.lease_no, ' +
+    'SELECT c.name AS customer_name, c.email, c.phone, c.address, l.booking_no, ' +
     '       u.code AS unit_code, p.name AS property_name ' +
     'FROM invoices i ' +
     'JOIN customers c ON c.id = i.customer_id ' +
-    'LEFT JOIN poki_leases l ON l.id = i.poki_lease_id ' +
+    'LEFT JOIN poki_bookings l ON l.id = i.poki_booking_id ' +
     'LEFT JOIN poki_units u ON u.id = l.unit_id ' +
     'LEFT JOIN poki_properties p ON p.id = u.property_id ' +
     'WHERE i.id = $1',
@@ -105,7 +105,7 @@ async function get(ctx, id) {
   return invoicesService.rowToInvoice(pool, inv, {
     company: await letterhead(inv.company_id),
     customerName: x.customer_name, customerEmail: x.email, customerPhone: x.phone, customerAddress: x.address,
-    leaseNo: x.lease_no, unitCode: x.unit_code, propertyName: x.property_name,
+    bookingNo: x.booking_no, unitCode: x.unit_code, propertyName: x.property_name,
     docKind: inv.doc_kind, periodStart: inv.period_start, periodEnd: inv.period_end
   });
 }
@@ -138,7 +138,7 @@ async function shareViaWhatsApp(ctx, id, url) {
 // outside rent, metered utilities and maintenance recharges.
 //
 // Deliberately cannot raise doc_kind 'rent' or 'utility'. Those kinds carry
-// bookkeeping the automatic paths own — a rent invoice advances its lease's
+// bookkeeping the automatic paths own — a rent invoice advances its booking's
 // next_invoice_on, a utility invoice marks meter readings billed — and an
 // invoice created here would carry the label without the bookkeeping,
 // leaving the rent run to bill the same period again.
@@ -156,18 +156,18 @@ async function create(ctx, p) {
   );
   if (!tenant.rows[0]) fail('invalid', 'Choose a tenant from the Poki register.');
 
-  // Attaching the lease is what makes the charge show up in that tenancy's
+  // Attaching the booking is what makes the charge show up in that tenancy's
   // arrears rather than floating free of the unit it relates to.
-  var leaseId = null;
-  if (p.leaseId) {
-    var lease = await pool.query(
-      'SELECT l.id FROM poki_leases l JOIN poki_units u ON u.id = l.unit_id ' +
+  var bookingId = null;
+  if (p.bookingId) {
+    var booking = await pool.query(
+      'SELECT l.id FROM poki_bookings l JOIN poki_units u ON u.id = l.unit_id ' +
       'JOIN poki_properties pr ON pr.id = u.property_id ' +
       'WHERE l.id = $1 AND l.tenant_id = $2 AND pr.company_id = $3',
-      [p.leaseId, p.tenantId, companyId]
+      [p.bookingId, p.tenantId, companyId]
     );
-    if (!lease.rows[0]) fail('invalid', 'That lease does not belong to this tenant.');
-    leaseId = lease.rows[0].id;
+    if (!booking.rows[0]) fail('invalid', 'That booking does not belong to this tenant.');
+    bookingId = booking.rows[0].id;
   }
 
   var items = buildLineItems(p.items);
@@ -182,7 +182,7 @@ async function create(ctx, p) {
   var inv = await withTransaction(async function (client) {
     var created = await billing.insertPokiInvoice(client, {
       customerId: tenant.rows[0].customer_id, companyId: companyId, docKind: docKind,
-      leaseId: leaseId, items: items, issuedAt: issuedAt, dueDate: dueDate,
+      bookingId: bookingId, items: items, issuedAt: issuedAt, dueDate: dueDate,
       currency: (p.currency || tenant.rows[0].preferred_currency || 'GHS').toUpperCase(),
       instructions: instructions, notes: (p.notes || '').trim(), terms: (p.terms || '').trim()
     });
