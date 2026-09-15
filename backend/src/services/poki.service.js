@@ -299,7 +299,7 @@ function rowToTenant(r) {
 var TENANT_SELECT =
   'SELECT t.*, c.name, c.contact_person, c.email, c.phone, c.address, ' +
   "  COUNT(l.id) FILTER (WHERE l.status = 'active') AS active_leases, " +
-  "  string_agg(p.name || ' · ' || u.code, ', ') FILTER (WHERE l.status = 'active') AS unit_labels " +
+  "  string_agg(u.code, ', ' ORDER BY u.code) FILTER (WHERE l.status = 'active') AS unit_labels " +
   'FROM poki_tenants t ' +
   'JOIN customers c ON c.id = t.customer_id ' +
   'LEFT JOIN poki_leases l ON l.tenant_id = t.id ' +

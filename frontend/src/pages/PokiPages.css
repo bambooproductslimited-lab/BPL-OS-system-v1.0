@@ -1,0 +1,151 @@
+/* Shared styling for the Poki rentals screens (Overview, Properties &
+   units, Tenants, Leases, Rent & utilities, Maintenance). One stylesheet
+   across the six rather than six near-identical ones — they're variations
+   on the same toolbar + table + dialog shape. */
+
+.poki-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.poki-toolbar .input,
+.poki-toolbar select.input { width: auto; min-width: 160px; }
+.poki-toolbar-spacer { flex: 1; }
+
+/* ── stat cards ─────────────────────────────────────────────────────── */
+.poki-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.poki-stat {
+  border: var(--divider-width) solid var(--color-divider);
+  border-radius: var(--radius, 8px);
+  padding: 14px 16px;
+  background: var(--color-bg-subtle);
+}
+.poki-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.poki-stat-value {
+  font-size: clamp(18px, 2.2vw, 24px);
+  font-weight: 700;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.poki-stat-sub { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.poki-stat-danger .poki-stat-value { color: var(--color-danger); }
+.poki-stat-good .poki-stat-value { color: var(--color-accent-700, #1a7f37); }
+
+/* Occupancy bar on the overview */
+.poki-occupancy-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-divider);
+  overflow: hidden;
+  margin-top: 10px;
+}
+.poki-occupancy-fill { height: 100%; background: var(--color-accent); }
+
+.poki-section { margin-top: 28px; }
+.poki-section-title { font-size: 15px; font-weight: 700; margin: 0 0 10px; }
+.poki-section-sub { font-size: 12.5px; color: var(--color-text-muted); margin: 0 0 12px; }
+
+/* ── tables ─────────────────────────────────────────────────────────── */
+/* Several of these tables carry nine or more columns plus row actions, more
+   than a laptop viewport fits. Without this they squeeze instead: invoice
+   numbers, dates and tenant names shred across two or three lines and the
+   action buttons slide off the page edge with no way to reach them.
+   .poki-nowrap keeps an identifier on one line, which raises the table's own
+   min-content width, and the wrapper then scrolls the table sideways rather
+   than the whole page — so the sidebar and header stay put. No fixed
+   min-width here on purpose: a table whose content fits still shows no
+   scrollbar. */
+.poki-table-wrap { overflow-x: auto; }
+.poki-nowrap { white-space: nowrap; }
+
+.poki-num { text-align: right; white-space: nowrap; }
+.poki-muted { color: var(--color-text-muted); font-size: 12px; }
+.poki-strong { font-weight: 600; }
+.poki-row-btn { font-size: 12px; padding: 5px 9px; }
+.poki-overdue { color: var(--color-danger); font-weight: 600; }
+
+/* Unit/lease/request status chips reuse theme.css's .tag sizing but need
+   their own tones — vacant is not a failure state, it's just idle stock. */
+.poki-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: var(--divider-width) solid var(--color-divider);
+  white-space: nowrap;
+}
+.poki-chip-occupied,
+.poki-chip-active,
+.poki-chip-resolved { background: var(--color-accent-100); border-color: var(--color-accent); color: var(--color-accent-700); }
+.poki-chip-vacant,
+.poki-chip-draft,
+.poki-chip-open { background: var(--color-bg-subtle); color: var(--color-text-muted); }
+.poki-chip-maintenance,
+.poki-chip-in_progress,
+.poki-chip-reserved,
+.poki-chip-expiring { background: var(--color-warning-100, #fff4e5); border-color: var(--color-warning, #b26b00); color: var(--color-warning, #b26b00); }
+.poki-chip-expired,
+.poki-chip-terminated,
+.poki-chip-unavailable,
+.poki-chip-urgent,
+.poki-chip-blacklisted { background: var(--color-danger-100); border-color: var(--color-danger); color: var(--color-danger); }
+
+/* ── dialogs ────────────────────────────────────────────────────────── */
+.poki-dialog {
+  max-width: 640px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-height: 88vh;
+  overflow: auto;
+}
+.poki-dialog-title { grid-column: 1 / -1; font-size: 20px; margin: 0; }
+.poki-dialog-span { grid-column: 1 / -1; }
+.poki-dialog-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.poki-dialog-hint { grid-column: 1 / -1; font-size: 12px; color: var(--color-text-muted); margin: 0; }
+
+/* The lease agreement is a long legal document, so it gets a wide
+   monospace editor rather than the usual 3-row textarea. */
+.poki-agreement-dialog { max-width: min(860px, 94vw); width: min(860px, 94vw); }
+textarea.poki-agreement-body {
+  width: 100%;
+  min-height: 52vh;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  resize: vertical;
+}
+
+/* ── empty states ───────────────────────────────────────────────────── */
+.poki-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 36px 16px;
+  color: var(--color-text-muted);
+}
+.poki-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+.poki-empty-sub { font-size: 12.5px; margin: 0; max-width: 420px; }
+
+@media (max-width: 720px) {
+  .poki-dialog { grid-template-columns: 1fr; }
+}

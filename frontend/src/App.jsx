@@ -52,6 +52,12 @@ import CompanySettingsPage from './pages/CompanySettingsPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import AssistantPage from './pages/AssistantPage';
 import PlaceholderPage from './pages/PlaceholderPage';
+import PokiDashboardPage from './pages/PokiDashboardPage';
+import PokiPropertiesPage from './pages/PokiPropertiesPage';
+import PokiTenantsPage from './pages/PokiTenantsPage';
+import PokiLeasesPage from './pages/PokiLeasesPage';
+import PokiBillingPage from './pages/PokiBillingPage';
+import PokiMaintenancePage from './pages/PokiMaintenancePage';
 import SharePage from './pages/SharePage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
 
@@ -68,7 +74,9 @@ const BUILT_SCREENS = {
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
   marketing: MarketingDashboardPage, socialtracker: SocialTrackerPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
-  audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage
+  audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage,
+  pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
+  pokileases: PokiLeasesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];
