@@ -3,6 +3,7 @@ var { requireAuth } = require('../middleware/auth');
 var poki = require('../services/poki.service');
 var billing = require('../services/pokiBilling.service');
 var estimates = require('../services/pokiEstimates.service');
+var reminders = require('../services/pokiReminders.service');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
 // requireAuth; the poki.read / poki.manage gates live in the services so
@@ -13,7 +14,10 @@ router.use(requireAuth);
 
 // ── overview & reports ──────────────────────────────────────────────────
 router.get('/overview', async function (req, res, next) {
-  try { res.json(await poki.overview(req.ctx)); } catch (e) { next(e); }
+  try {
+    await reminders.sweep();
+    res.json(await poki.overview(req.ctx));
+  } catch (e) { next(e); }
 });
 router.get('/rent-roll', async function (req, res, next) {
   try { res.json(await poki.rentRoll(req.ctx)); } catch (e) { next(e); }
@@ -68,6 +72,7 @@ router.delete('/tenants/:id', async function (req, res, next) {
 router.get('/leases', async function (req, res, next) {
   try {
     await poki.autoExpireLeases();
+    await reminders.sweep();
     res.json(await poki.listLeases(req.ctx, { status: req.query.status, tenantId: req.query.tenantId, unitId: req.query.unitId }));
   } catch (e) { next(e); }
 });
