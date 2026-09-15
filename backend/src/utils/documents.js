@@ -4,9 +4,15 @@ var { V } = require('./validate');
 // Ported verbatim from kernel.js's buildLineItems(rawItems). Shared line-item
 // shape across quotations/estimates/sales orders/invoices — snapshot pricing
 // at document-creation time, never recomputed from live catalog prices later.
+// No real quotation, estimate or invoice has hundreds of lines, and an
+// unbounded array is a cheap way for an authenticated user to make the
+// server build and insert an arbitrary number of rows in one request.
+var MAX_LINE_ITEMS = 200;
+
 function buildLineItems(rawItems) {
   var arr = Array.isArray(rawItems) ? rawItems : [];
   if (!arr.length) fail('invalid', 'Add at least one line item.');
+  if (arr.length > MAX_LINE_ITEMS) fail('invalid', 'A document cannot have more than ' + MAX_LINE_ITEMS + ' line items.');
   return arr.map(function (it) {
     var qty = Math.max(0.01, Number(it.qty) || 0), price = Math.max(0, Number(it.unitPrice) || 0);
     return {
@@ -138,5 +144,6 @@ async function loadLineItems(db, documentType, documentId) {
 module.exports = {
   buildLineItems: buildLineItems, computeDocTotals: computeDocTotals, nextDocNumber: nextDocNumber, addDays: addDays,
   todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems, resolveCurrency: resolveCurrency,
-  buildPaymentSchedule: buildPaymentSchedule, roundMoney: roundMoney, bplScopeClause: bplScopeClause
+  buildPaymentSchedule: buildPaymentSchedule, roundMoney: roundMoney, bplScopeClause: bplScopeClause,
+  MAX_LINE_ITEMS: MAX_LINE_ITEMS
 };

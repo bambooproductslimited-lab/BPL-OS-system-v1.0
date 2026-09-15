@@ -175,6 +175,22 @@ app.use(function (err, req, res, next) { // eslint-disable-line no-unused-vars
   if (err instanceof AppError) {
     return res.status(err.status).json({ error: { code: err.code, message: err.message } });
   }
+
+  // A malformed id in a URL (/api/anything/not-a-uuid) reaches Postgres and
+  // comes back as 22P02 invalid_text_representation. Left alone that surfaces
+  // as a 500, which is wrong twice over: it reports a server fault for what
+  // is really a bad request, and it makes genuine faults harder to spot in
+  // the logs because they sit among noise anyone can generate at will. The
+  // response body already gave nothing away — the DB detail stays in the log
+  // — so this is about answering honestly, not about disclosure.
+  if (err && err.code === '22P02') {
+    return res.status(404).json({ error: { code: 'notfound', message: 'Not found.' } });
+  }
+  // Payload too large for a JSON body — express.json's own error.
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: { code: 'invalid', message: 'That request is too large.' } });
+  }
+
   console.error(err);
   res.status(500).json({ error: { code: 'error', message: 'Something went wrong.' } });
 });

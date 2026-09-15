@@ -49,6 +49,17 @@ function elevate(ctx) {
   return e;
 }
 
+// The only way to obtain an elevated context. Fusing the two checks with
+// the elevation means a future endpoint physically cannot delegate without
+// first proving both that the caller may manage Poki and that the invoice
+// is Poki's — the previous shape left that to each call site remembering,
+// which is the kind of discipline that holds until the day it doesn't.
+async function actingOnPokiInvoice(ctx, id, fn) {
+  poki.canManage(ctx);
+  var inv = await assertPokiInvoice(id);
+  return fn(elevate(ctx), inv);
+}
+
 // The letterhead of the company that issued the document. Poki heads its
 // paperwork with its own wordmark and the office behind it, not the group's
 // logo — a tenant's invoice has to say who is charging them.
@@ -100,27 +111,27 @@ async function get(ctx, id) {
 }
 
 async function recordPayment(ctx, id, p) {
-  poki.canManage(ctx);
-  await assertPokiInvoice(id);
-  return invoicesService.recordPayment(elevate(ctx), id, p);
+  return actingOnPokiInvoice(ctx, id, function (e) {
+    return invoicesService.recordPayment(e, id, p);
+  });
 }
 
 async function voidInvoice(ctx, id) {
-  poki.canManage(ctx);
-  await assertPokiInvoice(id);
-  return invoicesService.voidInvoice(elevate(ctx), id);
+  return actingOnPokiInvoice(ctx, id, function (e) {
+    return invoicesService.voidInvoice(e, id);
+  });
 }
 
 async function createShareLink(ctx, id, expiresInDays) {
-  poki.canManage(ctx);
-  await assertPokiInvoice(id);
-  return sharesService.createShareLink(elevate(ctx), 'invoice', id, expiresInDays);
+  return actingOnPokiInvoice(ctx, id, function (e) {
+    return sharesService.createShareLink(e, 'invoice', id, expiresInDays);
+  });
 }
 
 async function shareViaWhatsApp(ctx, id, url) {
-  poki.canManage(ctx);
-  await assertPokiInvoice(id);
-  return sharesService.shareViaWhatsApp(elevate(ctx), 'invoice', id, url);
+  return actingOnPokiInvoice(ctx, id, function (e) {
+    return sharesService.shareViaWhatsApp(e, 'invoice', id, url);
+  });
 }
 
 // One-off charges: service charge, late fee, cleaning, damages — anything

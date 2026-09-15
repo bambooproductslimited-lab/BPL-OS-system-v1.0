@@ -228,16 +228,24 @@ function elevate(ctx) {
   return e;
 }
 
-async function createShareLink(ctx, id, expiresInDays) {
+// Same fusing as the invoice side: elevation is unobtainable without first
+// proving the caller may manage Poki and that the offer is Poki's.
+async function actingOnPokiEstimate(ctx, id, fn) {
   poki.canManage(ctx);
-  await get(ctx, id);
-  return sharesService.createShareLink(elevate(ctx), 'estimate', id, expiresInDays);
+  var est = await get(ctx, id);
+  return fn(elevate(ctx), est);
+}
+
+async function createShareLink(ctx, id, expiresInDays) {
+  return actingOnPokiEstimate(ctx, id, function (e) {
+    return sharesService.createShareLink(e, 'estimate', id, expiresInDays);
+  });
 }
 
 async function shareViaWhatsApp(ctx, id, url) {
-  poki.canManage(ctx);
-  await get(ctx, id);
-  return sharesService.shareViaWhatsApp(elevate(ctx), 'estimate', id, url);
+  return actingOnPokiEstimate(ctx, id, function (e) {
+    return sharesService.shareViaWhatsApp(e, 'estimate', id, url);
+  });
 }
 
 // The customer on a Poki estimate is always someone in the tenant register
