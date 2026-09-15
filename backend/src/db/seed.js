@@ -23,6 +23,8 @@ function uuid() { return crypto.randomUUID(); }
 // below — and that only works if company_id keeps pointing at the same row
 // after every truncate. Nothing else in the app hardcodes a company id
 // (everywhere else queries by the `code` column), so this is safe to fix.
+var POKI_LETTING_TERMS = '1. This is an offer of a tenancy, not a tenancy. No tenancy arises, and no right to occupy is granted, until a written tenancy agreement has been signed by both parties and the sums set out in this offer have been received in cleared funds.\n\n2. This offer stands until the "valid until" date shown above. After that date it lapses automatically and the unit may be offered to another applicant. Poki Properties may withdraw this offer at any time before a tenancy agreement is signed.\n\n3. The security deposit and the first billing period\'s rent are payable in full, in cleared funds, before keys are handed over. The billing period is the one shown above — a month on a monthly tenancy, a year on an annual one.\n\n4. This offer is subject to satisfactory identification. Each individual tenant must produce a valid Ghana Card or passport before a tenancy agreement is signed. Where the tenant is a company, the director giving the guarantee under clause 8 must do the same.\n\n5. The security deposit is held against unpaid rent, unpaid utility charges, and damage beyond fair wear and tear. It is not rent and may not be used by the tenant in place of a rent payment. It is refunded within 14 days of the end of the tenancy, after the outgoing inspection, less any sums properly deducted under this clause.\n\n6. Utilities are charged as described in the notes above. Where a unit is sub-metered, charges follow actual recorded usage; where a share of a building bill applies, the share stated for that unit applies.\n\n7. The unit is offered in its present condition. A condition inventory will be prepared and signed by both parties at handover, and forms the reference point for the end-of-tenancy inspection.\n\n8. Where this offer is made to a company, the company remains liable for the obligations of the tenancy, and a named director of that company guarantees those obligations personally. The guarantee is given in the tenancy agreement and continues for as long as any sum under the tenancy remains unpaid.\n\n9. Any variation of this offer is valid only if confirmed in writing by Poki Properties.\n\n10. This offer, and any tenancy following from it, is governed by the laws of the Republic of Ghana.';
+
 //
 // Poki is here for a second reason. Its company row is created by migration
 // 0056 and given its letterhead by 0059, but this script TRUNCATEs
@@ -42,7 +44,10 @@ var COMPANY_DEFS = [
     legalName: 'Poki Properties',
     letterheadSubtitle: 'The Office Of Sen-Lin Chou',
     address: 'Poki House, 35 J.K. Siaw Street, Community 9, Tema, Greater Accra Region, Republic of Ghana',
-    ghanaPostGps: 'GT-191-1859'
+    ghanaPostGps: 'GT-191-1859',
+    // Letting-offer terms, set by migration 0061 and repeated here for the
+    // same reason as the row itself: a reseed would otherwise blank them.
+    invoiceFooter: POKI_LETTING_TERMS
   }
 ];
 
@@ -317,10 +322,11 @@ async function run() {
     for (i = 0; i < COMPANY_DEFS.length; i++) {
       var co = COMPANY_DEFS[i];
       await client.query(
-        'INSERT INTO companies (id, code, name, status, legal_name, letterhead_subtitle, address, ghana_post_gps) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        'INSERT INTO companies (id, code, name, status, legal_name, letterhead_subtitle, address, ghana_post_gps, invoice_footer) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
         [companyIds[co.key], co.code, co.name, 'active',
-         co.legalName || '', co.letterheadSubtitle || '', co.address || '', co.ghanaPostGps || '']);
+         co.legalName || '', co.letterheadSubtitle || '', co.address || '', co.ghanaPostGps || '',
+         co.invoiceFooter || '']);
     }
 
     console.log('Seeding departments...');
