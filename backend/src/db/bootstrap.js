@@ -188,16 +188,39 @@ async function ensureMarketingChannels(client) {
   }
 }
 
+// departments.company_id has been NOT NULL since migration 0032 (every
+// department belongs to one of the group's companies), but this insert was
+// never updated to pass one — so a bootstrap that actually had to CREATE the
+// Administration department (i.e. any genuinely fresh deployment, where
+// Render's build command runs migrate + bootstrap against an empty database)
+// failed here. Existing deployments never hit it because their ADM
+// department predates that migration and the early return covers them.
 async function ensureAdminDepartment(client) {
   var existing = await client.query("SELECT id FROM departments WHERE code = 'ADM'");
   if (existing.rows[0]) return existing.rows[0].id;
   console.log('Creating Administration department...');
+  var companyId = await ensureDefaultCompany(client);
   var id = uuid();
   await client.query(
-    "INSERT INTO departments (id, code, name, manager_id, status) VALUES ($1, 'ADM', 'Administration', NULL, 'active')",
-    [id]
+    "INSERT INTO departments (id, code, name, company_id, manager_id, status) VALUES ($1, 'ADM', 'Administration', $2, NULL, 'active')",
+    [id, companyId]
   );
   return id;
+}
+
+// Migration 0032 seeds Bamboo Products Limited, so this normally just reads
+// it back; it only inserts if someone has removed/renamed it, so that
+// bootstrap can still complete rather than failing on a missing FK.
+async function ensureDefaultCompany(client) {
+  var existing = await client.query("SELECT id FROM companies WHERE code = 'BPL'");
+  if (existing.rows[0]) return existing.rows[0].id;
+  var anyCompany = await client.query('SELECT id FROM companies ORDER BY created_at LIMIT 1');
+  if (anyCompany.rows[0]) return anyCompany.rows[0].id;
+  console.log('Creating default company (Bamboo Products Limited)...');
+  var created = await client.query(
+    "INSERT INTO companies (code, name) VALUES ('BPL', 'Bamboo Products Limited') RETURNING id"
+  );
+  return created.rows[0].id;
 }
 
 async function ensureAdminUser(client, deptId, roleIds) {

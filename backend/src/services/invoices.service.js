@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause } = require('../utils/documents');
 
 async function rowToInvoice(db, r, extra) {
   var items = await loadLineItems(db, 'invoice', r.id);
@@ -19,7 +19,8 @@ async function rowToInvoice(db, r, extra) {
 async function list(ctx) {
   if (!ctx.can('invoice.read')) fail('forbidden', 'Your role does not allow this action (invoice.read).');
   var t = todayISO();
-  var res = await pool.query('SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ORDER BY i.issued_at DESC');
+  var res = await pool.query('SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    'WHERE ' + bplScopeClause('i') + ' ORDER BY i.issued_at DESC');
   var out = [];
   for (var idx = 0; idx < res.rows.length; idx++) {
     var r = res.rows[idx];

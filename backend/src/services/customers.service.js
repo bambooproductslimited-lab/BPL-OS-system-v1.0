@@ -2,6 +2,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var { bplScopeClause } = require('../utils/documents');
 
 async function validateCurrency(code) {
   if (!code) return 'GHS';
@@ -27,7 +28,8 @@ function rowToCustomer(r, extra) {
 // (summing GHS and USD amounts as if they were the same unit).
 async function list(ctx) {
   if (!ctx.can('customer.read')) fail('forbidden', 'Your role does not allow this action (customer.read).');
-  var res = await pool.query('SELECT c.*, m.first_name, m.last_name FROM customers c LEFT JOIN employees m ON m.id = c.account_manager_id ORDER BY c.name');
+  var res = await pool.query('SELECT c.*, m.first_name, m.last_name FROM customers c LEFT JOIN employees m ON m.id = c.account_manager_id ' +
+    'WHERE ' + bplScopeClause('c') + ' ORDER BY c.name');
   var quotedRes = await pool.query('SELECT customer_id, currency, sum(grand_total) AS s FROM quotations GROUP BY customer_id, currency');
   var invoicedRes = await pool.query('SELECT customer_id, currency, sum(grand_total) AS invoiced, sum(amount_paid) AS paid FROM invoices GROUP BY customer_id, currency');
 

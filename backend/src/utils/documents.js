@@ -20,6 +20,22 @@ function buildLineItems(rawItems) {
 
 function roundMoney(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
+// Commercial documents (customers/quotations/estimates/invoices) gained a
+// company_id in migration 0056 so Poki's tenants, rent and utility invoices
+// could reuse these tables — and the payments/receipts/share-link machinery
+// built on them — without turning up in Bamboo Products' own lists.
+//
+// NULL means Bamboo Products Limited: every row that predates that
+// migration is NULL and stays that way, which is why adding the column
+// needed no backfill and changed no existing behaviour. The group's own
+// screens therefore select "NULL or BPL" and nothing else; Poki's screens
+// select its company_id explicitly. Returns a SQL fragment for the given
+// table alias.
+function bplScopeClause(alias) {
+  var a = alias ? alias + '.' : '';
+  return "(" + a + "company_id IS NULL OR " + a + "company_id = (SELECT id FROM companies WHERE code = 'BPL'))";
+}
+
 // Payment schedule: an ordered list of installments against a document's
 // grand total, each either a percentage of it or a fixed amount, with its
 // own due date — Square's "Payment schedule" step. `amount` is snapshotted
@@ -122,5 +138,5 @@ async function loadLineItems(db, documentType, documentId) {
 module.exports = {
   buildLineItems: buildLineItems, computeDocTotals: computeDocTotals, nextDocNumber: nextDocNumber, addDays: addDays,
   todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems, resolveCurrency: resolveCurrency,
-  buildPaymentSchedule: buildPaymentSchedule, roundMoney: roundMoney
+  buildPaymentSchedule: buildPaymentSchedule, roundMoney: roundMoney, bplScopeClause: bplScopeClause
 };
