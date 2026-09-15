@@ -9,10 +9,36 @@ function required(name, fallback) {
   return v;
 }
 
+// The test suite seeds its own data, and seed.js TRUNCATEs every table to do
+// it. Pointing that at the development database would wipe whatever the
+// developer was working on, so under NODE_ENV=test every connection is
+// redirected to a sibling database with a _test suffix — created once by
+// hand, since the app role deliberately has no CREATEDB right. This is what
+// makes `npm test` repeatable: the suite is reseeded from scratch before
+// every run, so run 2 starts from exactly the same state as run 1.
+//
+// Applies to DATABASE_URL and the discrete PG* vars alike, and only ever
+// when NODE_ENV is exactly 'test' — production is 'production'.
+var IS_TEST = process.env.NODE_ENV === 'test';
+
+function testDatabaseUrl(url) {
+  if (!url) return url;
+  // Rewrite only the path segment; a database name can appear in the
+  // password or host otherwise and a blind replace would corrupt it.
+  return url.replace(/^(.*:\/\/[^/]+\/)([^/?#]+)(.*)$/, function (_, head, name, tail) {
+    return head + (/_test$/.test(name) ? name : name + '_test') + tail;
+  });
+}
+
+function testDatabaseName(name) {
+  return /_test$/.test(name) ? name : name + '_test';
+}
+
 module.exports = {
   port: Number(process.env.PORT || 4000),
   nodeEnv: process.env.NODE_ENV || 'development',
-  databaseUrl: process.env.DATABASE_URL || null,
+  isTest: IS_TEST,
+  databaseUrl: IS_TEST ? testDatabaseUrl(process.env.DATABASE_URL || null) : (process.env.DATABASE_URL || null),
   // Managed Postgres (Render, Railway, Neon, Supabase, ...) requires TLS and
   // typically presents a cert `pg` won't validate against a default CA
   // bundle; PGSSLMODE=require opts in without pinning a specific CA, fine
@@ -23,7 +49,7 @@ module.exports = {
     port: Number(process.env.PGPORT || 5432),
     user: process.env.PGUSER || 'bamboo',
     password: process.env.PGPASSWORD || 'bamboo',
-    database: process.env.PGDATABASE || 'bamboo_os'
+    database: IS_TEST ? testDatabaseName(process.env.PGDATABASE || 'bamboo_os') : (process.env.PGDATABASE || 'bamboo_os')
   },
   jwt: {
     // No insecure fallback here on purpose — a security review flagged that

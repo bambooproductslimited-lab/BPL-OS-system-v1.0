@@ -78,9 +78,26 @@ test('P&L, cash flow, AR aging and expense detail return well-formed shapes for 
   assert.equal(cf.netCashFlow, cf.cashIn - cf.cashOut);
   assert.equal(cf.cashOut, cf.expensesOut + cf.payrollOut);
 
+  // AR aging is reported per currency, not as one scalar: each bucket holds
+  // a [{ currency, amount }] list and the totals come back as
+  // totalByCurrency. Reconcile currency by currency — summing across
+  // currencies would add cedis to dollars and "balance" on a meaningless
+  // number. (This assertion predates multi-currency and was still adding up
+  // the old flat buckets, which under the current shape sums objects into
+  // the string "0[object Object]" and compares it to undefined.)
   var aging = await (await fetch(base + '/api/reports/ar-aging', { headers: authed(albert) })).json();
-  var bucketSum = Object.values(aging.buckets).reduce(function (s, n) { return s + n; }, 0);
-  assert.ok(Math.abs(bucketSum - aging.total) < 0.01);
+  var summed = {};
+  Object.keys(aging.buckets).forEach(function (bucket) {
+    aging.buckets[bucket].forEach(function (entry) {
+      summed[entry.currency] = (summed[entry.currency] || 0) + entry.amount;
+    });
+  });
+  assert.deepEqual(Object.keys(summed).sort(), aging.totalByCurrency.map(function (t) { return t.currency; }).sort(),
+    'every currency present in a bucket must appear in totalByCurrency, and vice versa');
+  aging.totalByCurrency.forEach(function (t) {
+    assert.ok(Math.abs(summed[t.currency] - t.amount) < 0.01,
+      t.currency + ': buckets sum to ' + summed[t.currency] + ' but totalByCurrency says ' + t.amount);
+  });
 
   var detail = await (await fetch(base + '/api/reports/expense-detail', { headers: authed(albert) })).json();
   var catSum = detail.byCategory.reduce(function (s, r) { return s + r.amount; }, 0);

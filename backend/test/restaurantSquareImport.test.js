@@ -49,15 +49,32 @@ test('POST /api/restaurant/square-import is forbidden without restaurant.manage'
 });
 
 test('POST /api/restaurant/square-import fails clearly when that company has no Square token set', async function () {
-  var admin = await login('kelvin.duho@bplghana.com');
-  var companyId = await starBarId(admin);
-  var res = await fetch(base + '/api/restaurant/square-import', {
-    method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ companyId: companyId })
-  });
-  assert.equal(res.status, 400);
-  var body = await res.json();
-  assert.match(body.error.message, /Square is not configured for Star Bar Restaurant/);
-  assert.match(body.error.message, /SQUARE_ACCESS_TOKEN_SBR/);
+  // Unset the token for the duration rather than assuming it is absent.
+  // Anyone who has actually configured Star Bar's Square import — which is
+  // the normal state of a working .env — would otherwise reach the real
+  // Square API here, and this test would fail with an HTTP error from
+  // Square instead of the message it is checking for. config.js reads these
+  // vars on each forCompanyCode() call, so removing them now is enough.
+  var saved = { token: process.env.SQUARE_ACCESS_TOKEN_SBR, location: process.env.SQUARE_LOCATION_ID_SBR };
+  delete process.env.SQUARE_ACCESS_TOKEN_SBR;
+  delete process.env.SQUARE_LOCATION_ID_SBR;
+
+  try {
+    var admin = await login('kelvin.duho@bplghana.com');
+    var companyId = await starBarId(admin);
+    var res = await fetch(base + '/api/restaurant/square-import', {
+      method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ companyId: companyId })
+    });
+    assert.equal(res.status, 400);
+    var body = await res.json();
+    assert.match(body.error.message, /Square is not configured for Star Bar Restaurant/);
+    assert.match(body.error.message, /SQUARE_ACCESS_TOKEN_SBR/);
+  } finally {
+    if (saved.token === undefined) delete process.env.SQUARE_ACCESS_TOKEN_SBR;
+    else process.env.SQUARE_ACCESS_TOKEN_SBR = saved.token;
+    if (saved.location === undefined) delete process.env.SQUARE_LOCATION_ID_SBR;
+    else process.env.SQUARE_LOCATION_ID_SBR = saved.location;
+  }
 });
 
 test('POST /api/restaurant/square-import 404s for an unknown company', async function () {

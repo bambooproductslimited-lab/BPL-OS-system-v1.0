@@ -251,9 +251,9 @@ included for that caller.
 
 ## Testing
 
-Six integration test files (Node's built-in test runner + `fetch`, no extra
-dependencies), one per batch, all running the real Express app against a
-real Postgres connection:
+Integration tests (Node's built-in test runner + `fetch`, no extra
+dependencies), all running the real Express app against a real Postgres
+connection:
 
 - `test/smoke.test.js` — auth + leave end-to-end (the original PoC).
 - `test/people-governance.test.js` — employees/departments/roles/users/
@@ -263,12 +263,40 @@ real Postgres connection:
   production/procurement/assets/maintenance.
 - `test/commercial.test.js` — the full quote-to-cash flow, expense approvals
   through the shared queue, estimate conversion, reports, commercial settings.
+- `test/authorization.test.js` — signs in as an account holding no
+  permissions at all and calls every route the Express router exposes,
+  asserting each one refuses. Anything that answers has to be listed in that
+  file's `ALLOWED` map with a reason, so the map doubles as the reviewed
+  list of what any signed-in employee can reach.
+
+### The test database
+
+The suite runs against a **separate `<database>_test` database**, not your
+development one. `config.js` redirects every connection when `NODE_ENV=test`,
+and `npm test` reseeds it from scratch first (via the `pretest` hook).
+
+This is not ceremony. The tests create employees, pay runs and catalogue
+items and mostly do not clean up, so before this each run left the next one
+a different world: measured on one afternoon, the same suite against the
+same code gave 2 failures on a freshly seeded database, 17 on the second run
+against it, and 28 on the long-lived development one. Reseeding per run is
+what makes a red result mean something.
+
+Create it once — the app role has no `CREATEDB` right on purpose, and
+`npm test` prints this command if the database is missing:
 
 ```bash
-npm run migrate
-npm run seed    # tests depend on the seeded demo accounts
+createdb -O bamboo bamboo_os_test
+```
+
+Then, any time:
+
+```bash
 npm test
 ```
+
+Your development database is never touched, and never needs reseeding to
+get a clean test run.
 
 ## Known gaps
 
