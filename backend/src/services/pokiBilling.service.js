@@ -1031,6 +1031,10 @@ module.exports = {
   listTemplates: listTemplates, saveTemplate: saveTemplate, ensureDefaultTemplate: ensureDefaultTemplate,
   generateAgreement: generateAgreement, saveAgreement: saveAgreement,
   periodEndFor: periodEndFor, dueDateFor: dueDateFor, billingPeriod: billingPeriod,
+  // Pure date helpers, exported so pokiTermTotal.test.js can walk a lease
+  // period by period the way runRent does and check the browser's total
+  // against it.
+  addDays: addDays, daysInclusive: daysInclusive, CYCLE_MONTHS: CYCLE_MONTHS,
   // Shared with pokiInvoices.service.js so a manually raised charge is
   // built exactly like an automatic one.
   insertPokiInvoice: insertPokiInvoice, pokiPaymentInstructions: pokiPaymentInstructions

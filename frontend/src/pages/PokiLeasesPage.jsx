@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
-import { perCycle, monthlyEquivalent } from '../lib/rentCycle';
+import { perCycle, monthlyEquivalent, leaseRentTotal } from '../lib/rentCycle';
 import './PokiPages.css';
 
 // Leases — who occupies which unit, on what terms. Also where the tenancy
@@ -446,6 +446,40 @@ export default function PokiLeasesPage() {
               <label htmlFor="pl-notes">Notes</label>
               <textarea id="pl-notes" className="input" rows={2} value={form.notes} onChange={set('notes')} />
             </div>
+            {(() => {
+              // What the whole tenancy comes to, recalculated as the dates,
+              // rent and deposit are typed. The rent figure is not
+              // rent x periods: the last period is pro-rated when the lease
+              // ends mid-cycle, exactly as the rent run will invoice it, so
+              // this total and the invoices that follow agree.
+              const term = leaseRentTotal(form.startDate, form.endDate, form.rentAmount, form.rentCycle);
+              if (!term) return null;
+              const deposit = Number(form.depositAmount) || 0;
+              const part = term.partialPeriod;
+              return (
+                <div className="poki-term-total poki-dialog-span">
+                  <div className="poki-term-row">
+                    <span>
+                      Rent — {term.periods} {term.periods === 1 ? 'period' : 'periods'}
+                      {part && (
+                        <span className="poki-muted">
+                          {' '}(last one part-period, {part.billedDays} of {part.fullDays} days — {money(part.amount, form.currency)})
+                        </span>
+                      )}
+                    </span>
+                    <strong>{money(term.rentTotal, form.currency)}</strong>
+                  </div>
+                  <div className="poki-term-row">
+                    <span>Deposit</span>
+                    <strong>{money(deposit, form.currency)}</strong>
+                  </div>
+                  <div className="poki-term-row poki-term-grand">
+                    <span>Total over the term</span>
+                    <strong>{money(term.rentTotal + deposit, form.currency)}</strong>
+                  </div>
+                </div>
+              );
+            })()}
             <p className="poki-dialog-hint">
               Rent invoices are raised from the Rent &amp; utilities screen once the lease is active — the first period starts on the start date.
             </p>

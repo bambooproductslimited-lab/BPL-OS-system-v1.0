@@ -188,3 +188,29 @@ textarea.poki-agreement-body {
   .poki-line-row .input:first-child { grid-column: 1 / -1; }
   .poki-line-total { grid-column: 1 / -1; text-align: left; }
 }
+
+/* Lease dialog — what the whole term costs, totalled as it is typed. Set
+   apart from the input grid so it reads as a result rather than another
+   field to fill in. */
+.poki-term-total {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.06));
+}
+.poki-term-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.poki-term-row > strong { white-space: nowrap; }
+.poki-term-grand {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
