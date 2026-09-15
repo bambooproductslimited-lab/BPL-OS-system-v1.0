@@ -243,10 +243,23 @@ async function ensureAdminUser(client, deptId, roleIds) {
 
   console.log('Creating admin account for ' + email + '...');
   var empId = uuid();
+
+  // Take the next free ADM-nnn rather than hardcoding ADM-001. The guard
+  // above only checks users.email, so pointing ADMIN_EMAIL at a new address
+  // on an already-bootstrapped database gets past it and then collides on
+  // employees_code_key. That is not a harmless error: Render's build command
+  // is `npm install && npm run migrate && npm run bootstrap`, so a non-zero
+  // exit here fails the whole deploy and the old version keeps serving.
+  var codeRes = await client.query(
+    "SELECT COALESCE(MAX(substring(code from 5)::int), 0) + 1 AS next " +
+    "FROM employees WHERE code ~ '^ADM-[0-9]+$'"
+  );
+  var empCode = 'ADM-' + String(codeRes.rows[0].next).padStart(3, '0');
+
   await client.query(
     'INSERT INTO employees (id, code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift) ' +
-    "VALUES ($1,'ADM-001',$2,$3,$4,'',$5,'System Administrator',NULL,'permanent',$6,'active','','')",
-    [empId, firstName, lastName, email, deptId, new Date().toISOString().slice(0, 10)]
+    "VALUES ($1,$7,$2,$3,$4,'',$5,'System Administrator',NULL,'permanent',$6,'active','','')",
+    [empId, firstName, lastName, email, deptId, new Date().toISOString().slice(0, 10), empCode]
   );
 
   await client.query("UPDATE departments SET manager_id = $1 WHERE id = $2 AND manager_id IS NULL", [empId, deptId]);
