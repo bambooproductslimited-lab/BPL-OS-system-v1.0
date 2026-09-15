@@ -70,8 +70,8 @@ var PERMISSIONS = [
   { key: 'marketing.manage', group: 'Marketing', label: 'Manage channels, campaigns & posts' },
   { key: 'restaurant.read', group: 'Restaurant', label: "View restaurants' menu & inventory" },
   { key: 'restaurant.manage', group: 'Restaurant', label: "Manage restaurants' menu, supplies & food inventory" },
-  { key: 'poki.read', group: 'Rentals', label: "View Poki properties, tenants & leases" },
-  { key: 'poki.manage', group: 'Rentals', label: 'Manage Poki properties, leases, rent & utility billing' }
+  { key: 'poki.read', group: 'Rentals', label: 'View Poki properties, tenants & bookings' },
+  { key: 'poki.manage', group: 'Rentals', label: 'Manage Poki properties, bookings, rent & utility billing' }
 ];
 var ALL = PERMISSIONS.map(function (p) { return p.key; });
 
@@ -129,7 +129,7 @@ function defaultCommercial() {
       receipt: { prefix: 'RCT', padding: 4, includeYear: true, nextNumber: 1 },
       waybill: { prefix: 'WB', padding: 4, includeYear: true, nextNumber: 1 },
       payrun: { prefix: 'PR', padding: 4, includeYear: true, nextNumber: 1 },
-      lease: { prefix: 'LSE', padding: 4, includeYear: true, nextNumber: 1 }
+      booking: { prefix: 'BKG', padding: 4, includeYear: true, nextNumber: 1 }
     },
     templates: {
       quotationIntro: 'Thank you for the opportunity to quote for your requirements.',
