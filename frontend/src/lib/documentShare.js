@@ -15,11 +15,58 @@ async function renderToPdfBlob(node) {
   var jsPDF = jsPDFModule.default;
   var html2canvas = html2canvasModule.default;
 
-  var canvas = await html2canvas(node, {
-    scale: 2,
-    backgroundColor: '#ffffff',
-    ignoreElements: function (el) { return !!(el.classList && el.classList.contains('no-print')); }
-  });
+  // html2canvas captures the node at whatever size it currently occupies on
+  // screen, and the result is then stretched to the A4 page. Left alone,
+  // that makes the PDF a tenant receives depend on the window width of
+  // whoever pressed Share — generate it on a phone and the document comes
+  // out in its cramped narrow-screen layout, with anything that didn't fit
+  // clipped off the edge.
+  //
+  // So the node is pinned to a fixed A4 content width (794px ~ 210mm at
+  // 96dpi) for the capture and restored immediately after. The padding is
+  // pinned too, because it scales with the viewport. The PDF is then
+  // byte-identical from a phone, a laptop or a 4K monitor.
+  var A4_WIDTH_PX = 794;
+  var saved = {
+    width: node.style.width,
+    minWidth: node.style.minWidth,
+    maxWidth: node.style.maxWidth,
+    maxHeight: node.style.maxHeight,
+    overflow: node.style.overflow,
+    padding: node.style.padding,
+    flexShrink: node.style.flexShrink
+  };
+  node.style.width = A4_WIDTH_PX + 'px';
+  // The preview is a flex item inside the dialog backdrop, so width alone is
+  // only a suggestion — it shrinks straight back to the viewport. min-width
+  // and flex-shrink:0 are what actually hold it open for the capture.
+  node.style.minWidth = A4_WIDTH_PX + 'px';
+  node.style.maxWidth = A4_WIDTH_PX + 'px';
+  node.style.flexShrink = '0';
+  node.style.maxHeight = 'none';
+  node.style.overflow = 'visible';
+  node.style.padding = '40px';
+
+  var canvas;
+  try {
+    canvas = await html2canvas(node, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      width: A4_WIDTH_PX,
+      windowWidth: A4_WIDTH_PX,
+      ignoreElements: function (el) { return !!(el.classList && el.classList.contains('no-print')); }
+    });
+  } finally {
+    // Restore even if the capture throws, so a failed share doesn't leave
+    // the dialog stuck at 794px on a phone.
+    node.style.width = saved.width;
+    node.style.minWidth = saved.minWidth;
+    node.style.maxWidth = saved.maxWidth;
+    node.style.flexShrink = saved.flexShrink;
+    node.style.maxHeight = saved.maxHeight;
+    node.style.overflow = saved.overflow;
+    node.style.padding = saved.padding;
+  }
 
   var pdf = new jsPDF({ unit: 'pt', format: 'a4' });
   var pageWidth = pdf.internal.pageSize.getWidth();

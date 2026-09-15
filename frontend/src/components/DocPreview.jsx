@@ -153,6 +153,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
             </div>
           ))}
         </div>
+        <div className="doc-preview-table-wrap">
         <table className="doc-preview-table">
           <thead><tr><th>Items</th><th className="doc-preview-num">Quantity</th><th className="doc-preview-num">Price</th><th className="doc-preview-num">Amount</th></tr></thead>
           <tbody>
@@ -167,6 +168,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
             ))}
           </tbody>
         </table>
+        </div>
         <div className="doc-preview-row">
           <div>Subtotal</div><div>{subtotal}</div>
         </div>

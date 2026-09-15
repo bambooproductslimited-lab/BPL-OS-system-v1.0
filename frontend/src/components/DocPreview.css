@@ -1,7 +1,10 @@
 .doc-preview {
   background: #fff;
   color: #111;
-  padding: 40px;
+  /* Fixed 40px a side costs 80px of a 360px screen, which is what
+     pushed the content past the page edge. Scales down on small
+     screens and is unchanged at full width. */
+  padding: clamp(20px, 5vw, 40px);
   width: 100%;
   max-width: 700px;
   max-height: 90vh;
@@ -11,8 +14,13 @@
   font-family: Arial, sans-serif;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
-.doc-preview-head { display: flex; justify-content: space-between; align-items: flex-start; }
-.doc-preview-brand { display: flex; align-items: center; gap: 8px; }
+/* gap + wrap so the wordmark and the document number can never meet: they
+   stack instead. min-width:0 lets the brand shrink rather than force the
+   row wider than the page. */
+.doc-preview-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.doc-preview-brand { min-width: 0; }
+.doc-preview-headright { flex-shrink: 0; }
+.doc-preview-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .doc-preview-logo { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
 .doc-preview-brand-name { font-weight: 700; font-size: 13px; }
 .doc-preview-brand-address { font-size: 9px; color: #555; line-height: 1.5; margin-top: 3px; }
@@ -23,19 +31,31 @@
 .doc-preview-rule { height: 6px; background: #bbb; margin: 20px 0; }
 .doc-preview-heading { font-size: 24px; margin: 0 0 10px; font-weight: 700; }
 .doc-preview-subheading { font-size: 12px; color: #4a4a4a; }
-.doc-preview-blocks { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 22px; }
+/* auto-fit rather than a hard three columns: on a narrow screen they wrap
+   to two or one instead of overflowing the page. Print forces three back
+   (see the print block) so paper always matches the designed document. */
+.doc-preview-blocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; margin-top: 22px; }
+.doc-preview-block-title, .doc-preview-block-line { overflow-wrap: anywhere; }
 .doc-preview-block-title { border-top: 2px solid #ccc; padding-top: 6px; font-weight: 700; font-size: 12px; }
 .doc-preview-block-line { font-size: 12px; color: #4a4a4a; margin-top: 4px; }
+/* On a very small phone three no-wrap money columns genuinely cannot fit
+   beside a description, so the table scrolls sideways rather than running
+   off the page. Nothing is lost: print and the PDF both render at the full
+   document width, where there is no scroll and nothing to scroll to. */
+.doc-preview-table-wrap { overflow-x: auto; }
 .doc-preview-table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 12px; }
 .doc-preview-table thead tr { border-bottom: 2px solid #ccc; }
 .doc-preview-table th { text-align: left; padding: 6px 0; font-weight: 700; }
 .doc-preview-table tbody tr { border-bottom: 1px solid #eee; }
 .doc-preview-table td { padding: 8px 0; }
-.doc-preview-desc { color: #4a4a4a; }
+.doc-preview-desc { color: #4a4a4a; overflow-wrap: anywhere; }
 .doc-preview-desc-notes { color: #888; font-size: 11px; margin-top: 2px; white-space: pre-wrap; }
-.doc-preview-table th.doc-preview-num, .doc-preview-table td.doc-preview-num { text-align: right; }
-.doc-preview-row { display: flex; justify-content: space-between; padding-top: 10px; font-size: 12px; color: #4a4a4a; }
-.doc-preview-grand-row { display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #ccc; margin-top: 6px; font-size: 20px; font-weight: 700; }
+/* Money and quantities never wrap — a figure broken across two lines is
+   unreadable — so the description column is the one that gives way. */
+.doc-preview-table th.doc-preview-num, .doc-preview-table td.doc-preview-num { text-align: right; white-space: nowrap; padding-left: 10px; }
+.doc-preview-table { table-layout: auto; }
+.doc-preview-row { display: flex; justify-content: space-between; gap: 12px; padding-top: 10px; font-size: 12px; color: #4a4a4a; }
+.doc-preview-grand-row { display: flex; justify-content: space-between; gap: 12px; padding-top: 14px; border-top: 1px solid #ccc; margin-top: 6px; font-size: 20px; font-weight: 700; }
 .doc-preview-schedule { margin-top: 20px; }
 .doc-preview-schedule-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #4a4a4a; padding: 4px 0; border-bottom: 1px solid #eee; }
 .doc-preview-schedule-row span:first-child { flex: 1; color: #111; font-weight: 600; }
@@ -69,11 +89,23 @@
     box-shadow: none;
     padding: 0;
   }
+  /* Paper is always wide enough for the document as designed, whatever the
+     window happened to be when Print was pressed. */
+  .doc-preview-blocks { grid-template-columns: 1fr 1fr 1fr; }
+  .doc-preview-head { flex-wrap: nowrap; }
+  .doc-preview-table-wrap { overflow: visible; }
 }
 
 /* A sister company's wordmark stands in for the logo it doesn't have, so it
    is set larger and heavier than the group's own brand line — it has to
    carry the top of the page on its own. */
+@media (max-width: 480px) {
+  .doc-preview-table { font-size: 11px; }
+  .doc-preview-table th.doc-preview-num, .doc-preview-table td.doc-preview-num { padding-left: 6px; }
+  .doc-preview-heading { font-size: 20px; }
+  .doc-preview-grand-row { font-size: 17px; }
+}
+
 .doc-preview-wordmark { font-weight: 800; font-size: 19px; letter-spacing: -0.01em; line-height: 1.15; }
 .doc-preview-wordmark-sub { font-size: 10px; color: #555; margin-top: 2px; letter-spacing: 0.02em; }
 .doc-preview-wordmark + .doc-preview-brand-address,
