@@ -224,11 +224,20 @@ async function findOpenShift(employeeId, atISO) {
 // minutes from the 17:00 end and thirty from the start, so the tap-out was
 // refused outright and the employee could not clock out at all.
 //
-// Only applies where the employee has a shift to compare against; without
-// one there is nothing to measure against and the open shift wins, as before.
+// The times come from the employee's shift template, or failing that from
+// the per-employee shift_start/shift_end columns that predate templates —
+// both, so that how someone's hours happen to be recorded does not decide
+// whether they get this protection. Where there are no times at all there
+// is nothing to measure against and the open shift wins: the tap still
+// closes it across midnight, which is the main fix, and a shift that ran
+// implausibly long is flagged rather than guessed at. That asymmetry is
+// deliberate. Reading the tap as the start of a new shift needs positive
+// evidence, and without an expected start time there is none — only elapsed
+// time, which on its own cannot tell a long shift from a missed tap-out.
 async function looksLikeShiftStart(employeeId, hm, ranHours) {
   var res = await pool.query(
-    'SELECT COALESCE(s.start_time, e.shift_start) AS starts, s.end_time AS ends ' +
+    'SELECT COALESCE(s.start_time, e.shift_start) AS starts, ' +
+    '       COALESCE(s.end_time, e.shift_end) AS ends ' +
     'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
     [employeeId]
   );

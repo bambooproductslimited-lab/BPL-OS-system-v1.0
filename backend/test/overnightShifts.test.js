@@ -275,3 +275,28 @@ test('lateness on a day shift and with no shift at all is unchanged', async func
   assert.deepEqual(attendance.judgeLateness(none, '07:00'), { status: 'present', minutesLate: 0 });
   assert.deepEqual(attendance.judgeLateness(none, '07:30'), { status: 'late', minutesLate: 10 });
 });
+
+test('protection does not depend on how someone\'s hours are recorded', async function () {
+  // Shift times live in two places: the shifts table, and the older
+  // per-employee shift_start/shift_end columns that predate templates. The
+  // forgotten-clock-out rule read the start from either but the end only
+  // from a template, so an employee configured the older way had a start
+  // time, no end time, and silently got no protection at all — one missed
+  // tap-out would invert their record from then on, exactly the failure the
+  // rule exists to prevent.
+  var res = await pool.query(
+    'INSERT INTO employees (code, first_name, last_name, email, department_id, hire_date, status, employment_type, shift_start, shift_end) ' +
+    "VALUES ($1, 'Legacy', 'Guard', $2, $3, current_date, 'active', 'permanent', '18:00', '06:00') RETURNING id",
+    [MARK + '-legacy', 'legacyguard@bplghana.com', nightShift.department_id]);
+  var id = res.rows[0].id;
+  await kiosk.setPin(Object.assign({}, adminCtx, { employee: { id: id } }), id, '8110');
+
+  await tap('8110', '2026-09-08T18:00:00Z');           // Tuesday night starts
+  var next = await tap('8110', '2026-09-09T18:00:00Z'); // forgot to tap out
+  assert.equal(next.action, 'in', 'an 18:00 tap is the start of a night, not the end of one');
+
+  var rows = await rowsFor(id);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].clock_out, null, "Tuesday's shift stays open for a supervisor to correct");
+  assert.equal(hm(rows[1].clock_in), '18:00');
+});
