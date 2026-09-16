@@ -421,16 +421,48 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   var resolved = attendanceService.resolveOccurredAt(occurredAt);
   var source = occurredAt ? 'kiosk_offline' : 'kiosk';
 
-  var existing = await pool.query('SELECT clock_out FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, resolved.date]);
+  // A tap closes whatever shift is still open, and starts one if none is.
+  // Keyed on the open shift rather than on today's date, because a night
+  // shift's two taps fall on two different dates: a guard starting 18:00 on
+  // Tuesday taps out at 06:00 on Wednesday, and looking for "Wednesday's
+  // row" found nothing to close and opened a second shift instead. Three
+  // nights produced four rows, the middle ones recording the rest period
+  // between shifts as the shift itself.
+  var at = resolved.date + 'T' + resolved.time + ':00';
+  var open = await attendanceService.findOpenShift(emp.id, at);
+
+  // An open shift is normally what this tap closes — unless the tap looks
+  // like the beginning of a new one, which is what a forgotten clock-out
+  // looks like a day later. Leave the stale shift open for a supervisor and
+  // start today's properly, rather than closing yesterday's around the
+  // wrong times and pushing every later tap out of step. How long the open
+  // shift has already run is part of that judgement: a tap while the shift
+  // is still within its scheduled hours closes it, wherever on the clock it
+  // happens to land.
+  if (open) {
+    var ranHours = attendanceService.hoursBetween(
+      String(open.date).slice(0, 10) + 'T' + String(open.clock_in).slice(0, 8), at);
+    if (await attendanceService.looksLikeShiftStart(emp.id, resolved.time.slice(0, 5), ranHours)) {
+      open = null;
+    }
+  }
+
   var action, rec;
-  if (!existing.rows[0]) {
-    rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt, location);
-    action = 'in';
-  } else if (!existing.rows[0].clock_out) {
+  if (open) {
     rec = await attendanceService.clockOutEmployee(emp.id, occurredAt, location);
     action = 'out';
   } else {
-    fail('conflict', 'You have already clocked in and out today.');
+    // Nothing open. If today's shift is already finished, this is a second
+    // shift in one day rather than a mistake — but the row is keyed on
+    // (employee, date), so it cannot be recorded and saying so is better
+    // than failing obscurely.
+    var todays = await pool.query(
+      'SELECT clock_out FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, resolved.date]);
+    if (todays.rows[0] && todays.rows[0].clock_out) {
+      fail('conflict', 'You have already clocked in and out today.');
+    }
+    rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt, location);
+    action = 'in';
   }
 
   var time = (action === 'in' ? rec.clock_in : rec.clock_out).slice(0, 5);

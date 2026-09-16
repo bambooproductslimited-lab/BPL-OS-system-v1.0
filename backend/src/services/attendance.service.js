@@ -120,16 +120,113 @@ async function clockInEmployee(employeeId, source, occurredAt, location) {
   return Object.assign(res.rows[0], { minutesLate: minutesLate });
 }
 
+// How long an unclosed shift stays open. A tap after this is treated as the
+// start of a new shift rather than the end of the old one, so a forgotten
+// clock-out cannot swallow the next day's work indefinitely. Twelve-hour
+// nights fit comfortably inside it.
+var OPEN_SHIFT_HOURS = 24;
+
+// Beyond this, the recorded shift is longer than anyone actually worked and
+// almost certainly a forgotten tap-out paired with the next tap-in. It is
+// still recorded — refusing would leave the row open forever — but flagged
+// so a supervisor sees it rather than it passing as a 20-hour night.
+var IMPLAUSIBLE_SHIFT_HOURS = 16;
+
+// The employee's shift that is still running: the most recent row with a
+// clock-in and no clock-out, within the window above.
+//
+// This replaces looking the row up by today's date, which is what broke
+// night shifts. A guard starting 18:00 on Tuesday and finishing 06:00 on
+// Wednesday taps twice on two different dates; keyed on the date, the second
+// tap found no row for Wednesday and opened a second shift instead of
+// closing Tuesday's. Keyed on what is actually open, both taps belong to the
+// same shift and it does not matter which side of midnight they fall.
+async function findOpenShift(employeeId, atISO) {
+  var res = await pool.query(
+    'SELECT * FROM attendance ' +
+    'WHERE employee_id = $1 AND clock_in IS NOT NULL AND clock_out IS NULL ' +
+    "  AND (date + clock_in) >= ($2::timestamp - ($3 || ' hours')::interval) " +
+    '  AND (date + clock_in) <= $2::timestamp ' +
+    'ORDER BY (date + clock_in) DESC LIMIT 1',
+    [employeeId, atISO, OPEN_SHIFT_HOURS]
+  );
+  return res.rows[0] || null;
+}
+
+// Does this tap look like the start of a NEW shift rather than the end of
+// the one that is open?
+//
+// With a 24-hour window, a guard on a nightly 18:00 shift who forgets to tap
+// out once would have every following tap-in swallowed as the previous
+// shift's tap-out — one missed tap inverting their record from then on. So a
+// tap is treated as a fresh start, leaving the forgotten shift open and
+// flagged for correction, when BOTH of these hold:
+//
+//   1. the open shift has already run at least as long as it is scheduled to
+//      — it is past due to have been closed, so a tap now is not this shift
+//      finishing on time; and
+//   2. the tap lands nearer the shift's start than its end on the clock.
+//
+// Condition 1 is not optional padding. Without it the rule fires on the
+// ordinary case of someone clocking out shortly after clocking in — arriving
+// at 08:00 on an 08:00 shift and being sent home at 08:30 is four hundred
+// minutes from the 17:00 end and thirty from the start, so the tap-out was
+// refused outright and the employee could not clock out at all.
+//
+// Only applies where the employee has a shift to compare against; without
+// one there is nothing to measure against and the open shift wins, as before.
+async function looksLikeShiftStart(employeeId, hm, ranHours) {
+  var res = await pool.query(
+    'SELECT COALESCE(s.start_time, e.shift_start) AS starts, s.end_time AS ends ' +
+    'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
+    [employeeId]
+  );
+  var row = res.rows[0];
+  if (!row || !row.starts || !row.ends) return false;
+
+  var starts = String(row.starts).slice(0, 5);
+  var ends = String(row.ends).slice(0, 5);
+
+  // Scheduled length, the short way round the clock, so a night shift of
+  // 18:00-06:00 is twelve hours rather than minus twelve.
+  var span = hmToMinutes(ends) - hmToMinutes(starts);
+  if (span <= 0) span += 1440;
+  if (ranHours < span / 60) return false;
+
+  var minutesApart = function (a, b) {
+    var d = Math.abs(hmToMinutes(a) - hmToMinutes(b));
+    return Math.min(d, 1440 - d); // clock distance, shorter way round midnight
+  };
+  return minutesApart(hm, starts) < minutesApart(hm, ends);
+}
+
+function hoursBetween(startISO, endISO) {
+  return (new Date(endISO).getTime() - new Date(startISO).getTime()) / 3600000;
+}
+
 async function clockOutEmployee(employeeId, occurredAt, location) {
   var resolved = resolveOccurredAt(occurredAt);
-  var res = await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
-  var rec = res.rows[0];
-  if (!rec) fail('conflict', 'Not clocked in today.');
-  if (rec.clock_out) fail('conflict', 'Already clocked out today.');
+  var at = resolved.date + 'T' + resolved.time + ':00';
+  var rec = await findOpenShift(employeeId, at);
+  if (!rec) fail('conflict', 'No shift is open to clock out of.');
+
+  var openedAt = String(rec.date).slice(0, 10) + 'T' + String(rec.clock_in).slice(0, 8);
+  var ran = hoursBetween(openedAt, at);
+  var note = rec.note;
+  if (ran > IMPLAUSIBLE_SHIFT_HOURS) {
+    var flag = 'Shift recorded as ' + ran.toFixed(1) + ' hours — check whether a clock-out was missed.';
+    note = note ? note + ' ' + flag : flag;
+  }
 
   var updated = await pool.query(
-    'UPDATE attendance SET clock_out = $1, clock_out_location = $2 WHERE id = $3 RETURNING *',
-    [resolved.time, sanitizeLocation(location), rec.id]
+    'UPDATE attendance SET clock_out = $1, clock_out_date = $2, clock_out_location = $3, note = $4 WHERE id = $5 RETURNING *',
+    [
+      resolved.time,
+      // Only recorded when it differs from the day the shift opened, so a
+      // day shift's row is unchanged from how it has always looked.
+      resolved.date === String(rec.date).slice(0, 10) ? null : resolved.date,
+      sanitizeLocation(location), note, rec.id
+    ]
   );
   return updated.rows[0];
 }
@@ -332,6 +429,7 @@ function rowToAttendance(r) {
 }
 
 module.exports = {
+  findOpenShift: findOpenShift, looksLikeShiftStart: looksLikeShiftStart, hoursBetween: hoursBetween,
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
   resolveLateAfter: resolveLateAfter, report: report
