@@ -40,15 +40,66 @@ function isRestDay(companyName, departmentName, dateISO) {
 }
 
 async function resolveLateAfter(employeeId) {
+  return (await resolveLateRule(employeeId)).cutoff;
+}
+
+// The cutoff, plus where it came from — which decides how a tap is compared
+// against it. Two genuinely different things wear the same HH:MM hat:
+//
+//   a shift cutoff is a point RELATIVE to that employee's own shift start,
+//   and the shift may run through midnight;
+//
+//   the settings.late_after fallback is an ABSOLUTE time of day applied
+//   company-wide to people who have no shift to be measured against.
+//
+// Only the first of those wraps.
+async function resolveLateRule(employeeId) {
   var empRes = await pool.query(
     'SELECT e.shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
     [employeeId]
   );
   var row = empRes.rows[0];
   var shiftStart = row && (row.shift_tpl_start || row.shift_start) ? String(row.shift_tpl_start || row.shift_start).slice(0, 5) : null;
-  if (shiftStart) return addMinutesToHM(shiftStart, LATE_GRACE_MINUTES);
+  if (shiftStart) {
+    return { cutoff: addMinutesToHM(shiftStart, LATE_GRACE_MINUTES), shiftStart: shiftStart };
+  }
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
-  return settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20';
+  return {
+    cutoff: settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20',
+    shiftStart: null
+  };
+}
+
+// Late or present, and by how many minutes.
+//
+// Comparing the two clock strings directly is what this replaces, and it
+// was wrong in both directions for anyone whose shift crosses midnight. A
+// guard due at 18:00 has a cutoff of 18:20; turning up at 01:00 — seven
+// hours late — compares '01:00' > '18:20', which is false, and recorded as
+// present. Every evening and night shift in the company under-reported
+// lateness the moment the clock passed midnight. The mirror image, a shift
+// starting at 23:50 whose cutoff falls at 00:10 the next day, would have
+// marked an on-time arrival as 1,420 minutes late; no shift template starts
+// that late today, but the arithmetic below covers it either way.
+//
+// The tap is placed relative to the shift start, wrapped into
+// [-12h, +12h) — beyond half a day either way there is no honest answer to
+// which shift a tap belongs to, and the pairing rules, not this, decide
+// that. Early is never late, however early.
+function judgeLateness(rule, tapHM) {
+  if (!rule.shiftStart) {
+    // No shift: an absolute daily cutoff, compared as it always was.
+    var late = tapHM > rule.cutoff;
+    return {
+      status: late ? 'late' : 'present',
+      minutesLate: late ? Math.max(0, hmToMinutes(tapHM) - hmToMinutes(rule.cutoff)) : 0
+    };
+  }
+  var offset = hmToMinutes(tapHM) - hmToMinutes(rule.shiftStart);
+  if (offset >= 720) offset -= 1440;
+  if (offset < -720) offset += 1440;
+  if (offset <= LATE_GRACE_MINUTES) return { status: 'present', minutesLate: 0 };
+  return { status: 'late', minutesLate: offset - LATE_GRACE_MINUTES };
 }
 
 // The kiosk's offline queue (see KioskPage.jsx) replays a tap after
@@ -102,16 +153,16 @@ async function clockInEmployee(employeeId, source, occurredAt, location) {
   var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
   if (existing.rows[0]) fail('conflict', 'Already clocked in today.');
 
-  var lateAfter = await resolveLateAfter(employeeId);
-  var status = resolved.time > lateAfter ? 'late' : 'present';
   // Minutes past the late cutoff itself (not the shift's raw start time) —
-  // the same value that just decided 'late' vs 'present' above, so "5
-  // minutes late" always means 5 minutes past the point that actually
-  // matters, whether that came from a shift template's grace period or the
-  // company-wide settings.late_after fallback. Not persisted (attendance
-  // has no column for it) — computed fresh for the kiosk's own result
-  // screen, which is the only thing that currently reads it.
-  var minutesLate = status === 'late' ? Math.max(0, hmToMinutes(resolved.time) - hmToMinutes(lateAfter)) : 0;
+  // the same value that decides 'late' vs 'present', so "5 minutes late"
+  // always means 5 minutes past the point that actually matters, whether
+  // that came from a shift template's grace period or the company-wide
+  // settings.late_after fallback. Not persisted (attendance has no column
+  // for it) — computed fresh for the kiosk's own result screen, which is
+  // the only thing that currently reads it.
+  var judged = judgeLateness(await resolveLateRule(employeeId), resolved.time);
+  var status = judged.status;
+  var minutesLate = judged.minutesLate;
 
   var res = await pool.query(
     'INSERT INTO attendance (employee_id, date, clock_in, status, source, clock_in_location) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
@@ -432,5 +483,6 @@ module.exports = {
   findOpenShift: findOpenShift, looksLikeShiftStart: looksLikeShiftStart, hoursBetween: hoursBetween,
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
-  resolveLateAfter: resolveLateAfter, report: report
+  resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,
+  report: report
 };

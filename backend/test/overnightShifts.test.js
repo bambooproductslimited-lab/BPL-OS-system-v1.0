@@ -19,6 +19,7 @@ var test = require('node:test');
 var assert = require('node:assert/strict');
 var { pool } = require('../src/db/pool');
 var kiosk = require('../src/services/kiosk.service');
+var attendance = require('../src/services/attendance.service');
 
 var MARK = 'NIGHTTEST';
 var adminCtx = { can: function () { return true; }, employee: { id: null }, user: { id: null } };
@@ -240,4 +241,37 @@ test('a shift past its scheduled end is not closed a day late by the next tap-in
   var rows = await rowsFor(id);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].clock_out, null);
+});
+
+test('lateness is judged around the shift, not by comparing clock strings', async function () {
+  // A guard due at 18:00 has a late cutoff of 18:20. Comparing the two
+  // times as strings, an arrival at 01:00 gives '01:00' > '18:20' — false —
+  // so a guard seven hours late was recorded present. Every evening and
+  // night shift in the company under-reported lateness the moment the clock
+  // passed midnight.
+  var rule = { cutoff: '18:20', shiftStart: '18:00' };
+
+  assert.deepEqual(attendance.judgeLateness(rule, '18:00'), { status: 'present', minutesLate: 0 });
+  assert.deepEqual(attendance.judgeLateness(rule, '17:55'), { status: 'present', minutesLate: 0 },
+    'early is never late, and 17:55 must not read as nearly a full day late');
+  assert.deepEqual(attendance.judgeLateness(rule, '18:20'), { status: 'present', minutesLate: 0 },
+    'the grace period itself is not late');
+  assert.deepEqual(attendance.judgeLateness(rule, '18:25'), { status: 'late', minutesLate: 5 });
+
+  // The cases that were wrong: all of these land after midnight.
+  assert.deepEqual(attendance.judgeLateness(rule, '00:30'), { status: 'late', minutesLate: 370 });
+  assert.deepEqual(attendance.judgeLateness(rule, '01:00'), { status: 'late', minutesLate: 400 });
+});
+
+test('lateness on a day shift and with no shift at all is unchanged', async function () {
+  var day = { cutoff: '08:20', shiftStart: '08:00' };
+  assert.deepEqual(attendance.judgeLateness(day, '07:55'), { status: 'present', minutesLate: 0 });
+  assert.deepEqual(attendance.judgeLateness(day, '09:00'), { status: 'late', minutesLate: 40 });
+
+  // No shift template: settings.late_after is an absolute time of day, not a
+  // point relative to anything, so it does not wrap and is compared exactly
+  // as it always was.
+  var none = { cutoff: '07:20', shiftStart: null };
+  assert.deepEqual(attendance.judgeLateness(none, '07:00'), { status: 'present', minutesLate: 0 });
+  assert.deepEqual(attendance.judgeLateness(none, '07:30'), { status: 'late', minutesLate: 10 });
 });
