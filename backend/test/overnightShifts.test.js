@@ -1,6 +1,12 @@
 /*
  * Attendance across midnight — the security team works 18:00 to 06:00.
  *
+ * The rule the business wants is a plain toggle: a tap closes whatever
+ * shift is open and starts one if none is. Nothing else is consulted — not
+ * the time of day, not how long the shift has run. A shift that is not
+ * clocked out keeps running until somebody clocks it out, however long that
+ * takes, and the next tap starts the next shift.
+ *
  * attendance carries one `date` and two bare times, and the clock used to
  * find the row to close by today's date. That works for a day shift, whose
  * two taps fall on one date, and silently misrepresented a night one: the
@@ -131,27 +137,6 @@ test('an ordinary day shift is unchanged, including the third-tap refusal', asyn
     'a day shift records no clock-out date — it is the same day, as it always was');
 });
 
-test('a forgotten clock-out does not swallow the next night', async function () {
-  // The risk in pairing on an open shift: with a 24-hour window, a guard on
-  // a nightly 18:00 shift who misses one tap-out would have every later
-  // tap-in eaten as the previous shift's tap-out — one missed tap inverting
-  // the record from then on. A tap nearer the shift's start than its end is
-  // treated as a start instead.
-  var id = await guard(nightShift, '8104');
-
-  await tap('8104', '2026-09-08T18:00:00Z');          // Tuesday night starts
-  var next = await tap('8104', '2026-09-09T18:00:00Z'); // forgot to tap out; back for Wednesday
-  assert.equal(next.action, 'in', 'an 18:00 tap is the start of a night, not the end of one');
-  var close = await tap('8104', '2026-09-10T06:00:00Z');
-  assert.equal(close.action, 'out');
-
-  var rows = await rowsFor(id);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].clock_out, null, "Tuesday's shift stays open for a supervisor to correct");
-  assert.equal(hm(rows[1].clock_in), '18:00', 'Wednesday night is recorded at its real start time');
-  assert.equal(hm(rows[1].clock_out), '06:00');
-});
-
 test('an implausibly long shift is recorded but flagged', async function () {
   // Refusing would leave the row open forever, so it is closed — but a
   // 20-hour shift is almost certainly a missed tap-out and should not pass
@@ -172,19 +157,6 @@ test('an implausibly long shift is recorded but flagged', async function () {
   assert.equal(rows.length, 1);
   assert.match(rows[0].note, /check whether a clock-out was missed/i);
   assert.equal(iso(rows[0].clock_out_date), '2026-09-09');
-});
-
-test('a tap beyond the open-shift window starts a fresh shift', async function () {
-  var id = await guard(dayShift, '8106');
-
-  await tap('8106', '2026-09-08T08:00:00Z');
-  // More than 24 hours later: the old shift is too stale to close.
-  var later = await tap('8106', '2026-09-10T08:00:00Z');
-  assert.equal(later.action, 'in');
-
-  var rows = await rowsFor(id);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].clock_out, null, 'the stale shift is left open, not closed two days late');
 });
 
 test('a night guard clocking in on time is not marked late', async function () {
@@ -225,24 +197,6 @@ test('clocking out shortly after clocking in still works', async function () {
   assert.equal(hm(rows[0].clock_out), half);
 });
 
-test('a shift past its scheduled end is not closed a day late by the next tap-in', async function () {
-  // The other side of the same rule: once the shift HAS run its scheduled
-  // length, a tap back at its start time is the next shift beginning, not
-  // this one ending. Pinned separately from the forgotten-clock-out case
-  // above so that loosening the elapsed-time gate cannot quietly restore
-  // the inverted-record bug.
-  var id = await guard(dayShift, '8109');
-  var start = hm(dayShift.start_time);
-
-  await tap('8109', '2026-09-08T' + start + ':00Z');
-  var next = await tap('8109', '2026-09-09T' + start + ':00Z'); // 24h later
-  assert.equal(next.action, 'in', 'a full day later at the same clock time is a new shift');
-
-  var rows = await rowsFor(id);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].clock_out, null);
-});
-
 test('lateness is judged around the shift, not by comparing clock strings', async function () {
   // A guard due at 18:00 has a late cutoff of 18:20. Comparing the two
   // times as strings, an arrival at 01:00 gives '01:00' > '18:20' — false —
@@ -276,27 +230,62 @@ test('lateness on a day shift and with no shift at all is unchanged', async func
   assert.deepEqual(attendance.judgeLateness(none, '07:30'), { status: 'late', minutesLate: 10 });
 });
 
-test('protection does not depend on how someone\'s hours are recorded', async function () {
-  // Shift times live in two places: the shifts table, and the older
-  // per-employee shift_start/shift_end columns that predate templates. The
-  // forgotten-clock-out rule read the start from either but the end only
-  // from a template, so an employee configured the older way had a start
-  // time, no end time, and silently got no protection at all — one missed
-  // tap-out would invert their record from then on, exactly the failure the
-  // rule exists to prevent.
-  var res = await pool.query(
-    'INSERT INTO employees (code, first_name, last_name, email, department_id, hire_date, status, employment_type, shift_start, shift_end) ' +
-    "VALUES ($1, 'Legacy', 'Guard', $2, $3, current_date, 'active', 'permanent', '18:00', '06:00') RETURNING id",
-    [MARK + '-legacy', 'legacyguard@bplghana.com', nightShift.department_id]);
-  var id = res.rows[0].id;
-  await kiosk.setPin(Object.assign({}, adminCtx, { employee: { id: id } }), id, '8110');
+test('a forgotten clock-out keeps running until it is clocked out', async function () {
+  // The rule the business asked for, and the one this file used to assert
+  // the opposite of. An employee who forgets to tap out does not have the
+  // shift closed for them, abandoned, or second-guessed: the hours keep
+  // reading until somebody taps out, whenever that is.
+  var id = await guard(dayShift, '8111');
 
-  await tap('8110', '2026-09-08T18:00:00Z');           // Tuesday night starts
-  var next = await tap('8110', '2026-09-09T18:00:00Z'); // forgot to tap out
-  assert.equal(next.action, 'in', 'an 18:00 tap is the start of a night, not the end of one');
+  await tap('8111', '2026-09-11T07:00:00Z');                 // Friday, arrives
+  var out = await tap('8111', '2026-09-14T09:30:00Z');       // Monday, finally taps out
+  assert.equal(out.action, 'out', 'the tap closes the shift however long it has run');
+
+  var rows = await rowsFor(id);
+  assert.equal(rows.length, 1);
+  assert.equal(hm(rows[0].clock_in), '07:00');
+  assert.equal(hm(rows[0].clock_out), '09:30');
+  assert.equal(iso(rows[0].clock_out_date), '2026-09-14', 'three days later, recorded as such');
+  assert.match(rows[0].note, /74\.5 hours/, 'and flagged, because it is almost certainly a missed tap-out');
+});
+
+test('after clocking out they can start a fresh shift whatever the time', async function () {
+  // Two taps on arrival: one closes yesterday, one starts today. The second
+  // tap must not be refused for being at the "wrong" time of day — that was
+  // the behaviour being overruled, where an 07:00 tap was read as the start
+  // of a shift and yesterday's was left open.
+  var id = await guard(dayShift, '8112');
+
+  var a = await tap('8112', '2026-09-13T07:00:00Z');
+  assert.equal(a.action, 'in');
+  var b = await tap('8112', '2026-09-14T07:00:00Z');   // 24h on, forgot to tap out
+  assert.equal(b.action, 'out', 'closes yesterday');
+  var c = await tap('8112', '2026-09-14T07:01:00Z');
+  assert.equal(c.action, 'in', 'and immediately starts today');
+  var d = await tap('8112', '2026-09-14T16:00:00Z');
+  assert.equal(d.action, 'out');
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].clock_out, null, "Tuesday's shift stays open for a supervisor to correct");
-  assert.equal(hm(rows[1].clock_in), '18:00');
+  assert.equal(iso(rows[0].clock_out_date), '2026-09-14', "Sunday's shift ran into Monday");
+  assert.equal(hm(rows[1].clock_in), '07:01');
+  assert.equal(hm(rows[1].clock_out), '16:00');
+});
+
+test('a second shift on the same calendar day is refused, and says so', async function () {
+  // Not a rule, a schema limit: attendance is UNIQUE (employee_id, date), so
+  // one employee has at most one row per day. Someone who finishes at noon
+  // and comes back at 14:00 cannot be recorded. Pinned so that if the
+  // constraint is ever lifted to allow split shifts, this test fails and
+  // says where to look rather than the behaviour changing unnoticed.
+  var id = await guard(dayShift, '8113');
+
+  await tap('8113', '2026-09-14T07:00:00Z');
+  await tap('8113', '2026-09-14T12:00:00Z');
+  await assert.rejects(function () { return tap('8113', '2026-09-14T14:00:00Z'); },
+    /already clocked in and out today/i);
+
+  var rows = await rowsFor(id);
+  assert.equal(rows.length, 1);
+  assert.equal(hm(rows[0].clock_out), '12:00');
 });

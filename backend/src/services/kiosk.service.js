@@ -421,31 +421,30 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   var resolved = attendanceService.resolveOccurredAt(occurredAt);
   var source = occurredAt ? 'kiosk_offline' : 'kiosk';
 
-  // A tap closes whatever shift is still open, and starts one if none is.
+  // One rule, both ways round: a tap closes whatever shift is open, and
+  // starts one if none is. Nothing else is consulted — not the time of day,
+  // not how long the shift has run, not what the employee's shift template
+  // says.
+  //
   // Keyed on the open shift rather than on today's date, because a night
   // shift's two taps fall on two different dates: a guard starting 18:00 on
   // Tuesday taps out at 06:00 on Wednesday, and looking for "Wednesday's
   // row" found nothing to close and opened a second shift instead. Three
   // nights produced four rows, the middle ones recording the rest period
   // between shifts as the shift itself.
+  //
+  // An earlier version of this tried to be clever: a tap that looked more
+  // like the start of a shift than the end of one left the old shift open
+  // and started a new one, so that a single missed tap-out could not invert
+  // a guard's record from then on. That is not the behaviour the business
+  // wants. A shift that is not clocked out keeps running until somebody
+  // clocks it out, whenever that is, and the next tap starts the next shift
+  // — so an employee who forgot yesterday taps twice on arrival, once to
+  // close yesterday and once to start today. The kiosk names the action it
+  // just took on screen, which makes that recoverable by the person
+  // standing at it; a heuristic they cannot see is not.
   var at = resolved.date + 'T' + resolved.time + ':00';
   var open = await attendanceService.findOpenShift(emp.id, at);
-
-  // An open shift is normally what this tap closes — unless the tap looks
-  // like the beginning of a new one, which is what a forgotten clock-out
-  // looks like a day later. Leave the stale shift open for a supervisor and
-  // start today's properly, rather than closing yesterday's around the
-  // wrong times and pushing every later tap out of step. How long the open
-  // shift has already run is part of that judgement: a tap while the shift
-  // is still within its scheduled hours closes it, wherever on the clock it
-  // happens to land.
-  if (open) {
-    var ranHours = attendanceService.hoursBetween(
-      String(open.date).slice(0, 10) + 'T' + String(open.clock_in).slice(0, 8), at);
-    if (await attendanceService.looksLikeShiftStart(emp.id, resolved.time.slice(0, 5), ranHours)) {
-      open = null;
-    }
-  }
 
   var action, rec;
   if (open) {
