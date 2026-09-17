@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { NAV_GROUPS, ALL_NAV_ITEMS } from './navModel';
 import Icon from './navIcons';
 import NotificationsBell from '../components/NotificationsBell';
+import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import './AppShell.css';
 
 // Redesigned around the icon/avatar language established across every
@@ -31,21 +32,22 @@ function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_C
 // .table, .dialog, .tag, .card, .input, .seg — re-themes for free. Pages
 // outside this shell (the login screen, /pos, /kiosk) are untouched —
 // they already have their own separate visual identity.
-const THEME_KEY = 'bamboo-os-theme';
-
-function getInitialTheme() {
-  try {
-    const stored = localStorage.getItem(THEME_KEY);
-    if (stored === 'light' || stored === 'dark') return stored;
-  } catch { /* private mode / storage blocked — fall through to default */ }
-  return 'dark';
-}
 
 export default function AppShell() {
   const { session, logout, can } = useAuth();
   const location = useLocation();
   const [theme, setTheme] = useState(getInitialTheme);
   const isDarkPage = theme === 'dark';
+
+  // The colours live on <html> so that html, body and the .shell grid are
+  // themed too, not just what is inside <main> — see lib/theme.js for the
+  // white-band bug that came of getting this wrong. Removed on unmount so
+  // that logging out, or opening /pos or /kiosk, leaves those screens on
+  // their own palette.
+  useEffect(() => {
+    applyTheme(theme);
+    return clearTheme;
+  }, [theme]);
 
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark';

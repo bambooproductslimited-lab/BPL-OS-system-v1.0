@@ -190,7 +190,16 @@
    genuinely new visual — glowing icon badges on stat tiles — is hand-
    written below and opt-in per page via the .glow-badge class. Sidebar is
    deliberately left as its own dark-green identity, unchanged either way. */
-.shell-main-dark {
+/* On :root, not on .shell-main-dark, so that html, body and the .shell grid
+   are themed as well. When these lived on <main>, everything outside it kept
+   the light theme's white --color-bg; a table wider than the screen pushed
+   the document sideways and that white showed as a band down the right-hand
+   edge with the row buttons clipped against it. AppShell sets and removes
+   data-theme, so the screens rendered outside it (login, /pos, /kiosk,
+   /share, /enroll-face) never match this and keep their own palette.
+   .shell-main-dark is still on <main> — page stylesheets hang dark-only
+   rules off it — but it is a hook now, not the source of the colours. */
+:root[data-theme='dark'] {
   --color-bg: #0f1626;
   --color-bg-subtle: #17203f;
   --color-text: #f2f5fb;
@@ -216,13 +225,20 @@
   --color-warning: #fbbf24;
   --color-warning-100: rgba(251, 191, 36, 0.14);
   --radius: 16px;
+}
+
+/* Redeclaring the custom properties above isn't enough on its own: a plain
+   `color: var(--color-text)` set higher up (body) resolves ONCE to the light
+   theme's black and then inherits down as an already-computed value —
+   descendants only pick up the override if something in between explicitly
+   re-references the token via `color`, which most text (h1/h2/p) doesn't do
+   on its own. Same for the background: the tokens alone do not repaint
+   anything that already resolved them. */
+:root[data-theme='dark'],
+:root[data-theme='dark'] body,
+:root[data-theme='dark'] .shell,
+.shell-main-dark {
   background: var(--color-bg);
-  /* Redeclaring the custom properties above isn't enough on its own: a
-     plain `color: var(--color-text)` set higher up (body) resolves ONCE
-     to the light theme's black and then inherits down as an already-
-     computed value — descendants only pick up this scope's override if
-     something in between explicitly re-references the token via `color`,
-     which most text here (h1/h2/p) doesn't do on its own. */
   color: var(--color-text);
 }
 .shell-main-dark .shell-header-icon {
