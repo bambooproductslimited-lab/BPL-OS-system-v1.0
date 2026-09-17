@@ -74,7 +74,7 @@ export default function AppShell() {
       <aside className="shell-sidebar">
         <div className="shell-brand">
           <img src="/logo.png" alt="" className="shell-brand-logo" />
-          <div>
+          <div className="shell-brand-text">
             <div className="shell-brand-name">Bamboo Products</div>
             <div className="shell-brand-sub">Company OS · Phase 1</div>
           </div>
@@ -92,9 +92,10 @@ export default function AppShell() {
                     key={item.key}
                     to={'/' + item.key}
                     className={({ isActive }) => 'shell-nav-item' + (isActive ? ' is-active' : '')}
+                    title={item.label}
                   >
                     <span className="shell-nav-icon"><Icon name={item.icon} /></span>
-                    {item.label}
+                    <span className="shell-nav-label">{item.label}</span>
                   </NavLink>
                 ))}
               </div>

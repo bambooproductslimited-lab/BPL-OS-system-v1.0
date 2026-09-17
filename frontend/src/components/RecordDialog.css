@@ -1,0 +1,51 @@
+.record-dialog { max-width: 560px; gap: 18px; max-height: calc(100vh - 64px); overflow: auto; }
+
+.record-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.record-dialog-heading { min-width: 0; }
+.record-dialog-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--color-text-muted); }
+.record-dialog-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.record-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: var(--divider-width) solid transparent;
+  border-radius: var(--radius, 8px);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.record-dialog-close:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); }
+.record-dialog-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+/* Two columns on a roomy screen, one on a phone — so the panel never needs
+   sideways scrolling either. */
+.record-dialog-fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+}
+.record-dialog-field { min-width: 0; }
+.record-dialog-field-wide { grid-column: 1 / -1; }
+.record-dialog-field dt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.record-dialog-field dd { margin: 0; font-size: 14px; color: var(--color-text); overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  .record-dialog-fields { grid-template-columns: minmax(0, 1fr); }
+}

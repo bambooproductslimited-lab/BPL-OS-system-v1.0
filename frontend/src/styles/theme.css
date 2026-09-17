@@ -148,7 +148,35 @@ button { font-family: inherit; }
   vertical-align: top;
 }
 .table tbody tr:last-child td { border-bottom: none; }
-.table-actions { text-align: right; white-space: nowrap; }
+/* Actions are one three-dot button (components/RowMenu) rather than a row
+   of them. nowrap is kept because that single button must not wrap, but it
+   is no longer holding five buttons' worth of width open — which is what
+   made these tables wider than the screen. */
+.table-actions { text-align: right; white-space: nowrap; width: 1%; }
+
+/* Rows open their record. The whole row is the target, so there is no need
+   to hunt for a link, and .table-actions stops the click so the menu button
+   does not also open the panel. */
+.table-clickable tbody tr { cursor: pointer; }
+.table-clickable tbody tr:hover { background: color-mix(in srgb, var(--color-accent) 9%, transparent); }
+.table-clickable tbody tr:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+/* A last-resort scroll container. Nothing should need it now, but a table
+   that does grow too wide scrolls inside its own box rather than dragging
+   the whole document sideways — which is what exposed the white band down
+   the right-hand edge of the page. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+
+/* Long values wrap instead of holding a column open at its full width. */
+.table td { overflow-wrap: anywhere; }
+
+/* Columns that fall away as the screen narrows, least important first.
+   Nothing is lost by hiding them: every column is repeated in the record
+   panel that opening a row shows, so this trades a column for a click
+   rather than for a horizontal scrollbar. Mark a <th> and its <td>s with
+   the same class — col-wide goes first, then col-mid. */
+@media (max-width: 1000px) { .table .col-wide { display: none; } }
+@media (max-width: 760px) { .table .col-mid { display: none; } }
 .table-empty { margin: 12px 0 0; font-size: 13px; color: var(--color-text-muted); }
 
 /* ── segmented control (filter tabs) ───────────────────────────────── */

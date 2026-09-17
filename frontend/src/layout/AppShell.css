@@ -274,3 +274,29 @@
 .shell-main-dark .input,
 .shell-main-dark .btn { border-radius: var(--radius); }
 .shell-main-dark .dialog { box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55); }
+
+/* ── narrow screens ──────────────────────────────────────────────────────
+   The shell was a fixed 264px sidebar at every width, with no media query
+   anywhere in this file. On an iPad in portrait that is a third of the
+   screen and on a phone it is two thirds, which is most of why pages had to
+   be scrolled sideways to be read. Below 1000px it becomes an icon rail;
+   the labels move to the title attribute so nothing becomes unfindable. */
+@media (max-width: 1000px) {
+  .shell { grid-template-columns: 62px 1fr; }
+  .shell-brand { padding: 14px 0; justify-content: center; }
+  .shell-brand-text { display: none; }
+  .shell-nav { padding: 8px 0; }
+  .shell-nav-group-label { display: none; }
+  .shell-nav-label { display: none; }
+  .shell-nav-item { justify-content: center; padding: 10px 0; }
+  .shell-user { padding: 10px 0; align-items: center; }
+  .shell-user-text { display: none; }
+  .shell-signout { display: none; }
+  .shell-content { padding: 18px 14px; }
+}
+
+/* Wide content scrolls inside the page area instead of dragging the whole
+   document sideways — which is what made the themed background run out and
+   show a white band down the edge. One rule here covers every page, since
+   .shell-content wraps them all. */
+.shell-content { min-width: 0; overflow-x: auto; }

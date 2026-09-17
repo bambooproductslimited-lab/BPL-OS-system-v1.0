@@ -1,0 +1,55 @@
+.row-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: var(--divider-width) solid transparent;
+  border-radius: var(--radius, 8px);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.row-menu-btn:hover:not(:disabled),
+.row-menu-btn-open {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.row-menu-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.row-menu-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+/* Fixed, in a portal on <body>: a dropdown rendered inside the cell would be
+   clipped by the table's own scroll container on the last few rows. */
+.row-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 176px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  border: var(--divider-width) solid var(--color-border);
+  border-radius: var(--radius, 10px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+:root[data-theme='dark'] .row-menu { box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); }
+
+.row-menu-item {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border: none;
+  border-radius: calc(var(--radius, 10px) - 4px);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.row-menu-item:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 16%, transparent); }
+.row-menu-item:disabled { opacity: 0.4; cursor: not-allowed; }
+.row-menu-item-danger { color: var(--color-danger); }
+.row-menu-item-danger:hover:not(:disabled) { background: var(--color-danger-100); }

@@ -6,6 +6,8 @@ import DocWizard from '../components/DocWizard';
 import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -104,6 +106,8 @@ export default function InvoicesPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+
+  const [detail, setDetail] = useState(null);
 
   const [orderId, setOrderId] = useState('');
   const [orderBusy, setOrderBusy] = useState(false);
@@ -284,6 +288,21 @@ export default function InvoicesPage() {
     matchesQuery(search, inv.invoiceNo, inv.customerName) && (!statusFilter || invoiceDisplayStatus(inv) === statusFilter)
   );
 
+  // What can be done to an invoice, in one place: the row's three-dot menu
+  // and the detail panel's menu are the same list, so they cannot drift.
+  // Entries are hidden rather than disabled where the permission or status
+  // rules out the action, which is how these read as separate buttons.
+  function rowActions(inv) {
+    const canRecordPayment = inv.status !== 'paid' && inv.status !== 'void';
+    return [
+      { label: 'Preview', onClick: () => openPreview(inv) },
+      { label: 'Record payment', onClick: () => openPay(inv), hidden: !(canRecordPayment && canManage) },
+      { label: 'Edit', onClick: () => openEdit(inv), hidden: !canManage },
+      { label: 'Void', onClick: () => voidInvoice(inv), hidden: !(inv.status === 'unpaid' && canManage) },
+      { label: 'Delete', onClick: () => setDeleteTarget(inv), danger: true, hidden: !(inv.status === 'unpaid' && canManage) },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -310,17 +329,19 @@ export default function InvoicesPage() {
         </form>
       )}
 
-      <table className="table">
+      <table className="table table-clickable">
         <thead>
-          <tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Due</th><th>Status</th><th></th></tr>
+          <tr><th>Invoice</th><th>Customer</th><th className="col-mid">Total</th><th>Balance</th><th className="col-wide">Due</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
           {visibleInvoices.map((inv) => {
-            const canRecordPayment = inv.status !== 'paid' && inv.status !== 'void';
-            const canVoid = inv.status === 'unpaid' && canManage;
-            const canDelete = inv.status === 'unpaid' && canManage;
             return (
-              <tr key={inv.id}>
+              <tr
+                key={inv.id}
+                tabIndex={0}
+                onClick={() => setDetail(inv)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(inv); } }}
+              >
                 <td>
                   <div className="invoices-no-cell">
                     <span className={'invoices-badge invoices-badge-' + statusTone(invoiceBucket(inv))}><DocIcon /></span>
@@ -328,17 +349,12 @@ export default function InvoicesPage() {
                   </div>
                 </td>
                 <td>{inv.customerName}</td>
-                <td>{money(inv.grandTotal, inv.currency)}</td>
-                <td>{money(inv.amountPaid, inv.currency)}</td>
+                <td className="col-mid">{money(inv.grandTotal, inv.currency)}</td>
                 <td style={{ fontWeight: 600 }}>{money(inv.balanceDue, inv.currency)}</td>
-                <td>{fmtDate(inv.dueDate)}</td>
+                <td className="col-wide">{fmtDate(inv.dueDate)}</td>
                 <td><span className={'tag ' + invoiceTagClass(inv)}>{invoiceStatusLabel(invoiceDisplayStatus(inv))}</span></td>
-                <td className="table-actions">
-                  <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => openPreview(inv)}>Preview</button>
-                  {canRecordPayment && canManage && <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => openPay(inv)}>Record payment</button>}
-                  {canManage && <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => openEdit(inv)}>Edit</button>}
-                  {canVoid && <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => voidInvoice(inv)}>Void</button>}
-                  {canDelete && <button type="button" className="btn btn-secondary invoices-row-btn" disabled={busyId === inv.id} onClick={() => setDeleteTarget(inv)}>Delete</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu disabled={busyId === inv.id} actions={rowActions(inv)} />
                 </td>
               </tr>
             );
@@ -456,6 +472,28 @@ export default function InvoicesPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {detail && (
+        <RecordDialog
+          title={detail.invoiceNo}
+          subtitle={detail.customerName}
+          tag={<span className={'tag ' + invoiceTagClass(detail)}>{invoiceStatusLabel(invoiceDisplayStatus(detail))}</span>}
+          actions={rowActions(detail)}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Total', value: money(detail.grandTotal, detail.currency) },
+            { label: 'Paid', value: money(detail.amountPaid, detail.currency) },
+            { label: 'Balance due', value: money(detail.balanceDue, detail.currency) },
+            { label: 'Due', value: fmtDate(detail.dueDate) },
+            { label: 'Issued', value: fmtDate(detail.issuedAt) },
+            { label: 'Currency', value: detail.currency },
+            { label: 'PO reference', value: detail.poReference },
+            { label: 'Payment schedule', value: formatPaymentSchedule(detail.paymentSchedule), wide: true },
+            { label: 'Notes', value: detail.notes, wide: true },
+            { label: 'Terms', value: detail.terms, wide: true },
+          ]}
+        />
       )}
 
       {deleteTarget && (
