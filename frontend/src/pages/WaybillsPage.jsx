@@ -6,6 +6,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import CatalogPicker from '../components/CatalogPicker';
 import './WaybillsPage.css';
 import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 
 // Waybills document goods leaving the factory or showroom — a delivery
 // note, not a sales document (no pricing on the line items). The printed
@@ -71,6 +72,7 @@ export default function WaybillsPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [previewWb, setPreviewWb] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -174,6 +176,15 @@ export default function WaybillsPage() {
 
   const visibleWaybills = waybills.filter((wb) => matchesQuery(search, wb.waybillNo, wb.destination, wb.customerName, wb.driverName, wb.vehicleNo));
 
+  // One list, shared by the row menu and the record panel.
+  function waybillActions(wb) {
+    return [
+      { label: 'Preview', onClick: () => setPreviewWb(wb) },
+      { label: 'Mark delivered', onClick: () => setStatus(wb, 'delivered'), disabled: busyId === wb.id, hidden: !(canManage && wb.status === 'dispatched') },
+      { label: 'Cancel', onClick: () => setStatus(wb, 'cancelled'), disabled: busyId === wb.id, danger: true, hidden: !(canManage && wb.status === 'dispatched') },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -183,13 +194,18 @@ export default function WaybillsPage() {
         {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>New waybill</button>}
       </div>
 
-      <table className="table">
+      <table className="table table-clickable">
         <thead>
           <tr><th>Waybill</th><th>Origin</th><th>Destination</th><th>Driver</th><th>Vehicle</th><th>Date</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           {visibleWaybills.map((wb) => (
-            <tr key={wb.id}>
+            <tr
+              key={wb.id}
+              tabIndex={0}
+              onClick={() => setDetail(wb)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(wb); } }}
+            >
               <td>
                 <div className="waybills-no-cell">
                   <span className="waybills-badge" style={{ background: badgeColor(wb.origin) }}><TruckIcon /></span>
@@ -210,11 +226,7 @@ export default function WaybillsPage() {
               <td>{fmtDate(wb.createdAt)}</td>
               <td><span className={'tag ' + tagClass(wb.status)}>{wb.status}</span></td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                <RowMenu actions={[
-                  { label: "Preview", onClick: () => setPreviewWb(wb) },
-                  { label: "Mark delivered", onClick: () => setStatus(wb, 'delivered'), disabled: busyId === wb.id, hidden: !(canManage && wb.status === 'dispatched') },
-                  { label: "Cancel", onClick: () => setStatus(wb, 'cancelled'), disabled: busyId === wb.id, danger: true, hidden: !(canManage && wb.status === 'dispatched') },
-                ]} />
+                <RowMenu actions={waybillActions(wb)} />
               </td>
             </tr>
           ))}
@@ -357,6 +369,41 @@ export default function WaybillsPage() {
       {previewWb && <WaybillPreview waybill={previewWb} onClose={() => setPreviewWb(null)} />}
 
       {toast && <div className="toast">{toast}</div>}
+      {detail && (
+        <RecordDialog
+          title={detail.waybillNo}
+          subtitle={detail.destination + (detail.customerName ? ' · ' + detail.customerName : '')}
+          actions={waybillActions(detail)}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Origin', value: detail.origin },
+            { label: 'Destination', value: detail.destination },
+            { label: 'Customer', value: detail.customerName },
+            { label: 'Driver', value: detail.driverName },
+            { label: 'Vehicle', value: detail.vehicleNo },
+            { label: 'Dispatched', value: fmtDate(detail.createdAt) },
+            { label: 'Shipping date', value: detail.shippingDate ? fmtDate(detail.shippingDate) : null },
+            { label: 'Shipped to', value: detail.shippedToName },
+            { label: 'Address', value: detail.shippedToAddress, wide: true },
+            { label: 'Received by', value: detail.receivedBy },
+            { label: 'Status', value: detail.status },
+            { label: 'Delivered', value: detail.deliveredAt ? fmtDate(detail.deliveredAt) : null },
+            { label: 'Notes', value: detail.notes, wide: true },
+            {
+              label: 'Items',
+              wide: true,
+              value: (detail.items || []).length ? (
+                <ul className="record-dialog-list">
+                  {detail.items.map((it, i) => (
+                    <li key={i}>{it.qty} {it.unit || ''} — {it.description}{it.itemNo ? ' (' + it.itemNo + ')' : ''}</li>
+                  ))}
+                </ul>
+              ) : null,
+            },
+          ]}
+        />
+      )}
+
     </div>
   );
 }

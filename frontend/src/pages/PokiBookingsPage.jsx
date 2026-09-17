@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 
 // Bookings — who occupies which unit, on what terms. Also where the tenancy
 // agreement gets generated (from a template, with the booking's own details
@@ -36,6 +37,7 @@ export default function PokiBookingsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
 
   const [dialog, setDialog] = useState(null); // 'booking' | 'deposit' | 'refund' | 'renew' | 'end' | 'agreement'
   const [editId, setEditId] = useState(null);
@@ -300,6 +302,19 @@ export default function PokiBookingsPage() {
   const bookableUnits = units.filter((u) => u.active !== false || (editId && form.unitId === u.id));
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
+  // One list, shared by the row menu and the record panel.
+  function bookingActions(l) {
+    return [
+      { label: 'Agreement', onClick: () => openAgreement(l) },
+      { label: 'Activate', onClick: () => act(l, '/activate', {}, 'Booking activated — the unit is now occupied.'), disabled: busyId === l.id, hidden: !(canManage && l.status === 'draft') },
+      { label: 'Edit', onClick: () => openBooking(l), hidden: !(canManage && (l.status === 'draft' || l.status === 'active')) },
+      { label: 'Deposit', onClick: () => openSimple('deposit', l), hidden: !(canManage && l.status === 'active') },
+      { label: 'Renew', onClick: () => openSimple('renew', l), hidden: !(canManage && l.status === 'active') },
+      { label: 'End', onClick: () => openSimple('end', l), hidden: !(canManage && l.status === 'active') },
+      { label: 'Refund deposit', onClick: () => openSimple('refund', l), hidden: !(canManage && l.depositHeld > l.depositRefunded && l.status !== 'active' && l.status !== 'draft') },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -333,7 +348,7 @@ export default function PokiBookingsPage() {
         </div>
       ) : (
         <div className="poki-table-wrap">
-        <table className="table">
+        <table className="table table-clickable">
           <thead>
             <tr>
               <th>Booking</th><th>Unit</th><th>Tenant</th><th>Term</th>
@@ -343,7 +358,12 @@ export default function PokiBookingsPage() {
           </thead>
           <tbody>
             {visible.map((l) => (
-              <tr key={l.id}>
+              <tr
+                key={l.id}
+                tabIndex={0}
+                onClick={() => setDetail(l)}
+                onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setDetail(l); } }}
+              >
                 <td className="poki-nowrap">
                   <div className="poki-strong">{l.bookingNo}</div>
                   {l.agreementGeneratedAt && <div className="poki-muted">agreement ready</div>}
@@ -371,15 +391,7 @@ export default function PokiBookingsPage() {
                 <td className={'poki-num' + (l.balanceTotal > 0 ? ' poki-overdue' : '')}>{money(l.balanceTotal || 0, l.currency)}</td>
                 <td><span className={'poki-chip poki-chip-' + l.status}>{l.status}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                  <RowMenu actions={[
-                    { label: "Agreement", onClick: () => openAgreement(l) },
-                    { label: "Activate", onClick: () => act(l, '/activate', {}, 'Booking activated — the unit is now occupied.'), disabled: busyId === l.id, hidden: !(canManage && l.status === 'draft') },
-                    { label: "Edit", onClick: () => openBooking(l), hidden: !(canManage && (l.status === 'draft' || l.status === 'active')) },
-                    { label: "Deposit", onClick: () => openSimple('deposit', l), hidden: !(canManage && l.status === 'active') },
-                    { label: "Renew", onClick: () => openSimple('renew', l), hidden: !(canManage && l.status === 'active') },
-                    { label: "End", onClick: () => openSimple('end', l), hidden: !(canManage && l.status === 'active') },
-                    { label: "Refund deposit", onClick: () => openSimple('refund', l), hidden: !(canManage && l.depositHeld > l.depositRefunded && l.status !== 'active' && l.status !== 'draft') },
-                  ]} />
+<RowMenu actions={bookingActions(l)} />
                 </td>
               </tr>
             ))}
@@ -651,6 +663,32 @@ export default function PokiBookingsPage() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+      {detail && (
+        <RecordDialog
+          title={detail.bookingNo}
+          subtitle={detail.tenantName}
+          actions={bookingActions(detail)}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Unit', value: detail.unitCode },
+            { label: 'Property', value: detail.propertyName },
+            { label: 'Starts', value: fmtDate(detail.startDate) },
+            { label: 'Ends', value: fmtDate(detail.endDate) },
+            { label: 'Duration', value: [detail.durationMonths ? detail.durationMonths + ' month' + (detail.durationMonths === 1 ? '' : 's') : null,
+                                         detail.durationDays ? detail.durationDays + ' day' + (detail.durationDays === 1 ? '' : 's') : null]
+                                         .filter(Boolean).join(' + ') },
+            { label: 'Status', value: detail.status },
+            { label: 'Monthly rate', value: money(detail.monthlyRate, detail.currency) },
+            { label: 'Daily rate', value: Number(detail.dailyRate) ? money(detail.dailyRate, detail.currency) : null },
+            { label: 'Rent for the term', value: money(detail.rentTotal, detail.currency) },
+            { label: 'Deposit due', value: money(detail.depositAmount, detail.currency) },
+            { label: 'Deposit held', value: money(detail.depositHeld, detail.currency) },
+            { label: 'Deposit refunded', value: Number(detail.depositRefunded) ? money(detail.depositRefunded, detail.currency) : null },
+            { label: 'Notes', value: detail.notes, wide: true },
+          ]}
+        />
+      )}
+
     </div>
   );
 }

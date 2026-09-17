@@ -6,6 +6,7 @@ import ReceiptPreview from '../components/ReceiptPreview';
 import { money } from '../lib/currency';
 import './ReceiptsPage.css';
 import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
 // and dialog.receiptPreview. Receipts are read-only — a pure byproduct of
@@ -34,6 +35,7 @@ function fmtDate(iso) {
 
 export default function ReceiptsPage() {
   const [receipts, setReceipts] = useState([]);
+  const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [previewR, setPreviewR] = useState(null);
@@ -78,19 +80,24 @@ export default function ReceiptsPage() {
 
       <SearchInput value={search} onChange={setSearch} placeholder="Search receipts…" />
 
-      <table className="table" style={{ marginTop: 16 }}>
+      <table className="table table-clickable" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Receipt</th><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Method</th><th>Balance after</th><th></th></tr>
         </thead>
         <tbody>
           {visibleReceipts.map((r) => (
-            <tr key={r.id}>
+            <tr
+              key={r.id}
+              tabIndex={0}
+              onClick={() => setDetail(r)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(r); } }}
+            >
               <td style={{ fontWeight: 600 }}>{r.receiptNo}</td>
               <td>{r.invoiceNo}</td>
               <td>{r.customerName}</td>
               <td>{money(r.amount, r.currency)}</td>
-              <td>{fmtDate(r.date)}</td>
-              <td className="receipts-method">{r.method.replace('_', ' ')}</td>
+              <td className="col-mid">{fmtDate(r.date)}</td>
+              <td className="receipts-method col-wide">{r.method.replace('_', ' ')}</td>
               <td>{money(r.balanceAfter, r.currency)}</td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
@@ -124,6 +131,25 @@ export default function ReceiptsPage() {
           onShare={handleShare}
         />
       )}
+      {detail && (
+        <RecordDialog
+          title={detail.receiptNo}
+          subtitle={detail.customerName}
+          actions={[{ label: 'Preview', onClick: () => { setShareError(null); setPreviewR(detail); } }]}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Amount', value: money(detail.amount, detail.currency) },
+            { label: 'Date', value: fmtDate(detail.date) },
+            { label: 'Method', value: detail.method.replace('_', ' ') },
+            { label: 'Reference', value: detail.reference },
+            { label: 'Invoice', value: detail.invoiceNo },
+            { label: 'Balance after', value: money(detail.balanceAfter, detail.currency) },
+            { label: 'Received by', value: detail.receivedByName },
+            { label: 'Billing address', value: detail.customerAddress, wide: true },
+          ]}
+        />
+      )}
+
     </div>
   );
 }

@@ -8,6 +8,8 @@ import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
+import { itemsForDialog, totalsForDialog } from '../lib/docItems';
 
 // Letting offers — what a unit costs to take, quoted before any booking
 // exists.
@@ -66,6 +68,7 @@ export default function PokiEstimatesPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
 
   const [dialog, setDialog] = useState(null); // 'offer' | 'convert'
   const [editId, setEditId] = useState(null);
@@ -279,6 +282,17 @@ export default function PokiEstimatesPage() {
     (s, i) => s + (Number(i.qty) || 0) * (Number(i.unitPrice) || 0), 0
   );
 
+  // One list, used by the row menu and by the record panel.
+  function rowActionsFor(e) {
+    return [
+      { label: 'Print', onClick: () => openPreview(e) },
+      { label: 'Edit', onClick: () => openOffer(e), hidden: !(canManage && e.status === 'draft') },
+      { label: 'Mark sent', onClick: () => setStatus(e, 'finalized'), disabled: busyId === e.id, hidden: !(canManage && e.status === 'draft') },
+      { label: 'Accept → booking', onClick: () => openConvert(e), hidden: !(canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived') },
+      { label: 'Delete', onClick: () => remove(e), disabled: busyId === e.id, danger: true, hidden: !(canManage && e.status !== 'converted') },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -313,7 +327,7 @@ export default function PokiEstimatesPage() {
         </div>
       ) : (
         <div className="poki-table-wrap">
-          <table className="table">
+          <table className="table table-clickable">
             <thead>
               <tr>
                 <th>Offer</th><th>Kind</th><th>Prospect</th><th>Unit</th><th>Valid until</th>
@@ -322,7 +336,12 @@ export default function PokiEstimatesPage() {
             </thead>
             <tbody>
               {visible.map((e) => (
-                <tr key={e.id}>
+                <tr
+                  key={e.id}
+                  tabIndex={0}
+                  onClick={() => setDetail(e)}
+                  onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setDetail(e); } }}
+                >
                   <td className="poki-strong poki-nowrap">
                     {e.estimateNo}
                     {e.bookingNo && <div className="poki-muted">→ {e.bookingNo}</div>}
@@ -337,17 +356,11 @@ export default function PokiEstimatesPage() {
                   <td className="poki-num">{money(e.grandTotal, e.currency)}</td>
                   <td>
                     <span className={'poki-chip poki-chip-' + (e.status === 'converted' ? 'active' : e.status === 'finalized' ? 'expiring' : 'open')}>
-                      {e.status === 'converted' ? 'bookingd' : e.status === 'finalized' ? 'sent' : e.status}
+                      {e.status === 'converted' ? 'booked' : e.status === 'finalized' ? 'sent' : e.status}
                     </span>
                   </td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                    <RowMenu actions={[
-                      { label: "Print", onClick: () => openPreview(e) },
-                      { label: "Edit", onClick: () => openOffer(e), hidden: !(canManage && e.status === 'draft') },
-                      { label: "Mark sent", onClick: () => setStatus(e, 'finalized'), disabled: busyId === e.id, hidden: !(canManage && e.status === 'draft') },
-                      { label: "Accept → booking", onClick: () => openConvert(e), hidden: !(canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived') },
-                      { label: "Delete", onClick: () => remove(e), disabled: busyId === e.id, danger: true, hidden: !(canManage && e.status !== 'converted') },
-                    ]} />
+                    <RowMenu actions={rowActionsFor(e)} />
                   </td>
                 </tr>
               ))}
@@ -542,6 +555,26 @@ export default function PokiEstimatesPage() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+      {detail && (
+        <RecordDialog
+          title={detail.estimateNo}
+          subtitle={detail.customerName}
+          tag={<span className={'poki-chip poki-chip-' + (detail.status === 'converted' ? 'active' : detail.status === 'finalized' ? 'expiring' : 'open')}>{detail.status}</span>}
+          actions={rowActionsFor(detail)}
+          onClose={() => setDetail(null)}
+          items={itemsForDialog(detail.items, detail.currency)}
+          totals={totalsForDialog(detail, detail.currency)}
+          fields={[
+            { label: 'Kind', value: detail.docKind },
+            { label: 'Unit', value: detail.unitCode },
+            { label: 'Property', value: detail.propertyName },
+            { label: 'Valid until', value: fmtDate(detail.validUntil) },
+            { label: 'Booking', value: detail.bookingNo },
+            { label: 'Notes', value: detail.clientNotes, wide: true },
+          ]}
+        />
+      )}
+
     </div>
   );
 }

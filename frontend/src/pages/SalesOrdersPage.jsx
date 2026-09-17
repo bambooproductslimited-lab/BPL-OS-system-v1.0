@@ -5,6 +5,9 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import './SalesOrdersPage.css';
 import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
+import { itemsForDialog } from '../lib/docItems';
+import { formatDate } from '../lib/dates';
 
 // Ported from Bamboo OS.dc.html's sales orders screen (screens.salesorders
 // block + createOrderFromQuote/setOrderStatus handlers and the salesOrders
@@ -73,6 +76,7 @@ export default function SalesOrdersPage() {
   const [quotationId, setQuotationId] = useState('');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -155,7 +159,7 @@ export default function SalesOrdersPage() {
 
       <SearchInput value={search} onChange={setSearch} placeholder="Search sales orders…" />
 
-      <table className="table" style={{ marginTop: 16 }}>
+      <table className="table table-clickable" style={{ marginTop: 16 }}>
         <thead>
           <tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th></th></tr>
         </thead>
@@ -164,7 +168,12 @@ export default function SalesOrdersPage() {
             const hasNext = o.status !== 'delivered' && o.status !== 'cancelled' && canManage;
             const nextLabel = o.status === 'pending' ? 'Start processing' : o.status === 'processing' ? 'Mark delivered' : '';
             return (
-              <tr key={o.id}>
+              <tr
+                key={o.id}
+                tabIndex={0}
+                onClick={() => setDetail(o)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(o); } }}
+              >
                 <td>
                   <div className="salesorders-no-cell">
                     <span className={'salesorders-badge salesorders-badge-' + statusTone(orderBucket(o.status))}><DocIcon /></span>
@@ -198,6 +207,24 @@ export default function SalesOrdersPage() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+      {detail && (
+        <RecordDialog
+          title={detail.orderNo}
+          subtitle={detail.customerName}
+          tag={<span className={'tag ' + orderTagClass(detail.status)}>{statusLabel(detail.status)}</span>}
+          actions={[{ label: detail.status === 'pending' ? 'Start processing' : 'Mark delivered', onClick: () => advance(detail),
+                      disabled: busyId === detail.id,
+                      hidden: !(detail.status !== 'delivered' && detail.status !== 'cancelled' && canManage) }]}
+          onClose={() => setDetail(null)}
+          items={itemsForDialog(detail.items, detail.currency)}
+          totals={[{ label: 'Total', value: money(detail.total, detail.currency), strong: true }]}
+          fields={[
+            { label: 'Created', value: formatDate(detail.createdAt) },
+            { label: 'Currency', value: detail.currency },
+          ]}
+        />
+      )}
+
     </div>
   );
 }
