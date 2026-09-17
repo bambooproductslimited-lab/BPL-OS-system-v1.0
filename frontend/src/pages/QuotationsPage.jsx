@@ -6,6 +6,8 @@ import DocWizard from '../components/DocWizard';
 import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -92,6 +94,7 @@ export default function QuotationsPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [previewQ, setPreviewQ] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -197,6 +200,18 @@ export default function QuotationsPage() {
     matchesQuery(search, q.quoteNo, q.customerName, q.title) && (!statusFilter || q.status === statusFilter)
   );
 
+  // One list of what can be done to a quotation, shared by the row menu and
+  // the record panel so the two cannot drift apart.
+  function rowActions(q) {
+    return [
+      { label: 'Preview', onClick: () => openPreview(q) },
+      { label: 'Send', onClick: () => setStatus(q, 'sent'), hidden: !(q.status === 'draft' && canManage) },
+      { label: 'Accept', onClick: () => setStatus(q, 'accepted'), hidden: !((q.status === 'sent' || q.status === 'viewed') && canManage) },
+      { label: 'Reject', onClick: () => setStatus(q, 'rejected'), danger: true, hidden: !((q.status === 'sent' || q.status === 'draft' || q.status === 'viewed') && canManage) },
+      { label: 'Convert to invoice', onClick: () => convertToInvoice(q), hidden: !(q.status === 'accepted' && canInvoice) },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -210,18 +225,19 @@ export default function QuotationsPage() {
         {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New quotation</button>}
       </div>
 
-      <table className="table">
+      <table className="table table-clickable">
         <thead>
-          <tr><th>Quote</th><th>Customer</th><th>Items</th><th>Total</th><th>Valid until</th><th>Status</th><th></th></tr>
+          <tr><th>Quote</th><th>Customer</th><th className="col-wide">Items</th><th>Total</th><th className="col-mid">Valid until</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
           {visibleQuotations.map((q) => {
-            const canSend = q.status === 'draft' && canManage;
-            const canAccept = (q.status === 'sent' || q.status === 'viewed') && canManage;
-            const canReject = (q.status === 'sent' || q.status === 'draft' || q.status === 'viewed') && canManage;
-            const canDoInvoice = q.status === 'accepted' && canInvoice;
             return (
-              <tr key={q.id}>
+              <tr
+                key={q.id}
+                tabIndex={0}
+                onClick={() => setDetail(q)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(q); } }}
+              >
                 <td>
                   <div className="quotations-no-cell">
                     <span className={'quotations-badge quotations-badge-' + statusTone(quoteBucket(q.status))}><DocIcon /></span>
@@ -229,16 +245,12 @@ export default function QuotationsPage() {
                   </div>
                 </td>
                 <td>{q.customerName}</td>
-                <td className="quotations-items-line">{q.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
+                <td className="quotations-items-line col-wide">{q.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
                 <td>{money(q.grandTotal, q.currency)}</td>
-                <td>{fmtDate(q.validUntil)}</td>
+                <td className="col-mid">{fmtDate(q.validUntil)}</td>
                 <td><span className={'tag ' + quoteTagClass(q.status)}>{quoteStatusLabel(q.status)}</span></td>
-                <td className="table-actions">
-                  <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => openPreview(q)}>Preview</button>
-                  {canSend && <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => setStatus(q, 'sent')}>Send</button>}
-                  {canAccept && <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => setStatus(q, 'accepted')}>Accept</button>}
-                  {canReject && <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => setStatus(q, 'rejected')}>Reject</button>}
-                  {canDoInvoice && <button type="button" className="btn btn-secondary quotations-row-btn" disabled={busyId === q.id} onClick={() => convertToInvoice(q)}>Convert to invoice</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu disabled={busyId === q.id} actions={rowActions(q)} />
                 </td>
               </tr>
             );
@@ -296,6 +308,26 @@ export default function QuotationsPage() {
           ]}
           submitLabel="Create quotation" saving={saving} error={dialogError}
           onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
+        />
+      )}
+
+      {detail && (
+        <RecordDialog
+          title={detail.quoteNo}
+          subtitle={detail.customerName}
+          tag={<span className={'tag ' + quoteTagClass(detail.status)}>{quoteStatusLabel(detail.status)}</span>}
+          actions={rowActions(detail)}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Total', value: money(detail.grandTotal, detail.currency) },
+            { label: 'Valid until', value: fmtDate(detail.validUntil) },
+            { label: 'Created', value: fmtDate(detail.createdAt) },
+            { label: 'Currency', value: detail.currency },
+            { label: 'Title', value: detail.title, wide: true },
+            { label: 'Items', value: detail.items.map((i) => i.description + ' × ' + i.qty).join(', '), wide: true },
+            { label: 'Notes', value: detail.notes, wide: true },
+            { label: 'Terms', value: detail.terms, wide: true },
+          ]}
         />
       )}
 

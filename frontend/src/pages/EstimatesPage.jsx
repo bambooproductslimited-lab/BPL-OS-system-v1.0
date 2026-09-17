@@ -6,6 +6,8 @@ import DocWizard from '../components/DocWizard';
 import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -94,6 +96,7 @@ export default function EstimatesPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -223,6 +226,17 @@ export default function EstimatesPage() {
 
   const visibleEstimates = estimates.filter((es) => matchesQuery(search, es.estimateNo, es.customerName));
 
+  // Shared by the row menu and the record panel so the two cannot drift.
+  function rowActions(es) {
+    return [
+      { label: 'Preview', onClick: () => openPreview(es) },
+      { label: 'Finalize', onClick: () => finalize(es), hidden: !(es.status === 'draft' && canManage) },
+      { label: 'Convert to quotation', onClick: () => convert(es), hidden: !(es.status === 'finalized' && canManage) },
+      { label: 'Edit', onClick: () => openEdit(es), hidden: !(es.status === 'draft' && canManage) },
+      { label: 'Delete', onClick: () => setDeleteTarget(es), danger: true, hidden: !(es.status !== 'converted' && canManage) },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
@@ -232,18 +246,19 @@ export default function EstimatesPage() {
         {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New estimate</button>}
       </div>
 
-      <table className="table">
+      <table className="table table-clickable">
         <thead>
-          <tr><th>Estimate</th><th>Customer</th><th>Items</th><th>Total</th><th>Valid until</th><th>Status</th><th></th></tr>
+          <tr><th>Estimate</th><th>Customer</th><th className="col-wide">Items</th><th>Total</th><th className="col-mid">Valid until</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
           {visibleEstimates.map((es) => {
-            const canFinalize = es.status === 'draft' && canManage;
-            const canConvert = es.status === 'finalized' && canManage;
-            const canEdit = es.status === 'draft' && canManage;
-            const canDelete = es.status !== 'converted' && canManage;
             return (
-              <tr key={es.id}>
+              <tr
+                key={es.id}
+                tabIndex={0}
+                onClick={() => setDetail(es)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(es); } }}
+              >
                 <td>
                   <div className="estimates-no-cell">
                     <span className={'estimates-badge estimates-badge-' + statusTone(estimateBucket(es.status))}><DocIcon /></span>
@@ -251,16 +266,12 @@ export default function EstimatesPage() {
                   </div>
                 </td>
                 <td>{es.customerName}</td>
-                <td className="estimates-items-line">{es.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
+                <td className="estimates-items-line col-wide">{es.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
                 <td>{money(es.grandTotal, es.currency)}</td>
-                <td>{fmtDate(es.validUntil)}</td>
+                <td className="col-mid">{fmtDate(es.validUntil)}</td>
                 <td><span className={'tag ' + estimateTagClass(es.status)}>{es.status}</span></td>
-                <td className="table-actions">
-                  <button type="button" className="btn btn-secondary estimates-row-btn" disabled={busyId === es.id} onClick={() => openPreview(es)}>Preview</button>
-                  {canFinalize && <button type="button" className="btn btn-secondary estimates-row-btn" disabled={busyId === es.id} onClick={() => finalize(es)}>Finalize</button>}
-                  {canConvert && <button type="button" className="btn btn-secondary estimates-row-btn" disabled={busyId === es.id} onClick={() => convert(es)}>Convert to quotation</button>}
-                  {canEdit && <button type="button" className="btn btn-secondary estimates-row-btn" onClick={() => openEdit(es)}>Edit</button>}
-                  {canDelete && <button type="button" className="btn btn-secondary estimates-row-btn" onClick={() => setDeleteTarget(es)}>Delete</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu disabled={busyId === es.id} actions={rowActions(es)} />
                 </td>
               </tr>
             );
@@ -332,6 +343,25 @@ export default function EstimatesPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {detail && (
+        <RecordDialog
+          title={detail.estimateNo}
+          subtitle={detail.customerName}
+          tag={<span className={'tag ' + estimateTagClass(detail.status)}>{detail.status}</span>}
+          actions={rowActions(detail)}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Total', value: money(detail.grandTotal, detail.currency) },
+            { label: 'Valid until', value: fmtDate(detail.validUntil) },
+            { label: 'Currency', value: detail.currency },
+            { label: 'Title', value: detail.title, wide: true },
+            { label: 'Items', value: detail.items.map((i) => i.description + ' × ' + i.qty).join(', '), wide: true },
+            { label: 'Notes', value: detail.notes, wide: true },
+            { label: 'Terms', value: detail.terms, wide: true },
+          ]}
+        />
       )}
 
       {previewEs && (

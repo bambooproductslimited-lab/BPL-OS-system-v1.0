@@ -489,7 +489,20 @@ export default function InvoicesPage() {
             { label: 'Issued', value: fmtDate(detail.issuedAt) },
             { label: 'Currency', value: detail.currency },
             { label: 'PO reference', value: detail.poReference },
-            { label: 'Payment schedule', value: formatPaymentSchedule(detail.paymentSchedule), wide: true },
+            {
+              label: 'Payment schedule',
+              wide: true,
+              // formatPaymentSchedule returns rows, not a string — handing the
+              // array straight to React renders nothing when it is empty and
+              // throws "Objects are not valid as a React child" when it is not.
+              value: detail.paymentSchedule && detail.paymentSchedule.length ? (
+                <ul className="record-dialog-list">
+                  {formatPaymentSchedule(detail.paymentSchedule, detail.currency).map((row) => (
+                    <li key={row.label}>{row.label} · {row.dueDate} · {row.amount}</li>
+                  ))}
+                </ul>
+              ) : null,
+            },
             { label: 'Notes', value: detail.notes, wide: true },
             { label: 'Terms', value: detail.terms, wide: true },
           ]}

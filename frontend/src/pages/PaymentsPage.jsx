@@ -3,6 +3,8 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import RowMenu from '../components/RowMenu';
+import RecordDialog from '../components/RecordDialog';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { money } from '../lib/currency';
 import './PaymentsPage.css';
@@ -58,6 +60,7 @@ export default function PaymentsPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -120,36 +123,46 @@ export default function PaymentsPage() {
 
   const visiblePayments = payments.filter((p) => matchesQuery(search, p.invoiceNo, p.customerName, p.reference, p.receivedByName));
 
+  // Shared by the row menu and the record panel.
+  function rowActions(p) {
+    return [
+      { label: 'Preview receipt', onClick: () => { setShareError(null); setPreviewR(receiptByPaymentId[p.id]); }, hidden: !receiptByPaymentId[p.id] },
+      { label: 'Delete', onClick: () => setDeleteTarget(p), danger: true, hidden: !canManage },
+    ];
+  }
+
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <SearchInput value={search} onChange={setSearch} placeholder="Search payments…" />
 
-      <table className="table" style={{ marginTop: 16 }}>
+      <table className="table table-clickable" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Method</th><th>Reference</th><th>Received by</th><th></th></tr>
+          <tr><th>Invoice</th><th>Customer</th><th>Amount</th><th className="col-mid">Date</th><th className="col-wide">Method</th><th className="col-wide">Reference</th><th className="col-wide">Received by</th><th></th></tr>
         </thead>
         <tbody>
           {visiblePayments.map((p) => (
-            <tr key={p.id}>
+            <tr
+              key={p.id}
+              tabIndex={0}
+              onClick={() => setDetail(p)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(p); } }}
+            >
               <td style={{ fontWeight: 600 }}>{p.invoiceNo}</td>
               <td>{p.customerName}</td>
               <td>{money(p.amount, p.currency)}</td>
-              <td>{fmtDate(p.date)}</td>
-              <td className="payments-method">{p.method.replace('_', ' ')}</td>
-              <td>{p.reference || '—'}</td>
-              <td>
+              <td className="col-mid">{fmtDate(p.date)}</td>
+              <td className="payments-method col-wide">{p.method.replace('_', ' ')}</td>
+              <td className="col-wide">{p.reference || '—'}</td>
+              <td className="col-wide">
                 <div className="payments-receiver-cell">
                   <span className="payments-avatar" style={{ background: avatarColor(p.receivedByName) }}>{initials(p.receivedByName)}</span>
                   {p.receivedByName}
                 </div>
               </td>
-              <td className="table-actions">
-                {receiptByPaymentId[p.id] && (
-                  <button type="button" className="btn btn-secondary payments-row-btn" onClick={() => { setShareError(null); setPreviewR(receiptByPaymentId[p.id]); }}>Preview</button>
-                )}
-                {canManage && <button type="button" className="btn btn-secondary payments-row-btn" onClick={() => setDeleteTarget(p)}>Delete</button>}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={rowActions(p)} />
               </td>
             </tr>
           ))}
@@ -179,6 +192,23 @@ export default function PaymentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {detail && (
+        <RecordDialog
+          title={money(detail.amount, detail.currency)}
+          subtitle={detail.customerName + ' · ' + detail.invoiceNo}
+          actions={rowActions(detail)}
+          onClose={() => setDetail(null)}
+          fields={[
+            { label: 'Date', value: fmtDate(detail.date) },
+            { label: 'Method', value: detail.method.replace('_', ' ') },
+            { label: 'Reference', value: detail.reference },
+            { label: 'Received by', value: detail.receivedByName },
+            { label: 'Invoice', value: detail.invoiceNo },
+            { label: 'Currency', value: detail.currency },
+          ]}
+        />
       )}
 
       {previewR && (

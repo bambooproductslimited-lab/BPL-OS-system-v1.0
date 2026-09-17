@@ -49,3 +49,6 @@
 @media (max-width: 560px) {
   .record-dialog-fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+.record-dialog-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.record-dialog-list li { font-size: 13px; }
