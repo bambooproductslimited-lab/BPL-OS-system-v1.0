@@ -8,6 +8,7 @@ import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
+import { itemsForDialog, totalsForDialog } from '../lib/docItems';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -481,8 +482,9 @@ export default function InvoicesPage() {
           tag={<span className={'tag ' + invoiceTagClass(detail)}>{invoiceStatusLabel(invoiceDisplayStatus(detail))}</span>}
           actions={rowActions(detail)}
           onClose={() => setDetail(null)}
+          items={itemsForDialog(detail.items, detail.currency)}
+          totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: 'Total', value: money(detail.grandTotal, detail.currency) },
             { label: 'Paid', value: money(detail.amountPaid, detail.currency) },
             { label: 'Balance due', value: money(detail.balanceDue, detail.currency) },
             { label: 'Due', value: fmtDate(detail.dueDate) },

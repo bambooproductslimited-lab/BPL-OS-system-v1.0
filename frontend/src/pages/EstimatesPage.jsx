@@ -8,6 +8,7 @@ import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
+import { itemsForDialog, totalsForDialog } from '../lib/docItems';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -352,12 +353,12 @@ export default function EstimatesPage() {
           tag={<span className={'tag ' + estimateTagClass(detail.status)}>{detail.status}</span>}
           actions={rowActions(detail)}
           onClose={() => setDetail(null)}
+          items={itemsForDialog(detail.items, detail.currency)}
+          totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: 'Total', value: money(detail.grandTotal, detail.currency) },
             { label: 'Valid until', value: fmtDate(detail.validUntil) },
             { label: 'Currency', value: detail.currency },
             { label: 'Title', value: detail.title, wide: true },
-            { label: 'Items', value: detail.items.map((i) => i.description + ' × ' + i.qty).join(', '), wide: true },
             { label: 'Notes', value: detail.notes, wide: true },
             { label: 'Terms', value: detail.terms, wide: true },
           ]}

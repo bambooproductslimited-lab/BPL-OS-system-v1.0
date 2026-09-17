@@ -5,7 +5,21 @@
   background: var(--color-bg);
 }
 
+/* The sidebar keeps one identity in both themes — that was always the
+   intent, and it used to happen by accident: it builds itself by INVERTING
+   the tokens (background from --color-text, text from --color-bg), which
+   gave a dark bar with light text only while the dark values were confined
+   to <main>. Once they moved to :root the inversion flipped and the sidebar
+   came out white with near-black text. Re-declaring the light values for
+   this subtree restores the intent and makes it deliberate rather than a
+   side effect of where the tokens happened to live. */
 .shell-sidebar {
+  --color-bg: #ffffff;
+  --color-text: #201e1d;
+  --color-accent: #3f7d3b;
+  --color-accent-700: #2f5f2c;
+  --color-accent-800: #244a22;
+  --color-accent-100: #e8f1e7;
   background: var(--color-text);
   color: var(--color-bg);
   display: flex;
@@ -300,3 +314,16 @@
    show a white band down the edge. One rule here covers every page, since
    .shell-content wraps them all. */
 .shell-content { min-width: 0; overflow-x: auto; }
+
+
+/* Native scrollbars follow the theme. Without this the browser paints its
+   default light track and thumb, which on a dark page reads as a pale strip
+   down the right-hand edge of the screen and another beside the sidebar —
+   the same complaint as the white band, from a different cause. Applied to
+   the sidebar and the page area as well as the root, since each scrolls on
+   its own. */
+:root[data-theme='dark'] { color-scheme: dark; }
+:root[data-theme='dark'] .shell-content,
+:root[data-theme='dark'] .shell-main { color-scheme: dark; }
+/* The sidebar is light-on-dark regardless of theme, so its scrollbar is too. */
+.shell-sidebar { color-scheme: dark; }

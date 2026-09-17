@@ -12,7 +12,13 @@ import './RecordDialog.css';
 // `fields` is [{ label, value, wide?, hidden? }]. A null/undefined value is
 // dropped rather than rendered as an empty row, so callers can pass optional
 // fields inline without guarding each one.
-export default function RecordDialog({ title, subtitle, tag, fields, actions, footer, onClose }) {
+//
+// `items` are the document's lines — what was actually quoted, invoiced or
+// estimated. A record without them is not the record: an invoice panel that
+// shows a total but not what the total is for sends you off to Preview for
+// the one thing you opened the row to see. `totals` is the money summary
+// that goes underneath.
+export default function RecordDialog({ title, subtitle, tag, fields, items, totals, actions, footer, onClose }) {
   const closeRef = useRef(null);
 
   useEffect(() => {
@@ -59,6 +65,52 @@ export default function RecordDialog({ title, subtitle, tag, fields, actions, fo
             </div>
           ))}
         </dl>
+
+        {items && items.length > 0 && (
+          <div className="record-dialog-items">
+            <div className="record-dialog-items-head">Items</div>
+            <table className="record-dialog-items-table">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Unit price</th>
+                  <th className="num">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i}>
+                    <td>
+                      {it.description}
+                      {it.packageLabel && <span className="record-dialog-item-note">{it.packageLabel}</span>}
+                      {it.notes && <span className="record-dialog-item-note">{it.notes}</span>}
+                      {(Number(it.discount) > 0 || Number(it.taxRate) > 0) && (
+                        <span className="record-dialog-item-note">
+                          {Number(it.discount) > 0 && ('less ' + it.discount + (it.discountType === 'percent' ? '%' : ''))}
+                          {Number(it.discount) > 0 && Number(it.taxRate) > 0 && ' · '}
+                          {Number(it.taxRate) > 0 && ('tax ' + it.taxRate + '%')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">{it.qty}{it.unit && it.unit !== 'each' ? ' ' + it.unit : ''}</td>
+                    <td className="num">{it.unitPriceText}</td>
+                    <td className="num">{it.amountText}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {totals && totals.length > 0 && (
+              <dl className="record-dialog-totals">
+                {totals.filter((t) => t && t.value !== null && t.value !== undefined).map((t) => (
+                  <div key={t.label} className={t.strong ? 'is-strong' : undefined}>
+                    <dt>{t.label}</dt><dd>{t.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        )}
 
         {footer}
       </div>
