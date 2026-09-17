@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './DepartmentsPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's departments screen, then restructured
 // around a new Company tier sitting above Departments (see migration
@@ -321,11 +322,11 @@ export default function DepartmentsPage() {
                 <td>{c.departments.length}</td>
                 <td><span className={'tag ' + (c.status === 'active' ? 'tag-neutral' : 'tag-accent')}>{c.status === 'active' ? 'Active' : 'Archived'}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                  {canManage && <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => openEditCompany(c)}>Edit</button>}
-                  {canManage && <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => openNewDept(c.id)}>+ Department</button>}
-                  {canManage && c.departments.length === 0 && (
-                    <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => { setDialogError(null); setDeleteCompanyTarget(c); }}>Delete</button>
-                  )}
+                  <RowMenu actions={[
+                    { label: "Edit", onClick: () => openEditCompany(c), hidden: !(canManage) },
+                    { label: "+ Department", onClick: () => openNewDept(c.id), hidden: !(canManage) },
+                    { label: "Delete", onClick: () => { setDialogError(null); setDeleteCompanyTarget(c); }, danger: true, hidden: !(canManage && c.departments.length === 0) },
+                  ]} />
                 </td>
               </tr>
               {expanded[c.id] && (
@@ -357,11 +358,11 @@ export default function DepartmentsPage() {
                                   <ClockIcon /> {d.shiftCount} shift{d.shiftCount === 1 ? '' : 's'}
                                 </button>
                               </td>
-                              <td className="table-actions">
-                                {canManage && <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => openEditDept(c.id, d)}>Edit</button>}
-                                {canManage && d.headcount === 0 && (
-                                  <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => { setDialogError(null); setDeleteDeptTarget(d); }}>Delete</button>
-                                )}
+                              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                                <RowMenu actions={[
+                                  { label: "Edit", onClick: () => openEditDept(c.id, d), hidden: !(canManage) },
+                                  { label: "Delete", onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) },
+                                ]} />
                               </td>
                             </tr>
                           ))}
@@ -466,11 +467,11 @@ export default function DepartmentsPage() {
                           <td>{s.startTime}</td>
                           <td>{s.endTime}</td>
                           <td>{s.assignedCount}</td>
-                          <td className="table-actions">
-                            {canManage && <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => startEditShift(s)}>Edit</button>}
-                            {canManage && s.assignedCount === 0 && (
-                              <button type="button" className="btn btn-secondary departments-row-btn" onClick={() => { setDialogError(null); setDeleteShiftTarget(s); }}>Delete</button>
-                            )}
+                          <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                            <RowMenu actions={[
+                              { label: "Edit", onClick: () => startEditShift(s), hidden: !(canManage) },
+                              { label: "Delete", onClick: () => { setDialogError(null); setDeleteShiftTarget(s); }, danger: true, hidden: !(canManage && s.assignedCount === 0) },
+                            ]} />
                           </td>
                         </tr>
                       ))}

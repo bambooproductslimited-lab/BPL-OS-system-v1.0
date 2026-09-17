@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './SuppliersPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's suppliers screen (screens.suppliers
 // block + the suppliers computed values, and the shared "supplier"
@@ -150,11 +151,11 @@ export default function SuppliersPage() {
               <td>{s.paymentTerms}</td>
               <td>{s.batchCount}</td>
               <td><span className={'tag ' + (s.status === 'active' ? 'tag-neutral' : 'tag-accent')}>{s.status}</span></td>
-              <td className="table-actions">
-                {canManage && <button type="button" className="btn btn-secondary suppliers-row-btn" onClick={() => openEdit(s)}>Edit</button>}
-                {canManage && s.batchCount === 0 && (
-                  <button type="button" className="btn btn-secondary suppliers-row-btn" onClick={() => setDeleteTarget(s)}>Delete</button>
-                )}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Edit", onClick: () => openEdit(s), hidden: !(canManage) },
+                  { label: "Delete", onClick: () => setDeleteTarget(s), danger: true, hidden: !(canManage && s.batchCount === 0) },
+                ]} />
               </td>
             </tr>
           ))}

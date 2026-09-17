@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './CatalogPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Products & Services, restructured to match Square's own catalog shape
 // (see migration 0027): an Item can hold one or more Variations — this
@@ -314,13 +315,11 @@ export default function CatalogPage() {
                 <td>{item.variations.reduce((sum, v) => sum + v.stockQty, 0).toLocaleString()}</td>
                 <td><span className={'tag ' + (item.active ? 'tag-neutral' : 'tag-accent')}>{statusLabel(item.active)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                  {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => openEditItem(item)}>Edit</button>}
-                  {canManage && (
-                    <button type="button" className="btn btn-secondary catalog-row-btn" disabled={busyId === item.id} onClick={() => toggleItemActive(item)}>
-                      {item.active ? 'Archive' : 'Unarchive'}
-                    </button>
-                  )}
-                  {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => setDeleteItemTarget(item)}>Delete</button>}
+                  <RowMenu actions={[
+                    { label: "Edit", onClick: () => openEditItem(item), hidden: !(canManage) },
+                    { label: item.active ? 'Archive' : 'Unarchive', onClick: () => toggleItemActive(item), disabled: busyId === item.id, hidden: !(canManage) },
+                    { label: "Delete", onClick: () => setDeleteItemTarget(item), danger: true, hidden: !(canManage) },
+                  ]} />
                 </td>
               </tr>
               {expanded[item.id] && (
@@ -341,17 +340,13 @@ export default function CatalogPage() {
                             <td>GHS {v.costPrice.toLocaleString()}</td>
                             <td>{v.stockQty.toLocaleString()} {v.unit !== 'each' ? v.unit : ''}</td>
                             <td><span className={'tag ' + (v.active ? 'tag-neutral' : 'tag-accent')}>{statusLabel(v.active)}</span></td>
-                            <td className="table-actions">
-                              {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => openStockDialog(v)}>Adjust stock</button>}
-                              {canManage && <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => openEditVariation(item.id, v)}>Edit</button>}
-                              {canManage && (
-                                <button type="button" className="btn btn-secondary catalog-row-btn" disabled={busyId === v.id} onClick={() => toggleVariationActive(v)}>
-                                  {v.active ? 'Archive' : 'Unarchive'}
-                                </button>
-                              )}
-                              {canManage && item.variations.length > 1 && (
-                                <button type="button" className="btn btn-secondary catalog-row-btn" onClick={() => setDeleteVarTarget(v)}>Delete</button>
-                              )}
+                            <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                              <RowMenu actions={[
+                                { label: "Adjust stock", onClick: () => openStockDialog(v), hidden: !(canManage) },
+                                { label: "Edit", onClick: () => openEditVariation(item.id, v), hidden: !(canManage) },
+                                { label: v.active ? 'Archive' : 'Unarchive', onClick: () => toggleVariationActive(v), disabled: busyId === v.id, hidden: !(canManage) },
+                                { label: "Delete", onClick: () => setDeleteVarTarget(v), danger: true, hidden: !(canManage && item.variations.length > 1) },
+                              ]} />
                             </td>
                           </tr>
                         ))}

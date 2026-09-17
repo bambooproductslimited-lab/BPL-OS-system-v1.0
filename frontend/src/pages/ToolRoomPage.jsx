@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ToolRoomPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Tool room inventory: tools, equipment and materials — separate from the
 // finished-goods Products & Inventory module. Tools/equipment can be
@@ -259,14 +260,12 @@ export default function ToolRoomPage() {
                   </div>
                 ) : '—'}
               </td>
-              <td className="table-actions">
-                {canManage && <button type="button" className="btn btn-secondary toolroom-row-btn" onClick={() => openEdit(it)}>Edit</button>}
-                {canManage && it.kind !== 'material' && it.status === 'available' && (
-                  <button type="button" className="btn btn-secondary toolroom-row-btn" onClick={() => openCheckout(it)}>Check out</button>
-                )}
-                {canManage && it.kind !== 'material' && it.status === 'checked_out' && (
-                  <button type="button" className="btn btn-secondary toolroom-row-btn" disabled={busyId === it.id} onClick={() => handleCheckIn(it)}>Check in</button>
-                )}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Edit", onClick: () => openEdit(it), hidden: !(canManage) },
+                  { label: "Check out", onClick: () => openCheckout(it), hidden: !(canManage && it.kind !== 'material' && it.status === 'available') },
+                  { label: "Check in", onClick: () => handleCheckIn(it), disabled: busyId === it.id, hidden: !(canManage && it.kind !== 'material' && it.status === 'checked_out') },
+                ]} />
               </td>
             </tr>
           ))}

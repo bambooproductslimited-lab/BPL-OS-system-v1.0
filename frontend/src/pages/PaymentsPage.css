@@ -1,5 +1,4 @@
 .payments-method { text-transform: capitalize; }
-.payments-row-btn { font-size: 12px; padding: 6px 10px; }
 
 .payments-receiver-cell { display: flex; align-items: center; gap: 8px; }
 .payments-avatar {

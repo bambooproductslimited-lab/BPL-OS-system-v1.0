@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ItDevicesPage.css';
+import RowMenu from '../components/RowMenu';
 
 // IT device inventory: company laptops/desktops/phones/monitors/etc, owned
 // and tracked by IT specifically — separate from the general Assets &
@@ -221,8 +222,10 @@ export default function ItDevicesPage() {
               </td>
               <td style={{ textTransform: 'capitalize' }}>{d.condition}</td>
               <td><span className={'tag ' + tagClass(d.status)}>{d.status.replace('_', ' ')}</span></td>
-              <td className="table-actions">
-                {canManage && <button type="button" className="btn btn-secondary itdevices-row-btn" onClick={() => openEdit(d)}>Edit</button>}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Edit", onClick: () => openEdit(d), hidden: !(canManage) },
+                ]} />
               </td>
             </tr>
           ))}

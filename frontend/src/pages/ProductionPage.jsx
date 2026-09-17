@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProductionPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's production screen (screens.production
 // block + the rawBatches/warehouses/productionBatches computed values,
@@ -362,8 +363,10 @@ export default function ProductionPage() {
               <td>{r.qualityGrade}</td>
               <td>{fmtDate(r.dateReceived)}</td>
               <td><span className={'tag ' + (r.status === 'depleted' ? 'tag-accent' : 'tag-neutral')}>{r.status}</span></td>
-              <td className="table-actions">
-                {canProduction && <button type="button" className="btn btn-secondary production-row-btn" onClick={() => openEditRawBatch(r)}>Edit</button>}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Edit", onClick: () => openEditRawBatch(r), hidden: !(canProduction) },
+                ]} />
               </td>
             </tr>
           ))}
@@ -394,11 +397,11 @@ export default function ProductionPage() {
               <td>{w.location || '—'}</td>
               <td>{w.capacity || 0}</td>
               <td>{w.rawQty}</td>
-              <td className="table-actions">
-                {canWarehouse && <button type="button" className="btn btn-secondary production-row-btn" onClick={() => openEditWarehouse(w)}>Edit</button>}
-                {canWarehouse && w.rawQty === 0 && (
-                  <button type="button" className="btn btn-secondary production-row-btn" onClick={() => setWhDeleteTarget(w)}>Delete</button>
-                )}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Edit", onClick: () => openEditWarehouse(w), hidden: !(canWarehouse) },
+                  { label: "Delete", onClick: () => setWhDeleteTarget(w), danger: true, hidden: !(canWarehouse && w.rawQty === 0) },
+                ]} />
               </td>
             </tr>
           ))}

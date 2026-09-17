@@ -93,8 +93,6 @@
 .leave-company-filter { max-width: 200px; }
 
 .leave-dept { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
-
-.leave-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 .leave-row-btn svg { width: 14px; height: 14px; }
 
 /* ── avatar + name cell ─────────────────────────────────────────────── */

@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { moneyBreakdown } from '../lib/currency';
 import './CustomersPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's customers screen (screens.customers
 // block + the customers computed values, and the shared "customer"
@@ -186,9 +187,11 @@ export default function CustomersPage() {
                 <td>{moneyBreakdown(invoicedTotals)}</td>
                 <td>{moneyBreakdown(paidTotals)}</td>
                 <td style={{ fontWeight: 600 }}>{moneyBreakdown(outstandingTotals)}</td>
-                <td className="table-actions">
-                  {canManage && <button type="button" className="btn btn-secondary customers-row-btn" onClick={() => openEdit(c)}>Edit</button>}
-                  {canDelete && <button type="button" className="btn btn-secondary customers-row-btn" onClick={() => setDeleteTarget(c)}>Delete</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Edit", onClick: () => openEdit(c), hidden: !(canManage) },
+                    { label: "Delete", onClick: () => setDeleteTarget(c), danger: true, hidden: !(canDelete) },
+                  ]} />
                 </td>
               </tr>
             );

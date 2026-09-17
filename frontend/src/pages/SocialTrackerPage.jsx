@@ -7,6 +7,7 @@ import MarketingRecommendations from '../components/MarketingRecommendations';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import './SocialTrackerPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Metricool-style social & campaign tracker: channels (Facebook, Instagram,
 // TikTok, WhatsApp Business, Website, ThomasNet), campaigns, a content
@@ -774,13 +775,11 @@ export default function SocialTrackerPage() {
                   <td style={{ fontWeight: 600 }}>{p.title}</td>
                   <td><span className={'tag ' + statusTagClass(p.status)}>{p.status}</span></td>
                   <td>{num(p.likes)}</td><td>{num(p.comments)}</td><td>{num(p.shares)}</td><td>{num(p.reach)}</td><td>{num(p.clicks)}</td><td>{num(p.leads)}</td>
-                  <td className="table-actions">
-                    {canManage && (
-                      <>
-                        <button type="button" className="btn btn-secondary soctrack-row-btn" onClick={() => openEditPost(p)}>Edit</button>
-                        <button type="button" className="btn btn-secondary soctrack-row-btn" onClick={() => removePost(p)}>Delete</button>
-                      </>
-                    )}
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Edit", onClick: () => openEditPost(p), hidden: !(canManage) },
+                      { label: "Delete", onClick: () => removePost(p), danger: true, hidden: !(canManage) },
+                    ]} />
                   </td>
                 </tr>
               ))}
@@ -816,8 +815,10 @@ export default function SocialTrackerPage() {
                   <td className="soctrack-desc-cell">{c.description || '—'}</td>
                   <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
                   <td><span className={'tag ' + statusTagClass(c.status)}>{c.status}</span></td>
-                  <td className="table-actions">
-                    {canManage && <button type="button" className="btn btn-secondary soctrack-row-btn" onClick={() => openEditCampaign(c)}>Edit</button>}
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Edit", onClick: () => openEditCampaign(c), hidden: !(canManage) },
+                    ]} />
                   </td>
                 </tr>
               ))}

@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProcurementPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's procurement screen (screens.procurement
 // block + the procurement computed values around its render()).
@@ -183,13 +184,11 @@ export default function ProcurementPage() {
                 <td>{fmtDate(r.requiredDate)}</td>
                 <td><span className={'tag ' + priorityClass(r.priority)}>{r.priority}</span></td>
                 <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
-                <td className="table-actions">
-                  {decidable && (
-                    <>
-                      <button type="button" className="btn btn-secondary procurement-row-btn" disabled={decidingId === r.id} onClick={() => handleDecision(r, 'approved')}>Approve</button>
-                      <button type="button" className="btn btn-secondary procurement-row-btn" disabled={decidingId === r.id} onClick={() => handleDecision(r, 'rejected')}>Reject</button>
-                    </>
-                  )}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Approve", onClick: () => handleDecision(r, 'approved'), disabled: decidingId === r.id, hidden: !(decidable) },
+                    { label: "Reject", onClick: () => handleDecision(r, 'rejected'), disabled: decidingId === r.id, danger: true, hidden: !(decidable) },
+                  ]} />
                 </td>
               </tr>
             );

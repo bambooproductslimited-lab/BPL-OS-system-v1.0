@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './InventoryPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's inventory screen (screens.inventory
 // block + the products computed values, and the shared "product"
@@ -133,8 +134,10 @@ export default function InventoryPage() {
               <td>{p.currentStock} {p.unit}</td>
               <td>{p.reorderLevel}</td>
               <td><span className={'tag ' + (p.lowStock ? 'tag-accent' : 'tag-neutral')}>{p.lowStock ? 'Low stock' : 'OK'}</span></td>
-              <td className="table-actions">
-                {canManage && <button type="button" className="btn btn-secondary inventory-row-btn" onClick={() => openEdit(p)}>Edit</button>}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Edit", onClick: () => openEdit(p), hidden: !(canManage) },
+                ]} />
               </td>
             </tr>
           ))}

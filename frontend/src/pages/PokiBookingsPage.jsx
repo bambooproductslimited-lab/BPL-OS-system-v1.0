@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import './PokiPages.css';
+import RowMenu from '../components/RowMenu';
 
 // Bookings — who occupies which unit, on what terms. Also where the tenancy
 // agreement gets generated (from a template, with the booking's own details
@@ -369,25 +370,16 @@ export default function PokiBookingsPage() {
                 </td>
                 <td className={'poki-num' + (l.balanceTotal > 0 ? ' poki-overdue' : '')}>{money(l.balanceTotal || 0, l.currency)}</td>
                 <td><span className={'poki-chip poki-chip-' + l.status}>{l.status}</span></td>
-                <td className="table-actions">
-                  <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openAgreement(l)}>Agreement</button>
-                  {canManage && l.status === 'draft' && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === l.id}
-                      onClick={() => act(l, '/activate', {}, 'Booking activated — the unit is now occupied.')}>Activate</button>
-                  )}
-                  {canManage && (l.status === 'draft' || l.status === 'active') && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openBooking(l)}>Edit</button>
-                  )}
-                  {canManage && l.status === 'active' && (
-                    <>
-                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openSimple('deposit', l)}>Deposit</button>
-                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openSimple('renew', l)}>Renew</button>
-                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openSimple('end', l)}>End</button>
-                    </>
-                  )}
-                  {canManage && l.depositHeld > l.depositRefunded && l.status !== 'active' && l.status !== 'draft' && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openSimple('refund', l)}>Refund deposit</button>
-                  )}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Agreement", onClick: () => openAgreement(l) },
+                    { label: "Activate", onClick: () => act(l, '/activate', {}, 'Booking activated — the unit is now occupied.'), disabled: busyId === l.id, hidden: !(canManage && l.status === 'draft') },
+                    { label: "Edit", onClick: () => openBooking(l), hidden: !(canManage && (l.status === 'draft' || l.status === 'active')) },
+                    { label: "Deposit", onClick: () => openSimple('deposit', l), hidden: !(canManage && l.status === 'active') },
+                    { label: "Renew", onClick: () => openSimple('renew', l), hidden: !(canManage && l.status === 'active') },
+                    { label: "End", onClick: () => openSimple('end', l), hidden: !(canManage && l.status === 'active') },
+                    { label: "Refund deposit", onClick: () => openSimple('refund', l), hidden: !(canManage && l.depositHeld > l.depositRefunded && l.status !== 'active' && l.status !== 'draft') },
+                  ]} />
                 </td>
               </tr>
             ))}

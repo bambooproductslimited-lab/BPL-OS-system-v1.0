@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ExpensesPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's expenses screen (screens.expenses block
 // + the expenses computed values, and the "Edit expense claim" dialog
@@ -229,16 +230,14 @@ export default function ExpensesPage() {
                 <td>{fmtDate(x.date)}</td>
                 <td className="expenses-description">{x.description}</td>
                 <td><span className={'tag ' + tagClass(x.status)}>{x.status}</span></td>
-                <td className="table-actions">
-                  {decidable && (
-                    <>
-                      <button type="button" className="btn btn-secondary expenses-row-btn" disabled={busy} onClick={() => handleDecision(x, 'approved')}>Approve</button>
-                      <button type="button" className="btn btn-secondary expenses-row-btn" disabled={busy} onClick={() => handleDecision(x, 'rejected')}>Reject</button>
-                    </>
-                  )}
-                  {payable && <button type="button" className="btn btn-secondary expenses-row-btn" disabled={busy} onClick={() => handleMarkPaid(x)}>Mark paid</button>}
-                  {canEdit && <button type="button" className="btn btn-secondary expenses-row-btn" disabled={busy} onClick={() => openEdit(x)}>Edit</button>}
-                  {canEdit && <button type="button" className="btn btn-secondary expenses-row-btn" disabled={busy} onClick={() => setDeleteTarget(x)}>Delete</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Approve", onClick: () => handleDecision(x, 'approved'), disabled: busy, hidden: !(decidable) },
+                    { label: "Reject", onClick: () => handleDecision(x, 'rejected'), disabled: busy, danger: true, hidden: !(decidable) },
+                    { label: "Mark paid", onClick: () => handleMarkPaid(x), disabled: busy, hidden: !(payable) },
+                    { label: "Edit", onClick: () => openEdit(x), disabled: busy, hidden: !(canEdit) },
+                    { label: "Delete", onClick: () => setDeleteTarget(x), disabled: busy, danger: true, hidden: !(canEdit) },
+                  ]} />
                 </td>
               </tr>
             );

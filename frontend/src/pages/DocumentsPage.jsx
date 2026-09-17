@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { toPreviewUrl } from '../lib/previewUrl';
 import './DocumentsPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's documents screen (screens.documents
 // block + the "Add document" dialog around its render()), extended with
@@ -213,8 +214,10 @@ export default function DocumentsPage() {
                     {dc.uploaderName}
                   </div>
                 </td>
-                <td className="table-actions">
-                  {canManage && <button type="button" className="btn btn-secondary documents-row-btn" onClick={() => setDeleteTarget(dc)}>Remove</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Remove", onClick: () => setDeleteTarget(dc), danger: true, hidden: !(canManage) },
+                  ]} />
                 </td>
               </tr>
             );

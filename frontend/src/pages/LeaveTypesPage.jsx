@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import './LeaveTypesPage.css';
+import RowMenu from '../components/RowMenu';
 
 // HR/Admin-only screen (nav-gated on employee.write, same permission that
 // already gates kiosk PIN management and employee editing) for the things
@@ -355,8 +356,10 @@ export default function LeaveTypesPage() {
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{t.daysPerYear}</td>
                   <td>{t.paid ? 'Paid' : 'Unpaid'}</td>
                   <td><span className={'tag ' + (t.active ? 'tag-neutral' : 'tag-accent')}>{t.active ? 'Active' : 'Inactive'}</span></td>
-                  <td className="table-actions">
-                    <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => openEditType(t)}>Edit</button>
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Edit", onClick: () => openEditType(t) },
+                    ]} />
                   </td>
                 </tr>
               ))}
@@ -398,8 +401,10 @@ export default function LeaveTypesPage() {
                     <tr key={h.id}>
                       <td style={{ fontVariantNumeric: 'tabular-nums' }}>{h.date}</td>
                       <td>{h.name}</td>
-                      <td className="table-actions">
-                        <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => removeHoliday(h.id)}>Remove</button>
+                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu actions={[
+                          { label: "Remove", onClick: () => removeHoliday(h.id), danger: true },
+                        ]} />
                       </td>
                     </tr>
                   ))}
@@ -494,19 +499,11 @@ export default function LeaveTypesPage() {
                           onChange={(e) => setEntitlementDrafts({ ...entitlementDrafts, [en.leaveTypeId]: e.target.value })}
                         />
                       </td>
-                      <td className="table-actions">
-                        <button
-                          type="button" className="btn btn-secondary attendance-row-btn"
-                          disabled={entitlementSavingId === en.leaveTypeId || String(en.daysPerYear) === (entitlementDrafts[en.leaveTypeId] ?? String(en.daysPerYear))}
-                          onClick={() => saveEntitlement(en.leaveTypeId)}
-                        >
-                          {entitlementSavingId === en.leaveTypeId ? 'Saving…' : 'Save'}
-                        </button>
-                        {en.isCustom && (
-                          <button type="button" className="btn btn-secondary attendance-row-btn" disabled={entitlementSavingId === en.leaveTypeId} onClick={() => resetEntitlement(en.leaveTypeId)}>
-                            Reset to default
-                          </button>
-                        )}
+                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu actions={[
+                          { label: entitlementSavingId === en.leaveTypeId ? 'Saving…' : 'Save', onClick: () => saveEntitlement(en.leaveTypeId), disabled: entitlementSavingId === en.leaveTypeId || String(en.daysPerYear) === (entitlementDrafts[en.leaveTypeId] ?? String(en.daysPerYear)) },
+                          { label: "Reset to default", onClick: () => resetEntitlement(en.leaveTypeId), disabled: entitlementSavingId === en.leaveTypeId, hidden: !(en.isCustom) },
+                        ]} />
                       </td>
                     </tr>
                   ))}
@@ -550,14 +547,10 @@ export default function LeaveTypesPage() {
                   </td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{b.used}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{b.entitled - b.used}</td>
-                  <td className="table-actions">
-                    <button
-                      type="button" className="btn btn-secondary attendance-row-btn"
-                      disabled={savingRowId === b.leaveTypeId || String(b.entitled) === (entitledDrafts[b.leaveTypeId] ?? String(b.entitled))}
-                      onClick={() => saveEntitled(b.leaveTypeId)}
-                    >
-                      {savingRowId === b.leaveTypeId ? 'Saving…' : 'Save'}
-                    </button>
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: savingRowId === b.leaveTypeId ? 'Saving…' : 'Save', onClick: () => saveEntitled(b.leaveTypeId), disabled: savingRowId === b.leaveTypeId || String(b.entitled) === (entitledDrafts[b.leaveTypeId] ?? String(b.entitled)) },
+                    ]} />
                   </td>
                 </tr>
               ))}

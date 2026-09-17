@@ -6,8 +6,6 @@
   margin-bottom: 16px;
 }
 
-.inventory-row-btn { font-size: 12px; padding: 6px 10px; }
-
 .inventory-name-cell { display: flex; align-items: center; gap: 10px; }
 .inventory-badge {
   width: 26px;

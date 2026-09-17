@@ -17,8 +17,6 @@
 .payroll-period { min-width: 200px; }
 .payroll-employee { min-width: 200px; }
 
-.payroll-row-btn { font-size: 12px; padding: 6px 10px; }
-
 .payroll-run-dialog { max-width: 820px; max-height: 90vh; overflow: auto; }
 .payroll-run-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
 .payroll-run-title { margin: 0; font-size: 20px; }

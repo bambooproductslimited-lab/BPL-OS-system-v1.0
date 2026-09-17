@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './UsersPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's users screen (screens.users block + the
 // users computed value), backed by GET /api/users, POST /api/users/:id/role,
@@ -260,22 +261,12 @@ export default function UsersPage() {
                 </td>
                 <td className="users-lastlogin">{fmtLastLogin(u.lastLoginAt)}</td>
                 <td><span className={'tag ' + tagClass(u.status)}>{u.status}</span></td>
-                <td className="table-actions">
-                  {!isSelf && (
-                    <button type="button" className="btn btn-secondary users-row-btn" disabled={busyId === u.id} onClick={() => toggleStatus(u)}>
-                      {u.status === 'active' ? 'Disable' : 'Enable'}
-                    </button>
-                  )}
-                  {canCreate && (
-                    <button type="button" className="btn btn-secondary users-row-btn" onClick={() => openEmail(u)}>
-                      Change email
-                    </button>
-                  )}
-                  {canCreate && (
-                    <button type="button" className="btn btn-secondary users-row-btn" onClick={() => openReset(u)}>
-                      Reset password
-                    </button>
-                  )}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: u.status === 'active' ? 'Disable' : 'Enable', onClick: () => toggleStatus(u), disabled: busyId === u.id, hidden: !(!isSelf) },
+                    { label: "Change email", onClick: () => openEmail(u), hidden: !(canCreate) },
+                    { label: "Reset password", onClick: () => openReset(u), hidden: !(canCreate) },
+                  ]} />
                 </td>
               </tr>
             );

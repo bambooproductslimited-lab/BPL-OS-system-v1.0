@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import './TasksPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's tasks screen (screens.tasks block + the
 // tasks/taskScopeFilters computed values, and the taskDetail dialog around
@@ -411,8 +412,10 @@ export default function TasksPage() {
                   {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
                 </select>
               </td>
-              <td className="table-actions">
-                {canManage && <button type="button" className="btn btn-secondary tasks-row-btn" onClick={() => setDeleteTarget(t)}>Delete</button>}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Delete", onClick: () => setDeleteTarget(t), danger: true, hidden: !(canManage) },
+                ]} />
               </td>
             </tr>
           ))}

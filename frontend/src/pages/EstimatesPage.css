@@ -1,6 +1,5 @@
 .estimates-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .estimates-items-line { font-size: 13px; }
-.estimates-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
 .estimates-no-cell { display: flex; align-items: center; gap: 10px; }
 .estimates-badge {

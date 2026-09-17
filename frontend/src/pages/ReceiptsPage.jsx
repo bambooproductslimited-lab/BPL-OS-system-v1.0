@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { money } from '../lib/currency';
 import './ReceiptsPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
 // and dialog.receiptPreview. Receipts are read-only — a pure byproduct of
@@ -91,8 +92,10 @@ export default function ReceiptsPage() {
               <td>{fmtDate(r.date)}</td>
               <td className="receipts-method">{r.method.replace('_', ' ')}</td>
               <td>{money(r.balanceAfter, r.currency)}</td>
-              <td className="table-actions">
-                <button type="button" className="btn btn-secondary receipts-row-btn" onClick={() => { setShareError(null); setPreviewR(r); }}>Preview</button>
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Preview", onClick: () => { setShareError(null); setPreviewR(r); } },
+                ]} />
               </td>
             </tr>
           ))}

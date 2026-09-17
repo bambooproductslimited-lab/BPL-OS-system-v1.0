@@ -1,5 +1,4 @@
 .receipts-method { text-transform: capitalize; }
-.receipts-row-btn { font-size: 12px; padding: 6px 10px; }
 
 .receipts-empty-state {
   display: flex;

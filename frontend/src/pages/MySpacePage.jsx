@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import './MySpacePage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's "My space" screen (screens.myspace block
 // + the myAttendance/myBalances/myLeave computed values around its
@@ -211,10 +212,10 @@ export default function MySpacePage() {
                   <td>{l.days}</td>
                   <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
                   <td className="myspace-note">{l.decisionNote || '—'}</td>
-                  <td className="table-actions">
-                    {l.status === 'pending' && (
-                      <button type="button" className="btn btn-secondary myspace-row-btn" onClick={() => handleCancel(l)}>Cancel</button>
-                    )}
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Cancel", onClick: () => handleCancel(l), danger: true, hidden: !(l.status === 'pending') },
+                    ]} />
                   </td>
                 </tr>
               ))}

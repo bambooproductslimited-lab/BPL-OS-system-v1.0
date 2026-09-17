@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import './RestaurantsPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Restaurant module, Phase 1: each restaurant company (Star Bar Restaurant,
 // Bamboo Garden — see migration 0032) gets its own sellable menu plus two
@@ -1004,10 +1005,12 @@ export default function RestaurantsPage() {
                     <td>{s.stockQty} {s.unit} {s.lowStock && <span className="tag tag-accent restaurants-lowstock">Low</span>}</td>
                     <td>{s.reorderLevel} {s.unit}</td>
                     <td>{money(s.unitCost)}</td>
-                    <td className="table-actions">
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openStockDialog('supply', s)}>Adjust stock</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditSupply(s)}>Edit</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === s.id} onClick={() => deleteSupply(s)}>Delete</button>}
+                    <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                      <RowMenu actions={[
+                        { label: "Adjust stock", onClick: () => openStockDialog('supply', s), hidden: !(canManage) },
+                        { label: "Edit", onClick: () => openEditSupply(s), hidden: !(canManage) },
+                        { label: "Delete", onClick: () => deleteSupply(s), disabled: busyId === s.id, danger: true, hidden: !(canManage) },
+                      ]} />
                     </td>
                   </tr>
                 ))}
@@ -1029,10 +1032,12 @@ export default function RestaurantsPage() {
                       {i.expiryDate ? i.expiryDate.slice(0, 10) : '—'}
                       {i.expiringSoon && <span className="tag tag-accent restaurants-lowstock">Expiring soon</span>}
                     </td>
-                    <td className="table-actions">
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openStockDialog('ingredient', i)}>Adjust stock</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditIngredient(i)}>Edit</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === i.id} onClick={() => deleteIngredient(i)}>Delete</button>}
+                    <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                      <RowMenu actions={[
+                        { label: "Adjust stock", onClick: () => openStockDialog('ingredient', i), hidden: !(canManage) },
+                        { label: "Edit", onClick: () => openEditIngredient(i), hidden: !(canManage) },
+                        { label: "Delete", onClick: () => deleteIngredient(i), disabled: busyId === i.id, danger: true, hidden: !(canManage) },
+                      ]} />
                     </td>
                   </tr>
                 ))}
@@ -1048,10 +1053,12 @@ export default function RestaurantsPage() {
                   <tr key={t.id}>
                     <td style={{ fontWeight: 600 }}>{t.name}</td>
                     <td><span className={'tag ' + (t.status === 'active' ? 'tag-neutral' : 'tag-outline')}>{t.status}</span></td>
-                    <td className="table-actions">
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditTable(t)}>Rename</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === t.id} onClick={() => toggleTableActive(t)}>{t.status === 'active' ? 'Archive' : 'Reactivate'}</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === t.id} onClick={() => deleteTable(t)}>Delete</button>}
+                    <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                      <RowMenu actions={[
+                        { label: "Rename", onClick: () => openEditTable(t), hidden: !(canManage) },
+                        { label: t.status === 'active' ? 'Archive' : 'Reactivate', onClick: () => toggleTableActive(t), disabled: busyId === t.id, hidden: !(canManage) },
+                        { label: "Delete", onClick: () => deleteTable(t), disabled: busyId === t.id, danger: true, hidden: !(canManage) },
+                      ]} />
                     </td>
                   </tr>
                 ))}
@@ -1068,9 +1075,11 @@ export default function RestaurantsPage() {
                     <td style={{ fontWeight: 600 }}>{g.name}</td>
                     <td>{g.phone || '—'}</td>
                     <td>{g.notes || '—'}</td>
-                    <td className="table-actions">
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditGuest(g)}>Edit</button>}
-                      {canManage && <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === g.id} onClick={() => deleteGuest(g)}>Delete</button>}
+                    <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                      <RowMenu actions={[
+                        { label: "Edit", onClick: () => openEditGuest(g), hidden: !(canManage) },
+                        { label: "Delete", onClick: () => deleteGuest(g), disabled: busyId === g.id, danger: true, hidden: !(canManage) },
+                      ]} />
                     </td>
                   </tr>
                 ))}
@@ -1093,10 +1102,10 @@ export default function RestaurantsPage() {
                       <td><span className="tag tag-neutral">{o.paymentMethod.replace('_', ' ')}</span></td>
                       <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
                       <td className="restaurants-time">{new Date(o.createdAt).toLocaleString()}</td>
-                      <td className="table-actions">
-                        {canManage && o.status === 'completed' && (
-                          <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === o.id} onClick={(e) => { e.stopPropagation(); voidOrderAction(o); }}>Void</button>
-                        )}
+                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu actions={[
+                          { label: "Void", onClick: (e) => { e.stopPropagation(); voidOrderAction(o); }, disabled: busyId === o.id, danger: true, hidden: !(canManage && o.status === 'completed') },
+                        ]} />
                       </td>
                     </tr>
                   ))}

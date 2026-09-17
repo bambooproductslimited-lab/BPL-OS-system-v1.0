@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './PokiPages.css';
+import RowMenu from '../components/RowMenu';
 
 // Poki's tenant register. Deliberately separate from Bamboo Products'
 // client list: a tenant carries things a sales customer doesn't (ID
@@ -140,11 +141,11 @@ export default function PokiTenantsPage() {
                 <td className="poki-muted poki-nowrap">{t.idNumber ? t.idType + ' · ' + t.idNumber : '—'}</td>
                 <td className="poki-nowrap">{t.unitLabels || <span className="poki-muted">—</span>}</td>
                 <td><span className={'poki-chip poki-chip-' + t.status}>{t.status}</span></td>
-                <td className="table-actions">
-                  {canManage && <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openDialog(t)}>Edit</button>}
-                  {canManage && !t.activeBookings && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => remove(t)}>Delete</button>
-                  )}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Edit", onClick: () => openDialog(t), hidden: !(canManage) },
+                    { label: "Delete", onClick: () => remove(t), danger: true, hidden: !(canManage && !t.activeBookings) },
+                  ]} />
                 </td>
               </tr>
             ))}

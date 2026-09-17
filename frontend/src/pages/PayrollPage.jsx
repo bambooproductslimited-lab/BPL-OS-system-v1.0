@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import DateRangePicker from '../components/DateRangePicker';
 import './PayrollPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Payroll: employees are paid a daily rate on one of three cycles (monthly,
 // paid on the 5th; biweekly; or daily, for staff paid per day worked). A
@@ -323,8 +324,10 @@ export default function PayrollPage() {
                       <td>{fmtMoney(s.payeTax)}</td>
                       <td style={{ fontWeight: 600 }}>{fmtMoney(s.netPay)}</td>
                       <td><span className={'tag ' + tagClass(s.runStatus)}>{s.runStatus}</span></td>
-                      <td className="table-actions">
-                        <button type="button" className="btn btn-secondary payroll-row-btn" onClick={() => viewRunFromHistory(s.payRunId)}>View run</button>
+                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu actions={[
+                          { label: "View run", onClick: () => viewRunFromHistory(s.payRunId) },
+                        ]} />
                       </td>
                     </tr>
                   ))}
@@ -361,8 +364,10 @@ export default function PayrollPage() {
                   <td>{r.employeeCount}</td>
                   <td>{fmtMoney(r.totalNet)}</td>
                   <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
-                  <td className="table-actions">
-                    <button type="button" className="btn btn-secondary payroll-row-btn" onClick={() => openRun(r)}>View</button>
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "View", onClick: () => openRun(r) },
+                    ]} />
                   </td>
                 </tr>
               ))}
@@ -483,14 +488,11 @@ export default function PayrollPage() {
                     <td>{fmtMoney(s.ssnitEmployee)}</td>
                     <td>{fmtMoney(s.payeTax)}</td>
                     <td style={{ fontWeight: 600 }}>{fmtMoney(s.netPay)}</td>
-                    <td className="table-actions">
-                      {canManage && activeRun.status === 'draft' && (
-                        editingSlip === s.employeeId ? (
-                          <button type="button" className="btn btn-secondary payroll-row-btn" disabled={runBusy} onClick={() => saveSlipEdit(s.employeeId)}>Save</button>
-                        ) : (
-                          <button type="button" className="btn btn-secondary payroll-row-btn" onClick={() => startEditSlip(s)}>Edit</button>
-                        )
-                      )}
+                    <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                      <RowMenu actions={[
+                        { label: "Save", onClick: () => saveSlipEdit(s.employeeId), disabled: runBusy },
+                        { label: "Edit", onClick: () => startEditSlip(s) },
+                      ]} />
                     </td>
                   </tr>
                 ))}

@@ -5,6 +5,7 @@ import WaybillPreview from '../components/WaybillPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import CatalogPicker from '../components/CatalogPicker';
 import './WaybillsPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Waybills document goods leaving the factory or showroom — a delivery
 // note, not a sales document (no pricing on the line items). The printed
@@ -208,14 +209,12 @@ export default function WaybillsPage() {
               <td>{wb.vehicleNo || '—'}</td>
               <td>{fmtDate(wb.createdAt)}</td>
               <td><span className={'tag ' + tagClass(wb.status)}>{wb.status}</span></td>
-              <td className="table-actions">
-                <button type="button" className="btn btn-secondary waybills-row-btn" onClick={() => setPreviewWb(wb)}>Preview</button>
-                {canManage && wb.status === 'dispatched' && (
-                  <>
-                    <button type="button" className="btn btn-secondary waybills-row-btn" disabled={busyId === wb.id} onClick={() => setStatus(wb, 'delivered')}>Mark delivered</button>
-                    <button type="button" className="btn btn-secondary waybills-row-btn" disabled={busyId === wb.id} onClick={() => setStatus(wb, 'cancelled')}>Cancel</button>
-                  </>
-                )}
+              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                <RowMenu actions={[
+                  { label: "Preview", onClick: () => setPreviewWb(wb) },
+                  { label: "Mark delivered", onClick: () => setStatus(wb, 'delivered'), disabled: busyId === wb.id, hidden: !(canManage && wb.status === 'dispatched') },
+                  { label: "Cancel", onClick: () => setStatus(wb, 'cancelled'), disabled: busyId === wb.id, danger: true, hidden: !(canManage && wb.status === 'dispatched') },
+                ]} />
               </td>
             </tr>
           ))}

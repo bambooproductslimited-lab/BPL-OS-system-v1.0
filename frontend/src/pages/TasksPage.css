@@ -94,7 +94,6 @@
 .tasks-date-input { font-size: 12px; padding: 4px 6px; }
 .tasks-status-select { font-size: 12px; padding: 4px 8px; }
 .tasks-overdue { font-size: 11px; color: var(--color-accent); margin-top: 2px; font-weight: 600; }
-.tasks-row-btn { font-size: 12px; padding: 6px 10px; }
 
 /* ── comment count badge ───────────────────────────────────────────── */
 .tasks-comment-badge {

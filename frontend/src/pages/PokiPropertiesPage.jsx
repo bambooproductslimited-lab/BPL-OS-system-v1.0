@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import './PokiPages.css';
+import RowMenu from '../components/RowMenu';
 
 // Properties and the units inside them. A unit is the thing that actually
 // gets let — a flat, a single room, an office suite, a shop, a warehouse
@@ -201,11 +202,11 @@ export default function PokiPropertiesPage() {
                         {u.utilityMode === 'fixed' && 'Fixed ' + money(u.fixedUtilityAmount, u.currency)}
                         {u.utilityMode === 'apportioned' && u.apportionShare + '% of master bill'}
                       </td>
-                      <td className="table-actions">
-                        {canManage && <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openUnit(u)}>Edit</button>}
-                        {canManage && !u.bookingId && (
-                          <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => removeUnit(u)}>Delete</button>
-                        )}
+                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu actions={[
+                          { label: "Edit", onClick: () => openUnit(u), hidden: !(canManage) },
+                          { label: "Delete", onClick: () => removeUnit(u), danger: true, hidden: !(canManage && !u.bookingId) },
+                        ]} />
                       </td>
                     </tr>
                   ))}

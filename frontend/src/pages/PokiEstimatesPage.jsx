@@ -7,6 +7,7 @@ import DocPreview from '../components/DocPreview';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
+import RowMenu from '../components/RowMenu';
 
 // Letting offers — what a unit costs to take, quoted before any booking
 // exists.
@@ -339,20 +340,14 @@ export default function PokiEstimatesPage() {
                       {e.status === 'converted' ? 'bookingd' : e.status === 'finalized' ? 'sent' : e.status}
                     </span>
                   </td>
-                  <td className="table-actions">
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openPreview(e)}>Print</button>
-                    {canManage && e.status === 'draft' && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openOffer(e)}>Edit</button>
-                    )}
-                    {canManage && e.status === 'draft' && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === e.id} onClick={() => setStatus(e, 'finalized')}>Mark sent</button>
-                    )}
-                    {canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived' && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openConvert(e)}>Accept → booking</button>
-                    )}
-                    {canManage && e.status !== 'converted' && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === e.id} onClick={() => remove(e)}>Delete</button>
-                    )}
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Print", onClick: () => openPreview(e) },
+                      { label: "Edit", onClick: () => openOffer(e), hidden: !(canManage && e.status === 'draft') },
+                      { label: "Mark sent", onClick: () => setStatus(e, 'finalized'), disabled: busyId === e.id, hidden: !(canManage && e.status === 'draft') },
+                      { label: "Accept → booking", onClick: () => openConvert(e), hidden: !(canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived') },
+                      { label: "Delete", onClick: () => remove(e), disabled: busyId === e.id, danger: true, hidden: !(canManage && e.status !== 'converted') },
+                    ]} />
                   </td>
                 </tr>
               ))}

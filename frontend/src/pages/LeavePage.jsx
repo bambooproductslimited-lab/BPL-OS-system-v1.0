@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './LeavePage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's leave screen (screens.leave block + the
 // leaveRows/leaveFilters/leaveHint computed values around its render()),
@@ -321,20 +322,12 @@ export default function LeavePage() {
                         <td style={{ fontSize: 13 }}>{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</td>
                         <td>{l.days}</td>
                         <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
-                        <td className="table-actions">
-                          {decidable && (
-                            <>
-                              <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'approved')}>
-                                <Icon name="checkCircle" /> Approve
-                              </button>
-                              <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => openDecision(l, 'rejected')}>
-                                <Icon name="xCircle" /> Reject
-                              </button>
-                            </>
-                          )}
-                          {cancellable && (
-                            <button type="button" className="btn btn-secondary leave-row-btn" onClick={() => handleCancel(l)}>Cancel</button>
-                          )}
+                        <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                          <RowMenu actions={[
+                            { label: "Approve", onClick: () => openDecision(l, 'approved'), hidden: !(decidable) },
+                            { label: "Reject", onClick: () => openDecision(l, 'rejected'), danger: true, hidden: !(decidable) },
+                            { label: "Cancel", onClick: () => handleCancel(l), danger: true, hidden: !(cancellable) },
+                          ]} />
                         </td>
                       </tr>
                     );

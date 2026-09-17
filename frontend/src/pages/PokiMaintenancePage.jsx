@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import './PokiPages.css';
+import RowMenu from '../components/RowMenu';
 
 // Repairs and issues logged against a specific unit. Where the tenant is
 // liable (a broken window rather than a failing water heater), the cost can
@@ -167,19 +168,13 @@ export default function PokiMaintenancePage() {
                 <td className="poki-nowrap">{fmtDate(r.reportedOn)}</td>
                 <td className="poki-num">{r.cost > 0 ? money(r.cost, 'GHS') : <span className="poki-muted">—</span>}</td>
                 <td><span className={'poki-chip poki-chip-' + r.status}>{r.status.replace('_', ' ')}</span></td>
-                <td className="table-actions">
-                  {canManage && r.status === 'open' && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === r.id} onClick={() => setStatus(r, 'in_progress')}>Start</button>
-                  )}
-                  {canManage && (r.status === 'open' || r.status === 'in_progress') && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openDialog(r)}>Resolve</button>
-                  )}
-                  {canManage && r.status !== 'open' && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openDialog(r)}>Edit</button>
-                  )}
-                  {canManage && r.cost > 0 && r.tenantName && (
-                    <button type="button" className="btn btn-secondary poki-row-btn" disabled={busyId === r.id} onClick={() => charge(r)}>Charge tenant</button>
-                  )}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: "Start", onClick: () => setStatus(r, 'in_progress'), disabled: busyId === r.id, hidden: !(canManage && r.status === 'open') },
+                    { label: "Resolve", onClick: () => openDialog(r), hidden: !(canManage && (r.status === 'open' || r.status === 'in_progress')) },
+                    { label: "Edit", onClick: () => openDialog(r), hidden: !(canManage && r.status !== 'open') },
+                    { label: "Charge tenant", onClick: () => charge(r), disabled: busyId === r.id, hidden: !(canManage && r.cost > 0 && r.tenantName) },
+                  ]} />
                 </td>
               </tr>
             ))}

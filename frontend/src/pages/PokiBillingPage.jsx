@@ -6,6 +6,7 @@ import DocPreview from '../components/DocPreview';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
+import RowMenu from '../components/RowMenu';
 
 // Rent & utilities — the billing desk. Three tabs because the three jobs
 // are genuinely separate: raising the period's rent, turning meter
@@ -360,10 +361,10 @@ export default function PokiBillingPage() {
                           ? <span className="poki-chip poki-chip-active">apportioned</span>
                           : <span className="poki-chip poki-chip-open">not billed</span>}
                       </td>
-                      <td className="table-actions">
-                        <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => showSplit(b)}>
-                          {b.billedAt ? 'View split' : 'Review & bill'}
-                        </button>
+                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu actions={[
+                          { label: b.billedAt ? 'View split' : 'Review & bill', onClick: () => showSplit(b) },
+                        ]} />
                       </td>
                     </tr>
                   ))}
@@ -423,14 +424,12 @@ export default function PokiBillingPage() {
                       {i.status === 'void' ? 'void' : i.overdue && i.status !== 'paid' ? 'overdue' : i.status.replace('_', ' ')}
                     </span>
                   </td>
-                  <td className="table-actions">
-                    <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => openPreview(i)}>Print</button>
-                    {canManage && i.status !== 'paid' && i.status !== 'void' && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" disabled={busy} onClick={() => openPay(i)}>Record payment</button>
-                    )}
-                    {canManage && i.status !== 'void' && Number(i.amountPaid) === 0 && (
-                      <button type="button" className="btn btn-secondary poki-row-btn" disabled={busy} onClick={() => voidInvoice(i)}>Void</button>
-                    )}
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Print", onClick: () => openPreview(i) },
+                      { label: "Record payment", onClick: () => openPay(i), disabled: busy, hidden: !(canManage && i.status !== 'paid' && i.status !== 'void') },
+                      { label: "Void", onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) },
+                    ]} />
                   </td>
                 </tr>
               ))}

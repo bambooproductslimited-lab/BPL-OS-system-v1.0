@@ -5,6 +5,7 @@ import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
 import FaceCapture from '../components/FaceCapture';
 import './EmployeesPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's employee directory screen (screens.people
 // block) — search/department filter, show-terminated toggle, the
@@ -51,43 +52,6 @@ function effectiveShiftHours(form, shifts) {
   return hrs || 8;
 }
 
-// Row actions beyond "View" (Edit/ID docs/Kiosk PIN/Delete) are tucked
-// behind this menu instead of five buttons crowding every row — same
-// click-outside-to-close pattern as DateRangePicker.jsx.
-function RowMenu({ items }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    function onDocClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, []);
-  return (
-    <div className="employees-row-menu" ref={ref}>
-      <button type="button" className="employees-row-menu-trigger" aria-label="More actions" onClick={() => setOpen((o) => !o)}>
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="5" r="1.6" fill="currentColor" />
-          <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-          <circle cx="12" cy="19" r="1.6" fill="currentColor" />
-        </svg>
-      </button>
-      {open && (
-        <div className="employees-row-menu-panel">
-          {items.map((it) => (
-            <button
-              key={it.label}
-              type="button"
-              className={'employees-row-menu-item' + (it.tone === 'danger' ? ' employees-row-menu-item-danger' : '')}
-              onClick={() => { setOpen(false); it.onClick(); }}
-            >
-              {it.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 const EMPLOYMENT_TYPES = [
   { value: 'permanent', label: 'Permanent' },
@@ -626,11 +590,12 @@ export default function EmployeesPage() {
           {employees.map((p) => {
             const canDelete = canWrite && p.status !== 'terminated' && p.id !== (session && session.employee && session.employee.id);
             const menuItems = [
+              { label: 'View', onClick: () => setProfileTarget(p.id) },
               canWrite && { label: 'Edit', onClick: () => openEdit(p) },
               canWrite && { label: 'ID docs', onClick: () => setIdDocsTarget(p) },
               canWrite && { label: 'Kiosk PIN', onClick: () => openKioskPin(p) },
               canWrite && { label: 'Kiosk Face', onClick: () => openKioskFace(p) },
-              canDelete && { label: 'Delete', onClick: () => openTerminate(p), tone: 'danger' }
+              canDelete && { label: 'Delete', onClick: () => openTerminate(p), danger: true }
             ].filter(Boolean);
             return (
               <tr key={p.id}>
@@ -649,9 +614,8 @@ export default function EmployeesPage() {
                 <td>{p.managerId ? empName(p.managerId) : '—'}</td>
                 <td className="employees-shift">{p.shift}</td>
                 <td><span className={'tag ' + tagClass(p.status)}>{p.status}</span></td>
-                <td className="table-actions">
-                  <button type="button" className="btn btn-secondary employees-row-btn" onClick={() => setProfileTarget(p.id)}>View</button>
-                  {menuItems.length > 0 && <RowMenu items={menuItems} />}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={menuItems} />
                 </td>
               </tr>
             );

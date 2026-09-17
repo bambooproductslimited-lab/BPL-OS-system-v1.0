@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { money } from '../lib/currency';
 import './SalesOrdersPage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's sales orders screen (screens.salesorders
 // block + createOrderFromQuote/setOrderStatus handlers and the salesOrders
@@ -173,8 +174,10 @@ export default function SalesOrdersPage() {
                 <td>{o.customerName}</td>
                 <td>{money(o.total, o.currency)}</td>
                 <td><span className={'tag ' + orderTagClass(o.status)}>{statusLabel(o.status)}</span></td>
-                <td className="table-actions">
-                  {hasNext && <button type="button" className="btn btn-secondary salesorders-row-btn" disabled={busyId === o.id} onClick={() => advance(o)}>{nextLabel}</button>}
+                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                  <RowMenu actions={[
+                    { label: nextLabel, onClick: () => advance(o), disabled: busyId === o.id, hidden: !(hasNext) },
+                  ]} />
                 </td>
               </tr>
             );

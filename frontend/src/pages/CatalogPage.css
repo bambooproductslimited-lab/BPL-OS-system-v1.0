@@ -7,7 +7,6 @@
 }
 
 .catalog-description { font-size: 12px; color: var(--color-text-muted); }
-.catalog-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
 .catalog-name-cell { display: flex; align-items: center; gap: 10px; }
 .catalog-badge {

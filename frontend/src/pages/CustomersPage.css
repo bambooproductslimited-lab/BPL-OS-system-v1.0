@@ -7,7 +7,6 @@
 }
 
 .customers-contact-cell { font-size: 12px; }
-.customers-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
 
 .customers-name-cell { display: flex; align-items: center; gap: 10px; }
 .customers-badge {

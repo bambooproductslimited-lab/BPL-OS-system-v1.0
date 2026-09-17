@@ -6,6 +6,7 @@ import DateRangePicker from '../components/DateRangePicker';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
+import RowMenu from '../components/RowMenu';
 
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
 // block + the attendance/attSummary computed values around its render()).
@@ -554,11 +555,11 @@ export default function AttendancePage() {
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'} <LocationLink loc={r.clockOutLocation} /></td>
                   <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
                   <td className="attendance-note">{r.note || '—'}</td>
-                  <td className="table-actions">
-                    {canAdjust && <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => openCorrection(r)}>Correct</button>}
-                    {canAdjust && r.id && (
-                      <button type="button" className="btn btn-secondary attendance-row-btn" onClick={() => setDeleteTarget(r)}>Delete</button>
-                    )}
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu actions={[
+                      { label: "Correct", onClick: () => openCorrection(r), hidden: !(canAdjust) },
+                      { label: "Delete", onClick: () => setDeleteTarget(r), danger: true, hidden: !(canAdjust && r.id) },
+                    ]} />
                   </td>
                 </tr>
               ))}
