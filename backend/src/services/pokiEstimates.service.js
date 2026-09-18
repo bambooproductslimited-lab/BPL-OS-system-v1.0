@@ -335,6 +335,20 @@ async function update(ctx, id, p) {
   var taxRate = Number(p.taxRate) || 0;
   var schedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
 
+  // A draft follows its unit. If the unit's currency changed after the offer
+  // was drafted — a unit switched from GHS to USD, say — re-saving the draft
+  // picks that up, because a draft has not been put in front of anyone yet.
+  // Without this there was no way to correct it at all: the offer kept the
+  // currency it was born with, editing and saving did not budge it, and the
+  // list went on showing GHS against a USD unit.
+  //
+  // Anything past draft keeps what was quoted. A sent or accepted offer is a
+  // promise about a number, and re-denominating it later would change what
+  // the prospect was told.
+  var currency = (p.currency
+    || (existing.status === 'draft' && unit ? unit.currency : null)
+    || existing.currency).toUpperCase();
+
   await withTransaction(async function (client) {
     await client.query(
       'UPDATE estimates SET customer_id = $1, poki_unit_id = $2, subtotal = $3, discount_total = $4, tax_total = $5, ' +
@@ -343,7 +357,7 @@ async function update(ctx, id, p) {
       [
         tenant.customer_id, unit ? unit.id : null, totals.subtotal, totals.discountTotal, totals.taxTotal,
         totals.grandTotal, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(),
-        (p.currency || existing.currency).toUpperCase(), discountValue, discountType, taxRate,
+        currency, discountValue, discountType, taxRate,
         JSON.stringify(schedule), id
       ]
     );
