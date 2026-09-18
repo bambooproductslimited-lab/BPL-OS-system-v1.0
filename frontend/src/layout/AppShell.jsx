@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { NAV_GROUPS, ALL_NAV_ITEMS } from './navModel';
 import Icon from './navIcons';
 import NotificationsBell from '../components/NotificationsBell';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import './AppShell.css';
 
@@ -140,7 +141,11 @@ export default function AppShell() {
           </div>
         </header>
         <div className="shell-content">
-          <Outlet />
+          {/* Keyed on the path so navigating away from a broken page clears
+              the error instead of carrying it to the next one. */}
+          <ErrorBoundary key={location.pathname} scope="this page">
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </main>
     </div>

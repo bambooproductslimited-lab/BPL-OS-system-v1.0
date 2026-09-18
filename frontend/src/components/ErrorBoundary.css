@@ -1,0 +1,35 @@
+.errbound { padding: 32px; display: flex; justify-content: center; }
+.errbound-card {
+  max-width: 640px;
+  width: 100%;
+  padding: 24px;
+  border: var(--divider-width) solid var(--color-border);
+  border-radius: var(--radius, 0);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.errbound-title { font-size: 19px; margin-bottom: 8px; }
+.errbound-body { margin: 0 0 12px; font-size: 13px; color: var(--color-text-muted); }
+.errbound-message {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--color-danger-100);
+  color: var(--color-danger);
+  border-radius: calc(var(--radius, 4px) / 2);
+  overflow-wrap: anywhere;
+}
+.errbound-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.errbound-detail {
+  margin: 16px 0 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 11.5px;
+  line-height: 1.45;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
