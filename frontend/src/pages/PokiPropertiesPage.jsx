@@ -12,6 +12,22 @@ import RowMenu from '../components/RowMenu';
 // set. Occupancy is read-only here: it follows the unit's booking.
 
 const UNIT_TYPES = ['apartment', 'room', 'office', 'shop', 'warehouse', 'land', 'other'];
+// How a unit's utilities are charged. These four values are exactly what the
+// backend accepts (V.oneOf in poki.service.js), so adding a fifth here
+// without adding it there would be rejected on save.
+//
+// Lost in the bookings rewrite, which removed the rent-cycle constants from
+// this file and took this one with it. Nothing failed to build — an
+// undefined identifier inside JSX only throws when that JSX renders, and
+// this one is in the Add unit dialog, so the page itself was fine and only
+// opening the dialog broke.
+const UTILITY_MODES = [
+  { value: 'none', label: 'Tenant pays provider directly' },
+  { value: 'metered', label: 'Sub-meter — billed on consumption' },
+  { value: 'fixed', label: 'Fixed charge per period' },
+  { value: 'apportioned', label: 'Share of the building master bill' }
+];
+
 const EMPTY_PROPERTY = { code: '', name: '', propertyType: 'mixed', address: '', city: 'Tema', region: 'Greater Accra', ghanaPostGps: '', notes: '' };
 const EMPTY_UNIT = {
   propertyId: '', code: '', name: '', unitType: 'room', floor: '', sizeSqm: '', bedrooms: '', bathrooms: '',
