@@ -1,4 +1,5 @@
 import { money } from './currency';
+import { formatDate } from './dates';
 
 // Line items, shaped for RecordDialog's items table.
 //
@@ -90,4 +91,17 @@ export function adjustmentRows(doc, currency) {
     : [];
 
   return { discountRows, taxRows };
+}
+
+// Payments formatted for a document: the date it was received, how, and the
+// reference — not just a total. A customer querying a balance asks "which
+// payment, and when", and a lump sum cannot answer that.
+export function paymentsForDocument(payments, currency) {
+  return (payments || []).map((p) => ({
+    id: p.id,
+    date: formatDate(p.date),
+    amount: money(p.amount, currency),
+    methodLabel: String(p.method || '').replace(/_/g, ' '),
+    reference: p.reference || '',
+  }));
 }

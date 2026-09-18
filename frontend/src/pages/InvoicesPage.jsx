@@ -8,7 +8,7 @@ import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
-import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems';
+import { itemsForDialog, totalsForDialog, adjustmentRows, paymentsForDocument } from '../lib/docItems';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -486,6 +486,21 @@ export default function InvoicesPage() {
           totals={totalsForDialog(detail, detail.currency)}
           fields={[
             { label: 'Paid', value: money(detail.amountPaid, detail.currency) },
+            {
+              label: 'Payments received',
+              wide: true,
+              value: (detail.payments || []).length ? (
+                <ul className="record-dialog-list">
+                  {paymentsForDocument(detail.payments, detail.currency).map((pay, i) => (
+                    <li key={pay.id || i}>
+                      {pay.date} · {pay.amount}
+                      {pay.methodLabel ? ' · ' + pay.methodLabel : ''}
+                      {pay.reference ? ' · ref ' + pay.reference : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : null,
+            },
             { label: 'Balance due', value: money(detail.balanceDue, detail.currency) },
             { label: 'Due', value: fmtDate(detail.dueDate) },
             { label: 'Issued', value: fmtDate(detail.issuedAt) },
@@ -541,6 +556,7 @@ export default function InvoicesPage() {
           subtotal={money(previewInv.subtotal, previewInv.currency)}
           discountRows={adjustmentRows(previewInv, previewInv.currency).discountRows}
           taxRows={adjustmentRows(previewInv, previewInv.currency).taxRows}
+          payments={paymentsForDocument(previewInv.payments, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
           totalLabel="Total Due"

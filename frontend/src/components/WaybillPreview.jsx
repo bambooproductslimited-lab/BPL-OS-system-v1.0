@@ -32,7 +32,7 @@ export default function WaybillPreview({ waybill, onClose }) {
   }
 
   return (
-    <PrintLayer>
+    <PrintLayer onClose={onClose}>
       <div className="dialog-backdrop" onClick={onClose}>
         <div className="waybill-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
           <div className="waybill-preview-head">

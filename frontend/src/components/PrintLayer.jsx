@@ -16,10 +16,21 @@ import { createPortal } from 'react-dom';
 // means print CSS can `display: none` the whole application in one rule.
 // display, unlike visibility, removes it from the flow, so the only thing
 // paginated is the document itself.
-export default function PrintLayer({ children }) {
+export default function PrintLayer({ children, onClose }) {
   useEffect(() => {
     document.body.classList.add('has-print-layer');
     return () => document.body.classList.remove('has-print-layer');
   }, []);
+
+  // Escape closes it, the same as every other dialog in the app. None of the
+  // three previews handled Escape before — only a click on the backdrop or
+  // the Close button — which is an odd thing to discover only when a test
+  // could not click past one that would not go away.
+  useEffect(() => {
+    if (!onClose) return undefined;
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return createPortal(<div className="print-layer">{children}</div>, document.body);
 }

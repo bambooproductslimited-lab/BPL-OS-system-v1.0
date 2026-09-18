@@ -27,7 +27,7 @@ const EXPIRY_OPTIONS = [
   { value: '30', label: '30 days' }
 ];
 
-export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, discountRows, taxRows, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, shareApi, company, onClose }) {
+export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, discountRows, taxRows, payments, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, shareApi, company, onClose }) {
   const nodeRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
@@ -107,7 +107,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
   }
 
   return (
-    <PrintLayer>
+    <PrintLayer onClose={onClose}>
       <div className="dialog-backdrop" onClick={onClose}>
         <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
           <div className="doc-preview-head">
@@ -195,7 +195,20 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
               <div>{r.label}</div><div>{r.value}</div>
             </div>
           ))}
-          {isPartial && (
+          {/* Each payment, with the date it was received. A single "amount
+              paid" figure tells a customer how much has landed but not when
+              or how, which is exactly what they ask about. */}
+          {(payments || []).map((pay, i) => (
+            <div className="doc-preview-row" key={pay.id || i}>
+              <div>
+                Payment received {pay.date}
+                {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
+                {pay.reference && <span className="doc-preview-pay-meta"> · ref {pay.reference}</span>}
+              </div>
+              <div>− {pay.amount}</div>
+            </div>
+          ))}
+          {isPartial && !(payments || []).length && (
             <div className="doc-preview-row">
               <div>Amount paid</div><div>{amountPaid}</div>
             </div>

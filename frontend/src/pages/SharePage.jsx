@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
-import { adjustmentRows } from '../lib/docItems';
+import { adjustmentRows, paymentsForDocument } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import '../components/DocPreview.css';
 import './SharePage.css';
@@ -127,7 +127,17 @@ export default function SharePage() {
             <div>{r.label}</div><div>{r.value}</div>
           </div>
         ))}
-        {isInvoice && doc.amountPaid > 0 && doc.balanceDue > 0 && (
+        {isInvoice && paymentsForDocument(doc.payments, cur).map((pay, i) => (
+          <div className="doc-preview-row" key={i}>
+            <div>
+              Payment received {pay.date}
+              {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
+              {pay.reference && <span className="doc-preview-pay-meta"> · ref {pay.reference}</span>}
+            </div>
+            <div>− {pay.amount}</div>
+          </div>
+        ))}
+        {isInvoice && doc.amountPaid > 0 && doc.balanceDue > 0 && !(doc.payments || []).length && (
           <div className="doc-preview-row">
             <div>Amount paid</div><div>{money(doc.amountPaid, cur)}</div>
           </div>

@@ -17,7 +17,7 @@ function fmtDate(iso) {
 
 export default function ReceiptPreview({ receipt, previewRef, sharing, shareError, onClose, onShare }) {
   return (
-    <PrintLayer>
+    <PrintLayer onClose={onClose}>
       <div className="dialog-backdrop" onClick={onClose}>
         <div className="dialog receipt-preview" ref={previewRef} onClick={(e) => e.stopPropagation()}>
           <div className="receipt-preview-head">

@@ -4,14 +4,37 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause } = require('../utils/documents');
 
+// Every payment recorded against an invoice, oldest first — the receipt
+// history that belongs on the document itself. A customer holding an invoice
+// that says "balance GHS 260" needs to see which payments got it there and
+// when, not just the arithmetic result.
+async function loadPayments(db, invoiceId) {
+  var res = await db.query(
+    'SELECT p.id, p.date, p.amount, p.method, p.reference, e.first_name, e.last_name ' +
+    'FROM payments p LEFT JOIN employees e ON e.id = p.received_by ' +
+    'WHERE p.invoice_id = $1 ORDER BY p.date, p.id',
+    [invoiceId]);
+  return res.rows.map(function (r) {
+    return {
+      id: r.id, date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference || '',
+      receivedByName: r.first_name ? r.first_name + ' ' + r.last_name : '',
+    };
+  });
+}
+
 async function rowToInvoice(db, r, extra) {
   var items = await loadLineItems(db, 'invoice', r.id);
+  // `payments` may be supplied by a caller that already loaded them in bulk
+  // (see list(), which would otherwise run one query per invoice on top of
+  // the one it already runs per invoice for line items).
+  var payments = (extra && extra.payments) || (Number(r.amount_paid) > 0 ? await loadPayments(db, r.id) : []);
   return Object.assign({
     id: r.id, invoiceNo: r.invoice_no, salesOrderId: r.sales_order_id, quotationId: r.quotation_id, customerId: r.customer_id,
     items: items, currency: r.currency, subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
     grandTotal: Number(r.grand_total), amount: Number(r.grand_total), amountPaid: Number(r.amount_paid), balanceDue: Number(r.balance_due),
     poReference: r.po_reference, bankInstructions: r.bank_instructions, status: r.status, issuedAt: r.issued_at, dueDate: r.due_date, paidAt: r.paid_at,
-    notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || []
+    notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || [],
+    payments: payments
   }, extra || {});
 }
 
@@ -21,10 +44,29 @@ async function list(ctx) {
   var t = todayISO();
   var res = await pool.query('SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
     'WHERE ' + bplScopeClause('i') + ' ORDER BY i.issued_at DESC');
+  // One query for every payment on this page of invoices, grouped in memory,
+  // rather than one query per invoice inside the loop below.
+  var ids = res.rows.map(function (x) { return x.id; });
+  var byInvoice = {};
+  if (ids.length) {
+    var payRes = await pool.query(
+      'SELECT p.invoice_id, p.id, p.date, p.amount, p.method, p.reference, e.first_name, e.last_name ' +
+      'FROM payments p LEFT JOIN employees e ON e.id = p.received_by ' +
+      'WHERE p.invoice_id = ANY($1::uuid[]) ORDER BY p.date, p.id', [ids]);
+    payRes.rows.forEach(function (x) {
+      (byInvoice[x.invoice_id] = byInvoice[x.invoice_id] || []).push({
+        id: x.id, date: x.date, amount: Number(x.amount), method: x.method, reference: x.reference || '',
+        receivedByName: x.first_name ? x.first_name + ' ' + x.last_name : '',
+      });
+    });
+  }
   var out = [];
   for (var idx = 0; idx < res.rows.length; idx++) {
     var r = res.rows[idx];
-    out.push(await rowToInvoice(pool, r, { customerName: r.customer_name, overdue: r.status === 'unpaid' && r.due_date < t }));
+    out.push(await rowToInvoice(pool, r, {
+      customerName: r.customer_name, overdue: r.status === 'unpaid' && r.due_date < t,
+      payments: byInvoice[r.id] || [],
+    }));
   }
   return out;
 }

@@ -67,6 +67,18 @@ async function getSharedDocument(token) {
 
   var docNo = share.document_type === 'quotation' ? d.quote_no : share.document_type === 'estimate' ? d.estimate_no : d.invoice_no;
   var dateValue = share.document_type === 'invoice' ? d.issued_at : d.created_at;
+  // Payments belong on the customer's copy of an invoice: a balance is a
+  // claim, and the payments behind it are the evidence for it.
+  var payments = [];
+  if (share.document_type === 'invoice') {
+    var payRes = await pool.query(
+      'SELECT date, amount, method, reference FROM payments WHERE invoice_id = $1 ORDER BY date, id',
+      [share.document_id]);
+    payments = payRes.rows.map(function (r) {
+      return { date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference || '' };
+    });
+  }
+
   var notes = share.document_type === 'estimate' ? d.client_notes : d.notes;
 
   return {
@@ -81,7 +93,8 @@ async function getSharedDocument(token) {
     discount: { value: Number(d.discount_value) || 0, type: d.discount_type === 'percent' ? 'percent' : 'fixed' },
     taxRate: Number(d.tax_rate) || 0,
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,
-    notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || []
+    notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || [],
+    payments: payments
   };
 }
 
