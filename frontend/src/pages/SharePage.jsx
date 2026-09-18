@@ -63,7 +63,7 @@ export default function SharePage() {
                 Poki House<br />
                 35 J K Siaw St, Community 9, Tema, Ghana<br />
                 GT-191-1859 (GhanaPostGPS)<br />
-                Tel: 0591933925
+                WhatsApp: 0591933925
               </div>
             </div>
           </div>

@@ -127,7 +127,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
                     <div className="doc-preview-brand-address">
                       {company.address && <>{company.address}<br /></>}
                       {company.ghanaPostGps && <>{company.ghanaPostGps} (GhanaPostGPS)<br /></>}
-                      {company.phone && <>Tel: {company.phone}<br /></>}
+                      {company.phone && <>WhatsApp: {company.phone}<br /></>}
                       {company.email && <>{company.email}</>}
                     </div>
                   </>
@@ -138,7 +138,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
                       Poki House<br />
                       35 J K Siaw St, Community 9, Tema, Ghana<br />
                       GT-191-1859 (GhanaPostGPS)<br />
-                      Tel: 0591933925
+                      WhatsApp: 0591933925
                     </div>
                   </>
                 )}
