@@ -8,7 +8,7 @@ import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
-import { itemsForDialog, totalsForDialog } from '../lib/docItems';
+import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -347,6 +347,8 @@ export default function QuotationsPage() {
           ]}
           items={groupPackageItems(previewQ.items, previewQ.currency)}
           subtotal={money(previewQ.subtotal, previewQ.currency)}
+          discountRows={adjustmentRows(previewQ, previewQ.currency).discountRows}
+          taxRows={adjustmentRows(previewQ, previewQ.currency).taxRows}
           totalLabel="Grand Total"
           total={money(previewQ.grandTotal, previewQ.currency)}
           notesLabel="Notes"

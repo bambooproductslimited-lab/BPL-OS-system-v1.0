@@ -8,7 +8,7 @@ import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
-import { itemsForDialog, totalsForDialog } from '../lib/docItems';
+import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -380,6 +380,8 @@ export default function EstimatesPage() {
           ]}
           items={groupPackageItems(previewEs.items, previewEs.currency)}
           subtotal={money(previewEs.subtotal, previewEs.currency)}
+          discountRows={adjustmentRows(previewEs, previewEs.currency).discountRows}
+          taxRows={adjustmentRows(previewEs, previewEs.currency).taxRows}
           totalLabel="Grand Total"
           total={money(previewEs.grandTotal, previewEs.currency)}
           notesLabel="Notes"

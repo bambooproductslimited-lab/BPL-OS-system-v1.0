@@ -27,7 +27,7 @@ const EXPIRY_OPTIONS = [
   { value: '30', label: '30 days' }
 ];
 
-export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, shareApi, company, onClose }) {
+export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, discountRows, taxRows, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, shareApi, company, onClose }) {
   const nodeRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
@@ -170,6 +170,8 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
                   <td className="doc-preview-desc">
                     {it.description}
                     {it.notes && <div className="doc-preview-desc-notes">{it.notes}</div>}
+                    {it.discountNote && <div className="doc-preview-desc-adjust">{it.discountNote}</div>}
+                    {it.taxNote && <div className="doc-preview-desc-adjust">{it.taxNote}</div>}
                   </td>
                   <td className="doc-preview-num">{it.qty}</td><td className="doc-preview-num">{it.unitPrice}</td><td className="doc-preview-num">{it.lineTotal}</td>
                 </tr>
@@ -180,6 +182,19 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           <div className="doc-preview-row">
             <div>Subtotal</div><div>{subtotal}</div>
           </div>
+          {/* Everything between the subtotal and the total is spelled out. It
+              used to jump straight from one to the other, so a discount or a
+              tax charge simply did not appear on the document at all. */}
+          {(discountRows || []).map((r) => (
+            <div className="doc-preview-row" key={r.label}>
+              <div>{r.label}</div><div>− {r.value}</div>
+            </div>
+          ))}
+          {(taxRows || []).map((r) => (
+            <div className="doc-preview-row" key={r.label}>
+              <div>{r.label}</div><div>{r.value}</div>
+            </div>
+          ))}
           {isPartial && (
             <div className="doc-preview-row">
               <div>Amount paid</div><div>{amountPaid}</div>

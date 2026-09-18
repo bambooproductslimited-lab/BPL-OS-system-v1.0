@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
+import { adjustmentRows } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import '../components/DocPreview.css';
 import './SharePage.css';
@@ -101,6 +102,8 @@ export default function SharePage() {
                 <td className="doc-preview-desc">
                   {it.description}
                   {it.notes && <div className="doc-preview-desc-notes">{it.notes}</div>}
+                  {it.discountNote && <div className="doc-preview-desc-adjust">{it.discountNote}</div>}
+                  {it.taxNote && <div className="doc-preview-desc-adjust">{it.taxNote}</div>}
                 </td>
                 <td className="doc-preview-num">{it.qty}</td>
                 <td className="doc-preview-num">{it.unitPrice}</td>
@@ -112,6 +115,18 @@ export default function SharePage() {
         <div className="doc-preview-row">
           <div>Subtotal</div><div>{money(doc.subtotal, cur)}</div>
         </div>
+        {/* The customer opening this link gets the same breakdown as the
+            printed copy — what was taken off, and what was added. */}
+        {adjustmentRows(doc, cur).discountRows.map((r) => (
+          <div className="doc-preview-row" key={r.label}>
+            <div>{r.label}</div><div>− {r.value}</div>
+          </div>
+        ))}
+        {adjustmentRows(doc, cur).taxRows.map((r) => (
+          <div className="doc-preview-row" key={r.label}>
+            <div>{r.label}</div><div>{r.value}</div>
+          </div>
+        ))}
         {isInvoice && doc.amountPaid > 0 && doc.balanceDue > 0 && (
           <div className="doc-preview-row">
             <div>Amount paid</div><div>{money(doc.amountPaid, cur)}</div>

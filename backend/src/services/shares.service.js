@@ -73,6 +73,13 @@ async function getSharedDocument(token) {
     documentType: share.document_type, docNo: docNo, title: d.title || '', status: d.status, currency: d.currency,
     dateValue: dateValue, validUntil: d.valid_until || null, dueDate: d.due_date || null,
     items: items, subtotal: Number(d.subtotal), discountTotal: Number(d.discount_total), taxTotal: Number(d.tax_total), grandTotal: Number(d.grand_total),
+    // How the document-level discount and tax were set, so the customer's
+    // copy can say "Discount (10%)" rather than an unexplained deduction.
+    // Not sensitive: it is what they are being charged and on what basis,
+    // and withholding it is what made the shared copy less transparent than
+    // the printed one. All three document tables carry these columns.
+    discount: { value: Number(d.discount_value) || 0, type: d.discount_type === 'percent' ? 'percent' : 'fixed' },
+    taxRate: Number(d.tax_rate) || 0,
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,
     notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || []
   };

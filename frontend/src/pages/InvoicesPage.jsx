@@ -8,7 +8,7 @@ import DocPreview from '../components/DocPreview';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
-import { itemsForDialog, totalsForDialog } from '../lib/docItems';
+import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -539,6 +539,8 @@ export default function InvoicesPage() {
           ]}
           items={groupPackageItems(previewInv.items, previewInv.currency)}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
+          discountRows={adjustmentRows(previewInv, previewInv.currency).discountRows}
+          taxRows={adjustmentRows(previewInv, previewInv.currency).taxRows}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
           totalLabel="Total Due"
