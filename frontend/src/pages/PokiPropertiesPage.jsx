@@ -12,6 +12,13 @@ import RowMenu from '../components/RowMenu';
 // set. Occupancy is read-only here: it follows the unit's booking.
 
 const UNIT_TYPES = ['apartment', 'room', 'office', 'shop', 'warehouse', 'land', 'other'];
+
+// The company keeps its books in GHS, so that is the currency every other one
+// is shown against. A unit let in USD stores its rent in USD; fxRate says what
+// one USD is worth in GHS, and the GHS figure is shown beside the amount
+// rather than replacing it.
+const BASE_CURRENCY = 'GHS';
+const UNIT_CURRENCIES = ['GHS', 'USD', 'EUR', 'GBP', 'CNY'];
 // How a unit's utilities are charged. These four values are exactly what the
 // backend accepts (V.oneOf in poki.service.js), so adding a fifth here
 // without adding it there would be rejected on save.
@@ -31,7 +38,7 @@ const UTILITY_MODES = [
 const EMPTY_PROPERTY = { code: '', name: '', propertyType: 'mixed', address: '', city: 'Tema', region: 'Greater Accra', ghanaPostGps: '', notes: '' };
 const EMPTY_UNIT = {
   propertyId: '', code: '', name: '', unitType: 'room', floor: '', sizeSqm: '', bedrooms: '', bathrooms: '',
-  baseRent: '', currency: 'GHS', dailyRate: '', utilityMode: 'none', fixedUtilityAmount: '', apportionShare: '', amenities: '', notes: ''
+  baseRent: '', currency: 'GHS', fxRate: '', dailyRate: '', utilityMode: 'none', fixedUtilityAmount: '', apportionShare: '', amenities: '', notes: ''
 };
 
 export default function PokiPropertiesPage() {
@@ -73,6 +80,17 @@ export default function PokiPropertiesPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // "= GHS 7,750.00" under an amount, as soon as both a rate and a figure are
+  // present. Returns nothing for a GHS unit, where converting to GHS would
+  // just repeat the number, and nothing while the rate is still blank.
+  function equivalent(amount) {
+    if (form.currency === BASE_CURRENCY) return '';
+    const rate = Number(form.fxRate);
+    const value = Number(amount);
+    if (!isFinite(rate) || rate <= 0 || !isFinite(value) || !value) return '';
+    return '= ' + money(value * rate, BASE_CURRENCY);
+  }
+
   function openProperty(p) {
     setDialogError(null);
     setEditId(p ? p.id : null);
@@ -83,7 +101,8 @@ export default function PokiPropertiesPage() {
     setDialogError(null);
     setEditId(u ? u.id : null);
     setForm(u
-      ? { ...EMPTY_UNIT, ...u, sizeSqm: u.sizeSqm || '', baseRent: u.baseRent || '', bedrooms: u.bedrooms || '', bathrooms: u.bathrooms || '' }
+      ? { ...EMPTY_UNIT, ...u, sizeSqm: u.sizeSqm || '', baseRent: u.baseRent || '', bedrooms: u.bedrooms || '', bathrooms: u.bathrooms || '',
+          fxRate: u.currency && u.currency !== BASE_CURRENCY ? (u.fxRate || '') : '' }
       : { ...EMPTY_UNIT, propertyId: propertyFilter || (properties[0] && properties[0].id) || '' });
     setDialog('unit');
   }
@@ -210,6 +229,9 @@ export default function PokiPropertiesPage() {
                       <td>{u.tenantName || <span className="poki-muted">—</span>}</td>
                       <td className="poki-num">
                         {money(u.baseRent, u.currency)}
+                        {u.currency !== BASE_CURRENCY && Number(u.fxRate) > 0 && (
+                          <div className="poki-muted poki-fx-hint">= {money(u.baseRent * u.fxRate, BASE_CURRENCY)}</div>
+                        )}
                         <div className="poki-muted">per month</div>
                       </td>
                       <td className="poki-muted">
@@ -330,12 +352,30 @@ export default function PokiPropertiesPage() {
               </>
             )}
             <div className="field">
+              <label htmlFor="pu-currency">Currency</label>
+              <select id="pu-currency" className="input" value={form.currency} onChange={set('currency')}>
+                {UNIT_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {form.currency !== BASE_CURRENCY && (
+              <div className="field">
+                <label htmlFor="pu-fx">Your rate — 1 {form.currency} = ? {BASE_CURRENCY}</label>
+                <input
+                  id="pu-fx" className="input" type="number" step="0.000001" min="0"
+                  value={form.fxRate} onChange={set('fxRate')}
+                  placeholder="e.g. 15.50" required
+                />
+              </div>
+            )}
+            <div className="field">
               <label htmlFor="pu-rent">Asking rent, per month</label>
               <input id="pu-rent" className="input" type="number" step="0.01" value={form.baseRent} onChange={set('baseRent')} />
+              {equivalent(form.baseRent) && <div className="poki-fx-hint">{equivalent(form.baseRent)}</div>}
             </div>
             <div className="field">
               <label htmlFor="pu-daily">Rent per day</label>
               <input id="pu-daily" className="input" type="number" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder="optional" />
+              {equivalent(form.dailyRate) && <div className="poki-fx-hint">{equivalent(form.dailyRate)}</div>}
               <p className="poki-dialog-hint">
                 For bookings measured in days. Left blank, a day is charged at a thirtieth of the monthly rate.
               </p>

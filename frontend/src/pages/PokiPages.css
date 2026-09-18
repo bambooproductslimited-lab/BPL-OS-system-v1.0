@@ -225,3 +225,7 @@ textarea.poki-agreement-body {
   color: var(--danger, #e5484d);
   font-size: 13px;
 }
+
+/* The GHS equivalent of an amount held in another currency — shown beside the
+   real figure, never instead of it. */
+.poki-fx-hint { font-size: 11.5px; color: var(--color-text-muted); margin-top: 3px; }

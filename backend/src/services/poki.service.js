@@ -150,7 +150,7 @@ function rowToUnit(r) {
   return {
     id: r.id, propertyId: r.property_id, propertyName: r.property_name, code: r.code, name: r.name,
     unitType: r.unit_type, floor: r.floor, sizeSqm: Number(r.size_sqm), bedrooms: r.bedrooms, bathrooms: r.bathrooms,
-    baseRent: Number(r.base_rent), currency: r.currency, dailyRate: Number(r.daily_rate),
+    baseRent: Number(r.base_rent), currency: r.currency, fxRate: Number(r.fx_rate), dailyRate: Number(r.daily_rate),
     utilityMode: r.utility_mode, fixedUtilityAmount: Number(r.fixed_utility_amount), apportionShare: Number(r.apportion_share),
     status: r.status, amenities: r.amenities, notes: r.notes, active: r.active,
     tenantName: r.tenant_name || null, bookingId: r.booking_id || null, bookingEnd: r.booking_end || null,
@@ -187,6 +187,21 @@ async function listUnits(ctx, filters) {
   return res.rows.map(rowToUnit);
 }
 
+// GHS per 1 unit of the unit's own currency. The company's books are in GHS,
+// so a GHS unit is always 1 and nothing else may be. A missing or zero rate
+// on a foreign-currency unit is refused rather than defaulted to 1, because
+// defaulting would quietly show USD 500 as GHS 500.
+var BASE_CURRENCY = 'GHS';
+function fxRateFor(currency, raw) {
+  var code = (currency || BASE_CURRENCY).toUpperCase();
+  if (code === BASE_CURRENCY) return 1;
+  var rate = Number(raw);
+  if (!isFinite(rate) || rate <= 0) {
+    fail('invalid', 'Enter the exchange rate for ' + code + ' — how many ' + BASE_CURRENCY + ' one ' + code + ' is worth.');
+  }
+  return Math.round(rate * 1000000) / 1000000;
+}
+
 async function createUnit(ctx, p) {
   canManage(ctx);
   var companyId = await pokiCompanyId();
@@ -197,8 +212,8 @@ async function createUnit(ctx, p) {
   try {
     res = await pool.query(
       'INSERT INTO poki_units (property_id, code, name, unit_type, floor, size_sqm, bedrooms, bathrooms, base_rent, currency, ' +
-      'daily_rate, utility_mode, fixed_utility_amount, apportion_share, amenities, notes) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *',
+      'daily_rate, utility_mode, fixed_utility_amount, apportion_share, amenities, notes, fx_rate) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *',
       [
         p.propertyId, code, (p.name || '').trim(),
         V.oneOf(p.unitType || 'room', ['apartment', 'room', 'office', 'shop', 'warehouse', 'land', 'other'], 'Unit type'),
@@ -206,7 +221,8 @@ async function createUnit(ctx, p) {
         num(p.baseRent), (p.currency || 'GHS').toUpperCase(),
         num(p.dailyRate),
         V.oneOf(p.utilityMode || 'none', ['none', 'metered', 'fixed', 'apportioned'], 'Utility mode'),
-        num(p.fixedUtilityAmount), num(p.apportionShare), (p.amenities || '').trim(), (p.notes || '').trim()
+        num(p.fixedUtilityAmount), num(p.apportionShare), (p.amenities || '').trim(), (p.notes || '').trim(),
+        fxRateFor(p.currency, p.fxRate)
       ]
     );
   } catch (err) {
@@ -240,7 +256,7 @@ async function updateUnit(ctx, id, p) {
   var res = await pool.query(
     'UPDATE poki_units SET code = $1, name = $2, unit_type = $3, floor = $4, size_sqm = $5, bedrooms = $6, bathrooms = $7, ' +
     'base_rent = $8, currency = $9, daily_rate = $10, utility_mode = $11, fixed_utility_amount = $12, apportion_share = $13, ' +
-    'status = $14, amenities = $15, notes = $16, active = $17, updated_at = now() WHERE id = $18 RETURNING *',
+    'status = $14, amenities = $15, notes = $16, active = $17, fx_rate = $19, updated_at = now() WHERE id = $18 RETURNING *',
     [
       p.code !== undefined ? V.text(p.code, 'Unit code', 40) : cur.code,
       p.name !== undefined ? (p.name || '').trim() : cur.name,
@@ -259,7 +275,13 @@ async function updateUnit(ctx, id, p) {
       p.amenities !== undefined ? (p.amenities || '').trim() : cur.amenities,
       p.notes !== undefined ? (p.notes || '').trim() : cur.notes,
       p.active !== undefined ? !!p.active : cur.active,
-      id
+      id,
+      // Switching a unit to another currency without supplying a rate is
+      // refused by fxRateFor; switching back to GHS resets it to 1.
+      p.currency !== undefined || p.fxRate !== undefined
+        ? fxRateFor(p.currency !== undefined ? p.currency : cur.currency,
+                    p.fxRate !== undefined ? p.fxRate : cur.fx_rate)
+        : cur.fx_rate
     ]
   );
   await audit(pool, ctx, 'poki.unit.update', 'poki_unit', id, 'Updated unit ' + res.rows[0].code + '.');
