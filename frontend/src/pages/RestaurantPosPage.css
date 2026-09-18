@@ -415,7 +415,16 @@
 .pos-receipt-actions { display: flex; gap: 10px; }
 
 @media print {
-  body * { visibility: hidden; }
-  #pos-receipt, #pos-receipt * { visibility: visible; }
-  #pos-receipt { position: absolute; top: 0; left: 0; width: 100%; max-width: none; border: none; }
+  /* Same correction as the rest of the app: hide with display, not
+     visibility, so the till screen around the receipt stops taking up
+     paper. visibility leaves the layout in place and pads the job out with
+     blank sheets. */
+  .pos-shell > *:not(#pos-receipt) { display: none !important; }
+  .pos-receipt-actions, .pos-printer-error { display: none !important; }
+  #pos-receipt {
+    position: static;
+    width: 100%;
+    max-width: none;
+    border: none;
+  }
 }

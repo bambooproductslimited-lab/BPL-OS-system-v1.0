@@ -10,9 +10,6 @@
 .receipts-method { text-transform: capitalize; }
 
 @media print {
-  body * { visibility: hidden; }
-  .receipt-preview, .receipt-preview * { visibility: visible; }
-  .no-print, .no-print * { visibility: hidden; }
   .receipt-preview {
     position: absolute;
     top: 0;

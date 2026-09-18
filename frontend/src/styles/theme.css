@@ -248,3 +248,38 @@ textarea.input { font-family: inherit; resize: vertical; min-height: 72px; }
   padding: 10px 14px;
   font-size: 13px;
 }
+
+
+/* ── printing ───────────────────────────────────────────────────────────
+   Everything that gets printed is rendered into .print-layer, a portal on
+   <body> beside #root (see components/PrintLayer.jsx).
+
+   The app is removed with display, not visibility. visibility leaves an
+   element's layout in place, so the page behind the dialog still consumed
+   the paper it would have consumed on screen — a one-page invoice printed
+   from a list of 66 came out as five sheets, four of them blank. It looked
+   intermittent only because a short list produced a short page. */
+@media print {
+  body.has-print-layer > #root { display: none !important; }
+
+  .print-layer .dialog-backdrop {
+    position: static;
+    inset: auto;
+    display: block;
+    padding: 0;
+    background: none;
+    z-index: auto;
+  }
+  .no-print, .no-print * { display: none !important; }
+
+  /* Nothing is scrolled or boxed on paper. */
+  .print-layer .doc-preview,
+  .print-layer .receipt-preview,
+  .print-layer .waybill-preview {
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+  }
+
+  @page { margin: 12mm; }
+}

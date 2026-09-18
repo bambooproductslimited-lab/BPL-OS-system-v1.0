@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { api } from '../api/client';
 import './DocPreview.css';
+import PrintLayer from './PrintLayer';
 
 // Shared print-style preview modal for Estimates/Quotations/Invoices,
 // ported from Bamboo OS.dc.html's dialog.estimatePreview / .quotationPreview
@@ -106,151 +107,153 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
   }
 
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
-      <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
-        <div className="doc-preview-head">
-          <div className="doc-preview-brand">
-            {/* The group's logo belongs only on the group's own documents.
-                A sister company heads its paperwork with its own wordmark
-                instead — the name set large and bold, standing in for a
-                logo it doesn't have — so a tenant can see at a glance who
-                is charging them. */}
-            {!company && <img src="/logo.png" alt="" className="doc-preview-logo" />}
-            {company && company.logoUrl && <img src={company.logoUrl} alt="" className="doc-preview-logo" />}
-            <div>
-              {company ? (
-                <>
-                  <div className="doc-preview-wordmark">{company.name}</div>
-                  {company.subtitle && <div className="doc-preview-wordmark-sub">{company.subtitle}</div>}
-                  <div className="doc-preview-brand-address">
-                    {company.address && <>{company.address}<br /></>}
-                    {company.ghanaPostGps && <>{company.ghanaPostGps} (GhanaPostGPS)<br /></>}
-                    {company.phone && <>Tel: {company.phone}<br /></>}
-                    {company.email && <>{company.email}</>}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="doc-preview-brand-name">Bamboo Products Limited</div>
-                  <div className="doc-preview-brand-address">
-                    Poki House<br />
-                    35 J K Siaw St, Community 9, Tema, Ghana<br />
-                    GT-191-1859 (GhanaPostGPS)<br />
-                    Tel: 0591933925
-                  </div>
-                </>
-              )}
+    <PrintLayer>
+      <div className="dialog-backdrop" onClick={onClose}>
+        <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
+          <div className="doc-preview-head">
+            <div className="doc-preview-brand">
+              {/* The group's logo belongs only on the group's own documents.
+                  A sister company heads its paperwork with its own wordmark
+                  instead — the name set large and bold, standing in for a
+                  logo it doesn't have — so a tenant can see at a glance who
+                  is charging them. */}
+              {!company && <img src="/logo.png" alt="" className="doc-preview-logo" />}
+              {company && company.logoUrl && <img src={company.logoUrl} alt="" className="doc-preview-logo" />}
+              <div>
+                {company ? (
+                  <>
+                    <div className="doc-preview-wordmark">{company.name}</div>
+                    {company.subtitle && <div className="doc-preview-wordmark-sub">{company.subtitle}</div>}
+                    <div className="doc-preview-brand-address">
+                      {company.address && <>{company.address}<br /></>}
+                      {company.ghanaPostGps && <>{company.ghanaPostGps} (GhanaPostGPS)<br /></>}
+                      {company.phone && <>Tel: {company.phone}<br /></>}
+                      {company.email && <>{company.email}</>}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+                    <div className="doc-preview-brand-address">
+                      Poki House<br />
+                      35 J K Siaw St, Community 9, Tema, Ghana<br />
+                      GT-191-1859 (GhanaPostGPS)<br />
+                      Tel: 0591933925
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="doc-preview-headright">
+              <div className="doc-preview-docno">{docLabel}</div>
+              <div className="doc-preview-datelabel">{dateLabel}</div>
+              <div className="doc-preview-datevalue">{dateValue}</div>
             </div>
           </div>
-          <div className="doc-preview-headright">
-            <div className="doc-preview-docno">{docLabel}</div>
-            <div className="doc-preview-datelabel">{dateLabel}</div>
-            <div className="doc-preview-datevalue">{dateValue}</div>
-          </div>
-        </div>
-        <div className="doc-preview-rule" />
-        <h1 className="doc-preview-heading">{heading}</h1>
-        <div className="doc-preview-subheading">{subHeading}</div>
-        <div className="doc-preview-blocks">
-          {blocks.map((b, i) => (
-            <div key={i}>
-              <div className="doc-preview-block-title">{b.title}</div>
-              {b.lines.map((line, j) => <div key={j} className="doc-preview-block-line">{line}</div>)}
-            </div>
-          ))}
-        </div>
-        <div className="doc-preview-table-wrap">
-        <table className="doc-preview-table">
-          <thead><tr><th>Items</th><th className="doc-preview-num">Quantity</th><th className="doc-preview-num">Price</th><th className="doc-preview-num">Amount</th></tr></thead>
-          <tbody>
-            {items.map((it, i) => (
-              <tr key={i}>
-                <td className="doc-preview-desc">
-                  {it.description}
-                  {it.notes && <div className="doc-preview-desc-notes">{it.notes}</div>}
-                </td>
-                <td className="doc-preview-num">{it.qty}</td><td className="doc-preview-num">{it.unitPrice}</td><td className="doc-preview-num">{it.lineTotal}</td>
-              </tr>
+          <div className="doc-preview-rule" />
+          <h1 className="doc-preview-heading">{heading}</h1>
+          <div className="doc-preview-subheading">{subHeading}</div>
+          <div className="doc-preview-blocks">
+            {blocks.map((b, i) => (
+              <div key={i}>
+                <div className="doc-preview-block-title">{b.title}</div>
+                {b.lines.map((line, j) => <div key={j} className="doc-preview-block-line">{line}</div>)}
+              </div>
             ))}
-          </tbody>
-        </table>
-        </div>
-        <div className="doc-preview-row">
-          <div>Subtotal</div><div>{subtotal}</div>
-        </div>
-        {isPartial && (
+          </div>
+          <div className="doc-preview-table-wrap">
+          <table className="doc-preview-table">
+            <thead><tr><th>Items</th><th className="doc-preview-num">Quantity</th><th className="doc-preview-num">Price</th><th className="doc-preview-num">Amount</th></tr></thead>
+            <tbody>
+              {items.map((it, i) => (
+                <tr key={i}>
+                  <td className="doc-preview-desc">
+                    {it.description}
+                    {it.notes && <div className="doc-preview-desc-notes">{it.notes}</div>}
+                  </td>
+                  <td className="doc-preview-num">{it.qty}</td><td className="doc-preview-num">{it.unitPrice}</td><td className="doc-preview-num">{it.lineTotal}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
           <div className="doc-preview-row">
-            <div>Amount paid</div><div>{amountPaid}</div>
+            <div>Subtotal</div><div>{subtotal}</div>
           </div>
-        )}
-        <div className="doc-preview-grand-row">
-          <div>{totalLabel}</div><div>{total}</div>
-        </div>
-        {paymentSchedule && paymentSchedule.length > 0 && (
-          <div className="doc-preview-schedule">
-            <div className="doc-preview-notes-label">Payment schedule</div>
-            {paymentSchedule.map((row, i) => (
-              <div className="doc-preview-schedule-row" key={i}>
-                <span>{row.label}</span><span>Due {row.dueDate}</span><span>{row.amount}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {notesValue && (
-          <div className="doc-preview-notes">
-            <div className="doc-preview-notes-label">{notesLabel}</div>
-            <p className="doc-preview-notes-body">{notesValue}</p>
-          </div>
-        )}
-        {termsValue && (
-          <div className="doc-preview-notes">
-            <div className="doc-preview-notes-label">{termsLabel}</div>
-            <p className="doc-preview-terms-body">{termsValue}</p>
-          </div>
-        )}
-        {documentType && documentId && (
-          <div className="doc-preview-communication no-print">
-            <div className="doc-preview-notes-label">Communication</div>
-            <div className="doc-preview-share-row">
-              <label htmlFor="dp-expiry">Share link expires</label>
-              <select id="dp-expiry" className="input" value={expiryDays} onChange={(e) => { setExpiryDays(e.target.value); setShareUrl(null); setShareExpiresAt(null); }}>
-                {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <button type="button" className="btn btn-secondary" disabled={generating} onClick={generateLink}>
-                {generating ? 'Generating…' : shareUrl ? 'Regenerate link' : 'Generate share link'}
-              </button>
-              <button type="button" className="btn btn-secondary" disabled={waSending} onClick={sendWhatsApp}>
-                {waSending ? 'Sending…' : 'Share via WhatsApp'}
-              </button>
+          {isPartial && (
+            <div className="doc-preview-row">
+              <div>Amount paid</div><div>{amountPaid}</div>
             </div>
-            {linkError && <div className="error-banner">{linkError}</div>}
-            {shareUrl && (
-              <div className="doc-preview-share-link">
-                <input className="input" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
-                <button type="button" className="btn btn-secondary" onClick={copyLink}>{copied ? 'Copied!' : 'Copy'}</button>
-              </div>
-            )}
-            {shareUrl && shareExpiresAt && (
-              // Whoever sends the link should know when it dies, so they can
-              // tell the customer rather than field a "the link is broken"
-              // call a month later.
-              <div className="doc-preview-share-expiry">
-                Anyone with this link can view the document until{' '}
-                {new Date(shareExpiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.
-              </div>
-            )}
-            {waResult && <div className={waResult.ok ? 'doc-preview-wa-ok' : 'error-banner'}>{waResult.message}</div>}
+          )}
+          <div className="doc-preview-grand-row">
+            <div>{totalLabel}</div><div>{total}</div>
           </div>
-        )}
-        {shareError && <div className="error-banner no-print">{shareError}</div>}
-        <div className="doc-preview-actions no-print">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
-          <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
-            {sharing ? 'Preparing…' : 'Share'}
-          </button>
+          {paymentSchedule && paymentSchedule.length > 0 && (
+            <div className="doc-preview-schedule">
+              <div className="doc-preview-notes-label">Payment schedule</div>
+              {paymentSchedule.map((row, i) => (
+                <div className="doc-preview-schedule-row" key={i}>
+                  <span>{row.label}</span><span>Due {row.dueDate}</span><span>{row.amount}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {notesValue && (
+            <div className="doc-preview-notes">
+              <div className="doc-preview-notes-label">{notesLabel}</div>
+              <p className="doc-preview-notes-body">{notesValue}</p>
+            </div>
+          )}
+          {termsValue && (
+            <div className="doc-preview-notes">
+              <div className="doc-preview-notes-label">{termsLabel}</div>
+              <p className="doc-preview-terms-body">{termsValue}</p>
+            </div>
+          )}
+          {documentType && documentId && (
+            <div className="doc-preview-communication no-print">
+              <div className="doc-preview-notes-label">Communication</div>
+              <div className="doc-preview-share-row">
+                <label htmlFor="dp-expiry">Share link expires</label>
+                <select id="dp-expiry" className="input" value={expiryDays} onChange={(e) => { setExpiryDays(e.target.value); setShareUrl(null); setShareExpiresAt(null); }}>
+                  {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <button type="button" className="btn btn-secondary" disabled={generating} onClick={generateLink}>
+                  {generating ? 'Generating…' : shareUrl ? 'Regenerate link' : 'Generate share link'}
+                </button>
+                <button type="button" className="btn btn-secondary" disabled={waSending} onClick={sendWhatsApp}>
+                  {waSending ? 'Sending…' : 'Share via WhatsApp'}
+                </button>
+              </div>
+              {linkError && <div className="error-banner">{linkError}</div>}
+              {shareUrl && (
+                <div className="doc-preview-share-link">
+                  <input className="input" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
+                  <button type="button" className="btn btn-secondary" onClick={copyLink}>{copied ? 'Copied!' : 'Copy'}</button>
+                </div>
+              )}
+              {shareUrl && shareExpiresAt && (
+                // Whoever sends the link should know when it dies, so they can
+                // tell the customer rather than field a "the link is broken"
+                // call a month later.
+                <div className="doc-preview-share-expiry">
+                  Anyone with this link can view the document until{' '}
+                  {new Date(shareExpiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.
+                </div>
+              )}
+              {waResult && <div className={waResult.ok ? 'doc-preview-wa-ok' : 'error-banner'}>{waResult.message}</div>}
+            </div>
+          )}
+          {shareError && <div className="error-banner no-print">{shareError}</div>}
+          <div className="doc-preview-actions no-print">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+            <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+            <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
+              {sharing ? 'Preparing…' : 'Share'}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </PrintLayer>
   );
 }

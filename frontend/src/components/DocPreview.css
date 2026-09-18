@@ -75,9 +75,6 @@
 .doc-preview-wa-ok { margin-top: 8px; font-size: 12px; color: #1a7f37; }
 
 @media print {
-  body * { visibility: hidden; }
-  .doc-preview, .doc-preview * { visibility: visible; }
-  .no-print, .no-print * { visibility: hidden; }
   .doc-preview {
     position: absolute;
     top: 0;

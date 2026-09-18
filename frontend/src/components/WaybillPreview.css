@@ -56,9 +56,6 @@
 .waybill-preview-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 28px; }
 
 @media print {
-  body * { visibility: hidden; }
-  .waybill-preview, .waybill-preview * { visibility: visible; }
-  .no-print, .no-print * { visibility: hidden; }
   .waybill-preview {
     position: absolute;
     top: 0;
