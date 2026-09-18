@@ -278,6 +278,13 @@ export default function PokiEstimatesPage() {
   const set = (k) => (ev) => setForm({ ...form, [k]: ev.target.value });
   const setConv = (k) => (ev) => setConvert({ ...convert, [k]: ev.target.value });
   const vacantUnits = units.filter((u) => u.status === 'vacant' || u.id === form.unitId);
+  // The offer is priced in the unit's currency — the backend takes it from
+  // there too (pokiEstimates.service.js). The editor used to label every line
+  // and the total "GHS" whatever the unit was, so a unit let at USD 381.60
+  // showed as GHS 381.60 and totalled GHS 763.20: the right number under the
+  // wrong currency, which on a letting offer is a figure a prospect could
+  // hold you to.
+  const formCurrency = (units.find((u) => u.id === form.unitId) || {}).currency || 'GHS';
   const formTotal = form.items.reduce(
     (s, i) => s + (Number(i.qty) || 0) * (Number(i.unitPrice) || 0), 0
   );
@@ -427,7 +434,7 @@ export default function PokiEstimatesPage() {
             <div className="poki-dialog-span">
               <div className="poki-lines-head">
                 <span>Lines</span>
-                <span className="poki-muted">Total {money(formTotal, 'GHS')}</span>
+                <span className="poki-muted">Total {money(formTotal, formCurrency)}</span>
               </div>
               {form.items.map((it, idx) => (
                 <div className="poki-line-row" key={idx}>
@@ -451,7 +458,7 @@ export default function PokiEstimatesPage() {
                     onChange={(ev) => setItem(idx, 'unitPrice', ev.target.value)}
                     aria-label={'Line ' + (idx + 1) + ' price'}
                   />
-                  <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 'GHS')}</span>
+                  <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), formCurrency)}</span>
                   <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => dropLine(idx)} aria-label={'Remove line ' + (idx + 1)}>×</button>
                 </div>
               ))}

@@ -1002,18 +1002,24 @@ async function overview(ctx) {
   // no cycle to exclude. Day-only bookings contribute nothing here on
   // purpose: a five-day let is not monthly recurring revenue, and counting
   // it as such would overstate the roll.
+  // Grouped by currency, not summed across them. A unit let in USD and one
+  // let in GHS cannot be added together, and the old query did exactly that
+  // and labelled the result GHS. Same shape the commercial dashboards already
+  // use for this (see moneyBreakdown in frontend lib/currency.js).
   var mrr = await pool.query(
-    'SELECT COALESCE(SUM(l.monthly_rate), 0) AS mrr ' +
+    'SELECT l.currency, COALESCE(SUM(l.monthly_rate), 0) AS amount ' +
     'FROM poki_bookings l JOIN poki_units u ON u.id = l.unit_id JOIN poki_properties p ON p.id = u.property_id ' +
-    "WHERE p.company_id = $1 AND l.status = 'active' AND l.duration_months > 0",
+    "WHERE p.company_id = $1 AND l.status = 'active' AND l.duration_months > 0 " +
+    'GROUP BY l.currency ORDER BY l.currency',
     [companyId]
   );
 
   var arrears = await pool.query(
-    'SELECT COALESCE(SUM(i.balance_due), 0) AS outstanding, ' +
+    'SELECT i.currency, COALESCE(SUM(i.balance_due), 0) AS outstanding, ' +
     '       COUNT(*) FILTER (WHERE i.due_date < $2 AND i.balance_due > 0)::int AS overdue_count, ' +
     '       COALESCE(SUM(i.balance_due) FILTER (WHERE i.due_date < $2), 0) AS overdue_amount ' +
-    "FROM invoices i WHERE i.company_id = $1 AND i.status NOT IN ('paid', 'void')",
+    "FROM invoices i WHERE i.company_id = $1 AND i.status NOT IN ('paid', 'void') " +
+    'GROUP BY i.currency ORDER BY i.currency',
     [companyId, today]
   );
 
@@ -1036,10 +1042,18 @@ async function overview(ctx) {
 
   return {
     units: { total: u.total, occupied: u.occupied, vacant: u.vacant, other: u.other, occupancyRate: occupancyRate },
-    monthlyRecurringRevenue: Math.round(Number(mrr.rows[0].mrr) * 100) / 100,
-    outstanding: Number(arrears.rows[0].outstanding),
-    overdueCount: arrears.rows[0].overdue_count,
-    overdueAmount: Number(arrears.rows[0].overdue_amount),
+    // [{ currency, amount }] — one entry per currency in play. A portfolio
+    // let entirely in GHS gets a single entry and reads exactly as before.
+    monthlyRecurringRevenue: mrr.rows.map(function (r) {
+      return { currency: r.currency, amount: Math.round(Number(r.amount) * 100) / 100 };
+    }),
+    outstanding: arrears.rows
+      .filter(function (r) { return Number(r.outstanding) !== 0; })
+      .map(function (r) { return { currency: r.currency, amount: Number(r.outstanding) }; }),
+    overdueCount: arrears.rows.reduce(function (n, r) { return n + r.overdue_count; }, 0),
+    overdueAmount: arrears.rows
+      .filter(function (r) { return Number(r.overdue_amount) !== 0; })
+      .map(function (r) { return { currency: r.currency, amount: Number(r.overdue_amount) }; }),
     openMaintenance: maintenance.rows[0].open_count,
     expiringBookings: expiring.rows.map(rowToBooking)
   };

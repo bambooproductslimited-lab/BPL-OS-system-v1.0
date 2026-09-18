@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { money } from '../lib/currency';
+import { money, moneyBreakdown } from '../lib/currency';
 import './PokiPages.css';
 
 // Poki rentals — the overview a landlord opens first: how much of the
@@ -60,15 +60,19 @@ export default function PokiDashboardPage() {
         </div>
         <div className="poki-stat poki-stat-good">
           <div className="poki-stat-label">Monthly rent roll</div>
-          <div className="poki-stat-value">{money(data.monthlyRecurringRevenue, 'GHS')}</div>
+          {/* Per currency, not blended: the backend now returns
+              [{ currency, amount }] because adding a USD rent to a GHS one
+              produces a number that means nothing. A GHS-only portfolio shows
+              a single figure and reads exactly as it did. */}
+          <div className="poki-stat-value">{moneyBreakdown(data.monthlyRecurringRevenue, money(0))}</div>
           <div className="poki-stat-sub">active bookings, normalised to a month</div>
         </div>
-        <div className={'poki-stat' + (data.outstanding > 0 ? ' poki-stat-danger' : '')}>
+        <div className={'poki-stat' + ((data.outstanding || []).length ? ' poki-stat-danger' : '')}>
           <div className="poki-stat-label">Outstanding</div>
-          <div className="poki-stat-value">{money(data.outstanding, 'GHS')}</div>
+          <div className="poki-stat-value">{moneyBreakdown(data.outstanding, money(0))}</div>
           <div className="poki-stat-sub">
             {data.overdueCount > 0
-              ? money(data.overdueAmount, 'GHS') + ' of it overdue (' + data.overdueCount + ' invoice' + (data.overdueCount === 1 ? '' : 's') + ')'
+              ? moneyBreakdown(data.overdueAmount, money(0)) + ' of it overdue (' + data.overdueCount + ' invoice' + (data.overdueCount === 1 ? '' : 's') + ')'
               : 'nothing past its due date'}
           </div>
         </div>
