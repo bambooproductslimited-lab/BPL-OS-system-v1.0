@@ -217,6 +217,13 @@ export default function AttendancePage() {
   const [syncResult, setSyncResult] = useState(null);
   const [syncProgress, setSyncProgress] = useState(null); // { done, total } while committing in batches
 
+  const [lateOpen, setLateOpen] = useState(false);
+  const [lateData, setLateData] = useState(null);
+  const [lateUnassigned, setLateUnassigned] = useState(null);
+  const [lateLoading, setLateLoading] = useState(false);
+  const [lateError, setLateError] = useState(null);
+  const [showUnassigned, setShowUnassigned] = useState(false);
+
   const [reportOpen, setReportOpen] = useState(false);
   const [reportRange, setReportRange] = useState({ from: daysAgoISO(29), to: todayISO(), presetKey: 'last30', label: 'Last 30 days' });
   const [reportData, setReportData] = useState(null);
@@ -411,6 +418,56 @@ export default function AttendancePage() {
     setReportOpen(true);
   }
 
+  function openLateness() {
+    setLateError(null);
+    setLateData(null);
+    setLateUnassigned(null);
+    setShowUnassigned(false);
+    setReportCompanyId(companyFilter);
+    setReportDeptId(deptFilter);
+    setLateOpen(true);
+  }
+
+  async function runLateness() {
+    setLateLoading(true);
+    setLateError(null);
+    setLateData(null);
+    try {
+      const params = new URLSearchParams({ from: reportRange.from, to: reportRange.to });
+      if (reportCompanyId) params.set('companyId', reportCompanyId);
+      if (reportDeptId) params.set('departmentId', reportDeptId);
+      // Both together: the lateness figures mean nothing for anyone with no
+      // shift, so the list of those people is fetched alongside and shown
+      // above the numbers rather than filed away on another screen.
+      const [late, unassigned] = await Promise.all([
+        api.get('/attendance/lateness?' + params.toString()),
+        api.get('/attendance/unassigned-shifts?' + params.toString())
+      ]);
+      setLateData(late);
+      setLateUnassigned(unassigned);
+    } catch (err) {
+      setLateError(err.message);
+    } finally {
+      setLateLoading(false);
+    }
+  }
+
+  function downloadLatenessCsv() {
+    if (!lateData) return;
+    const header = ['Employee ID', 'Employee', 'Title', 'Department', 'Company', 'Shift',
+      'Days recorded', 'Days late', 'Late %', 'Total minutes late', 'Average minutes late',
+      'Worst minutes', 'Worst day', 'Measured against'];
+    const body = lateData.rows.map((r) => [
+      r.code, r.name, r.positionTitle || '', r.department || '', r.company || '',
+      r.hasShift ? (r.shiftName || 'shift times on the employee') : 'NO SHIFT ASSIGNED',
+      r.daysRecorded, r.daysLate, r.latePercent, r.minutesLate, r.averageMinutesLate,
+      r.worstMinutes, r.worstDate || '',
+      r.hasShift ? 'their own shift start + grace' : 'company cutoff ' + lateData.fallbackCutoff + ' — not meaningful'
+    ]);
+    downloadCsv('attendance-lateness-' + reportRange.from + '-to-' + reportRange.to + '.csv',
+      rowsToCsv([header, ...body]));
+  }
+
   async function runReport() {
     setReportLoading(true);
     setReportError(null);
@@ -471,6 +528,7 @@ export default function AttendancePage() {
         <div className="attendance-toolbar-actions">
           {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
           <button type="button" className="btn btn-secondary" onClick={openReport}>Download report</button>
+          <button type="button" className="btn btn-secondary" onClick={openLateness}>Lateness</button>
         </div>
       </div>
 
@@ -760,6 +818,132 @@ export default function AttendancePage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {lateOpen && (
+        <div className="dialog-backdrop" onClick={() => setLateOpen(false)}>
+          <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 940 }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="employees-dialog-title">Lateness</h2>
+            <p className="dialog-body">
+              Who arrived after their own shift start plus the grace period, over the range below. Anyone with no
+              shift assigned is listed but kept out of the totals — there is no shift to measure them against, so
+              their minutes are counted from the company-wide cutoff and mean nothing.
+            </p>
+            <div className="field">
+              <label>Period</label>
+              <DateRangePicker value={reportRange} onChange={setReportRange} />
+            </div>
+            <div className="field">
+              <label htmlFor="late-company">Company</label>
+              <select id="late-company" className="input" value={reportCompanyId} aria-label="Lateness company"
+                onChange={(e) => { setReportCompanyId(e.target.value); setReportDeptId(''); }}>
+                <option value="">All companies</option>
+                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="late-department">Department</label>
+              <select id="late-department" className="input" value={reportDeptId} aria-label="Lateness department"
+                onChange={(e) => setReportDeptId(e.target.value)}>
+                <option value="">All departments</option>
+                {departments.filter((d) => !reportCompanyId || d.companyId === reportCompanyId)
+                  .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+
+            {lateError && <div className="error-banner">{lateError}</div>}
+
+            {lateUnassigned && lateUnassigned.rows.length > 0 && (
+              <div className="attendance-noshift">
+                <div className="attendance-noshift-head">
+                  <strong>{lateUnassigned.rows.length} {lateUnassigned.rows.length === 1 ? 'person has' : 'people have'} no shift assigned.</strong>
+                  <button type="button" className="btn btn-secondary attendance-noshift-btn"
+                    onClick={() => setShowUnassigned((v) => !v)}>
+                    {showUnassigned ? 'Hide' : 'Show who'}
+                  </button>
+                </div>
+                <p className="attendance-noshift-body">
+                  Their arrival is measured against the company cutoff of {lateUnassigned.fallbackCutoff}, which
+                  describes a day shift. A guard arriving on time at 18:00 scores as 640 minutes late against it;
+                  one arriving at 01:00 scores as on time. Assign each of them a shift and these figures become
+                  real. Until then they are excluded from the totals below.
+                </p>
+                {showUnassigned && (
+                  <table className="table attendance-noshift-table">
+                    <thead><tr><th>ID</th><th>Employee</th><th>Department</th><th className="attendance-num">Days mis-scored</th></tr></thead>
+                    <tbody>
+                      {lateUnassigned.rows.map((r) => (
+                        <tr key={r.employeeId}>
+                          <td>{r.code}</td>
+                          <td>{r.name}</td>
+                          <td>{r.department}</td>
+                          <td className="attendance-num">{r.lateRecords} of {r.daysRecorded}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {lateData && (
+              <>
+                <p className="dialog-body">
+                  {lateData.totals.daysLate} late {lateData.totals.daysLate === 1 ? 'day' : 'days'} out of{' '}
+                  {lateData.totals.daysRecorded} recorded, across {lateData.totals.employees}{' '}
+                  {lateData.totals.employees === 1 ? 'person' : 'people'} with a shift —{' '}
+                  {lateData.totals.minutesLate} minutes in total.
+                  {lateData.totals.withoutShift > 0 && ' ' + lateData.totals.withoutShift + ' more excluded for having no shift.'}
+                </p>
+                {lateData.rows.length === 0
+                  ? <p className="table-empty">Nobody clocked in during this period.</p>
+                  : (
+                    <div className="table-scroll">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>ID</th><th>Employee</th><th>Department</th><th>Shift</th>
+                            <th className="attendance-num">Late</th>
+                            <th className="attendance-num col-mid">Late %</th>
+                            <th className="attendance-num">Minutes</th>
+                            <th className="attendance-num col-wide">Average</th>
+                            <th className="col-wide">Worst</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lateData.rows.map((r) => (
+                            <tr key={r.employeeId} className={r.hasShift ? undefined : 'attendance-unscored'}>
+                              <td>{r.code}</td>
+                              <td>{r.name}</td>
+                              <td>{r.department}</td>
+                              <td>{r.hasShift
+                                ? (r.shiftName || <span className="attendance-muted">own hours</span>)
+                                : <span className="tag tag-warning">no shift</span>}</td>
+                              <td className="attendance-num">{r.daysLate} / {r.daysRecorded}</td>
+                              <td className="attendance-num col-mid">{r.latePercent}%</td>
+                              <td className="attendance-num">{r.minutesLate}</td>
+                              <td className="attendance-num col-wide">{r.averageMinutesLate}</td>
+                              <td className="col-wide">{r.worstDate ? r.worstMinutes + ' min · ' + r.worstDate : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+              </>
+            )}
+
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setLateOpen(false)}>Close</button>
+              {lateData && lateData.rows.length > 0 && (
+                <button type="button" className="btn btn-secondary" onClick={downloadLatenessCsv}>Download CSV</button>
+              )}
+              <button type="button" className="btn btn-primary" disabled={lateLoading} onClick={runLateness}>
+                {lateLoading ? 'Working…' : 'Run'}
+              </button>
+            </div>
           </div>
         </div>
       )}

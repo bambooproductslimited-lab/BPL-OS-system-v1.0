@@ -371,6 +371,139 @@ async function report(ctx, from, to, filters) {
   return { from: from, to: to, canViewPay: canSeeHourlyRate, rows: rows };
 }
 
+// ── who has no shift, and what that does to their attendance ─────────────
+//
+// Lateness is judged against the employee's own shift start plus grace. With
+// no shift there is nothing to judge against, so it falls back to the
+// company-wide settings.late_after — a day-shift cutoff. Against that, a
+// guard arriving on time at 18:00 records as 640 minutes late, and one
+// arriving at 01:00 records as present.
+//
+// So this is not a tidiness report. Until it is empty, every lateness figure
+// in the system includes people it is measuring against the wrong clock, and
+// the lateness report below says so rather than quietly averaging them in.
+async function unassignedShifts(ctx, filters) {
+  if (!ctx.can('attendance.read.all')) fail('forbidden', 'Your role does not allow this action (attendance.read.all).');
+  var employees = await scopedEmployees(ctx, filters);
+  var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
+  var fallback = settingsRes.rows[0] ? String(settingsRes.rows[0].late_after).slice(0, 5) : '07:20';
+
+  var out = [];
+  for (var i = 0; i < employees.length; i++) {
+    var e = employees[i];
+    var r = await pool.query(
+      'SELECT COALESCE(s.start_time, emp.shift_start) AS starts FROM employees emp ' +
+      'LEFT JOIN shifts s ON s.id = emp.shift_id WHERE emp.id = $1', [e.id]);
+    if (r.rows[0] && r.rows[0].starts) continue;
+    // How many recorded days this has already mis-scored, so the list is
+    // ordered by what it is actually costing rather than alphabetically.
+    //
+    // Recomputed against the fallback cutoff rather than counting rows whose
+    // stored status is 'late'. The stored value is whatever was decided when
+    // the tap happened — including rows written before the midnight-wrap fix
+    // — so counting it made this report disagree with the lateness report
+    // about the same person on the same days.
+    var days = await pool.query(
+      'SELECT clock_in FROM attendance WHERE employee_id = $1 AND clock_in IS NOT NULL', [e.id]);
+    var rule = { cutoff: fallback, shiftStart: null };
+    var mis = days.rows.filter(function (r) {
+      return judgeLateness(rule, String(r.clock_in).slice(0, 5)).status === 'late';
+    }).length;
+    out.push({
+      employeeId: e.id, code: e.code, name: e.first_name + ' ' + e.last_name,
+      positionTitle: e.position_title, department: e.department_name, company: e.company_name,
+      daysRecorded: days.rows.length, lateRecords: mis
+    });
+  }
+  out.sort(function (a, b) { return b.lateRecords - a.lateRecords || a.code.localeCompare(b.code); });
+  return { fallbackCutoff: fallback, rows: out };
+}
+
+// ── lateness ─────────────────────────────────────────────────────────────
+//
+// late/present and the minutes behind it are decided on every clock-in and
+// then never looked at again — there is no lateness report anywhere. This is
+// it: per employee over a date range, with the days and the minutes.
+//
+// Anyone with no shift is included but marked, never silently averaged in.
+// Their minutes are measured against a cutoff that does not describe their
+// working day, so counting them in a department average would make the
+// average meaningless without ever showing why.
+async function latenessReport(ctx, from, to, filters) {
+  if (!ctx.can('attendance.read.all')) fail('forbidden', 'Your role does not allow this action (attendance.read.all).');
+  var start = V.date(from, 'From date');
+  var end = V.date(to, 'To date');
+  if (end < start) fail('invalid', 'The end date comes before the start date.');
+
+  var employees = await scopedEmployees(ctx, filters);
+  if (!employees.length) return { from: start, to: end, rows: [], totals: { late: 0, present: 0, minutes: 0 } };
+
+  var ids = employees.map(function (e) { return e.id; });
+  var att = await pool.query(
+    'SELECT a.employee_id, a.date, a.clock_in, a.status, ' +
+    '       COALESCE(s.start_time, e.shift_start) AS shift_start, s.name AS shift_name ' +
+    'FROM attendance a JOIN employees e ON e.id = a.employee_id ' +
+    'LEFT JOIN shifts s ON s.id = e.shift_id ' +
+    'WHERE a.employee_id = ANY($1::uuid[]) AND a.date BETWEEN $2 AND $3 AND a.clock_in IS NOT NULL',
+    [ids, start, end]);
+
+  var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
+  var fallback = settingsRes.rows[0] ? String(settingsRes.rows[0].late_after).slice(0, 5) : '07:20';
+
+  var byEmp = {};
+  employees.forEach(function (e) {
+    byEmp[e.id] = {
+      employeeId: e.id, code: e.code, name: e.first_name + ' ' + e.last_name,
+      positionTitle: e.position_title, department: e.department_name, company: e.company_name,
+      shiftName: null, hasShift: false, daysRecorded: 0, daysLate: 0, minutesLate: 0,
+      worstMinutes: 0, worstDate: null
+    };
+  });
+
+  att.rows.forEach(function (r) {
+    var row = byEmp[r.employee_id];
+    if (!row) return;
+    row.daysRecorded += 1;
+    if (r.shift_start) { row.hasShift = true; row.shiftName = r.shift_name || null; }
+    // Recomputed from the shift rather than read off status, so a row stored
+    // before the midnight-wrap fix is scored the same way as a new one.
+    var rule = r.shift_start
+      ? { cutoff: addMinutesToHM(String(r.shift_start).slice(0, 5), LATE_GRACE_MINUTES), shiftStart: String(r.shift_start).slice(0, 5) }
+      : { cutoff: fallback, shiftStart: null };
+    var judged = judgeLateness(rule, String(r.clock_in).slice(0, 5));
+    if (judged.status === 'late') {
+      row.daysLate += 1;
+      row.minutesLate += judged.minutesLate;
+      if (judged.minutesLate > row.worstMinutes) {
+        row.worstMinutes = judged.minutesLate;
+        row.worstDate = String(r.date).slice(0, 10);
+      }
+    }
+  });
+
+  var rows = Object.keys(byEmp).map(function (k) { return byEmp[k]; })
+    .filter(function (r) { return r.daysRecorded > 0; });
+  rows.forEach(function (r) {
+    r.averageMinutesLate = r.daysLate ? Math.round(r.minutesLate / r.daysLate) : 0;
+    r.latePercent = r.daysRecorded ? Math.round((r.daysLate / r.daysRecorded) * 1000) / 10 : 0;
+  });
+  rows.sort(function (a, b) { return b.minutesLate - a.minutesLate || a.code.localeCompare(b.code); });
+
+  // Totals cover only people the figures actually describe.
+  var scored = rows.filter(function (r) { return r.hasShift; });
+  return {
+    from: start, to: end, fallbackCutoff: fallback,
+    rows: rows,
+    totals: {
+      employees: scored.length,
+      withoutShift: rows.length - scored.length,
+      daysRecorded: scored.reduce(function (n, r) { return n + r.daysRecorded; }, 0),
+      daysLate: scored.reduce(function (n, r) { return n + r.daysLate; }, 0),
+      minutesLate: scored.reduce(function (n, r) { return n + r.minutesLate; }, 0)
+    }
+  };
+}
+
 // kernel.js: handlers['attendance.adjust']
 //
 // No visibleEmployee() scoping on the target employee here — a security
@@ -441,5 +574,6 @@ module.exports = {
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
   resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,
+  unassignedShifts: unassignedShifts, latenessReport: latenessReport,
   report: report
 };

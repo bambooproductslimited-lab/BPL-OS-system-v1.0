@@ -145,6 +145,14 @@ var PROBES = {
   'POST /api/shares': function (f) { return { path: '/api/shares', body: { documentType: 'invoice', documentId: f.peer.id } }; },
   'POST /api/shares/whatsapp': function (f) { return { path: '/api/shares/whatsapp', body: { documentType: 'invoice', documentId: f.peer.id, url: 'https://example.invalid/x' } }; },
   'GET /api/attendance/report': function () { return { path: '/api/attendance/report?from=2026-01-01&to=2026-01-31' }; },
+  // Both of these validate their input before the permission check is
+  // observable, so a probe built from random values answers 400 and lands in
+  // "indeterminate" — which is not a failure. Without a real date range the
+  // sweep cannot tell a gated route from an ungated one, and a lateness
+  // report left ungated would have shipped: it exposes when every employee
+  // arrives, to anyone who can reach the URL.
+  'GET /api/attendance/lateness': function () { return { path: '/api/attendance/lateness?from=2026-01-01&to=2026-01-31' }; },
+  'GET /api/attendance/unassigned-shifts': function () { return { path: '/api/attendance/unassigned-shifts' }; },
   'POST /api/employees/import/preview': function () { return { path: '/api/employees/import/preview', form: csvUpload('Code,First name,Last name\nE1,Probe,Probe\n') }; },
   'POST /api/tool-room/import/preview': function () { return { path: '/api/tool-room/import/preview', form: csvUpload('Name,Kind,Quantity\nProbe,material,1\n') }; },
   'POST /api/it-devices/import/preview': function () { return { path: '/api/it-devices/import/preview', form: csvUpload('Name,Type,Total\nProbe,laptop,1\n') }; }

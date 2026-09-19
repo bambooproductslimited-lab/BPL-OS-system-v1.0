@@ -128,3 +128,19 @@
 @media (max-width: 560px) {
   .attendance-correction-grid { grid-template-columns: 1fr; }
 }
+
+/* Lateness: the no-shift warning sits above the numbers, because the numbers
+   are wrong for those people and burying that on another screen would let it
+   be read as fact. */
+.attendance-noshift {
+  border: var(--divider-width) solid var(--color-warning);
+  background: var(--color-warning-100);
+  padding: 12px 14px;
+}
+.attendance-noshift-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.attendance-noshift-btn { font-size: 12px; padding: 4px 10px; }
+.attendance-noshift-body { margin: 6px 0 0; font-size: 12.5px; color: var(--color-text-muted); }
+.attendance-noshift-table { margin-top: 10px; }
+.attendance-num { text-align: right; font-variant-numeric: tabular-nums; }
+.attendance-unscored { opacity: 0.72; }
+.attendance-muted { color: var(--color-text-muted); }

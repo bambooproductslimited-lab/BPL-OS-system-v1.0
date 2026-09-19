@@ -35,6 +35,24 @@ router.get('/report', async function (req, res, next) {
 });
 
 // kernel.js: handlers['attendance.delete'] -> DELETE /api/attendance/:id
+// Who has no shift assigned — and therefore whose lateness is being judged
+// against a cutoff that does not describe their working day.
+router.get('/unassigned-shifts', async function (req, res, next) {
+  try {
+    res.json(await attendanceService.unassignedShifts(req.ctx, {
+      companyId: req.query.companyId, departmentId: req.query.departmentId
+    }));
+  } catch (e) { next(e); }
+});
+
+router.get('/lateness', async function (req, res, next) {
+  try {
+    res.json(await attendanceService.latenessReport(req.ctx, req.query.from, req.query.to, {
+      companyId: req.query.companyId, departmentId: req.query.departmentId
+    }));
+  } catch (e) { next(e); }
+});
+
 router.delete('/:id', async function (req, res, next) {
   try { res.json(await attendanceService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
