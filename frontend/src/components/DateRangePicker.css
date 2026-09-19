@@ -10,7 +10,11 @@
 .drp-trigger-caret { color: var(--color-text-muted); font-size: 10px; }
 
 .drp-panel {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 10;
+  /* Fixed, not absolute: an ancestor with an overflow value (the page area
+     has overflow-x: auto so wide tables cannot drag the document sideways)
+     clips an absolutely positioned child, and this panel hangs off the left
+     of its trigger. The component measures the trigger and sets top/left. */
+  position: fixed; z-index: 30;
   width: 280px;
   background: var(--color-bg);
   border: 2px solid var(--color-border);

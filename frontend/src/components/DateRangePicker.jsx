@@ -27,6 +27,10 @@ export const PRESETS = [
   { key: 'thisYear', label: 'This year', range: function () { var t = new Date(); return { from: toISO(startOfYear(t)), to: toISO(new Date()) }; } }
 ];
 
+// Matches .drp-panel's width in the stylesheet; used to right-align the panel
+// against its trigger without letting it run off the left of the window.
+const PANEL_WIDTH = 280;
+
 function fmt(iso) {
   if (!iso) return '';
   return new Date(iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -37,12 +41,35 @@ export default function DateRangePicker({ value, onChange, showAllTime }) {
   const [customFrom, setCustomFrom] = useState(value.from || '');
   const [customTo, setCustomTo] = useState(value.to || '');
   const wrapRef = useRef(null);
+  const [rect, setRect] = useState(null);
 
   useEffect(() => {
     function onDocClick(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); }
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
+
+  // Measured against the viewport and positioned fixed, the same way
+  // CatalogPicker and CustomerPicker already do it.
+  //
+  // The panel used to be absolutely positioned with right: 0, so it hung off
+  // the left of its trigger. That was fine until .shell-content gained
+  // overflow-x: auto to stop wide tables dragging the page sideways — an
+  // overflow value makes an element a clipping box, and the panel's left half
+  // was cut off inside it: "Today" read "oday". Fixed positioning is not
+  // clipped by a scrolling ancestor, so it cannot happen again wherever the
+  // control is placed.
+  useEffect(() => {
+    if (!open) return undefined;
+    function measure() { if (wrapRef.current) setRect(wrapRef.current.getBoundingClientRect()); }
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open]);
 
   useEffect(() => { setCustomFrom(value.from || ''); setCustomTo(value.to || ''); }, [value.from, value.to]);
 
@@ -68,7 +95,15 @@ export default function DateRangePicker({ value, onChange, showAllTime }) {
         <span className="drp-trigger-caret">▾</span>
       </button>
       {open && (
-        <div className="drp-panel">
+        <div
+          className="drp-panel"
+          style={rect ? {
+            top: rect.bottom + 4,
+            // Right-aligned to the trigger, as before, but never pushed off
+            // the left edge of the window by its own width.
+            left: Math.max(8, Math.min(rect.right - PANEL_WIDTH, window.innerWidth - PANEL_WIDTH - 8)),
+          } : undefined}
+        >
           <div className="drp-presets">
             {showAllTime && (
               <button type="button" className="drp-preset-row" onClick={chooseAllTime}>
