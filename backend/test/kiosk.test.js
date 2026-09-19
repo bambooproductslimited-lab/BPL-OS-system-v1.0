@@ -191,3 +191,49 @@ test('kiosk clock: repeated wrong PINs from the same caller are rate-limited', a
   });
   assert.equal(res.status, 429);
 });
+
+// GET /api/kiosk/config — what the iPad asks at startup so it knows whether
+// to get the camera permission out of the way before anybody is standing in
+// front of it (frontend/src/kiosk/cameraReady.js). Public like the rest of
+// this router, and a boolean and nothing else.
+test('kiosk config reports whether face verification is in use here, without auth', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var [emp] = await pickTwoEmployees(admin);
+
+  // Snapshot every enrolled face and put them back exactly as they were —
+  // another test file (or the seed) may legitimately have someone enrolled,
+  // and this test needs the "nobody is enrolled" case to assert against.
+  var snapshot = await pool.query(
+    'SELECT id, face_descriptor, face_enrolled_at, face_enrolled_by FROM employees WHERE face_descriptor IS NOT NULL'
+  );
+  await pool.query('UPDATE employees SET face_descriptor = NULL, face_enrolled_at = NULL, face_enrolled_by = NULL WHERE face_descriptor IS NOT NULL');
+
+  try {
+    var none = await fetch(base + '/api/kiosk/config');
+    assert.equal(none.status, 200); // no Authorization header at all
+    assert.deepEqual(await none.json(), { faceVerificationInUse: false });
+
+    var poses = [new Array(128).fill(0.1), new Array(128).fill(0.2)];
+    var enrolled = await fetch(base + '/api/employees/' + emp.id + '/kiosk-face', {
+      method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ descriptors: poses })
+    });
+    assert.equal(enrolled.status, 200);
+
+    assert.deepEqual(await (await fetch(base + '/api/kiosk/config')).json(), { faceVerificationInUse: true });
+
+    var cleared = await fetch(base + '/api/employees/' + emp.id + '/kiosk-face', {
+      method: 'DELETE', headers: authed(admin)
+    });
+    assert.equal(cleared.status, 200);
+    assert.deepEqual(await (await fetch(base + '/api/kiosk/config')).json(), { faceVerificationInUse: false });
+  } finally {
+    for (var i = 0; i < snapshot.rows.length; i++) {
+      var row = snapshot.rows[i];
+      // eslint-disable-next-line no-await-in-loop
+      await pool.query(
+        'UPDATE employees SET face_descriptor = $1, face_enrolled_at = $2, face_enrolled_by = $3 WHERE id = $4',
+        [JSON.stringify(row.face_descriptor), row.face_enrolled_at, row.face_enrolled_by, row.id]
+      );
+    }
+  }
+});

@@ -77,6 +77,7 @@ var ALLOWED = {
   'GET /api/roles/permissions': 'static permission catalogue, not per-user data',
   'GET /api/menu-photos/:id': 'a plain <img src> cannot send a bearer token; POS and app both render it',
   'GET /api/share/:token': 'customer-facing document link; the unguessable token is the credential',
+  'GET /api/kiosk/config': 'unattended clock-in iPad asking whether it needs its camera; one boolean, names nobody',
   'POST /api/kiosk/identify': 'unattended clock-in iPad; PIN-gated and IP rate-limited',
   'POST /api/kiosk/clock': 'unattended clock-in iPad; PIN-gated and IP rate-limited',
   'GET /api/kiosk/face-enroll/:token': 'self-enrolment link; token is the credential',

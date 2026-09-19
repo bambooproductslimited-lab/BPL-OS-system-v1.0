@@ -10,6 +10,11 @@ var kioskService = require('../services/kiosk.service');
 
 var router = express.Router();
 
+// Read-only, no PIN involved — see kiosk.service.js's config comment.
+router.get('/config', async function (req, res, next) {
+  try { res.json(await kioskService.deviceConfig()); } catch (e) { next(e); }
+});
+
 router.post('/identify', async function (req, res, next) {
   try { res.json(await kioskService.identify(req.body.pin, req.ip)); } catch (e) { next(e); }
 });

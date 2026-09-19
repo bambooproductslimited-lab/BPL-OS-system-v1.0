@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/offlineQueue';
 import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
+import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
 import './KioskPage.css';
 
@@ -54,6 +55,19 @@ const FACE_TIMEOUT_REQUIRED_MS = 20000;
 // handlePinComplete's comment), but don't hold up a PIN-only employee's
 // tap for long while the device has no connectivity regardless.
 const FACE_TIMEOUT_OFFLINE_MS = 12000;
+// Whether anyone at this company is enrolled for face verification, as last
+// answered by /kiosk/config. Remembered on the device because the kiosk has
+// to decide whether to prime the camera at startup (see kiosk/cameraReady.js)
+// and startup is exactly when it might have no connectivity — a kiosk that
+// boots during an outage should still behave the way it did yesterday
+// rather than forgetting it needs a camera.
+const FACE_IN_USE_KEY = 'bamboo-kiosk-face-in-use';
+function rememberFaceInUse(inUse) {
+  try { localStorage.setItem(FACE_IN_USE_KEY, inUse ? '1' : '0'); } catch { /* private mode — just don't remember */ }
+}
+function recallFaceInUse() {
+  try { return localStorage.getItem(FACE_IN_USE_KEY) === '1'; } catch { return false; }
+}
 
 const ICON_PATHS = {
   checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
@@ -100,6 +114,7 @@ export default function KioskPage() {
   const [result, setResult] = useState(null); // { kind: 'ok'|'error'|'pending', action, employeeName, time, status, minutesLate, message }
   const [pendingCount, setPendingCount] = useState(0);
   const [faceStage, setFaceStage] = useState(null); // { pin, optional } while the camera step is showing
+  const [cameraBlocked, setCameraBlocked] = useState(false); // camera needed here, but this device hasn't granted it
   const resultTimerRef = useRef(null);
   const flushingRef = useRef(false);
   const locationRef = useRef(null); // latest GPS fix, kept fresh by watchPosition below
@@ -111,6 +126,35 @@ export default function KioskPage() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/kiosk-sw.js', { scope: '/kiosk' }).catch(() => {});
     }
+  }, []);
+
+  // Gets the camera permission dealt with at startup, on the idle screen,
+  // instead of mid-clock-in — see kiosk/cameraReady.js for the whole story.
+  // Only runs at all where face verification is actually in use: a company
+  // with nobody enrolled never gets asked for a camera it will never open.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let inUse;
+      try {
+        const cfg = await api.get('/kiosk/config');
+        inUse = !!cfg.faceVerificationInUse;
+        rememberFaceInUse(inUse);
+      } catch {
+        inUse = recallFaceInUse(); // offline at boot — go with what this device saw last
+      }
+      if (cancelled || !inUse) return;
+
+      const state = await cameraPermissionState();
+      if (cancelled) return;
+      if (state === 'granted' || state === 'unavailable') return; // nothing to ask for
+      if (state === 'denied') { setCameraBlocked(true); return; }
+
+      // 'prompt' or 'unknown' (Safari) — ask now, while nobody is waiting.
+      const outcome = await primeCamera();
+      if (!cancelled && outcome !== 'granted') setCameraBlocked(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // The kiosk is a fixed, plugged-in device, so every fix reports roughly
@@ -240,6 +284,15 @@ export default function KioskPage() {
     setPin(next);
     if (next.length === PIN_LENGTH) handlePinComplete(next);
   }
+  // The banner's own tap. Safari will refuse to prompt at all in some
+  // situations unless the request comes straight out of a user gesture, so
+  // this path matters beyond just being a retry button: it's the one that
+  // reliably works after an automatic prime came back denied.
+  async function enableCamera() {
+    const outcome = await primeCamera();
+    setCameraBlocked(outcome !== 'granted');
+  }
+
   function tapClear() { if (!submitting) setPin(''); }
   function tapBackspace() { if (!submitting) setPin(pin.slice(0, -1)); }
 
@@ -311,9 +364,10 @@ export default function KioskPage() {
                 if (optional) submitPin(p);
                 else showErrorResult("Couldn't see your face clearly — try again.");
               }}
-              onError={(message) => {
+              onError={(message, name) => {
                 const p = faceStage.pin, optional = faceStage.optional;
                 setFaceStage(null);
+                if (name === 'NotAllowedError') setCameraBlocked(true);
                 if (optional) submitPin(p);
                 else showErrorResult(message);
               }}
@@ -321,6 +375,15 @@ export default function KioskPage() {
           </div>
         ) : (
           <div className="kiosk-pad-wrap">
+            {cameraBlocked && (
+              <button type="button" className="kiosk-camera-warning" onClick={enableCamera}>
+                <Icon name="xCircle" />
+                <span>
+                  <strong>This kiosk can&rsquo;t use its camera.</strong>
+                  Tap here and choose Allow. Staff who clock in by face can&rsquo;t use this device until someone does.
+                </span>
+              </button>
+            )}
             <div className="kiosk-prompt">Enter your PIN to clock in or out</div>
             <div className="kiosk-pin-dots">
               {Array.from({ length: PIN_LENGTH }).map((_, i) => (

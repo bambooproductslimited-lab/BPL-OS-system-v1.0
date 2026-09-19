@@ -198,7 +198,11 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
           : 'Could not start the camera. ' + (err && err.message ? err.message : '');
         setStatus('error');
         setErrorMessage(message);
-        if (onError) onError(message);
+        // The error's name goes out alongside the message so a caller can
+        // tell "this device has no camera permission" (something a person
+        // has to go and fix on the device) apart from a transient failure
+        // — the kiosk uses it to raise its own banner. See cameraReady.js.
+        if (onError) onError(message, err && err.name);
       }
     }
     start();

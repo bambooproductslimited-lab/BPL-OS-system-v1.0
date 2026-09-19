@@ -347,6 +347,28 @@ async function sendFaceEnrollLinkViaWhatsApp(ctx, employeeId, url) {
   return { sent: true };
 }
 
+// kiosk.deviceConfig — the one thing the kiosk device needs to know about
+// itself before anybody is standing in front of it: does this deployment use
+// face verification at all? The iPad asks on startup so it can get the
+// browser's camera permission out of the way while the idle PIN pad is on
+// screen, instead of the permission dialog ambushing an employee halfway
+// through clocking in (see KioskPage.jsx's camera priming). A deployment
+// where nobody is enrolled never touches the camera and is never asked for it.
+//
+// Public and unauthenticated like the rest of this router, and deliberately
+// nothing but a boolean — it says whether SOMEBODY has a face on file, never
+// who, so it gives an unauthenticated caller nothing it didn't already know
+// from the kiosk asking it for a face at all.
+//
+// (Named deviceConfig, not config: `config` at module scope is already
+// require('../config') — the app's settings, secrets and all.)
+async function deviceConfig() {
+  var res = await pool.query(
+    "SELECT 1 FROM employees WHERE face_descriptor IS NOT NULL AND status = 'active' LIMIT 1"
+  );
+  return { faceVerificationInUse: res.rowCount > 0 };
+}
+
 // kiosk.identify — resolves a PIN to the employee it belongs to, without
 // clocking anything, so the kiosk knows before capturing a camera frame
 // whether that employee has a face on file to check it against (see
@@ -469,7 +491,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
 }
 
 module.exports = {
-  setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify,
+  setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify, deviceConfig: deviceConfig,
   enrollFace: enrollFace, clearFace: clearFace, getFaceStatus: getFaceStatus,
   createFaceEnrollLink: createFaceEnrollLink, getFaceEnrollTarget: getFaceEnrollTarget, enrollFaceViaLink: enrollFaceViaLink,
   verifyFaceEnrollPin: verifyFaceEnrollPin, sendFaceEnrollLinkViaWhatsApp: sendFaceEnrollLinkViaWhatsApp
