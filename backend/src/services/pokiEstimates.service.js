@@ -262,6 +262,28 @@ async function resolveTenant(tenantId) {
   return res.rows[0];
 }
 
+// The terms printed on a letting offer.
+//
+// `p.terms || default` was wrong in one specific way: an empty string is
+// falsy, so deliberately clearing the terms fell straight back to the
+// standard block and there was no way to send an offer without them. Absent
+// means "use the standard terms"; present-but-empty means "this offer has
+// none".
+function offerTerms(p, company) {
+  if (p.terms === undefined || p.terms === null) return company.invoiceFooter || '';
+  return String(p.terms);
+}
+
+// The standard terms, so the offer form can pre-fill them and offer to put
+// them back after they have been edited or cleared. Read-only; editing the
+// standard block itself is a company-settings job, not an offer-form one.
+async function standardTerms(ctx) {
+  poki.canRead(ctx);
+  var companyId = await poki.pokiCompanyId();
+  var company = await require('./pokiInvoices.service').letterhead(companyId);
+  return { terms: company.invoiceFooter || '' };
+}
+
 async function create(ctx, p) {
   poki.canManage(ctx);
   var companyId = await poki.pokiCompanyId();
@@ -304,7 +326,7 @@ async function create(ctx, p) {
         totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal,
         ctx.employee ? ctx.employee.id : null, validUntil,
         (p.internalNotes || '').trim(), (p.clientNotes || '').trim(),
-        p.terms || company.invoiceFooter || '', currency,
+        offerTerms(p, company), currency,
         discountValue, discountType, taxRate, JSON.stringify(schedule)
       ]
     );
@@ -353,12 +375,15 @@ async function update(ctx, id, p) {
     await client.query(
       'UPDATE estimates SET customer_id = $1, poki_unit_id = $2, subtotal = $3, discount_total = $4, tax_total = $5, ' +
       'grand_total = $6, valid_until = $7, internal_notes = $8, client_notes = $9, currency = $10, ' +
-      'discount_value = $11, discount_type = $12, tax_rate = $13, payment_schedule = $14 WHERE id = $15',
+      'discount_value = $11, discount_type = $12, tax_rate = $13, payment_schedule = $14, terms = $16 ' +
+      'WHERE id = $15',
       [
         tenant.customer_id, unit ? unit.id : null, totals.subtotal, totals.discountTotal, totals.taxTotal,
         totals.grandTotal, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(),
         currency, discountValue, discountType, taxRate,
-        JSON.stringify(schedule), id
+        JSON.stringify(schedule), id,
+        // Same rule as on create: absent leaves them alone, empty clears them.
+        p.terms === undefined || p.terms === null ? existing.terms : String(p.terms)
       ]
     );
     await client.query('DELETE FROM document_line_items WHERE document_type = $1 AND document_id = $2', ['estimate', id]);
@@ -441,5 +466,5 @@ module.exports = {
   lettingDraft: lettingDraft, list: list, get: get, create: create, update: update,
   setStatus: setStatus, remove: remove, convertToBooking: convertToBooking,
   createShareLink: createShareLink, shareViaWhatsApp: shareViaWhatsApp,
-  lettingLines: lettingLines
+  lettingLines: lettingLines, standardTerms: standardTerms
 };

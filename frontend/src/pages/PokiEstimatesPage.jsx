@@ -52,7 +52,7 @@ const blankLine = () => ({ description: '', qty: 1, unit: 'each', unitPrice: '',
 
 const EMPTY = {
   docKind: 'letting', tenantId: '', unitId: '', rentPeriods: 1, depositMonths: 1,
-  validUntil: '', clientNotes: '', internalNotes: '', items: [blankLine()]
+  validUntil: '', clientNotes: '', internalNotes: '', terms: '', items: [blankLine()]
 };
 
 export default function PokiEstimatesPage() {
@@ -68,6 +68,7 @@ export default function PokiEstimatesPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [standardTerms, setStandardTerms] = useState('');
   const [detail, setDetail] = useState(null);
 
   const [dialog, setDialog] = useState(null); // 'offer' | 'convert'
@@ -82,12 +83,16 @@ export default function PokiEstimatesPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [e, u, t] = await Promise.all([
-        api.get('/poki/estimates'), api.get('/poki/units'), api.get('/poki/tenants')
+      const [e, u, t, terms] = await Promise.all([
+        api.get('/poki/estimates'), api.get('/poki/units'), api.get('/poki/tenants'),
+        // The standard block, so a new offer starts with it and an edited one
+        // can be put back to it.
+        api.get('/poki/offer-terms').catch(() => ({ terms: '' }))
       ]);
       setEstimates(e);
       setUnits(u);
       setTenants(t);
+      setStandardTerms(terms.terms || '');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -122,10 +127,11 @@ export default function PokiEstimatesPage() {
         ...EMPTY, docKind: est.docKind, tenantId: tenant ? tenant.id : '', unitId: est.unitId || '',
         validUntil: est.validUntil ? String(est.validUntil).slice(0, 10) : '',
         clientNotes: est.clientNotes || '', internalNotes: est.internalNotes || '',
+        terms: est.terms || '',
         items: est.items.length ? est.items.map((i) => ({ ...i })) : [blankLine()]
       });
     } else {
-      setForm({ ...EMPTY, items: [blankLine()] });
+      setForm({ ...EMPTY, items: [blankLine()], terms: standardTerms });
     }
     setDialog('offer');
   }
@@ -175,6 +181,9 @@ export default function PokiEstimatesPage() {
       const payload = {
         docKind: form.docKind, tenantId: form.tenantId, unitId: form.unitId || undefined,
         validUntil: form.validUntil || undefined, clientNotes: form.clientNotes,
+        // Always sent, so clearing the box genuinely removes the terms rather
+        // than falling back to the standard block.
+        terms: form.terms,
         internalNotes: form.internalNotes,
         items: form.items.filter((i) => String(i.description).trim())
       };
@@ -472,6 +481,35 @@ export default function PokiEstimatesPage() {
             <div className="field poki-dialog-span">
               <label htmlFor="pe-notes">Notes to the prospect</label>
               <textarea id="pe-notes" className="input" rows={2} value={form.clientNotes} onChange={set('clientNotes')} />
+            </div>
+            <div className="field poki-dialog-span">
+              <div className="poki-terms-head">
+                <label htmlFor="pe-terms">Terms on this offer</label>
+                <span className="poki-terms-actions">
+                  {form.terms !== standardTerms && standardTerms && (
+                    <button type="button" className="btn btn-secondary poki-terms-btn"
+                      onClick={() => setForm((f) => ({ ...f, terms: standardTerms }))}>
+                      Use the standard terms
+                    </button>
+                  )}
+                  {form.terms && (
+                    <button type="button" className="btn btn-secondary poki-terms-btn"
+                      onClick={() => setForm((f) => ({ ...f, terms: '' }))}>
+                      Remove terms
+                    </button>
+                  )}
+                </span>
+              </div>
+              <textarea
+                id="pe-terms" className="input poki-terms-box" rows={8}
+                value={form.terms} onChange={set('terms')}
+                placeholder="No terms will be printed on this offer."
+              />
+              <div className="poki-muted poki-terms-hint">
+                {form.terms
+                  ? 'Printed at the foot of the offer. Edit freely — this copy belongs to this offer alone.'
+                  : 'This offer will print with no terms block.'}
+              </div>
             </div>
 
             <div className="poki-dialog-actions">

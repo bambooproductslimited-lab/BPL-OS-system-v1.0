@@ -109,6 +109,12 @@ router.post('/bookings/:id/deposit-refund', async function (req, res, next) {
 });
 
 // ── booking agreements ────────────────────────────────────────────────────
+// The standard letting-offer terms, so the offer form can pre-fill them and
+// put them back after they have been edited away.
+router.get('/offer-terms', async function (req, res, next) {
+  try { res.json(await estimates.standardTerms(req.ctx)); } catch (e) { next(e); }
+});
+
 router.get('/agreement-templates', async function (req, res, next) {
   try {
     await billing.ensureDefaultTemplate(req.ctx);

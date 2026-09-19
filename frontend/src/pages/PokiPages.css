@@ -229,3 +229,11 @@ textarea.poki-agreement-body {
 /* The GHS equivalent of an amount held in another currency — shown beside the
    real figure, never instead of it. */
 .poki-fx-hint { font-size: 11.5px; color: var(--color-text-muted); margin-top: 3px; }
+
+/* Terms on a letting offer — editable per offer, with a way back to the
+   standard block and a way to drop it entirely. */
+.poki-terms-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.poki-terms-actions { display: flex; gap: 6px; }
+.poki-terms-btn { font-size: 12px; padding: 4px 10px; }
+.poki-terms-box { font-family: inherit; line-height: 1.5; resize: vertical; min-height: 140px; }
+.poki-terms-hint { font-size: 11.5px; margin-top: 4px; }
