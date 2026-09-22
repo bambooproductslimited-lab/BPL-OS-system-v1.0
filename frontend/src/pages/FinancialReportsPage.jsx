@@ -276,7 +276,7 @@ export default function FinancialReportsPage() {
         )}
         <div className="finreport-toolbar-actions">
           <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => downloadPdf(tab + '-' + todayISO() + '.pdf')}>
-            {exporting ? 'Preparing…' : 'Download PDF'}
+            {exporting ? tr('Preparing…') : tr('Download PDF')}
           </button>
           {tab === 'pnl' && <button type="button" className="btn btn-secondary" onClick={exportPnlCsv}>{tr('Download CSV')}</button>}
           {tab === 'cashflow' && <button type="button" className="btn btn-secondary" onClick={exportCashFlowCsv}>{tr('Download CSV')}</button>}
@@ -343,8 +343,8 @@ export default function FinancialReportsPage() {
           <div>
             <div className={'finreport-balance-banner' + (Math.abs(balanceSheet.balanceCheck) < 0.01 ? ' finreport-balanced' : ' finreport-unbalanced')}>
               {Math.abs(balanceSheet.balanceCheck) < 0.01
-                ? 'Balanced — assets equal liabilities plus equity.'
-                : 'Off by ' + money(Math.abs(balanceSheet.balanceCheck)) + ' — check the manual inputs below (Cash & bank is usually the figure to correct).'}
+                ? tr('Balanced — assets equal liabilities plus equity.')
+                : tr('Off by ') + money(Math.abs(balanceSheet.balanceCheck)) + tr(' — check the manual inputs below (Cash & bank is usually the figure to correct).')}
             </div>
             <p className="finreport-asof">{tr('As of')} {fmtDate(balanceSheet.asOf)}</p>
 
@@ -396,7 +396,7 @@ export default function FinancialReportsPage() {
                   <label>{tr('Notes')}</label>
                   <textarea className="input" value={bsForm.notes} onChange={(e) => setBsForm({ ...bsForm, notes: e.target.value })} placeholder={tr('E.g. loan source, last reconciled date…')} />
                 </div>
-                <button type="submit" className="btn btn-primary" disabled={savingBs}>{savingBs ? 'Saving…' : 'Save manual inputs'}</button>
+                <button type="submit" className="btn btn-primary" disabled={savingBs}>{savingBs ? tr('Saving…') : tr('Save manual inputs')}</button>
               </form>
             )}
           </div>
@@ -489,8 +489,8 @@ export default function FinancialReportsPage() {
 
             <div className={'finreport-balance-banner' + (Math.abs(taxSummary.reconciliationDiff) < 0.01 ? ' finreport-balanced' : ' finreport-unbalanced')} style={{ marginTop: 16 }}>
               {Math.abs(taxSummary.reconciliationDiff) < 0.01
-                ? 'Reconciled — line-item tax matches each invoice’s recorded total.'
-                : 'Off by ' + money(Math.abs(taxSummary.reconciliationDiff)) + ' vs. invoices’ recorded tax totals — likely a document-level tax rate applied outside the line items.'}
+                ? tr('Reconciled — line-item tax matches each invoice’s recorded total.')
+                : tr('Off by ') + money(Math.abs(taxSummary.reconciliationDiff)) + tr(' vs. invoices’ recorded tax totals — likely a document-level tax rate applied outside the line items.')}
             </div>
           </div>
         )}

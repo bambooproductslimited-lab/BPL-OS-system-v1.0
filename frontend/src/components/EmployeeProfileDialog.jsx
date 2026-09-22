@@ -122,7 +122,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                 <>
                   <div><div className="employee-profile-label">{tr('Pay cycle')}</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
                   <div><div className="employee-profile-label">{tr('Daily rate')}</div><div>{fmtMoney(e.dailyRate)}</div></div>
-                  <div><div className="employee-profile-label">{tr('Hourly rate')}</div><div>{e.hourlyRate == null ? 'Not set' : fmtMoney(e.hourlyRate) + '/hr'}</div></div>
+                  <div><div className="employee-profile-label">{tr('Hourly rate')}</div><div>{e.hourlyRate == null ? tr('Not set') : fmtMoney(e.hourlyRate) + '/hr'}</div></div>
                 </>
               )}
               {canViewIdDocs && (
@@ -131,7 +131,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                   <div>
                     {kioskPin === null && (
                       <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} disabled={kioskPinLoading} onClick={revealKioskPin}>
-                        {kioskPinLoading ? 'Loading…' : 'Show'}
+                        {kioskPinLoading ? tr('Loading…') : tr('Show')}
                       </button>
                     )}
                     {kioskPin && kioskPin.error && <span>{tr('Couldn\'t load — try again.')}</span>}

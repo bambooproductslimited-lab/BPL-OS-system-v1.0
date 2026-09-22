@@ -288,7 +288,7 @@ export default function ToolRoomPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog toolroom-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="toolroom-dialog-title">{editId ? 'Edit item' : 'Add item'}</h2>
+            <h2 className="toolroom-dialog-title">{editId ? tr('Edit item') : tr('Add item')}</h2>
             {dialogError && <div className="error-banner toolroom-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="tr-code">{tr('Code')}</label>
@@ -341,7 +341,7 @@ export default function ToolRoomPage() {
             </div>
             <div className="dialog-actions toolroom-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add item'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? tr('Save changes') : tr('Add item')}</button>
             </div>
           </form>
         </div>
@@ -361,7 +361,7 @@ export default function ToolRoomPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCheckoutTarget(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? 'Checking out…' : 'Check out'}</button>
+              <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? tr('Checking out…') : tr('Check out')}</button>
             </div>
           </form>
         </div>
@@ -385,7 +385,7 @@ export default function ToolRoomPage() {
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
-                    {importLoading ? 'Reading…' : 'Preview import'}
+                    {importLoading ? tr('Reading…') : tr('Preview import')}
                   </button>
                 </div>
               </>
@@ -424,7 +424,7 @@ export default function ToolRoomPage() {
                   <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
-                    {importCommitting ? 'Importing…' : 'Import ' + importPreview.rows.filter((r) => !r.willSkip).length + ' item(s)'}
+                    {importCommitting ? tr('Importing…') : tr('Import ') + importPreview.rows.filter((r) => !r.willSkip).length + tr(' item(s)')}
                   </button>
                 </div>
               </>

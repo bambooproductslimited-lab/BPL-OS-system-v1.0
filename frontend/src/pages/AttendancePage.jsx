@@ -542,7 +542,7 @@ export default function AttendancePage() {
               key={s.label}
               className={'attendance-summary-tile attendance-summary-tile-' + s.tone + (active ? ' attendance-summary-tile-active' : '')}
               aria-pressed={active}
-              title={s.filterKey ? 'Show only ' + s.label.toLowerCase() : 'Clear the status filter'}
+              title={s.filterKey ? tr('Show only ') + s.label.toLowerCase() : tr('Clear the status filter')}
               onClick={() => setStatusFilter(s.filterKey && statusFilter !== s.filterKey ? s.filterKey : '')}
             >
               <span className="attendance-summary-icon glow-badge"><Icon name={s.icon} /></span>
@@ -577,7 +577,7 @@ export default function AttendancePage() {
           <option value="">{tr('All statuses')}</option>
           <option value="present">{tr('Present')}</option>
           <option value="late">{tr('Late')}</option>
-          <option value="absent">{isSingleDay ? 'No record' : 'Absent'}</option>
+          <option value="absent">{isSingleDay ? tr('No record') : tr('Absent')}</option>
           <option value="leave">{tr('Leave')}</option>
           <option value="off">{tr('Off')}</option>
           {!isSingleDay && <option value="absentLeaveOff">{tr('Absent/leave/off')}</option>}
@@ -625,7 +625,7 @@ export default function AttendancePage() {
           {!rows.length && <EmptyState title={tr('No employees in scope for this date')} />}
           {!!rows.length && !visibleRows.length && (
             <p className="table-empty">
-              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? tr(' and ') : ' ') + tr('status "') + statusFilter + '"' : ''}.
             </p>
           )}
         </>
@@ -660,7 +660,7 @@ export default function AttendancePage() {
           {!periodRows.length && <EmptyState title={tr('No employees in scope for this filter')} />}
           {!!periodRows.length && !visiblePeriodRows.length && (
             <p className="table-empty">
-              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? tr(' and ') : ' ') + tr('status "') + statusFilter + '"' : ''}.
             </p>
           )}
         </>
@@ -694,7 +694,7 @@ export default function AttendancePage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCorrection(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save correction'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save correction')}</button>
             </div>
           </form>
         </div>
@@ -707,7 +707,7 @@ export default function AttendancePage() {
             <p className="dialog-body">{tr('Delete the record for')} <strong>{deleteTarget.name}</strong> ({fmtDate(dateRange.from)}{tr(')? This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>
@@ -743,7 +743,7 @@ export default function AttendancePage() {
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={syncLoading} onClick={runSyncPreview}>
-                    {syncLoading ? 'Fetching from TimeStation…' : 'Preview'}
+                    {syncLoading ? tr('Fetching from TimeStation…') : tr('Preview')}
                   </button>
                 </div>
               </>
@@ -790,7 +790,7 @@ export default function AttendancePage() {
                     <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncPreview(null)}>{tr('Back')}</button>
                     <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={syncCommitting || !toWrite.length} onClick={commitAttendanceSync}>
-                      {syncCommitting ? 'Syncing…' : 'Sync ' + toWrite.length + ' record(s)'}
+                      {syncCommitting ? tr('Syncing…') : tr('Sync ') + toWrite.length + tr(' record(s)')}
                     </button>
                   </div>
                 </>
@@ -802,7 +802,7 @@ export default function AttendancePage() {
                 {syncError && <div className="error-banner">{syncError}</div>}
                 <p className="itdevices-import-summary">
                   {syncResult.created} {tr('created,')} {syncResult.updated} {tr('updated,')} {syncResult.unchanged} {tr('unchanged')}
-                  {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
+                  {syncResult.failed.length ? ', ' + syncResult.failed.length + tr(' failed') : ''}.
                 </p>
                 {syncResult.failed.length > 0 && (
                   <ul>
@@ -852,10 +852,10 @@ export default function AttendancePage() {
             {lateUnassigned && lateUnassigned.rows.length > 0 && (
               <div className="attendance-noshift">
                 <div className="attendance-noshift-head">
-                  <strong>{lateUnassigned.rows.length} {lateUnassigned.rows.length === 1 ? 'person has' : 'people have'} {tr('no shift assigned.')}</strong>
+                  <strong>{lateUnassigned.rows.length} {lateUnassigned.rows.length === 1 ? tr('person has') : tr('people have')} {tr('no shift assigned.')}</strong>
                   <button type="button" className="btn btn-secondary attendance-noshift-btn"
                     onClick={() => setShowUnassigned((v) => !v)}>
-                    {showUnassigned ? 'Hide' : 'Show who'}
+                    {showUnassigned ? tr('Hide') : tr('Show who')}
                   </button>
                 </div>
                 <p className="attendance-noshift-body">
@@ -886,7 +886,7 @@ export default function AttendancePage() {
                   {lateData.totals.daysRecorded} {tr('recorded, across')} {lateData.totals.employees}{' '}
                   {lateData.totals.employees === 1 ? 'person' : 'people'} {tr('with a shift —')}{' '}
                   {lateData.totals.minutesLate} {tr('minutes in total.')}
-                  {lateData.totals.withoutShift > 0 && ' ' + lateData.totals.withoutShift + ' more excluded for having no shift.'}
+                  {lateData.totals.withoutShift > 0 && ' ' + lateData.totals.withoutShift + tr(' more excluded for having no shift.')}
                 </p>
                 {lateData.rows.length === 0
                   ? <p className="table-empty">{tr('Nobody clocked in during this period.')}</p>
@@ -916,7 +916,7 @@ export default function AttendancePage() {
                               <td className="attendance-num col-mid">{r.latePercent}%</td>
                               <td className="attendance-num">{r.minutesLate}</td>
                               <td className="attendance-num col-wide">{r.averageMinutesLate}</td>
-                              <td className="col-wide">{r.worstDate ? r.worstMinutes + ' min · ' + r.worstDate : '—'}</td>
+                              <td className="col-wide">{r.worstDate ? r.worstMinutes + tr(' min · ') + r.worstDate : '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -932,7 +932,7 @@ export default function AttendancePage() {
                 <button type="button" className="btn btn-secondary" onClick={downloadLatenessCsv}>{tr('Download CSV')}</button>
               )}
               <button type="button" className="btn btn-primary" disabled={lateLoading} onClick={runLateness}>
-                {lateLoading ? 'Working…' : 'Run'}
+                {lateLoading ? tr('Working…') : tr('Run')}
               </button>
             </div>
           </div>
@@ -981,7 +981,7 @@ export default function AttendancePage() {
               <div className="dialog-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setReportOpen(false)}>{tr('Close')}</button>
                 <button type="button" className="btn btn-primary" disabled={reportLoading} onClick={runReport}>
-                  {reportLoading ? 'Running…' : 'Run report'}
+                  {reportLoading ? tr('Running…') : tr('Run report')}
                 </button>
               </div>
 
@@ -989,10 +989,10 @@ export default function AttendancePage() {
                 <>
                   <div ref={reportPrintRef}>
                     <p className="itdevices-import-summary">
-                      {(companies.find((c) => c.id === reportCompanyId) || { name: 'All companies' }).name}
+                      {(companies.find((c) => c.id === reportCompanyId) || { name: tr('All companies') }).name}
                       {reportDeptId ? ' — ' + (departments.find((d) => d.id === reportDeptId) || { name: '' }).name : ''}
                       , {reportRange.from} {tr('to')} {reportRange.to} — {pivot.rows.length.toLocaleString()} {tr('employee(s),')} {reportData.rows.length.toLocaleString()} {tr('record(s).')}
-                      {!canSeePay && ' Hourly rate/pay is hidden — your role doesn\'t have payroll access.'}
+                      {!canSeePay && tr(' Hourly rate/pay is hidden — your role doesn\'t have payroll access.')}
                     </p>
                     {!showDetailTable && (
                       <p className="itdevices-import-summary">

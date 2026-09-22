@@ -248,17 +248,17 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
                   {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <button type="button" className="btn btn-secondary" disabled={generating} onClick={generateLink}>
-                  {generating ? 'Generating…' : shareUrl ? 'Regenerate link' : 'Generate share link'}
+                  {generating ? tr('Generating…') : shareUrl ? tr('Regenerate link') : tr('Generate share link')}
                 </button>
                 <button type="button" className="btn btn-secondary" disabled={waSending} onClick={sendWhatsApp}>
-                  {waSending ? 'Sending…' : 'Share via WhatsApp'}
+                  {waSending ? tr('Sending…') : tr('Share via WhatsApp')}
                 </button>
               </div>
               {linkError && <div className="error-banner">{linkError}</div>}
               {shareUrl && (
                 <div className="doc-preview-share-link">
                   <input className="input" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
-                  <button type="button" className="btn btn-secondary" onClick={copyLink}>{copied ? 'Copied!' : 'Copy'}</button>
+                  <button type="button" className="btn btn-secondary" onClick={copyLink}>{copied ? tr('Copied!') : tr('Copy')}</button>
                 </div>
               )}
               {shareUrl && shareExpiresAt && (
@@ -278,7 +278,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
             <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
             <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
-              {sharing ? 'Preparing…' : 'Share'}
+              {sharing ? tr('Preparing…') : tr('Share')}
             </button>
           </div>
         </div>

@@ -135,7 +135,7 @@ export default function MarketingDashboardPage() {
       <div className="mkt-toolbar no-print">
         <button type="button" className="btn btn-secondary" onClick={downloadCsvReport}>{tr('Download CSV')}</button>
         <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadPdf}>
-          {exporting ? 'Preparing…' : 'Download PDF'}
+          {exporting ? tr('Preparing…') : tr('Download PDF')}
         </button>
       </div>
       <div ref={printRef}>

@@ -115,11 +115,11 @@ export default function PokiTenantsPage() {
 
       {visible.length === 0 ? (
         <div className="poki-empty">
-          <p className="poki-empty-title">{tenants.length ? 'No tenants match' : 'No tenants yet'}</p>
+          <p className="poki-empty-title">{tenants.length ? tr('No tenants match') : tr('No tenants yet')}</p>
           <p className="poki-empty-sub">
             {tenants.length
-              ? 'Try a different search or status filter.'
-              : 'Add the people and companies renting from Poki. You can then put them on a booking against a unit.'}
+              ? tr('Try a different search or status filter.')
+              : tr('Add the people and companies renting from Poki. You can then put them on a booking against a unit.')}
           </p>
         </div>
       ) : (
@@ -158,7 +158,7 @@ export default function PokiTenantsPage() {
       {open && (
         <div className="dialog-backdrop" onClick={() => setOpen(false)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-            <h2 className="poki-dialog-title">{editId ? 'Edit tenant' : 'Add tenant'}</h2>
+            <h2 className="poki-dialog-title">{editId ? tr('Edit tenant') : tr('Add tenant')}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field">
@@ -241,7 +241,7 @@ export default function PokiTenantsPage() {
             </div>
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>

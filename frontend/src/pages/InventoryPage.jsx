@@ -134,7 +134,7 @@ export default function InventoryPage() {
               <td>{p.sellingPrice}</td>
               <td>{p.currentStock} {p.unit}</td>
               <td>{p.reorderLevel}</td>
-              <td><span className={'tag ' + (p.lowStock ? 'tag-accent' : 'tag-neutral')}>{p.lowStock ? 'Low stock' : 'OK'}</span></td>
+              <td><span className={'tag ' + (p.lowStock ? 'tag-accent' : 'tag-neutral')}>{p.lowStock ? tr('Low stock') : 'OK'}</span></td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
                   { label: "Edit", onClick: () => openEdit(p), hidden: !(canManage) },
@@ -160,7 +160,7 @@ export default function InventoryPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog inventory-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="inventory-dialog-title">{editId ? 'Edit product' : 'Add product'}</h2>
+            <h2 className="inventory-dialog-title">{editId ? tr('Edit product') : tr('Add product')}</h2>
             {dialogError && <div className="error-banner inventory-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="prod-sku">{tr('SKU')}</label>
@@ -196,7 +196,7 @@ export default function InventoryPage() {
             </div>
             <div className="dialog-actions inventory-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add product'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? tr('Save changes') : tr('Add product')}</button>
             </div>
           </form>
         </div>

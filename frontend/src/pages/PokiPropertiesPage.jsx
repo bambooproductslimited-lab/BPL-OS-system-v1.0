@@ -236,10 +236,10 @@ export default function PokiPropertiesPage() {
                         <div className="poki-muted">{tr('per month')}</div>
                       </td>
                       <td className="poki-muted">
-                        {u.utilityMode === 'none' && 'Direct to provider'}
-                        {u.utilityMode === 'metered' && 'Sub-metered'}
-                        {u.utilityMode === 'fixed' && 'Fixed ' + money(u.fixedUtilityAmount, u.currency)}
-                        {u.utilityMode === 'apportioned' && u.apportionShare + '% of master bill'}
+                        {u.utilityMode === 'none' && tr('Direct to provider')}
+                        {u.utilityMode === 'metered' && tr('Sub-metered')}
+                        {u.utilityMode === 'fixed' && tr('Fixed ') + money(u.fixedUtilityAmount, u.currency)}
+                        {u.utilityMode === 'apportioned' && u.apportionShare + tr('% of master bill')}
                       </td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
@@ -260,7 +260,7 @@ export default function PokiPropertiesPage() {
       {dialog === 'property' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-            <h2 className="poki-dialog-title">{editId ? 'Edit property' : 'Add property'}</h2>
+            <h2 className="poki-dialog-title">{editId ? tr('Edit property') : tr('Add property')}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="pp-code">{tr('Code')}</label>
@@ -301,7 +301,7 @@ export default function PokiPropertiesPage() {
             </div>
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>
@@ -310,7 +310,7 @@ export default function PokiPropertiesPage() {
       {dialog === 'unit' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-            <h2 className="poki-dialog-title">{editId ? 'Edit unit' : 'Add unit'}</h2>
+            <h2 className="poki-dialog-title">{editId ? tr('Edit unit') : tr('Add unit')}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="pu-property">{tr('Property')}</label>
@@ -415,7 +415,7 @@ export default function PokiPropertiesPage() {
             )}
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>

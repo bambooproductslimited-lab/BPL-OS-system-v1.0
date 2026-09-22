@@ -168,7 +168,7 @@ export default function MySpacePage() {
           <div className="myspace-headline">{attendance.headline}</div>
           <div className="myspace-detail">
             {attendance.detail}
-            {onDuty && att && ' · ' + fmtElapsed(att.clockIn, now) + ' so far'}
+            {onDuty && att && ' · ' + fmtElapsed(att.clockIn, now) + tr(' so far')}
           </div>
           <div className="myspace-actions">
             <button type="button" className="btn btn-primary" disabled={attendance.inDisabled || clocking} onClick={handleClockIn}>

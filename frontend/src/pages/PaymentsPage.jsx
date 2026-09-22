@@ -189,7 +189,7 @@ export default function PaymentsPage() {
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

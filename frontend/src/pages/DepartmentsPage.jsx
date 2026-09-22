@@ -321,7 +321,7 @@ export default function DepartmentsPage() {
                   </div>
                 </td>
                 <td>{c.departments.length}</td>
-                <td><span className={'tag ' + (c.status === 'active' ? 'tag-neutral' : 'tag-accent')}>{c.status === 'active' ? 'Active' : 'Archived'}</span></td>
+                <td><span className={'tag ' + (c.status === 'active' ? 'tag-neutral' : 'tag-accent')}>{c.status === 'active' ? tr('Active') : tr('Archived')}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
                     { label: "Edit", onClick: () => openEditCompany(c), hidden: !(canManage) },
@@ -393,7 +393,7 @@ export default function DepartmentsPage() {
       {companyDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setCompanyDialogOpen(false)}>
           <form className="dialog departments-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleCompanySubmit}>
-            <h2 className="departments-dialog-title">{editCompanyId ? 'Edit company' : 'Add company'}</h2>
+            <h2 className="departments-dialog-title">{editCompanyId ? tr('Edit company') : tr('Add company')}</h2>
             {companyDialogError && <div className="error-banner departments-dialog-span">{companyDialogError}</div>}
             <div className="field departments-dialog-span">
               <label htmlFor="company-name">{tr('Company name')}</label>
@@ -405,7 +405,7 @@ export default function DepartmentsPage() {
             </div>
             <div className="dialog-actions departments-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setCompanyDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingCompany}>{savingCompany ? 'Saving…' : (editCompanyId ? 'Save changes' : 'Create')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingCompany}>{savingCompany ? tr('Saving…') : (editCompanyId ? tr('Save changes') : tr('Create'))}</button>
             </div>
           </form>
         </div>
@@ -414,7 +414,7 @@ export default function DepartmentsPage() {
       {deptDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDeptDialogOpen(false)}>
           <form className="dialog departments-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleDeptSubmit}>
-            <h2 className="departments-dialog-title">{editDeptId ? 'Edit department' : 'Add department'}</h2>
+            <h2 className="departments-dialog-title">{editDeptId ? tr('Edit department') : tr('Add department')}</h2>
             {deptDialogError && <div className="error-banner departments-dialog-span">{deptDialogError}</div>}
             <div className="field departments-dialog-span">
               <label htmlFor="dept-company">{tr('Company')}</label>
@@ -440,7 +440,7 @@ export default function DepartmentsPage() {
             </div>
             <div className="dialog-actions departments-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDeptDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingDept}>{savingDept ? 'Saving…' : (editDeptId ? 'Save changes' : 'Create')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingDept}>{savingDept ? tr('Saving…') : (editDeptId ? tr('Save changes') : tr('Create'))}</button>
             </div>
           </form>
         </div>
@@ -496,7 +496,7 @@ export default function DepartmentsPage() {
                     </div>
                     {editShiftId && <button type="button" className="btn btn-secondary" onClick={cancelEditShift}>{tr('Cancel')}</button>}
                     <button className="btn btn-primary" type="submit" disabled={savingShift}>
-                      {savingShift ? 'Saving…' : (editShiftId ? 'Save changes' : '+ Add shift')}
+                      {savingShift ? tr('Saving…') : (editShiftId ? tr('Save changes') : tr('+ Add shift'))}
                     </button>
                   </form>
                 )}
@@ -518,7 +518,7 @@ export default function DepartmentsPage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteCompanyTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteCompany}>
-                {deleting ? 'Deleting…' : 'Delete company'}
+                {deleting ? tr('Deleting…') : tr('Delete company')}
               </button>
             </div>
           </div>
@@ -534,7 +534,7 @@ export default function DepartmentsPage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteDeptTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteDept}>
-                {deleting ? 'Deleting…' : 'Delete department'}
+                {deleting ? tr('Deleting…') : tr('Delete department')}
               </button>
             </div>
           </div>
@@ -550,7 +550,7 @@ export default function DepartmentsPage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteShiftTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteShift}>
-                {deleting ? 'Deleting…' : 'Delete shift'}
+                {deleting ? tr('Deleting…') : tr('Delete shift')}
               </button>
             </div>
           </div>

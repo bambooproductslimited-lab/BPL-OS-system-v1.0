@@ -333,13 +333,13 @@ export default function PokiEstimatesPage() {
 
       {visible.length === 0 ? (
         <div className="poki-empty">
-          <p className="poki-empty-title">{estimates.length ? 'No offers match' : 'No letting offers yet'}</p>
+          <p className="poki-empty-title">{estimates.length ? tr('No offers match') : tr('No letting offers yet')}</p>
           <p className="poki-empty-sub">
             {estimates.length
-              ? 'Try a different search or status filter.'
+              ? tr('Try a different search or status filter.')
               : tenants.length
-                ? 'Quote a prospect what a unit costs to take. The offer is costed from the unit’s own rent, deposit and utility terms, and becomes a booking once accepted.'
-                : 'Add someone to the tenant register first — a prospect who hasn’t signed still belongs there.'}
+                ? tr('Quote a prospect what a unit costs to take. The offer is costed from the unit’s own rent, deposit and utility terms, and becomes a booking once accepted.')
+                : tr('Add someone to the tenant register first — a prospect who hasn’t signed still belongs there.')}
           </p>
         </div>
       ) : (
@@ -389,7 +389,7 @@ export default function PokiEstimatesPage() {
       {dialog === 'offer' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog poki-offer-dialog" onClick={(ev) => ev.stopPropagation()} onSubmit={submitOffer}>
-            <h2 className="poki-dialog-title">{editId ? 'Edit offer' : 'New letting offer'}</h2>
+            <h2 className="poki-dialog-title">{editId ? tr('Edit offer') : tr('New letting offer')}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field">
@@ -403,7 +403,7 @@ export default function PokiEstimatesPage() {
               <select id="pe-tenant" className="input" value={form.tenantId} onChange={set('tenantId')} required>
                 <option value="">{tr('Choose from the register…')}</option>
                 {tenants.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}{t.status === 'prospect' ? ' (prospect)' : ''}</option>
+                  <option key={t.id} value={t.id}>{t.name}{t.status === 'prospect' ? tr(' (prospect)') : ''}</option>
                 ))}
               </select>
             </div>
@@ -411,7 +411,7 @@ export default function PokiEstimatesPage() {
             <div className="field poki-dialog-span">
               <label htmlFor="pe-unit">{tr('Unit being offered')}</label>
               <select id="pe-unit" className="input" value={form.unitId} onChange={set('unitId')} required={form.docKind === 'letting'}>
-                <option value="">{form.docKind === 'letting' ? 'Choose a vacant unit…' : 'No particular unit'}</option>
+                <option value="">{form.docKind === 'letting' ? tr('Choose a vacant unit…') : tr('No particular unit')}</option>
                 {vacantUnits.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.propertyName} · {u.code}{u.name ? ' — ' + u.name : ''} · {money(u.baseRent, u.currency)}
@@ -432,7 +432,7 @@ export default function PokiEstimatesPage() {
                 </div>
                 <div className="poki-dialog-span">
                   <button type="button" className="btn btn-secondary" disabled={building || !form.unitId} onClick={buildFromUnit}>
-                    {building ? 'Costing…' : 'Cost it from the unit'}
+                    {building ? tr('Costing…') : tr('Cost it from the unit')}
                   </button>
                   <p className="poki-dialog-hint" style={{ marginTop: 6 }}>
                     {tr('Fills the lines below from the unit’s rent, deposit and utility terms. Everything stays editable afterwards.')}
@@ -451,25 +451,25 @@ export default function PokiEstimatesPage() {
                   <input
                     className="input" placeholder={tr('Description')} value={it.description}
                     onChange={(ev) => setItem(idx, 'description', ev.target.value)}
-                    aria-label={'Line ' + (idx + 1) + ' description'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' description')}
                   />
                   <input
                     className="input" type="number" step="0.01" placeholder={tr('Qty')} value={it.qty}
                     onChange={(ev) => setItem(idx, 'qty', ev.target.value)}
-                    aria-label={'Line ' + (idx + 1) + ' quantity'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' quantity')}
                   />
                   <input
                     className="input" placeholder={tr('Unit')} value={it.unit || ''}
                     onChange={(ev) => setItem(idx, 'unit', ev.target.value)}
-                    aria-label={'Line ' + (idx + 1) + ' unit'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' unit')}
                   />
                   <input
                     className="input" type="number" step="0.01" placeholder={tr('Price')} value={it.unitPrice}
                     onChange={(ev) => setItem(idx, 'unitPrice', ev.target.value)}
-                    aria-label={'Line ' + (idx + 1) + ' price'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' price')}
                   />
                   <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), formCurrency)}</span>
-                  <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => dropLine(idx)} aria-label={'Remove line ' + (idx + 1)}>×</button>
+                  <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => dropLine(idx)} aria-label={tr('Remove line ') + (idx + 1)}>×</button>
                 </div>
               ))}
               <button type="button" className="btn btn-secondary poki-row-btn" onClick={addLine}>{tr('Add line')}</button>
@@ -508,14 +508,14 @@ export default function PokiEstimatesPage() {
               />
               <div className="poki-muted poki-terms-hint">
                 {form.terms
-                  ? 'Printed at the foot of the offer. Edit freely — this copy belongs to this offer alone.'
-                  : 'This offer will print with no terms block.'}
+                  ? tr('Printed at the foot of the offer. Edit freely — this copy belongs to this offer alone.')
+                  : tr('This offer will print with no terms block.')}
               </div>
             </div>
 
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save offer'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save offer')}</button>
             </div>
           </form>
         </div>
@@ -562,7 +562,7 @@ export default function PokiEstimatesPage() {
 
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create draft booking'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Creating…') : tr('Create draft booking')}</button>
             </div>
           </form>
         </div>

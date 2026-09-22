@@ -150,7 +150,7 @@ export default function LoginPage() {
                 type="button"
                 className="login-input-toggle"
                 onClick={() => setShowPassword((s) => !s)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-label={showPassword ? tr('Hide password') : tr('Show password')}
                 tabIndex={-1}
               >
                 {showPassword ? (
@@ -172,11 +172,11 @@ export default function LoginPage() {
           {error && <div className="error-banner">{error}</div>}
 
           <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
-            {submitting ? 'Signing in…' : 'Sign in'}
+            {submitting ? tr('Signing in…') : tr('Sign in')}
           </button>
 
           <button type="button" className="login-demo-toggle" onClick={() => setShowDemo((s) => !s)}>
-            {showDemo ? 'Hide test accounts' : 'Use a test account'}
+            {showDemo ? tr('Hide test accounts') : tr('Use a test account')}
             <svg className={'login-demo-toggle-chevron' + (showDemo ? ' is-open' : '')} viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

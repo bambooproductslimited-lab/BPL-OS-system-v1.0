@@ -273,7 +273,7 @@ export default function ProjectsPage() {
             </div>
             <div className="dialog-actions projects-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={creating}>{creating ? 'Creating…' : 'Create project'}</button>
+              <button type="submit" className="btn btn-primary" disabled={creating}>{creating ? tr('Creating…') : tr('Create project')}</button>
             </div>
           </form>
         </div>

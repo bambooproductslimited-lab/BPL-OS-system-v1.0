@@ -301,7 +301,7 @@ export default function PayrollPage() {
           {history && (
             <>
               <p className="eyebrow" style={{ marginTop: 16 }}>
-                {history.employeeName} ({history.employeeCode}) — {history.payslips.length} {tr('payslip(s)')}{periodRange.from ? ' in ' + periodRange.label.toLowerCase() : ''}.
+                {history.employeeName} ({history.employeeCode}) — {history.payslips.length} {tr('payslip(s)')}{periodRange.from ? tr(' in ') + periodRange.label.toLowerCase() : ''}.
               </p>
               <table className="table" style={{ marginTop: 8 }}>
                 <thead>
@@ -432,7 +432,7 @@ export default function PayrollPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Generating…' : 'Generate pay run'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Generating…') : tr('Generate pay run')}</button>
             </div>
           </form>
         </div>
@@ -498,16 +498,16 @@ export default function PayrollPage() {
               </tbody>
             </table>
             {!visibleRunPayslips.length && (
-              <p className="table-empty">{tr('No payslips in this run for')} {companies.find((c) => c.id === companyFilter)?.name || 'that company'}.</p>
+              <p className="table-empty">{tr('No payslips in this run for')} {companies.find((c) => c.id === companyFilter)?.name || tr('that company')}.</p>
             )}
 
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setActiveRun(null)}>{tr('Close')}</button>
               {canManage && activeRun.status === 'draft' && (
-                <button type="button" className="btn btn-primary" disabled={runBusy} onClick={approveRun}>{runBusy ? 'Approving…' : 'Approve'}</button>
+                <button type="button" className="btn btn-primary" disabled={runBusy} onClick={approveRun}>{runBusy ? tr('Approving…') : tr('Approve')}</button>
               )}
               {canManage && activeRun.status === 'approved' && (
-                <button type="button" className="btn btn-primary" disabled={runBusy} onClick={markPaid}>{runBusy ? 'Saving…' : 'Mark paid'}</button>
+                <button type="button" className="btn btn-primary" disabled={runBusy} onClick={markPaid}>{runBusy ? tr('Saving…') : tr('Mark paid')}</button>
               )}
             </div>
           </div>

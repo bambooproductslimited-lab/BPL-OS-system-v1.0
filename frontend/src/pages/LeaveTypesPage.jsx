@@ -355,8 +355,8 @@ export default function LeaveTypesPage() {
                 <tr key={t.id} className={t.active ? '' : 'leavetypes-row-inactive'}>
                   <td style={{ fontWeight: 600 }}>{t.name}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{t.daysPerYear}</td>
-                  <td>{t.paid ? 'Paid' : 'Unpaid'}</td>
-                  <td><span className={'tag ' + (t.active ? 'tag-neutral' : 'tag-accent')}>{t.active ? 'Active' : 'Inactive'}</span></td>
+                  <td>{t.paid ? tr('Paid') : tr('Unpaid')}</td>
+                  <td><span className={'tag ' + (t.active ? 'tag-neutral' : 'tag-accent')}>{t.active ? tr('Active') : tr('Inactive')}</span></td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
                       { label: "Edit", onClick: () => openEditType(t) },
@@ -424,7 +424,7 @@ export default function LeaveTypesPage() {
             <label htmlFor="lt-holiday-name">{tr('Name')}</label>
             <input id="lt-holiday-name" className="input" value={holidayForm.name} onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })} placeholder={tr('e.g. Independence Day')} required />
           </div>
-          <button type="submit" className="btn btn-secondary" disabled={holidaySaving}>{holidaySaving ? 'Adding…' : '+ Add holiday'}</button>
+          <button type="submit" className="btn btn-secondary" disabled={holidaySaving}>{holidaySaving ? tr('Adding…') : tr('+ Add holiday')}</button>
         </form>
       </section>
 
@@ -468,7 +468,7 @@ export default function LeaveTypesPage() {
                     type="button" className="btn btn-secondary attendance-row-btn" disabled={totalSaving}
                     onClick={saveLeaveDaysTotal}
                   >
-                    {totalSaving ? 'Saving…' : 'Save total'}
+                    {totalSaving ? tr('Saving…') : tr('Save total')}
                   </button>
                   {entitlements.leaveDaysTotal !== null && (
                     <span className={'leavetypes-allocated' + (allocatedSum === entitlements.leaveDaysTotal ? ' leavetypes-allocated-match' : ' leavetypes-allocated-mismatch')}>
@@ -511,7 +511,7 @@ export default function LeaveTypesPage() {
             <div className="leavetypes-balance-subheader">
               <h3 className="leavetypes-subheading">{year} {tr('balance')}</h3>
               <button type="button" className="btn btn-secondary attendance-row-btn" disabled={recalculating} onClick={recalculateBalances}>
-                {recalculating ? 'Recalculating…' : 'Recalculate against current policy'}
+                {recalculating ? tr('Recalculating…') : tr('Recalculate against current policy')}
               </button>
             </div>
             {recalculateResult && (
@@ -532,7 +532,7 @@ export default function LeaveTypesPage() {
                 <tr key={b.leaveTypeId}>
                   <td style={{ fontWeight: 600 }}>
                     {b.name}
-                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} {tr('days/year ·')} {b.holidays} {tr('company holiday(s) this year won\'t count against a request')}{!b.hasRow ? ' (preview)' : ''}</div>}
+                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} {tr('days/year ·')} {b.holidays} {tr('company holiday(s) this year won\'t count against a request')}{!b.hasRow ? tr(' (preview)') : ''}</div>}
                   </td>
                   <td>
                     <input
@@ -566,7 +566,7 @@ export default function LeaveTypesPage() {
             <input id="lt-rollover-year" className="input" style={{ width: 110 }} value={rolloverYear} onChange={(e) => setRolloverYear(e.target.value)} inputMode="numeric" />
           </div>
           <button type="button" className="btn btn-primary" disabled={rolloverRunning} onClick={runRollover}>
-            {rolloverRunning ? 'Granting…' : 'Grant balances for this year'}
+            {rolloverRunning ? tr('Granting…') : tr('Grant balances for this year')}
           </button>
         </div>
         {rolloverError && <div className="error-banner">{rolloverError}</div>}
@@ -580,7 +580,7 @@ export default function LeaveTypesPage() {
       {typeDialog && (
         <div className="dialog-backdrop" onClick={() => setTypeDialog(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={saveType}>
-            <h2>{typeDialog.mode === 'new' ? 'New leave type' : 'Edit leave type'}</h2>
+            <h2>{typeDialog.mode === 'new' ? tr('New leave type') : tr('Edit leave type')}</h2>
             {typeError && <div className="error-banner">{typeError}</div>}
             <div className="field">
               <label htmlFor="lt-name">{tr('Name')}</label>
@@ -603,7 +603,7 @@ export default function LeaveTypesPage() {
             )}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setTypeDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={typeSaving}>{typeSaving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={typeSaving}>{typeSaving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>

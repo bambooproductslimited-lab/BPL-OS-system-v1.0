@@ -281,7 +281,7 @@ export default function ExpensesPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setEditTarget(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? 'Saving…' : 'Save changes'}</button>
+              <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? tr('Saving…') : tr('Save changes')}</button>
             </div>
           </form>
         </div>
@@ -294,7 +294,7 @@ export default function ExpensesPage() {
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

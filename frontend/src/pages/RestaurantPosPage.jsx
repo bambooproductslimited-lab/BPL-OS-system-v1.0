@@ -619,7 +619,7 @@ export default function RestaurantPosPage() {
             className={'pos-menu-tile-favorite' + (m.favorite ? ' pos-menu-tile-favorite-on' : '')}
             onClick={(e) => toggleFavorite(e, m)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavorite(e, m); } }}
-            aria-label={m.favorite ? 'Remove from favorites' : 'Add to favorites'}
+            aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
             aria-pressed={m.favorite}
           >★</span>
           {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
@@ -691,7 +691,7 @@ export default function RestaurantPosPage() {
                 />
               </div>
               <button type="submit" className="btn btn-primary btn-block" disabled={openingDrawer}>
-                {openingDrawer ? 'Opening…' : 'Open drawer'}
+                {openingDrawer ? tr('Opening…') : tr('Open drawer')}
               </button>
             </form>
           </div>
@@ -734,7 +734,7 @@ export default function RestaurantPosPage() {
               <div className="pos-receipt-lines">
                 {r.movements.map((m) => (
                   <div key={m.id} className="pos-receipt-line">
-                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? tr('Paid in') : tr('Paid out')} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -747,7 +747,7 @@ export default function RestaurantPosPage() {
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print report')}</button>
           {printer && (
             <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printDrawerReportThermal(closedReport)}>
-              {printing ? 'Printing…' : 'Print via ' + printer.name}
+              {printing ? tr('Printing…') : tr('Print via ') + printer.name}
             </button>
           )}
           <button type="button" className="btn btn-primary" onClick={logout}>{tr('Done')}</button>
@@ -792,7 +792,7 @@ export default function RestaurantPosPage() {
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print receipt')}</button>
           {printer && (
             <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
-              {printing ? 'Printing…' : 'Print via ' + printer.name}
+              {printing ? tr('Printing…') : tr('Print via ') + printer.name}
             </button>
           )}
           <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)}>{tr('New sale')}</button>
@@ -823,12 +823,12 @@ export default function RestaurantPosPage() {
             <>
               {usbSupported() && (
                 <button type="button" className="btn btn-secondary pos-printer-btn" disabled={!!pairingKind} onClick={pairUsb}>
-                  {pairingKind === 'usb' ? 'Connecting…' : 'Connect USB printer'}
+                  {pairingKind === 'usb' ? tr('Connecting…') : tr('Connect USB printer')}
                 </button>
               )}
               {bluetoothSupported() && (
                 <button type="button" className="btn btn-secondary pos-printer-btn" disabled={!!pairingKind} onClick={pairBluetooth}>
-                  {pairingKind === 'bluetooth' ? 'Connecting…' : 'Connect Bluetooth printer'}
+                  {pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect Bluetooth printer')}
                 </button>
               )}
             </>
@@ -859,7 +859,7 @@ export default function RestaurantPosPage() {
             <div className="eyebrow">{tr('Loading menu…')}</div>
           ) : viewTab === 'all' ? (
             !grouped.length ? (
-              <div className="pos-empty">{search ? 'No items match "' + search + '"' : 'No menu items yet — add some from Restaurants → Menu in the main app.'}</div>
+              <div className="pos-empty">{search ? tr('No items match "') + search + '"' : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</div>
             ) : (
               grouped.map(([category, items]) => (
                 <div key={category} className="pos-menu-group">
@@ -870,20 +870,20 @@ export default function RestaurantPosPage() {
             )
           ) : viewTab === 'favorites' ? (
             !favoriteItems.length ? (
-              <div className="pos-empty">{search ? 'No favorites match "' + search + '"' : 'No favorites yet — tap the ★ on any item to pin it here.'}</div>
+              <div className="pos-empty">{search ? tr('No favorites match "') + search + '"' : tr('No favorites yet — tap the ★ on any item to pin it here.')}</div>
             ) : (
               <div className="pos-menu-grid pos-menu-grid-flat">{favoriteItems.map(renderTile)}</div>
             )
           ) : viewTab === 'recent' ? (
             !recentItems.length ? (
-              <div className="pos-empty">{search ? 'No recent items match "' + search + '"' : 'Nothing added to an order yet this shift.'}</div>
+              <div className="pos-empty">{search ? tr('No recent items match "') + search + '"' : tr('Nothing added to an order yet this shift.')}</div>
             ) : (
               <div className="pos-menu-grid pos-menu-grid-flat">{recentItems.map(renderTile)}</div>
             )
           ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
             <div className="eyebrow">{tr('Loading…')}</div>
           ) : !mostlyBoughtItems.length ? (
-            <div className="pos-empty">{search ? 'No results match "' + search + '"' : 'Not enough sales yet to rank — check back once a few orders have gone through.'}</div>
+            <div className="pos-empty">{search ? tr('No results match "') + search + '"' : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</div>
           ) : (
             <div className="pos-menu-grid pos-menu-grid-flat">{mostlyBoughtItems.map(renderTile)}</div>
           )}
@@ -893,13 +893,13 @@ export default function RestaurantPosPage() {
           <div className="pos-cart-title">{tr('Current order')}</div>
           <div className="pos-order-info-row">
             <button type="button" className={'pos-order-info-pill' + (selectedTable ? ' pos-order-info-pill-set' : '')} onClick={() => setTablePickerOpen(true)}>
-              {tr('Table:')} {selectedTable ? selectedTable.name : 'Select'}
+              {tr('Table:')} {selectedTable ? selectedTable.name : tr('Select')}
             </button>
             <button type="button" className={'pos-order-info-pill' + (selectedWaiter ? ' pos-order-info-pill-set' : '')} onClick={() => setWaiterPickerOpen(true)}>
-              {tr('Waiter:')} {selectedWaiter ? selectedWaiter.name : 'Select'}
+              {tr('Waiter:')} {selectedWaiter ? selectedWaiter.name : tr('Select')}
             </button>
             <button type="button" className={'pos-order-info-pill' + (selectedGuest ? ' pos-order-info-pill-set' : '')} onClick={openGuestPicker}>
-              {tr('Guest:')} {selectedGuest ? selectedGuest.name : 'Select'}
+              {tr('Guest:')} {selectedGuest ? selectedGuest.name : tr('Select')}
             </button>
           </div>
           {!cart.length && <div className="pos-cart-empty">{tr('Tap a menu item to add it')}</div>}
@@ -942,7 +942,7 @@ export default function RestaurantPosPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? 'Processing…' : 'Complete sale'}</button>
+              <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
             </div>
           </form>
         </div>
@@ -969,7 +969,7 @@ export default function RestaurantPosPage() {
               <div className="pos-drawer-movements">
                 {drawer.movements.slice().reverse().map((m) => (
                   <div key={m.id} className="pos-drawer-movement-row">
-                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? tr('Paid in') : tr('Paid out')} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -986,7 +986,7 @@ export default function RestaurantPosPage() {
       {movementDirection && (
         <div className="dialog-backdrop" onClick={() => !addingMovement && setMovementDirection(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitMovement}>
-            <h2>{movementDirection === 'in' ? 'Paid in' : 'Paid out'}</h2>
+            <h2>{movementDirection === 'in' ? tr('Paid in') : tr('Paid out')}</h2>
             {movementError && <div className="error-banner">{movementError}</div>}
             <div className="field">
               <label htmlFor="movement-amount">{tr('Amount')}</label>
@@ -999,12 +999,12 @@ export default function RestaurantPosPage() {
               <label htmlFor="movement-note">{tr('Note')}</label>
               <input
                 id="movement-note" className="input" value={movementNote} onChange={(e) => setMovementNote(e.target.value)}
-                placeholder={movementDirection === 'in' ? 'e.g. Change fund top-up' : 'e.g. Delivery'}
+                placeholder={movementDirection === 'in' ? tr('e.g. Change fund top-up') : tr('e.g. Delivery')}
               />
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setMovementDirection(null)} disabled={addingMovement}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={addingMovement}>{addingMovement ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={addingMovement}>{addingMovement ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>
@@ -1029,7 +1029,7 @@ export default function RestaurantPosPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCloseDrawerOpen(false)} disabled={closingDrawer}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={closingDrawer}>{closingDrawer ? 'Closing…' : 'Close drawer'}</button>
+              <button type="submit" className="btn btn-primary" disabled={closingDrawer}>{closingDrawer ? tr('Closing…') : tr('Close drawer')}</button>
             </div>
           </form>
         </div>
@@ -1133,7 +1133,7 @@ export default function RestaurantPosPage() {
             <form onSubmit={submitNewGuest} className="pos-new-guest-form">
               <input className="input" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} placeholder={tr('Name')} required />
               <input className="input" value={newGuestPhone} onChange={(e) => setNewGuestPhone(e.target.value)} placeholder={tr('Phone (optional)')} />
-              <button type="submit" className="btn btn-primary" disabled={addingGuest}>{addingGuest ? 'Adding…' : 'Add & select'}</button>
+              <button type="submit" className="btn btn-primary" disabled={addingGuest}>{addingGuest ? tr('Adding…') : tr('Add & select')}</button>
             </form>
             <div className="dialog-actions">
               {selectedGuest && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedGuest(null); setGuestPickerOpen(false); }}>{tr('Clear')}</button>}

@@ -178,7 +178,7 @@ export default function SuppliersPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog suppliers-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="suppliers-dialog-title">{editId ? 'Edit supplier' : 'Add supplier'}</h2>
+            <h2 className="suppliers-dialog-title">{editId ? tr('Edit supplier') : tr('Add supplier')}</h2>
             {dialogError && <div className="error-banner suppliers-dialog-span">{dialogError}</div>}
             <div className="field suppliers-dialog-span">
               <label htmlFor="sup-name">{tr('Supplier name')}</label>
@@ -206,7 +206,7 @@ export default function SuppliersPage() {
             </div>
             <div className="dialog-actions suppliers-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add supplier'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? tr('Save changes') : tr('Add supplier')}</button>
             </div>
           </form>
         </div>
@@ -219,7 +219,7 @@ export default function SuppliersPage() {
             <p className="dialog-body">{tr('Delete')} <strong>{deleteTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

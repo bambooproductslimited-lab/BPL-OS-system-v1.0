@@ -36,7 +36,7 @@ export default function MarketingRecommendations({ onGenerated }) {
       <div className="mkt-reco-header">
         <h2 className="mkt-reco-title">{tr('Content recommendations')}</h2>
         <button type="button" className="btn btn-secondary" disabled={loading} onClick={generate}>
-          {loading ? 'Thinking…' : result ? 'Regenerate' : 'Generate recommendations'}
+          {loading ? tr('Thinking…') : result ? tr('Regenerate') : tr('Generate recommendations')}
         </button>
       </div>
       <p className="field-hint">

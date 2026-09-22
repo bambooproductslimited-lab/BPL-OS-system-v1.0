@@ -372,7 +372,7 @@ export default function InvoicesPage() {
       {!!invoices.length && !visibleInvoices.length && (
         <div className="invoices-empty-state">
           <span className="invoices-empty-icon"><DocIcon /></span>
-          <p className="invoices-empty-title">{search ? 'No invoices match "' + search + '"' : 'No invoices match this filter'}</p>
+          <p className="invoices-empty-title">{search ? tr('No invoices match "') + search + '"' : tr('No invoices match this filter')}</p>
         </div>
       )}
 
@@ -496,7 +496,7 @@ export default function InvoicesPage() {
                     <li key={pay.id || i}>
                       {pay.date} · {pay.amount}
                       {pay.methodLabel ? ' · ' + pay.methodLabel : ''}
-                      {pay.reference ? ' · ref ' + pay.reference : ''}
+                      {pay.reference ? tr(' · ref ') + pay.reference : ''}
                     </li>
                   ))}
                 </ul>
@@ -534,7 +534,7 @@ export default function InvoicesPage() {
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

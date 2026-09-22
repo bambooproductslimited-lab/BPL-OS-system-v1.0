@@ -203,7 +203,7 @@ export default function LeavePage() {
             key={s.key}
             className={'leave-summary-tile leave-summary-tile-' + s.tone + (filter === s.key ? ' leave-summary-tile-active' : '')}
             aria-pressed={filter === s.key}
-            title={'Show ' + s.label.toLowerCase()}
+            title={tr('Show ') + s.label.toLowerCase()}
             onClick={() => setFilter(s.key)}
           >
             <span className="leave-summary-icon glow-badge"><Icon name={s.icon} /></span>
@@ -268,7 +268,7 @@ export default function LeavePage() {
             <div className="leave-hint">{tr('Sundays are not counted as leave days.')}</div>
 
             <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
-              {submitting ? 'Submitting…' : 'Submit request'}
+              {submitting ? tr('Submitting…') : tr('Submit request')}
             </button>
           </form>
         )}
@@ -350,7 +350,7 @@ export default function LeavePage() {
       {decisionDialog && (
         <div className="dialog-backdrop" onClick={() => setDecisionDialog(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmDecision}>
-            <h2>{decisionDialog.decision === 'approved' ? 'Approve' : 'Reject'} {tr('leave')}</h2>
+            <h2>{decisionDialog.decision === 'approved' ? tr('Approve') : tr('Reject')} {tr('leave')}</h2>
             <p className="dialog-body">
               {decisionDialog.employeeName} · {decisionDialog.typeName} · {decisionDialog.days} {tr('day(s),')}{' '}
               {fmtDate(decisionDialog.startDate)} → {fmtDate(decisionDialog.endDate)}
@@ -367,7 +367,7 @@ export default function LeavePage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDecisionDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={deciding}>
-                {deciding ? 'Saving…' : (decisionDialog.decision === 'approved' ? 'Approve request' : 'Reject request')}
+                {deciding ? tr('Saving…') : (decisionDialog.decision === 'approved' ? tr('Approve request') : tr('Reject request'))}
               </button>
             </div>
           </form>

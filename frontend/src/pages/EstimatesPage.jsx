@@ -295,7 +295,7 @@ export default function EstimatesPage() {
 
       {dialogOpen && (
         <DocWizard
-          title={editId ? 'Edit estimate' : 'New estimate'} docKind="estimate"
+          title={editId ? tr('Edit estimate') : tr('New estimate')} docKind="estimate"
           detailsSlot={
             <div className="estimates-dialog-fields">
               <div className="field">
@@ -341,7 +341,7 @@ export default function EstimatesPage() {
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

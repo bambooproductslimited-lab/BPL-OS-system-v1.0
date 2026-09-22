@@ -54,7 +54,7 @@ export default function WaybillPreview({ waybill, onClose }) {
               <div className="waybill-preview-eyebrow">{tr('Waybill')}</div>
               <div className="waybill-preview-no">{waybill.waybillNo}</div>
               <div className="waybill-preview-date">{tr('Date')} {fmtDate(waybill.createdAt)}</div>
-              <div className="waybill-preview-origin">{tr('From')} {waybill.origin === 'factory' ? 'Factory' : 'Showroom'}</div>
+              <div className="waybill-preview-origin">{tr('From')} {waybill.origin === 'factory' ? tr('Factory') : tr('Showroom')}</div>
             </div>
           </div>
           <div className="waybill-preview-rule" />
@@ -119,7 +119,7 @@ export default function WaybillPreview({ waybill, onClose }) {
             <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
             <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
-              {sharing ? 'Preparing…' : 'Share'}
+              {sharing ? tr('Preparing…') : tr('Share')}
             </button>
           </div>
         </div>

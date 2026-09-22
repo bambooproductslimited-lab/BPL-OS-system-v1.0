@@ -46,13 +46,13 @@ export default class ErrorBoundary extends Component {
             <button type="button" className="btn btn-primary" onClick={this.reset}>{tr('Try again')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => window.location.reload()}>{tr('Reload the page')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => this.setState({ showDetail: !showDetail })}>
-              {showDetail ? 'Hide details' : 'Show details'}
+              {showDetail ? tr('Hide details') : tr('Show details')}
             </button>
           </div>
           {showDetail && (
             <pre className="errbound-detail">
               {String(error && error.stack ? error.stack : error)}
-              {info && info.componentStack ? '\n\nComponent stack:' + info.componentStack : ''}
+              {info && info.componentStack ? tr('\n\nComponent stack:') + info.componentStack : ''}
             </pre>
           )}
         </div>

@@ -312,7 +312,7 @@ export default function TasksPage() {
             key={s.label}
             className={'tasks-summary-tile tasks-summary-tile-' + s.tone + (statusFilter === s.key ? ' tasks-summary-tile-active' : '')}
             aria-pressed={statusFilter === s.key}
-            title={s.key ? 'Show only ' + s.label.toLowerCase() : 'Clear the status filter'}
+            title={s.key ? tr('Show only ') + s.label.toLowerCase() : tr('Clear the status filter')}
             onClick={() => setStatusFilter(statusFilter === s.key ? '' : s.key)}
           >
             <span className="tasks-summary-icon glow-badge"><Icon name={s.icon} /></span>
@@ -326,7 +326,7 @@ export default function TasksPage() {
 
       <div className="tasks-toolbar">
         <div className="seg">
-          {[{ key: 'mine', label: 'My tasks' }, { key: 'all', label: 'In scope' }].map((opt) => (
+          {[{ key: 'mine', label: tr('My tasks') }, { key: 'all', label: tr('In scope') }].map((opt) => (
             <label className="seg-opt" key={opt.key}>
               <input type="radio" name="task-scope" checked={scope === opt.key} onChange={() => setScope(opt.key)} />
               <span>{opt.label}</span>
@@ -524,7 +524,7 @@ export default function TasksPage() {
             <p className="dialog-body">{tr('Delete')} <strong>{deleteTarget.title}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={() => handleDelete(deleteTarget)}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={() => handleDelete(deleteTarget)}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

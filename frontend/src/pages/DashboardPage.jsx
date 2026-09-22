@@ -211,7 +211,7 @@ export default function DashboardPage() {
                   <div className="dashboard-activity-item" key={log.id}>
                     <span className="dashboard-activity-dot" />
                     <div className="dashboard-activity-summary">{log.summary}</div>
-                    <div className="dashboard-activity-meta">{(log.actorName || 'System') + ' · ' + timeAgo(log.at)}</div>
+                    <div className="dashboard-activity-meta">{(log.actorName || tr('System')) + ' · ' + timeAgo(log.at)}</div>
                   </div>
                 ))}
               </div>

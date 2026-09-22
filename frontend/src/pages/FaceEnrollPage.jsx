@@ -101,7 +101,7 @@ export default function FaceEnrollPage() {
             <div className="face-enroll-pin-actions">
               <button type="button" className="btn btn-secondary" onClick={() => { setStatus('ready'); setPinError(null); }}>{tr('Back')}</button>
               <button type="submit" className="btn btn-primary" disabled={pin.length !== 4 || pinChecking}>
-                {pinChecking ? 'Checking…' : 'Continue'}
+                {pinChecking ? tr('Checking…') : tr('Continue')}
               </button>
             </div>
           </form>

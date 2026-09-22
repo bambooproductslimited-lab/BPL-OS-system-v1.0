@@ -88,11 +88,11 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
                 <div className="id-docs-row-actions">
                   {s.fileName && (
                     <button type="button" className="btn btn-secondary id-docs-btn" disabled={previewingKind === s.kind} onClick={() => handlePreview(s.kind, s.fileName)}>
-                      {previewingKind === s.kind ? 'Preparing…' : 'View'}
+                      {previewingKind === s.kind ? tr('Preparing…') : tr('View')}
                     </button>
                   )}
                   <label className="btn btn-secondary id-docs-btn id-docs-upload-btn">
-                    {uploadingKind === s.kind ? 'Uploading…' : (s.fileName ? 'Replace' : 'Upload')}
+                    {uploadingKind === s.kind ? tr('Uploading…') : (s.fileName ? tr('Replace') : tr('Upload'))}
                     <input
                       type="file"
                       accept="image/*,application/pdf"

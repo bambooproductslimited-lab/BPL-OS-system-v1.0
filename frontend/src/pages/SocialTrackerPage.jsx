@@ -661,7 +661,7 @@ export default function SocialTrackerPage() {
               <DateRangePicker value={dateRange} onChange={setDateRange} />
               <button type="button" className="btn btn-secondary" onClick={downloadOverviewCsv}>{tr('Download CSV')}</button>
               <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadOverviewPdf}>
-                {exporting ? 'Preparing…' : 'Download PDF'}
+                {exporting ? tr('Preparing…') : tr('Download PDF')}
               </button>
             </div>
           </div>
@@ -685,7 +685,7 @@ export default function SocialTrackerPage() {
                     <div className="soctrack-channel-name">{c.name}</div>
                     <div className="soctrack-channel-handle">{c.handle || '—'}</div>
                   </div>
-                  <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? 'Connected' : 'Not connected'}</span>
+                  <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? tr('Connected') : tr('Not connected')}</span>
                 </div>
                 {c.openInboxCount > 0 && (
                   <button type="button" className="soctrack-inbox-badge" onClick={() => { setInboxFilter({ channelId: c.id, status: 'open', kind: '' }); setTab('inbox'); }}>
@@ -857,11 +857,11 @@ export default function SocialTrackerPage() {
               <div key={item.id} className="soctrack-inbox-item">
                 <div className="soctrack-inbox-item-top">
                   <div className="soctrack-inbox-author-row">
-                    <span className="soctrack-inbox-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }}>{initials(item.authorName || 'Unknown')}</span>
+                    <span className="soctrack-inbox-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }}>{initials(item.authorName || tr('Unknown'))}</span>
                     <div>
-                      <span className="soctrack-inbox-kind">{item.kind === 'comment' ? 'Comment' : 'Message'}</span> {tr('on')} <strong>{item.channelName}</strong>
+                      <span className="soctrack-inbox-kind">{item.kind === 'comment' ? tr('Comment') : tr('Message')}</span> {tr('on')} <strong>{item.channelName}</strong>
                       {item.postTitle && <span> · {item.postTitle}</span>}
-                      <div className="soctrack-inbox-author">{item.authorName || 'Unknown'} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
+                      <div className="soctrack-inbox-author">{item.authorName || tr('Unknown')} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
                     </div>
                   </div>
                   <span className={'tag ' + statusTagClass(item.status)}>{item.status}</span>
@@ -908,37 +908,37 @@ export default function SocialTrackerPage() {
                     <div className="soctrack-channel-name">{c.name}</div>
                     <div className="soctrack-channel-handle">{c.kind}</div>
                   </div>
-                  <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? 'Connected' : 'Not connected'}</span>
+                  <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? tr('Connected') : tr('Not connected')}</span>
                 </div>
 
                 {c.key === 'tiktok' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTikTok} onClick={syncTikTok}>
-                    {syncingTikTok ? 'Syncing…' : 'Sync now'}
+                    {syncingTikTok ? tr('Syncing…') : tr('Sync now')}
                   </button>
                 )}
                 {c.key === 'facebook' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingFacebook} onClick={syncFacebook}>
-                    {syncingFacebook ? 'Syncing…' : 'Sync now'}
+                    {syncingFacebook ? tr('Syncing…') : tr('Sync now')}
                   </button>
                 )}
                 {c.key === 'instagram' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingInstagram} onClick={syncInstagram}>
-                    {syncingInstagram ? 'Syncing…' : 'Sync now'}
+                    {syncingInstagram ? tr('Syncing…') : tr('Sync now')}
                   </button>
                 )}
                 {c.key === 'youtube' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingYouTube} onClick={syncYouTube}>
-                    {syncingYouTube ? 'Syncing…' : 'Sync now'}
+                    {syncingYouTube ? tr('Syncing…') : tr('Sync now')}
                   </button>
                 )}
                 {c.key === 'twitch' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTwitch} onClick={syncTwitch}>
-                    {syncingTwitch ? 'Syncing…' : 'Sync now'}
+                    {syncingTwitch ? tr('Syncing…') : tr('Sync now')}
                   </button>
                 )}
                 {c.key === 'website' && c.connected && canManage && (
                   <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingWebsite} onClick={syncWebsite}>
-                    {syncingWebsite ? 'Syncing…' : 'Sync now'}
+                    {syncingWebsite ? tr('Syncing…') : tr('Sync now')}
                   </button>
                 )}
 
@@ -991,7 +991,7 @@ export default function SocialTrackerPage() {
       {postDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setPostDialogOpen(false)}>
           <form className="dialog soctrack-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPost}>
-            <h2 className="soctrack-dialog-title">{editingPostId ? 'Edit post' : 'New post'}</h2>
+            <h2 className="soctrack-dialog-title">{editingPostId ? tr('Edit post') : tr('New post')}</h2>
             {postError && <div className="error-banner soctrack-dialog-span">{postError}</div>}
 
             <div className="field">
@@ -1045,7 +1045,7 @@ export default function SocialTrackerPage() {
 
             <div className="dialog-actions soctrack-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setPostDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingPost}>{savingPost ? 'Saving…' : 'Save post'}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingPost}>{savingPost ? tr('Saving…') : tr('Save post')}</button>
             </div>
           </form>
         </div>
@@ -1054,7 +1054,7 @@ export default function SocialTrackerPage() {
       {campaignDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setCampaignDialogOpen(false)}>
           <form className="dialog soctrack-campaign-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitCampaign}>
-            <h2 className="soctrack-dialog-title">{editingCampaignId ? 'Edit campaign' : 'New campaign'}</h2>
+            <h2 className="soctrack-dialog-title">{editingCampaignId ? tr('Edit campaign') : tr('New campaign')}</h2>
             {campaignError && <div className="error-banner soctrack-dialog-span">{campaignError}</div>}
 
             <div className="field soctrack-dialog-span">
@@ -1082,7 +1082,7 @@ export default function SocialTrackerPage() {
 
             <div className="dialog-actions soctrack-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setCampaignDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingCampaign}>{savingCampaign ? 'Saving…' : 'Save campaign'}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingCampaign}>{savingCampaign ? tr('Saving…') : tr('Save campaign')}</button>
             </div>
           </form>
         </div>
@@ -1130,7 +1130,7 @@ export default function SocialTrackerPage() {
 
             <div className="dialog-actions soctrack-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setInboxDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingInbox}>{savingInbox ? 'Saving…' : 'Log it'}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingInbox}>{savingInbox ? tr('Saving…') : tr('Log it')}</button>
             </div>
           </form>
         </div>
@@ -1152,10 +1152,10 @@ export default function SocialTrackerPage() {
                   <div key={p.id} className="soctrack-page-row">
                     <div>
                       <div className="soctrack-channel-name">{p.name}</div>
-                      <div className="soctrack-channel-handle">{p.hasInstagram ? 'Instagram linked: @' + p.instagramUsername : 'No Instagram account linked'}</div>
+                      <div className="soctrack-channel-handle">{p.hasInstagram ? tr('Instagram linked: @') + p.instagramUsername : tr('No Instagram account linked')}</div>
                     </div>
                     <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!connectingPageId} onClick={() => connectPage(p)}>
-                      {connectingPageId === p.id ? 'Connecting…' : 'Connect'}
+                      {connectingPageId === p.id ? tr('Connecting…') : tr('Connect')}
                     </button>
                   </div>
                 ))}

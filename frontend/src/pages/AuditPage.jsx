@@ -100,7 +100,7 @@ export default function AuditPage() {
                     ) : (
                       <span className="audit-avatar audit-avatar-system"><GearIcon /></span>
                     )}
-                    {l.actorName || 'System'}
+                    {l.actorName || tr('System')}
                   </div>
                 </td>
                 <td><span className="tag tag-neutral">{l.action}</span></td>

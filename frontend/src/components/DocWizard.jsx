@@ -73,7 +73,7 @@ export default function DocWizard({
           <div className="docwizard-panel">
             {detailsSlot}
             <div className="field">
-              <label>{messageLabel || 'Message to customer'}</label>
+              <label>{messageLabel || tr('Message to customer')}</label>
               <textarea className="input" rows={3} value={message} onChange={(e) => onMessageChange(e.target.value)} placeholder={tr('We look forward to working with you.')} />
             </div>
           </div>
@@ -123,7 +123,7 @@ export default function DocWizard({
           <div className="docwizard-actions-right">
             {step > 0 && <button type="button" className="btn btn-secondary" onClick={() => setStep(step - 1)}>{tr('Back')}</button>}
             {step < STEPS.length - 1 && <button type="button" className="btn btn-primary" onClick={() => setStep(step + 1)}>{tr('Next')}</button>}
-            {step === STEPS.length - 1 && <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : submitLabel}</button>}
+            {step === STEPS.length - 1 && <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : submitLabel}</button>}
           </div>
         </div>
       </form>

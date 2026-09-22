@@ -76,7 +76,7 @@ export default function SharePage() {
           </div>
         </div>
         <div className="doc-preview-rule" />
-        <h1 className="doc-preview-heading">{doc.title || (DOC_LABEL[doc.documentType] + ' for ' + doc.customer.name)}</h1>
+        <h1 className="doc-preview-heading">{doc.title || (DOC_LABEL[doc.documentType] + tr(' for ') + doc.customer.name)}</h1>
         <div className="doc-preview-subheading">{subHeadingText}</div>
         <div className="doc-preview-blocks">
           <div>
@@ -90,7 +90,7 @@ export default function SharePage() {
             <div className="doc-preview-block-line">{money(doc.grandTotal, cur)}</div>
           </div>
           <div>
-            <div className="doc-preview-block-title">{isInvoice ? 'Payment' : 'Validity'}</div>
+            <div className="doc-preview-block-title">{isInvoice ? tr('Payment') : tr('Validity')}</div>
             <div className="doc-preview-block-line">{subHeadingText}</div>
             <div className="doc-preview-block-line">{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
           </div>
@@ -144,7 +144,7 @@ export default function SharePage() {
           </div>
         )}
         <div className="doc-preview-grand-row">
-          <div>{isInvoice ? 'Total Due' : 'Grand Total'}</div>
+          <div>{isInvoice ? tr('Total Due') : tr('Grand Total')}</div>
           <div>{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
         </div>
         {schedule.length > 0 && (
@@ -159,7 +159,7 @@ export default function SharePage() {
         )}
         {doc.notes && (
           <div className="doc-preview-notes">
-            <div className="doc-preview-notes-label">{isInvoice ? 'Payment instructions' : 'Notes'}</div>
+            <div className="doc-preview-notes-label">{isInvoice ? tr('Payment instructions') : tr('Notes')}</div>
             <p className="doc-preview-notes-body">{doc.notes}</p>
           </div>
         )}

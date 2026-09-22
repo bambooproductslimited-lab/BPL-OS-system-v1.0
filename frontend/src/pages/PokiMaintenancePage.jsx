@@ -140,11 +140,11 @@ export default function PokiMaintenancePage() {
 
       {visible.length === 0 ? (
         <div className="poki-empty">
-          <p className="poki-empty-title">{requests.length ? 'No requests match' : 'Nothing reported'}</p>
+          <p className="poki-empty-title">{requests.length ? tr('No requests match') : tr('Nothing reported')}</p>
           <p className="poki-empty-sub">
             {requests.length
-              ? 'Try a different search or status filter.'
-              : 'Log repairs and issues against the unit they affect — the current tenant is attached automatically.'}
+              ? tr('Try a different search or status filter.')
+              : tr('Log repairs and issues against the unit they affect — the current tenant is attached automatically.')}
           </p>
         </div>
       ) : (
@@ -187,7 +187,7 @@ export default function PokiMaintenancePage() {
       {dialog && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-            <h2 className="poki-dialog-title">{editId ? 'Update request' : 'Log maintenance request'}</h2>
+            <h2 className="poki-dialog-title">{editId ? tr('Update request') : tr('Log maintenance request')}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field poki-dialog-span">
@@ -195,7 +195,7 @@ export default function PokiMaintenancePage() {
               <select id="pmr-unit" className="input" value={form.unitId} onChange={set('unitId')} required disabled={!!editId}>
                 {units.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.propertyName} · {u.code}{u.tenantName ? ' — ' + u.tenantName : ' (vacant)'}
+                    {u.propertyName} · {u.code}{u.tenantName ? ' — ' + u.tenantName : tr(' (vacant)')}
                   </option>
                 ))}
               </select>
@@ -254,7 +254,7 @@ export default function PokiMaintenancePage() {
             )}
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>

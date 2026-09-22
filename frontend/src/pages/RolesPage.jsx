@@ -191,7 +191,7 @@ export default function RolesPage() {
                         type="button" className="roles-delete-btn" disabled={deletingRoleId === r.id}
                         onClick={() => deleteRole(r)}
                       >
-                        {deletingRoleId === r.id ? 'Deleting…' : 'Delete'}
+                        {deletingRoleId === r.id ? tr('Deleting…') : tr('Delete')}
                       </button>
                     )}
                   </th>
@@ -276,7 +276,7 @@ export default function RolesPage() {
             </p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setNewRoleDialog(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={newRoleSaving}>{newRoleSaving ? 'Creating…' : 'Create role'}</button>
+              <button type="submit" className="btn btn-primary" disabled={newRoleSaving}>{newRoleSaving ? tr('Creating…') : tr('Create role')}</button>
             </div>
           </form>
         </div>

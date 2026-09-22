@@ -215,7 +215,7 @@ export default function CustomersPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog customers-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="customers-dialog-title">{editId ? 'Edit customer' : 'Add customer'}</h2>
+            <h2 className="customers-dialog-title">{editId ? tr('Edit customer') : tr('Add customer')}</h2>
             {dialogError && <div className="error-banner customers-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="cu-name">{tr('Name')}</label>
@@ -262,7 +262,7 @@ export default function CustomersPage() {
             </div>
             <div className="dialog-actions customers-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add customer'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? tr('Save changes') : tr('Add customer')}</button>
             </div>
           </form>
         </div>
@@ -275,7 +275,7 @@ export default function CustomersPage() {
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

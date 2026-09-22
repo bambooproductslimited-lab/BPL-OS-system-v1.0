@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { tr } from '../lib/i18n.jsx';
 import './CatalogPicker.css';
 
 // Combined search-or-type-custom item field, used by DocItemsEditor
@@ -93,7 +94,7 @@ export default function CatalogPicker({ value, onChange, onPickOption, options, 
           className="input catpick-input"
           value={value}
           required={required}
-          placeholder={placeholder || 'Search catalogue or type a custom item…'}
+          placeholder={placeholder || tr('Search catalogue or type a custom item…')}
           onFocus={openPanel}
           onChange={(e) => { onChange(e.target.value); if (!open) openPanel(); setHighlight(0); }}
           onKeyDown={onKeyDown}

@@ -174,17 +174,17 @@ export default function IntegrationsPage() {
                   <div className="integrations-card-category">{i.category}</div>
                 </div>
               </div>
-              <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? 'Connected' : 'Not connected'}</span>
+              <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? tr('Connected') : tr('Not connected')}</span>
             </div>
             <p className="integrations-card-desc">{i.description}</p>
             {i.id === 'squareup' ? (
               <>
                 <p className="integrations-card-note">
-                  {i.connected ? 'Token configured on the server. Safe to run more than once — already-imported records are matched and updated, not duplicated.' : ENV_CONFIGURED_PLATFORMS.squareup}
+                  {i.connected ? tr('Token configured on the server. Safe to run more than once — already-imported records are matched and updated, not duplicated.') : ENV_CONFIGURED_PLATFORMS.squareup}
                 </p>
                 {i.connected && (
                   <button type="button" className="btn btn-primary integrations-action" disabled={squareBusy} onClick={runSquareImport}>
-                    {squareBusy ? 'Importing…' : 'Run Square import'}
+                    {squareBusy ? tr('Importing…') : tr('Run Square import')}
                   </button>
                 )}
                 {squareError && <p className="integrations-card-note" style={{ color: 'var(--color-danger-700, #b42318)' }}>{squareError}</p>}
@@ -197,7 +197,7 @@ export default function IntegrationsPage() {
               </>
             ) : ENV_CONFIGURED_PLATFORMS[i.id] ? (
               <p className="integrations-card-note">
-                {i.connected ? 'Configured on the server — live and syncing automatically.' : ENV_CONFIGURED_PLATFORMS[i.id]}
+                {i.connected ? tr('Configured on the server — live and syncing automatically.') : ENV_CONFIGURED_PLATFORMS[i.id]}
               </p>
             ) : SINGLE_STEP_PLATFORMS[i.id] ? (
               <>
@@ -211,7 +211,7 @@ export default function IntegrationsPage() {
                   <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
                 ) : (
                   <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectSingleStep(i.id)}>
-                    {busyId === i.id ? 'Redirecting…' : 'Connect with ' + SINGLE_STEP_PLATFORMS[i.id]}
+                    {busyId === i.id ? tr('Redirecting…') : tr('Connect with ') + SINGLE_STEP_PLATFORMS[i.id]}
                   </button>
                 )}
               </>
@@ -227,7 +227,7 @@ export default function IntegrationsPage() {
                   <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
                 ) : (
                   <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectMeta(i.id)}>
-                    {busyId === i.id ? 'Redirecting…' : 'Connect with Facebook'}
+                    {busyId === i.id ? tr('Redirecting…') : tr('Connect with Facebook')}
                   </button>
                 )}
                 {i.id === 'instagram' && !i.connected && (

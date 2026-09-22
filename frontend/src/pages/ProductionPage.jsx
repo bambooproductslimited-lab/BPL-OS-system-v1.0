@@ -305,7 +305,7 @@ export default function ProductionPage() {
       {canProduction && (
         <form className="card production-rb-form" ref={rawBatchFormRef} onSubmit={submitRawBatch}>
           <div className="field">
-            <label htmlFor="rb-species">{rbEditId ? 'Edit raw bamboo batch · species' : 'Receive raw bamboo · species'}</label>
+            <label htmlFor="rb-species">{rbEditId ? tr('Edit raw bamboo batch · species') : tr('Receive raw bamboo · species')}</label>
             <input id="rb-species" className="input" value={rbForm.species} onChange={(e) => setRbForm({ ...rbForm, species: e.target.value })} placeholder={tr('Bambusa vulgaris')} required />
           </div>
           <div className="field">
@@ -342,7 +342,7 @@ export default function ProductionPage() {
               {canWarehouse && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewWarehouse}>{tr('+ New')}</button>}
             </div>
           </div>
-          <button className="btn btn-primary production-submit-btn" type="submit" disabled={rbSaving}>{rbEditId ? 'Save changes' : 'Receive'}</button>
+          <button className="btn btn-primary production-submit-btn" type="submit" disabled={rbSaving}>{rbEditId ? tr('Save changes') : tr('Receive')}</button>
           {rbEditId && <button type="button" className="btn btn-secondary production-submit-btn" onClick={cancelRawBatchEdit}>{tr('Cancel edit')}</button>}
         </form>
       )}
@@ -495,7 +495,7 @@ export default function ProductionPage() {
       {whDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setWhDialogOpen(false)}>
           <form className="dialog production-wh-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitWarehouse}>
-            <h2>{whEditId ? 'Edit warehouse' : 'Add warehouse'}</h2>
+            <h2>{whEditId ? tr('Edit warehouse') : tr('Add warehouse')}</h2>
             {whDialogError && <div className="error-banner">{whDialogError}</div>}
             <div className="field">
               <label htmlFor="wh-name">{tr('Warehouse name')}</label>
@@ -511,7 +511,7 @@ export default function ProductionPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setWhDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={whSaving}>{whEditId ? 'Save changes' : 'Add warehouse'}</button>
+              <button type="submit" className="btn btn-primary" disabled={whSaving}>{whEditId ? tr('Save changes') : tr('Add warehouse')}</button>
             </div>
           </form>
         </div>
@@ -524,7 +524,7 @@ export default function ProductionPage() {
             <p className="dialog-body">{tr('Delete')} <strong>{whDeleteTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setWhDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={whDeleting} onClick={confirmDeleteWarehouse}>{whDeleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={whDeleting} onClick={confirmDeleteWarehouse}>{whDeleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>
@@ -570,7 +570,7 @@ export default function ProductionPage() {
       {prodDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setProdDialogOpen(false)}>
           <form className="dialog production-2col-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitProduct}>
-            <h2 className="production-dialog-title">{prodEditId ? 'Edit product' : 'Add product'}</h2>
+            <h2 className="production-dialog-title">{prodEditId ? tr('Edit product') : tr('Add product')}</h2>
             {prodDialogError && <div className="error-banner production-dialog-span">{prodDialogError}</div>}
             <div className="field">
               <label htmlFor="prprod-sku">{tr('SKU')}</label>
@@ -606,7 +606,7 @@ export default function ProductionPage() {
             </div>
             <div className="dialog-actions production-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setProdDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={prodSaving}>{prodEditId ? 'Save changes' : 'Add product'}</button>
+              <button type="submit" className="btn btn-primary" disabled={prodSaving}>{prodEditId ? tr('Save changes') : tr('Add product')}</button>
             </div>
           </form>
         </div>

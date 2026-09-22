@@ -73,14 +73,14 @@ export default function PokiDashboardPage() {
           <div className="poki-stat-value">{moneyBreakdown(data.outstanding, money(0))}</div>
           <div className="poki-stat-sub">
             {data.overdueCount > 0
-              ? moneyBreakdown(data.overdueAmount, money(0)) + ' of it overdue (' + data.overdueCount + ' invoice' + (data.overdueCount === 1 ? '' : 's') + ')'
-              : 'nothing past its due date'}
+              ? moneyBreakdown(data.overdueAmount, money(0)) + tr(' of it overdue (') + data.overdueCount + tr(' invoice') + (data.overdueCount === 1 ? '' : 's') + ')'
+              : tr('nothing past its due date')}
           </div>
         </div>
         <div className="poki-stat">
           <div className="poki-stat-label">{tr('Vacant units')}</div>
           <div className="poki-stat-value">{u.vacant}</div>
-          <div className="poki-stat-sub">{u.other > 0 ? u.other + ' held back (maintenance/reserved)' : 'nothing held back'}</div>
+          <div className="poki-stat-sub">{u.other > 0 ? u.other + tr(' held back (maintenance/reserved)') : tr('nothing held back')}</div>
         </div>
         <div className="poki-stat">
           <div className="poki-stat-label">{tr('Open maintenance')}</div>
@@ -116,7 +116,7 @@ export default function PokiDashboardPage() {
                     <td className="poki-nowrap">
                       {fmtDate(l.endDate)}{' '}
                       <span className={'poki-chip ' + (days <= 30 ? 'poki-chip-expired' : 'poki-chip-expiring')}>
-                        {days <= 0 ? 'due now' : days + ' days'}
+                        {days <= 0 ? tr('due now') : days + tr(' days')}
                       </span>
                     </td>
                     <td className="poki-num">{money(l.rentTotal, l.currency)}</td>

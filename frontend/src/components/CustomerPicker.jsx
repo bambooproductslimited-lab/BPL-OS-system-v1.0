@@ -83,7 +83,7 @@ export default function CustomerPicker({ customers, value, onChange, placeholder
           className="input custpick-input"
           required={required}
           value={displayValue}
-          placeholder={placeholder || 'Search customers…'}
+          placeholder={placeholder || tr('Search customers…')}
           onFocus={openPanel}
           onChange={(e) => { setQuery(e.target.value); if (!open) setOpen(true); setHighlight(0); }}
           onKeyDown={onKeyDown}

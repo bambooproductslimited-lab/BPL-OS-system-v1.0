@@ -377,7 +377,7 @@ export default function CatalogPage() {
       {itemDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setItemDialogOpen(false)}>
           <form className="dialog catalog-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleItemSubmit}>
-            <h2 className="catalog-dialog-title">{editItemId ? 'Edit item' : 'Add item'}</h2>
+            <h2 className="catalog-dialog-title">{editItemId ? tr('Edit item') : tr('Add item')}</h2>
             {itemDialogError && <div className="error-banner catalog-dialog-span">{itemDialogError}</div>}
             <div className="field catalog-dialog-span">
               <label htmlFor="cat-name">{tr('Item name')}</label>
@@ -442,7 +442,7 @@ export default function CatalogPage() {
             )}
             <div className="dialog-actions catalog-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setItemDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingItem}>{editItemId ? 'Save changes' : 'Add item'}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingItem}>{editItemId ? tr('Save changes') : tr('Add item')}</button>
             </div>
           </form>
         </div>
@@ -451,7 +451,7 @@ export default function CatalogPage() {
       {varDialog && (
         <div className="dialog-backdrop" onClick={() => setVarDialog(null)}>
           <form className="dialog catalog-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleVariationSubmit}>
-            <h2 className="catalog-dialog-title">{varDialog.editId ? 'Edit variation' : 'Add variation'}</h2>
+            <h2 className="catalog-dialog-title">{varDialog.editId ? tr('Edit variation') : tr('Add variation')}</h2>
             {varDialogError && <div className="error-banner catalog-dialog-span">{varDialogError}</div>}
             <div className="field">
               <label htmlFor="var-name">{tr('Variation name')}</label>
@@ -485,7 +485,7 @@ export default function CatalogPage() {
             )}
             <div className="dialog-actions catalog-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setVarDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingVar}>{varDialog.editId ? 'Save changes' : 'Add variation'}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingVar}>{varDialog.editId ? tr('Save changes') : tr('Add variation')}</button>
             </div>
           </form>
         </div>
@@ -507,7 +507,7 @@ export default function CatalogPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setStockDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingStock}>{savingStock ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingStock}>{savingStock ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>
@@ -520,7 +520,7 @@ export default function CatalogPage() {
             <p className="dialog-body">{tr('This deletes the item and all of its variations. This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteItemTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteItem}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteItem}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>
@@ -533,7 +533,7 @@ export default function CatalogPage() {
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteVarTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteVariation}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteVariation}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

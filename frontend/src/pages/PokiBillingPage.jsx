@@ -301,7 +301,7 @@ export default function PokiBillingPage() {
                         {!r.invoiceId && (
                           <input type="checkbox" checked={!!selected['r_' + r.id]}
                             onChange={(e) => setSelected({ ...selected, ['r_' + r.id]: e.target.checked })}
-                            aria-label={'Select reading for ' + r.unitCode} />
+                            aria-label={tr('Select reading for ') + r.unitCode} />
                         )}
                       </td>
                       <td className="poki-strong">{r.unitCode}</td>
@@ -354,7 +354,7 @@ export default function PokiBillingPage() {
                       <td style={{ textTransform: 'capitalize' }}>{b.utilityType}</td>
                       <td>{fmtDate(b.periodStart)} → {fmtDate(b.periodEnd)}</td>
                       <td className="poki-num">{money(b.totalAmount, 'GHS')}</td>
-                      <td className="poki-muted">{b.splitMethod === 'share' ? 'unit share %' : b.splitMethod === 'sqm' ? 'floor area' : 'equally'}</td>
+                      <td className="poki-muted">{b.splitMethod === 'share' ? tr('unit share %') : b.splitMethod === 'sqm' ? tr('floor area') : 'equally'}</td>
                       <td>
                         {b.billedAt
                           ? <span className="poki-chip poki-chip-active">{tr('apportioned')}</span>
@@ -443,9 +443,9 @@ export default function PokiBillingPage() {
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitDialog}>
             <h2 className="poki-dialog-title">
-              {dialog === 'meter' && 'Add meter'}
-              {dialog === 'reading' && 'Record meter reading'}
-              {dialog === 'master' && 'Record master utility bill'}
+              {dialog === 'meter' && tr('Add meter')}
+              {dialog === 'reading' && tr('Record meter reading')}
+              {dialog === 'master' && tr('Record master utility bill')}
             </h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
@@ -489,7 +489,7 @@ export default function PokiBillingPage() {
                   <select id="prd-meter" className="input" value={form.meterId || ''} onChange={set('meterId')} required>
                     {meters.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.propertyName} · {m.unitCode} — {m.utilityType} ({m.meterNumber || 'no number'}{tr(') · last')} {m.lastReading}
+                        {m.propertyName} · {m.unitCode} — {m.utilityType} ({m.meterNumber || tr('no number')}{tr(') · last')} {m.lastReading}
                       </option>
                     ))}
                   </select>
@@ -563,7 +563,7 @@ export default function PokiBillingPage() {
 
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>
@@ -575,7 +575,7 @@ export default function PokiBillingPage() {
             <h2 className="poki-dialog-title">{tr('Split —')} {split.propertyName}</h2>
             <p className="poki-dialog-hint">
               {money(split.totalAmount, 'GHS')} {tr('for')} {fmtDate(split.periodStart)} → {fmtDate(split.periodEnd)}{tr(', split by')}{' '}
-              {split.splitMethod === 'share' ? "each unit's share %" : split.splitMethod === 'sqm' ? 'floor area' : 'equal shares'}.
+              {split.splitMethod === 'share' ? tr('each unit\'s share %') : split.splitMethod === 'sqm' ? tr('floor area') : tr('equal shares')}.
             </p>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             {split.weightBasisMissing && (
@@ -585,7 +585,7 @@ export default function PokiBillingPage() {
             )}
             <div className="poki-dialog-span">
               {split.lines.length === 0 ? (
-                <p className="poki-muted">{split.note || 'No apportioned units in this property.'}</p>
+                <p className="poki-muted">{split.note || tr('No apportioned units in this property.')}</p>
               ) : (
                 <table className="table">
                   <thead><tr><th>{tr('Unit')}</th><th>{tr('Tenant')}</th><th className="poki-num">{tr('Share')}</th><th className="poki-num">{tr('Amount')}</th></tr></thead>
@@ -606,7 +606,7 @@ export default function PokiBillingPage() {
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Close')}</button>
               {canManage && !split.billedAt && split.lines.some((l) => l.billable) && (
                 <button type="button" className="btn btn-primary" disabled={busy} onClick={billMaster}>
-                  {busy ? 'Billing…' : 'Charge to tenants'}
+                  {busy ? tr('Billing…') : tr('Charge to tenants')}
                 </button>
               )}
             </div>
@@ -647,7 +647,7 @@ export default function PokiBillingPage() {
             </div>
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setPayFor(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? tr('Saving…') : tr('Record payment')}</button>
             </div>
           </form>
         </div>
@@ -701,19 +701,19 @@ export default function PokiBillingPage() {
               {newInv.items.map((it, idx) => (
                 <div className="poki-line-row" key={idx}>
                   <input className="input" placeholder={tr('Description')} value={it.description}
-                    aria-label={'Line ' + (idx + 1) + ' description'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' description')}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, description: e.target.value } : x)) })} />
                   <input className="input" type="number" step="0.01" placeholder={tr('Qty')} value={it.qty}
-                    aria-label={'Line ' + (idx + 1) + ' quantity'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' quantity')}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, qty: e.target.value } : x)) })} />
                   <input className="input" placeholder={tr('Unit')} value={it.unit || ''}
-                    aria-label={'Line ' + (idx + 1) + ' unit'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' unit')}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unit: e.target.value } : x)) })} />
                   <input className="input" type="number" step="0.01" placeholder={tr('Price')} value={it.unitPrice}
-                    aria-label={'Line ' + (idx + 1) + ' price'}
+                    aria-label={tr('Line ') + (idx + 1) + tr(' price')}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unitPrice: e.target.value } : x)) })} />
                   <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 'GHS')}</span>
-                  <button type="button" className="btn btn-secondary poki-row-btn" aria-label={'Remove line ' + (idx + 1)}
+                  <button type="button" className="btn btn-secondary poki-row-btn" aria-label={tr('Remove line ') + (idx + 1)}
                     onClick={() => setNewInv({ ...newInv, items: newInv.items.length > 1 ? newInv.items.filter((_, j) => j !== idx) : newInv.items })}>×</button>
                 </div>
               ))}
@@ -734,7 +734,7 @@ export default function PokiBillingPage() {
 
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setNewInv(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Raising…' : 'Raise invoice'}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? tr('Raising…') : tr('Raise invoice')}</button>
             </div>
           </form>
         </div>

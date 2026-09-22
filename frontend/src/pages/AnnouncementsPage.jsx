@@ -173,7 +173,7 @@ export default function AnnouncementsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
+              <button type="submit" className="btn btn-primary" disabled={publishing}>{publishing ? tr('Publishing…') : tr('Publish')}</button>
             </div>
           </form>
         </div>

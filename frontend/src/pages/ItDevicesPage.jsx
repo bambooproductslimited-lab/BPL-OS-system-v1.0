@@ -248,7 +248,7 @@ export default function ItDevicesPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog itdevices-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="itdevices-dialog-title">{editId ? 'Edit device' : 'Register device'}</h2>
+            <h2 className="itdevices-dialog-title">{editId ? tr('Edit device') : tr('Register device')}</h2>
             {dialogError && <div className="error-banner itdevices-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="it-tag">{tr('Device tag')}</label>
@@ -324,7 +324,7 @@ export default function ItDevicesPage() {
             </div>
             <div className="dialog-actions itdevices-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Register device'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? tr('Save changes') : tr('Register device')}</button>
             </div>
           </form>
         </div>
@@ -352,7 +352,7 @@ export default function ItDevicesPage() {
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
-                    {importLoading ? 'Reading…' : 'Preview import'}
+                    {importLoading ? tr('Reading…') : tr('Preview import')}
                   </button>
                 </div>
               </>
@@ -376,7 +376,7 @@ export default function ItDevicesPage() {
                           <td style={{ fontWeight: 600 }}>{r.deviceTag}</td>
                           <td>{(r.brand + ' ' + r.model).trim() || '—'}</td>
                           <td style={{ textTransform: 'capitalize' }}>{r.status.replace('_', ' ')}</td>
-                          <td>{r.location || (r.assignedEmployeeId ? 'Matched employee' : '—')}</td>
+                          <td>{r.location || (r.assignedEmployeeId ? tr('Matched employee') : '—')}</td>
                           <td className="itdevices-import-warnings">
                             {r.willSkip && <div>{tr('Already exists — will be skipped.')}</div>}
                             {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
@@ -390,7 +390,7 @@ export default function ItDevicesPage() {
                   <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
-                    {importCommitting ? 'Importing…' : 'Import ' + importPreview.rows.filter((r) => !r.willSkip).length + ' device(s)'}
+                    {importCommitting ? tr('Importing…') : tr('Import ') + importPreview.rows.filter((r) => !r.willSkip).length + tr(' device(s)')}
                   </button>
                 </div>
               </>

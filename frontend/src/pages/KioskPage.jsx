@@ -324,14 +324,14 @@ export default function KioskPage() {
             </div>
             {result.kind === 'ok' && (
               <>
-                <div className="kiosk-result-title">{result.action === 'in' ? 'Clocked in' : 'Clocked out'}</div>
+                <div className="kiosk-result-title">{result.action === 'in' ? tr('Clocked in') : tr('Clocked out')}</div>
                 <div className="kiosk-result-name">{result.employeeName}</div>
                 <div className="kiosk-result-time">{result.time}</div>
                 {result.action === 'in' && result.status && (
                   <div className={'kiosk-result-late' + (result.status === 'late' ? ' kiosk-result-late-yes' : '')}>
                     {result.status === 'late'
-                      ? "You're " + result.minutesLate + ' minute' + (result.minutesLate === 1 ? '' : 's') + ' late'
-                      : "You're on time"}
+                      ? tr('You\'re ') + result.minutesLate + tr(' minute') + (result.minutesLate === 1 ? '' : 's') + tr(' late')
+                      : tr('You\'re on time')}
                   </div>
                 )}
               </>

@@ -268,7 +268,7 @@ export default function QuotationsPage() {
       {!!quotations.length && !visibleQuotations.length && (
         <div className="quotations-empty-state">
           <span className="quotations-empty-icon"><DocIcon /></span>
-          <p className="quotations-empty-title">{search ? 'No quotations match "' + search + '"' : 'No quotations match this filter'}</p>
+          <p className="quotations-empty-title">{search ? tr('No quotations match "') + search + '"' : tr('No quotations match this filter')}</p>
         </div>
       )}
 

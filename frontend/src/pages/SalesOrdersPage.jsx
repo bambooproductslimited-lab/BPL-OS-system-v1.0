@@ -167,7 +167,7 @@ export default function SalesOrdersPage() {
         <tbody>
           {visibleOrders.map((o) => {
             const hasNext = o.status !== 'delivered' && o.status !== 'cancelled' && canManage;
-            const nextLabel = o.status === 'pending' ? 'Start processing' : o.status === 'processing' ? 'Mark delivered' : '';
+            const nextLabel = o.status === 'pending' ? tr('Start processing') : o.status === 'processing' ? tr('Mark delivered') : '';
             return (
               <tr
                 key={o.id}

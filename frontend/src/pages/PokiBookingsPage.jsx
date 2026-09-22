@@ -340,11 +340,11 @@ export default function PokiBookingsPage() {
 
       {visible.length === 0 ? (
         <div className="poki-empty">
-          <p className="poki-empty-title">{bookings.length ? 'No bookings match' : 'No bookings yet'}</p>
+          <p className="poki-empty-title">{bookings.length ? tr('No bookings match') : tr('No bookings yet')}</p>
           <p className="poki-empty-sub">
             {bookings.length
-              ? 'Try a different search or status filter.'
-              : 'A booking puts a tenant in a unit and drives rent billing. Add a property, a unit and a tenant first.'}
+              ? tr('Try a different search or status filter.')
+              : tr('A booking puts a tenant in a unit and drives rent billing. Add a property, a unit and a tenant first.')}
           </p>
         </div>
       ) : (
@@ -404,7 +404,7 @@ export default function PokiBookingsPage() {
       {dialog === 'booking' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitBooking}>
-            <h2 className="poki-dialog-title">{editId ? 'Edit booking' : 'New booking'}</h2>
+            <h2 className="poki-dialog-title">{editId ? tr('Edit booking') : tr('New booking')}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="pl-unit">{tr('Unit')}</label>
@@ -514,7 +514,7 @@ export default function PokiBookingsPage() {
             </p>
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving || (quote && !quote.available)}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || (quote && !quote.available)}>{saving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>
@@ -524,10 +524,10 @@ export default function PokiBookingsPage() {
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitSimple}>
             <h2 className="poki-dialog-title">
-              {dialog === 'deposit' && 'Record deposit — ' + target.bookingNo}
-              {dialog === 'refund' && 'Refund deposit — ' + target.bookingNo}
-              {dialog === 'renew' && 'Renew booking — ' + target.bookingNo}
-              {dialog === 'end' && 'End booking — ' + target.bookingNo}
+              {dialog === 'deposit' && tr('Record deposit — ') + target.bookingNo}
+              {dialog === 'refund' && tr('Refund deposit — ') + target.bookingNo}
+              {dialog === 'renew' && tr('Renew booking — ') + target.bookingNo}
+              {dialog === 'end' && tr('End booking — ') + target.bookingNo}
             </h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
@@ -621,7 +621,7 @@ export default function PokiBookingsPage() {
 
             <div className="poki-dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Confirm'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Confirm')}</button>
             </div>
           </form>
         </div>
@@ -641,14 +641,14 @@ export default function PokiBookingsPage() {
               value={agreementBody}
               onChange={(e) => setAgreementBody(e.target.value)}
               readOnly={!canManage}
-              placeholder={saving ? 'Generating…' : 'No agreement yet — generate one from the template.'}
+              placeholder={saving ? tr('Generating…') : tr('No agreement yet — generate one from the template.')}
             />
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Close')}</button>
               <button type="button" className="btn btn-secondary" disabled={!agreementBody} onClick={printAgreement}>{tr('Print / PDF')}</button>
               {canManage && (
                 <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => generateAgreement(target)}>
-                  {saving ? 'Generating…' : 'Regenerate from template'}
+                  {saving ? tr('Generating…') : tr('Regenerate from template')}
                 </button>
               )}
               {canManage && (

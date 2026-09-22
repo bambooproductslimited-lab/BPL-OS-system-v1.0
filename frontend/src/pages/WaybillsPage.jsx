@@ -361,7 +361,7 @@ export default function WaybillsPage() {
 
             <div className="dialog-actions waybills-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Dispatching…' : 'Dispatch waybill'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Dispatching…') : tr('Dispatch waybill')}</button>
             </div>
           </form>
         </div>

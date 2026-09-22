@@ -20,7 +20,7 @@ export default function SearchInput({ value, onChange, placeholder }) {
         className="input search-input"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder || 'Search…'}
+        placeholder={placeholder || tr('Search…')}
       />
       {value && (
         <button type="button" className="search-input-clear" aria-label={tr('Clear search')} onClick={() => onChange('')}>×</button>

@@ -120,9 +120,9 @@ export default function NotificationsBell() {
                   className={'notif-mute' + (muted ? ' notif-mute-off' : '')}
                   onClick={toggleMuted}
                   aria-pressed={!muted}
-                  title={muted ? 'Notification sound is off — turn it on' : 'Notification sound is on — turn it off'}
+                  title={muted ? tr('Notification sound is off — turn it on') : tr('Notification sound is on — turn it off')}
                 >
-                  {muted ? 'Sound off' : 'Sound on'}
+                  {muted ? tr('Sound off') : tr('Sound on')}
                 </button>
                 {unreadCount > 0 && (
                   <button type="button" className="notif-markall" onClick={markAllRead}>{tr('Mark all read')}</button>

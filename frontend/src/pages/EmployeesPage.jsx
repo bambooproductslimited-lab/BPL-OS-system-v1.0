@@ -591,12 +591,12 @@ export default function EmployeesPage() {
           {employees.map((p) => {
             const canDelete = canWrite && p.status !== 'terminated' && p.id !== (session && session.employee && session.employee.id);
             const menuItems = [
-              { label: 'View', onClick: () => setProfileTarget(p.id) },
-              canWrite && { label: 'Edit', onClick: () => openEdit(p) },
-              canWrite && { label: 'ID docs', onClick: () => setIdDocsTarget(p) },
-              canWrite && { label: 'Kiosk PIN', onClick: () => openKioskPin(p) },
-              canWrite && { label: 'Kiosk Face', onClick: () => openKioskFace(p) },
-              canDelete && { label: 'Delete', onClick: () => openTerminate(p), danger: true }
+              { label: tr('View'), onClick: () => setProfileTarget(p.id) },
+              canWrite && { label: tr('Edit'), onClick: () => openEdit(p) },
+              canWrite && { label: tr('ID docs'), onClick: () => setIdDocsTarget(p) },
+              canWrite && { label: tr('Kiosk PIN'), onClick: () => openKioskPin(p) },
+              canWrite && { label: tr('Kiosk Face'), onClick: () => openKioskFace(p) },
+              canDelete && { label: tr('Delete'), onClick: () => openTerminate(p), danger: true }
             ].filter(Boolean);
             return (
               <tr key={p.id}>
@@ -638,7 +638,7 @@ export default function EmployeesPage() {
       {dialog === 'employee' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog employees-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitEmployee}>
-            <h2 className="employees-dialog-title">{editId ? 'Edit employee' : 'Add employee'}</h2>
+            <h2 className="employees-dialog-title">{editId ? tr('Edit employee') : tr('Add employee')}</h2>
 
             <div className="field"><label htmlFor="emp-fn">{tr('First name')}</label>
               <input id="emp-fn" className="input" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required />
@@ -671,7 +671,7 @@ export default function EmployeesPage() {
                 onChange={(e) => setForm({ ...form, departmentId: e.target.value, shiftId: '' })}
                 required
               >
-                <option value="" disabled>{form.companyId ? 'Choose a department' : 'Choose a company first'}</option>
+                <option value="" disabled>{form.companyId ? tr('Choose a department') : tr('Choose a company first')}</option>
                 {departments.filter((d) => d.companyId === form.companyId).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
@@ -765,7 +765,7 @@ export default function EmployeesPage() {
             <div className="dialog-actions employees-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving ? 'Saving…' : (editId ? 'Save changes' : 'Create')}
+                {saving ? tr('Saving…') : (editId ? tr('Save changes') : tr('Create'))}
               </button>
             </div>
           </form>
@@ -786,7 +786,7 @@ export default function EmployeesPage() {
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Delete employee'}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Delete employee')}</button>
             </div>
           </form>
         </div>
@@ -803,7 +803,7 @@ export default function EmployeesPage() {
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={saving} onClick={confirmPurge}>
-                {saving ? 'Removing…' : 'Remove permanently'}
+                {saving ? tr('Removing…') : tr('Remove permanently')}
               </button>
             </div>
           </div>
@@ -831,7 +831,7 @@ export default function EmployeesPage() {
               <button type="button" className="btn btn-secondary" onClick={clearKioskPin} disabled={saving}>{tr('Clear PIN')}</button>
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving || kioskPinValue.length !== 4}>
-                {saving ? 'Saving…' : 'Save PIN'}
+                {saving ? tr('Saving…') : tr('Save PIN')}
               </button>
             </div>
           </form>
@@ -849,21 +849,21 @@ export default function EmployeesPage() {
             {!kioskFaceCapturing && (
               <>
                 <p className="dialog-body">
-                  {kioskFaceStatus === null && 'Loading…'}
-                  {kioskFaceStatus && !kioskFaceStatus.enrolled && 'Not enrolled — the PIN alone still clocks them in and out.'}
+                  {kioskFaceStatus === null && tr('Loading…')}
+                  {kioskFaceStatus && !kioskFaceStatus.enrolled && tr('Not enrolled — the PIN alone still clocks them in and out.')}
                   {kioskFaceStatus && kioskFaceStatus.enrolled && (
-                    'Enrolled' + (kioskFaceStatus.enrolledAt ? ' on ' + new Date(kioskFaceStatus.enrolledAt).toLocaleDateString() : '') + '.'
+                    tr('Enrolled') + (kioskFaceStatus.enrolledAt ? tr(' on ') + new Date(kioskFaceStatus.enrolledAt).toLocaleDateString() : '') + '.'
                   )}
                 </p>
                 <div className="dialog-actions">
                   {kioskFaceStatus && kioskFaceStatus.enrolled && (
                     <button type="button" className="btn btn-secondary" onClick={clearKioskFace} disabled={saving}>
-                      {saving ? 'Clearing…' : 'Clear'}
+                      {saving ? tr('Clearing…') : tr('Clear')}
                     </button>
                   )}
                   <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Close')}</button>
                   <button type="button" className="btn btn-primary" disabled={kioskFaceStatus === null} onClick={() => setKioskFaceCapturing(true)}>
-                    {kioskFaceStatus && kioskFaceStatus.enrolled ? 'Re-enroll' : 'Enroll face'}
+                    {kioskFaceStatus && kioskFaceStatus.enrolled ? tr('Re-enroll') : tr('Enroll face')}
                   </button>
                 </div>
 
@@ -880,17 +880,17 @@ export default function EmployeesPage() {
                       <option value="7">{tr('7 days')}</option>
                     </select>
                     <button type="button" className="btn btn-secondary" disabled={faceLinkGenerating} onClick={generateFaceLink}>
-                      {faceLinkGenerating ? 'Generating…' : faceLinkUrl ? 'Regenerate link' : 'Generate link'}
+                      {faceLinkGenerating ? tr('Generating…') : faceLinkUrl ? tr('Regenerate link') : tr('Generate link')}
                     </button>
                     <button type="button" className="btn btn-secondary" disabled={faceLinkWaSending} onClick={sendFaceLinkWhatsApp}>
-                      {faceLinkWaSending ? 'Sending…' : 'Send via WhatsApp'}
+                      {faceLinkWaSending ? tr('Sending…') : tr('Send via WhatsApp')}
                     </button>
                   </div>
                   {faceLinkError && <div className="error-banner">{faceLinkError}</div>}
                   {faceLinkUrl && (
                     <div className="employees-face-link-url">
                       <input className="input" readOnly value={faceLinkUrl} onFocus={(e) => e.target.select()} />
-                      <button type="button" className="btn btn-secondary" onClick={copyFaceLink}>{faceLinkCopied ? 'Copied!' : 'Copy'}</button>
+                      <button type="button" className="btn btn-secondary" onClick={copyFaceLink}>{faceLinkCopied ? tr('Copied!') : tr('Copy')}</button>
                     </div>
                   )}
                   {faceLinkWaResult && <div className={faceLinkWaResult.ok ? 'employees-face-link-wa-ok' : 'error-banner'}>{faceLinkWaResult.message}</div>}
@@ -902,7 +902,7 @@ export default function EmployeesPage() {
                 <FaceCapture
                   mode="enroll"
                   title={tr('Look at the camera')}
-                  subtitle={'Have ' + kioskFaceTarget.firstName + ' look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down), about 10 seconds, to build a reference that holds up at whatever angle they happen to be at the kiosk.'}
+                  subtitle={tr('Have ') + kioskFaceTarget.firstName + tr(' look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down), about 10 seconds, to build a reference that holds up at whatever angle they happen to be at the kiosk.')}
                   onCapture={submitKioskFace}
                   onCancel={() => setKioskFaceCapturing(false)}
                 />
@@ -955,7 +955,7 @@ export default function EmployeesPage() {
                           <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
                             <td style={{ fontWeight: 600 }}>{r.firstName} {r.lastName}</td>
                             <td>{r.positionTitle || '—'}</td>
-                            <td>{r.departmentName}{r.departmentWillCreate ? ' (new)' : ''}</td>
+                            <td>{r.departmentName}{r.departmentWillCreate ? tr(' (new)') : ''}</td>
                             <td>
                               {syncPreview.rows[i].skipReason === 'no_email' ? (
                                 <input
@@ -978,9 +978,9 @@ export default function EmployeesPage() {
                   <div className="dialog-actions">
                     <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={syncCommitting || (!toCreate && !toLink)} onClick={commitSync}>
-                      {syncCommitting ? 'Working…' : toCreate
-                        ? 'Import ' + toCreate + ' employee(s)' + (toLink ? ' + link ' + toLink : '')
-                        : toLink ? 'Link ' + toLink + ' employee(s)' : 'Nothing to do'}
+                      {syncCommitting ? tr('Working…') : toCreate
+                        ? tr('Import ') + toCreate + tr(' employee(s)') + (toLink ? tr(' + link ') + toLink : '')
+                        : toLink ? tr('Link ') + toLink + tr(' employee(s)') : tr('Nothing to do')}
                     </button>
                   </div>
                 </>
@@ -990,20 +990,20 @@ export default function EmployeesPage() {
             {syncResult && (
               <>
                 <p className="itdevices-import-summary">
-                  {tr('Imported')} {syncResult.created} {tr('employee(s)')}{syncResult.skipped ? ', skipped ' + syncResult.skipped : ''}
-                  {syncResult.linked ? ', linked ' + syncResult.linked + ' already-imported record(s) to TimeStation' : ''}
-                  {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
+                  {tr('Imported')} {syncResult.created} {tr('employee(s)')}{syncResult.skipped ? tr(', skipped ') + syncResult.skipped : ''}
+                  {syncResult.linked ? tr(', linked ') + syncResult.linked + tr(' already-imported record(s) to TimeStation') : ''}
+                  {syncResult.failed.length ? ', ' + syncResult.failed.length + tr(' failed') : ''}.
                 </p>
                 {syncResult.failed.length > 0 && (
                   <ul>
-                    {syncResult.failed.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
+                    {syncResult.failed.map((f, i) => <li key={i}>{f.name || tr('Unnamed record')} — {f.reason}</li>)}
                   </ul>
                 )}
                 {syncResult.pinIssues && syncResult.pinIssues.length > 0 && (
                   <>
                     <p className="itdevices-import-summary">{tr('Kiosk PIN not set for')} {syncResult.pinIssues.length} {tr('employee(s) — set these manually via the Kiosk PIN button:')}</p>
                     <ul>
-                      {syncResult.pinIssues.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
+                      {syncResult.pinIssues.map((f, i) => <li key={i}>{f.name || tr('Unnamed record')} — {f.reason}</li>)}
                     </ul>
                   </>
                 )}
@@ -1034,7 +1034,7 @@ export default function EmployeesPage() {
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
-                    {importLoading ? 'Reading…' : 'Preview import'}
+                    {importLoading ? tr('Reading…') : tr('Preview import')}
                   </button>
                 </div>
               </>
@@ -1073,7 +1073,7 @@ export default function EmployeesPage() {
                     <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                     <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={importCommitting || !toCreate} onClick={commitImport}>
-                      {importCommitting ? 'Importing…' : toCreate ? 'Import ' + toCreate + ' employee(s)' : 'Nothing to import'}
+                      {importCommitting ? tr('Importing…') : toCreate ? tr('Import ') + toCreate + tr(' employee(s)') : tr('Nothing to import')}
                     </button>
                   </div>
                 </>
@@ -1083,12 +1083,12 @@ export default function EmployeesPage() {
             {importResult && (
               <>
                 <p className="itdevices-import-summary">
-                  {tr('Imported')} {importResult.created} {tr('employee(s)')}{importResult.skipped ? ', skipped ' + importResult.skipped : ''}
-                  {importResult.failed.length ? ', ' + importResult.failed.length + ' failed' : ''}.
+                  {tr('Imported')} {importResult.created} {tr('employee(s)')}{importResult.skipped ? tr(', skipped ') + importResult.skipped : ''}
+                  {importResult.failed.length ? ', ' + importResult.failed.length + tr(' failed') : ''}.
                 </p>
                 {importResult.failed.length > 0 && (
                   <ul>
-                    {importResult.failed.map((f, i) => <li key={i}>{f.name || 'Unnamed record'} — {f.reason}</li>)}
+                    {importResult.failed.map((f, i) => <li key={i}>{f.name || tr('Unnamed record')} — {f.reason}</li>)}
                   </ul>
                 )}
                 <div className="dialog-actions">

@@ -60,7 +60,7 @@ export default function ReceiptPreview({ receipt, previewRef, sharing, shareErro
             <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
             <button type="button" className="btn btn-primary" disabled={sharing} onClick={onShare}>
-              {sharing ? 'Preparing…' : 'Share'}
+              {sharing ? tr('Preparing…') : tr('Share')}
             </button>
           </div>
         </div>

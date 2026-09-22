@@ -365,7 +365,7 @@ export default function UsersPage() {
               <div className="dialog-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)}>{tr('Cancel')}</button>
                 <button type="submit" className="btn btn-primary" disabled={creating || !availableEmployees.length}>
-                  {creating ? 'Creating…' : 'Create account'}
+                  {creating ? tr('Creating…') : tr('Create account')}
                 </button>
               </div>
             </form>
@@ -409,7 +409,7 @@ export default function UsersPage() {
               <div className="dialog-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setResetTarget(null)}>{tr('Cancel')}</button>
                 <button type="submit" className="btn btn-primary" disabled={resetting}>
-                  {resetting ? 'Saving…' : 'Reset password'}
+                  {resetting ? tr('Saving…') : tr('Reset password')}
                 </button>
               </div>
             </form>
@@ -443,7 +443,7 @@ export default function UsersPage() {
               <div className="dialog-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setEmailTarget(null)}>{tr('Cancel')}</button>
                 <button type="submit" className="btn btn-primary" disabled={emailSaving}>
-                  {emailSaving ? 'Saving…' : 'Save email'}
+                  {emailSaving ? tr('Saving…') : tr('Save email')}
                 </button>
               </div>
             </form>

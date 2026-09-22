@@ -818,7 +818,7 @@ export default function RestaurantsPage() {
 
           <div className="restaurants-toolbar">
             <div className="seg">
-              {[{ key: 'menu', label: 'Menu' }, { key: 'supplies', label: 'Supplies' }, { key: 'ingredients', label: 'Food' }, { key: 'sales', label: 'Sales' }, { key: 'drawer', label: 'Drawer' }, { key: 'tables', label: 'Tables' }, { key: 'guests', label: 'Guests' }].map((opt) => (
+              {[{ key: 'menu', label: tr('Menu') }, { key: 'supplies', label: tr('Supplies') }, { key: 'ingredients', label: tr('Food') }, { key: 'sales', label: tr('Sales') }, { key: 'drawer', label: tr('Drawer') }, { key: 'tables', label: tr('Tables') }, { key: 'guests', label: tr('Guests') }].map((opt) => (
                 <label className="seg-opt" key={opt.key}>
                   <input type="radio" name="restaurant-tab" checked={tab === opt.key} onChange={() => setTab(opt.key)} />
                   <span>{opt.label}</span>
@@ -826,7 +826,7 @@ export default function RestaurantsPage() {
               ))}
             </div>
             {tab !== 'sales' && tab !== 'drawer' && (
-              <SearchInput value={search} onChange={setSearch} placeholder={'Search ' + (tab === 'ingredients' ? 'food' : tab) + '…'} />
+              <SearchInput value={search} onChange={setSearch} placeholder={tr('Search ') + (tab === 'ingredients' ? 'food' : tab) + '…'} />
             )}
             {tab === 'menu' && (
               <label className="checkbox-field restaurants-hide-disabled">
@@ -862,7 +862,7 @@ export default function RestaurantsPage() {
             <a className="btn btn-secondary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
             {canManage && (
               <button type="button" className="btn btn-secondary" disabled={squareBusy} onClick={runSquareImport}>
-                {squareBusy ? 'Importing from Square…' : 'Import from Square'}
+                {squareBusy ? tr('Importing from Square…') : tr('Import from Square')}
               </button>
             )}
           </div>
@@ -898,14 +898,14 @@ export default function RestaurantsPage() {
           )}
           {tab === 'sales' && ordersTotal > 0 && (
             <div className="restaurants-stats restaurants-stats-wide">
-              <StatTile icon="list" tone="people" value={ordersTotal} label={(ordersFrom || ordersTo) ? 'Orders in range' : 'Orders'} />
-              <StatTile icon="money" tone="ops" value={ordersRevenueTotal} format={money} label={(ordersFrom || ordersTo) ? 'Revenue in range' : 'Revenue'} />
+              <StatTile icon="list" tone="people" value={ordersTotal} label={(ordersFrom || ordersTo) ? tr('Orders in range') : tr('Orders')} />
+              <StatTile icon="money" tone="ops" value={ordersRevenueTotal} format={money} label={(ordersFrom || ordersTo) ? tr('Revenue in range') : tr('Revenue')} />
               <StatTile icon="ban" tone="danger" value={ordersVoidedCount} label="Voided" />
             </div>
           )}
           {tab === 'drawer' && drawerSessionsTotal > 0 && (
             <div className="restaurants-stats restaurants-stats-wide">
-              <StatTile icon="list" tone="people" value={drawerSessionsTotal} label={(drawerSessionsFrom || drawerSessionsTo) ? 'Sessions in range' : 'Sessions'} />
+              <StatTile icon="list" tone="people" value={drawerSessionsTotal} label={(drawerSessionsFrom || drawerSessionsTo) ? tr('Sessions in range') : tr('Sessions')} />
               <StatTile icon="clock" tone="ops" value={drawerSessions.filter((s) => s.session.status === 'open').length} label="Open now (this page)" />
               <StatTile icon="ban" tone="danger" value={drawerSessions.filter((s) => s.difference != null && Math.abs(s.difference) > 0.01).length} label="With a discrepancy (this page)" />
             </div>
@@ -944,7 +944,7 @@ export default function RestaurantsPage() {
                             {m.photoUrl && <img className="restaurants-menu-card-photo" src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />}
                             <div className="restaurants-menu-card-top">
                               <span className="restaurants-menu-card-name">{m.name}</span>
-                              <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? 'Active' : 'Disabled'}</span>
+                              <span className={'tag ' + (m.active ? 'tag-neutral' : 'tag-outline')}>{m.active ? tr('Active') : tr('Disabled')}</span>
                             </div>
                             <div className="restaurants-menu-card-price">
                               {hasVariations
@@ -981,7 +981,7 @@ export default function RestaurantsPage() {
                             {canManage && (
                               <div className="restaurants-menu-card-actions" onClick={(e) => e.stopPropagation()}>
                                 <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>{tr('Edit')}</button>
-                                <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
+                                <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? tr('Disable') : tr('Enable')}</button>
                                 <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>{tr('Delete')}</button>
                               </div>
                             )}
@@ -1173,7 +1173,7 @@ export default function RestaurantsPage() {
             <div className="restaurants-empty-state">
               <span className="restaurants-empty-icon"><UtensilsIcon /></span>
               <p className="restaurants-empty-title">
-                {search ? 'No menu items match "' + search + '"' : 'Every menu item here is disabled'}
+                {search ? tr('No menu items match "') + search + '"' : tr('Every menu item here is disabled')}
               </p>
               {!search && hideDisabled && (
                 <button type="button" className="btn btn-secondary" onClick={() => setHideDisabled(false)}>{tr('Show disabled items')}</button>
@@ -1223,7 +1223,7 @@ export default function RestaurantsPage() {
       {menuDialogOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setMenuDialogOpen(false)}>
           <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitMenuForm}>
-            <h2>{menuEditId ? 'Edit menu item' : 'Add menu item'}</h2>
+            <h2>{menuEditId ? tr('Edit menu item') : tr('Add menu item')}</h2>
             {menuDialogError && <div className="error-banner">{menuDialogError}</div>}
             <div className="field">
               <label htmlFor="rm-name">{tr('Name')}</label>
@@ -1234,7 +1234,7 @@ export default function RestaurantsPage() {
               <input id="rm-category" className="input" value={menuForm.category} onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })} placeholder={tr('Mains, Drinks, Starters…')} />
             </div>
             <div className="field">
-              <label htmlFor="rm-price">{tr('Price')}{!!editingMenuItemVariations.length && ' (fallback — sold price comes from the variation below)'}</label>
+              <label htmlFor="rm-price">{tr('Price')}{!!editingMenuItemVariations.length && tr(' (fallback — sold price comes from the variation below)')}</label>
               <input id="rm-price" className="input" type="number" min="0" step="0.01" value={menuForm.price} onChange={(e) => setMenuForm({ ...menuForm, price: e.target.value })} required />
             </div>
             {menuEditId && (
@@ -1257,7 +1257,7 @@ export default function RestaurantsPage() {
                   <input className="input" placeholder={tr('Name (e.g. M, Large, Jellyfish…)')} value={variationForm.name} onChange={(e) => setVariationForm({ ...variationForm, name: e.target.value })} />
                   <input className="input" type="number" min="0" step="0.01" placeholder={tr('Price')} value={variationForm.price} onChange={(e) => setVariationForm({ ...variationForm, price: e.target.value })} />
                   <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={variationSaving} onClick={submitVariationForm}>
-                    {variationEditId ? 'Save' : 'Add'}
+                    {variationEditId ? tr('Save') : tr('Add')}
                   </button>
                   {variationEditId && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={startAddVariation}>{tr('Cancel')}</button>}
                 </div>
@@ -1276,7 +1276,7 @@ export default function RestaurantsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setMenuDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={menuSaving}>{menuEditId ? 'Save changes' : 'Add item'}</button>
+              <button type="submit" className="btn btn-primary" disabled={menuSaving}>{menuEditId ? tr('Save changes') : tr('Add item')}</button>
             </div>
           </form>
         </div>
@@ -1285,7 +1285,7 @@ export default function RestaurantsPage() {
       {supplyDialogOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setSupplyDialogOpen(false)}>
           <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitSupplyForm}>
-            <h2>{supplyEditId ? 'Edit supply item' : 'Add supply item'}</h2>
+            <h2>{supplyEditId ? tr('Edit supply item') : tr('Add supply item')}</h2>
             {supplyDialogError && <div className="error-banner">{supplyDialogError}</div>}
             <div className="field">
               <label htmlFor="rs-name">{tr('Name')}</label>
@@ -1315,7 +1315,7 @@ export default function RestaurantsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setSupplyDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={supplySaving}>{supplyEditId ? 'Save changes' : 'Add item'}</button>
+              <button type="submit" className="btn btn-primary" disabled={supplySaving}>{supplyEditId ? tr('Save changes') : tr('Add item')}</button>
             </div>
           </form>
         </div>
@@ -1324,7 +1324,7 @@ export default function RestaurantsPage() {
       {tableDialogOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setTableDialogOpen(false)}>
           <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitTableForm}>
-            <h2>{tableEditId ? 'Rename table' : 'Add table'}</h2>
+            <h2>{tableEditId ? tr('Rename table') : tr('Add table')}</h2>
             {tableDialogError && <div className="error-banner">{tableDialogError}</div>}
             <div className="field">
               <label htmlFor="rt-name">{tr('Name')}</label>
@@ -1332,7 +1332,7 @@ export default function RestaurantsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setTableDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={tableSaving}>{tableEditId ? 'Save changes' : 'Add table'}</button>
+              <button type="submit" className="btn btn-primary" disabled={tableSaving}>{tableEditId ? tr('Save changes') : tr('Add table')}</button>
             </div>
           </form>
         </div>
@@ -1341,7 +1341,7 @@ export default function RestaurantsPage() {
       {guestDialogOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setGuestDialogOpen(false)}>
           <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitGuestForm}>
-            <h2>{guestEditId ? 'Edit guest' : 'Add guest'}</h2>
+            <h2>{guestEditId ? tr('Edit guest') : tr('Add guest')}</h2>
             {guestDialogError && <div className="error-banner">{guestDialogError}</div>}
             <div className="field">
               <label htmlFor="rg-name">{tr('Name')}</label>
@@ -1357,7 +1357,7 @@ export default function RestaurantsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setGuestDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={guestSaving}>{guestEditId ? 'Save changes' : 'Add guest'}</button>
+              <button type="submit" className="btn btn-primary" disabled={guestSaving}>{guestEditId ? tr('Save changes') : tr('Add guest')}</button>
             </div>
           </form>
         </div>
@@ -1366,7 +1366,7 @@ export default function RestaurantsPage() {
       {ingredientDialogOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setIngredientDialogOpen(false)}>
           <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitIngredientForm}>
-            <h2>{ingredientEditId ? 'Edit ingredient' : 'Add ingredient'}</h2>
+            <h2>{ingredientEditId ? tr('Edit ingredient') : tr('Add ingredient')}</h2>
             {ingredientDialogError && <div className="error-banner">{ingredientDialogError}</div>}
             <div className="field">
               <label htmlFor="ri-name">{tr('Name')}</label>
@@ -1396,7 +1396,7 @@ export default function RestaurantsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setIngredientDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={ingredientSaving}>{ingredientEditId ? 'Save changes' : 'Add item'}</button>
+              <button type="submit" className="btn btn-primary" disabled={ingredientSaving}>{ingredientEditId ? tr('Save changes') : tr('Add item')}</button>
             </div>
           </form>
         </div>
@@ -1418,7 +1418,7 @@ export default function RestaurantsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setStockDialog(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={stockSaving}>{stockSaving ? 'Saving…' : 'Save'}</button>
+              <button type="submit" className="btn btn-primary" disabled={stockSaving}>{stockSaving ? tr('Saving…') : tr('Save')}</button>
             </div>
           </form>
         </div>
@@ -1480,7 +1480,7 @@ export default function RestaurantsPage() {
                 <div className="restaurants-order-dialog-meta">
                   <span>{new Date(drawerDetail.session.openedAt).toLocaleString()}</span>
                   <span>–</span>
-                  <span>{drawerDetail.session.closedAt ? new Date(drawerDetail.session.closedAt).toLocaleString() : 'still open'}</span>
+                  <span>{drawerDetail.session.closedAt ? new Date(drawerDetail.session.closedAt).toLocaleString() : tr('still open')}</span>
                   <span>·</span>
                   <span className={'tag ' + (drawerDetail.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{drawerDetail.session.status}</span>
                 </div>
@@ -1506,7 +1506,7 @@ export default function RestaurantsPage() {
                       {drawerDetail.movements.map((m) => (
                         <div className="restaurants-order-dialog-item" key={m.id}>
                           <span className="restaurants-order-dialog-item-name">
-                            {m.direction === 'in' ? 'Paid in' : 'Paid out'} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}
+                            {m.direction === 'in' ? tr('Paid in') : tr('Paid out')} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}
                           </span>
                           <span className="restaurants-order-dialog-item-total">{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                         </div>

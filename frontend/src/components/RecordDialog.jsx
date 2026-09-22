@@ -88,9 +88,9 @@ export default function RecordDialog({ title, subtitle, tag, fields, items, tota
                       {it.notes && <span className="record-dialog-item-note">{it.notes}</span>}
                       {(Number(it.discount) > 0 || Number(it.taxRate) > 0) && (
                         <span className="record-dialog-item-note">
-                          {Number(it.discount) > 0 && ('less ' + it.discount + (it.discountType === 'percent' ? '%' : ''))}
+                          {Number(it.discount) > 0 && (tr('less ') + it.discount + (it.discountType === 'percent' ? '%' : ''))}
                           {Number(it.discount) > 0 && Number(it.taxRate) > 0 && ' · '}
-                          {Number(it.taxRate) > 0 && ('tax ' + it.taxRate + '%')}
+                          {Number(it.taxRate) > 0 && (tr('tax ') + it.taxRate + '%')}
                         </span>
                       )}
                     </td>

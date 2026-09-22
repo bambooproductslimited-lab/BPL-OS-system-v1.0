@@ -177,7 +177,7 @@ export default function AssetsPage() {
               <td style={{ fontSize: 12 }}>{a.location}</td>
               <td>{a.condition}</td>
               <td>{fmtDate(a.nextServiceDate)}</td>
-              <td><span className={'tag ' + (a.serviceDue ? 'tag-accent' : 'tag-neutral')}>{a.serviceDue ? 'Service due' : 'OK'}</span></td>
+              <td><span className={'tag ' + (a.serviceDue ? 'tag-accent' : 'tag-neutral')}>{a.serviceDue ? tr('Service due') : 'OK'}</span></td>
             </tr>
           ))}
         </tbody>

@@ -8,7 +8,7 @@ import LanguagePicker from '../components/LanguagePicker';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import { installUnlock } from '../lib/notificationSound';
-import { useI18n, isKnownLocale } from '../lib/i18n.jsx';
+import { useI18n, isKnownLocale, tr } from '../lib/i18n.jsx';
 import { api } from '../api/client';
 import './AppShell.css';
 
@@ -155,8 +155,8 @@ export default function AppShell() {
           <div className="shell-header-title-row">
             {currentItem && <span className="shell-header-icon"><Icon name={currentItem.icon} /></span>}
             <div>
-              <div className="eyebrow">{currentGroup ? currentGroup.label : 'Bamboo OS'}</div>
-              <h1 className="shell-header-title">{currentItem ? currentItem.label : 'Not found'}</h1>
+              <div className="eyebrow">{currentGroup ? currentGroup.label : tr('Bamboo OS')}</div>
+              <h1 className="shell-header-title">{currentItem ? currentItem.label : tr('Not found')}</h1>
             </div>
           </div>
           <div className="shell-header-actions">
@@ -164,8 +164,8 @@ export default function AppShell() {
               type="button"
               className="btn btn-secondary theme-toggle-btn"
               onClick={toggleTheme}
-              aria-label={isDarkPage ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={isDarkPage ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={isDarkPage ? tr('Switch to light mode') : tr('Switch to dark mode')}
+              title={isDarkPage ? tr('Switch to light mode') : tr('Switch to dark mode')}
             >
               <span className="theme-toggle-icon"><Icon name={isDarkPage ? 'sun' : 'moon'} /></span>
             </button>

@@ -220,7 +220,7 @@ export default function MessagesPage() {
                     <div className="messages-inbox-at">{fmtInboxAt(c.lastAt)}</div>
                   </div>
                   <div className="messages-inbox-row">
-                    <div className="messages-inbox-preview">{c.lastFromMe ? 'You: ' : ''}{c.lastBody}</div>
+                    <div className="messages-inbox-preview">{c.lastFromMe ? tr('You: ') : ''}{c.lastBody}</div>
                     {c.unread > 0 && <span className="messages-unread-dot">{c.unread}</span>}
                   </div>
                 </div>

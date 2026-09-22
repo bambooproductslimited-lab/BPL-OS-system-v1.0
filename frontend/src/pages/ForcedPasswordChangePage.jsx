@@ -108,7 +108,7 @@ export default function ForcedPasswordChangePage() {
 
       <div className="login-form-wrap">
         <form className="login-form" onSubmit={handleSubmit}>
-          <h1 className="login-form-title">{firstName ? 'Welcome, ' + firstName : 'Set a new password'}</h1>
+          <h1 className="login-form-title">{firstName ? tr('Welcome, ') + firstName : tr('Set a new password')}</h1>
           <p className="login-form-sub">{tr('Enter your current (temporary) password and choose a new one.')}</p>
 
           <div className="field">
@@ -119,7 +119,7 @@ export default function ForcedPasswordChangePage() {
                 id="fpc-current" className="input login-input" type={showCurrent ? 'text' : 'password'} autoComplete="current-password"
                 value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required
               />
-              <button type="button" className="login-input-toggle" onClick={() => setShowCurrent((s) => !s)} aria-label={showCurrent ? 'Hide password' : 'Show password'} tabIndex={-1}>
+              <button type="button" className="login-input-toggle" onClick={() => setShowCurrent((s) => !s)} aria-label={showCurrent ? tr('Hide password') : tr('Show password')} tabIndex={-1}>
                 <EyeToggleIcon shown={showCurrent} />
               </button>
             </div>
@@ -133,7 +133,7 @@ export default function ForcedPasswordChangePage() {
                 id="fpc-new" className="input login-input" type={showNew ? 'text' : 'password'} autoComplete="new-password"
                 value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required
               />
-              <button type="button" className="login-input-toggle" onClick={() => setShowNew((s) => !s)} aria-label={showNew ? 'Hide password' : 'Show password'} tabIndex={-1}>
+              <button type="button" className="login-input-toggle" onClick={() => setShowNew((s) => !s)} aria-label={showNew ? tr('Hide password') : tr('Show password')} tabIndex={-1}>
                 <EyeToggleIcon shown={showNew} />
               </button>
             </div>
@@ -153,7 +153,7 @@ export default function ForcedPasswordChangePage() {
           {error && <div className="error-banner">{error}</div>}
 
           <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Set password and continue'}
+            {submitting ? tr('Saving…') : tr('Set password and continue')}
           </button>
 
           <button type="button" className="btn btn-secondary btn-block" onClick={logout}>{tr('Sign out instead')}</button>

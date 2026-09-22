@@ -274,10 +274,10 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
         {status !== 'error' && <div className={'facecap-ring facecap-ring-' + (status === 'capturing' ? 'found' : status)} />}
       </div>
       <div className="facecap-status">
-        {status === 'starting' && 'Starting camera…'}
-        {status === 'searching' && (title || 'Look at the camera')}
-        {status === 'found' && (mode === 'kiosk' ? 'Got it…' : 'Face found — capture when ready')}
-        {posesDone && (ENROLL_POSES[poseIndex] ? ENROLL_POSES[poseIndex].label : 'Almost done…')}
+        {status === 'starting' && tr('Starting camera…')}
+        {status === 'searching' && (title || tr('Look at the camera'))}
+        {status === 'found' && (mode === 'kiosk' ? tr('Got it…') : tr('Face found — capture when ready'))}
+        {posesDone && (ENROLL_POSES[poseIndex] ? ENROLL_POSES[poseIndex].label : tr('Almost done…'))}
         {status === 'error' && errorMessage}
       </div>
       {posesDone && (

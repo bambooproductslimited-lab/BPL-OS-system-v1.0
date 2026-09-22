@@ -200,7 +200,7 @@ export default function DocumentsPage() {
                     <span className={'documents-file-icon documents-file-icon-' + kind.tone}><Icon name={kind.icon} /></span>
                     {dc.hasFile ? (
                       <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handlePreview(dc)}>
-                        {downloadingId === dc.id ? 'Preparing…' : dc.fileName}
+                        {downloadingId === dc.id ? tr('Preparing…') : dc.fileName}
                       </button>
                     ) : (
                       <span title={tr('Uploaded before file storage was set up — no file on record.')}>{dc.fileName}</span>
@@ -265,7 +265,7 @@ export default function DocumentsPage() {
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={uploading}>{uploading ? 'Adding…' : 'Add document'}</button>
+              <button type="submit" className="btn btn-primary" disabled={uploading}>{uploading ? tr('Adding…') : tr('Add document')}</button>
             </div>
           </form>
         </div>
@@ -278,7 +278,7 @@ export default function DocumentsPage() {
             <p className="dialog-body">{tr('Remove')} <strong>{deleteTarget.title}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Removing…' : 'Remove'}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Removing…') : tr('Remove')}</button>
             </div>
           </div>
         </div>

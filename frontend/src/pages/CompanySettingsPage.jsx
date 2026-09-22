@@ -163,7 +163,7 @@ export default function CompanySettingsPage() {
         </div>
         <div className="cs-form-footer">
           <button className="btn btn-primary" type="submit" disabled={locked || saving}>{tr('Save settings')}</button>
-          <span className="cs-note">{locked ? 'Read-only — your role cannot change company settings.' : 'Changes are written to the audit log.'}</span>
+          <span className="cs-note">{locked ? tr('Read-only — your role cannot change company settings.') : tr('Changes are written to the audit log.')}</span>
         </div>
       </form>
 
@@ -179,7 +179,7 @@ export default function CompanySettingsPage() {
           <span key={c} className="tag tag-outline cs-currency-chip">
             {c}
             {!locked && (
-              <button type="button" className="cs-currency-remove" disabled={currencySaving} onClick={() => removeCurrency(c)} aria-label={'Remove ' + c}>×</button>
+              <button type="button" className="cs-currency-remove" disabled={currencySaving} onClick={() => removeCurrency(c)} aria-label={tr('Remove ') + c}>×</button>
             )}
           </span>
         ))}
