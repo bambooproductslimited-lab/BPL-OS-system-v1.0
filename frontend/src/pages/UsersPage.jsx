@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './UsersPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's users screen (screens.users block + the
 // users computed value), backed by GET /api/users, POST /api/users/:id/role,
 // and POST /api/users/:id/status. The backend blocks changing your own role
@@ -216,7 +217,7 @@ export default function UsersPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const roleName = (u) => { const r = roles.find((x) => x.id === u.roleIds[0]); return r ? r.name : ''; };
   const visibleUsers = users.filter((u) => matchesQuery(search, u.name, u.email, roleName(u), u.status));
@@ -227,15 +228,15 @@ export default function UsersPage() {
 
       {canCreate && (
         <div style={{ marginBottom: 16 }}>
-          <button type="button" className="btn btn-primary" onClick={openCreate}>New user</button>
+          <button type="button" className="btn btn-primary" onClick={openCreate}>{tr('New user')}</button>
         </div>
       )}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search users…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search users…')} />
 
       <table className="table" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Employee</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>
+          <tr><th>{tr('Employee')}</th><th>{tr('Email')}</th><th>{tr('Role')}</th><th>{tr('Last sign-in')}</th><th>{tr('Status')}</th><th></th></tr>
         </thead>
         <tbody>
           {visibleUsers.map((u) => {
@@ -276,23 +277,23 @@ export default function UsersPage() {
       {!users.length && (
         <div className="users-empty-state">
           <span className="users-empty-icon"><UsersIcon /></span>
-          <p className="users-empty-title">No user accounts yet</p>
+          <p className="users-empty-title">{tr('No user accounts yet')}</p>
         </div>
       )}
       {!!users.length && !visibleUsers.length && (
         <div className="users-empty-state">
           <span className="users-empty-icon"><UsersIcon /></span>
-          <p className="users-empty-title">No users match "{search}"</p>
+          <p className="users-empty-title">{tr('No users match "')}{search}"</p>
         </div>
       )}
 
       {showCreate && (
         <div className="dialog-backdrop" onClick={() => setShowCreate(false)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>New user</h2>
+            <h2>{tr('New user')}</h2>
             <form className="users-dialog-form" onSubmit={handleCreate}>
               <div className="field">
-                <label htmlFor="nu-employee">Employee</label>
+                <label htmlFor="nu-employee">{tr('Employee')}</label>
                 <select
                   id="nu-employee"
                   className="input"
@@ -300,18 +301,18 @@ export default function UsersPage() {
                   onChange={(e) => setNewUser({ ...newUser, employeeId: e.target.value })}
                   required
                 >
-                  <option value="" disabled>Select an employee…</option>
+                  <option value="" disabled>{tr('Select an employee…')}</option>
                   {availableEmployees.map((emp) => (
                     <option key={emp.id} value={emp.id}>{emp.name} ({emp.email})</option>
                   ))}
                 </select>
                 {!availableEmployees.length && (
-                  <p className="field-hint">Every employee already has a login account.</p>
+                  <p className="field-hint">{tr('Every employee already has a login account.')}</p>
                 )}
               </div>
 
               <div className="field">
-                <label htmlFor="nu-role">Role</label>
+                <label htmlFor="nu-role">{tr('Role')}</label>
                 <select
                   id="nu-role"
                   className="input"
@@ -319,13 +320,13 @@ export default function UsersPage() {
                   onChange={(e) => setNewUser({ ...newUser, roleId: e.target.value })}
                   required
                 >
-                  <option value="" disabled>Select a role…</option>
+                  <option value="" disabled>{tr('Select a role…')}</option>
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
 
               <div className="field">
-                <label htmlFor="nu-password">Password</label>
+                <label htmlFor="nu-password">{tr('Password')}</label>
                 <input
                   id="nu-password"
                   className="input"
@@ -338,7 +339,7 @@ export default function UsersPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="nu-confirm">Confirm password</label>
+                <label htmlFor="nu-confirm">{tr('Confirm password')}</label>
                 <input
                   id="nu-confirm"
                   className="input"
@@ -356,13 +357,13 @@ export default function UsersPage() {
                   checked={newUser.mustChangePassword}
                   onChange={(e) => setNewUser({ ...newUser, mustChangePassword: e.target.checked })}
                 />
-                Require a password change at first sign-in
+                {tr('Require a password change at first sign-in')}
               </label>
 
               {createError && <div className="error-banner">{createError}</div>}
 
               <div className="dialog-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)}>{tr('Cancel')}</button>
                 <button type="submit" className="btn btn-primary" disabled={creating || !availableEmployees.length}>
                   {creating ? 'Creating…' : 'Create account'}
                 </button>
@@ -375,11 +376,11 @@ export default function UsersPage() {
       {resetTarget && (
         <div className="dialog-backdrop" onClick={() => setResetTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Reset password</h2>
-            <p className="dialog-body">Set a new password for <strong>{resetTarget.name}</strong>. They'll be required to change it at their next sign-in.</p>
+            <h2>{tr('Reset password')}</h2>
+            <p className="dialog-body">{tr('Set a new password for')} <strong>{resetTarget.name}</strong>{tr('. They\'ll be required to change it at their next sign-in.')}</p>
             <form className="users-dialog-form" onSubmit={handleReset}>
               <div className="field">
-                <label htmlFor="rp-password">New password</label>
+                <label htmlFor="rp-password">{tr('New password')}</label>
                 <input
                   id="rp-password"
                   className="input"
@@ -391,7 +392,7 @@ export default function UsersPage() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="rp-confirm">Confirm new password</label>
+                <label htmlFor="rp-confirm">{tr('Confirm new password')}</label>
                 <input
                   id="rp-confirm"
                   className="input"
@@ -406,7 +407,7 @@ export default function UsersPage() {
               {resetError && <div className="error-banner">{resetError}</div>}
 
               <div className="dialog-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setResetTarget(null)}>Cancel</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setResetTarget(null)}>{tr('Cancel')}</button>
                 <button type="submit" className="btn btn-primary" disabled={resetting}>
                   {resetting ? 'Saving…' : 'Reset password'}
                 </button>
@@ -419,14 +420,13 @@ export default function UsersPage() {
       {emailTarget && (
         <div className="dialog-backdrop" onClick={() => setEmailTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Change login email</h2>
+            <h2>{tr('Change login email')}</h2>
             <p className="dialog-body">
-              Set the email <strong>{emailTarget.name}</strong> signs in with. This only changes their login
-              account — it doesn't touch their employee record's own email address.
+              {tr('Set the email')} <strong>{emailTarget.name}</strong> {tr('signs in with. This only changes their login account — it doesn\'t touch their employee record\'s own email address.')}
             </p>
             <form className="users-dialog-form" onSubmit={handleEmailSave}>
               <div className="field">
-                <label htmlFor="ce-email">Login email</label>
+                <label htmlFor="ce-email">{tr('Login email')}</label>
                 <input
                   id="ce-email"
                   className="input"
@@ -441,7 +441,7 @@ export default function UsersPage() {
               {emailError && <div className="error-banner">{emailError}</div>}
 
               <div className="dialog-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setEmailTarget(null)}>Cancel</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setEmailTarget(null)}>{tr('Cancel')}</button>
                 <button type="submit" className="btn btn-primary" disabled={emailSaving}>
                   {emailSaving ? 'Saving…' : 'Save email'}
                 </button>

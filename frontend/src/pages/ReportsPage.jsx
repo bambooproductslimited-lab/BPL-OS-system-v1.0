@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { tr } from '../lib/i18n.jsx';
 import './ReportsPage.css';
 
 // Ported from Bamboo OS.dc.html's reports screen (screens.reports block +
@@ -39,7 +40,7 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (error) return <div className="error-banner">{error}</div>;
 
   const kpis = summary ? [
@@ -68,29 +69,29 @@ export default function ReportsPage() {
 
       <div className="reports-columns">
         <section>
-          <h2 className="reports-section-title">Expenses by category</h2>
+          <h2 className="reports-section-title">{tr('Expenses by category')}</h2>
           <table className="table">
-            <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+            <thead><tr><th>{tr('Category')}</th><th>{tr('Amount')}</th></tr></thead>
             <tbody>
               {expenseByCategory.map((r) => (
-                <tr key={r.category}><td>{r.category}</td><td>GHS {r.amount.toLocaleString()}</td></tr>
+                <tr key={r.category}><td>{r.category}</td><td>{tr('GHS')} {r.amount.toLocaleString()}</td></tr>
               ))}
             </tbody>
           </table>
         </section>
         <section>
-          <h2 className="reports-section-title">Sales by customer</h2>
+          <h2 className="reports-section-title">{tr('Sales by customer')}</h2>
           <table className="table">
-            <thead><tr><th>Customer</th><th>Amount</th></tr></thead>
+            <thead><tr><th>{tr('Customer')}</th><th>{tr('Amount')}</th></tr></thead>
             <tbody>
               {salesByCustomer.map((r) => (
-                <tr key={r.customer}><td>{r.customer}</td><td>GHS {r.amount.toLocaleString()}</td></tr>
+                <tr key={r.customer}><td>{r.customer}</td><td>{tr('GHS')} {r.amount.toLocaleString()}</td></tr>
               ))}
             </tbody>
           </table>
         </section>
       </div>
-      {!summary && <p className="table-empty">No data yet.</p>}
+      {!summary && <p className="table-empty">{tr('No data yet.')}</p>}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/of
 import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
 import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
+import { tr } from '../lib/i18n.jsx';
 import './KioskPage.css';
 
 // The clock-in/out kiosk — a full-screen, standalone page meant to be
@@ -302,11 +303,11 @@ export default function KioskPage() {
       <div className="kiosk-content">
         <div className="kiosk-header">
           <div>
-            <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
+            <div className="kiosk-brand">{tr('CHOU AND ASSOCIATES')}</div>
             {pendingCount > 0 && (
               <div className="kiosk-pending-badge">
                 <Icon name="cloud" />
-                {pendingCount} tap{pendingCount === 1 ? '' : 's'} syncing…
+                {pendingCount} {tr('tap')}{pendingCount === 1 ? '' : 's'} {tr('syncing…')}
               </div>
             )}
           </div>
@@ -337,8 +338,8 @@ export default function KioskPage() {
             )}
             {result.kind === 'pending' && (
               <>
-                <div className="kiosk-result-title">Recorded</div>
-                <div className="kiosk-result-name">No connection — this will sync automatically once you're back online.</div>
+                <div className="kiosk-result-title">{tr('Recorded')}</div>
+                <div className="kiosk-result-name">{tr('No connection — this will sync automatically once you\'re back online.')}</div>
               </>
             )}
             {result.kind === 'error' && (
@@ -349,7 +350,7 @@ export default function KioskPage() {
           <div className="kiosk-face-wrap">
             <FaceCapture
               mode="kiosk"
-              title="Confirm it's you"
+              title={tr('Confirm it\'s you')}
               subtitle="Hold still and look at the camera to finish clocking in or out."
               timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
               onCapture={(descriptor) => {
@@ -379,12 +380,12 @@ export default function KioskPage() {
               <button type="button" className="kiosk-camera-warning" onClick={enableCamera}>
                 <Icon name="xCircle" />
                 <span>
-                  <strong>This kiosk can&rsquo;t use its camera.</strong>
-                  Tap here and choose Allow. Staff who clock in by face can&rsquo;t use this device until someone does.
+                  <strong>{tr('This kiosk can’t use its camera.')}</strong>
+                  {tr('Tap here and choose Allow. Staff who clock in by face can’t use this device until someone does.')}
                 </span>
               </button>
             )}
-            <div className="kiosk-prompt">Enter your PIN to clock in or out</div>
+            <div className="kiosk-prompt">{tr('Enter your PIN to clock in or out')}</div>
             <div className="kiosk-pin-dots">
               {Array.from({ length: PIN_LENGTH }).map((_, i) => (
                 <span key={i} className={'kiosk-pin-dot' + (i < pin.length ? ' kiosk-pin-dot-filled' : '')} />
@@ -394,11 +395,11 @@ export default function KioskPage() {
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
                 <button key={d} type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
               ))}
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapClear}>Clear</button>
+              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapClear}>{tr('Clear')}</button>
               <button type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapBackspace} aria-label="Backspace"><Icon name="backspace" /></button>
+              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapBackspace} aria-label={tr('Backspace')}><Icon name="backspace" /></button>
             </div>
-            {submitting && <div className="kiosk-loading">Checking…</div>}
+            {submitting && <div className="kiosk-loading">{tr('Checking…')}</div>}
           </div>
         )}
       </div>

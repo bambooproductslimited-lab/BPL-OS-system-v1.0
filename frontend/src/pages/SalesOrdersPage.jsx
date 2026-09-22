@@ -9,6 +9,7 @@ import RecordDialog from '../components/RecordDialog';
 import { itemsForDialog } from '../lib/docItems';
 import { formatDate } from '../lib/dates';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's sales orders screen (screens.salesorders
 // block + createOrderFromQuote/setOrderStatus handlers and the salesOrders
 // computed values), backed by GET/POST /api/sales-orders and
@@ -135,7 +136,7 @@ export default function SalesOrdersPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const acceptedQuoteOptions = quotations.filter((q) => q.status === 'accepted');
   const visibleOrders = orders.filter((o) => matchesQuery(search, o.orderNo, o.customerName, o.status));
@@ -147,21 +148,21 @@ export default function SalesOrdersPage() {
       {canOpenCreateForm && (
         <form className="salesorders-form" onSubmit={createOrder}>
           <div className="field">
-            <label htmlFor="so-quote">Create order from an accepted quotation</label>
+            <label htmlFor="so-quote">{tr('Create order from an accepted quotation')}</label>
             <select id="so-quote" className="input" value={quotationId} onChange={(e) => setQuotationId(e.target.value)}>
-              <option value="">Choose a quotation</option>
+              <option value="">{tr('Choose a quotation')}</option>
               {acceptedQuoteOptions.map((q) => <option key={q.id} value={q.id}>{q.quoteNo} — {q.customerName}</option>)}
             </select>
           </div>
-          <button className="btn btn-primary" type="submit" disabled={!quotationId || creating}>Create order</button>
+          <button className="btn btn-primary" type="submit" disabled={!quotationId || creating}>{tr('Create order')}</button>
         </form>
       )}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search sales orders…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search sales orders…')} />
 
       <table className="table table-clickable" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th></th></tr>
+          <tr><th>{tr('Order')}</th><th>{tr('Customer')}</th><th>{tr('Total')}</th><th>{tr('Status')}</th><th></th></tr>
         </thead>
         <tbody>
           {visibleOrders.map((o) => {
@@ -196,13 +197,13 @@ export default function SalesOrdersPage() {
       {!orders.length && (
         <div className="salesorders-empty-state">
           <span className="salesorders-empty-icon"><DocIcon /></span>
-          <p className="salesorders-empty-title">No sales orders yet</p>
+          <p className="salesorders-empty-title">{tr('No sales orders yet')}</p>
         </div>
       )}
       {!!orders.length && !visibleOrders.length && (
         <div className="salesorders-empty-state">
           <span className="salesorders-empty-icon"><DocIcon /></span>
-          <p className="salesorders-empty-title">No sales orders match "{search}"</p>
+          <p className="salesorders-empty-title">{tr('No sales orders match "')}{search}"</p>
         </div>
       )}
 

@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProductionPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's production screen (screens.production
 // block + the rawBatches/warehouses/productionBatches computed values,
 // and the shared supplier/warehouse/product dialogs around its render()).
@@ -291,7 +292,7 @@ export default function ProductionPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const inStockBatches = rawBatches.filter((r) => r.status !== 'depleted');
   const visibleRawBatches = rawBatches.filter((r) => matchesQuery(rbSearch, r.batchNo, r.species, r.supplierName, r.warehouseName));
@@ -305,52 +306,52 @@ export default function ProductionPage() {
         <form className="card production-rb-form" ref={rawBatchFormRef} onSubmit={submitRawBatch}>
           <div className="field">
             <label htmlFor="rb-species">{rbEditId ? 'Edit raw bamboo batch · species' : 'Receive raw bamboo · species'}</label>
-            <input id="rb-species" className="input" value={rbForm.species} onChange={(e) => setRbForm({ ...rbForm, species: e.target.value })} placeholder="Bambusa vulgaris" required />
+            <input id="rb-species" className="input" value={rbForm.species} onChange={(e) => setRbForm({ ...rbForm, species: e.target.value })} placeholder={tr('Bambusa vulgaris')} required />
           </div>
           <div className="field">
-            <label htmlFor="rb-supplier">Supplier</label>
+            <label htmlFor="rb-supplier">{tr('Supplier')}</label>
             <div className="production-inline-select">
               <select id="rb-supplier" className="input" value={rbForm.supplierId} onChange={(e) => setRbForm({ ...rbForm, supplierId: e.target.value })} required>
-                <option value="" disabled>Choose a supplier</option>
+                <option value="" disabled>{tr('Choose a supplier')}</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
-              {canSupplier && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewSupplier}>+ New</button>}
+              {canSupplier && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewSupplier}>{tr('+ New')}</button>}
             </div>
           </div>
           <div className="field">
-            <label htmlFor="rb-qty">Quantity</label>
+            <label htmlFor="rb-qty">{tr('Quantity')}</label>
             <input id="rb-qty" className="input" type="number" value={rbForm.quantity} onChange={(e) => setRbForm({ ...rbForm, quantity: e.target.value })} required />
           </div>
           <div className="field">
-            <label htmlFor="rb-grade">Grade</label>
+            <label htmlFor="rb-grade">{tr('Grade')}</label>
             <select id="rb-grade" className="input" value={rbForm.grade} onChange={(e) => setRbForm({ ...rbForm, grade: e.target.value })}>
-              <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+              <option value="A">{tr('A')}</option><option value="B">{tr('B')}</option><option value="C">{tr('C')}</option>
             </select>
           </div>
           <div className="field">
-            <label htmlFor="rb-cost">Cost (GHS)</label>
+            <label htmlFor="rb-cost">{tr('Cost (GHS)')}</label>
             <input id="rb-cost" className="input" type="number" value={rbForm.cost} onChange={(e) => setRbForm({ ...rbForm, cost: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="rb-warehouse">Warehouse</label>
+            <label htmlFor="rb-warehouse">{tr('Warehouse')}</label>
             <div className="production-inline-select">
               <select id="rb-warehouse" className="input" value={rbForm.warehouseId} onChange={(e) => setRbForm({ ...rbForm, warehouseId: e.target.value })} required>
-                <option value="" disabled>Choose a warehouse</option>
+                <option value="" disabled>{tr('Choose a warehouse')}</option>
                 {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
-              {canWarehouse && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewWarehouse}>+ New</button>}
+              {canWarehouse && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewWarehouse}>{tr('+ New')}</button>}
             </div>
           </div>
           <button className="btn btn-primary production-submit-btn" type="submit" disabled={rbSaving}>{rbEditId ? 'Save changes' : 'Receive'}</button>
-          {rbEditId && <button type="button" className="btn btn-secondary production-submit-btn" onClick={cancelRawBatchEdit}>Cancel edit</button>}
+          {rbEditId && <button type="button" className="btn btn-secondary production-submit-btn" onClick={cancelRawBatchEdit}>{tr('Cancel edit')}</button>}
         </form>
       )}
 
-      <h2 className="production-section-title">Raw bamboo in stock</h2>
-      <SearchInput value={rbSearch} onChange={setRbSearch} placeholder="Search batch, species, supplier, warehouse…" />
+      <h2 className="production-section-title">{tr('Raw bamboo in stock')}</h2>
+      <SearchInput value={rbSearch} onChange={setRbSearch} placeholder={tr('Search batch, species, supplier, warehouse…')} />
       <table className="table" style={{ marginTop: 12 }}>
         <thead>
-          <tr><th>Batch</th><th>Species</th><th>Supplier</th><th>Warehouse</th><th>Quantity</th><th>Grade</th><th>Received</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Batch')}</th><th>{tr('Species')}</th><th>{tr('Supplier')}</th><th>{tr('Warehouse')}</th><th>{tr('Quantity')}</th><th>{tr('Grade')}</th><th>{tr('Received')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleRawBatches.map((r) => (
@@ -375,20 +376,20 @@ export default function ProductionPage() {
       {!rawBatches.length && (
         <div className="production-empty-state">
           <span className="production-empty-icon"><LeafIcon /></span>
-          <p className="production-empty-title">No raw material received yet</p>
+          <p className="production-empty-title">{tr('No raw material received yet')}</p>
         </div>
       )}
       {!!rawBatches.length && !visibleRawBatches.length && (
         <div className="production-empty-state">
           <span className="production-empty-icon"><LeafIcon /></span>
-          <p className="production-empty-title">No batches match "{rbSearch}"</p>
+          <p className="production-empty-title">{tr('No batches match "')}{rbSearch}"</p>
         </div>
       )}
 
-      <h2 className="production-section-title">Warehouses</h2>
+      <h2 className="production-section-title">{tr('Warehouses')}</h2>
       <table className="table">
         <thead>
-          <tr><th>Name</th><th>Location</th><th>Capacity</th><th>Raw stock held</th><th /></tr>
+          <tr><th>{tr('Name')}</th><th>{tr('Location')}</th><th>{tr('Capacity')}</th><th>{tr('Raw stock held')}</th><th /></tr>
         </thead>
         <tbody>
           {warehouses.map((w) => (
@@ -407,56 +408,56 @@ export default function ProductionPage() {
           ))}
         </tbody>
       </table>
-      {canWarehouse && <button type="button" className="btn btn-secondary" onClick={openNewWarehouse}>Add warehouse</button>}
+      {canWarehouse && <button type="button" className="btn btn-secondary" onClick={openNewWarehouse}>{tr('Add warehouse')}</button>}
 
       {canProduction && (
         <form className="card production-pb-form" onSubmit={recordProduction}>
           <div className="field">
-            <label htmlFor="pb-rawbatch">Record production · raw batch</label>
+            <label htmlFor="pb-rawbatch">{tr('Record production · raw batch')}</label>
             <div className="production-inline-select">
               <select id="pb-rawbatch" className="input" value={pbForm.rawBatchId} onChange={(e) => setPbForm({ ...pbForm, rawBatchId: e.target.value })} required>
-                <option value="" disabled>Choose a batch</option>
+                <option value="" disabled>{tr('Choose a batch')}</option>
                 {inStockBatches.map((r) => <option key={r.id} value={r.id}>{r.batchNo} — {r.species} ({r.quantity}{r.unit})</option>)}
               </select>
-              <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewRawBatch}>+ New</button>
+              <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewRawBatch}>{tr('+ New')}</button>
             </div>
           </div>
           <div className="field">
-            <label htmlFor="pb-product">Output product</label>
+            <label htmlFor="pb-product">{tr('Output product')}</label>
             <div className="production-inline-select">
               <select id="pb-product" className="input" value={pbForm.outputProductId} onChange={(e) => setPbForm({ ...pbForm, outputProductId: e.target.value })} required>
-                <option value="" disabled>Choose a product</option>
+                <option value="" disabled>{tr('Choose a product')}</option>
                 {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              {canInventory && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewProduct}>+ New</button>}
-              {canInventory && <button type="button" className="btn btn-secondary production-inline-btn" onClick={editSelectedProduct}>Edit</button>}
+              {canInventory && <button type="button" className="btn btn-secondary production-inline-btn" onClick={openNewProduct}>{tr('+ New')}</button>}
+              {canInventory && <button type="button" className="btn btn-secondary production-inline-btn" onClick={editSelectedProduct}>{tr('Edit')}</button>}
             </div>
           </div>
           <div className="field">
-            <label htmlFor="pb-input">Input qty</label>
+            <label htmlFor="pb-input">{tr('Input qty')}</label>
             <input id="pb-input" className="input" type="number" value={pbForm.inputQty} onChange={(e) => setPbForm({ ...pbForm, inputQty: e.target.value })} required />
           </div>
           <div className="field">
-            <label htmlFor="pb-output">Output qty</label>
+            <label htmlFor="pb-output">{tr('Output qty')}</label>
             <input id="pb-output" className="input" type="number" value={pbForm.outputQty} onChange={(e) => setPbForm({ ...pbForm, outputQty: e.target.value })} required />
           </div>
           <div className="field">
-            <label htmlFor="pb-waste">Waste</label>
+            <label htmlFor="pb-waste">{tr('Waste')}</label>
             <input id="pb-waste" className="input" type="number" value={pbForm.wasteQty} onChange={(e) => setPbForm({ ...pbForm, wasteQty: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="pb-rejected">Rejected</label>
+            <label htmlFor="pb-rejected">{tr('Rejected')}</label>
             <input id="pb-rejected" className="input" type="number" value={pbForm.rejectedQty} onChange={(e) => setPbForm({ ...pbForm, rejectedQty: e.target.value })} />
           </div>
-          <button className="btn btn-primary production-submit-btn" type="submit" disabled={pbSaving}>Record batch</button>
+          <button className="btn btn-primary production-submit-btn" type="submit" disabled={pbSaving}>{tr('Record batch')}</button>
         </form>
       )}
 
-      <h2 className="production-section-title">Production batches</h2>
-      <SearchInput value={pbSearch} onChange={setPbSearch} placeholder="Search batch, product, supervisor, line…" />
+      <h2 className="production-section-title">{tr('Production batches')}</h2>
+      <SearchInput value={pbSearch} onChange={setPbSearch} placeholder={tr('Search batch, product, supervisor, line…')} />
       <table className="table" style={{ marginTop: 12 }}>
         <thead>
-          <tr><th>Batch</th><th>Date</th><th>Line</th><th>Supervisor</th><th>Input</th><th>Output</th><th>Waste</th><th>Efficiency</th></tr>
+          <tr><th>{tr('Batch')}</th><th>{tr('Date')}</th><th>{tr('Line')}</th><th>{tr('Supervisor')}</th><th>{tr('Input')}</th><th>{tr('Output')}</th><th>{tr('Waste')}</th><th>{tr('Efficiency')}</th></tr>
         </thead>
         <tbody>
           {visibleProductionBatches.map((b) => (
@@ -481,13 +482,13 @@ export default function ProductionPage() {
       {!productionBatches.length && (
         <div className="production-empty-state">
           <span className="production-empty-icon"><LeafIcon /></span>
-          <p className="production-empty-title">No production batches recorded yet</p>
+          <p className="production-empty-title">{tr('No production batches recorded yet')}</p>
         </div>
       )}
       {!!productionBatches.length && !visibleProductionBatches.length && (
         <div className="production-empty-state">
           <span className="production-empty-icon"><LeafIcon /></span>
-          <p className="production-empty-title">No batches match "{pbSearch}"</p>
+          <p className="production-empty-title">{tr('No batches match "')}{pbSearch}"</p>
         </div>
       )}
 
@@ -497,19 +498,19 @@ export default function ProductionPage() {
             <h2>{whEditId ? 'Edit warehouse' : 'Add warehouse'}</h2>
             {whDialogError && <div className="error-banner">{whDialogError}</div>}
             <div className="field">
-              <label htmlFor="wh-name">Warehouse name</label>
+              <label htmlFor="wh-name">{tr('Warehouse name')}</label>
               <input id="wh-name" className="input" value={whForm.name} onChange={(e) => setWhForm({ ...whForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="wh-location">Location</label>
+              <label htmlFor="wh-location">{tr('Location')}</label>
               <input id="wh-location" className="input" value={whForm.location} onChange={(e) => setWhForm({ ...whForm, location: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="wh-capacity">Capacity</label>
+              <label htmlFor="wh-capacity">{tr('Capacity')}</label>
               <input id="wh-capacity" className="input" type="number" value={whForm.capacity} onChange={(e) => setWhForm({ ...whForm, capacity: e.target.value })} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setWhDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setWhDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={whSaving}>{whEditId ? 'Save changes' : 'Add warehouse'}</button>
             </div>
           </form>
@@ -519,10 +520,10 @@ export default function ProductionPage() {
       {whDeleteTarget && (
         <div className="dialog-backdrop" onClick={() => setWhDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete warehouse</h2>
-            <p className="dialog-body">Delete <strong>{whDeleteTarget.name}</strong>? This cannot be undone.</p>
+            <h2>{tr('Delete warehouse')}</h2>
+            <p className="dialog-body">{tr('Delete')} <strong>{whDeleteTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setWhDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setWhDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={whDeleting} onClick={confirmDeleteWarehouse}>{whDeleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>
@@ -532,35 +533,35 @@ export default function ProductionPage() {
       {supDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setSupDialogOpen(false)}>
           <form className="dialog production-2col-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitSupplier}>
-            <h2 className="production-dialog-title">Add supplier</h2>
+            <h2 className="production-dialog-title">{tr('Add supplier')}</h2>
             {supDialogError && <div className="error-banner production-dialog-span">{supDialogError}</div>}
             <div className="field production-dialog-span">
-              <label htmlFor="prsup-name">Supplier name</label>
+              <label htmlFor="prsup-name">{tr('Supplier name')}</label>
               <input id="prsup-name" className="input" value={supForm.name} onChange={(e) => setSupForm({ ...supForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prsup-contact">Contact person</label>
+              <label htmlFor="prsup-contact">{tr('Contact person')}</label>
               <input id="prsup-contact" className="input" value={supForm.contactPerson} onChange={(e) => setSupForm({ ...supForm, contactPerson: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prsup-phone">Phone</label>
+              <label htmlFor="prsup-phone">{tr('Phone')}</label>
               <input id="prsup-phone" className="input" value={supForm.phone} onChange={(e) => setSupForm({ ...supForm, phone: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prsup-email">Email</label>
+              <label htmlFor="prsup-email">{tr('Email')}</label>
               <input id="prsup-email" className="input" type="email" value={supForm.email} onChange={(e) => setSupForm({ ...supForm, email: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prsup-address">Address</label>
+              <label htmlFor="prsup-address">{tr('Address')}</label>
               <input id="prsup-address" className="input" value={supForm.address} onChange={(e) => setSupForm({ ...supForm, address: e.target.value })} />
             </div>
             <div className="field production-dialog-span">
-              <label htmlFor="prsup-materials">Materials supplied</label>
+              <label htmlFor="prsup-materials">{tr('Materials supplied')}</label>
               <input id="prsup-materials" className="input" value={supForm.materialsSupplied} onChange={(e) => setSupForm({ ...supForm, materialsSupplied: e.target.value })} required />
             </div>
             <div className="dialog-actions production-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setSupDialogOpen(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={supSaving}>Add supplier</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setSupDialogOpen(false)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={supSaving}>{tr('Add supplier')}</button>
             </div>
           </form>
         </div>
@@ -572,39 +573,39 @@ export default function ProductionPage() {
             <h2 className="production-dialog-title">{prodEditId ? 'Edit product' : 'Add product'}</h2>
             {prodDialogError && <div className="error-banner production-dialog-span">{prodDialogError}</div>}
             <div className="field">
-              <label htmlFor="prprod-sku">SKU</label>
+              <label htmlFor="prprod-sku">{tr('SKU')}</label>
               <input id="prprod-sku" className="input" value={prodForm.sku} onChange={(e) => setProdForm({ ...prodForm, sku: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prprod-name">Name</label>
+              <label htmlFor="prprod-name">{tr('Name')}</label>
               <input id="prprod-name" className="input" value={prodForm.name} onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prprod-category">Category</label>
+              <label htmlFor="prprod-category">{tr('Category')}</label>
               <input id="prprod-category" className="input" value={prodForm.category} onChange={(e) => setProdForm({ ...prodForm, category: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prprod-unit">Unit</label>
-              <input id="prprod-unit" className="input" value={prodForm.unit} onChange={(e) => setProdForm({ ...prodForm, unit: e.target.value })} placeholder="piece, plank, pack" />
+              <label htmlFor="prprod-unit">{tr('Unit')}</label>
+              <input id="prprod-unit" className="input" value={prodForm.unit} onChange={(e) => setProdForm({ ...prodForm, unit: e.target.value })} placeholder={tr('piece, plank, pack')} />
             </div>
             <div className="field">
-              <label htmlFor="prprod-cost">Cost price</label>
+              <label htmlFor="prprod-cost">{tr('Cost price')}</label>
               <input id="prprod-cost" className="input" type="number" value={prodForm.costPrice} onChange={(e) => setProdForm({ ...prodForm, costPrice: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prprod-price">Selling price</label>
+              <label htmlFor="prprod-price">{tr('Selling price')}</label>
               <input id="prprod-price" className="input" type="number" value={prodForm.sellingPrice} onChange={(e) => setProdForm({ ...prodForm, sellingPrice: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prprod-stock">Opening stock</label>
+              <label htmlFor="prprod-stock">{tr('Opening stock')}</label>
               <input id="prprod-stock" className="input" type="number" value={prodForm.currentStock} onChange={(e) => setProdForm({ ...prodForm, currentStock: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prprod-reorder">Reorder level</label>
+              <label htmlFor="prprod-reorder">{tr('Reorder level')}</label>
               <input id="prprod-reorder" className="input" type="number" value={prodForm.reorderLevel} onChange={(e) => setProdForm({ ...prodForm, reorderLevel: e.target.value })} />
             </div>
             <div className="dialog-actions production-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setProdDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setProdDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={prodSaving}>{prodEditId ? 'Save changes' : 'Add product'}</button>
             </div>
           </form>

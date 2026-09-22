@@ -8,6 +8,7 @@ import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Rent & utilities — the billing desk. Three tabs because the three jobs
 // are genuinely separate: raising the period's rent, turning meter
 // readings and shared bills into invoices, and looking at what's been
@@ -240,7 +241,7 @@ export default function PokiBillingPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const unbilled = readings.filter((r) => !r.invoiceId);
@@ -249,49 +250,48 @@ export default function PokiBillingPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <button type="button" className={'btn ' + (tab === 'utilities' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('utilities')}>Utilities</button>
-        <button type="button" className={'btn ' + (tab === 'invoices' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('invoices')}>Invoices</button>
+        <button type="button" className={'btn ' + (tab === 'utilities' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('utilities')}>{tr('Utilities')}</button>
+        <button type="button" className={'btn ' + (tab === 'invoices' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('invoices')}>{tr('Invoices')}</button>
       </div>
 
       {tab === 'utilities' && (
         <div>
           <p className="poki-muted" style={{ marginBottom: 12 }}>
-            Rent is invoiced when a booking is made, not from here — a booking is paid for up front.
-            Utilities are the only charge still raised after the fact.
+            {tr('Rent is invoiced when a booking is made, not from here — a booking is paid for up front. Utilities are the only charge still raised after the fact.')}
           </p>
           <div className="poki-section" style={{ marginTop: 0 }}>
             <div className="poki-toolbar">
-              <h2 className="poki-section-title" style={{ margin: 0 }}>Meter readings</h2>
+              <h2 className="poki-section-title" style={{ margin: 0 }}>{tr('Meter readings')}</h2>
               <div className="poki-toolbar-spacer" />
-              {canManage && <button type="button" className="btn btn-secondary" onClick={() => { setForm({ utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); }}>Add meter</button>}
+              {canManage && <button type="button" className="btn btn-secondary" onClick={() => { setForm({ utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); }}>{tr('Add meter')}</button>}
               {canManage && meters.length > 0 && (
-                <button type="button" className="btn btn-secondary" onClick={() => { setForm({ meterId: meters[0].id, periodStart: '', periodEnd: '', currentReading: '' }); setDialogError(null); setDialog('reading'); }}>Record reading</button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setForm({ meterId: meters[0].id, periodStart: '', periodEnd: '', currentReading: '' }); setDialogError(null); setDialog('reading'); }}>{tr('Record reading')}</button>
               )}
               {canManage && unbilled.length > 0 && (
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={billSelectedReadings}>Bill selected</button>
+                <button type="button" className="btn btn-primary" disabled={busy} onClick={billSelectedReadings}>{tr('Bill selected')}</button>
               )}
             </div>
 
             {meters.length === 0 ? (
               <div className="poki-empty">
-                <p className="poki-empty-title">No meters yet</p>
+                <p className="poki-empty-title">{tr('No meters yet')}</p>
                 <p className="poki-empty-sub">
-                  Add a sub-meter to any unit set to "metered" utilities, then record its readings each period to bill consumption.
+                  {tr('Add a sub-meter to any unit set to "metered" utilities, then record its readings each period to bill consumption.')}
                 </p>
               </div>
             ) : readings.length === 0 ? (
               <div className="poki-empty">
-                <p className="poki-empty-title">No readings recorded</p>
-                <p className="poki-empty-sub">Record a reading against a meter to bill the consumption.</p>
+                <p className="poki-empty-title">{tr('No readings recorded')}</p>
+                <p className="poki-empty-sub">{tr('Record a reading against a meter to bill the consumption.')}</p>
               </div>
             ) : (
               <table className="table">
                 <thead>
                   <tr>
                     <th style={{ width: 32 }}></th>
-                    <th>Unit</th><th>Utility</th><th>Period</th>
-                    <th className="poki-num">Previous</th><th className="poki-num">Current</th><th className="poki-num">Used</th>
-                    <th className="poki-num">Amount</th><th>Status</th>
+                    <th>{tr('Unit')}</th><th>{tr('Utility')}</th><th>{tr('Period')}</th>
+                    <th className="poki-num">{tr('Previous')}</th><th className="poki-num">{tr('Current')}</th><th className="poki-num">{tr('Used')}</th>
+                    <th className="poki-num">{tr('Amount')}</th><th>{tr('Status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -314,7 +314,7 @@ export default function PokiBillingPage() {
                       <td>
                         {r.invoiceId
                           ? <span className="poki-chip poki-chip-active">{r.invoiceNo}</span>
-                          : <span className="poki-chip poki-chip-open">unbilled</span>}
+                          : <span className="poki-chip poki-chip-open">{tr('unbilled')}</span>}
                       </td>
                     </tr>
                   ))}
@@ -325,28 +325,27 @@ export default function PokiBillingPage() {
 
           <div className="poki-section">
             <div className="poki-toolbar">
-              <h2 className="poki-section-title" style={{ margin: 0 }}>Shared (master) bills</h2>
+              <h2 className="poki-section-title" style={{ margin: 0 }}>{tr('Shared (master) bills')}</h2>
               <div className="poki-toolbar-spacer" />
               {canManage && properties.length > 0 && (
                 <button type="button" className="btn btn-secondary"
                   onClick={() => { setForm({ propertyId: properties[0].id, utilityType: 'electricity', splitMethod: 'share', periodStart: '', periodEnd: '', totalAmount: '' }); setDialogError(null); setDialog('master'); }}>
-                  Record master bill
+                  {tr('Record master bill')}
                 </button>
               )}
             </div>
             <p className="poki-section-sub">
-              The whole-building ECG or Ghana Water bill, split across the units set to "apportioned". Review the split before
-              charging it — apportioned utilities are the line tenants query most.
+              {tr('The whole-building ECG or Ghana Water bill, split across the units set to "apportioned". Review the split before charging it — apportioned utilities are the line tenants query most.')}
             </p>
             {masterBills.length === 0 ? (
               <div className="poki-empty">
-                <p className="poki-empty-title">No master bills recorded</p>
-                <p className="poki-empty-sub">Only needed if some units share a building meter rather than having their own.</p>
+                <p className="poki-empty-title">{tr('No master bills recorded')}</p>
+                <p className="poki-empty-sub">{tr('Only needed if some units share a building meter rather than having their own.')}</p>
               </div>
             ) : (
               <table className="table">
                 <thead>
-                  <tr><th>Property</th><th>Utility</th><th>Period</th><th className="poki-num">Total</th><th>Split by</th><th>Status</th><th></th></tr>
+                  <tr><th>{tr('Property')}</th><th>{tr('Utility')}</th><th>{tr('Period')}</th><th className="poki-num">{tr('Total')}</th><th>{tr('Split by')}</th><th>{tr('Status')}</th><th></th></tr>
                 </thead>
                 <tbody>
                   {masterBills.map((b) => (
@@ -358,8 +357,8 @@ export default function PokiBillingPage() {
                       <td className="poki-muted">{b.splitMethod === 'share' ? 'unit share %' : b.splitMethod === 'sqm' ? 'floor area' : 'equally'}</td>
                       <td>
                         {b.billedAt
-                          ? <span className="poki-chip poki-chip-active">apportioned</span>
-                          : <span className="poki-chip poki-chip-open">not billed</span>}
+                          ? <span className="poki-chip poki-chip-active">{tr('apportioned')}</span>
+                          : <span className="poki-chip poki-chip-open">{tr('not billed')}</span>}
                       </td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
@@ -378,27 +377,27 @@ export default function PokiBillingPage() {
       {tab === 'invoices' && (
         invoices.length === 0 ? (
           <div className="poki-empty">
-            <p className="poki-empty-title">No invoices raised yet</p>
-            <p className="poki-empty-sub">Rent, utility and repair invoices raised for Poki tenants appear here.</p>
+            <p className="poki-empty-title">{tr('No invoices raised yet')}</p>
+            <p className="poki-empty-sub">{tr('Rent, utility and repair invoices raised for Poki tenants appear here.')}</p>
             {canManage && (
               <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} onClick={openNewInvoice}>
-                New invoice
+                {tr('New invoice')}
               </button>
             )}
           </div>
         ) : (
           <>
           <div className="poki-toolbar">
-            <span className="poki-muted">{invoices.length} invoice(s)</span>
+            <span className="poki-muted">{invoices.length} {tr('invoice(s)')}</span>
             <div className="poki-toolbar-spacer" />
-            {canManage && <button type="button" className="btn btn-primary" onClick={openNewInvoice}>New invoice</button>}
+            {canManage && <button type="button" className="btn btn-primary" onClick={openNewInvoice}>{tr('New invoice')}</button>}
           </div>
           <div className="poki-table-wrap">
           <table className="table">
             <thead>
               <tr>
-                <th>Invoice</th><th>Kind</th><th>Tenant</th><th>Unit</th><th>Period</th><th>Due</th>
-                <th className="poki-num">Total</th><th className="poki-num">Balance</th><th>Status</th><th></th>
+                <th>{tr('Invoice')}</th><th>{tr('Kind')}</th><th>{tr('Tenant')}</th><th>{tr('Unit')}</th><th>{tr('Period')}</th><th>{tr('Due')}</th>
+                <th className="poki-num">{tr('Total')}</th><th className="poki-num">{tr('Balance')}</th><th>{tr('Status')}</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -453,31 +452,31 @@ export default function PokiBillingPage() {
             {dialog === 'meter' && (
               <>
                 <div className="field">
-                  <label htmlFor="pm-unit">Unit</label>
+                  <label htmlFor="pm-unit">{tr('Unit')}</label>
                   <select id="pm-unit" className="input" value={form.unitId || ''} onChange={set('unitId')} required>
-                    <option value="">Choose a unit…</option>
+                    <option value="">{tr('Choose a unit…')}</option>
                     {units.map((u) => <option key={u.id} value={u.id}>{u.propertyName} · {u.code}</option>)}
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="pm-type">Utility</label>
+                  <label htmlFor="pm-type">{tr('Utility')}</label>
                   <select id="pm-type" className="input" value={form.utilityType} onChange={set('utilityType')}>
-                    <option value="electricity">Electricity</option>
-                    <option value="water">Water</option>
-                    <option value="gas">Gas</option>
-                    <option value="other">Other</option>
+                    <option value="electricity">{tr('Electricity')}</option>
+                    <option value="water">{tr('Water')}</option>
+                    <option value="gas">{tr('Gas')}</option>
+                    <option value="other">{tr('Other')}</option>
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="pm-no">Meter number</label>
+                  <label htmlFor="pm-no">{tr('Meter number')}</label>
                   <input id="pm-no" className="input" value={form.meterNumber || ''} onChange={set('meterNumber')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pm-unitlbl">Measured in</label>
-                  <input id="pm-unitlbl" className="input" value={form.measureUnit} onChange={set('measureUnit')} placeholder="kWh, m³" />
+                  <label htmlFor="pm-unitlbl">{tr('Measured in')}</label>
+                  <input id="pm-unitlbl" className="input" value={form.measureUnit} onChange={set('measureUnit')} placeholder={tr('kWh, m³')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pm-rate">Rate per unit</label>
+                  <label htmlFor="pm-rate">{tr('Rate per unit')}</label>
                   <input id="pm-rate" className="input" type="number" step="0.0001" value={form.rate} onChange={set('rate')} required />
                 </div>
               </>
@@ -486,34 +485,34 @@ export default function PokiBillingPage() {
             {dialog === 'reading' && (
               <>
                 <div className="field poki-dialog-span">
-                  <label htmlFor="prd-meter">Meter</label>
+                  <label htmlFor="prd-meter">{tr('Meter')}</label>
                   <select id="prd-meter" className="input" value={form.meterId || ''} onChange={set('meterId')} required>
                     {meters.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.propertyName} · {m.unitCode} — {m.utilityType} ({m.meterNumber || 'no number'}) · last {m.lastReading}
+                        {m.propertyName} · {m.unitCode} — {m.utilityType} ({m.meterNumber || 'no number'}{tr(') · last')} {m.lastReading}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="prd-start">Period start</label>
+                  <label htmlFor="prd-start">{tr('Period start')}</label>
                   <input id="prd-start" className="input" type="date" value={form.periodStart} onChange={set('periodStart')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="prd-end">Period end</label>
+                  <label htmlFor="prd-end">{tr('Period end')}</label>
                   <input id="prd-end" className="input" type="date" value={form.periodEnd} onChange={set('periodEnd')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="prd-prev">Previous reading</label>
+                  <label htmlFor="prd-prev">{tr('Previous reading')}</label>
                   <input id="prd-prev" className="input" type="number" step="0.001" value={form.previousReading || ''} onChange={set('previousReading')}
                     placeholder={String((meters.find((m) => m.id === form.meterId) || {}).lastReading || 0)} />
                 </div>
                 <div className="field">
-                  <label htmlFor="prd-cur">Current reading</label>
+                  <label htmlFor="prd-cur">{tr('Current reading')}</label>
                   <input id="prd-cur" className="input" type="number" step="0.001" value={form.currentReading} onChange={set('currentReading')} required />
                 </div>
                 <p className="poki-dialog-hint">
-                  Leave the previous reading blank to carry forward this meter's last recorded figure.
+                  {tr('Leave the previous reading blank to carry forward this meter\'s last recorded figure.')}
                 </p>
               </>
             )}
@@ -521,49 +520,49 @@ export default function PokiBillingPage() {
             {dialog === 'master' && (
               <>
                 <div className="field">
-                  <label htmlFor="pmb-prop">Property</label>
+                  <label htmlFor="pmb-prop">{tr('Property')}</label>
                   <select id="pmb-prop" className="input" value={form.propertyId} onChange={set('propertyId')} required>
                     {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="pmb-type">Utility</label>
+                  <label htmlFor="pmb-type">{tr('Utility')}</label>
                   <select id="pmb-type" className="input" value={form.utilityType} onChange={set('utilityType')}>
-                    <option value="electricity">Electricity</option>
-                    <option value="water">Water</option>
-                    <option value="gas">Gas</option>
-                    <option value="other">Other</option>
+                    <option value="electricity">{tr('Electricity')}</option>
+                    <option value="water">{tr('Water')}</option>
+                    <option value="gas">{tr('Gas')}</option>
+                    <option value="other">{tr('Other')}</option>
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="pmb-start">Period start</label>
+                  <label htmlFor="pmb-start">{tr('Period start')}</label>
                   <input id="pmb-start" className="input" type="date" value={form.periodStart} onChange={set('periodStart')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="pmb-end">Period end</label>
+                  <label htmlFor="pmb-end">{tr('Period end')}</label>
                   <input id="pmb-end" className="input" type="date" value={form.periodEnd} onChange={set('periodEnd')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="pmb-total">Bill total</label>
+                  <label htmlFor="pmb-total">{tr('Bill total')}</label>
                   <input id="pmb-total" className="input" type="number" step="0.01" value={form.totalAmount} onChange={set('totalAmount')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="pmb-split">Split by</label>
+                  <label htmlFor="pmb-split">{tr('Split by')}</label>
                   <select id="pmb-split" className="input" value={form.splitMethod} onChange={set('splitMethod')}>
-                    <option value="share">Each unit's share %</option>
-                    <option value="equal">Equally between units</option>
-                    <option value="sqm">Floor area</option>
+                    <option value="share">{tr('Each unit\'s share %')}</option>
+                    <option value="equal">{tr('Equally between units')}</option>
+                    <option value="sqm">{tr('Floor area')}</option>
                   </select>
                 </div>
                 <div className="field poki-dialog-span">
-                  <label htmlFor="pmb-ref">Reference</label>
-                  <input id="pmb-ref" className="input" value={form.reference || ''} onChange={set('reference')} placeholder="e.g. ECG account / bill number" />
+                  <label htmlFor="pmb-ref">{tr('Reference')}</label>
+                  <input id="pmb-ref" className="input" value={form.reference || ''} onChange={set('reference')} placeholder={tr('e.g. ECG account / bill number')} />
                 </div>
               </>
             )}
 
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
@@ -573,15 +572,15 @@ export default function PokiBillingPage() {
       {dialog === 'split' && split && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <div className="dialog poki-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 className="poki-dialog-title">Split — {split.propertyName}</h2>
+            <h2 className="poki-dialog-title">{tr('Split —')} {split.propertyName}</h2>
             <p className="poki-dialog-hint">
-              {money(split.totalAmount, 'GHS')} for {fmtDate(split.periodStart)} → {fmtDate(split.periodEnd)}, split by{' '}
+              {money(split.totalAmount, 'GHS')} {tr('for')} {fmtDate(split.periodStart)} → {fmtDate(split.periodEnd)}{tr(', split by')}{' '}
               {split.splitMethod === 'share' ? "each unit's share %" : split.splitMethod === 'sqm' ? 'floor area' : 'equal shares'}.
             </p>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             {split.weightBasisMissing && (
               <p className="poki-dialog-hint poki-overdue">
-                No usable shares or floor areas are recorded on these units, so the bill is being split equally.
+                {tr('No usable shares or floor areas are recorded on these units, so the bill is being split equally.')}
               </p>
             )}
             <div className="poki-dialog-span">
@@ -589,12 +588,12 @@ export default function PokiBillingPage() {
                 <p className="poki-muted">{split.note || 'No apportioned units in this property.'}</p>
               ) : (
                 <table className="table">
-                  <thead><tr><th>Unit</th><th>Tenant</th><th className="poki-num">Share</th><th className="poki-num">Amount</th></tr></thead>
+                  <thead><tr><th>{tr('Unit')}</th><th>{tr('Tenant')}</th><th className="poki-num">{tr('Share')}</th><th className="poki-num">{tr('Amount')}</th></tr></thead>
                   <tbody>
                     {split.lines.map((l) => (
                       <tr key={l.unitId}>
                         <td className="poki-strong">{l.unitCode}</td>
-                        <td>{l.tenantName || <span className="poki-muted">vacant — not billed</span>}</td>
+                        <td>{l.tenantName || <span className="poki-muted">{tr('vacant — not billed')}</span>}</td>
                         <td className="poki-num">{l.sharePercent}%</td>
                         <td className="poki-num">{money(l.amount, l.currency)}</td>
                       </tr>
@@ -604,7 +603,7 @@ export default function PokiBillingPage() {
               )}
             </div>
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Close')}</button>
               {canManage && !split.billedAt && split.lines.some((l) => l.billable) && (
                 <button type="button" className="btn btn-primary" disabled={busy} onClick={billMaster}>
                   {busy ? 'Billing…' : 'Charge to tenants'}
@@ -618,37 +617,36 @@ export default function PokiBillingPage() {
       {payFor && (
         <div className="dialog-backdrop" onClick={() => setPayFor(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
-            <h2 className="poki-dialog-title">Record payment — {payFor.invoiceNo}</h2>
+            <h2 className="poki-dialog-title">{tr('Record payment —')} {payFor.invoiceNo}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
-              {payFor.customerName} · outstanding {money(payFor.balanceDue, payFor.currency)}. A receipt is generated
-              automatically, and part payments are fine.
+              {payFor.customerName} {tr('· outstanding')} {money(payFor.balanceDue, payFor.currency)}{tr('. A receipt is generated automatically, and part payments are fine.')}
             </p>
             {invError && <div className="error-banner poki-dialog-span">{invError}</div>}
             <div className="field">
-              <label htmlFor="pp-amount">Amount</label>
+              <label htmlFor="pp-amount">{tr('Amount')}</label>
               <input id="pp-amount" className="input" type="number" step="0.01" value={payForm.amount}
                 onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="pp-method">Method</label>
+              <label htmlFor="pp-method">{tr('Method')}</label>
               <select id="pp-method" className="input" value={payForm.method}
                 onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
-                <option value="bank_transfer">Bank transfer</option>
-                <option value="mobile_money">Mobile money</option>
-                <option value="cash">Cash</option>
-                <option value="cheque">Cheque</option>
-                <option value="card">Card</option>
-                <option value="other">Other</option>
+                <option value="bank_transfer">{tr('Bank transfer')}</option>
+                <option value="mobile_money">{tr('Mobile money')}</option>
+                <option value="cash">{tr('Cash')}</option>
+                <option value="cheque">{tr('Cheque')}</option>
+                <option value="card">{tr('Card')}</option>
+                <option value="other">{tr('Other')}</option>
               </select>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pp-ref">Reference</label>
+              <label htmlFor="pp-ref">{tr('Reference')}</label>
               <input id="pp-ref" className="input" value={payForm.reference}
                 onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })}
-                placeholder="momo transaction id, cheque no…" />
+                placeholder={tr('momo transaction id, cheque no…')} />
             </div>
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setPayFor(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setPayFor(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button>
             </div>
           </form>
@@ -658,61 +656,60 @@ export default function PokiBillingPage() {
       {newInv && (
         <div className="dialog-backdrop" onClick={() => setNewInv(null)}>
           <form className="dialog poki-dialog poki-offer-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitNewInvoice}>
-            <h2 className="poki-dialog-title">New invoice</h2>
+            <h2 className="poki-dialog-title">{tr('New invoice')}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
-              For one-off charges — service charge, late fee, cleaning, damages. Rent and metered utilities are raised
-              from the Rent run and Utilities tabs so their bookkeeping stays in step.
+              {tr('For one-off charges — service charge, late fee, cleaning, damages. Rent and metered utilities are raised from the Rent run and Utilities tabs so their bookkeeping stays in step.')}
             </p>
             {invError && <div className="error-banner poki-dialog-span">{invError}</div>}
 
             <div className="field">
-              <label htmlFor="pn-tenant">Tenant</label>
+              <label htmlFor="pn-tenant">{tr('Tenant')}</label>
               <select id="pn-tenant" className="input" value={newInv.tenantId}
                 onChange={(e) => setNewInv({ ...newInv, tenantId: e.target.value, bookingId: '' })} required>
-                <option value="">Choose a tenant…</option>
+                <option value="">{tr('Choose a tenant…')}</option>
                 {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pn-kind">Charge kind</label>
+              <label htmlFor="pn-kind">{tr('Charge kind')}</label>
               <select id="pn-kind" className="input" value={newInv.docKind}
                 onChange={(e) => setNewInv({ ...newInv, docKind: e.target.value })}>
-                <option value="other">Other</option>
-                <option value="deposit">Deposit</option>
-                <option value="maintenance">Maintenance</option>
+                <option value="other">{tr('Other')}</option>
+                <option value="deposit">{tr('Deposit')}</option>
+                <option value="maintenance">{tr('Maintenance')}</option>
               </select>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pn-booking">Against booking (optional)</label>
+              <label htmlFor="pn-booking">{tr('Against booking (optional)')}</label>
               <select id="pn-booking" className="input" value={newInv.bookingId}
                 onChange={(e) => setNewInv({ ...newInv, bookingId: e.target.value })}>
-                <option value="">Not tied to a booking</option>
+                <option value="">{tr('Not tied to a booking')}</option>
                 {bookings.filter((l) => !newInv.tenantId || l.tenantId === newInv.tenantId).map((l) => (
                   <option key={l.id} value={l.id}>{l.bookingNo} · {l.propertyName} · {l.unitCode}</option>
                 ))}
               </select>
-              <p className="poki-dialog-hint">Attaching the booking makes the charge show in that tenancy&rsquo;s arrears.</p>
+              <p className="poki-dialog-hint">{tr('Attaching the booking makes the charge show in that tenancy’s arrears.')}</p>
             </div>
 
             <div className="poki-dialog-span">
               <div className="poki-lines-head">
-                <span>Lines</span>
+                <span>{tr('Lines')}</span>
                 <span className="poki-muted">
-                  Total {money(newInv.items.reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0), 'GHS')}
+                  {tr('Total')} {money(newInv.items.reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0), 'GHS')}
                 </span>
               </div>
               {newInv.items.map((it, idx) => (
                 <div className="poki-line-row" key={idx}>
-                  <input className="input" placeholder="Description" value={it.description}
+                  <input className="input" placeholder={tr('Description')} value={it.description}
                     aria-label={'Line ' + (idx + 1) + ' description'}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, description: e.target.value } : x)) })} />
-                  <input className="input" type="number" step="0.01" placeholder="Qty" value={it.qty}
+                  <input className="input" type="number" step="0.01" placeholder={tr('Qty')} value={it.qty}
                     aria-label={'Line ' + (idx + 1) + ' quantity'}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, qty: e.target.value } : x)) })} />
-                  <input className="input" placeholder="Unit" value={it.unit || ''}
+                  <input className="input" placeholder={tr('Unit')} value={it.unit || ''}
                     aria-label={'Line ' + (idx + 1) + ' unit'}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unit: e.target.value } : x)) })} />
-                  <input className="input" type="number" step="0.01" placeholder="Price" value={it.unitPrice}
+                  <input className="input" type="number" step="0.01" placeholder={tr('Price')} value={it.unitPrice}
                     aria-label={'Line ' + (idx + 1) + ' price'}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unitPrice: e.target.value } : x)) })} />
                   <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 'GHS')}</span>
@@ -721,22 +718,22 @@ export default function PokiBillingPage() {
                 </div>
               ))}
               <button type="button" className="btn btn-secondary poki-row-btn"
-                onClick={() => setNewInv({ ...newInv, items: [...newInv.items, { description: '', qty: 1, unitPrice: '' }] })}>Add line</button>
+                onClick={() => setNewInv({ ...newInv, items: [...newInv.items, { description: '', qty: 1, unitPrice: '' }] })}>{tr('Add line')}</button>
             </div>
 
             <div className="field">
-              <label htmlFor="pn-due">Due date</label>
+              <label htmlFor="pn-due">{tr('Due date')}</label>
               <input id="pn-due" className="input" type="date" value={newInv.dueDate}
                 onChange={(e) => setNewInv({ ...newInv, dueDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="pn-notes">Note on the invoice</label>
+              <label htmlFor="pn-notes">{tr('Note on the invoice')}</label>
               <input id="pn-notes" className="input" value={newInv.notes}
                 onChange={(e) => setNewInv({ ...newInv, notes: e.target.value })} />
             </div>
 
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setNewInv(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setNewInv(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Raising…' : 'Raise invoice'}</button>
             </div>
           </form>

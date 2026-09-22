@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './InventoryPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's inventory screen (screens.inventory
 // block + the products computed values, and the shared "product"
 // create/edit dialog around its render()).
@@ -101,7 +102,7 @@ export default function InventoryPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleProducts = products.filter((p) => matchesQuery(search, p.sku, p.name, p.category));
 
@@ -110,13 +111,13 @@ export default function InventoryPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="inventory-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search products…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add product</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search products…')} />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add product')}</button>}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>SKU</th><th>Product</th><th>Category</th><th>Cost</th><th>Selling price</th><th>Stock</th><th>Reorder level</th><th /><th /></tr>
+          <tr><th>{tr('SKU')}</th><th>{tr('Product')}</th><th>{tr('Category')}</th><th>{tr('Cost')}</th><th>{tr('Selling price')}</th><th>{tr('Stock')}</th><th>{tr('Reorder level')}</th><th /><th /></tr>
         </thead>
         <tbody>
           {visibleProducts.map((p) => (
@@ -146,13 +147,13 @@ export default function InventoryPage() {
       {!products.length && (
         <div className="inventory-empty-state">
           <span className="inventory-empty-icon"><BoxIcon /></span>
-          <p className="inventory-empty-title">No products in the catalogue yet</p>
+          <p className="inventory-empty-title">{tr('No products in the catalogue yet')}</p>
         </div>
       )}
       {!!products.length && !visibleProducts.length && (
         <div className="inventory-empty-state">
           <span className="inventory-empty-icon"><BoxIcon /></span>
-          <p className="inventory-empty-title">No products match "{search}"</p>
+          <p className="inventory-empty-title">{tr('No products match "')}{search}"</p>
         </div>
       )}
 
@@ -162,39 +163,39 @@ export default function InventoryPage() {
             <h2 className="inventory-dialog-title">{editId ? 'Edit product' : 'Add product'}</h2>
             {dialogError && <div className="error-banner inventory-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="prod-sku">SKU</label>
+              <label htmlFor="prod-sku">{tr('SKU')}</label>
               <input id="prod-sku" className="input" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prod-name">Name</label>
+              <label htmlFor="prod-name">{tr('Name')}</label>
               <input id="prod-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prod-category">Category</label>
+              <label htmlFor="prod-category">{tr('Category')}</label>
               <input id="prod-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="prod-unit">Unit</label>
-              <input id="prod-unit" className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="piece, plank, pack" />
+              <label htmlFor="prod-unit">{tr('Unit')}</label>
+              <input id="prod-unit" className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder={tr('piece, plank, pack')} />
             </div>
             <div className="field">
-              <label htmlFor="prod-cost">Cost price</label>
+              <label htmlFor="prod-cost">{tr('Cost price')}</label>
               <input id="prod-cost" className="input" type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prod-price">Selling price</label>
+              <label htmlFor="prod-price">{tr('Selling price')}</label>
               <input id="prod-price" className="input" type="number" value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prod-stock">Opening stock</label>
+              <label htmlFor="prod-stock">{tr('Opening stock')}</label>
               <input id="prod-stock" className="input" type="number" value={form.currentStock} onChange={(e) => setForm({ ...form, currentStock: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="prod-reorder">Reorder level</label>
+              <label htmlFor="prod-reorder">{tr('Reorder level')}</label>
               <input id="prod-reorder" className="input" type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} />
             </div>
             <div className="dialog-actions inventory-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add product'}</button>
             </div>
           </form>

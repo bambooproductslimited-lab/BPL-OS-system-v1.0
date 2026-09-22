@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import RowMenu from './RowMenu';
+import { tr } from '../lib/i18n.jsx';
 import './RecordDialog.css';
 
 // The panel that opens when a table row is clicked.
@@ -49,7 +50,7 @@ export default function RecordDialog({ title, subtitle, tag, fields, items, tota
           <div className="record-dialog-head-right">
             {tag}
             {actions && actions.length > 0 && <RowMenu actions={actions} label="Actions" />}
-            <button type="button" ref={closeRef} className="record-dialog-close" onClick={onClose} aria-label="Close">
+            <button type="button" ref={closeRef} className="record-dialog-close" onClick={onClose} aria-label={tr('Close')}>
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                 <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
               </svg>
@@ -68,14 +69,14 @@ export default function RecordDialog({ title, subtitle, tag, fields, items, tota
 
         {items && items.length > 0 && (
           <div className="record-dialog-items">
-            <div className="record-dialog-items-head">Items</div>
+            <div className="record-dialog-items-head">{tr('Items')}</div>
             <table className="record-dialog-items-table">
               <thead>
                 <tr>
-                  <th>Description</th>
-                  <th className="num">Qty</th>
-                  <th className="num">Unit price</th>
-                  <th className="num">Amount</th>
+                  <th>{tr('Description')}</th>
+                  <th className="num">{tr('Qty')}</th>
+                  <th className="num">{tr('Unit price')}</th>
+                  <th className="num">{tr('Amount')}</th>
                 </tr>
               </thead>
               <tbody>

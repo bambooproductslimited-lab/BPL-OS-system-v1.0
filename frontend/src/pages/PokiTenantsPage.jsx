@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Poki's tenant register. Deliberately separate from Bamboo Products'
 // client list: a tenant carries things a sales customer doesn't (ID
 // document, next of kin, employer) and shouldn't clutter the furniture
@@ -88,7 +89,7 @@ export default function PokiTenantsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visible = tenants.filter((t) =>
     matchesQuery(search, t.name, t.email, t.phone, t.unitLabels) && (!statusFilter || t.status === statusFilter)
@@ -100,16 +101,16 @@ export default function PokiTenantsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search tenants…" />
-        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="prospect">Prospect</option>
-          <option value="active">Active</option>
-          <option value="former">Former</option>
-          <option value="blacklisted">Blacklisted</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search tenants…')} />
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
+          <option value="prospect">{tr('Prospect')}</option>
+          <option value="active">{tr('Active')}</option>
+          <option value="former">{tr('Former')}</option>
+          <option value="blacklisted">{tr('Blacklisted')}</option>
         </select>
         <div className="poki-toolbar-spacer" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={() => openDialog(null)}>Add tenant</button>}
+        {canManage && <button type="button" className="btn btn-primary" onClick={() => openDialog(null)}>{tr('Add tenant')}</button>}
       </div>
 
       {visible.length === 0 ? (
@@ -125,7 +126,7 @@ export default function PokiTenantsPage() {
         <div className="poki-table-wrap">
 <table className="table">
           <thead>
-            <tr><th>Tenant</th><th>Contact</th><th>ID</th><th>Occupies</th><th>Status</th><th></th></tr>
+            <tr><th>{tr('Tenant')}</th><th>{tr('Contact')}</th><th>{tr('ID')}</th><th>{tr('Occupies')}</th><th>{tr('Status')}</th><th></th></tr>
           </thead>
           <tbody>
             {visible.map((t) => (
@@ -135,7 +136,7 @@ export default function PokiTenantsPage() {
                   <div className="poki-muted" style={{ textTransform: 'capitalize' }}>{t.tenantType}</div>
                 </td>
                 <td>
-                  <div>{t.phone || <span className="poki-muted">no phone</span>}</div>
+                  <div>{t.phone || <span className="poki-muted">{tr('no phone')}</span>}</div>
                   <div className="poki-muted">{t.email}</div>
                 </td>
                 <td className="poki-muted poki-nowrap">{t.idNumber ? t.idType + ' · ' + t.idNumber : '—'}</td>
@@ -161,85 +162,85 @@ export default function PokiTenantsPage() {
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field">
-              <label htmlFor="pt-name">Name</label>
+              <label htmlFor="pt-name">{tr('Name')}</label>
               <input id="pt-name" className="input" value={form.name} onChange={set('name')} required />
             </div>
             <div className="field">
-              <label htmlFor="pt-type">Type</label>
+              <label htmlFor="pt-type">{tr('Type')}</label>
               <select id="pt-type" className="input" value={form.tenantType} onChange={set('tenantType')}>
-                <option value="individual">Individual</option>
-                <option value="company">Company</option>
+                <option value="individual">{tr('Individual')}</option>
+                <option value="company">{tr('Company')}</option>
               </select>
             </div>
             {form.tenantType === 'company' && (
               <div className="field poki-dialog-span">
-                <label htmlFor="pt-contact">Contact person</label>
+                <label htmlFor="pt-contact">{tr('Contact person')}</label>
                 <input id="pt-contact" className="input" value={form.contactPerson} onChange={set('contactPerson')} />
               </div>
             )}
             <div className="field">
-              <label htmlFor="pt-phone">Phone</label>
+              <label htmlFor="pt-phone">{tr('Phone')}</label>
               <input id="pt-phone" className="input" value={form.phone} onChange={set('phone')} placeholder="024 000 0000" />
             </div>
             <div className="field">
-              <label htmlFor="pt-email">Email</label>
+              <label htmlFor="pt-email">{tr('Email')}</label>
               <input id="pt-email" className="input" type="email" value={form.email} onChange={set('email')} />
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pt-address">Address</label>
+              <label htmlFor="pt-address">{tr('Address')}</label>
               <input id="pt-address" className="input" value={form.address} onChange={set('address')} />
             </div>
             <div className="field">
-              <label htmlFor="pt-idtype">ID type</label>
-              <input id="pt-idtype" className="input" value={form.idType} onChange={set('idType')} placeholder="Ghana Card / TIN / Passport" />
+              <label htmlFor="pt-idtype">{tr('ID type')}</label>
+              <input id="pt-idtype" className="input" value={form.idType} onChange={set('idType')} placeholder={tr('Ghana Card / TIN / Passport')} />
             </div>
             <div className="field">
-              <label htmlFor="pt-idnum">ID number</label>
+              <label htmlFor="pt-idnum">{tr('ID number')}</label>
               <input id="pt-idnum" className="input" value={form.idNumber} onChange={set('idNumber')} />
             </div>
             {form.tenantType === 'individual' && (
               <>
                 <div className="field">
-                  <label htmlFor="pt-occ">Occupation</label>
+                  <label htmlFor="pt-occ">{tr('Occupation')}</label>
                   <input id="pt-occ" className="input" value={form.occupation} onChange={set('occupation')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pt-emp">Employer</label>
+                  <label htmlFor="pt-emp">{tr('Employer')}</label>
                   <input id="pt-emp" className="input" value={form.employer} onChange={set('employer')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pt-nok">Next of kin</label>
+                  <label htmlFor="pt-nok">{tr('Next of kin')}</label>
                   <input id="pt-nok" className="input" value={form.nextOfKinName} onChange={set('nextOfKinName')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pt-nokp">Next of kin phone</label>
+                  <label htmlFor="pt-nokp">{tr('Next of kin phone')}</label>
                   <input id="pt-nokp" className="input" value={form.nextOfKinPhone} onChange={set('nextOfKinPhone')} />
                 </div>
               </>
             )}
             <div className="field">
-              <label htmlFor="pt-emg">Emergency contact</label>
+              <label htmlFor="pt-emg">{tr('Emergency contact')}</label>
               <input id="pt-emg" className="input" value={form.emergencyContactName} onChange={set('emergencyContactName')} />
             </div>
             <div className="field">
-              <label htmlFor="pt-emgp">Emergency phone</label>
+              <label htmlFor="pt-emgp">{tr('Emergency phone')}</label>
               <input id="pt-emgp" className="input" value={form.emergencyContactPhone} onChange={set('emergencyContactPhone')} />
             </div>
             <div className="field">
-              <label htmlFor="pt-status">Status</label>
+              <label htmlFor="pt-status">{tr('Status')}</label>
               <select id="pt-status" className="input" value={form.status} onChange={set('status')}>
-                <option value="prospect">Prospect</option>
-                <option value="active">Active</option>
-                <option value="former">Former</option>
-                <option value="blacklisted">Blacklisted</option>
+                <option value="prospect">{tr('Prospect')}</option>
+                <option value="active">{tr('Active')}</option>
+                <option value="former">{tr('Former')}</option>
+                <option value="blacklisted">{tr('Blacklisted')}</option>
               </select>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pt-notes">Notes</label>
+              <label htmlFor="pt-notes">{tr('Notes')}</label>
               <textarea id="pt-notes" className="input" rows={2} value={form.notes} onChange={set('notes')} />
             </div>
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>

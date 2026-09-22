@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { tr } from '../lib/i18n.jsx';
 import './AssistantPage.css';
 
 // Ported from Bamboo OS.dc.html's assistant screen (screens.assistant
@@ -86,8 +87,7 @@ export default function AssistantPage() {
   return (
     <div>
       <p className="assistant-intro">
-        Answers only from what your role can see — the same data your dashboard and screens already
-        show you. It does not take actions on your behalf.
+        {tr('Answers only from what your role can see — the same data your dashboard and screens already show you. It does not take actions on your behalf.')}
       </p>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
@@ -95,7 +95,7 @@ export default function AssistantPage() {
         <div className="assistant-history" ref={scrollRef}>
           {!messages.length && (
             <div className="assistant-suggestions">
-              <div className="assistant-suggestions-label">Try asking:</div>
+              <div className="assistant-suggestions-label">{tr('Try asking:')}</div>
               {SUGGESTIONS.map((s) => (
                 <button key={s} type="button" className="btn btn-secondary assistant-suggestion-btn" onClick={() => send(s)}>{s}</button>
               ))}
@@ -114,7 +114,7 @@ export default function AssistantPage() {
           {busy && (
             <div className="assistant-row assistant-row-reply">
               <span className="assistant-avatar assistant-avatar-bot"><SparkleIcon /></span>
-              <div className="assistant-thinking">Thinking…</div>
+              <div className="assistant-thinking">{tr('Thinking…')}</div>
             </div>
           )}
         </div>
@@ -123,10 +123,10 @@ export default function AssistantPage() {
             className="input assistant-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about attendance, stock, sales, approvals…"
+            placeholder={tr('Ask about attendance, stock, sales, approvals…')}
             disabled={busy}
           />
-          <button className="btn btn-primary" type="submit" disabled={busy}>Send</button>
+          <button className="btn btn-primary" type="submit" disabled={busy}>{tr('Send')}</button>
         </form>
       </div>
     </div>

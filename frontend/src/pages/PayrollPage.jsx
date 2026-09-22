@@ -6,6 +6,7 @@ import DateRangePicker from '../components/DateRangePicker';
 import './PayrollPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Payroll: employees are paid a daily rate on one of three cycles (monthly,
 // paid on the 5th; biweekly; or daily, for staff paid per day worked). A
 // pay run auto-computes each employee's
@@ -254,7 +255,7 @@ export default function PayrollPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const periodFiltered = periodRange.from && periodRange.to
     ? runs.filter((r) => r.periodStart <= periodRange.to && r.periodEnd >= periodRange.from)
@@ -269,42 +270,42 @@ export default function PayrollPage() {
       <div className="payroll-toolbar">
         <div className="payroll-filters">
           <div className="field payroll-period">
-            <label>Pay period</label>
+            <label>{tr('Pay period')}</label>
             <DateRangePicker value={periodRange} onChange={setPeriodRange} showAllTime />
           </div>
-          <SearchInput value={search} onChange={setSearch} placeholder="Search pay runs…" />
+          <SearchInput value={search} onChange={setSearch} placeholder={tr('Search pay runs…')} />
           <div className="field payroll-employee">
-            <label htmlFor="pr-company-filter">Company</label>
+            <label htmlFor="pr-company-filter">{tr('Company')}</label>
             <select id="pr-company-filter" className="input" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
-              <option value="">All companies</option>
+              <option value="">{tr('All companies')}</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="field payroll-employee">
-            <label htmlFor="pr-employee-filter">Employee</label>
+            <label htmlFor="pr-employee-filter">{tr('Employee')}</label>
             <select id="pr-employee-filter" className="input" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
-              <option value="">All employees</option>
+              <option value="">{tr('All employees')}</option>
               {companyFilteredEmployees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
             </select>
           </div>
         </div>
         {canManage && (
-          <button type="button" className="btn btn-primary" onClick={openNew}>New pay run</button>
+          <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New pay run')}</button>
         )}
       </div>
 
       {employeeFilter ? (
         <>
-          {historyLoading && <div className="eyebrow" style={{ marginTop: 16 }}>Loading…</div>}
+          {historyLoading && <div className="eyebrow" style={{ marginTop: 16 }}>{tr('Loading…')}</div>}
           {historyError && <div className="error-banner" style={{ marginTop: 16 }}>{historyError}</div>}
           {history && (
             <>
               <p className="eyebrow" style={{ marginTop: 16 }}>
-                {history.employeeName} ({history.employeeCode}) — {history.payslips.length} payslip(s){periodRange.from ? ' in ' + periodRange.label.toLowerCase() : ''}.
+                {history.employeeName} ({history.employeeCode}) — {history.payslips.length} {tr('payslip(s)')}{periodRange.from ? ' in ' + periodRange.label.toLowerCase() : ''}.
               </p>
               <table className="table" style={{ marginTop: 8 }}>
                 <thead>
-                  <tr><th>Pay date</th><th>Run</th><th>Cycle</th><th>Period</th><th>Days</th><th>Gross</th><th>SSNIT</th><th>PAYE</th><th>Net</th><th>Status</th><th /></tr>
+                  <tr><th>{tr('Pay date')}</th><th>{tr('Run')}</th><th>{tr('Cycle')}</th><th>{tr('Period')}</th><th>{tr('Days')}</th><th>{tr('Gross')}</th><th>{tr('SSNIT')}</th><th>{tr('PAYE')}</th><th>{tr('Net')}</th><th>{tr('Status')}</th><th /></tr>
                 </thead>
                 <tbody>
                   {history.payslips.map((s) => (
@@ -336,7 +337,7 @@ export default function PayrollPage() {
               {!history.payslips.length && (
                 <div className="payroll-empty-state">
                   <span className="payroll-empty-icon"><DocIcon /></span>
-                  <p className="payroll-empty-title">No payslips for {history.employeeName} in this period</p>
+                  <p className="payroll-empty-title">{tr('No payslips for')} {history.employeeName} {tr('in this period')}</p>
                 </div>
               )}
             </>
@@ -346,7 +347,7 @@ export default function PayrollPage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Run</th><th>Company</th><th>Cycle</th><th>Period</th><th>Pay date</th><th>Employees</th><th>Total net</th><th>Status</th><th /></tr>
+              <tr><th>{tr('Run')}</th><th>{tr('Company')}</th><th>{tr('Cycle')}</th><th>{tr('Period')}</th><th>{tr('Pay date')}</th><th>{tr('Employees')}</th><th>{tr('Total net')}</th><th>{tr('Status')}</th><th /></tr>
             </thead>
             <tbody>
               {visibleRuns.map((r) => (
@@ -376,19 +377,19 @@ export default function PayrollPage() {
           {!runs.length && (
             <div className="payroll-empty-state">
               <span className="payroll-empty-icon"><DocIcon /></span>
-              <p className="payroll-empty-title">No pay runs yet</p>
+              <p className="payroll-empty-title">{tr('No pay runs yet')}</p>
             </div>
           )}
           {!!runs.length && !visibleRuns.length && search && (
             <div className="payroll-empty-state">
               <span className="payroll-empty-icon"><DocIcon /></span>
-              <p className="payroll-empty-title">No pay runs match "{search}"</p>
+              <p className="payroll-empty-title">{tr('No pay runs match "')}{search}"</p>
             </div>
           )}
           {!!runs.length && !visibleRuns.length && !search && (
             <div className="payroll-empty-state">
               <span className="payroll-empty-icon"><DocIcon /></span>
-              <p className="payroll-empty-title">No pay runs in this period</p>
+              <p className="payroll-empty-title">{tr('No pay runs in this period')}</p>
             </div>
           )}
         </>
@@ -397,42 +398,40 @@ export default function PayrollPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2>New pay run</h2>
+            <h2>{tr('New pay run')}</h2>
             <p className="dialog-body">
-              Generates one payslip per active employee on the chosen cycle, with days worked pulled automatically
-              from Attendance for the period. Leave Company as "All companies" to run payroll company-wide as
-              before, or pick one company to generate a run for just its employees.
+              {tr('Generates one payslip per active employee on the chosen cycle, with days worked pulled automatically from Attendance for the period. Leave Company as "All companies" to run payroll company-wide as before, or pick one company to generate a run for just its employees.')}
             </p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="pr-company">Company</label>
+              <label htmlFor="pr-company">{tr('Company')}</label>
               <select id="pr-company" className="input" value={form.companyId} onChange={(e) => setForm({ ...form, companyId: e.target.value })}>
-                <option value="">All companies</option>
+                <option value="">{tr('All companies')}</option>
                 {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pr-cycle">Cycle</label>
+              <label htmlFor="pr-cycle">{tr('Cycle')}</label>
               <select id="pr-cycle" className="input" value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })}>
-                <option value="monthly">Monthly</option>
-                <option value="biweekly">Biweekly</option>
-                <option value="daily">Daily</option>
+                <option value="monthly">{tr('Monthly')}</option>
+                <option value="biweekly">{tr('Biweekly')}</option>
+                <option value="daily">{tr('Daily')}</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pr-start">Period start</label>
+              <label htmlFor="pr-start">{tr('Period start')}</label>
               <input id="pr-start" className="input" type="date" value={form.periodStart} onChange={(e) => setForm({ ...form, periodStart: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="pr-end">Period end</label>
+              <label htmlFor="pr-end">{tr('Period end')}</label>
               <input id="pr-end" className="input" type="date" value={form.periodEnd} onChange={(e) => setForm({ ...form, periodEnd: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="pr-paydate">Pay date</label>
+              <label htmlFor="pr-paydate">{tr('Pay date')}</label>
               <input id="pr-paydate" className="input" type="date" value={form.payDate} onChange={(e) => setForm({ ...form, payDate: e.target.value })} required />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Generating…' : 'Generate pay run'}</button>
             </div>
           </form>
@@ -446,7 +445,7 @@ export default function PayrollPage() {
               <div>
                 <h2 className="payroll-run-title">{activeRun.runNo}</h2>
                 <div className="payroll-run-sub">
-                  {activeRun.companyName} · {activeRun.cycle} · {fmtDate(activeRun.periodStart)} – {fmtDate(activeRun.periodEnd)} · Pay date {fmtDate(activeRun.payDate)}
+                  {activeRun.companyName} · {activeRun.cycle} · {fmtDate(activeRun.periodStart)} – {fmtDate(activeRun.periodEnd)} {tr('· Pay date')} {fmtDate(activeRun.payDate)}
                 </div>
               </div>
               <span className={'tag ' + tagClass(activeRun.status)}>{activeRun.status}</span>
@@ -456,14 +455,14 @@ export default function PayrollPage() {
 
             {companyFilter && (
               <p className="eyebrow" style={{ margin: '-4px 0 8px' }}>
-                Showing {visibleRunPayslips.length} of {activeRun.payslips.length} payslip(s) — filtered to{' '}
-                {companies.find((c) => c.id === companyFilter)?.name}. Clear the Company filter above to see everyone in this run.
+                {tr('Showing')} {visibleRunPayslips.length} {tr('of')} {activeRun.payslips.length} {tr('payslip(s) — filtered to')}{' '}
+                {companies.find((c) => c.id === companyFilter)?.name}{tr('. Clear the Company filter above to see everyone in this run.')}
               </p>
             )}
 
             <table className="table payroll-slip-table">
               <thead>
-                <tr><th>Employee</th><th>Company</th><th>Days</th><th>Rate</th><th>Gross</th><th>SSNIT</th><th>PAYE</th><th>Net</th><th /></tr>
+                <tr><th>{tr('Employee')}</th><th>{tr('Company')}</th><th>{tr('Days')}</th><th>{tr('Rate')}</th><th>{tr('Gross')}</th><th>{tr('SSNIT')}</th><th>{tr('PAYE')}</th><th>{tr('Net')}</th><th /></tr>
               </thead>
               <tbody>
                 {visibleRunPayslips.map((s) => (
@@ -499,11 +498,11 @@ export default function PayrollPage() {
               </tbody>
             </table>
             {!visibleRunPayslips.length && (
-              <p className="table-empty">No payslips in this run for {companies.find((c) => c.id === companyFilter)?.name || 'that company'}.</p>
+              <p className="table-empty">{tr('No payslips in this run for')} {companies.find((c) => c.id === companyFilter)?.name || 'that company'}.</p>
             )}
 
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setActiveRun(null)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setActiveRun(null)}>{tr('Close')}</button>
               {canManage && activeRun.status === 'draft' && (
                 <button type="button" className="btn btn-primary" disabled={runBusy} onClick={approveRun}>{runBusy ? 'Approving…' : 'Approve'}</button>
               )}

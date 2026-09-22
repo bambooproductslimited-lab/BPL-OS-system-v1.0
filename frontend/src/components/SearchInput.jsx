@@ -1,3 +1,5 @@
+import { tr } from '../lib/i18n.jsx';
+
 import './SearchInput.css';
 
 // Shared search box for list/table screens across Bamboo OS. Filtering
@@ -21,7 +23,7 @@ export default function SearchInput({ value, onChange, placeholder }) {
         placeholder={placeholder || 'Search…'}
       />
       {value && (
-        <button type="button" className="search-input-clear" aria-label="Clear search" onClick={() => onChange('')}>×</button>
+        <button type="button" className="search-input-clear" aria-label={tr('Clear search')} onClick={() => onChange('')}>×</button>
       )}
     </div>
   );

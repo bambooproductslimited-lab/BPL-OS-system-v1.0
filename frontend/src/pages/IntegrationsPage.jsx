@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { tr } from '../lib/i18n.jsx';
 import './IntegrationsPage.css';
 
 // Ported from Bamboo OS.dc.html's integrations screen (screens.integrations
@@ -153,15 +154,13 @@ export default function IntegrationsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
       <p className="integrations-intro">
-        Store credentials for third-party systems here. This links them to Bamboo OS's data model
-        (e.g. TimeStation clock events into Attendance, Square payments into Invoices) — going live
-        with real syncing requires the backend integration itself, not just a connected key here.
+        {tr('Store credentials for third-party systems here. This links them to Bamboo OS\'s data model (e.g. TimeStation clock events into Attendance, Square payments into Invoices) — going live with real syncing requires the backend integration itself, not just a connected key here.')}
       </p>
 
       <div className="integrations-grid">
@@ -191,8 +190,8 @@ export default function IntegrationsPage() {
                 {squareError && <p className="integrations-card-note" style={{ color: 'var(--color-danger-700, #b42318)' }}>{squareError}</p>}
                 {squareResult && (
                   <p className="integrations-card-note">
-                    Customers {squareResult.customers.imported} imported ({squareResult.customers.skipped} skipped) · Catalogue {squareResult.catalogItems.imported} imported ({squareResult.catalogItems.skipped} skipped) · Invoices {squareResult.invoices.imported} imported ({squareResult.invoices.skipped} skipped) · Payments {squareResult.payments.imported} imported ({squareResult.payments.skipped} skipped)
-                    {squareResult.errors.length > 0 && <> — {squareResult.errors.length} record(s) had errors; see server logs / audit trail.</>}
+                    {tr('Customers')} {squareResult.customers.imported} {tr('imported (')}{squareResult.customers.skipped} {tr('skipped) · Catalogue')} {squareResult.catalogItems.imported} {tr('imported (')}{squareResult.catalogItems.skipped} {tr('skipped) · Invoices')} {squareResult.invoices.imported} {tr('imported (')}{squareResult.invoices.skipped} {tr('skipped) · Payments')} {squareResult.payments.imported} {tr('imported (')}{squareResult.payments.skipped} {tr('skipped)')}
+                    {squareResult.errors.length > 0 && <> — {squareResult.errors.length} {tr('record(s) had errors; see server logs / audit trail.')}</>}
                   </p>
                 )}
               </>
@@ -204,12 +203,12 @@ export default function IntegrationsPage() {
               <>
                 {i.connected && (
                   <div className="field">
-                    <label htmlFor={'int-key-' + i.id}>Status</label>
+                    <label htmlFor={'int-key-' + i.id}>{tr('Status')}</label>
                     <input id={'int-key-' + i.id} className="input" value={i.apiKey || MASK} disabled />
                   </div>
                 )}
                 {i.connected ? (
-                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
                 ) : (
                   <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectSingleStep(i.id)}>
                     {busyId === i.id ? 'Redirecting…' : 'Connect with ' + SINGLE_STEP_PLATFORMS[i.id]}
@@ -220,38 +219,38 @@ export default function IntegrationsPage() {
               <>
                 {i.connected && (
                   <div className="field">
-                    <label htmlFor={'int-key-' + i.id}>Status</label>
+                    <label htmlFor={'int-key-' + i.id}>{tr('Status')}</label>
                     <input id={'int-key-' + i.id} className="input" value={i.apiKey || MASK} disabled />
                   </div>
                 )}
                 {i.connected ? (
-                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
                 ) : (
                   <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectMeta(i.id)}>
                     {busyId === i.id ? 'Redirecting…' : 'Connect with Facebook'}
                   </button>
                 )}
                 {i.id === 'instagram' && !i.connected && (
-                  <p className="integrations-card-note">Connects via your Facebook Page login — you'll pick the Page, and its linked Instagram account (if any) connects automatically.</p>
+                  <p className="integrations-card-note">{tr('Connects via your Facebook Page login — you\'ll pick the Page, and its linked Instagram account (if any) connects automatically.')}</p>
                 )}
               </>
             ) : (
               <>
                 <div className="field">
-                  <label htmlFor={'int-key-' + i.id}>API key</label>
+                  <label htmlFor={'int-key-' + i.id}>{tr('API key')}</label>
                   <input
                     id={'int-key-' + i.id}
                     className="input"
                     value={i.connected ? MASK : (drafts[i.id] || '')}
                     disabled={i.connected}
                     onChange={(e) => setDrafts({ ...drafts, [i.id]: e.target.value })}
-                    placeholder="Paste API key"
+                    placeholder={tr('Paste API key')}
                   />
                 </div>
                 {i.connected ? (
-                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>Disconnect</button>
+                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
                 ) : (
-                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connect(i)}>Connect</button>
+                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connect(i)}>{tr('Connect')}</button>
                 )}
               </>
             )}
@@ -261,7 +260,7 @@ export default function IntegrationsPage() {
       {!integrations.length && (
         <div className="integrations-empty-state">
           <span className="integrations-empty-icon"><PlugIcon /></span>
-          <p className="integrations-empty-title">No integrations configured</p>
+          <p className="integrations-empty-title">{tr('No integrations configured')}</p>
         </div>
       )}
 

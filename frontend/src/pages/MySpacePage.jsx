@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import './MySpacePage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's "My space" screen (screens.myspace block
 // + the myAttendance/myBalances/myLeave computed values around its
 // render()). Self-service only: your own clock in/out, your leave
@@ -145,7 +146,7 @@ export default function MySpacePage() {
     return t ? t.name : '—';
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const myLeave = summary.myLeave || [];
   const balances = summary.balances || [];
@@ -157,7 +158,7 @@ export default function MySpacePage() {
       <div className="myspace-top">
         <section className="card myspace-clock">
           <div className="myspace-clock-head">
-            <div className="myspace-eyebrow">Today · {shift}</div>
+            <div className="myspace-eyebrow">{tr('Today ·')} {shift}</div>
             <div className={'myspace-status-pill' + (onDuty ? ' myspace-status-pill-on' : '')}>
               <span className="myspace-status-dot" />
               {statusLabel}
@@ -171,16 +172,16 @@ export default function MySpacePage() {
           </div>
           <div className="myspace-actions">
             <button type="button" className="btn btn-primary" disabled={attendance.inDisabled || clocking} onClick={handleClockIn}>
-              <Icon name="checkCircle" /> Clock in
+              <Icon name="checkCircle" /> {tr('Clock in')}
             </button>
             <button type="button" className="btn btn-secondary" disabled={attendance.outDisabled || clocking} onClick={handleClockOut}>
-              <Icon name="exit" /> Clock out
+              <Icon name="exit" /> {tr('Clock out')}
             </button>
           </div>
         </section>
 
         <section>
-          <h2 className="myspace-section-title">Leave balances · {new Date().getFullYear()}</h2>
+          <h2 className="myspace-section-title">{tr('Leave balances ·')} {new Date().getFullYear()}</h2>
           <div className="myspace-balance-grid">
             {balances.map((b) => {
               const pct = b.entitled > 0 ? Math.min(100, Math.round((b.used / b.entitled) * 100)) : 0;
@@ -188,22 +189,22 @@ export default function MySpacePage() {
                 <div className="myspace-balance-card" key={b.name}>
                   <span className="myspace-balance-icon"><Icon name="calendar" /></span>
                   <div className="myspace-balance-name">{b.name}</div>
-                  <div className="myspace-balance-remaining">{b.left}<span className="myspace-balance-unit"> / {b.entitled} left</span></div>
+                  <div className="myspace-balance-remaining">{b.left}<span className="myspace-balance-unit"> / {b.entitled} {tr('left')}</span></div>
                   <div className="myspace-balance-track"><div className="myspace-balance-bar" style={{ width: pct + '%' }} /></div>
-                  <div className="myspace-balance-used">{b.used} used</div>
+                  <div className="myspace-balance-used">{b.used} {tr('used')}</div>
                 </div>
               );
             })}
           </div>
-          {!balances.length && <p className="table-empty">No leave balances set up yet.</p>}
+          {!balances.length && <p className="table-empty">{tr('No leave balances set up yet.')}</p>}
         </section>
       </div>
 
       <section>
-        <h2 className="myspace-section-title">My leave requests</h2>
+        <h2 className="myspace-section-title">{tr('My leave requests')}</h2>
         {myLeave.length ? (
           <table className="table">
-            <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Decision note</th><th /></tr></thead>
+            <thead><tr><th>{tr('Type')}</th><th>{tr('Dates')}</th><th>{tr('Days')}</th><th>{tr('Status')}</th><th>{tr('Decision note')}</th><th /></tr></thead>
             <tbody>
               {myLeave.map((l) => (
                 <tr key={l.id}>
@@ -224,9 +225,9 @@ export default function MySpacePage() {
         ) : (
           <div className="myspace-empty-state">
             <span className="myspace-empty-icon"><Icon name="calendarCheck" /></span>
-            <p className="myspace-empty-title">No leave requests yet</p>
-            <p className="myspace-empty-sub">Planning time off? Submit a request from Leave.</p>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate('/leave')}>Go to Leave</button>
+            <p className="myspace-empty-title">{tr('No leave requests yet')}</p>
+            <p className="myspace-empty-sub">{tr('Planning time off? Submit a request from Leave.')}</p>
+            <button type="button" className="btn btn-secondary" onClick={() => navigate('/leave')}>{tr('Go to Leave')}</button>
           </div>
         )}
       </section>

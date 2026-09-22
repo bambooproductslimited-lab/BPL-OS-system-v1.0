@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { tr } from '../lib/i18n.jsx';
 import './CompanySettingsPage.css';
 
 // Ported from Bamboo OS.dc.html's settings screen (screens.settings block).
@@ -120,7 +121,7 @@ export default function CompanySettingsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (!settings) return <div className="error-banner">{error}</div>;
 
   return (
@@ -129,49 +130,48 @@ export default function CompanySettingsPage() {
 
       <div className="cs-header">
         <span className="cs-header-icon"><BuildingIcon /></span>
-        <h2 className="cs-header-title">Company profile</h2>
+        <h2 className="cs-header-title">{tr('Company profile')}</h2>
       </div>
 
       <form className="cs-form" onSubmit={handleSubmit}>
         <div className="field">
-          <label htmlFor="cs-cn">Registered company name</label>
+          <label htmlFor="cs-cn">{tr('Registered company name')}</label>
           <input id="cs-cn" className="input" value={form.companyName} disabled={locked} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
         </div>
         <div className="field">
-          <label htmlFor="cs-sn">Short name</label>
+          <label htmlFor="cs-sn">{tr('Short name')}</label>
           <input id="cs-sn" className="input" value={form.shortName} disabled={locked} onChange={(e) => setForm({ ...form, shortName: e.target.value })} />
         </div>
         <div className="field">
-          <label htmlFor="cs-cy">Country</label>
+          <label htmlFor="cs-cy">{tr('Country')}</label>
           <input id="cs-cy" className="input" value={form.country} disabled={locked} onChange={(e) => setForm({ ...form, country: e.target.value })} />
         </div>
         <div className="field">
-          <label htmlFor="cs-cu">Default currency</label>
+          <label htmlFor="cs-cu">{tr('Default currency')}</label>
           <select id="cs-cu" className="input" value={form.currency} disabled={locked} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
             {currencyList.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <span className="field-hint">Used for P&amp;L, cash flow, balance sheet and tax reports, which only ever total one currency at a time.</span>
+          <span className="field-hint">{tr('Used for P&L, cash flow, balance sheet and tax reports, which only ever total one currency at a time.')}</span>
         </div>
         <div className="field">
-          <label htmlFor="cs-ww">Work week</label>
+          <label htmlFor="cs-ww">{tr('Work week')}</label>
           <input id="cs-ww" className="input" value={form.workWeek} disabled={locked} onChange={(e) => setForm({ ...form, workWeek: e.target.value })} />
         </div>
         <div className="field">
-          <label htmlFor="cs-la">Counted late after</label>
+          <label htmlFor="cs-la">{tr('Counted late after')}</label>
           <input id="cs-la" className="input" value={form.lateAfter} disabled={locked} onChange={(e) => setForm({ ...form, lateAfter: e.target.value })} placeholder="07:20" />
         </div>
         <div className="cs-form-footer">
-          <button className="btn btn-primary" type="submit" disabled={locked || saving}>Save settings</button>
+          <button className="btn btn-primary" type="submit" disabled={locked || saving}>{tr('Save settings')}</button>
           <span className="cs-note">{locked ? 'Read-only — your role cannot change company settings.' : 'Changes are written to the audit log.'}</span>
         </div>
       </form>
 
       <div className="cs-header" style={{ marginTop: 32 }}>
-        <h2 className="cs-header-title">Enabled currencies</h2>
+        <h2 className="cs-header-title">{tr('Enabled currencies')}</h2>
       </div>
       <p className="field-hint">
-        Every quotation, estimate and invoice picks one of these when it's created. Removing a currency here only
-        stops it being offered for new documents — existing documents already in that currency are unaffected.
+        {tr('Every quotation, estimate and invoice picks one of these when it\'s created. Removing a currency here only stops it being offered for new documents — existing documents already in that currency are unaffected.')}
       </p>
       {currencyError && <div className="error-banner" style={{ marginBottom: 12 }}>{currencyError}</div>}
       <div className="cs-currency-list">
@@ -187,14 +187,14 @@ export default function CompanySettingsPage() {
       {!locked && (
         <form className="cs-currency-add" onSubmit={addCurrency}>
           <input
-            className="input" style={{ width: 100 }} maxLength={6} placeholder="e.g. NGN"
+            className="input" style={{ width: 100 }} maxLength={6} placeholder={tr('e.g. NGN')}
             value={currencyDraft} onChange={(e) => setCurrencyDraft(e.target.value)}
           />
-          <button type="submit" className="btn btn-secondary" disabled={currencySaving || !currencyDraft.trim()}>+ Add currency</button>
+          <button type="submit" className="btn btn-secondary" disabled={currencySaving || !currencyDraft.trim()}>{tr('+ Add currency')}</button>
         </form>
       )}
 
-      <div className="cs-meta">Leave approval chain: {(settings.leaveApprovalChain || []).join(' → ')}</div>
+      <div className="cs-meta">{tr('Leave approval chain:')} {(settings.leaveApprovalChain || []).join(' → ')}</div>
 
       {toast && <div className="toast">{toast}</div>}
     </div>

@@ -8,6 +8,7 @@ import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
 // block + the attendance/attSummary computed values around its render()).
 // Clock in/out lives on the "My space" screen, not here — this screen is
@@ -514,7 +515,7 @@ export default function AttendancePage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   return (
     <div>
@@ -522,13 +523,13 @@ export default function AttendancePage() {
 
       <div className="attendance-toolbar">
         <div className="field attendance-date">
-          <label>Period</label>
+          <label>{tr('Period')}</label>
           <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>
         <div className="attendance-toolbar-actions">
-          {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>Sync from TimeStation</button>}
-          <button type="button" className="btn btn-secondary" onClick={openReport}>Download report</button>
-          <button type="button" className="btn btn-secondary" onClick={openLateness}>Lateness</button>
+          {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
+          <button type="button" className="btn btn-secondary" onClick={openReport}>{tr('Download report')}</button>
+          <button type="button" className="btn btn-secondary" onClick={openLateness}>{tr('Lateness')}</button>
         </div>
       </div>
 
@@ -555,39 +556,37 @@ export default function AttendancePage() {
       </div>
 
       <div className="attendance-filters">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search name, code, department…" />
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search name, code, department…')} />
         <select
-          className="input attendance-status-filter" value={companyFilter} aria-label="Filter by company"
+          className="input attendance-status-filter" value={companyFilter} aria-label={tr('Filter by company')}
           onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
         >
-          <option value="">All companies</option>
+          <option value="">{tr('All companies')}</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select
-          className="input attendance-status-filter" value={deptFilter} aria-label="Filter by department"
+          className="input attendance-status-filter" value={deptFilter} aria-label={tr('Filter by department')}
           onChange={(e) => setDeptFilter(e.target.value)}
         >
-          <option value="">All departments</option>
+          <option value="">{tr('All departments')}</option>
           {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
             <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
           ))}
         </select>
-        <select className="input attendance-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="present">Present</option>
-          <option value="late">Late</option>
+        <select className="input attendance-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
+          <option value="present">{tr('Present')}</option>
+          <option value="late">{tr('Late')}</option>
           <option value="absent">{isSingleDay ? 'No record' : 'Absent'}</option>
-          <option value="leave">Leave</option>
-          <option value="off">Off</option>
-          {!isSingleDay && <option value="absentLeaveOff">Absent/leave/off</option>}
+          <option value="leave">{tr('Leave')}</option>
+          <option value="off">{tr('Off')}</option>
+          {!isSingleDay && <option value="absentLeaveOff">{tr('Absent/leave/off')}</option>}
         </select>
       </div>
 
       {!isSingleDay && (
         <p className="eyebrow" style={{ marginTop: 12 }}>
-          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}, per-employee totals. Total is days actually worked
-          (present + late) — Off already excludes rest days (e.g. Sundays for most Bamboo Products Limited staff) from
-          Absent, so Absent only counts real missed workdays. Pick a single day above to see and correct individual records.
+          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}{tr(', per-employee totals. Total is days actually worked (present + late) — Off already excludes rest days (e.g. Sundays for most Bamboo Products Limited staff) from Absent, so Absent only counts real missed workdays. Pick a single day above to see and correct individual records.')}
         </p>
       )}
 
@@ -595,7 +594,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Note</th><th /></tr>
+              <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Clock in')}</th><th>{tr('Clock out')}</th><th>{tr('Status')}</th><th>{tr('Note')}</th><th /></tr>
             </thead>
             <tbody>
               {visibleRows.map((r) => (
@@ -623,10 +622,10 @@ export default function AttendancePage() {
               ))}
             </tbody>
           </table>
-          {!rows.length && <EmptyState title="No employees in scope for this date" />}
+          {!rows.length && <EmptyState title={tr('No employees in scope for this date')} />}
           {!!rows.length && !visibleRows.length && (
             <p className="table-empty">
-              No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
             </p>
           )}
         </>
@@ -634,7 +633,7 @@ export default function AttendancePage() {
         <>
           <table className="table" style={{ marginTop: 16 }}>
             <thead>
-              <tr><th>Code</th><th>Name</th><th>Company</th><th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>Leave</th><th>Off</th><th title="Days they actually came to work (present + late)">Total</th></tr>
+              <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Present')}</th><th>{tr('Late')}</th><th>{tr('Absent')}</th><th>{tr('Leave')}</th><th>{tr('Off')}</th><th title={tr('Days they actually came to work (present + late)')}>{tr('Total')}</th></tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
@@ -658,10 +657,10 @@ export default function AttendancePage() {
               ))}
             </tbody>
           </table>
-          {!periodRows.length && <EmptyState title="No employees in scope for this filter" />}
+          {!periodRows.length && <EmptyState title={tr('No employees in scope for this filter')} />}
           {!!periodRows.length && !visiblePeriodRows.length && (
             <p className="table-empty">
-              No one matches{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
+              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? ' and ' : ' ') + 'status "' + statusFilter + '"' : ''}.
             </p>
           )}
         </>
@@ -670,31 +669,31 @@ export default function AttendancePage() {
       {correction && (
         <div className="dialog-backdrop" onClick={() => setCorrection(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmCorrection}>
-            <h2>Correct attendance</h2>
+            <h2>{tr('Correct attendance')}</h2>
             <p className="dialog-body">{correction.name} · {fmtDate(dateRange.from)}</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="attendance-correction-grid">
               <div className="field">
-                <label htmlFor="corr-in">Clock in</label>
+                <label htmlFor="corr-in">{tr('Clock in')}</label>
                 <input id="corr-in" className="input" value={corrForm.clockIn} onChange={(e) => setCorrForm({ ...corrForm, clockIn: e.target.value })} placeholder="07:55" />
               </div>
               <div className="field">
-                <label htmlFor="corr-out">Clock out</label>
+                <label htmlFor="corr-out">{tr('Clock out')}</label>
                 <input id="corr-out" className="input" value={corrForm.clockOut} onChange={(e) => setCorrForm({ ...corrForm, clockOut: e.target.value })} placeholder="17:00" />
               </div>
               <div className="field">
-                <label htmlFor="corr-status">Status</label>
+                <label htmlFor="corr-status">{tr('Status')}</label>
                 <select id="corr-status" className="input" value={corrForm.status} onChange={(e) => setCorrForm({ ...corrForm, status: e.target.value })}>
                   {CORRECTION_STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
                 </select>
               </div>
             </div>
             <div className="field">
-              <label htmlFor="corr-note">Reason for the correction</label>
-              <input id="corr-note" className="input" value={corrForm.note} onChange={(e) => setCorrForm({ ...corrForm, note: e.target.value })} placeholder="Required — written to the audit log." required />
+              <label htmlFor="corr-note">{tr('Reason for the correction')}</label>
+              <input id="corr-note" className="input" value={corrForm.note} onChange={(e) => setCorrForm({ ...corrForm, note: e.target.value })} placeholder={tr('Required — written to the audit log.')} required />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setCorrection(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCorrection(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save correction'}</button>
             </div>
           </form>
@@ -704,10 +703,10 @@ export default function AttendancePage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete attendance record</h2>
-            <p className="dialog-body">Delete the record for <strong>{deleteTarget.name}</strong> ({fmtDate(dateRange.from)})? This cannot be undone.</p>
+            <h2>{tr('Delete attendance record')}</h2>
+            <p className="dialog-body">{tr('Delete the record for')} <strong>{deleteTarget.name}</strong> ({fmtDate(dateRange.from)}{tr(')? This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>
@@ -717,23 +716,20 @@ export default function AttendancePage() {
       {syncOpen && (
         <div className="dialog-backdrop" onClick={() => setSyncOpen(false)}>
           <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
-            <h2 className="employees-dialog-title">Sync attendance from TimeStation</h2>
+            <h2 className="employees-dialog-title">{tr('Sync attendance from TimeStation')}</h2>
             <p className="dialog-body">
-              Pulls clock in/out shifts for every employee linked to TimeStation (set via "Sync from TimeStation" on
-              the Employees page) over the date range below. TimeStation wins for anyone it covers — this replaces any
-              existing attendance record for those dates, including manual corrections. Employees not linked to
-              TimeStation are untouched.
+              {tr('Pulls clock in/out shifts for every employee linked to TimeStation (set via "Sync from TimeStation" on the Employees page) over the date range below. TimeStation wins for anyone it covers — this replaces any existing attendance record for those dates, including manual corrections. Employees not linked to TimeStation are untouched.')}
             </p>
 
             {!syncPreview && !syncResult && (
               <>
                 <div className="attendance-correction-grid">
                   <div className="field">
-                    <label htmlFor="sync-start">Start date</label>
+                    <label htmlFor="sync-start">{tr('Start date')}</label>
                     <input id="sync-start" className="input" type="date" value={syncRange.startDate} onChange={(e) => setSyncRange({ ...syncRange, startDate: e.target.value })} />
                   </div>
                   <div className="field">
-                    <label htmlFor="sync-end">End date</label>
+                    <label htmlFor="sync-end">{tr('End date')}</label>
                     <input id="sync-end" className="input" type="date" value={syncRange.endDate} onChange={(e) => setSyncRange({ ...syncRange, endDate: e.target.value })} />
                   </div>
                 </div>
@@ -741,11 +737,11 @@ export default function AttendancePage() {
                   type="button" className="btn btn-secondary" style={{ fontSize: 12 }}
                   onClick={() => setSyncRange({ startDate: daysAgoISO(15 * 365), endDate: todayISO() })}
                 >
-                  Use full history (last 15 years)
+                  {tr('Use full history (last 15 years)')}
                 </button>
                 {syncError && <div className="error-banner">{syncError}</div>}
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={syncLoading} onClick={runSyncPreview}>
                     {syncLoading ? 'Fetching from TimeStation…' : 'Preview'}
                   </button>
@@ -759,16 +755,16 @@ export default function AttendancePage() {
                 <>
                   {syncError && <div className="error-banner">{syncError}</div>}
                   <p className="itdevices-import-summary">
-                    {syncPreview.rows.length} record(s) found —
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'create').length} new,
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'update' || r.action === 'overwrite').length} will be updated,
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'unchanged').length} unchanged,
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'skip').length} skipped.
+                    {syncPreview.rows.length} {tr('record(s) found —')}
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'create').length} {tr('new,')}
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'update' || r.action === 'overwrite').length} {tr('will be updated,')}
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'unchanged').length} {tr('unchanged,')}
+                    {' '}{syncPreview.rows.filter((r) => r.action === 'skip').length} {tr('skipped.')}
                   </p>
                   <div className="itdevices-import-scroll">
                     <table className="table itdevices-import-table">
                       <thead>
-                        <tr><th>Employee</th><th>Date</th><th>Clock in</th><th>Clock out</th><th>Status</th><th>Action</th><th>Notes</th></tr>
+                        <tr><th>{tr('Employee')}</th><th>{tr('Date')}</th><th>{tr('Clock in')}</th><th>{tr('Clock out')}</th><th>{tr('Status')}</th><th>{tr('Action')}</th><th>{tr('Notes')}</th></tr>
                       </thead>
                       <tbody>
                         {syncPreview.rows.map((r, i) => (
@@ -788,11 +784,11 @@ export default function AttendancePage() {
                     </table>
                   </div>
                   {syncProgress && (
-                    <p className="eyebrow">Syncing {syncProgress.done.toLocaleString()} of {syncProgress.total.toLocaleString()}…</p>
+                    <p className="eyebrow">{tr('Syncing')} {syncProgress.done.toLocaleString()} {tr('of')} {syncProgress.total.toLocaleString()}…</p>
                   )}
                   <div className="dialog-actions">
-                    <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncPreview(null)}>Back</button>
-                    <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncOpen(false)}>Cancel</button>
+                    <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncPreview(null)}>{tr('Back')}</button>
+                    <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={syncCommitting || !toWrite.length} onClick={commitAttendanceSync}>
                       {syncCommitting ? 'Syncing…' : 'Sync ' + toWrite.length + ' record(s)'}
                     </button>
@@ -805,7 +801,7 @@ export default function AttendancePage() {
               <>
                 {syncError && <div className="error-banner">{syncError}</div>}
                 <p className="itdevices-import-summary">
-                  {syncResult.created} created, {syncResult.updated} updated, {syncResult.unchanged} unchanged
+                  {syncResult.created} {tr('created,')} {syncResult.updated} {tr('updated,')} {syncResult.unchanged} {tr('unchanged')}
                   {syncResult.failed.length ? ', ' + syncResult.failed.length + ' failed' : ''}.
                 </p>
                 {syncResult.failed.length > 0 && (
@@ -814,7 +810,7 @@ export default function AttendancePage() {
                   </ul>
                 )}
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-primary" onClick={() => setSyncOpen(false)}>Done</button>
+                  <button type="button" className="btn btn-primary" onClick={() => setSyncOpen(false)}>{tr('Done')}</button>
                 </div>
               </>
             )}
@@ -825,29 +821,27 @@ export default function AttendancePage() {
       {lateOpen && (
         <div className="dialog-backdrop" onClick={() => setLateOpen(false)}>
           <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 940 }} onClick={(e) => e.stopPropagation()}>
-            <h2 className="employees-dialog-title">Lateness</h2>
+            <h2 className="employees-dialog-title">{tr('Lateness')}</h2>
             <p className="dialog-body">
-              Who arrived after their own shift start plus the grace period, over the range below. Anyone with no
-              shift assigned is listed but kept out of the totals — there is no shift to measure them against, so
-              their minutes are counted from the company-wide cutoff and mean nothing.
+              {tr('Who arrived after their own shift start plus the grace period, over the range below. Anyone with no shift assigned is listed but kept out of the totals — there is no shift to measure them against, so their minutes are counted from the company-wide cutoff and mean nothing.')}
             </p>
             <div className="field">
-              <label>Period</label>
+              <label>{tr('Period')}</label>
               <DateRangePicker value={reportRange} onChange={setReportRange} />
             </div>
             <div className="field">
-              <label htmlFor="late-company">Company</label>
-              <select id="late-company" className="input" value={reportCompanyId} aria-label="Lateness company"
+              <label htmlFor="late-company">{tr('Company')}</label>
+              <select id="late-company" className="input" value={reportCompanyId} aria-label={tr('Lateness company')}
                 onChange={(e) => { setReportCompanyId(e.target.value); setReportDeptId(''); }}>
-                <option value="">All companies</option>
+                <option value="">{tr('All companies')}</option>
                 {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="late-department">Department</label>
-              <select id="late-department" className="input" value={reportDeptId} aria-label="Lateness department"
+              <label htmlFor="late-department">{tr('Department')}</label>
+              <select id="late-department" className="input" value={reportDeptId} aria-label={tr('Lateness department')}
                 onChange={(e) => setReportDeptId(e.target.value)}>
-                <option value="">All departments</option>
+                <option value="">{tr('All departments')}</option>
                 {departments.filter((d) => !reportCompanyId || d.companyId === reportCompanyId)
                   .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -858,28 +852,25 @@ export default function AttendancePage() {
             {lateUnassigned && lateUnassigned.rows.length > 0 && (
               <div className="attendance-noshift">
                 <div className="attendance-noshift-head">
-                  <strong>{lateUnassigned.rows.length} {lateUnassigned.rows.length === 1 ? 'person has' : 'people have'} no shift assigned.</strong>
+                  <strong>{lateUnassigned.rows.length} {lateUnassigned.rows.length === 1 ? 'person has' : 'people have'} {tr('no shift assigned.')}</strong>
                   <button type="button" className="btn btn-secondary attendance-noshift-btn"
                     onClick={() => setShowUnassigned((v) => !v)}>
                     {showUnassigned ? 'Hide' : 'Show who'}
                   </button>
                 </div>
                 <p className="attendance-noshift-body">
-                  Their arrival is measured against the company cutoff of {lateUnassigned.fallbackCutoff}, which
-                  describes a day shift. A guard arriving on time at 18:00 scores as 640 minutes late against it;
-                  one arriving at 01:00 scores as on time. Assign each of them a shift and these figures become
-                  real. Until then they are excluded from the totals below.
+                  {tr('Their arrival is measured against the company cutoff of')} {lateUnassigned.fallbackCutoff}{tr(', which describes a day shift. A guard arriving on time at 18:00 scores as 640 minutes late against it; one arriving at 01:00 scores as on time. Assign each of them a shift and these figures become real. Until then they are excluded from the totals below.')}
                 </p>
                 {showUnassigned && (
                   <table className="table attendance-noshift-table">
-                    <thead><tr><th>ID</th><th>Employee</th><th>Department</th><th className="attendance-num">Days mis-scored</th></tr></thead>
+                    <thead><tr><th>{tr('ID')}</th><th>{tr('Employee')}</th><th>{tr('Department')}</th><th className="attendance-num">{tr('Days mis-scored')}</th></tr></thead>
                     <tbody>
                       {lateUnassigned.rows.map((r) => (
                         <tr key={r.employeeId}>
                           <td>{r.code}</td>
                           <td>{r.name}</td>
                           <td>{r.department}</td>
-                          <td className="attendance-num">{r.lateRecords} of {r.daysRecorded}</td>
+                          <td className="attendance-num">{r.lateRecords} {tr('of')} {r.daysRecorded}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -891,25 +882,25 @@ export default function AttendancePage() {
             {lateData && (
               <>
                 <p className="dialog-body">
-                  {lateData.totals.daysLate} late {lateData.totals.daysLate === 1 ? 'day' : 'days'} out of{' '}
-                  {lateData.totals.daysRecorded} recorded, across {lateData.totals.employees}{' '}
-                  {lateData.totals.employees === 1 ? 'person' : 'people'} with a shift —{' '}
-                  {lateData.totals.minutesLate} minutes in total.
+                  {lateData.totals.daysLate} {tr('late')} {lateData.totals.daysLate === 1 ? 'day' : 'days'} {tr('out of')}{' '}
+                  {lateData.totals.daysRecorded} {tr('recorded, across')} {lateData.totals.employees}{' '}
+                  {lateData.totals.employees === 1 ? 'person' : 'people'} {tr('with a shift —')}{' '}
+                  {lateData.totals.minutesLate} {tr('minutes in total.')}
                   {lateData.totals.withoutShift > 0 && ' ' + lateData.totals.withoutShift + ' more excluded for having no shift.'}
                 </p>
                 {lateData.rows.length === 0
-                  ? <p className="table-empty">Nobody clocked in during this period.</p>
+                  ? <p className="table-empty">{tr('Nobody clocked in during this period.')}</p>
                   : (
                     <div className="table-scroll">
                       <table className="table">
                         <thead>
                           <tr>
-                            <th>ID</th><th>Employee</th><th>Department</th><th>Shift</th>
-                            <th className="attendance-num">Late</th>
-                            <th className="attendance-num col-mid">Late %</th>
-                            <th className="attendance-num">Minutes</th>
-                            <th className="attendance-num col-wide">Average</th>
-                            <th className="col-wide">Worst</th>
+                            <th>{tr('ID')}</th><th>{tr('Employee')}</th><th>{tr('Department')}</th><th>{tr('Shift')}</th>
+                            <th className="attendance-num">{tr('Late')}</th>
+                            <th className="attendance-num col-mid">{tr('Late %')}</th>
+                            <th className="attendance-num">{tr('Minutes')}</th>
+                            <th className="attendance-num col-wide">{tr('Average')}</th>
+                            <th className="col-wide">{tr('Worst')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -919,8 +910,8 @@ export default function AttendancePage() {
                               <td>{r.name}</td>
                               <td>{r.department}</td>
                               <td>{r.hasShift
-                                ? (r.shiftName || <span className="attendance-muted">own hours</span>)
-                                : <span className="tag tag-warning">no shift</span>}</td>
+                                ? (r.shiftName || <span className="attendance-muted">{tr('own hours')}</span>)
+                                : <span className="tag tag-warning">{tr('no shift')}</span>}</td>
                               <td className="attendance-num">{r.daysLate} / {r.daysRecorded}</td>
                               <td className="attendance-num col-mid">{r.latePercent}%</td>
                               <td className="attendance-num">{r.minutesLate}</td>
@@ -936,9 +927,9 @@ export default function AttendancePage() {
             )}
 
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setLateOpen(false)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setLateOpen(false)}>{tr('Close')}</button>
               {lateData && lateData.rows.length > 0 && (
-                <button type="button" className="btn btn-secondary" onClick={downloadLatenessCsv}>Download CSV</button>
+                <button type="button" className="btn btn-secondary" onClick={downloadLatenessCsv}>{tr('Download CSV')}</button>
               )}
               <button type="button" className="btn btn-primary" disabled={lateLoading} onClick={runLateness}>
                 {lateLoading ? 'Working…' : 'Run'}
@@ -956,33 +947,31 @@ export default function AttendancePage() {
         return (
           <div className="dialog-backdrop" onClick={() => setReportOpen(false)}>
             <div className="dialog employees-dialog" style={{ gridTemplateColumns: '1fr', maxWidth: 900 }} onClick={(e) => e.stopPropagation()}>
-              <h2 className="employees-dialog-title">Attendance report</h2>
+              <h2 className="employees-dialog-title">{tr('Attendance report')}</h2>
               <p className="dialog-body">
-                A TimeStation-style timesheet for the date range and company/department below, scoped to what you
-                can already see — everyone in the picked scope if you have company-wide access, otherwise just your
-                own record. One row per employee, one column per day, hours computed from clock in/out.
+                {tr('A TimeStation-style timesheet for the date range and company/department below, scoped to what you can already see — everyone in the picked scope if you have company-wide access, otherwise just your own record. One row per employee, one column per day, hours computed from clock in/out.')}
               </p>
               <div className="field">
-                <label>Period</label>
+                <label>{tr('Period')}</label>
                 <DateRangePicker value={reportRange} onChange={setReportRange} />
               </div>
               <div className="field">
-                <label htmlFor="rpt-company">Company</label>
+                <label htmlFor="rpt-company">{tr('Company')}</label>
                 <select
-                  id="rpt-company" className="input" value={reportCompanyId} aria-label="Report company"
+                  id="rpt-company" className="input" value={reportCompanyId} aria-label={tr('Report company')}
                   onChange={(e) => { setReportCompanyId(e.target.value); setReportDeptId(''); }}
                 >
-                  <option value="">All companies</option>
+                  <option value="">{tr('All companies')}</option>
                   {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="rpt-department">Department</label>
+                <label htmlFor="rpt-department">{tr('Department')}</label>
                 <select
-                  id="rpt-department" className="input" value={reportDeptId} aria-label="Report department"
+                  id="rpt-department" className="input" value={reportDeptId} aria-label={tr('Report department')}
                   onChange={(e) => setReportDeptId(e.target.value)}
                 >
-                  <option value="">All departments</option>
+                  <option value="">{tr('All departments')}</option>
                   {departments.filter((d) => !reportCompanyId || d.companyId === reportCompanyId).map((d) => (
                     <option key={d.id} value={d.id}>{reportCompanyId ? d.name : d.name + ' — ' + d.companyName}</option>
                   ))}
@@ -990,7 +979,7 @@ export default function AttendancePage() {
               </div>
               {reportError && <div className="error-banner">{reportError}</div>}
               <div className="dialog-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setReportOpen(false)}>Close</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setReportOpen(false)}>{tr('Close')}</button>
                 <button type="button" className="btn btn-primary" disabled={reportLoading} onClick={runReport}>
                   {reportLoading ? 'Running…' : 'Run report'}
                 </button>
@@ -1002,12 +991,12 @@ export default function AttendancePage() {
                     <p className="itdevices-import-summary">
                       {(companies.find((c) => c.id === reportCompanyId) || { name: 'All companies' }).name}
                       {reportDeptId ? ' — ' + (departments.find((d) => d.id === reportDeptId) || { name: '' }).name : ''}
-                      , {reportRange.from} to {reportRange.to} — {pivot.rows.length.toLocaleString()} employee(s), {reportData.rows.length.toLocaleString()} record(s).
+                      , {reportRange.from} {tr('to')} {reportRange.to} — {pivot.rows.length.toLocaleString()} {tr('employee(s),')} {reportData.rows.length.toLocaleString()} {tr('record(s).')}
                       {!canSeePay && ' Hourly rate/pay is hidden — your role doesn\'t have payroll access.'}
                     </p>
                     {!showDetailTable && (
                       <p className="itdevices-import-summary">
-                        Too many employees ({pivot.rows.length.toLocaleString()}) to list on screen — download the CSV for the full detail.
+                        {tr('Too many employees (')}{pivot.rows.length.toLocaleString()}{tr(') to list on screen — download the CSV for the full detail.')}
                       </p>
                     )}
                     {showDetailTable && (
@@ -1015,9 +1004,9 @@ export default function AttendancePage() {
                         <table className="table itdevices-import-table">
                           <thead>
                             <tr>
-                              <th>Employee ID</th><th>Title</th><th>Employee</th><th>Department</th>
+                              <th>{tr('Employee ID')}</th><th>{tr('Title')}</th><th>{tr('Employee')}</th><th>{tr('Department')}</th>
                               {pivot.dates.map((d) => <th key={d}>{dayHeader(d)}</th>)}
-                              <th>Total Hours</th><th>Hourly Rate</th><th>Total Pay</th>
+                              <th>{tr('Total Hours')}</th><th>{tr('Hourly Rate')}</th><th>{tr('Total Pay')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1037,11 +1026,11 @@ export default function AttendancePage() {
                         </table>
                       </div>
                     )}
-                    {!reportData.rows.length && <p className="table-empty">No attendance records in this range.</p>}
+                    {!reportData.rows.length && <p className="table-empty">{tr('No attendance records in this range.')}</p>}
                   </div>
                   <div className="dialog-actions">
-                    <button type="button" className="btn btn-secondary" onClick={downloadReportCsv}>Download CSV</button>
-                    <button type="button" className="btn btn-secondary" onClick={downloadReportPdf}>Download PDF</button>
+                    <button type="button" className="btn btn-secondary" onClick={downloadReportCsv}>{tr('Download CSV')}</button>
+                    <button type="button" className="btn btn-secondary" onClick={downloadReportPdf}>{tr('Download PDF')}</button>
                   </div>
                 </>
               )}

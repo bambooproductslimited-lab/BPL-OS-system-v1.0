@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import { money as moneyFmt, moneyBreakdown } from '../lib/currency';
+import { tr } from '../lib/i18n.jsx';
 import './FinancialReportsPage.css';
 
 // Financial Reports: Profit & Loss, Cash Flow, Balance Sheet, AR Aging and
@@ -240,7 +241,7 @@ export default function FinancialReportsPage() {
     downloadCsv('expense-detail-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   // Each bucket is now [{ currency, amount }] rather than one blended number
   // (a customer's outstanding balance can be in any enabled currency — see
@@ -255,9 +256,7 @@ export default function FinancialReportsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <p className="finreport-intro">
-        Built from invoices, payments, expenses and payroll already in Bamboo OS — there's no general ledger here, so
-        the Balance Sheet's Cash &amp; bank, Accounts Payable, Loans and Owner's Equity figures are entered manually
-        below; everything else updates automatically.
+        {tr('Built from invoices, payments, expenses and payroll already in Bamboo OS — there\'s no general ledger here, so the Balance Sheet\'s Cash & bank, Accounts Payable, Loans and Owner\'s Equity figures are entered manually below; everything else updates automatically.')}
       </p>
 
       <div className="finreport-tabs">
@@ -271,28 +270,26 @@ export default function FinancialReportsPage() {
       <div className="finreport-toolbar">
         {PERIOD_TABS[tab] && (
           <div className="finreport-period">
-            <label>From <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-            <label>To <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+            <label>{tr('From')} <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+            <label>{tr('To')} <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
           </div>
         )}
         <div className="finreport-toolbar-actions">
           <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => downloadPdf(tab + '-' + todayISO() + '.pdf')}>
             {exporting ? 'Preparing…' : 'Download PDF'}
           </button>
-          {tab === 'pnl' && <button type="button" className="btn btn-secondary" onClick={exportPnlCsv}>Download CSV</button>}
-          {tab === 'cashflow' && <button type="button" className="btn btn-secondary" onClick={exportCashFlowCsv}>Download CSV</button>}
-          {tab === 'balancesheet' && <button type="button" className="btn btn-secondary" onClick={exportBalanceSheetCsv}>Download CSV</button>}
-          {tab === 'araging' && <button type="button" className="btn btn-secondary" onClick={exportArAgingCsv}>Download CSV</button>}
-          {tab === 'expensedetail' && <button type="button" className="btn btn-secondary" onClick={exportExpenseDetailCsv}>Download CSV</button>}
-          {tab === 'taxsummary' && <button type="button" className="btn btn-secondary" onClick={exportTaxSummaryCsv}>Download CSV</button>}
+          {tab === 'pnl' && <button type="button" className="btn btn-secondary" onClick={exportPnlCsv}>{tr('Download CSV')}</button>}
+          {tab === 'cashflow' && <button type="button" className="btn btn-secondary" onClick={exportCashFlowCsv}>{tr('Download CSV')}</button>}
+          {tab === 'balancesheet' && <button type="button" className="btn btn-secondary" onClick={exportBalanceSheetCsv}>{tr('Download CSV')}</button>}
+          {tab === 'araging' && <button type="button" className="btn btn-secondary" onClick={exportArAgingCsv}>{tr('Download CSV')}</button>}
+          {tab === 'expensedetail' && <button type="button" className="btn btn-secondary" onClick={exportExpenseDetailCsv}>{tr('Download CSV')}</button>}
+          {tab === 'taxsummary' && <button type="button" className="btn btn-secondary" onClick={exportTaxSummaryCsv}>{tr('Download CSV')}</button>}
         </div>
       </div>
 
       {['pnl', 'cashflow', 'balancesheet', 'taxsummary'].includes(tab) && (
         <p className="finreport-asof">
-          Totalled in the company's base currency
-          ({(pnl && pnl.baseCurrency) || (cashFlow && cashFlow.baseCurrency) || (balanceSheet && balanceSheet.baseCurrency) || (taxSummary && taxSummary.baseCurrency) || 'GHS'}) —
-          a document in another currency (Company settings → Enabled currencies) won't appear here, but still shows correctly on its own record and in the Invoices/Quotations lists.
+          {tr('Totalled in the company\'s base currency (')}{(pnl && pnl.baseCurrency) || (cashFlow && cashFlow.baseCurrency) || (balanceSheet && balanceSheet.baseCurrency) || (taxSummary && taxSummary.baseCurrency) || 'GHS'}{tr(') — a document in another currency (Company settings → Enabled currencies) won\'t appear here, but still shows correctly on its own record and in the Invoices/Quotations lists.')}
         </p>
       )}
 
@@ -300,45 +297,45 @@ export default function FinancialReportsPage() {
         {tab === 'pnl' && pnl && (
           <div>
             <div className="finreport-kpis">
-              <div className="finreport-kpi finreport-kpi-people"><span className="finreport-kpi-icon"><Icon name="cash" /></span><div className="finreport-kpi-label">Revenue</div><div className="finreport-kpi-value">{money(pnl.revenue)}</div></div>
-              <div className="finreport-kpi finreport-kpi-warning"><span className="finreport-kpi-icon"><Icon name="receipt" /></span><div className="finreport-kpi-label">Expenses</div><div className="finreport-kpi-value">{money(pnl.totalExpenses)}</div></div>
-              <div className="finreport-kpi finreport-kpi-finance"><span className="finreport-kpi-icon"><Icon name="users" /></span><div className="finreport-kpi-label">Payroll cost</div><div className="finreport-kpi-value">{money(pnl.payrollCost)}</div></div>
+              <div className="finreport-kpi finreport-kpi-people"><span className="finreport-kpi-icon"><Icon name="cash" /></span><div className="finreport-kpi-label">{tr('Revenue')}</div><div className="finreport-kpi-value">{money(pnl.revenue)}</div></div>
+              <div className="finreport-kpi finreport-kpi-warning"><span className="finreport-kpi-icon"><Icon name="receipt" /></span><div className="finreport-kpi-label">{tr('Expenses')}</div><div className="finreport-kpi-value">{money(pnl.totalExpenses)}</div></div>
+              <div className="finreport-kpi finreport-kpi-finance"><span className="finreport-kpi-icon"><Icon name="users" /></span><div className="finreport-kpi-label">{tr('Payroll cost')}</div><div className="finreport-kpi-value">{money(pnl.payrollCost)}</div></div>
               <div className="finreport-kpi finreport-kpi-ops">
                 <span className="finreport-kpi-icon"><Icon name="document" /></span>
-                <div className="finreport-kpi-label">Net profit</div>
+                <div className="finreport-kpi-label">{tr('Net profit')}</div>
                 <div className={'finreport-kpi-value' + (pnl.netProfit < 0 ? ' finreport-negative' : '')}>{money(pnl.netProfit)}</div>
               </div>
             </div>
-            <h2 className="finreport-section-title">Expenses by category</h2>
+            <h2 className="finreport-section-title">{tr('Expenses by category')}</h2>
             <table className="table">
-              <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+              <thead><tr><th>{tr('Category')}</th><th>{tr('Amount')}</th></tr></thead>
               <tbody>
                 {pnl.expenseByCategory.map((r) => <tr key={r.category}><td>{r.category}</td><td>{money(r.amount)}</td></tr>)}
               </tbody>
             </table>
-            {!pnl.expenseByCategory.length && <p className="table-empty">No expenses recognized in this period.</p>}
+            {!pnl.expenseByCategory.length && <p className="table-empty">{tr('No expenses recognized in this period.')}</p>}
           </div>
         )}
 
         {tab === 'cashflow' && cashFlow && (
           <div>
             <div className="finreport-kpis">
-              <div className="finreport-kpi finreport-kpi-people"><span className="finreport-kpi-icon"><Icon name="cash" /></span><div className="finreport-kpi-label">Cash in</div><div className="finreport-kpi-value">{money(cashFlow.cashIn)}</div></div>
-              <div className="finreport-kpi finreport-kpi-warning"><span className="finreport-kpi-icon"><Icon name="receipt" /></span><div className="finreport-kpi-label">Cash out</div><div className="finreport-kpi-value">{money(cashFlow.cashOut)}</div></div>
+              <div className="finreport-kpi finreport-kpi-people"><span className="finreport-kpi-icon"><Icon name="cash" /></span><div className="finreport-kpi-label">{tr('Cash in')}</div><div className="finreport-kpi-value">{money(cashFlow.cashIn)}</div></div>
+              <div className="finreport-kpi finreport-kpi-warning"><span className="finreport-kpi-icon"><Icon name="receipt" /></span><div className="finreport-kpi-label">{tr('Cash out')}</div><div className="finreport-kpi-value">{money(cashFlow.cashOut)}</div></div>
               <div className="finreport-kpi finreport-kpi-ops">
                 <span className="finreport-kpi-icon"><Icon name="document" /></span>
-                <div className="finreport-kpi-label">Net cash flow</div>
+                <div className="finreport-kpi-label">{tr('Net cash flow')}</div>
                 <div className={'finreport-kpi-value' + (cashFlow.netCashFlow < 0 ? ' finreport-negative' : '')}>{money(cashFlow.netCashFlow)}</div>
               </div>
             </div>
-            <h2 className="finreport-section-title">Cash in by method</h2>
+            <h2 className="finreport-section-title">{tr('Cash in by method')}</h2>
             <table className="table">
-              <thead><tr><th>Method</th><th>Amount</th></tr></thead>
+              <thead><tr><th>{tr('Method')}</th><th>{tr('Amount')}</th></tr></thead>
               <tbody>
                 {cashFlow.cashInByMethod.map((r) => <tr key={r.method}><td style={{ textTransform: 'capitalize' }}>{r.method.replace('_', ' ')}</td><td>{money(r.amount)}</td></tr>)}
               </tbody>
             </table>
-            {!cashFlow.cashInByMethod.length && <p className="table-empty">No payments received in this period.</p>}
+            {!cashFlow.cashInByMethod.length && <p className="table-empty">{tr('No payments received in this period.')}</p>}
           </div>
         )}
 
@@ -349,37 +346,37 @@ export default function FinancialReportsPage() {
                 ? 'Balanced — assets equal liabilities plus equity.'
                 : 'Off by ' + money(Math.abs(balanceSheet.balanceCheck)) + ' — check the manual inputs below (Cash & bank is usually the figure to correct).'}
             </div>
-            <p className="finreport-asof">As of {fmtDate(balanceSheet.asOf)}</p>
+            <p className="finreport-asof">{tr('As of')} {fmtDate(balanceSheet.asOf)}</p>
 
             <div className="finreport-bs-columns">
               <section>
-                <h2 className="finreport-section-title">Assets</h2>
+                <h2 className="finreport-section-title">{tr('Assets')}</h2>
                 <table className="table">
                   <tbody>
-                    <tr><td>Cash &amp; bank</td><td>{money(balanceSheet.assets.cashAndBank)}</td></tr>
-                    <tr><td>Accounts receivable</td><td>{money(balanceSheet.assets.accountsReceivable)}</td></tr>
-                    <tr><td>Inventory</td><td>{money(balanceSheet.assets.inventoryValue)}</td></tr>
-                    <tr><td>Fixed assets (at cost)</td><td>{money(balanceSheet.assets.fixedAssets)}</td></tr>
-                    <tr className="finreport-total-row"><td>Total assets</td><td>{money(balanceSheet.assets.total)}</td></tr>
+                    <tr><td>{tr('Cash & bank')}</td><td>{money(balanceSheet.assets.cashAndBank)}</td></tr>
+                    <tr><td>{tr('Accounts receivable')}</td><td>{money(balanceSheet.assets.accountsReceivable)}</td></tr>
+                    <tr><td>{tr('Inventory')}</td><td>{money(balanceSheet.assets.inventoryValue)}</td></tr>
+                    <tr><td>{tr('Fixed assets (at cost)')}</td><td>{money(balanceSheet.assets.fixedAssets)}</td></tr>
+                    <tr className="finreport-total-row"><td>{tr('Total assets')}</td><td>{money(balanceSheet.assets.total)}</td></tr>
                   </tbody>
                 </table>
               </section>
               <section>
-                <h2 className="finreport-section-title">Liabilities</h2>
+                <h2 className="finreport-section-title">{tr('Liabilities')}</h2>
                 <table className="table">
                   <tbody>
-                    <tr><td>Accounts payable</td><td>{money(balanceSheet.liabilities.accountsPayable)}</td></tr>
-                    <tr><td>Loans payable</td><td>{money(balanceSheet.liabilities.loansPayable)}</td></tr>
-                    <tr><td>Other liabilities</td><td>{money(balanceSheet.liabilities.otherLiabilities)}</td></tr>
-                    <tr className="finreport-total-row"><td>Total liabilities</td><td>{money(balanceSheet.liabilities.total)}</td></tr>
+                    <tr><td>{tr('Accounts payable')}</td><td>{money(balanceSheet.liabilities.accountsPayable)}</td></tr>
+                    <tr><td>{tr('Loans payable')}</td><td>{money(balanceSheet.liabilities.loansPayable)}</td></tr>
+                    <tr><td>{tr('Other liabilities')}</td><td>{money(balanceSheet.liabilities.otherLiabilities)}</td></tr>
+                    <tr className="finreport-total-row"><td>{tr('Total liabilities')}</td><td>{money(balanceSheet.liabilities.total)}</td></tr>
                   </tbody>
                 </table>
-                <h2 className="finreport-section-title">Equity</h2>
+                <h2 className="finreport-section-title">{tr('Equity')}</h2>
                 <table className="table">
                   <tbody>
-                    <tr><td>Owner's equity</td><td>{money(balanceSheet.equity.ownersEquity)}</td></tr>
-                    <tr><td>Retained earnings</td><td>{money(balanceSheet.equity.retainedEarnings)}</td></tr>
-                    <tr className="finreport-total-row"><td>Total equity</td><td>{money(balanceSheet.equity.total)}</td></tr>
+                    <tr><td>{tr('Owner\'s equity')}</td><td>{money(balanceSheet.equity.ownersEquity)}</td></tr>
+                    <tr><td>{tr('Retained earnings')}</td><td>{money(balanceSheet.equity.retainedEarnings)}</td></tr>
+                    <tr className="finreport-total-row"><td>{tr('Total equity')}</td><td>{money(balanceSheet.equity.total)}</td></tr>
                   </tbody>
                 </table>
               </section>
@@ -387,17 +384,17 @@ export default function FinancialReportsPage() {
 
             {canManageBs && (
               <form className="finreport-bs-form no-print" onSubmit={saveBsInputs}>
-                <h2 className="finreport-section-title">Edit manual inputs</h2>
+                <h2 className="finreport-section-title">{tr('Edit manual inputs')}</h2>
                 <div className="finreport-bs-fields">
-                  <div className="field"><label>Cash &amp; bank</label><input className="input" type="number" step="0.01" value={bsForm.cashAndBank} onChange={(e) => setBsForm({ ...bsForm, cashAndBank: e.target.value })} /></div>
-                  <div className="field"><label>Accounts payable</label><input className="input" type="number" step="0.01" value={bsForm.accountsPayable} onChange={(e) => setBsForm({ ...bsForm, accountsPayable: e.target.value })} /></div>
-                  <div className="field"><label>Loans payable</label><input className="input" type="number" step="0.01" value={bsForm.loansPayable} onChange={(e) => setBsForm({ ...bsForm, loansPayable: e.target.value })} /></div>
-                  <div className="field"><label>Other liabilities</label><input className="input" type="number" step="0.01" value={bsForm.otherLiabilities} onChange={(e) => setBsForm({ ...bsForm, otherLiabilities: e.target.value })} /></div>
-                  <div className="field"><label>Owner's equity</label><input className="input" type="number" step="0.01" value={bsForm.ownersEquity} onChange={(e) => setBsForm({ ...bsForm, ownersEquity: e.target.value })} /></div>
+                  <div className="field"><label>{tr('Cash & bank')}</label><input className="input" type="number" step="0.01" value={bsForm.cashAndBank} onChange={(e) => setBsForm({ ...bsForm, cashAndBank: e.target.value })} /></div>
+                  <div className="field"><label>{tr('Accounts payable')}</label><input className="input" type="number" step="0.01" value={bsForm.accountsPayable} onChange={(e) => setBsForm({ ...bsForm, accountsPayable: e.target.value })} /></div>
+                  <div className="field"><label>{tr('Loans payable')}</label><input className="input" type="number" step="0.01" value={bsForm.loansPayable} onChange={(e) => setBsForm({ ...bsForm, loansPayable: e.target.value })} /></div>
+                  <div className="field"><label>{tr('Other liabilities')}</label><input className="input" type="number" step="0.01" value={bsForm.otherLiabilities} onChange={(e) => setBsForm({ ...bsForm, otherLiabilities: e.target.value })} /></div>
+                  <div className="field"><label>{tr('Owner\'s equity')}</label><input className="input" type="number" step="0.01" value={bsForm.ownersEquity} onChange={(e) => setBsForm({ ...bsForm, ownersEquity: e.target.value })} /></div>
                 </div>
                 <div className="field">
-                  <label>Notes</label>
-                  <textarea className="input" value={bsForm.notes} onChange={(e) => setBsForm({ ...bsForm, notes: e.target.value })} placeholder="E.g. loan source, last reconciled date…" />
+                  <label>{tr('Notes')}</label>
+                  <textarea className="input" value={bsForm.notes} onChange={(e) => setBsForm({ ...bsForm, notes: e.target.value })} placeholder={tr('E.g. loan source, last reconciled date…')} />
                 </div>
                 <button type="submit" className="btn btn-primary" disabled={savingBs}>{savingBs ? 'Saving…' : 'Save manual inputs'}</button>
               </form>
@@ -407,7 +404,7 @@ export default function FinancialReportsPage() {
 
         {tab === 'araging' && arAging && (
           <div>
-            <p className="finreport-asof">As of {fmtDate(arAging.asOf)}</p>
+            <p className="finreport-asof">{tr('As of')} {fmtDate(arAging.asOf)}</p>
             <div className="finreport-kpis">
               {Object.keys(BUCKET_LABELS).map((k) => (
                 <div className="finreport-kpi" key={k}>
@@ -418,7 +415,7 @@ export default function FinancialReportsPage() {
               ))}
             </div>
             <table className="table">
-              <thead><tr><th>Invoice</th><th>Customer</th><th>Balance due</th><th>Due date</th><th>Days overdue</th></tr></thead>
+              <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Balance due')}</th><th>{tr('Due date')}</th><th>{tr('Days overdue')}</th></tr></thead>
               <tbody>
                 {arAging.invoices.map((r) => (
                   <tr key={r.invoiceNo}>
@@ -429,7 +426,7 @@ export default function FinancialReportsPage() {
                 ))}
               </tbody>
             </table>
-            {!arAging.invoices.length && <p className="table-empty">No outstanding balances.</p>}
+            {!arAging.invoices.length && <p className="table-empty">{tr('No outstanding balances.')}</p>}
           </div>
         )}
 
@@ -437,23 +434,23 @@ export default function FinancialReportsPage() {
           <div>
             <div className="finreport-columns">
               <section>
-                <h2 className="finreport-section-title">By category</h2>
+                <h2 className="finreport-section-title">{tr('By category')}</h2>
                 <table className="table">
-                  <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+                  <thead><tr><th>{tr('Category')}</th><th>{tr('Amount')}</th></tr></thead>
                   <tbody>{expenseDetail.byCategory.map((r) => <tr key={r.category}><td>{r.category}</td><td>{money(r.amount)}</td></tr>)}</tbody>
                 </table>
               </section>
               <section>
-                <h2 className="finreport-section-title">By group</h2>
+                <h2 className="finreport-section-title">{tr('By group')}</h2>
                 <table className="table">
-                  <thead><tr><th>Group</th><th>Amount</th></tr></thead>
+                  <thead><tr><th>{tr('Group')}</th><th>{tr('Amount')}</th></tr></thead>
                   <tbody>{expenseDetail.byDepartment.map((r) => <tr key={r.department}><td>{r.department}</td><td>{money(r.amount)}</td></tr>)}</tbody>
                 </table>
               </section>
             </div>
-            <h2 className="finreport-section-title">All expenses</h2>
+            <h2 className="finreport-section-title">{tr('All expenses')}</h2>
             <table className="table">
-              <thead><tr><th>Date</th><th>Category</th><th>Group</th><th>Requester</th><th>Description</th><th>Amount</th></tr></thead>
+              <thead><tr><th>{tr('Date')}</th><th>{tr('Category')}</th><th>{tr('Group')}</th><th>{tr('Requester')}</th><th>{tr('Description')}</th><th>{tr('Amount')}</th></tr></thead>
               <tbody>
                 {expenseDetail.items.map((r, i) => (
                   <tr key={i}>
@@ -469,18 +466,17 @@ export default function FinancialReportsPage() {
                 ))}
               </tbody>
             </table>
-            {!expenseDetail.items.length && <p className="table-empty">No expenses recognized in this period.</p>}
+            {!expenseDetail.items.length && <p className="table-empty">{tr('No expenses recognized in this period.')}</p>}
           </div>
         )}
 
         {tab === 'taxsummary' && taxSummary && (
           <div>
             <p className="finreport-tax-note">
-              Grouped by the exact tax rate found on each invoice line — where two configured taxes share a rate
-              (e.g. NHIL and GETFund both default to 2.5%), the label shows both rather than guessing which applies.
+              {tr('Grouped by the exact tax rate found on each invoice line — where two configured taxes share a rate (e.g. NHIL and GETFund both default to 2.5%), the label shows both rather than guessing which applies.')}
             </p>
             <table className="table">
-              <thead><tr><th>Rate</th><th>Tax(es)</th><th>Taxable base</th><th>Tax collected</th><th>Invoices</th></tr></thead>
+              <thead><tr><th>{tr('Rate')}</th><th>{tr('Tax(es)')}</th><th>{tr('Taxable base')}</th><th>{tr('Tax collected')}</th><th>{tr('Invoices')}</th></tr></thead>
               <tbody>
                 {taxSummary.byRate.map((r) => (
                   <tr key={r.rate}>
@@ -489,7 +485,7 @@ export default function FinancialReportsPage() {
                 ))}
               </tbody>
             </table>
-            {!taxSummary.byRate.length && <p className="table-empty">No invoices issued in this period.</p>}
+            {!taxSummary.byRate.length && <p className="table-empty">{tr('No invoices issued in this period.')}</p>}
 
             <div className={'finreport-balance-banner' + (Math.abs(taxSummary.reconciliationDiff) < 0.01 ? ' finreport-balanced' : ' finreport-unbalanced')} style={{ marginTop: 16 }}>
               {Math.abs(taxSummary.reconciliationDiff) < 0.01

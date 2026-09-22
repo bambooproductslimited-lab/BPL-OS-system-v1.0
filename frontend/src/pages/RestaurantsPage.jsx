@@ -7,6 +7,7 @@ import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import './RestaurantsPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Restaurant module, Phase 1: each restaurant company (Star Bar Restaurant,
 // Bamboo Garden — see migration 0032) gets its own sellable menu plus two
 // separate stock trackers: general supplies (glassware, napkins — no
@@ -763,7 +764,7 @@ export default function RestaurantsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleMenuItems = menuItems
     .filter((m) => matchesQuery(search, m.name, m.category))
@@ -795,7 +796,7 @@ export default function RestaurantsPage() {
       {!companies.length ? (
         <div className="restaurants-empty-state">
           <span className="restaurants-empty-icon"><UtensilsIcon /></span>
-          <p className="restaurants-empty-title">No companies found</p>
+          <p className="restaurants-empty-title">{tr('No companies found')}</p>
         </div>
       ) : (
         <>
@@ -830,35 +831,35 @@ export default function RestaurantsPage() {
             {tab === 'menu' && (
               <label className="checkbox-field restaurants-hide-disabled">
                 <input type="checkbox" checked={hideDisabled} onChange={(e) => setHideDisabled(e.target.checked)} />
-                Hide disabled
+                {tr('Hide disabled')}
               </label>
             )}
             {tab === 'sales' && (
               <div className="restaurants-date-filter">
-                <input type="date" className="input" value={ordersFrom} onChange={(e) => { setOrdersFrom(e.target.value); setOrdersOffset(0); }} aria-label="From date" />
-                <span>to</span>
-                <input type="date" className="input" value={ordersTo} onChange={(e) => { setOrdersTo(e.target.value); setOrdersOffset(0); }} aria-label="To date" />
+                <input type="date" className="input" value={ordersFrom} onChange={(e) => { setOrdersFrom(e.target.value); setOrdersOffset(0); }} aria-label={tr('From date')} />
+                <span>{tr('to')}</span>
+                <input type="date" className="input" value={ordersTo} onChange={(e) => { setOrdersTo(e.target.value); setOrdersOffset(0); }} aria-label={tr('To date')} />
                 {(ordersFrom || ordersTo) && (
-                  <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setOrdersFrom(''); setOrdersTo(''); setOrdersOffset(0); }}>Clear</button>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setOrdersFrom(''); setOrdersTo(''); setOrdersOffset(0); }}>{tr('Clear')}</button>
                 )}
               </div>
             )}
             {tab === 'drawer' && (
               <div className="restaurants-date-filter">
-                <input type="date" className="input" value={drawerSessionsFrom} onChange={(e) => { setDrawerSessionsFrom(e.target.value); setDrawerSessionsOffset(0); }} aria-label="From date" />
-                <span>to</span>
-                <input type="date" className="input" value={drawerSessionsTo} onChange={(e) => { setDrawerSessionsTo(e.target.value); setDrawerSessionsOffset(0); }} aria-label="To date" />
+                <input type="date" className="input" value={drawerSessionsFrom} onChange={(e) => { setDrawerSessionsFrom(e.target.value); setDrawerSessionsOffset(0); }} aria-label={tr('From date')} />
+                <span>{tr('to')}</span>
+                <input type="date" className="input" value={drawerSessionsTo} onChange={(e) => { setDrawerSessionsTo(e.target.value); setDrawerSessionsOffset(0); }} aria-label={tr('To date')} />
                 {(drawerSessionsFrom || drawerSessionsTo) && (
-                  <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setDrawerSessionsFrom(''); setDrawerSessionsTo(''); setDrawerSessionsOffset(0); }}>Clear</button>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => { setDrawerSessionsFrom(''); setDrawerSessionsTo(''); setDrawerSessionsOffset(0); }}>{tr('Clear')}</button>
                 )}
               </div>
             )}
-            {canManage && tab === 'menu' && <button type="button" className="btn btn-primary" onClick={openNewMenuItem}>Add menu item</button>}
-            {canManage && tab === 'supplies' && <button type="button" className="btn btn-primary" onClick={openNewSupply}>Add supply</button>}
-            {canManage && tab === 'ingredients' && <button type="button" className="btn btn-primary" onClick={openNewIngredient}>Add ingredient</button>}
-            {canManage && tab === 'tables' && <button type="button" className="btn btn-primary" onClick={openNewTable}>Add table</button>}
-            {canManage && tab === 'guests' && <button type="button" className="btn btn-primary" onClick={openNewGuest}>Add guest</button>}
-            <a className="btn btn-secondary" href="/pos" target="_blank" rel="noreferrer">Open till (POS) ↗</a>
+            {canManage && tab === 'menu' && <button type="button" className="btn btn-primary" onClick={openNewMenuItem}>{tr('Add menu item')}</button>}
+            {canManage && tab === 'supplies' && <button type="button" className="btn btn-primary" onClick={openNewSupply}>{tr('Add supply')}</button>}
+            {canManage && tab === 'ingredients' && <button type="button" className="btn btn-primary" onClick={openNewIngredient}>{tr('Add ingredient')}</button>}
+            {canManage && tab === 'tables' && <button type="button" className="btn btn-primary" onClick={openNewTable}>{tr('Add table')}</button>}
+            {canManage && tab === 'guests' && <button type="button" className="btn btn-primary" onClick={openNewGuest}>{tr('Add guest')}</button>}
+            <a className="btn btn-secondary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
             {canManage && (
               <button type="button" className="btn btn-secondary" disabled={squareBusy} onClick={runSquareImport}>
                 {squareBusy ? 'Importing from Square…' : 'Import from Square'}
@@ -869,8 +870,8 @@ export default function RestaurantsPage() {
           {squareError && <div className="error-banner" style={{ marginBottom: 16 }}>{squareError}</div>}
           {squareResult && (
             <div className="restaurants-square-result">
-              Menu items {squareResult.menuItems.imported} imported ({squareResult.menuItems.skipped} skipped) · Orders {squareResult.orders.imported} imported ({squareResult.orders.skipped} skipped)
-              {squareResult.errors.length > 0 && <> — {squareResult.errors.length} record(s) had errors; see server logs / audit trail.</>}
+              {tr('Menu items')} {squareResult.menuItems.imported} {tr('imported (')}{squareResult.menuItems.skipped} {tr('skipped) · Orders')} {squareResult.orders.imported} {tr('imported (')}{squareResult.orders.skipped} {tr('skipped)')}
+              {squareResult.errors.length > 0 && <> — {squareResult.errors.length} {tr('record(s) had errors; see server logs / audit trail.')}</>}
             </div>
           )}
 
@@ -947,11 +948,11 @@ export default function RestaurantsPage() {
                             </div>
                             <div className="restaurants-menu-card-price">
                               {hasVariations
-                                ? (minVariationPrice === maxVariationPrice ? money(minVariationPrice) : <>From <span className="restaurants-menu-card-price-highlight">{money(minVariationPrice)}</span></>)
+                                ? (minVariationPrice === maxVariationPrice ? money(minVariationPrice) : <>{tr('From')} <span className="restaurants-menu-card-price-highlight">{money(minVariationPrice)}</span></>)
                                 : money(m.price)}
                               {hasVariations && (
                                 <span className={'restaurants-menu-card-variation-toggle' + (isExpanded ? ' restaurants-menu-card-variation-toggle-open' : '')}>
-                                  {m.variations.length} variation{m.variations.length > 1 ? 's' : ''}
+                                  {m.variations.length} {tr('variation')}{m.variations.length > 1 ? 's' : ''}
                                   <svg className={'restaurants-menu-category-chevron' + (isExpanded ? '' : ' restaurants-menu-category-chevron-collapsed')} viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                     <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                   </svg>
@@ -979,9 +980,9 @@ export default function RestaurantsPage() {
                             )}
                             {canManage && (
                               <div className="restaurants-menu-card-actions" onClick={(e) => e.stopPropagation()}>
-                                <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>Edit</button>
+                                <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => openEditMenuItem(m)}>{tr('Edit')}</button>
                                 <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => toggleMenuActive(m)}>{m.active ? 'Disable' : 'Enable'}</button>
-                                <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>Delete</button>
+                                <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === m.id} onClick={() => deleteMenuItem(m)}>{tr('Delete')}</button>
                               </div>
                             )}
                           </div>
@@ -996,13 +997,13 @@ export default function RestaurantsPage() {
 
           {tab === 'supplies' && (
             <table className="table">
-              <thead><tr><th>Name</th><th>Category</th><th>Stock</th><th>Reorder level</th><th>Unit cost</th><th /></tr></thead>
+              <thead><tr><th>{tr('Name')}</th><th>{tr('Category')}</th><th>{tr('Stock')}</th><th>{tr('Reorder level')}</th><th>{tr('Unit cost')}</th><th /></tr></thead>
               <tbody>
                 {visibleSupplies.map((s) => (
                   <tr key={s.id}>
                     <td style={{ fontWeight: 600 }}>{s.name}</td>
                     <td>{s.category}</td>
-                    <td>{s.stockQty} {s.unit} {s.lowStock && <span className="tag tag-accent restaurants-lowstock">Low</span>}</td>
+                    <td>{s.stockQty} {s.unit} {s.lowStock && <span className="tag tag-accent restaurants-lowstock">{tr('Low')}</span>}</td>
                     <td>{s.reorderLevel} {s.unit}</td>
                     <td>{money(s.unitCost)}</td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
@@ -1020,17 +1021,17 @@ export default function RestaurantsPage() {
 
           {tab === 'ingredients' && (
             <table className="table">
-              <thead><tr><th>Name</th><th>Stock</th><th>Reorder level</th><th>Unit cost</th><th>Expiry</th><th /></tr></thead>
+              <thead><tr><th>{tr('Name')}</th><th>{tr('Stock')}</th><th>{tr('Reorder level')}</th><th>{tr('Unit cost')}</th><th>{tr('Expiry')}</th><th /></tr></thead>
               <tbody>
                 {visibleIngredients.map((i) => (
                   <tr key={i.id}>
                     <td style={{ fontWeight: 600 }}>{i.name}</td>
-                    <td>{i.stockQty} {i.unit} {i.lowStock && <span className="tag tag-accent restaurants-lowstock">Low</span>}</td>
+                    <td>{i.stockQty} {i.unit} {i.lowStock && <span className="tag tag-accent restaurants-lowstock">{tr('Low')}</span>}</td>
                     <td>{i.reorderLevel} {i.unit}</td>
                     <td>{money(i.unitCost)}</td>
                     <td>
                       {i.expiryDate ? i.expiryDate.slice(0, 10) : '—'}
-                      {i.expiringSoon && <span className="tag tag-accent restaurants-lowstock">Expiring soon</span>}
+                      {i.expiringSoon && <span className="tag tag-accent restaurants-lowstock">{tr('Expiring soon')}</span>}
                     </td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                       <RowMenu actions={[
@@ -1047,7 +1048,7 @@ export default function RestaurantsPage() {
 
           {tab === 'tables' && (
             <table className="table">
-              <thead><tr><th>Name</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>{tr('Name')}</th><th>{tr('Status')}</th><th /></tr></thead>
               <tbody>
                 {visibleTables.map((t) => (
                   <tr key={t.id}>
@@ -1068,7 +1069,7 @@ export default function RestaurantsPage() {
 
           {tab === 'guests' && (
             <table className="table">
-              <thead><tr><th>Name</th><th>Phone</th><th>Notes</th><th /></tr></thead>
+              <thead><tr><th>{tr('Name')}</th><th>{tr('Phone')}</th><th>{tr('Notes')}</th><th /></tr></thead>
               <tbody>
                 {visibleGuests.map((g) => (
                   <tr key={g.id}>
@@ -1090,7 +1091,7 @@ export default function RestaurantsPage() {
           {tab === 'sales' && (
             <>
               <table className="table restaurants-sales-table" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
-                <thead><tr><th>Order</th><th>Cashier</th><th>Table</th><th>Waiter</th><th className="restaurants-amount-col">Total</th><th>Payment</th><th>Status</th><th>Time</th><th /></tr></thead>
+                <thead><tr><th>{tr('Order')}</th><th>{tr('Cashier')}</th><th>{tr('Table')}</th><th>{tr('Waiter')}</th><th className="restaurants-amount-col">{tr('Total')}</th><th>{tr('Payment')}</th><th>{tr('Status')}</th><th>{tr('Time')}</th><th /></tr></thead>
                 <tbody>
                   {orders.map((o) => (
                     <tr key={o.id} className={'restaurants-sales-row' + (o.status === 'voided' ? ' restaurants-sales-row-voided' : '') + (flashId === o.id ? ' restaurants-flash' : '')} onClick={() => openOrderDetail(o.id)}>
@@ -1113,9 +1114,9 @@ export default function RestaurantsPage() {
               </table>
               {ordersTotal > 0 && (
                 <div className="restaurants-pager">
-                  <span>{ordersOffset + 1}–{Math.min(ordersOffset + ORDERS_PAGE_SIZE, ordersTotal)} of {ordersTotal.toLocaleString()}</span>
-                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset === 0 || ordersLoading} onClick={() => setOrdersOffset(Math.max(0, ordersOffset - ORDERS_PAGE_SIZE))}>Previous</button>
-                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset + ORDERS_PAGE_SIZE >= ordersTotal || ordersLoading} onClick={() => setOrdersOffset(ordersOffset + ORDERS_PAGE_SIZE)}>Next</button>
+                  <span>{ordersOffset + 1}–{Math.min(ordersOffset + ORDERS_PAGE_SIZE, ordersTotal)} {tr('of')} {ordersTotal.toLocaleString()}</span>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset === 0 || ordersLoading} onClick={() => setOrdersOffset(Math.max(0, ordersOffset - ORDERS_PAGE_SIZE))}>{tr('Previous')}</button>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset + ORDERS_PAGE_SIZE >= ordersTotal || ordersLoading} onClick={() => setOrdersOffset(ordersOffset + ORDERS_PAGE_SIZE)}>{tr('Next')}</button>
                 </div>
               )}
             </>
@@ -1126,10 +1127,10 @@ export default function RestaurantsPage() {
               <table className="table restaurants-sales-table" style={{ opacity: drawerSessionsLoading ? 0.6 : 1 }}>
                 <thead>
                   <tr>
-                    <th>Cashier</th><th>Opened</th><th>Closed</th>
-                    <th className="restaurants-amount-col">Starting</th><th className="restaurants-amount-col">Cash Sales</th>
-                    <th className="restaurants-amount-col">Paid In/Out</th><th className="restaurants-amount-col">Expected</th>
-                    <th className="restaurants-amount-col">Actual</th><th className="restaurants-amount-col">Difference</th><th>Status</th>
+                    <th>{tr('Cashier')}</th><th>{tr('Opened')}</th><th>{tr('Closed')}</th>
+                    <th className="restaurants-amount-col">{tr('Starting')}</th><th className="restaurants-amount-col">{tr('Cash Sales')}</th>
+                    <th className="restaurants-amount-col">{tr('Paid In/Out')}</th><th className="restaurants-amount-col">{tr('Expected')}</th>
+                    <th className="restaurants-amount-col">{tr('Actual')}</th><th className="restaurants-amount-col">{tr('Difference')}</th><th>{tr('Status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1157,16 +1158,16 @@ export default function RestaurantsPage() {
               </table>
               {drawerSessionsTotal > 0 && (
                 <div className="restaurants-pager">
-                  <span>{drawerSessionsOffset + 1}–{Math.min(drawerSessionsOffset + DRAWER_PAGE_SIZE, drawerSessionsTotal)} of {drawerSessionsTotal.toLocaleString()}</span>
-                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset === 0 || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(Math.max(0, drawerSessionsOffset - DRAWER_PAGE_SIZE))}>Previous</button>
-                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset + DRAWER_PAGE_SIZE >= drawerSessionsTotal || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(drawerSessionsOffset + DRAWER_PAGE_SIZE)}>Next</button>
+                  <span>{drawerSessionsOffset + 1}–{Math.min(drawerSessionsOffset + DRAWER_PAGE_SIZE, drawerSessionsTotal)} {tr('of')} {drawerSessionsTotal.toLocaleString()}</span>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset === 0 || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(Math.max(0, drawerSessionsOffset - DRAWER_PAGE_SIZE))}>{tr('Previous')}</button>
+                  <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset + DRAWER_PAGE_SIZE >= drawerSessionsTotal || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(drawerSessionsOffset + DRAWER_PAGE_SIZE)}>{tr('Next')}</button>
                 </div>
               )}
             </>
           )}
 
           {tab === 'menu' && !menuItems.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No menu items yet</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No menu items yet')}</p></div>
           )}
           {tab === 'menu' && !!menuItems.length && !visibleMenuItems.length && (
             <div className="restaurants-empty-state">
@@ -1175,45 +1176,45 @@ export default function RestaurantsPage() {
                 {search ? 'No menu items match "' + search + '"' : 'Every menu item here is disabled'}
               </p>
               {!search && hideDisabled && (
-                <button type="button" className="btn btn-secondary" onClick={() => setHideDisabled(false)}>Show disabled items</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setHideDisabled(false)}>{tr('Show disabled items')}</button>
               )}
             </div>
           )}
           {tab === 'supplies' && !supplies.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No supplies tracked yet</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No supplies tracked yet')}</p></div>
           )}
           {tab === 'supplies' && !!supplies.length && !visibleSupplies.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No supplies match "{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No supplies match "')}{search}"</p></div>
           )}
           {tab === 'ingredients' && !ingredients.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No food ingredients tracked yet</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No food ingredients tracked yet')}</p></div>
           )}
           {tab === 'ingredients' && !!ingredients.length && !visibleIngredients.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No ingredients match "{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No ingredients match "')}{search}"</p></div>
           )}
           {tab === 'tables' && !tables.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No tables set up yet</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No tables set up yet')}</p></div>
           )}
           {tab === 'tables' && !!tables.length && !visibleTables.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No tables match "{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No tables match "')}{search}"</p></div>
           )}
           {tab === 'guests' && !guests.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No guests saved yet</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No guests saved yet')}</p></div>
           )}
           {tab === 'guests' && !!guests.length && !visibleGuests.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No guests match "{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No guests match "')}{search}"</p></div>
           )}
           {tab === 'sales' && !ordersLoading && !orders.length && (ordersFrom || ordersTo) && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales in that date range</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No sales in that date range')}</p></div>
           )}
           {tab === 'sales' && !ordersLoading && !orders.length && !ordersFrom && !ordersTo && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No sales yet — rung-up orders from the till will show here</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No sales yet — rung-up orders from the till will show here')}</p></div>
           )}
           {tab === 'drawer' && !drawerSessionsLoading && !drawerSessions.length && (drawerSessionsFrom || drawerSessionsTo) && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No drawer sessions in that date range</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No drawer sessions in that date range')}</p></div>
           )}
           {tab === 'drawer' && !drawerSessionsLoading && !drawerSessions.length && !drawerSessionsFrom && !drawerSessionsTo && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">No drawer sessions yet — opened/closed on the till, they'll show here</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No drawer sessions yet — opened/closed on the till, they\'ll show here')}</p></div>
           )}
           </div>
         </>
@@ -1225,56 +1226,56 @@ export default function RestaurantsPage() {
             <h2>{menuEditId ? 'Edit menu item' : 'Add menu item'}</h2>
             {menuDialogError && <div className="error-banner">{menuDialogError}</div>}
             <div className="field">
-              <label htmlFor="rm-name">Name</label>
+              <label htmlFor="rm-name">{tr('Name')}</label>
               <input id="rm-name" className="input" value={menuForm.name} onChange={(e) => setMenuForm({ ...menuForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="rm-category">Category</label>
-              <input id="rm-category" className="input" value={menuForm.category} onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })} placeholder="Mains, Drinks, Starters…" />
+              <label htmlFor="rm-category">{tr('Category')}</label>
+              <input id="rm-category" className="input" value={menuForm.category} onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })} placeholder={tr('Mains, Drinks, Starters…')} />
             </div>
             <div className="field">
-              <label htmlFor="rm-price">Price{!!editingMenuItemVariations.length && ' (fallback — sold price comes from the variation below)'}</label>
+              <label htmlFor="rm-price">{tr('Price')}{!!editingMenuItemVariations.length && ' (fallback — sold price comes from the variation below)'}</label>
               <input id="rm-price" className="input" type="number" min="0" step="0.01" value={menuForm.price} onChange={(e) => setMenuForm({ ...menuForm, price: e.target.value })} required />
             </div>
             {menuEditId && (
               <div className="field restaurants-variations-field">
-                <label>Price variations (optional — e.g. "M" ₵98 vs "Jellyfish" ₵238)</label>
+                <label>{tr('Price variations (optional — e.g. "M" ₵98 vs "Jellyfish" ₵238)')}</label>
                 {!!editingMenuItemVariations.length && (
                   <div className="restaurants-variations-list">
                     {editingMenuItemVariations.map((v) => (
                       <div key={v.id} className="restaurants-variation-row">
                         <span className="restaurants-variation-name">{v.name}</span>
                         <span className="restaurants-variation-price">{money(v.price)}</span>
-                        <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => startEditVariation(v)}>Edit</button>
-                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === v.id} onClick={() => deleteVariation(v)}>Remove</button>
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={() => startEditVariation(v)}>{tr('Edit')}</button>
+                        <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={busyId === v.id} onClick={() => deleteVariation(v)}>{tr('Remove')}</button>
                       </div>
                     ))}
                   </div>
                 )}
                 {variationError && <div className="error-banner">{variationError}</div>}
                 <div className="restaurants-variation-add">
-                  <input className="input" placeholder="Name (e.g. M, Large, Jellyfish…)" value={variationForm.name} onChange={(e) => setVariationForm({ ...variationForm, name: e.target.value })} />
-                  <input className="input" type="number" min="0" step="0.01" placeholder="Price" value={variationForm.price} onChange={(e) => setVariationForm({ ...variationForm, price: e.target.value })} />
+                  <input className="input" placeholder={tr('Name (e.g. M, Large, Jellyfish…)')} value={variationForm.name} onChange={(e) => setVariationForm({ ...variationForm, name: e.target.value })} />
+                  <input className="input" type="number" min="0" step="0.01" placeholder={tr('Price')} value={variationForm.price} onChange={(e) => setVariationForm({ ...variationForm, price: e.target.value })} />
                   <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={variationSaving} onClick={submitVariationForm}>
                     {variationEditId ? 'Save' : 'Add'}
                   </button>
-                  {variationEditId && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={startAddVariation}>Cancel</button>}
+                  {variationEditId && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={startAddVariation}>{tr('Cancel')}</button>}
                 </div>
               </div>
             )}
             {!menuEditId && (
-              <p className="restaurants-variations-hint">Save this item first, then reopen it here to add price variations.</p>
+              <p className="restaurants-variations-hint">{tr('Save this item first, then reopen it here to add price variations.')}</p>
             )}
             <div className="field">
-              <label htmlFor="rm-photo">Photo (shown on the POS till)</label>
+              <label htmlFor="rm-photo">{tr('Photo (shown on the POS till)')}</label>
               {menuPhotoPreview && <img className="restaurants-menu-photo-preview" src={menuPhotoPreview} alt="" />}
               <div className="restaurants-menu-photo-actions">
                 <input id="rm-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => pickMenuPhoto(e.target.files[0])} />
-                {menuPhotoPreview && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={clearMenuPhoto}>Remove photo</button>}
+                {menuPhotoPreview && <button type="button" className="btn btn-secondary restaurants-row-btn" onClick={clearMenuPhoto}>{tr('Remove photo')}</button>}
               </div>
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setMenuDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setMenuDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={menuSaving}>{menuEditId ? 'Save changes' : 'Add item'}</button>
             </div>
           </form>
@@ -1287,33 +1288,33 @@ export default function RestaurantsPage() {
             <h2>{supplyEditId ? 'Edit supply item' : 'Add supply item'}</h2>
             {supplyDialogError && <div className="error-banner">{supplyDialogError}</div>}
             <div className="field">
-              <label htmlFor="rs-name">Name</label>
+              <label htmlFor="rs-name">{tr('Name')}</label>
               <input id="rs-name" className="input" value={supplyForm.name} onChange={(e) => setSupplyForm({ ...supplyForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="rs-category">Category</label>
-              <input id="rs-category" className="input" value={supplyForm.category} onChange={(e) => setSupplyForm({ ...supplyForm, category: e.target.value })} placeholder="Disposables, Cleaning, Glassware…" />
+              <label htmlFor="rs-category">{tr('Category')}</label>
+              <input id="rs-category" className="input" value={supplyForm.category} onChange={(e) => setSupplyForm({ ...supplyForm, category: e.target.value })} placeholder={tr('Disposables, Cleaning, Glassware…')} />
             </div>
             <div className="field">
-              <label htmlFor="rs-unit">Unit</label>
-              <input id="rs-unit" className="input" value={supplyForm.unit} onChange={(e) => setSupplyForm({ ...supplyForm, unit: e.target.value })} placeholder="each, pack, box…" />
+              <label htmlFor="rs-unit">{tr('Unit')}</label>
+              <input id="rs-unit" className="input" value={supplyForm.unit} onChange={(e) => setSupplyForm({ ...supplyForm, unit: e.target.value })} placeholder={tr('each, pack, box…')} />
             </div>
             {!supplyEditId && (
               <div className="field">
-                <label htmlFor="rs-qty">Starting stock</label>
+                <label htmlFor="rs-qty">{tr('Starting stock')}</label>
                 <input id="rs-qty" className="input" type="number" min="0" step="0.01" value={supplyForm.stockQty} onChange={(e) => setSupplyForm({ ...supplyForm, stockQty: e.target.value })} required />
               </div>
             )}
             <div className="field">
-              <label htmlFor="rs-reorder">Reorder level</label>
+              <label htmlFor="rs-reorder">{tr('Reorder level')}</label>
               <input id="rs-reorder" className="input" type="number" min="0" step="0.01" value={supplyForm.reorderLevel} onChange={(e) => setSupplyForm({ ...supplyForm, reorderLevel: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="rs-cost">Unit cost</label>
+              <label htmlFor="rs-cost">{tr('Unit cost')}</label>
               <input id="rs-cost" className="input" type="number" min="0" step="0.01" value={supplyForm.unitCost} onChange={(e) => setSupplyForm({ ...supplyForm, unitCost: e.target.value })} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setSupplyDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setSupplyDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={supplySaving}>{supplyEditId ? 'Save changes' : 'Add item'}</button>
             </div>
           </form>
@@ -1326,11 +1327,11 @@ export default function RestaurantsPage() {
             <h2>{tableEditId ? 'Rename table' : 'Add table'}</h2>
             {tableDialogError && <div className="error-banner">{tableDialogError}</div>}
             <div className="field">
-              <label htmlFor="rt-name">Name</label>
-              <input id="rt-name" className="input" value={tableForm.name} onChange={(e) => setTableForm({ ...tableForm, name: e.target.value })} placeholder="Table 5, Bar, Patio 3…" required />
+              <label htmlFor="rt-name">{tr('Name')}</label>
+              <input id="rt-name" className="input" value={tableForm.name} onChange={(e) => setTableForm({ ...tableForm, name: e.target.value })} placeholder={tr('Table 5, Bar, Patio 3…')} required />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setTableDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setTableDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={tableSaving}>{tableEditId ? 'Save changes' : 'Add table'}</button>
             </div>
           </form>
@@ -1343,19 +1344,19 @@ export default function RestaurantsPage() {
             <h2>{guestEditId ? 'Edit guest' : 'Add guest'}</h2>
             {guestDialogError && <div className="error-banner">{guestDialogError}</div>}
             <div className="field">
-              <label htmlFor="rg-name">Name</label>
+              <label htmlFor="rg-name">{tr('Name')}</label>
               <input id="rg-name" className="input" value={guestForm.name} onChange={(e) => setGuestForm({ ...guestForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="rg-phone">Phone</label>
+              <label htmlFor="rg-phone">{tr('Phone')}</label>
               <input id="rg-phone" className="input" value={guestForm.phone} onChange={(e) => setGuestForm({ ...guestForm, phone: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="rg-notes">Notes</label>
-              <input id="rg-notes" className="input" value={guestForm.notes} onChange={(e) => setGuestForm({ ...guestForm, notes: e.target.value })} placeholder="Allergies, preferences…" />
+              <label htmlFor="rg-notes">{tr('Notes')}</label>
+              <input id="rg-notes" className="input" value={guestForm.notes} onChange={(e) => setGuestForm({ ...guestForm, notes: e.target.value })} placeholder={tr('Allergies, preferences…')} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setGuestDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setGuestDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={guestSaving}>{guestEditId ? 'Save changes' : 'Add guest'}</button>
             </div>
           </form>
@@ -1368,33 +1369,33 @@ export default function RestaurantsPage() {
             <h2>{ingredientEditId ? 'Edit ingredient' : 'Add ingredient'}</h2>
             {ingredientDialogError && <div className="error-banner">{ingredientDialogError}</div>}
             <div className="field">
-              <label htmlFor="ri-name">Name</label>
+              <label htmlFor="ri-name">{tr('Name')}</label>
               <input id="ri-name" className="input" value={ingredientForm.name} onChange={(e) => setIngredientForm({ ...ingredientForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="ri-unit">Unit</label>
-              <input id="ri-unit" className="input" value={ingredientForm.unit} onChange={(e) => setIngredientForm({ ...ingredientForm, unit: e.target.value })} placeholder="kg, litre, dozen…" />
+              <label htmlFor="ri-unit">{tr('Unit')}</label>
+              <input id="ri-unit" className="input" value={ingredientForm.unit} onChange={(e) => setIngredientForm({ ...ingredientForm, unit: e.target.value })} placeholder={tr('kg, litre, dozen…')} />
             </div>
             {!ingredientEditId && (
               <div className="field">
-                <label htmlFor="ri-qty">Starting stock</label>
+                <label htmlFor="ri-qty">{tr('Starting stock')}</label>
                 <input id="ri-qty" className="input" type="number" min="0" step="0.01" value={ingredientForm.stockQty} onChange={(e) => setIngredientForm({ ...ingredientForm, stockQty: e.target.value })} required />
               </div>
             )}
             <div className="field">
-              <label htmlFor="ri-reorder">Reorder level</label>
+              <label htmlFor="ri-reorder">{tr('Reorder level')}</label>
               <input id="ri-reorder" className="input" type="number" min="0" step="0.01" value={ingredientForm.reorderLevel} onChange={(e) => setIngredientForm({ ...ingredientForm, reorderLevel: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="ri-cost">Unit cost</label>
+              <label htmlFor="ri-cost">{tr('Unit cost')}</label>
               <input id="ri-cost" className="input" type="number" min="0" step="0.01" value={ingredientForm.unitCost} onChange={(e) => setIngredientForm({ ...ingredientForm, unitCost: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="ri-expiry">Expiry date</label>
+              <label htmlFor="ri-expiry">{tr('Expiry date')}</label>
               <input id="ri-expiry" className="input" type="date" value={ingredientForm.expiryDate} onChange={(e) => setIngredientForm({ ...ingredientForm, expiryDate: e.target.value })} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setIngredientDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setIngredientDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={ingredientSaving}>{ingredientEditId ? 'Save changes' : 'Add item'}</button>
             </div>
           </form>
@@ -1404,19 +1405,19 @@ export default function RestaurantsPage() {
       {stockDialog && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setStockDialog(null)}>
           <form className="dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()} onSubmit={submitStockDialog}>
-            <h2>Adjust stock — {stockDialog.name}</h2>
+            <h2>{tr('Adjust stock —')} {stockDialog.name}</h2>
             {stockDialogError && <div className="error-banner">{stockDialogError}</div>}
-            <p className="restaurants-stock-current">Currently in stock: <strong>{Number(stockDialog.stockQty).toLocaleString()}</strong></p>
+            <p className="restaurants-stock-current">{tr('Currently in stock:')} <strong>{Number(stockDialog.stockQty).toLocaleString()}</strong></p>
             <div className="field">
-              <label htmlFor="rst-delta">Change (+ to add, − to remove)</label>
-              <input id="rst-delta" className="input" type="number" step="0.01" value={stockDialog.delta} onChange={(e) => setStockDialog({ ...stockDialog, delta: e.target.value })} placeholder="e.g. 20 or -5" required autoFocus />
+              <label htmlFor="rst-delta">{tr('Change (+ to add, − to remove)')}</label>
+              <input id="rst-delta" className="input" type="number" step="0.01" value={stockDialog.delta} onChange={(e) => setStockDialog({ ...stockDialog, delta: e.target.value })} placeholder={tr('e.g. 20 or -5')} required autoFocus />
             </div>
             <div className="field">
-              <label htmlFor="rst-note">Note (optional)</label>
-              <input id="rst-note" className="input" value={stockDialog.note} onChange={(e) => setStockDialog({ ...stockDialog, note: e.target.value })} placeholder="e.g. Delivery received, stocktake correction" />
+              <label htmlFor="rst-note">{tr('Note (optional)')}</label>
+              <input id="rst-note" className="input" value={stockDialog.note} onChange={(e) => setStockDialog({ ...stockDialog, note: e.target.value })} placeholder={tr('e.g. Delivery received, stocktake correction')} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setStockDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setStockDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={stockSaving}>{stockSaving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
@@ -1426,7 +1427,7 @@ export default function RestaurantsPage() {
       {orderDetailOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setOrderDetailOpen(false)}>
           <div className="dialog restaurants-order-dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()}>
-            {orderDetailLoading && <div className="eyebrow">Loading…</div>}
+            {orderDetailLoading && <div className="eyebrow">{tr('Loading…')}</div>}
             {orderDetailError && <div className="error-banner">{orderDetailError}</div>}
             {orderDetail && !orderDetailLoading && (
               <>
@@ -1448,21 +1449,21 @@ export default function RestaurantsPage() {
                   ))}
                 </div>
                 <div className="restaurants-order-dialog-total">
-                  <span>Total</span>
+                  <span>{tr('Total')}</span>
                   <strong>{money(orderDetail.total)}</strong>
                 </div>
-                <div className="restaurants-order-dialog-meta">Paid by {orderDetail.paymentMethod.replace('_', ' ')}</div>
+                <div className="restaurants-order-dialog-meta">{tr('Paid by')} {orderDetail.paymentMethod.replace('_', ' ')}</div>
                 {(orderDetail.tableName || orderDetail.waiterName || orderDetail.guestName) && (
                   <div className="restaurants-order-dialog-meta">
-                    {orderDetail.tableName && <>Table: {orderDetail.tableName}</>}
-                    {orderDetail.waiterName && <>{orderDetail.tableName ? ' · ' : ''}Waiter: {orderDetail.waiterName}</>}
-                    {orderDetail.guestName && <>{(orderDetail.tableName || orderDetail.waiterName) ? ' · ' : ''}Guest: {orderDetail.guestName}{orderDetail.guestPhone ? ' (' + orderDetail.guestPhone + ')' : ''}</>}
+                    {orderDetail.tableName && <>{tr('Table:')} {orderDetail.tableName}</>}
+                    {orderDetail.waiterName && <>{orderDetail.tableName ? ' · ' : ''}{tr('Waiter:')} {orderDetail.waiterName}</>}
+                    {orderDetail.guestName && <>{(orderDetail.tableName || orderDetail.waiterName) ? ' · ' : ''}{tr('Guest:')} {orderDetail.guestName}{orderDetail.guestPhone ? ' (' + orderDetail.guestPhone + ')' : ''}</>}
                   </div>
                 )}
               </>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setOrderDetailOpen(false)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setOrderDetailOpen(false)}>{tr('Close')}</button>
             </div>
           </div>
         </div>
@@ -1471,11 +1472,11 @@ export default function RestaurantsPage() {
       {drawerDetailOpen && (
         <div className="dialog-backdrop restaurants-dialog-backdrop" onClick={() => setDrawerDetailOpen(false)}>
           <div className="dialog restaurants-order-dialog restaurants-dialog-pop" onClick={(e) => e.stopPropagation()}>
-            {drawerDetailLoading && <div className="eyebrow">Loading…</div>}
+            {drawerDetailLoading && <div className="eyebrow">{tr('Loading…')}</div>}
             {drawerDetailError && <div className="error-banner">{drawerDetailError}</div>}
             {drawerDetail && !drawerDetailLoading && (
               <>
-                <h2>Drawer Report: {drawerDetail.cashierName}</h2>
+                <h2>{tr('Drawer Report:')} {drawerDetail.cashierName}</h2>
                 <div className="restaurants-order-dialog-meta">
                   <span>{new Date(drawerDetail.session.openedAt).toLocaleString()}</span>
                   <span>–</span>
@@ -1484,28 +1485,28 @@ export default function RestaurantsPage() {
                   <span className={'tag ' + (drawerDetail.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{drawerDetail.session.status}</span>
                 </div>
                 <div className="restaurants-order-dialog-items">
-                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Starting Cash</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.startingCash)}</span></div>
-                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Cash Sales</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.cashSales)}</span></div>
-                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Cash Refunds</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.cashRefunds)}</span></div>
-                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">Paid In/Out</span><span className="restaurants-order-dialog-item-total">{drawerDetail.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawerDetail.netPaidInOut))}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">{tr('Starting Cash')}</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.startingCash)}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">{tr('Cash Sales')}</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.cashSales)}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">{tr('Cash Refunds')}</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.cashRefunds)}</span></div>
+                  <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">{tr('Paid In/Out')}</span><span className="restaurants-order-dialog-item-total">{drawerDetail.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawerDetail.netPaidInOut))}</span></div>
                 </div>
                 <div className="restaurants-order-dialog-total">
-                  <span>Expected in Drawer</span>
+                  <span>{tr('Expected in Drawer')}</span>
                   <strong>{money(drawerDetail.expected)}</strong>
                 </div>
                 <div className="restaurants-order-dialog-meta">
-                  Actual in Drawer: {drawerDetail.actual == null ? '—' : money(drawerDetail.actual)}
-                  {drawerDetail.difference != null && <> · Difference: {drawerDetail.difference < 0 ? '-' : ''}{money(Math.abs(drawerDetail.difference))}</>}
+                  {tr('Actual in Drawer:')} {drawerDetail.actual == null ? '—' : money(drawerDetail.actual)}
+                  {drawerDetail.difference != null && <> {tr('· Difference:')} {drawerDetail.difference < 0 ? '-' : ''}{money(Math.abs(drawerDetail.difference))}</>}
                 </div>
-                {drawerDetail.session.closingNote && <div className="restaurants-order-dialog-meta">Note: {drawerDetail.session.closingNote}</div>}
+                {drawerDetail.session.closingNote && <div className="restaurants-order-dialog-meta">{tr('Note:')} {drawerDetail.session.closingNote}</div>}
                 {!!drawerDetail.movements.length && (
                   <>
-                    <h3 style={{ fontSize: 13, margin: '14px 0 6px' }}>Paid In/Out</h3>
+                    <h3 style={{ fontSize: 13, margin: '14px 0 6px' }}>{tr('Paid In/Out')}</h3>
                     <div className="restaurants-order-dialog-items">
                       {drawerDetail.movements.map((m) => (
                         <div className="restaurants-order-dialog-item" key={m.id}>
                           <span className="restaurants-order-dialog-item-name">
-                            {m.direction === 'in' ? 'Paid in' : 'Paid out'} at {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}
+                            {m.direction === 'in' ? 'Paid in' : 'Paid out'} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}
                           </span>
                           <span className="restaurants-order-dialog-item-total">{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                         </div>
@@ -1516,7 +1517,7 @@ export default function RestaurantsPage() {
               </>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDrawerDetailOpen(false)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDrawerDetailOpen(false)}>{tr('Close')}</button>
             </div>
           </div>
         </div>

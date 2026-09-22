@@ -6,6 +6,7 @@ import { money } from '../lib/currency';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Properties and the units inside them. A unit is the thing that actually
 // gets let — a flat, a single room, an office suite, a shop, a warehouse
 // bay — so this is where the asking rent and the utility arrangement are
@@ -141,7 +142,7 @@ export default function PokiPropertiesPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleUnits = units.filter((u) =>
     matchesQuery(search, u.code, u.name, u.propertyName, u.tenantName) &&
@@ -156,29 +157,29 @@ export default function PokiPropertiesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search units, tenants…" />
-        <select className="input" value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} aria-label="Filter by property">
-          <option value="">All properties</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search units, tenants…')} />
+        <select className="input" value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} aria-label={tr('Filter by property')}>
+          <option value="">{tr('All properties')}</option>
           {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="occupied">Occupied</option>
-          <option value="vacant">Vacant</option>
-          <option value="reserved">Reserved</option>
-          <option value="maintenance">Maintenance</option>
-          <option value="unavailable">Unavailable</option>
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
+          <option value="occupied">{tr('Occupied')}</option>
+          <option value="vacant">{tr('Vacant')}</option>
+          <option value="reserved">{tr('Reserved')}</option>
+          <option value="maintenance">{tr('Maintenance')}</option>
+          <option value="unavailable">{tr('Unavailable')}</option>
         </select>
         <div className="poki-toolbar-spacer" />
-        {canManage && <button type="button" className="btn btn-secondary" onClick={() => openProperty(null)}>Add property</button>}
-        {canManage && <button type="button" className="btn btn-primary" disabled={!properties.length} onClick={() => openUnit(null)}>Add unit</button>}
+        {canManage && <button type="button" className="btn btn-secondary" onClick={() => openProperty(null)}>{tr('Add property')}</button>}
+        {canManage && <button type="button" className="btn btn-primary" disabled={!properties.length} onClick={() => openUnit(null)}>{tr('Add unit')}</button>}
       </div>
 
       {properties.length === 0 ? (
         <div className="poki-empty">
-          <p className="poki-empty-title">No properties yet</p>
+          <p className="poki-empty-title">{tr('No properties yet')}</p>
           <p className="poki-empty-sub">
-            Start with a property (the building or site), then add the units inside it that you actually let.
+            {tr('Start with a property (the building or site), then add the units inside it that you actually let.')}
           </p>
         </div>
       ) : (
@@ -189,11 +190,11 @@ export default function PokiPropertiesPage() {
                 <div className="poki-stat-label">{p.code}</div>
                 <div className="poki-stat-value" style={{ fontSize: 17 }}>{p.name}</div>
                 <div className="poki-stat-sub">
-                  {p.unitCount} unit{p.unitCount === 1 ? '' : 's'} · {p.occupiedCount} let · {p.vacantCount} vacant
+                  {p.unitCount} {tr('unit')}{p.unitCount === 1 ? '' : 's'} · {p.occupiedCount} {tr('let ·')} {p.vacantCount} {tr('vacant')}
                 </div>
                 {canManage && (
                   <button type="button" className="btn btn-secondary poki-row-btn" style={{ marginTop: 8 }} onClick={() => openProperty(p)}>
-                    Edit property
+                    {tr('Edit property')}
                   </button>
                 )}
               </div>
@@ -201,19 +202,19 @@ export default function PokiPropertiesPage() {
           </div>
 
           <div className="poki-section">
-            <h2 className="poki-section-title">Units</h2>
+            <h2 className="poki-section-title">{tr('Units')}</h2>
             {visibleUnits.length === 0 ? (
               <div className="poki-empty">
-                <p className="poki-empty-title">No units match</p>
-                <p className="poki-empty-sub">Adjust the filters, or add a unit to this property.</p>
+                <p className="poki-empty-title">{tr('No units match')}</p>
+                <p className="poki-empty-sub">{tr('Adjust the filters, or add a unit to this property.')}</p>
               </div>
             ) : (
               <div className="poki-table-wrap">
 <table className="table">
                 <thead>
                   <tr>
-                    <th>Unit</th><th>Type</th><th>Property</th><th>Status</th><th>Tenant</th>
-                    <th className="poki-num">Rent</th><th>Utilities</th><th></th>
+                    <th>{tr('Unit')}</th><th>{tr('Type')}</th><th>{tr('Property')}</th><th>{tr('Status')}</th><th>{tr('Tenant')}</th>
+                    <th className="poki-num">{tr('Rent')}</th><th>{tr('Utilities')}</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -232,7 +233,7 @@ export default function PokiPropertiesPage() {
                         {u.currency !== BASE_CURRENCY && Number(u.fxRate) > 0 && (
                           <div className="poki-muted poki-fx-hint">= {money(u.baseRent * u.fxRate, BASE_CURRENCY)}</div>
                         )}
-                        <div className="poki-muted">per month</div>
+                        <div className="poki-muted">{tr('per month')}</div>
                       </td>
                       <td className="poki-muted">
                         {u.utilityMode === 'none' && 'Direct to provider'}
@@ -262,44 +263,44 @@ export default function PokiPropertiesPage() {
             <h2 className="poki-dialog-title">{editId ? 'Edit property' : 'Add property'}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="pp-code">Code</label>
-              <input id="pp-code" className="input" value={form.code} onChange={set('code')} placeholder="e.g. PH" required disabled={!!editId} />
+              <label htmlFor="pp-code">{tr('Code')}</label>
+              <input id="pp-code" className="input" value={form.code} onChange={set('code')} placeholder={tr('e.g. PH')} required disabled={!!editId} />
             </div>
             <div className="field">
-              <label htmlFor="pp-name">Name</label>
-              <input id="pp-name" className="input" value={form.name} onChange={set('name')} placeholder="e.g. Poki House" required />
+              <label htmlFor="pp-name">{tr('Name')}</label>
+              <input id="pp-name" className="input" value={form.name} onChange={set('name')} placeholder={tr('e.g. Poki House')} required />
             </div>
             <div className="field">
-              <label htmlFor="pp-type">Type</label>
+              <label htmlFor="pp-type">{tr('Type')}</label>
               <select id="pp-type" className="input" value={form.propertyType} onChange={set('propertyType')}>
-                <option value="residential">Residential</option>
-                <option value="commercial">Commercial</option>
-                <option value="mixed">Mixed use</option>
-                <option value="land">Land</option>
+                <option value="residential">{tr('Residential')}</option>
+                <option value="commercial">{tr('Commercial')}</option>
+                <option value="mixed">{tr('Mixed use')}</option>
+                <option value="land">{tr('Land')}</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pp-gps">GhanaPost GPS</label>
-              <input id="pp-gps" className="input" value={form.ghanaPostGps} onChange={set('ghanaPostGps')} placeholder="GT-191-1859" />
+              <label htmlFor="pp-gps">{tr('GhanaPost GPS')}</label>
+              <input id="pp-gps" className="input" value={form.ghanaPostGps} onChange={set('ghanaPostGps')} placeholder={tr('GT-191-1859')} />
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pp-address">Address</label>
+              <label htmlFor="pp-address">{tr('Address')}</label>
               <input id="pp-address" className="input" value={form.address} onChange={set('address')} />
             </div>
             <div className="field">
-              <label htmlFor="pp-city">City</label>
+              <label htmlFor="pp-city">{tr('City')}</label>
               <input id="pp-city" className="input" value={form.city} onChange={set('city')} />
             </div>
             <div className="field">
-              <label htmlFor="pp-region">Region</label>
+              <label htmlFor="pp-region">{tr('Region')}</label>
               <input id="pp-region" className="input" value={form.region} onChange={set('region')} />
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pp-notes">Notes</label>
+              <label htmlFor="pp-notes">{tr('Notes')}</label>
               <textarea id="pp-notes" className="input" rows={2} value={form.notes} onChange={set('notes')} />
             </div>
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
@@ -312,108 +313,108 @@ export default function PokiPropertiesPage() {
             <h2 className="poki-dialog-title">{editId ? 'Edit unit' : 'Add unit'}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="pu-property">Property</label>
+              <label htmlFor="pu-property">{tr('Property')}</label>
               <select id="pu-property" className="input" value={form.propertyId} onChange={set('propertyId')} required disabled={!!editId}>
                 {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pu-code">Unit code</label>
-              <input id="pu-code" className="input" value={form.code} onChange={set('code')} placeholder="e.g. OF-1, APT-2B" required />
+              <label htmlFor="pu-code">{tr('Unit code')}</label>
+              <input id="pu-code" className="input" value={form.code} onChange={set('code')} placeholder={tr('e.g. OF-1, APT-2B')} required />
             </div>
             <div className="field">
-              <label htmlFor="pu-name">Description</label>
-              <input id="pu-name" className="input" value={form.name} onChange={set('name')} placeholder="e.g. Ground floor office" />
+              <label htmlFor="pu-name">{tr('Description')}</label>
+              <input id="pu-name" className="input" value={form.name} onChange={set('name')} placeholder={tr('e.g. Ground floor office')} />
             </div>
             <div className="field">
-              <label htmlFor="pu-type">Unit type</label>
+              <label htmlFor="pu-type">{tr('Unit type')}</label>
               <select id="pu-type" className="input" value={form.unitType} onChange={set('unitType')}>
                 {UNIT_TYPES.map((t) => <option key={t} value={t} style={{ textTransform: 'capitalize' }}>{t}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pu-floor">Floor</label>
-              <input id="pu-floor" className="input" value={form.floor} onChange={set('floor')} placeholder="e.g. Ground, 2nd" />
+              <label htmlFor="pu-floor">{tr('Floor')}</label>
+              <input id="pu-floor" className="input" value={form.floor} onChange={set('floor')} placeholder={tr('e.g. Ground, 2nd')} />
             </div>
             <div className="field">
-              <label htmlFor="pu-size">Size (m²)</label>
+              <label htmlFor="pu-size">{tr('Size (m²)')}</label>
               <input id="pu-size" className="input" type="number" step="0.01" value={form.sizeSqm} onChange={set('sizeSqm')} />
             </div>
             {(form.unitType === 'apartment' || form.unitType === 'room') && (
               <>
                 <div className="field">
-                  <label htmlFor="pu-bed">Bedrooms</label>
+                  <label htmlFor="pu-bed">{tr('Bedrooms')}</label>
                   <input id="pu-bed" className="input" type="number" value={form.bedrooms} onChange={set('bedrooms')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pu-bath">Bathrooms</label>
+                  <label htmlFor="pu-bath">{tr('Bathrooms')}</label>
                   <input id="pu-bath" className="input" type="number" value={form.bathrooms} onChange={set('bathrooms')} />
                 </div>
               </>
             )}
             <div className="field">
-              <label htmlFor="pu-currency">Currency</label>
+              <label htmlFor="pu-currency">{tr('Currency')}</label>
               <select id="pu-currency" className="input" value={form.currency} onChange={set('currency')}>
                 {UNIT_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             {form.currency !== BASE_CURRENCY && (
               <div className="field">
-                <label htmlFor="pu-fx">Your rate — 1 {form.currency} = ? {BASE_CURRENCY}</label>
+                <label htmlFor="pu-fx">{tr('Your rate — 1')} {form.currency} = ? {BASE_CURRENCY}</label>
                 <input
                   id="pu-fx" className="input" type="number" step="0.000001" min="0"
                   value={form.fxRate} onChange={set('fxRate')}
-                  placeholder="e.g. 15.50" required
+                  placeholder={tr('e.g. 15.50')} required
                 />
               </div>
             )}
             <div className="field">
-              <label htmlFor="pu-rent">Asking rent, per month</label>
+              <label htmlFor="pu-rent">{tr('Asking rent, per month')}</label>
               <input id="pu-rent" className="input" type="number" step="0.01" value={form.baseRent} onChange={set('baseRent')} />
               {equivalent(form.baseRent) && <div className="poki-fx-hint">{equivalent(form.baseRent)}</div>}
             </div>
             <div className="field">
-              <label htmlFor="pu-daily">Rent per day</label>
-              <input id="pu-daily" className="input" type="number" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder="optional" />
+              <label htmlFor="pu-daily">{tr('Rent per day')}</label>
+              <input id="pu-daily" className="input" type="number" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder={tr('optional')} />
               {equivalent(form.dailyRate) && <div className="poki-fx-hint">{equivalent(form.dailyRate)}</div>}
               <p className="poki-dialog-hint">
-                For bookings measured in days. Left blank, a day is charged at a thirtieth of the monthly rate.
+                {tr('For bookings measured in days. Left blank, a day is charged at a thirtieth of the monthly rate.')}
               </p>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pu-utility">Utilities</label>
+              <label htmlFor="pu-utility">{tr('Utilities')}</label>
               <select id="pu-utility" className="input" value={form.utilityMode} onChange={set('utilityMode')}>
                 {UTILITY_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
             {form.utilityMode === 'fixed' && (
               <div className="field">
-                <label htmlFor="pu-fixed">Fixed utility charge</label>
+                <label htmlFor="pu-fixed">{tr('Fixed utility charge')}</label>
                 <input id="pu-fixed" className="input" type="number" step="0.01" value={form.fixedUtilityAmount} onChange={set('fixedUtilityAmount')} />
               </div>
             )}
             {form.utilityMode === 'apportioned' && (
               <div className="field">
-                <label htmlFor="pu-share">Share of master bill (%)</label>
+                <label htmlFor="pu-share">{tr('Share of master bill (%)')}</label>
                 <input id="pu-share" className="input" type="number" step="0.01" value={form.apportionShare} onChange={set('apportionShare')} />
               </div>
             )}
             {form.utilityMode === 'metered' && (
               <p className="poki-dialog-hint">
-                Add this unit's meter(s) and record readings on the Rent &amp; utilities screen — consumption is billed there.
+                {tr('Add this unit\'s meter(s) and record readings on the Rent & utilities screen — consumption is billed there.')}
               </p>
             )}
             <div className="field poki-dialog-span">
-              <label htmlFor="pu-amen">Amenities</label>
-              <input id="pu-amen" className="input" value={form.amenities} onChange={set('amenities')} placeholder="e.g. A/C, parking, water tank" />
+              <label htmlFor="pu-amen">{tr('Amenities')}</label>
+              <input id="pu-amen" className="input" value={form.amenities} onChange={set('amenities')} placeholder={tr('e.g. A/C, parking, water tank')} />
             </div>
             {editId && (
               <p className="poki-dialog-hint">
-                Occupancy isn't set here — a unit becomes occupied when a booking on it is activated, and frees up when that booking ends.
+                {tr('Occupancy isn\'t set here — a unit becomes occupied when a booking on it is activated, and frees up when that booking ends.')}
               </p>
             )}
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>

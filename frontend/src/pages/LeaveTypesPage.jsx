@@ -3,6 +3,7 @@ import { api, ApiError } from '../api/client';
 import './LeaveTypesPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // HR/Admin-only screen (nav-gated on employee.write, same permission that
 // already gates kiosk PIN management and employee editing) for the things
 // the Leave screen itself deliberately doesn't expose. Four sections:
@@ -336,19 +337,19 @@ export default function LeaveTypesPage() {
 
   return (
     <div>
-      <p className="leavetypes-intro">Set what each leave type is worth per year, correct an individual employee's entitlement, and grant a new year's balances ahead of time.</p>
+      <p className="leavetypes-intro">{tr('Set what each leave type is worth per year, correct an individual employee\'s entitlement, and grant a new year\'s balances ahead of time.')}</p>
 
       <section className="leavetypes-section">
         <div className="leavetypes-section-header">
-          <h2>Leave types</h2>
-          <button type="button" className="btn btn-primary" onClick={openNewType}>+ New leave type</button>
+          <h2>{tr('Leave types')}</h2>
+          <button type="button" className="btn btn-primary" onClick={openNewType}>{tr('+ New leave type')}</button>
         </div>
         {error && <div className="error-banner">{error}</div>}
         {loading ? (
-          <p className="table-empty">Loading…</p>
+          <p className="table-empty">{tr('Loading…')}</p>
         ) : (
           <table className="table" style={{ marginTop: 12 }}>
-            <thead><tr><th>Name</th><th>Days / year</th><th>Paid</th><th>Active</th><th /></tr></thead>
+            <thead><tr><th>{tr('Name')}</th><th>{tr('Days / year')}</th><th>{tr('Paid')}</th><th>{tr('Active')}</th><th /></tr></thead>
             <tbody>
               {types.map((t) => (
                 <tr key={t.id} className={t.active ? '' : 'leavetypes-row-inactive'}>
@@ -366,36 +367,35 @@ export default function LeaveTypesPage() {
             </tbody>
           </table>
         )}
-        {!loading && !types.length && <p className="table-empty">No leave types yet.</p>}
+        {!loading && !types.length && <p className="table-empty">{tr('No leave types yet.')}</p>}
       </section>
 
       <section className="leavetypes-section">
-        <h2>Public holidays</h2>
+        <h2>{tr('Public holidays')}</h2>
         <p className="leavetypes-intro">
-          Each company keeps its own list. These aren't subtracted from anyone's entitlement — a holiday that falls
-          inside an approved leave request simply isn't charged against the balance, the same way Sundays aren't.
+          {tr('Each company keeps its own list. These aren\'t subtracted from anyone\'s entitlement — a holiday that falls inside an approved leave request simply isn\'t charged against the balance, the same way Sundays aren\'t.')}
         </p>
         <div className="leavetypes-balance-toolbar">
           <div className="field">
-            <label htmlFor="lt-holiday-company">Company</label>
+            <label htmlFor="lt-holiday-company">{tr('Company')}</label>
             <select id="lt-holiday-company" className="input" value={holidayCompanyId} onChange={(e) => setHolidayCompanyId(e.target.value)}>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="lt-holiday-year">Year</label>
+            <label htmlFor="lt-holiday-year">{tr('Year')}</label>
             <input id="lt-holiday-year" className="input" style={{ width: 110 }} value={holidayYear} onChange={(e) => setHolidayYear(e.target.value)} inputMode="numeric" />
           </div>
         </div>
 
         {holidayError && <div className="error-banner">{holidayError}</div>}
         {holidaysLoading ? (
-          <p className="table-empty">Loading…</p>
+          <p className="table-empty">{tr('Loading…')}</p>
         ) : (
           <>
             {holidays.length > 0 && (
               <table className="table" style={{ marginTop: 12 }}>
-                <thead><tr><th>Date</th><th>Name</th><th /></tr></thead>
+                <thead><tr><th>{tr('Date')}</th><th>{tr('Name')}</th><th /></tr></thead>
                 <tbody>
                   {holidays.map((h) => (
                     <tr key={h.id}>
@@ -411,58 +411,56 @@ export default function LeaveTypesPage() {
                 </tbody>
               </table>
             )}
-            {!holidays.length && <p className="table-empty">No holidays recorded for this company/year yet.</p>}
+            {!holidays.length && <p className="table-empty">{tr('No holidays recorded for this company/year yet.')}</p>}
           </>
         )}
 
         <form className="leavetypes-holiday-form" onSubmit={addHoliday}>
           <div className="field">
-            <label htmlFor="lt-holiday-date">Date</label>
+            <label htmlFor="lt-holiday-date">{tr('Date')}</label>
             <input id="lt-holiday-date" type="date" className="input" value={holidayForm.date} onChange={(e) => setHolidayForm({ ...holidayForm, date: e.target.value })} required />
           </div>
           <div className="field">
-            <label htmlFor="lt-holiday-name">Name</label>
-            <input id="lt-holiday-name" className="input" value={holidayForm.name} onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })} placeholder="e.g. Independence Day" required />
+            <label htmlFor="lt-holiday-name">{tr('Name')}</label>
+            <input id="lt-holiday-name" className="input" value={holidayForm.name} onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })} placeholder={tr('e.g. Independence Day')} required />
           </div>
           <button type="submit" className="btn btn-secondary" disabled={holidaySaving}>{holidaySaving ? 'Adding…' : '+ Add holiday'}</button>
         </form>
       </section>
 
       <section className="leavetypes-section">
-        <h2>Employee balances</h2>
+        <h2>{tr('Employee balances')}</h2>
         <div className="leavetypes-balance-toolbar">
           <div className="field">
-            <label htmlFor="lt-employee">Employee</label>
+            <label htmlFor="lt-employee">{tr('Employee')}</label>
             <select id="lt-employee" className="input" value={selectedEmployeeId} onChange={(e) => onEmployeeChange(e.target.value)}>
-              <option value="">Choose an employee…</option>
+              <option value="">{tr('Choose an employee…')}</option>
               {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.code})</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="lt-year">Year</label>
+            <label htmlFor="lt-year">{tr('Year')}</label>
             <input id="lt-year" className="input" style={{ width: 110 }} value={year} onChange={(e) => onYearChange(e.target.value)} inputMode="numeric" />
           </div>
         </div>
 
-        {!selectedEmployeeId && <p className="table-empty">Choose an employee to view and correct their leave balances.</p>}
+        {!selectedEmployeeId && <p className="table-empty">{tr('Choose an employee to view and correct their leave balances.')}</p>}
 
         {selectedEmployeeId && (
           <>
-            <h3 className="leavetypes-subheading">Base entitlement</h3>
+            <h3 className="leavetypes-subheading">{tr('Base entitlement')}</h3>
             <p className="leavetypes-intro">
-              This employee's own annual days per leave type — persists year to year until changed. Defaults to the
-              company figure above until you set a personal one (seniority, a negotiated offer, a proration that
-              should stick). Saving updates the {year} balance below immediately if one's already been granted.
+              {tr('This employee\'s own annual days per leave type — persists year to year until changed. Defaults to the company figure above until you set a personal one (seniority, a negotiated offer, a proration that should stick). Saving updates the')} {year} {tr('balance below immediately if one\'s already been granted.')}
             </p>
             {entitlementError && <div className="error-banner">{entitlementError}</div>}
-            {entitlementsLoading && <p className="table-empty">Loading…</p>}
+            {entitlementsLoading && <p className="table-empty">{tr('Loading…')}</p>}
             {!entitlementsLoading && entitlements && (
               <>
                 <div className="leavetypes-total-row">
                   <div className="field">
-                    <label htmlFor="lt-days-total">Total leave days agreed with this employee</label>
+                    <label htmlFor="lt-days-total">{tr('Total leave days agreed with this employee')}</label>
                     <input
-                      id="lt-days-total" className="input" style={{ width: 100 }} inputMode="numeric" placeholder="e.g. 20"
+                      id="lt-days-total" className="input" style={{ width: 100 }} inputMode="numeric" placeholder={tr('e.g. 20')}
                       value={leaveDaysTotalDraft} onChange={(e) => setLeaveDaysTotalDraft(e.target.value)}
                     />
                   </div>
@@ -474,23 +472,21 @@ export default function LeaveTypesPage() {
                   </button>
                   {entitlements.leaveDaysTotal !== null && (
                     <span className={'leavetypes-allocated' + (allocatedSum === entitlements.leaveDaysTotal ? ' leavetypes-allocated-match' : ' leavetypes-allocated-mismatch')}>
-                      Allocated {allocatedSum} of {entitlements.leaveDaysTotal}
+                      {tr('Allocated')} {allocatedSum} {tr('of')} {entitlements.leaveDaysTotal}
                     </span>
                   )}
                 </div>
                 {entitlements.leaveDaysTotal !== null && (
                   <p className="leavetypes-field-hint" style={{ marginTop: -8, marginBottom: 12 }}>
-                    {entitlements.usableLeaveDays} usable in {entitlements.year} — {entitlements.leaveDaysTotal} total days
-                    already include that year's {entitlements.holidaysThisYear} company holiday(s), so {entitlements.holidaysThisYear} of
-                    the {entitlements.leaveDaysTotal} are the public holidays themselves, not extra leave on top.
+                    {entitlements.usableLeaveDays} {tr('usable in')} {entitlements.year} — {entitlements.leaveDaysTotal} {tr('total days already include that year\'s')} {entitlements.holidaysThisYear} {tr('company holiday(s), so')} {entitlements.holidaysThisYear} {tr('of the')} {entitlements.leaveDaysTotal} {tr('are the public holidays themselves, not extra leave on top.')}
                   </p>
                 )}
                 <table className="table" style={{ marginTop: 12, marginBottom: 24 }}>
-                <thead><tr><th>Leave type</th><th>Company default</th><th>This employee</th><th /></tr></thead>
+                <thead><tr><th>{tr('Leave type')}</th><th>{tr('Company default')}</th><th>{tr('This employee')}</th><th /></tr></thead>
                 <tbody>
                   {entitlements.types.map((en) => (
                     <tr key={en.leaveTypeId}>
-                      <td style={{ fontWeight: 600 }}>{en.name}{en.isCustom && <span className="tag tag-outline" style={{ marginLeft: 8 }}>Custom</span>}</td>
+                      <td style={{ fontWeight: 600 }}>{en.name}{en.isCustom && <span className="tag tag-outline" style={{ marginLeft: 8 }}>{tr('Custom')}</span>}</td>
                       <td style={{ fontVariantNumeric: 'tabular-nums' }}>{en.companyDefault}</td>
                       <td>
                         <input
@@ -513,30 +509,30 @@ export default function LeaveTypesPage() {
             )}
 
             <div className="leavetypes-balance-subheader">
-              <h3 className="leavetypes-subheading">{year} balance</h3>
+              <h3 className="leavetypes-subheading">{year} {tr('balance')}</h3>
               <button type="button" className="btn btn-secondary attendance-row-btn" disabled={recalculating} onClick={recalculateBalances}>
                 {recalculating ? 'Recalculating…' : 'Recalculate against current policy'}
               </button>
             </div>
             {recalculateResult && (
               <p className="leavetypes-rollover-result">
-                Checked {recalculateResult.checked} leave type(s), updated {recalculateResult.updated} to match the current company default/personal entitlement.
+                {tr('Checked')} {recalculateResult.checked} {tr('leave type(s), updated')} {recalculateResult.updated} {tr('to match the current company default/personal entitlement.')}
               </p>
             )}
           </>
         )}
 
         {balanceError && <div className="error-banner">{balanceError}</div>}
-        {selectedEmployeeId && balancesLoading && <p className="table-empty">Loading…</p>}
+        {selectedEmployeeId && balancesLoading && <p className="table-empty">{tr('Loading…')}</p>}
         {selectedEmployeeId && !balancesLoading && balances && (
           <table className="table" style={{ marginTop: 12 }}>
-            <thead><tr><th>Leave type</th><th>Entitled</th><th>Used</th><th>Left</th><th /></tr></thead>
+            <thead><tr><th>{tr('Leave type')}</th><th>{tr('Entitled')}</th><th>{tr('Used')}</th><th>{tr('Left')}</th><th /></tr></thead>
             <tbody>
               {balances.map((b) => (
                 <tr key={b.leaveTypeId}>
                   <td style={{ fontWeight: 600 }}>
                     {b.name}
-                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} days/year · {b.holidays} company holiday(s) this year won't count against a request{!b.hasRow ? ' (preview)' : ''}</div>}
+                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} {tr('days/year ·')} {b.holidays} {tr('company holiday(s) this year won\'t count against a request')}{!b.hasRow ? ' (preview)' : ''}</div>}
                   </td>
                   <td>
                     <input
@@ -560,14 +556,13 @@ export default function LeaveTypesPage() {
       </section>
 
       <section className="leavetypes-section">
-        <h2>Year rollover</h2>
+        <h2>{tr('Year rollover')}</h2>
         <p className="leavetypes-intro">
-          Grants every active employee this year's balance for each leave type, using its current days/year default.
-          Safe to run more than once — it never overwrites a balance that already exists (including one you've corrected above).
+          {tr('Grants every active employee this year\'s balance for each leave type, using its current days/year default. Safe to run more than once — it never overwrites a balance that already exists (including one you\'ve corrected above).')}
         </p>
         <div className="leavetypes-balance-toolbar">
           <div className="field">
-            <label htmlFor="lt-rollover-year">Year</label>
+            <label htmlFor="lt-rollover-year">{tr('Year')}</label>
             <input id="lt-rollover-year" className="input" style={{ width: 110 }} value={rolloverYear} onChange={(e) => setRolloverYear(e.target.value)} inputMode="numeric" />
           </div>
           <button type="button" className="btn btn-primary" disabled={rolloverRunning} onClick={runRollover}>
@@ -577,7 +572,7 @@ export default function LeaveTypesPage() {
         {rolloverError && <div className="error-banner">{rolloverError}</div>}
         {rolloverResult && (
           <p className="leavetypes-rollover-result">
-            Granted {rolloverResult.granted} new balance record(s) for {rolloverResult.year}, across {rolloverResult.employees} active employee(s) and {rolloverResult.types} leave type(s).
+            {tr('Granted')} {rolloverResult.granted} {tr('new balance record(s) for')} {rolloverResult.year}{tr(', across')} {rolloverResult.employees} {tr('active employee(s) and')} {rolloverResult.types} {tr('leave type(s).')}
           </p>
         )}
       </section>
@@ -588,26 +583,26 @@ export default function LeaveTypesPage() {
             <h2>{typeDialog.mode === 'new' ? 'New leave type' : 'Edit leave type'}</h2>
             {typeError && <div className="error-banner">{typeError}</div>}
             <div className="field">
-              <label htmlFor="lt-name">Name</label>
+              <label htmlFor="lt-name">{tr('Name')}</label>
               <input id="lt-name" className="input" value={typeForm.name} onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="lt-days">Days per year</label>
+              <label htmlFor="lt-days">{tr('Days per year')}</label>
               <input id="lt-days" className="input" value={typeForm.daysPerYear} onChange={(e) => setTypeForm({ ...typeForm, daysPerYear: e.target.value })} inputMode="numeric" required />
-              <span className="leavetypes-field-hint">The company-wide default for this type — an individual employee's own figure (Base Entitlement, below) can override it.</span>
+              <span className="leavetypes-field-hint">{tr('The company-wide default for this type — an individual employee\'s own figure (Base Entitlement, below) can override it.')}</span>
             </div>
             <label className="leavetypes-checkbox-field">
               <input type="checkbox" checked={typeForm.paid} onChange={(e) => setTypeForm({ ...typeForm, paid: e.target.checked })} />
-              Paid leave
+              {tr('Paid leave')}
             </label>
             {typeDialog.mode === 'edit' && (
               <label className="leavetypes-checkbox-field">
                 <input type="checkbox" checked={typeForm.active} onChange={(e) => setTypeForm({ ...typeForm, active: e.target.checked })} />
-                Active (shown when requesting leave)
+                {tr('Active (shown when requesting leave)')}
               </label>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setTypeDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setTypeDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={typeSaving}>{typeSaving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>

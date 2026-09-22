@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import './TasksPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's tasks screen (screens.tasks block + the
 // tasks/taskScopeFilters computed values, and the taskDetail dialog around
 // its render()), redesigned around the icon/avatar language established
@@ -37,7 +38,7 @@ const ICON_PATHS = {
 function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
 function AssigneeStack({ names }) {
-  if (!names.length) return <span className="tasks-unassigned">Unassigned</span>;
+  if (!names.length) return <span className="tasks-unassigned">{tr('Unassigned')}</span>;
   const shown = names.slice(0, 3);
   const extra = names.length - shown.length;
   return (
@@ -283,7 +284,7 @@ export default function TasksPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   // tasks is already scoped/company/department/search-filtered server-side
   // (see load()'s comment) but NOT status-filtered — so these counts cover
@@ -333,60 +334,60 @@ export default function TasksPage() {
           ))}
         </div>
         <select className="input tasks-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">All statuses</option>
+          <option value="">{tr('All statuses')}</option>
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
-          <option value="overdue">Overdue</option>
+          <option value="overdue">{tr('Overdue')}</option>
         </select>
         <select
-          className="input tasks-status-filter" value={companyFilter} aria-label="Filter by company"
+          className="input tasks-status-filter" value={companyFilter} aria-label={tr('Filter by company')}
           onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
         >
-          <option value="">All companies</option>
+          <option value="">{tr('All companies')}</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select
-          className="input tasks-status-filter" value={deptFilter} aria-label="Filter by department"
+          className="input tasks-status-filter" value={deptFilter} aria-label={tr('Filter by department')}
           onChange={(e) => setDeptFilter(e.target.value)}
         >
-          <option value="">All departments</option>
+          <option value="">{tr('All departments')}</option>
           {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
             <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
           ))}
         </select>
-        <input className="input tasks-search" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search tasks…" />
+        <input className="input tasks-search" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={tr('Search tasks…')} />
       </div>
 
       {canManage && (
         <form className="card tasks-create-form" onSubmit={handleCreate}>
           <div className="field">
-            <label htmlFor="task-title">New task</label>
-            <input id="task-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Task title" required />
+            <label htmlFor="task-title">{tr('New task')}</label>
+            <input id="task-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr('Task title')} required />
           </div>
           <div className="field">
-            <label htmlFor="task-project">Project</label>
+            <label htmlFor="task-project">{tr('Project')}</label>
             <select id="task-project" className="input" value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
-              <option value="">None</option>
+              <option value="">{tr('None')}</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="task-assignee">Assignee</label>
+            <label htmlFor="task-assignee">{tr('Assignee')}</label>
             <select id="task-assignee" className="input" value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
-              <option value="">Me</option>
+              <option value="">{tr('Me')}</option>
               {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="task-due">Due</label>
+            <label htmlFor="task-due">{tr('Due')}</label>
             <input id="task-due" className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
           </div>
-          <button className="btn btn-primary" type="submit" disabled={creating}>Add task</button>
+          <button className="btn btn-primary" type="submit" disabled={creating}>{tr('Add task')}</button>
         </form>
       )}
 
       <table className="table">
         <thead>
-          <tr><th>Task</th><th>Project</th><th>Assignee(s)</th><th>Priority</th><th>Started</th><th>Due</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Task')}</th><th>{tr('Project')}</th><th>{tr('Assignee(s)')}</th><th>{tr('Priority')}</th><th>{tr('Started')}</th><th>{tr('Due')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleTasks.map((t) => (
@@ -405,7 +406,7 @@ export default function TasksPage() {
               </td>
               <td>
                 <input type="date" className="input tasks-date-input" value={t.dueDate || ''} disabled={!canManage} onChange={(e) => handleSetDue(t, e.target.value)} />
-                {t.overdue && <div className="tasks-overdue">{t.daysOverdue} day(s) overdue</div>}
+                {t.overdue && <div className="tasks-overdue">{t.daysOverdue} {tr('day(s) overdue')}</div>}
               </td>
               <td>
                 <select className="input tasks-status-select" value={t.status} onChange={(e) => handleSetStatus(t, e.target.value)}>
@@ -424,8 +425,8 @@ export default function TasksPage() {
       {!visibleTasks.length && (
         <div className="tasks-empty-state">
           <span className="tasks-empty-icon"><Icon name="checklist" /></span>
-          <p className="tasks-empty-title">No tasks here</p>
-          <p className="tasks-empty-sub">Nothing matches this scope, status, or search.</p>
+          <p className="tasks-empty-title">{tr('No tasks here')}</p>
+          <p className="tasks-empty-sub">{tr('Nothing matches this scope, status, or search.')}</p>
         </div>
       )}
 
@@ -435,34 +436,34 @@ export default function TasksPage() {
             {detailError && <div className="error-banner">{detailError}</div>}
             {editing ? (
               <form onSubmit={submitEdit} className="tasks-edit-form">
-                <h2>Edit task</h2>
+                <h2>{tr('Edit task')}</h2>
                 <div className="field">
-                  <label htmlFor="edit-title">Title</label>
+                  <label htmlFor="edit-title">{tr('Title')}</label>
                   <input id="edit-title" className="input" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
                 </div>
                 <div className="tasks-edit-grid">
                   <div className="field">
-                    <label htmlFor="edit-priority">Priority</label>
+                    <label htmlFor="edit-priority">{tr('Priority')}</label>
                     <select id="edit-priority" className="input" value={editForm.priority} onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}>
-                      <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                      <option value="low">{tr('Low')}</option><option value="medium">{tr('Medium')}</option><option value="high">{tr('High')}</option>
                     </select>
                   </div>
                   <div className="field">
-                    <label htmlFor="edit-started">Date started</label>
+                    <label htmlFor="edit-started">{tr('Date started')}</label>
                     <input id="edit-started" className="input" type="date" value={editForm.startedDate} onChange={(e) => setEditForm({ ...editForm, startedDate: e.target.value })} />
                   </div>
                   <div className="field">
-                    <label htmlFor="edit-due">Due date</label>
+                    <label htmlFor="edit-due">{tr('Due date')}</label>
                     <input id="edit-due" className="input" type="date" value={editForm.dueDate} onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })} />
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="edit-desc">Description</label>
+                  <label htmlFor="edit-desc">{tr('Description')}</label>
                   <textarea id="edit-desc" className="input" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
                 </div>
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" disabled={savingDetail}>Save changes</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>{tr('Cancel')}</button>
+                  <button type="submit" className="btn btn-primary" disabled={savingDetail}>{tr('Save changes')}</button>
                 </div>
               </form>
             ) : (
@@ -472,23 +473,23 @@ export default function TasksPage() {
                   <span className={'tag ' + tagClass(detail.status)}>{statusLabel(detail.status)}</span>
                 </div>
                 <div className="tasks-detail-meta">
-                  <div>Project: {detail.projectName}</div>
-                  <div>Assignees: {detail.assigneeNames.join(', ')}</div>
-                  <div>Priority: {detail.priority}</div>
-                  <div>Started: {fmtDate((detail.createdAt || '').slice(0, 10))}</div>
-                  <div>Due: {fmtDate(detail.dueDate)}</div>
+                  <div>{tr('Project:')} {detail.projectName}</div>
+                  <div>{tr('Assignees:')} {detail.assigneeNames.join(', ')}</div>
+                  <div>{tr('Priority:')} {detail.priority}</div>
+                  <div>{tr('Started:')} {fmtDate((detail.createdAt || '').slice(0, 10))}</div>
+                  <div>{tr('Due:')} {fmtDate(detail.dueDate)}</div>
                 </div>
-                {detail.overdue && <div className="tasks-overdue">{detail.daysOverdue} day(s) overdue</div>}
+                {detail.overdue && <div className="tasks-overdue">{detail.daysOverdue} {tr('day(s) overdue')}</div>}
                 {detail.description && <p className="tasks-detail-desc">{detail.description}</p>}
                 {canManage && (
                   <div className="dialog-actions" style={{ justifyContent: 'flex-start' }}>
-                    <button type="button" className="btn btn-secondary" onClick={startEdit}>Edit</button>
-                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(detail)}>Delete</button>
+                    <button type="button" className="btn btn-secondary" onClick={startEdit}>{tr('Edit')}</button>
+                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(detail)}>{tr('Delete')}</button>
                   </div>
                 )}
                 <hr className="hr" />
                 <div className="tasks-comments">
-                  <h3>Comments</h3>
+                  <h3>{tr('Comments')}</h3>
                   {detail.comments.map((c) => (
                     <div className="tasks-comment" key={c.id}>
                       <div className="tasks-comment-head">
@@ -501,16 +502,16 @@ export default function TasksPage() {
                       <div className="tasks-comment-body">{c.body}</div>
                     </div>
                   ))}
-                  {!detail.comments.length && <p className="tasks-no-comments">No comments yet.</p>}
+                  {!detail.comments.length && <p className="tasks-no-comments">{tr('No comments yet.')}</p>}
                   <form className="tasks-comment-form" onSubmit={submitComment}>
-                    <input className="input" value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} placeholder="Add a comment…" />
-                    <button className="btn btn-primary" type="submit">Post</button>
+                    <input className="input" value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} placeholder={tr('Add a comment…')} />
+                    <button className="btn btn-primary" type="submit">{tr('Post')}</button>
                   </form>
                 </div>
               </>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDetail(null)}>{tr('Close')}</button>
             </div>
           </div>
         </div>
@@ -519,10 +520,10 @@ export default function TasksPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete task</h2>
-            <p className="dialog-body">Delete <strong>{deleteTarget.title}</strong>? This cannot be undone.</p>
+            <h2>{tr('Delete task')}</h2>
+            <p className="dialog-body">{tr('Delete')} <strong>{deleteTarget.title}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={() => handleDelete(deleteTarget)}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

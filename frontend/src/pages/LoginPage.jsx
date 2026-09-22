@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { tr } from '../lib/i18n.jsx';
 import './LoginPage.css';
 
 // Same test accounts backend/README.md documents (backend/src/db/seed.js) —
@@ -89,28 +90,28 @@ export default function LoginPage() {
       <div className="login-brand">
         <BambooDecoration />
         <div className="login-brand-content">
-          <img src="/logo.png" alt="Bamboo Products Limited" className="login-logo" />
+          <img src="/logo.png" alt={tr('Bamboo Products Limited')} className="login-logo" />
           <div>
-            <h1 className="login-brand-heading">Company<br />Operating<br />System</h1>
+            <h1 className="login-brand-heading">{tr('Company')}<br />{tr('Operating')}<br />{tr('System')}</h1>
             <p className="login-brand-sub">
-              People, attendance, leave and governance for the factory &amp; office.
-              <br />Phase 1 foundation.
+              {tr('People, attendance, leave and governance for the factory & office.')}
+              <br />{tr('Phase 1 foundation.')}
             </p>
           </div>
           <div className="login-brand-footer">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.6" /></svg>
-            Internal system · authorised staff only
+            {tr('Internal system · authorised staff only')}
           </div>
         </div>
       </div>
 
       <div className="login-form-wrap">
         <form className="login-form" onSubmit={handleSubmit}>
-          <h1 className="login-form-title">Sign in</h1>
-          <p className="login-form-sub">Use your company email address.</p>
+          <h1 className="login-form-title">{tr('Sign in')}</h1>
+          <p className="login-form-sub">{tr('Use your company email address.')}</p>
 
           <div className="field">
-            <label htmlFor="bpl-email">Work email</label>
+            <label htmlFor="bpl-email">{tr('Work email')}</label>
             <div className="login-input-wrap">
               <svg className="login-input-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -121,7 +122,7 @@ export default function LoginPage() {
                 className="input login-input"
                 type="email"
                 autoComplete="username"
-                placeholder="name@bplghana.com"
+                placeholder={tr('name@bplghana.com')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -130,7 +131,7 @@ export default function LoginPage() {
           </div>
 
           <div className="field">
-            <label htmlFor="bpl-pw">Password</label>
+            <label htmlFor="bpl-pw">{tr('Password')}</label>
             <div className="login-input-wrap">
               <svg className="login-input-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <rect x="5" y="10" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
@@ -183,7 +184,7 @@ export default function LoginPage() {
 
           {showDemo && (
             <div className="login-demo">
-              <div className="eyebrow">Test accounts — password bamboo123</div>
+              <div className="eyebrow">{tr('Test accounts — password bamboo123')}</div>
               <div className="login-demo-list">
                 {DEMO_ACCOUNTS.map((acct) => (
                   <button

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { tr } from '../lib/i18n.jsx';
 import './AssetsPage.css';
 
 // Ported from Bamboo OS.dc.html's assets screen (screens.assets block +
@@ -132,7 +133,7 @@ export default function AssetsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleAssets = assets.filter((a) => matchesQuery(search, a.assetNo, a.category, a.description, a.assigneeName, a.location));
 
@@ -141,18 +142,18 @@ export default function AssetsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="assets-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search assets…" />
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search assets…')} />
         {canManage && (
           <div className="assets-toolbar-actions">
-            <button type="button" className="btn btn-secondary" onClick={openNewMaintenance}>Log maintenance</button>
-            <button type="button" className="btn btn-primary" onClick={openNewAsset}>Register asset</button>
+            <button type="button" className="btn btn-secondary" onClick={openNewMaintenance}>{tr('Log maintenance')}</button>
+            <button type="button" className="btn btn-primary" onClick={openNewAsset}>{tr('Register asset')}</button>
           </div>
         )}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>Asset</th><th>Category</th><th>Description</th><th>Assigned to</th><th>Location</th><th>Condition</th><th>Next service</th><th /></tr>
+          <tr><th>{tr('Asset')}</th><th>{tr('Category')}</th><th>{tr('Description')}</th><th>{tr('Assigned to')}</th><th>{tr('Location')}</th><th>{tr('Condition')}</th><th>{tr('Next service')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleAssets.map((a) => (
@@ -184,20 +185,20 @@ export default function AssetsPage() {
       {!assets.length && (
         <div className="assets-empty-state">
           <span className="assets-empty-icon"><WrenchIcon /></span>
-          <p className="assets-empty-title">No assets registered yet</p>
+          <p className="assets-empty-title">{tr('No assets registered yet')}</p>
         </div>
       )}
       {!!assets.length && !visibleAssets.length && (
         <div className="assets-empty-state">
           <span className="assets-empty-icon"><WrenchIcon /></span>
-          <p className="assets-empty-title">No assets match "{search}"</p>
+          <p className="assets-empty-title">{tr('No assets match "')}{search}"</p>
         </div>
       )}
 
-      <h2 className="assets-section-title">Maintenance history</h2>
+      <h2 className="assets-section-title">{tr('Maintenance history')}</h2>
       <table className="table">
         <thead>
-          <tr><th>Asset</th><th>Date</th><th>Technician</th><th>Cost</th><th>Fault</th><th>Downtime</th><th>Parts</th></tr>
+          <tr><th>{tr('Asset')}</th><th>{tr('Date')}</th><th>{tr('Technician')}</th><th>{tr('Cost')}</th><th>{tr('Fault')}</th><th>{tr('Downtime')}</th><th>{tr('Parts')}</th></tr>
         </thead>
         <tbody>
           {maintenance.map((m) => (
@@ -205,9 +206,9 @@ export default function AssetsPage() {
               <td>{m.assetLabel}</td>
               <td>{fmtDate(m.date)}</td>
               <td>{m.technician}</td>
-              <td>GHS {m.cost.toLocaleString()}</td>
+              <td>{tr('GHS')} {m.cost.toLocaleString()}</td>
               <td style={{ fontSize: 13 }}>{m.faultReport}</td>
-              <td>{m.downtimeHours}h</td>
+              <td>{m.downtimeHours}{tr('h')}</td>
               <td>{m.partsReplaced || '—'}</td>
             </tr>
           ))}
@@ -216,45 +217,45 @@ export default function AssetsPage() {
       {!maintenance.length && (
         <div className="assets-empty-state">
           <span className="assets-empty-icon"><WrenchIcon /></span>
-          <p className="assets-empty-title">No maintenance logged yet</p>
+          <p className="assets-empty-title">{tr('No maintenance logged yet')}</p>
         </div>
       )}
 
       {assetDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setAssetDialogOpen(false)}>
           <form className="dialog assets-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateAsset}>
-            <h2 className="assets-dialog-title">Register asset</h2>
+            <h2 className="assets-dialog-title">{tr('Register asset')}</h2>
             {assetDialogError && <div className="error-banner assets-dialog-span">{assetDialogError}</div>}
             <div className="field">
-              <label htmlFor="as-category">Category</label>
-              <input id="as-category" className="input" value={assetForm.category} onChange={(e) => setAssetForm({ ...assetForm, category: e.target.value })} placeholder="Machinery, Vehicle, Computer…" required />
+              <label htmlFor="as-category">{tr('Category')}</label>
+              <input id="as-category" className="input" value={assetForm.category} onChange={(e) => setAssetForm({ ...assetForm, category: e.target.value })} placeholder={tr('Machinery, Vehicle, Computer…')} required />
             </div>
             <div className="field">
-              <label htmlFor="as-desc">Description</label>
+              <label htmlFor="as-desc">{tr('Description')}</label>
               <input id="as-desc" className="input" value={assetForm.description} onChange={(e) => setAssetForm({ ...assetForm, description: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="as-date">Purchase date</label>
+              <label htmlFor="as-date">{tr('Purchase date')}</label>
               <input id="as-date" className="input" type="date" value={assetForm.purchaseDate} onChange={(e) => setAssetForm({ ...assetForm, purchaseDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="as-price">Purchase price</label>
+              <label htmlFor="as-price">{tr('Purchase price')}</label>
               <input id="as-price" className="input" type="number" value={assetForm.purchasePrice} onChange={(e) => setAssetForm({ ...assetForm, purchasePrice: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="as-assignee">Assigned to</label>
+              <label htmlFor="as-assignee">{tr('Assigned to')}</label>
               <select id="as-assignee" className="input" value={assetForm.assignedEmployeeId} onChange={(e) => setAssetForm({ ...assetForm, assignedEmployeeId: e.target.value })}>
-                <option value="">Unassigned</option>
+                <option value="">{tr('Unassigned')}</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="as-location">Location</label>
+              <label htmlFor="as-location">{tr('Location')}</label>
               <input id="as-location" className="input" value={assetForm.location} onChange={(e) => setAssetForm({ ...assetForm, location: e.target.value })} />
             </div>
             <div className="dialog-actions assets-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setAssetDialogOpen(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={savingAsset}>Register</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setAssetDialogOpen(false)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingAsset}>{tr('Register')}</button>
             </div>
           </form>
         </div>
@@ -263,37 +264,37 @@ export default function AssetsPage() {
       {maintDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setMaintDialogOpen(false)}>
           <form className="dialog assets-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleLogMaintenance}>
-            <h2 className="assets-dialog-title">Log maintenance</h2>
+            <h2 className="assets-dialog-title">{tr('Log maintenance')}</h2>
             {maintDialogError && <div className="error-banner assets-dialog-span">{maintDialogError}</div>}
             <div className="field assets-dialog-span">
-              <label htmlFor="mt-asset">Asset</label>
+              <label htmlFor="mt-asset">{tr('Asset')}</label>
               <select id="mt-asset" className="input" value={maintForm.assetId} onChange={(e) => setMaintForm({ ...maintForm, assetId: e.target.value })} required>
                 {assets.map((a) => <option key={a.id} value={a.id}>{a.assetNo} — {a.description}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="mt-tech">Technician</label>
+              <label htmlFor="mt-tech">{tr('Technician')}</label>
               <input id="mt-tech" className="input" value={maintForm.technician} onChange={(e) => setMaintForm({ ...maintForm, technician: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="mt-cost">Cost (GHS)</label>
+              <label htmlFor="mt-cost">{tr('Cost (GHS)')}</label>
               <input id="mt-cost" className="input" type="number" value={maintForm.cost} onChange={(e) => setMaintForm({ ...maintForm, cost: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="mt-downtime">Downtime (hours)</label>
+              <label htmlFor="mt-downtime">{tr('Downtime (hours)')}</label>
               <input id="mt-downtime" className="input" type="number" value={maintForm.downtimeHours} onChange={(e) => setMaintForm({ ...maintForm, downtimeHours: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="mt-parts">Parts replaced</label>
+              <label htmlFor="mt-parts">{tr('Parts replaced')}</label>
               <input id="mt-parts" className="input" value={maintForm.partsReplaced} onChange={(e) => setMaintForm({ ...maintForm, partsReplaced: e.target.value })} />
             </div>
             <div className="field assets-dialog-span">
-              <label htmlFor="mt-fault">Fault report</label>
+              <label htmlFor="mt-fault">{tr('Fault report')}</label>
               <textarea id="mt-fault" className="input" value={maintForm.faultReport} onChange={(e) => setMaintForm({ ...maintForm, faultReport: e.target.value })} required />
             </div>
             <div className="dialog-actions assets-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setMaintDialogOpen(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={savingMaint}>Save record</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setMaintDialogOpen(false)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingMaint}>{tr('Save record')}</button>
             </div>
           </form>
         </div>

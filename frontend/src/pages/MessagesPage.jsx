@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { tr } from '../lib/i18n.jsx';
 import './MessagesPage.css';
 
 // Ported from Bamboo OS.dc.html's messages screen (screens.messages block
@@ -180,7 +181,7 @@ export default function MessagesPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleInbox = inbox.filter((c) => matchesQuery(inboxSearch, c.peerName, c.lastBody));
   const visibleDirectory = directory.filter((p) => matchesQuery(directorySearch, p.name, p.title));
@@ -193,17 +194,17 @@ export default function MessagesPage() {
         <div className="messages-inbox">
           <div className="messages-inbox-header">
             <div>
-              <div className="eyebrow">Messages</div>
-              <h2 className="messages-inbox-title">Chats</h2>
+              <div className="eyebrow">{tr('Messages')}</div>
+              <h2 className="messages-inbox-title">{tr('Chats')}</h2>
             </div>
-            <button type="button" className="messages-new-btn" aria-label="New message" title="New message" onClick={() => setDialogOpen(true)}>
+            <button type="button" className="messages-new-btn" aria-label={tr('New message')} title={tr('New message')} onClick={() => setDialogOpen(true)}>
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path d="M10 4.5V15.5M4.5 10H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </button>
           </div>
           <div className="messages-inbox-search">
-            <SearchInput value={inboxSearch} onChange={setInboxSearch} placeholder="Search conversations…" />
+            <SearchInput value={inboxSearch} onChange={setInboxSearch} placeholder={tr('Search conversations…')} />
           </div>
           <div className="messages-inbox-list">
             {visibleInbox.map((c) => (
@@ -230,12 +231,12 @@ export default function MessagesPage() {
                 <svg viewBox="0 0 48 48" fill="none" aria-hidden="true" className="messages-empty-icon">
                   <path d="M8 12a4 4 0 0 1 4-4h24a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H20l-8 8v-8h-4a4 4 0 0 1-4-4V12Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
                 </svg>
-                <p className="messages-empty-title">No conversations yet</p>
-                <p className="messages-empty-sub">Start a chat with a colleague.</p>
-                <button type="button" className="btn btn-primary" onClick={() => setDialogOpen(true)}>New message</button>
+                <p className="messages-empty-title">{tr('No conversations yet')}</p>
+                <p className="messages-empty-sub">{tr('Start a chat with a colleague.')}</p>
+                <button type="button" className="btn btn-primary" onClick={() => setDialogOpen(true)}>{tr('New message')}</button>
               </div>
             )}
-            {!!inbox.length && !visibleInbox.length && <p className="messages-empty">No matches.</p>}
+            {!!inbox.length && !visibleInbox.length && <p className="messages-empty">{tr('No matches.')}</p>}
           </div>
         </div>
 
@@ -243,7 +244,7 @@ export default function MessagesPage() {
           {thread && activePeerId ? (
             <>
               <div className="messages-thread-header">
-                <button type="button" className="messages-back-btn" aria-label="Back to conversations" onClick={() => setActivePeerId(null)}>
+                <button type="button" className="messages-back-btn" aria-label={tr('Back to conversations')} onClick={() => setActivePeerId(null)}>
                   <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                     <path d="M12.5 4.5 6 10l6.5 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -290,10 +291,10 @@ export default function MessagesPage() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={handleComposerKeyDown}
-                  placeholder="Write a message…"
+                  placeholder={tr('Write a message…')}
                   disabled={sending}
                 />
-                <button className="messages-send-btn" type="submit" disabled={sending || !draft.trim()} aria-label="Send">
+                <button className="messages-send-btn" type="submit" disabled={sending || !draft.trim()} aria-label={tr('Send')}>
                   <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                     <path d="M3 10 17 3l-5 14-3-6-6-1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="currentColor" fillOpacity="0.08" />
                   </svg>
@@ -306,9 +307,9 @@ export default function MessagesPage() {
                 <rect x="6" y="9" width="36" height="26" rx="3" stroke="currentColor" strokeWidth="2" />
                 <path d="M12 17h24M12 24h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-              <p className="messages-empty-title">Select a conversation</p>
-              <p className="messages-empty-sub">Or start a new one.</p>
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(true)}>New message</button>
+              <p className="messages-empty-title">{tr('Select a conversation')}</p>
+              <p className="messages-empty-sub">{tr('Or start a new one.')}</p>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(true)}>{tr('New message')}</button>
             </div>
           )}
         </div>
@@ -317,8 +318,8 @@ export default function MessagesPage() {
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <div className="dialog messages-new-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>New message</h2>
-            <SearchInput value={directorySearch} onChange={setDirectorySearch} placeholder="Search people…" />
+            <h2>{tr('New message')}</h2>
+            <SearchInput value={directorySearch} onChange={setDirectorySearch} placeholder={tr('Search people…')} />
             <div className="messages-directory">
               {visibleDirectory.map((p) => (
                 <button type="button" key={p.id} className="messages-directory-item" onClick={() => startConversationWith(p.id)}>
@@ -331,7 +332,7 @@ export default function MessagesPage() {
               ))}
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
             </div>
           </div>
         </div>

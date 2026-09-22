@@ -6,6 +6,7 @@ import { moneyBreakdown } from '../lib/currency';
 import './CustomersPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's customers screen (screens.customers
 // block + the customers computed values, and the shared "customer"
 // create/edit dialog around its render()).
@@ -142,7 +143,7 @@ export default function CustomersPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleCustomers = customers.filter((c) => matchesQuery(search, c.name, c.contactPerson, c.email, c.phone));
 
@@ -151,13 +152,13 @@ export default function CustomersPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="customers-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search customers…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add customer</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search customers…')} />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add customer')}</button>}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>Customer</th><th>Contact</th><th>Email / phone</th><th>Category</th><th>Quoted</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th /></tr>
+          <tr><th>{tr('Customer')}</th><th>{tr('Contact')}</th><th>{tr('Email / phone')}</th><th>{tr('Category')}</th><th>{tr('Quoted')}</th><th>{tr('Invoiced')}</th><th>{tr('Paid')}</th><th>{tr('Outstanding')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleCustomers.map((c) => {
@@ -201,13 +202,13 @@ export default function CustomersPage() {
       {!customers.length && (
         <div className="customers-empty-state">
           <span className="customers-empty-icon"><BuildingIcon /></span>
-          <p className="customers-empty-title">No customers on file yet</p>
+          <p className="customers-empty-title">{tr('No customers on file yet')}</p>
         </div>
       )}
       {!!customers.length && !visibleCustomers.length && (
         <div className="customers-empty-state">
           <span className="customers-empty-icon"><BuildingIcon /></span>
-          <p className="customers-empty-title">No customers match "{search}"</p>
+          <p className="customers-empty-title">{tr('No customers match "')}{search}"</p>
         </div>
       )}
 
@@ -217,50 +218,50 @@ export default function CustomersPage() {
             <h2 className="customers-dialog-title">{editId ? 'Edit customer' : 'Add customer'}</h2>
             {dialogError && <div className="error-banner customers-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="cu-name">Name</label>
+              <label htmlFor="cu-name">{tr('Name')}</label>
               <input id="cu-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="cu-contact">Contact person</label>
+              <label htmlFor="cu-contact">{tr('Contact person')}</label>
               <input id="cu-contact" className="input" value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="cu-email">Email</label>
+              <label htmlFor="cu-email">{tr('Email')}</label>
               <input id="cu-email" className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="cu-phone">Phone</label>
+              <label htmlFor="cu-phone">{tr('Phone')}</label>
               <input id="cu-phone" className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
             <div className="field customers-dialog-span">
-              <label htmlFor="cu-address">Address</label>
+              <label htmlFor="cu-address">{tr('Address')}</label>
               <input id="cu-address" className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="cu-category">Category</label>
+              <label htmlFor="cu-category">{tr('Category')}</label>
               <select id="cu-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="cu-currency">Preferred currency</label>
+              <label htmlFor="cu-currency">{tr('Preferred currency')}</label>
               <select id="cu-currency" className="input" value={form.preferredCurrency} onChange={(e) => setForm({ ...form, preferredCurrency: e.target.value })}>
                 {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="cu-manager">Account manager</label>
+              <label htmlFor="cu-manager">{tr('Account manager')}</label>
               <select id="cu-manager" className="input" value={form.accountManagerId} onChange={(e) => setForm({ ...form, accountManagerId: e.target.value })}>
-                <option value="">Me</option>
+                <option value="">{tr('Me')}</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </select>
             </div>
             <div className="field customers-dialog-span">
-              <label htmlFor="cu-notes">Notes</label>
+              <label htmlFor="cu-notes">{tr('Notes')}</label>
               <textarea id="cu-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
             <div className="dialog-actions customers-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add customer'}</button>
             </div>
           </form>
@@ -270,10 +271,10 @@ export default function CustomersPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete {deleteTarget.name}</h2>
-            <p className="dialog-body">This cannot be undone.</p>
+            <h2>{tr('Delete')} {deleteTarget.name}</h2>
+            <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

@@ -8,6 +8,7 @@ import './WaybillsPage.css';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 
+import { tr } from '../lib/i18n.jsx';
 // Waybills document goods leaving the factory or showroom — a delivery
 // note, not a sales document (no pricing on the line items). The printed
 // document (WaybillPreview.jsx) carries the full company letterhead, a
@@ -172,7 +173,7 @@ export default function WaybillsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleWaybills = waybills.filter((wb) => matchesQuery(search, wb.waybillNo, wb.destination, wb.customerName, wb.driverName, wb.vehicleNo));
 
@@ -190,13 +191,13 @@ export default function WaybillsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="waybills-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search waybills…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>New waybill</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search waybills…')} />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New waybill')}</button>}
       </div>
 
       <table className="table table-clickable">
         <thead>
-          <tr><th>Waybill</th><th>Origin</th><th>Destination</th><th>Driver</th><th>Vehicle</th><th>Date</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Waybill')}</th><th>{tr('Origin')}</th><th>{tr('Destination')}</th><th>{tr('Driver')}</th><th>{tr('Vehicle')}</th><th>{tr('Date')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleWaybills.map((wb) => (
@@ -235,84 +236,84 @@ export default function WaybillsPage() {
       {!waybills.length && (
         <div className="waybills-empty-state">
           <span className="waybills-empty-icon"><TruckIcon /></span>
-          <p className="waybills-empty-title">No waybills yet</p>
+          <p className="waybills-empty-title">{tr('No waybills yet')}</p>
         </div>
       )}
       {!!waybills.length && !visibleWaybills.length && (
         <div className="waybills-empty-state">
           <span className="waybills-empty-icon"><TruckIcon /></span>
-          <p className="waybills-empty-title">No waybills match "{search}"</p>
+          <p className="waybills-empty-title">{tr('No waybills match "')}{search}"</p>
         </div>
       )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog waybills-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2 className="waybills-dialog-title">New waybill</h2>
+            <h2 className="waybills-dialog-title">{tr('New waybill')}</h2>
             {dialogError && <div className="error-banner waybills-dialog-span">{dialogError}</div>}
 
             <div className="field">
-              <label htmlFor="wb-origin">Origin</label>
+              <label htmlFor="wb-origin">{tr('Origin')}</label>
               <select id="wb-origin" className="input" value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })}>
-                <option value="factory">Factory</option>
-                <option value="showroom">Showroom</option>
+                <option value="factory">{tr('Factory')}</option>
+                <option value="showroom">{tr('Showroom')}</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="wb-destination">Destination</label>
+              <label htmlFor="wb-destination">{tr('Destination')}</label>
               <input id="wb-destination" className="input" value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="wb-customer">Customer (optional)</label>
+              <label htmlFor="wb-customer">{tr('Customer (optional)')}</label>
               <select id="wb-customer" className="input" value={form.customerId} onChange={(e) => pickCustomer(e.target.value)}>
-                <option value="">None</option>
+                <option value="">{tr('None')}</option>
                 {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="wb-shipping-date">Shipping date</label>
+              <label htmlFor="wb-shipping-date">{tr('Shipping date')}</label>
               <input id="wb-shipping-date" className="input" type="date" value={form.shippingDate} onChange={(e) => setForm({ ...form, shippingDate: e.target.value })} />
             </div>
 
-            <div className="waybills-dialog-span waybills-section-title">Shipped to</div>
+            <div className="waybills-dialog-span waybills-section-title">{tr('Shipped to')}</div>
             <div className="field">
-              <label htmlFor="wb-ship-name">Name</label>
+              <label htmlFor="wb-ship-name">{tr('Name')}</label>
               <input id="wb-ship-name" className="input" value={form.shippedToName} onChange={(e) => setForm({ ...form, shippedToName: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="wb-ship-phone">Phone</label>
+              <label htmlFor="wb-ship-phone">{tr('Phone')}</label>
               <input id="wb-ship-phone" className="input" value={form.shippedToPhone} onChange={(e) => setForm({ ...form, shippedToPhone: e.target.value })} />
             </div>
             <div className="field waybills-dialog-span">
-              <label htmlFor="wb-ship-address">Address</label>
+              <label htmlFor="wb-ship-address">{tr('Address')}</label>
               <input id="wb-ship-address" className="input" value={form.shippedToAddress} onChange={(e) => setForm({ ...form, shippedToAddress: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="wb-ship-email">Email</label>
+              <label htmlFor="wb-ship-email">{tr('Email')}</label>
               <input id="wb-ship-email" className="input" type="email" value={form.shippedToEmail} onChange={(e) => setForm({ ...form, shippedToEmail: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="wb-salesrep">Sales rep</label>
+              <label htmlFor="wb-salesrep">{tr('Sales rep')}</label>
               <select id="wb-salesrep" className="input" value={form.salesRepId} onChange={(e) => setForm({ ...form, salesRepId: e.target.value })}>
-                <option value="">None</option>
+                <option value="">{tr('None')}</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </select>
             </div>
 
-            <div className="waybills-dialog-span waybills-section-title">Shipment</div>
+            <div className="waybills-dialog-span waybills-section-title">{tr('Shipment')}</div>
             <div className="field">
-              <label htmlFor="wb-driver">Driver name</label>
+              <label htmlFor="wb-driver">{tr('Driver name')}</label>
               <input id="wb-driver" className="input" value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="wb-vehicle">Vehicle number</label>
+              <label htmlFor="wb-vehicle">{tr('Vehicle number')}</label>
               <input id="wb-vehicle" className="input" value={form.vehicleNo} onChange={(e) => setForm({ ...form, vehicleNo: e.target.value })} />
             </div>
 
             <div className="waybills-dialog-span">
-              <label className="waybills-items-label">Items</label>
+              <label className="waybills-items-label">{tr('Items')}</label>
               <table className="table waybills-items-table">
-                <thead><tr><th>S/N</th><th>Description</th><th>Qty</th><th>Unit</th><th /></tr></thead>
+                <thead><tr><th>{tr('S/N')}</th><th>{tr('Description')}</th><th>{tr('Qty')}</th><th>{tr('Unit')}</th><th /></tr></thead>
                 <tbody>
                   {form.items.map((it, idx) => (
                     <tr key={idx}>
@@ -323,43 +324,43 @@ export default function WaybillsPage() {
                           onChange={(text) => setItem(idx, 'description', text)}
                           onPickOption={(c) => pickCatalogItem(idx, c)}
                           options={catalog}
-                          placeholder="Search products & services or type a custom item…"
+                          placeholder={tr('Search products & services or type a custom item…')}
                           required
                         />
                       </td>
                       <td><input className="input" type="number" min="0.01" step="0.01" value={it.qty} onChange={(e) => setItem(idx, 'qty', e.target.value)} required /></td>
                       <td><input className="input" value={it.unit} onChange={(e) => setItem(idx, 'unit', e.target.value)} /></td>
                       <td>
-                        <button type="button" className="btn btn-secondary waybills-row-btn" disabled={form.items.length <= 1} onClick={() => removeItem(idx)}>Remove</button>
+                        <button type="button" className="btn btn-secondary waybills-row-btn" disabled={form.items.length <= 1} onClick={() => removeItem(idx)}>{tr('Remove')}</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <button type="button" className="btn btn-secondary" onClick={addItem}>Add item</button>
+              <button type="button" className="btn btn-secondary" onClick={addItem}>{tr('Add item')}</button>
             </div>
 
-            <div className="waybills-dialog-span waybills-section-title">Sign-off (optional — printed with a signature line)</div>
+            <div className="waybills-dialog-span waybills-section-title">{tr('Sign-off (optional — printed with a signature line)')}</div>
             <div className="field">
-              <label htmlFor="wb-packaged">Packaged by</label>
+              <label htmlFor="wb-packaged">{tr('Packaged by')}</label>
               <input id="wb-packaged" className="input" value={form.packagedBy} onChange={(e) => setForm({ ...form, packagedBy: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="wb-received">Received by</label>
+              <label htmlFor="wb-received">{tr('Received by')}</label>
               <input id="wb-received" className="input" value={form.receivedBy} onChange={(e) => setForm({ ...form, receivedBy: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="wb-approved">Approved by</label>
+              <label htmlFor="wb-approved">{tr('Approved by')}</label>
               <input id="wb-approved" className="input" value={form.approvedBy} onChange={(e) => setForm({ ...form, approvedBy: e.target.value })} />
             </div>
 
             <div className="field waybills-dialog-span">
-              <label htmlFor="wb-notes">Notes</label>
+              <label htmlFor="wb-notes">{tr('Notes')}</label>
               <textarea id="wb-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
 
             <div className="dialog-actions waybills-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Dispatching…' : 'Dispatch waybill'}</button>
             </div>
           </form>

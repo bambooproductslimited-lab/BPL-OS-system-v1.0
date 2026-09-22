@@ -7,6 +7,7 @@ import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { money } from '../lib/currency';
+import { tr } from '../lib/i18n.jsx';
 import './PaymentsPage.css';
 
 // Ported from Bamboo OS.dc.html's payments screen (screens.payments block).
@@ -119,7 +120,7 @@ export default function PaymentsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visiblePayments = payments.filter((p) => matchesQuery(search, p.invoiceNo, p.customerName, p.reference, p.receivedByName));
 
@@ -135,11 +136,11 @@ export default function PaymentsPage() {
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search payments…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search payments…')} />
 
       <table className="table table-clickable" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Invoice</th><th>Customer</th><th>Amount</th><th className="col-mid">Date</th><th className="col-wide">Method</th><th className="col-wide">Reference</th><th className="col-wide">Received by</th><th></th></tr>
+          <tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th className="col-mid">{tr('Date')}</th><th className="col-wide">{tr('Method')}</th><th className="col-wide">{tr('Reference')}</th><th className="col-wide">{tr('Received by')}</th><th></th></tr>
         </thead>
         <tbody>
           {visiblePayments.map((p) => (
@@ -171,23 +172,23 @@ export default function PaymentsPage() {
       {!payments.length && (
         <div className="payments-empty-state">
           <span className="payments-empty-icon"><CashIcon /></span>
-          <p className="payments-empty-title">No payments recorded yet</p>
+          <p className="payments-empty-title">{tr('No payments recorded yet')}</p>
         </div>
       )}
       {!!payments.length && !visiblePayments.length && (
         <div className="payments-empty-state">
           <span className="payments-empty-icon"><CashIcon /></span>
-          <p className="payments-empty-title">No payments match "{search}"</p>
+          <p className="payments-empty-title">{tr('No payments match "')}{search}"</p>
         </div>
       )}
 
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete payment on {deleteTarget.invoiceNo}</h2>
-            <p className="dialog-body">This cannot be undone.</p>
+            <h2>{tr('Delete payment on')} {deleteTarget.invoiceNo}</h2>
+            <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

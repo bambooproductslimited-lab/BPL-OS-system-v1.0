@@ -8,6 +8,7 @@ import './ReceiptsPage.css';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's receipts screen (screens.receipts block)
 // and dialog.receiptPreview. Receipts are read-only — a pure byproduct of
 // invoices.recordPayment (backend/src/services/invoices.service.js) — so
@@ -70,7 +71,7 @@ export default function ReceiptsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleReceipts = receipts.filter((r) => matchesQuery(search, r.receiptNo, r.invoiceNo, r.customerName));
 
@@ -78,11 +79,11 @@ export default function ReceiptsPage() {
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search receipts…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search receipts…')} />
 
       <table className="table table-clickable" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Receipt</th><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Method</th><th>Balance after</th><th></th></tr>
+          <tr><th>{tr('Receipt')}</th><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Date')}</th><th>{tr('Method')}</th><th>{tr('Balance after')}</th><th></th></tr>
         </thead>
         <tbody>
           {visibleReceipts.map((r) => (
@@ -111,13 +112,13 @@ export default function ReceiptsPage() {
       {!receipts.length && (
         <div className="receipts-empty-state">
           <span className="receipts-empty-icon"><ReceiptIcon /></span>
-          <p className="receipts-empty-title">No receipts issued yet</p>
+          <p className="receipts-empty-title">{tr('No receipts issued yet')}</p>
         </div>
       )}
       {!!receipts.length && !visibleReceipts.length && (
         <div className="receipts-empty-state">
           <span className="receipts-empty-icon"><ReceiptIcon /></span>
-          <p className="receipts-empty-title">No receipts match "{search}"</p>
+          <p className="receipts-empty-title">{tr('No receipts match "')}{search}"</p>
         </div>
       )}
 

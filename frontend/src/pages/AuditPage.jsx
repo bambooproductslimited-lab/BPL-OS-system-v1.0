@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { tr } from '../lib/i18n.jsx';
 import './AuditPage.css';
 
 // Ported from Bamboo OS.dc.html's audit log screen (screens.audit block +
@@ -77,16 +78,16 @@ export default function AuditPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="field audit-filter">
-        <label htmlFor="audit-q">Filter</label>
-        <input id="audit-q" className="input" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="action, person, summary" />
+        <label htmlFor="audit-q">{tr('Filter')}</label>
+        <input id="audit-q" className="input" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={tr('action, person, summary')} />
       </div>
 
       {loading ? (
-        <div className="eyebrow">Loading…</div>
+        <div className="eyebrow">{tr('Loading…')}</div>
       ) : (
         <table className="table">
           <thead>
-            <tr><th className="audit-when-col">When</th><th className="audit-actor-col">Actor</th><th className="audit-action-col">Action</th><th>What happened</th></tr>
+            <tr><th className="audit-when-col">{tr('When')}</th><th className="audit-actor-col">{tr('Actor')}</th><th className="audit-action-col">{tr('Action')}</th><th>{tr('What happened')}</th></tr>
           </thead>
           <tbody>
             {rows.map((l) => (
@@ -112,7 +113,7 @@ export default function AuditPage() {
       {!loading && !rows.length && (
         <div className="audit-empty-state">
           <span className="audit-empty-icon"><HistoryIcon /></span>
-          <p className="audit-empty-title">No audit activity yet</p>
+          <p className="audit-empty-title">{tr('No audit activity yet')}</p>
         </div>
       )}
     </div>

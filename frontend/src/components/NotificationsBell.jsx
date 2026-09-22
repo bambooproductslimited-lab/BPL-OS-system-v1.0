@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import Icon from '../layout/navIcons';
 import { playNotification, isMuted, setMuted } from '../lib/notificationSound';
+import { tr } from '../lib/i18n.jsx';
 import './NotificationsBell.css';
 
 // The header bell + dropdown from the design prototype (Bamboo OS.dc.html's
@@ -102,7 +103,7 @@ export default function NotificationsBell() {
 
   return (
     <div className="notif-bell">
-      <button type="button" className="btn btn-secondary notif-bell-btn" onClick={handleOpen} aria-label="Notifications">
+      <button type="button" className="btn btn-secondary notif-bell-btn" onClick={handleOpen} aria-label={tr('Notifications')}>
         <span className="notif-bell-icon"><Icon name="bell" /></span>
         {unreadCount > 0 && <span className="notif-bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
       </button>
@@ -112,7 +113,7 @@ export default function NotificationsBell() {
           <div className="notif-backdrop" onClick={() => setOpen(false)} />
           <div className="notif-panel">
             <div className="notif-panel-head">
-              <span className="notif-panel-title">Notifications</span>
+              <span className="notif-panel-title">{tr('Notifications')}</span>
               <span className="notif-panel-tools">
                 <button
                   type="button"
@@ -124,7 +125,7 @@ export default function NotificationsBell() {
                   {muted ? 'Sound off' : 'Sound on'}
                 </button>
                 {unreadCount > 0 && (
-                  <button type="button" className="notif-markall" onClick={markAllRead}>Mark all read</button>
+                  <button type="button" className="notif-markall" onClick={markAllRead}>{tr('Mark all read')}</button>
                 )}
               </span>
             </div>
@@ -142,7 +143,7 @@ export default function NotificationsBell() {
                   <div className="notif-item-when">{timeAgo(n.at)}</div>
                 </button>
               ))}
-              {!items.length && <div className="notif-empty">Nothing yet.</div>}
+              {!items.length && <div className="notif-empty">{tr('Nothing yet.')}</div>}
             </div>
           </div>
         </>

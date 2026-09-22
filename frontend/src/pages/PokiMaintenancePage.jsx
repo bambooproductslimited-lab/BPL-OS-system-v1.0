@@ -6,6 +6,7 @@ import { money } from '../lib/currency';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Repairs and issues logged against a specific unit. Where the tenant is
 // liable (a broken window rather than a failing water heater), the cost can
 // be recharged as its own invoice instead of being folded into rent.
@@ -109,7 +110,7 @@ export default function PokiMaintenancePage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visible = requests.filter((r) =>
     matchesQuery(search, r.title, r.unitCode, r.propertyName, r.tenantName, r.category) &&
@@ -123,18 +124,18 @@ export default function PokiMaintenancePage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search requests…" />
-        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="in_progress">In progress</option>
-          <option value="resolved">Resolved</option>
-          <option value="closed">Closed</option>
-          <option value="cancelled">Cancelled</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search requests…')} />
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
+          <option value="open">{tr('Open')}</option>
+          <option value="in_progress">{tr('In progress')}</option>
+          <option value="resolved">{tr('Resolved')}</option>
+          <option value="closed">{tr('Closed')}</option>
+          <option value="cancelled">{tr('Cancelled')}</option>
         </select>
-        <span className="poki-muted">{openCount} open</span>
+        <span className="poki-muted">{openCount} {tr('open')}</span>
         <div className="poki-toolbar-spacer" />
-        {canManage && <button type="button" className="btn btn-primary" disabled={!units.length} onClick={() => openDialog(null)}>Log request</button>}
+        {canManage && <button type="button" className="btn btn-primary" disabled={!units.length} onClick={() => openDialog(null)}>{tr('Log request')}</button>}
       </div>
 
       {visible.length === 0 ? (
@@ -151,8 +152,8 @@ export default function PokiMaintenancePage() {
 <table className="table">
           <thead>
             <tr>
-              <th>Issue</th><th>Unit</th><th>Tenant</th><th>Priority</th><th>Reported</th>
-              <th className="poki-num">Cost</th><th>Status</th><th></th>
+              <th>{tr('Issue')}</th><th>{tr('Unit')}</th><th>{tr('Tenant')}</th><th>{tr('Priority')}</th><th>{tr('Reported')}</th>
+              <th className="poki-num">{tr('Cost')}</th><th>{tr('Status')}</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -163,7 +164,7 @@ export default function PokiMaintenancePage() {
                   <div className="poki-muted">{r.category}</div>
                 </td>
                 <td className="poki-nowrap">{r.unitCode}<div className="poki-muted">{r.propertyName}</div></td>
-                <td className="poki-nowrap">{r.tenantName || <span className="poki-muted">vacant</span>}</td>
+                <td className="poki-nowrap">{r.tenantName || <span className="poki-muted">{tr('vacant')}</span>}</td>
                 <td><span className={'poki-chip poki-chip-' + (r.priority === 'urgent' ? 'urgent' : r.priority === 'high' ? 'expiring' : 'open')}>{r.priority}</span></td>
                 <td className="poki-nowrap">{fmtDate(r.reportedOn)}</td>
                 <td className="poki-num">{r.cost > 0 ? money(r.cost, 'GHS') : <span className="poki-muted">—</span>}</td>
@@ -190,7 +191,7 @@ export default function PokiMaintenancePage() {
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field poki-dialog-span">
-              <label htmlFor="pmr-unit">Unit</label>
+              <label htmlFor="pmr-unit">{tr('Unit')}</label>
               <select id="pmr-unit" className="input" value={form.unitId} onChange={set('unitId')} required disabled={!!editId}>
                 {units.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -200,59 +201,59 @@ export default function PokiMaintenancePage() {
               </select>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pmr-title">Issue</label>
-              <input id="pmr-title" className="input" value={form.title} onChange={set('title')} required placeholder="e.g. Leaking kitchen tap" />
+              <label htmlFor="pmr-title">{tr('Issue')}</label>
+              <input id="pmr-title" className="input" value={form.title} onChange={set('title')} required placeholder={tr('e.g. Leaking kitchen tap')} />
             </div>
             <div className="field">
-              <label htmlFor="pmr-cat">Category</label>
-              <input id="pmr-cat" className="input" value={form.category} onChange={set('category')} placeholder="plumbing, electrical…" />
+              <label htmlFor="pmr-cat">{tr('Category')}</label>
+              <input id="pmr-cat" className="input" value={form.category} onChange={set('category')} placeholder={tr('plumbing, electrical…')} />
             </div>
             <div className="field">
-              <label htmlFor="pmr-pri">Priority</label>
+              <label htmlFor="pmr-pri">{tr('Priority')}</label>
               <select id="pmr-pri" className="input" value={form.priority} onChange={set('priority')}>
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
+                <option value="low">{tr('Low')}</option>
+                <option value="normal">{tr('Normal')}</option>
+                <option value="high">{tr('High')}</option>
+                <option value="urgent">{tr('Urgent')}</option>
               </select>
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pmr-desc">Description</label>
+              <label htmlFor="pmr-desc">{tr('Description')}</label>
               <textarea id="pmr-desc" className="input" rows={2} value={form.description} onChange={set('description')} />
             </div>
             {!editId && (
               <div className="field poki-dialog-span">
-                <label htmlFor="pmr-by">Reported by</label>
-                <input id="pmr-by" className="input" value={form.reportedBy} onChange={set('reportedBy')} placeholder="tenant name, caretaker…" />
+                <label htmlFor="pmr-by">{tr('Reported by')}</label>
+                <input id="pmr-by" className="input" value={form.reportedBy} onChange={set('reportedBy')} placeholder={tr('tenant name, caretaker…')} />
               </div>
             )}
             {editId && (
               <>
                 <div className="field">
-                  <label htmlFor="pmr-status">Status</label>
+                  <label htmlFor="pmr-status">{tr('Status')}</label>
                   <select id="pmr-status" className="input" value={form.status} onChange={set('status')}>
-                    <option value="open">Open</option>
-                    <option value="in_progress">In progress</option>
-                    <option value="resolved">Resolved</option>
-                    <option value="closed">Closed</option>
-                    <option value="cancelled">Cancelled</option>
+                    <option value="open">{tr('Open')}</option>
+                    <option value="in_progress">{tr('In progress')}</option>
+                    <option value="resolved">{tr('Resolved')}</option>
+                    <option value="closed">{tr('Closed')}</option>
+                    <option value="cancelled">{tr('Cancelled')}</option>
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="pmr-cost">Repair cost</label>
+                  <label htmlFor="pmr-cost">{tr('Repair cost')}</label>
                   <input id="pmr-cost" className="input" type="number" step="0.01" value={form.cost || ''} onChange={set('cost')} />
                 </div>
                 <div className="field poki-dialog-span">
-                  <label htmlFor="pmr-res">Resolution notes</label>
+                  <label htmlFor="pmr-res">{tr('Resolution notes')}</label>
                   <textarea id="pmr-res" className="input" rows={2} value={form.resolutionNotes || ''} onChange={set('resolutionNotes')} />
                 </div>
                 <p className="poki-dialog-hint">
-                  Recording a cost doesn't charge anyone. Use "Charge tenant" on the row to raise an invoice where the tenant is liable.
+                  {tr('Recording a cost doesn\'t charge anyone. Use "Charge tenant" on the row to raise an invoice where the tenant is liable.')}
                 </p>
               </>
             )}
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>

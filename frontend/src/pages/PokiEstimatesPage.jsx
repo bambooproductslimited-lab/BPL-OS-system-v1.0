@@ -11,6 +11,7 @@ import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 import { itemsForDialog, totalsForDialog } from '../lib/docItems';
 
+import { tr } from '../lib/i18n.jsx';
 // Letting offers — what a unit costs to take, quoted before any booking
 // exists.
 //
@@ -278,7 +279,7 @@ export default function PokiEstimatesPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visible = estimates.filter((e) =>
     matchesQuery(search, e.estimateNo, e.customerName, e.unitCode, e.propertyName) &&
@@ -314,18 +315,18 @@ export default function PokiEstimatesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search offers…" />
-        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="finalized">Sent</option>
-          <option value="converted">Became a booking</option>
-          <option value="archived">Archived</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search offers…')} />
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
+          <option value="draft">{tr('Draft')}</option>
+          <option value="finalized">{tr('Sent')}</option>
+          <option value="converted">{tr('Became a booking')}</option>
+          <option value="archived">{tr('Archived')}</option>
         </select>
         <div className="poki-toolbar-spacer" />
         {canManage && (
           <button type="button" className="btn btn-primary" disabled={!tenants.length} onClick={() => openOffer(null)}>
-            New offer
+            {tr('New offer')}
           </button>
         )}
       </div>
@@ -346,8 +347,8 @@ export default function PokiEstimatesPage() {
           <table className="table table-clickable">
             <thead>
               <tr>
-                <th>Offer</th><th>Kind</th><th>Prospect</th><th>Unit</th><th>Valid until</th>
-                <th className="poki-num">Total</th><th>Status</th><th></th>
+                <th>{tr('Offer')}</th><th>{tr('Kind')}</th><th>{tr('Prospect')}</th><th>{tr('Unit')}</th><th>{tr('Valid until')}</th>
+                <th className="poki-num">{tr('Total')}</th><th>{tr('Status')}</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -392,15 +393,15 @@ export default function PokiEstimatesPage() {
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field">
-              <label htmlFor="pe-kind">Kind</label>
+              <label htmlFor="pe-kind">{tr('Kind')}</label>
               <select id="pe-kind" className="input" value={form.docKind} onChange={set('docKind')} disabled={!!editId}>
                 {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pe-tenant">Prospect / tenant</label>
+              <label htmlFor="pe-tenant">{tr('Prospect / tenant')}</label>
               <select id="pe-tenant" className="input" value={form.tenantId} onChange={set('tenantId')} required>
-                <option value="">Choose from the register…</option>
+                <option value="">{tr('Choose from the register…')}</option>
                 {tenants.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}{t.status === 'prospect' ? ' (prospect)' : ''}</option>
                 ))}
@@ -408,7 +409,7 @@ export default function PokiEstimatesPage() {
             </div>
 
             <div className="field poki-dialog-span">
-              <label htmlFor="pe-unit">Unit being offered</label>
+              <label htmlFor="pe-unit">{tr('Unit being offered')}</label>
               <select id="pe-unit" className="input" value={form.unitId} onChange={set('unitId')} required={form.docKind === 'letting'}>
                 <option value="">{form.docKind === 'letting' ? 'Choose a vacant unit…' : 'No particular unit'}</option>
                 {vacantUnits.map((u) => (
@@ -422,11 +423,11 @@ export default function PokiEstimatesPage() {
             {form.docKind === 'letting' && (
               <>
                 <div className="field">
-                  <label htmlFor="pe-periods">Rent up front (periods)</label>
+                  <label htmlFor="pe-periods">{tr('Rent up front (periods)')}</label>
                   <input id="pe-periods" className="input" type="number" min="1" value={form.rentPeriods} onChange={set('rentPeriods')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="pe-deposit">Deposit (months of rent)</label>
+                  <label htmlFor="pe-deposit">{tr('Deposit (months of rent)')}</label>
                   <input id="pe-deposit" className="input" type="number" min="0" step="0.5" value={form.depositMonths} onChange={set('depositMonths')} />
                 </div>
                 <div className="poki-dialog-span">
@@ -434,7 +435,7 @@ export default function PokiEstimatesPage() {
                     {building ? 'Costing…' : 'Cost it from the unit'}
                   </button>
                   <p className="poki-dialog-hint" style={{ marginTop: 6 }}>
-                    Fills the lines below from the unit’s rent, deposit and utility terms. Everything stays editable afterwards.
+                    {tr('Fills the lines below from the unit’s rent, deposit and utility terms. Everything stays editable afterwards.')}
                   </p>
                 </div>
               </>
@@ -442,28 +443,28 @@ export default function PokiEstimatesPage() {
 
             <div className="poki-dialog-span">
               <div className="poki-lines-head">
-                <span>Lines</span>
-                <span className="poki-muted">Total {money(formTotal, formCurrency)}</span>
+                <span>{tr('Lines')}</span>
+                <span className="poki-muted">{tr('Total')} {money(formTotal, formCurrency)}</span>
               </div>
               {form.items.map((it, idx) => (
                 <div className="poki-line-row" key={idx}>
                   <input
-                    className="input" placeholder="Description" value={it.description}
+                    className="input" placeholder={tr('Description')} value={it.description}
                     onChange={(ev) => setItem(idx, 'description', ev.target.value)}
                     aria-label={'Line ' + (idx + 1) + ' description'}
                   />
                   <input
-                    className="input" type="number" step="0.01" placeholder="Qty" value={it.qty}
+                    className="input" type="number" step="0.01" placeholder={tr('Qty')} value={it.qty}
                     onChange={(ev) => setItem(idx, 'qty', ev.target.value)}
                     aria-label={'Line ' + (idx + 1) + ' quantity'}
                   />
                   <input
-                    className="input" placeholder="Unit" value={it.unit || ''}
+                    className="input" placeholder={tr('Unit')} value={it.unit || ''}
                     onChange={(ev) => setItem(idx, 'unit', ev.target.value)}
                     aria-label={'Line ' + (idx + 1) + ' unit'}
                   />
                   <input
-                    className="input" type="number" step="0.01" placeholder="Price" value={it.unitPrice}
+                    className="input" type="number" step="0.01" placeholder={tr('Price')} value={it.unitPrice}
                     onChange={(ev) => setItem(idx, 'unitPrice', ev.target.value)}
                     aria-label={'Line ' + (idx + 1) + ' price'}
                   />
@@ -471,31 +472,31 @@ export default function PokiEstimatesPage() {
                   <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => dropLine(idx)} aria-label={'Remove line ' + (idx + 1)}>×</button>
                 </div>
               ))}
-              <button type="button" className="btn btn-secondary poki-row-btn" onClick={addLine}>Add line</button>
+              <button type="button" className="btn btn-secondary poki-row-btn" onClick={addLine}>{tr('Add line')}</button>
             </div>
 
             <div className="field">
-              <label htmlFor="pe-valid">Valid until</label>
+              <label htmlFor="pe-valid">{tr('Valid until')}</label>
               <input id="pe-valid" className="input" type="date" value={form.validUntil} onChange={set('validUntil')} />
             </div>
             <div className="field poki-dialog-span">
-              <label htmlFor="pe-notes">Notes to the prospect</label>
+              <label htmlFor="pe-notes">{tr('Notes to the prospect')}</label>
               <textarea id="pe-notes" className="input" rows={2} value={form.clientNotes} onChange={set('clientNotes')} />
             </div>
             <div className="field poki-dialog-span">
               <div className="poki-terms-head">
-                <label htmlFor="pe-terms">Terms on this offer</label>
+                <label htmlFor="pe-terms">{tr('Terms on this offer')}</label>
                 <span className="poki-terms-actions">
                   {form.terms !== standardTerms && standardTerms && (
                     <button type="button" className="btn btn-secondary poki-terms-btn"
                       onClick={() => setForm((f) => ({ ...f, terms: standardTerms }))}>
-                      Use the standard terms
+                      {tr('Use the standard terms')}
                     </button>
                   )}
                   {form.terms && (
                     <button type="button" className="btn btn-secondary poki-terms-btn"
                       onClick={() => setForm((f) => ({ ...f, terms: '' }))}>
-                      Remove terms
+                      {tr('Remove terms')}
                     </button>
                   )}
                 </span>
@@ -503,7 +504,7 @@ export default function PokiEstimatesPage() {
               <textarea
                 id="pe-terms" className="input poki-terms-box" rows={8}
                 value={form.terms} onChange={set('terms')}
-                placeholder="No terms will be printed on this offer."
+                placeholder={tr('No terms will be printed on this offer.')}
               />
               <div className="poki-muted poki-terms-hint">
                 {form.terms
@@ -513,7 +514,7 @@ export default function PokiEstimatesPage() {
             </div>
 
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save offer'}</button>
             </div>
           </form>
@@ -523,45 +524,44 @@ export default function PokiEstimatesPage() {
       {dialog === 'convert' && convert && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(ev) => ev.stopPropagation()} onSubmit={submitConvert}>
-            <h2 className="poki-dialog-title">Accept {convert.est.estimateNo}</h2>
+            <h2 className="poki-dialog-title">{tr('Accept')} {convert.est.estimateNo}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
-              {convert.est.customerName} · {convert.est.propertyName} · {convert.est.unitCode}. This creates a
-              <strong> draft </strong> booking — activate it on the Bookings screen once it is signed, which is what
-              marks the unit occupied.
+              {convert.est.customerName} · {convert.est.propertyName} · {convert.est.unitCode}{tr('. This creates a')}
+              <strong> {tr('draft')} </strong> {tr('booking — activate it on the Bookings screen once it is signed, which is what marks the unit occupied.')}
             </p>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             <div className="field">
-              <label htmlFor="pc-start">Start date</label>
+              <label htmlFor="pc-start">{tr('Start date')}</label>
               <input id="pc-start" className="input" type="date" value={convert.startDate} onChange={setConv('startDate')} required />
             </div>
             <div className="field">
-              <label htmlFor="pc-months">Months</label>
+              <label htmlFor="pc-months">{tr('Months')}</label>
               <input id="pc-months" className="input" type="number" min="0" step="1" value={convert.durationMonths} onChange={setConv('durationMonths')} />
             </div>
             <div className="field">
-              <label htmlFor="pc-days">…plus days</label>
+              <label htmlFor="pc-days">{tr('…plus days')}</label>
               <input id="pc-days" className="input" type="number" min="0" step="1" value={convert.durationDays} onChange={setConv('durationDays')} />
             </div>
             <div className="field">
-              <label htmlFor="pc-rate">Rent per month</label>
+              <label htmlFor="pc-rate">{tr('Rent per month')}</label>
               <input id="pc-rate" className="input" type="number" step="0.01" value={convert.monthlyRate} onChange={setConv('monthlyRate')} required />
             </div>
             <div className="field">
-              <label htmlFor="pc-dep">Deposit due</label>
+              <label htmlFor="pc-dep">{tr('Deposit due')}</label>
               <input id="pc-dep" className="input" type="number" step="0.01" value={convert.depositAmount} onChange={setConv('depositAmount')} />
             </div>
             <div className="field">
-              <label htmlFor="pc-day">Due on day</label>
+              <label htmlFor="pc-day">{tr('Due on day')}</label>
               <input id="pc-day" className="input" type="number" min="1" max="28" value={convert.paymentDay} onChange={setConv('paymentDay')} />
             </div>
             <div className="field">
-              <label htmlFor="pc-esc">Renewal increase (%)</label>
-              <input id="pc-esc" className="input" type="number" step="0.01" value={convert.escalationPercent} onChange={setConv('escalationPercent')} placeholder="e.g. 10" />
+              <label htmlFor="pc-esc">{tr('Renewal increase (%)')}</label>
+              <input id="pc-esc" className="input" type="number" step="0.01" value={convert.escalationPercent} onChange={setConv('escalationPercent')} placeholder={tr('e.g. 10')} />
             </div>
 
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create draft booking'}</button>
             </div>
           </form>

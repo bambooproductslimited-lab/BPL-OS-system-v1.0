@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ToolRoomPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Tool room inventory: tools, equipment and materials — separate from the
 // finished-goods Products & Inventory module. Tools/equipment can be
 // checked out to an employee; materials are tracked by quantity like
@@ -215,7 +216,7 @@ export default function ToolRoomPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleItems = items.filter((it) => matchesQuery(search, it.code, it.name, it.category, it.checkedOutToName));
 
@@ -224,18 +225,18 @@ export default function ToolRoomPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="toolroom-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search tools, equipment, materials…" />
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search tools, equipment, materials…')} />
         {canManage && (
           <div className="toolroom-toolbar-actions">
-            <button type="button" className="btn btn-secondary" onClick={openImport}>Import from sheet</button>
-            <button type="button" className="btn btn-primary" onClick={openNew}>Add item</button>
+            <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>
+            <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add item')}</button>
           </div>
         )}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>Code</th><th>Name</th><th>Kind</th><th>Category</th><th>Qty</th><th>Condition</th><th>Status</th><th>Checked out to</th><th /></tr>
+          <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Kind')}</th><th>{tr('Category')}</th><th>{tr('Qty')}</th><th>{tr('Condition')}</th><th>{tr('Status')}</th><th>{tr('Checked out to')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleItems.map((it) => (
@@ -249,7 +250,7 @@ export default function ToolRoomPage() {
               <td>{it.name}</td>
               <td>{KIND_LABELS[it.kind]}</td>
               <td>{it.category || '—'}</td>
-              <td>{it.quantityOnHand}{it.unit !== 'each' ? ' ' + it.unit : ''} {it.lowStock && <span className="tag tag-accent toolroom-lowstock">Low</span>}</td>
+              <td>{it.quantityOnHand}{it.unit !== 'each' ? ' ' + it.unit : ''} {it.lowStock && <span className="tag tag-accent toolroom-lowstock">{tr('Low')}</span>}</td>
               <td style={{ textTransform: 'capitalize' }}>{it.condition.replace('_', ' ')}</td>
               <td><span className={'tag ' + tagClass(it.status)}>{it.status.replace('_', ' ')}</span></td>
               <td>
@@ -274,13 +275,13 @@ export default function ToolRoomPage() {
       {!items.length && (
         <div className="toolroom-empty-state">
           <span className="toolroom-empty-icon"><WrenchIcon /></span>
-          <p className="toolroom-empty-title">No tool room items yet</p>
+          <p className="toolroom-empty-title">{tr('No tool room items yet')}</p>
         </div>
       )}
       {!!items.length && !visibleItems.length && (
         <div className="toolroom-empty-state">
           <span className="toolroom-empty-icon"><WrenchIcon /></span>
-          <p className="toolroom-empty-title">No items match "{search}"</p>
+          <p className="toolroom-empty-title">{tr('No items match "')}{search}"</p>
         </div>
       )}
 
@@ -290,56 +291,56 @@ export default function ToolRoomPage() {
             <h2 className="toolroom-dialog-title">{editId ? 'Edit item' : 'Add item'}</h2>
             {dialogError && <div className="error-banner toolroom-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="tr-code">Code</label>
-              <input id="tr-code" className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} disabled={!!editId} placeholder="TR-001" required />
+              <label htmlFor="tr-code">{tr('Code')}</label>
+              <input id="tr-code" className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} disabled={!!editId} placeholder={tr('TR-001')} required />
             </div>
             <div className="field">
-              <label htmlFor="tr-name">Name</label>
+              <label htmlFor="tr-name">{tr('Name')}</label>
               <input id="tr-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="tr-kind">Kind</label>
+              <label htmlFor="tr-kind">{tr('Kind')}</label>
               <select id="tr-kind" className="input" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} disabled={!!editId}>
-                <option value="tool">Tool</option>
-                <option value="equipment">Equipment</option>
-                <option value="material">Material</option>
+                <option value="tool">{tr('Tool')}</option>
+                <option value="equipment">{tr('Equipment')}</option>
+                <option value="material">{tr('Material')}</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="tr-category">Category</label>
-              <input id="tr-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Power tools, Fasteners…" />
+              <label htmlFor="tr-category">{tr('Category')}</label>
+              <input id="tr-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder={tr('Power tools, Fasteners…')} />
             </div>
             <div className="field">
-              <label htmlFor="tr-unit">Unit</label>
-              <input id="tr-unit" className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="each, litre, box…" />
+              <label htmlFor="tr-unit">{tr('Unit')}</label>
+              <input id="tr-unit" className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder={tr('each, litre, box…')} />
             </div>
             <div className="field">
-              <label htmlFor="tr-qty">Quantity on hand</label>
+              <label htmlFor="tr-qty">{tr('Quantity on hand')}</label>
               <input id="tr-qty" className="input" type="number" min="0" step="0.01" value={form.quantityOnHand} onChange={(e) => setForm({ ...form, quantityOnHand: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="tr-reorder">Reorder level</label>
+              <label htmlFor="tr-reorder">{tr('Reorder level')}</label>
               <input id="tr-reorder" className="input" type="number" min="0" step="0.01" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="tr-condition">Condition</label>
+              <label htmlFor="tr-condition">{tr('Condition')}</label>
               <select id="tr-condition" className="input" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
-                <option value="good">Good</option>
-                <option value="fair">Fair</option>
-                <option value="poor">Poor</option>
-                <option value="under_repair">Under repair</option>
+                <option value="good">{tr('Good')}</option>
+                <option value="fair">{tr('Fair')}</option>
+                <option value="poor">{tr('Poor')}</option>
+                <option value="under_repair">{tr('Under repair')}</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="tr-location">Location</label>
+              <label htmlFor="tr-location">{tr('Location')}</label>
               <input id="tr-location" className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
             </div>
             <div className="field toolroom-dialog-span">
-              <label htmlFor="tr-notes">Notes</label>
+              <label htmlFor="tr-notes">{tr('Notes')}</label>
               <textarea id="tr-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
             <div className="dialog-actions toolroom-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add item'}</button>
             </div>
           </form>
@@ -349,17 +350,17 @@ export default function ToolRoomPage() {
       {checkoutTarget && (
         <div className="dialog-backdrop" onClick={() => setCheckoutTarget(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleCheckout}>
-            <h2>Check out {checkoutTarget.name}</h2>
+            <h2>{tr('Check out')} {checkoutTarget.name}</h2>
             {checkoutError && <div className="error-banner">{checkoutError}</div>}
             <div className="field">
-              <label htmlFor="tr-checkout-emp">Employee</label>
+              <label htmlFor="tr-checkout-emp">{tr('Employee')}</label>
               <select id="tr-checkout-emp" className="input" value={checkoutEmployeeId} onChange={(e) => setCheckoutEmployeeId(e.target.value)} required>
-                <option value="" disabled>Select an employee…</option>
+                <option value="" disabled>{tr('Select an employee…')}</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </select>
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setCheckoutTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCheckoutTarget(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? 'Checking out…' : 'Check out'}</button>
             </div>
           </form>
@@ -369,21 +370,20 @@ export default function ToolRoomPage() {
       {importOpen && (
         <div className="dialog-backdrop" onClick={() => setImportOpen(false)}>
           <div className="dialog toolroom-import-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 className="toolroom-dialog-title">Import from tool room sheet</h2>
+            <h2 className="toolroom-dialog-title">{tr('Import from tool room sheet')}</h2>
             <p className="dialog-body">
-              Export the sheet as CSV (File → Download → Comma-separated values) and upload it here. Rows without a
-              code get one generated automatically; rows whose code already exists are skipped, not overwritten.
+              {tr('Export the sheet as CSV (File → Download → Comma-separated values) and upload it here. Rows without a code get one generated automatically; rows whose code already exists are skipped, not overwritten.')}
             </p>
             {importError && <div className="error-banner">{importError}</div>}
 
             {!importPreview && (
               <>
                 <div className="field">
-                  <label htmlFor="tr-import-file">CSV file</label>
+                  <label htmlFor="tr-import-file">{tr('CSV file')}</label>
                   <input id="tr-import-file" className="input" type="file" accept=".csv,text/csv" onChange={(e) => setImportFile(e.target.files[0] || null)} />
                 </div>
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
                     {importLoading ? 'Reading…' : 'Preview import'}
                   </button>
@@ -394,14 +394,14 @@ export default function ToolRoomPage() {
             {importPreview && (
               <>
                 <p className="toolroom-import-summary">
-                  {importPreview.rows.length} item row(s) found —
-                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} will be created,
-                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} already exist and will be skipped.
+                  {importPreview.rows.length} {tr('item row(s) found —')}
+                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} {tr('will be created,')}
+                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} {tr('already exist and will be skipped.')}
                 </p>
                 <div className="toolroom-import-scroll">
                   <table className="table toolroom-import-table">
                     <thead>
-                      <tr><th>Code</th><th>Name</th><th>Kind</th><th>Qty</th><th>Condition</th><th>Notes</th></tr>
+                      <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Kind')}</th><th>{tr('Qty')}</th><th>{tr('Condition')}</th><th>{tr('Notes')}</th></tr>
                     </thead>
                     <tbody>
                       {importPreview.rows.map((r, i) => (
@@ -412,7 +412,7 @@ export default function ToolRoomPage() {
                           <td>{r.quantityOnHand}{r.unit !== 'each' ? ' ' + r.unit : ''}</td>
                           <td style={{ textTransform: 'capitalize' }}>{r.condition.replace('_', ' ')}</td>
                           <td className="toolroom-import-warnings">
-                            {r.willSkip && <div>Already exists — will be skipped.</div>}
+                            {r.willSkip && <div>{tr('Already exists — will be skipped.')}</div>}
                             {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
                           </td>
                         </tr>
@@ -421,8 +421,8 @@ export default function ToolRoomPage() {
                   </table>
                 </div>
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>Back</button>
-                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
                     {importCommitting ? 'Importing…' : 'Import ' + importPreview.rows.filter((r) => !r.willSkip).length + ' item(s)'}
                   </button>

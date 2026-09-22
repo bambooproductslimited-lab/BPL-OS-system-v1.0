@@ -6,6 +6,7 @@ import { toPreviewUrl } from '../lib/previewUrl';
 import './DocumentsPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's documents screen (screens.documents
 // block + the "Add document" dialog around its render()), extended with
 // real file upload/preview against Cloudflare R2 (see
@@ -170,7 +171,7 @@ export default function DocumentsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleDocuments = documents.filter((dc) => matchesQuery(search, dc.title, dc.category, dc.fileName, dc.uploaderName));
 
@@ -179,13 +180,13 @@ export default function DocumentsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="documents-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search documents…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add document</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search documents…')} />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add document')}</button>}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>Title</th><th>Category</th><th>File</th><th>Visibility</th><th>Uploaded</th><th>By</th><th /></tr>
+          <tr><th>{tr('Title')}</th><th>{tr('Category')}</th><th>{tr('File')}</th><th>{tr('Visibility')}</th><th>{tr('Uploaded')}</th><th>{tr('By')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleDocuments.map((dc) => {
@@ -202,7 +203,7 @@ export default function DocumentsPage() {
                         {downloadingId === dc.id ? 'Preparing…' : dc.fileName}
                       </button>
                     ) : (
-                      <span title="Uploaded before file storage was set up — no file on record.">{dc.fileName}</span>
+                      <span title={tr('Uploaded before file storage was set up — no file on record.')}>{dc.fileName}</span>
                     )}
                   </div>
                 </td>
@@ -227,43 +228,43 @@ export default function DocumentsPage() {
       {!documents.length && (
         <div className="documents-empty-state">
           <span className="documents-empty-icon"><Icon name="folder" /></span>
-          <p className="documents-empty-title">No documents visible to your role</p>
+          <p className="documents-empty-title">{tr('No documents visible to your role')}</p>
         </div>
       )}
       {!!documents.length && !visibleDocuments.length && (
         <div className="documents-empty-state">
           <span className="documents-empty-icon"><Icon name="folder" /></span>
-          <p className="documents-empty-title">No documents match "{search}"</p>
+          <p className="documents-empty-title">{tr('No documents match "')}{search}"</p>
         </div>
       )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog documents-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleUpload}>
-            <h2>Add document</h2>
+            <h2>{tr('Add document')}</h2>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="doc-title">Title</label>
+              <label htmlFor="doc-title">{tr('Title')}</label>
               <input id="doc-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="doc-category">Category</label>
-              <input id="doc-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Policy, Production, HR…" required />
+              <label htmlFor="doc-category">{tr('Category')}</label>
+              <input id="doc-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder={tr('Policy, Production, HR…')} required />
             </div>
             <div className="field">
-              <label htmlFor="doc-file">File</label>
+              <label htmlFor="doc-file">{tr('File')}</label>
               <input id="doc-file" className="input" type="file" onChange={(e) => setFile(e.target.files[0] || null)} required />
             </div>
             <div className="field">
-              <label htmlFor="doc-visibility">Visibility</label>
+              <label htmlFor="doc-visibility">{tr('Visibility')}</label>
               <select id="doc-visibility" className="input" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
-                <option value="all">All staff</option>
-                <option value="department">My group only</option>
-                <option value="managers">Managers only</option>
+                <option value="all">{tr('All staff')}</option>
+                <option value="department">{tr('My group only')}</option>
+                <option value="managers">{tr('Managers only')}</option>
               </select>
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={uploading}>{uploading ? 'Adding…' : 'Add document'}</button>
             </div>
           </form>
@@ -273,10 +274,10 @@ export default function DocumentsPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Remove document</h2>
-            <p className="dialog-body">Remove <strong>{deleteTarget.title}</strong>? This cannot be undone.</p>
+            <h2>{tr('Remove document')}</h2>
+            <p className="dialog-body">{tr('Remove')} <strong>{deleteTarget.title}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Removing…' : 'Remove'}</button>
             </div>
           </div>

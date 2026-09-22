@@ -12,6 +12,7 @@ import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import { tr } from '../lib/i18n.jsx';
 import './EstimatesPage.css';
 
 // Ported from Bamboo OS.dc.html's estimates screen (screens.estimates block,
@@ -223,7 +224,7 @@ export default function EstimatesPage() {
     setPreviewEs({ ...es, customerName: cust.name || es.customerName, customerEmail: cust.email || '' });
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleEstimates = estimates.filter((es) => matchesQuery(search, es.estimateNo, es.customerName));
 
@@ -243,13 +244,13 @@ export default function EstimatesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="estimates-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search estimates…" />
-        {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New estimate</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search estimates…')} />
+        {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New estimate')}</button>}
       </div>
 
       <table className="table table-clickable">
         <thead>
-          <tr><th>Estimate</th><th>Customer</th><th className="col-wide">Items</th><th>Total</th><th className="col-mid">Valid until</th><th>Status</th><th></th></tr>
+          <tr><th>{tr('Estimate')}</th><th>{tr('Customer')}</th><th className="col-wide">{tr('Items')}</th><th>{tr('Total')}</th><th className="col-mid">{tr('Valid until')}</th><th>{tr('Status')}</th><th></th></tr>
         </thead>
         <tbody>
           {visibleEstimates.map((es) => {
@@ -282,13 +283,13 @@ export default function EstimatesPage() {
       {!estimates.length && (
         <div className="estimates-empty-state">
           <span className="estimates-empty-icon"><DocIcon /></span>
-          <p className="estimates-empty-title">No estimates yet</p>
+          <p className="estimates-empty-title">{tr('No estimates yet')}</p>
         </div>
       )}
       {!!estimates.length && !visibleEstimates.length && (
         <div className="estimates-empty-state">
           <span className="estimates-empty-icon"><DocIcon /></span>
-          <p className="estimates-empty-title">No estimates match "{search}"</p>
+          <p className="estimates-empty-title">{tr('No estimates match "')}{search}"</p>
         </div>
       )}
 
@@ -298,23 +299,23 @@ export default function EstimatesPage() {
           detailsSlot={
             <div className="estimates-dialog-fields">
               <div className="field">
-                <label htmlFor="es-customer">Customer</label>
+                <label htmlFor="es-customer">{tr('Customer')}</label>
                 <CustomerPicker id="es-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required />
               </div>
               <div className="field">
-                <label htmlFor="es-currency">Currency</label>
+                <label htmlFor="es-currency">{tr('Currency')}</label>
                 <select id="es-currency" className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
-                  <option value="">Customer's default</option>
+                  <option value="">{tr('Customer\'s default')}</option>
                   {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="es-valid">Valid until</label>
+                <label htmlFor="es-valid">{tr('Valid until')}</label>
                 <input id="es-valid" className="input" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
               </div>
               <div className="field">
-                <label htmlFor="es-internal">Internal notes</label>
-                <textarea id="es-internal" className="input" value={form.internalNotes} onChange={(e) => setForm({ ...form, internalNotes: e.target.value })} placeholder="Not shown to the customer" />
+                <label htmlFor="es-internal">{tr('Internal notes')}</label>
+                <textarea id="es-internal" className="input" value={form.internalNotes} onChange={(e) => setForm({ ...form, internalNotes: e.target.value })} placeholder={tr('Not shown to the customer')} />
               </div>
             </div>
           }
@@ -336,10 +337,10 @@ export default function EstimatesPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete {deleteTarget.estimateNo}</h2>
-            <p className="dialog-body">This cannot be undone.</p>
+            <h2>{tr('Delete')} {deleteTarget.estimateNo}</h2>
+            <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { toPreviewUrl } from '../lib/previewUrl';
+import { tr } from '../lib/i18n.jsx';
 import './EmployeeIdDocsDialog.css';
 
 // Three fixed ID/passport document slots on an employee record — front of
@@ -67,11 +68,11 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="dialog id-docs-dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>ID documents — {employee.firstName} {employee.lastName}</h2>
+        <h2>{tr('ID documents —')} {employee.firstName} {employee.lastName}</h2>
         {error && <div className="error-banner">{error}</div>}
 
         {loading ? (
-          <div className="eyebrow">Loading…</div>
+          <div className="eyebrow">{tr('Loading…')}</div>
         ) : (
           <div className="id-docs-list">
             {slots.map((s) => (
@@ -79,9 +80,9 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
                 <div className="id-docs-row-main">
                   <div className="id-docs-row-label">{SLOT_LABELS[s.kind]}</div>
                   {s.fileName ? (
-                    <div className="id-docs-row-file">{s.fileName} <span className="id-docs-row-date">uploaded {fmtDate(s.uploadedAt)}</span></div>
+                    <div className="id-docs-row-file">{s.fileName} <span className="id-docs-row-date">{tr('uploaded')} {fmtDate(s.uploadedAt)}</span></div>
                   ) : (
-                    <div className="id-docs-row-empty">Not uploaded</div>
+                    <div className="id-docs-row-empty">{tr('Not uploaded')}</div>
                   )}
                 </div>
                 <div className="id-docs-row-actions">
@@ -106,7 +107,7 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
         )}
 
         <div className="dialog-actions">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
         </div>
       </div>
     </div>

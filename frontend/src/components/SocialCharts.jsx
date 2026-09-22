@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { tr } from '../lib/i18n.jsx';
 import './SocialCharts.css';
 
 // Metricool-style graphical metrics for the Social Tracker's Overview tab:
@@ -121,7 +122,7 @@ function LineChart({ series }) {
     : [];
 
   if (!active.length) {
-    return <p className="soc-chart-empty">No data for this period yet.</p>;
+    return <p className="soc-chart-empty">{tr('No data for this period yet.')}</p>;
   }
 
   return (
@@ -198,7 +199,7 @@ export function MetricSection({ title, metric }) {
     <div className="soc-chart-card">
       <div className="soc-chart-title">{title}</div>
       {!byChannel.length ? (
-        <p className="soc-chart-empty">No data for this period yet.</p>
+        <p className="soc-chart-empty">{tr('No data for this period yet.')}</p>
       ) : (
         <>
           <div className="soc-stat-row">

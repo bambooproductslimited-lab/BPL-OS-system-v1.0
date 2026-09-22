@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { tr } from '../lib/i18n.jsx';
 import './DateRangePicker.css';
 
 // A Metricool-style date-range control: preset rows (nobody fights a
@@ -108,7 +109,7 @@ export default function DateRangePicker({ value, onChange, showAllTime }) {
             {showAllTime && (
               <button type="button" className="drp-preset-row" onClick={chooseAllTime}>
                 <span className="drp-preset-check">{value.presetKey === 'all' ? '✓' : ''}</span>
-                All time
+                {tr('All time')}
               </button>
             )}
             {PRESETS.map((p) => (
@@ -119,12 +120,12 @@ export default function DateRangePicker({ value, onChange, showAllTime }) {
             ))}
           </div>
           <div className="drp-custom">
-            <div className="drp-custom-label">Custom range</div>
+            <div className="drp-custom-label">{tr('Custom range')}</div>
             <div className="drp-custom-row">
               <input type="date" className="input" value={customFrom} max={customTo || undefined} onChange={(e) => setCustomFrom(e.target.value)} />
               <span className="drp-custom-sep">–</span>
               <input type="date" className="input" value={customTo} min={customFrom || undefined} onChange={(e) => setCustomTo(e.target.value)} />
-              <button type="button" className="btn btn-primary drp-apply-btn" onClick={applyCustom}>Apply</button>
+              <button type="button" className="btn btn-primary drp-apply-btn" onClick={applyCustom}>{tr('Apply')}</button>
             </div>
           </div>
         </div>

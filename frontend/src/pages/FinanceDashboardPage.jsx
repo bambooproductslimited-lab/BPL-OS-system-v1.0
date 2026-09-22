@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
+import { tr } from '../lib/i18n.jsx';
 import './FinanceDashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's finance dashboard screen
@@ -80,9 +81,9 @@ export default function FinanceDashboardPage() {
     downloadCsv('finance-summary-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (error) return <div className="error-banner">{error}</div>;
-  if (!fin) return <p className="table-empty">No data yet.</p>;
+  if (!fin) return <p className="table-empty">{tr('No data yet.')}</p>;
 
   const kpis = [
     { label: 'Cash collected this month', value: moneyBreakdown(fin.cashCollectedThisMonthByCurrency), note: '', icon: 'cash', tone: 'people' },
@@ -98,7 +99,7 @@ export default function FinanceDashboardPage() {
   return (
     <div>
       <div className="finance-toolbar">
-        <button type="button" className="btn btn-secondary" onClick={handleDownloadCsv}>Download CSV</button>
+        <button type="button" className="btn btn-secondary" onClick={handleDownloadCsv}>{tr('Download CSV')}</button>
       </div>
 
       <div className="finance-kpis">
@@ -115,11 +116,11 @@ export default function FinanceDashboardPage() {
       <div className="finance-columns">
         <section>
           <div className="finance-trend-header">
-            <h2 className="finance-section-title">Revenue vs. expenses ({fin.baseCurrency})</h2>
+            <h2 className="finance-section-title">{tr('Revenue vs. expenses (')}{fin.baseCurrency})</h2>
             <div className="finance-period-controls">
               <div className="finance-period-toggle">
-                <button type="button" className={periodType === 'months' ? 'is-active' : ''} onClick={() => setPeriodType('months')}>Months</button>
-                <button type="button" className={periodType === 'years' ? 'is-active' : ''} onClick={() => setPeriodType('years')}>Years</button>
+                <button type="button" className={periodType === 'months' ? 'is-active' : ''} onClick={() => setPeriodType('months')}>{tr('Months')}</button>
+                <button type="button" className={periodType === 'years' ? 'is-active' : ''} onClick={() => setPeriodType('years')}>{tr('Years')}</button>
               </div>
               <select className="input finance-period-count" value={periodCount} onChange={(e) => setPeriodCount(Number(e.target.value))}>
                 {PERIOD_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -138,15 +139,15 @@ export default function FinanceDashboardPage() {
             ))}
           </div>
           <div className="finance-trend-legend">
-            <div className="finance-legend-item"><span className="finance-legend-swatch finance-legend-revenue" />Revenue collected</div>
-            <div className="finance-legend-item"><span className="finance-legend-swatch finance-legend-expense" />Expenses approved</div>
+            <div className="finance-legend-item"><span className="finance-legend-swatch finance-legend-revenue" />{tr('Revenue collected')}</div>
+            <div className="finance-legend-item"><span className="finance-legend-swatch finance-legend-expense" />{tr('Expenses approved')}</div>
           </div>
         </section>
 
         <section>
-          <h2 className="finance-section-title">Recent payments</h2>
+          <h2 className="finance-section-title">{tr('Recent payments')}</h2>
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Method</th></tr></thead>
+            <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Date')}</th><th>{tr('Method')}</th></tr></thead>
             <tbody>
               {fin.recentPayments.map((p, i) => (
                 <tr key={i}>
@@ -157,36 +158,36 @@ export default function FinanceDashboardPage() {
               ))}
             </tbody>
           </table>
-          {!fin.recentPayments.length && <p className="table-empty">No payments recorded yet.</p>}
+          {!fin.recentPayments.length && <p className="table-empty">{tr('No payments recorded yet.')}</p>}
         </section>
       </div>
 
       <div className="finance-columns">
         <section>
-          <h2 className="finance-section-title">Overdue invoices</h2>
+          <h2 className="finance-section-title">{tr('Overdue invoices')}</h2>
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Overdue by</th></tr></thead>
+            <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Overdue by')}</th></tr></thead>
             <tbody>
               {fin.overdueInvoices.map((inv, i) => (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{inv.invoiceNo}</td><td>{inv.customerName}</td>
                   <td>{money(inv.amount, inv.currency)}</td>
-                  <td><span className="tag tag-accent">{inv.daysOverdue} day(s)</span></td>
+                  <td><span className="tag tag-accent">{inv.daysOverdue} {tr('day(s)')}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {!fin.overdueInvoices.length && <p className="table-empty">No overdue invoices.</p>}
+          {!fin.overdueInvoices.length && <p className="table-empty">{tr('No overdue invoices.')}</p>}
         </section>
 
         <section>
-          <h2 className="finance-section-title">Expense claims awaiting a decision</h2>
+          <h2 className="finance-section-title">{tr('Expense claims awaiting a decision')}</h2>
           <table className="table">
-            <thead><tr><th>Category</th><th>Amount</th><th>Requester</th><th>Group</th></tr></thead>
+            <thead><tr><th>{tr('Category')}</th><th>{tr('Amount')}</th><th>{tr('Requester')}</th><th>{tr('Group')}</th></tr></thead>
             <tbody>
               {fin.pendingExpenses.map((e, i) => (
                 <tr key={i}>
-                  <td>{e.category}</td><td>GHS {e.amount.toLocaleString()}</td>
+                  <td>{e.category}</td><td>{tr('GHS')} {e.amount.toLocaleString()}</td>
                   <td>
                     <div className="finance-requester-cell">
                       <span className="finance-avatar" style={{ background: avatarColor(e.requesterName) }}>{initials(e.requesterName)}</span>
@@ -198,7 +199,7 @@ export default function FinanceDashboardPage() {
               ))}
             </tbody>
           </table>
-          {!fin.pendingExpenses.length && <p className="table-empty">Nothing pending.</p>}
+          {!fin.pendingExpenses.length && <p className="table-empty">{tr('Nothing pending.')}</p>}
         </section>
       </div>
     </div>

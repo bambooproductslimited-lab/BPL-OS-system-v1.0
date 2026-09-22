@@ -5,6 +5,7 @@ var { serializeEmployee } = require('../services/context.service');
 var { rowToLeaveRequest } = require('../services/leave.service');
 var { rowToAttendance } = require('../services/attendance.service');
 var authService = require('../services/auth.service');
+var { fail } = require('../utils/errors');
 
 var router = express.Router();
 
@@ -13,6 +14,7 @@ function serializeCtx(ctx) {
     userId: ctx.user.id,
     email: ctx.user.email,
     mustChangePassword: ctx.user.mustChangePassword,
+    locale: ctx.user.locale,
     employee: serializeEmployee(ctx.employee),
     roleNames: ctx.roleNames,
     permissions: ctx.permissions
@@ -31,6 +33,20 @@ router.post('/password', requireAuth, async function (req, res, next) {
   try {
     await authService.changeOwnPassword(req.ctx, req.body.currentPassword, req.body.newPassword);
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// The signed-in user's interface language. Anything the frontend has a
+// catalogue for is accepted as-is (see migration 0065 on why the column
+// carries no CHECK constraint) — it's only ever read back by that same
+// frontend, which falls back to English for a code it doesn't know. Length
+// is bounded so this can't be used to park arbitrary data on a user row.
+router.post('/locale', requireAuth, async function (req, res, next) {
+  try {
+    var locale = String(req.body.locale || '').trim();
+    if (!/^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{2,8})?$/.test(locale)) fail('invalid', 'Not a valid language code.');
+    await pool.query('UPDATE users SET locale = $1 WHERE id = $2', [locale, req.ctx.user.id]);
+    res.json({ locale: locale });
   } catch (e) { next(e); }
 });
 

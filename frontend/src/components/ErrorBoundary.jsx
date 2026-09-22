@@ -1,4 +1,5 @@
 import { Component } from 'react';
+import { tr } from '../lib/i18n.jsx';
 import './ErrorBoundary.css';
 
 // Without one of these, any error thrown while rendering unmounts the whole
@@ -36,15 +37,14 @@ export default class ErrorBoundary extends Component {
     return (
       <div className="errbound">
         <div className="errbound-card">
-          <h2 className="errbound-title">Something in {where} stopped working</h2>
+          <h2 className="errbound-title">{tr('Something in')} {where} {tr('stopped working')}</h2>
           <p className="errbound-body">
-            Nothing was saved or lost — this screen failed to draw. You can try again, or move to
-            another page and come back.
+            {tr('Nothing was saved or lost — this screen failed to draw. You can try again, or move to another page and come back.')}
           </p>
           <p className="errbound-message">{String(error && error.message ? error.message : error)}</p>
           <div className="errbound-actions">
-            <button type="button" className="btn btn-primary" onClick={this.reset}>Try again</button>
-            <button type="button" className="btn btn-secondary" onClick={() => window.location.reload()}>Reload the page</button>
+            <button type="button" className="btn btn-primary" onClick={this.reset}>{tr('Try again')}</button>
+            <button type="button" className="btn btn-secondary" onClick={() => window.location.reload()}>{tr('Reload the page')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => this.setState({ showDetail: !showDetail })}>
               {showDetail ? 'Hide details' : 'Show details'}
             </button>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { money } from '../lib/currency';
 import CatalogPicker from './CatalogPicker';
+import { tr } from '../lib/i18n.jsx';
 import './DocItemsEditor.css';
 
 // Shared line-item editor used identically by the New Quotation, New
@@ -130,15 +131,15 @@ export default function DocItemsEditor({
         <table className="table doc-items-table">
           <thead>
             <tr>
-              <th></th><th>Item</th><th>Qty</th><th>Unit</th><th>Price ({cur})</th><th>Disc.</th><th>Type</th><th>Tax %</th><th>Line total</th><th></th>
+              <th></th><th>{tr('Item')}</th><th>{tr('Qty')}</th><th>{tr('Unit')}</th><th>{tr('Price (')}{cur})</th><th>{tr('Disc.')}</th><th>{tr('Type')}</th><th>{tr('Tax %')}</th><th>{tr('Line total')}</th><th></th>
             </tr>
           </thead>
           <tbody>
             {items.map((it, idx) => (
               <tr key={idx}>
                 <td className="doc-items-reorder-cell">
-                  <button type="button" className="doc-items-reorder-btn" disabled={idx === 0} onClick={() => moveLine(idx, -1)} aria-label="Move up" title="Move up">▲</button>
-                  <button type="button" className="doc-items-reorder-btn" disabled={idx === items.length - 1} onClick={() => moveLine(idx, 1)} aria-label="Move down" title="Move down">▼</button>
+                  <button type="button" className="doc-items-reorder-btn" disabled={idx === 0} onClick={() => moveLine(idx, -1)} aria-label={tr('Move up')} title={tr('Move up')}>▲</button>
+                  <button type="button" className="doc-items-reorder-btn" disabled={idx === items.length - 1} onClick={() => moveLine(idx, 1)} aria-label={tr('Move down')} title={tr('Move down')}>▼</button>
                 </td>
                 <td className="doc-items-desc-cell">
                   <CatalogPicker
@@ -146,20 +147,20 @@ export default function DocItemsEditor({
                     onChange={(text) => setField(idx, 'description', text)}
                     onPickOption={(c) => pickCatalog(idx, c)}
                     options={catalogOptions || []}
-                    placeholder="Search catalogue or type a custom item…"
+                    placeholder={tr('Search catalogue or type a custom item…')}
                     renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur)}
                   />
                   <textarea
                     className="input doc-items-notes"
                     rows={2}
                     value={it.notes || ''}
-                    placeholder="Add a description (optional)…"
+                    placeholder={tr('Add a description (optional)…')}
                     onChange={(e) => setField(idx, 'notes', e.target.value)}
                   />
                   <input
                     className="input doc-items-package"
                     value={it.packageLabel || ''}
-                    placeholder="Package name (optional) — groups with other lines under one price"
+                    placeholder={tr('Package name (optional) — groups with other lines under one price')}
                     onChange={(e) => setField(idx, 'packageLabel', e.target.value)}
                   />
                 </td>
@@ -181,18 +182,18 @@ export default function DocItemsEditor({
         </table>
       </div>
       <div className="doc-items-quick-actions">
-        <button type="button" className="btn btn-secondary doc-items-add" onClick={addLine}>+ Add line</button>
-        <button type="button" className="btn btn-secondary doc-items-add" onClick={addShippingLine}>+ Add shipping fee or service charge</button>
+        <button type="button" className="btn btn-secondary doc-items-add" onClick={addLine}>{tr('+ Add line')}</button>
+        <button type="button" className="btn btn-secondary doc-items-add" onClick={addShippingLine}>{tr('+ Add shipping fee or service charge')}</button>
         {onDocDiscountChange && !discountOpen && (
-          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => setDiscountOpen(true)}>+ Add discount</button>
+          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => setDiscountOpen(true)}>{tr('+ Add discount')}</button>
         )}
         {onPaymentScheduleChange && !scheduleOpen && (
-          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => { setScheduleOpen(true); if (!schedule.length) addScheduleRow(); }}>+ Add payment schedule</button>
+          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => { setScheduleOpen(true); if (!schedule.length) addScheduleRow(); }}>{tr('+ Add payment schedule')}</button>
         )}
       </div>
       {onDocDiscountChange && discountOpen && (
         <div className="doc-items-doc-discount">
-          <span>Discount for the whole document</span>
+          <span>{tr('Discount for the whole document')}</span>
           <input
             className="input" type="number" min="0" value={(docDiscount && docDiscount.value) || ''}
             placeholder="0" onChange={(e) => onDocDiscountChange({ value: e.target.value, type: (docDiscount && docDiscount.type) || 'fixed' })}
@@ -209,12 +210,12 @@ export default function DocItemsEditor({
       {onPaymentScheduleChange && scheduleOpen && (
         <div className="doc-items-schedule">
           <div className="doc-items-schedule-head">
-            <span>Payment schedule</span>
+            <span>{tr('Payment schedule')}</span>
             <button type="button" className="btn btn-secondary doc-items-remove" onClick={() => { setScheduleOpen(false); onPaymentScheduleChange([]); }}>✕</button>
           </div>
           {schedule.map((row, idx) => (
             <div className="doc-items-schedule-row" key={idx}>
-              <input className="input" value={row.label} placeholder="e.g. Deposit" onChange={(e) => setScheduleField(idx, 'label', e.target.value)} />
+              <input className="input" value={row.label} placeholder={tr('e.g. Deposit')} onChange={(e) => setScheduleField(idx, 'label', e.target.value)} />
               <input className="input" type="number" min="0" value={row.value} onChange={(e) => setScheduleField(idx, 'value', e.target.value)} />
               <select className="input" value={row.type} onChange={(e) => setScheduleField(idx, 'type', e.target.value)}>
                 <option value="percent">%</option>
@@ -228,25 +229,25 @@ export default function DocItemsEditor({
             </div>
           ))}
           <div className="doc-items-schedule-foot">
-            <button type="button" className="btn btn-secondary doc-items-add" onClick={addScheduleRow}>+ Add installment</button>
+            <button type="button" className="btn btn-secondary doc-items-add" onClick={addScheduleRow}>{tr('+ Add installment')}</button>
             <span className={'doc-items-schedule-check' + (Math.abs(scheduledAmount - totals.grandTotal) > 0.01 ? ' doc-items-schedule-mismatch' : '')}>
-              Scheduled {money(scheduledAmount, cur)} of {money(totals.grandTotal, cur)}
+              {tr('Scheduled')} {money(scheduledAmount, cur)} {tr('of')} {money(totals.grandTotal, cur)}
             </span>
           </div>
         </div>
       )}
       <div className="doc-items-footer">
-        <div>Subtotal <strong>{money(totals.subtotal, cur)}</strong></div>
-        <div>Discount <strong>{money(totals.discountTotal, cur)}</strong></div>
+        <div>{tr('Subtotal')} <strong>{money(totals.subtotal, cur)}</strong></div>
+        <div>{tr('Discount')} <strong>{money(totals.discountTotal, cur)}</strong></div>
         <div>
-          Tax <strong>{money(totals.taxTotal, cur)}</strong>
+          {tr('Tax')} <strong>{money(totals.taxTotal, cur)}</strong>
           {onDocTaxRateChange && (
             <span className="doc-items-doc-tax">
               (<input className="input" type="number" min="0" step="0.1" value={docTaxRate || ''} placeholder="0" onChange={(e) => onDocTaxRateChange(e.target.value)} />%)
             </span>
           )}
         </div>
-        <div>Total <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
+        <div>{tr('Total')} <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ExpensesPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's expenses screen (screens.expenses block
 // + the expenses computed values, and the "Edit expense claim" dialog
 // around its render()).
@@ -174,7 +175,7 @@ export default function ExpensesPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleExpenses = expenses.filter((x) => matchesQuery(search, x.requesterName, x.departmentName, x.category, x.description, x.status));
 
@@ -185,30 +186,30 @@ export default function ExpensesPage() {
       {canRequest && (
         <form className="card expenses-form" onSubmit={handleSubmit}>
           <div className="field">
-            <label htmlFor="ex-category">Submit expense · category</label>
-            <input id="ex-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Travel, Fuel…" required />
+            <label htmlFor="ex-category">{tr('Submit expense · category')}</label>
+            <input id="ex-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder={tr('Travel, Fuel…')} required />
           </div>
           <div className="field">
-            <label htmlFor="ex-amount">Amount (GHS)</label>
+            <label htmlFor="ex-amount">{tr('Amount (GHS)')}</label>
             <input id="ex-amount" className="input" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
           </div>
           <div className="field">
-            <label htmlFor="ex-date">Date</label>
+            <label htmlFor="ex-date">{tr('Date')}</label>
             <input id="ex-date" className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="ex-description">Description</label>
+            <label htmlFor="ex-description">{tr('Description')}</label>
             <input id="ex-description" className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
           </div>
-          <button className="btn btn-primary expenses-submit-btn" type="submit" disabled={submitting}>Submit claim</button>
+          <button className="btn btn-primary expenses-submit-btn" type="submit" disabled={submitting}>{tr('Submit claim')}</button>
         </form>
       )}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search expense claims…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search expense claims…')} />
 
       <table className="table" style={{ marginTop: 16 }}>
         <thead>
-          <tr><th>Requester</th><th>Group</th><th>Category</th><th>Amount</th><th>Date</th><th>Description</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Requester')}</th><th>{tr('Group')}</th><th>{tr('Category')}</th><th>{tr('Amount')}</th><th>{tr('Date')}</th><th>{tr('Description')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleExpenses.map((x) => {
@@ -226,7 +227,7 @@ export default function ExpensesPage() {
                 </td>
                 <td>{x.departmentName}</td>
                 <td>{x.category}</td>
-                <td>GHS {x.amount.toLocaleString()}</td>
+                <td>{tr('GHS')} {x.amount.toLocaleString()}</td>
                 <td>{fmtDate(x.date)}</td>
                 <td className="expenses-description">{x.description}</td>
                 <td><span className={'tag ' + tagClass(x.status)}>{x.status}</span></td>
@@ -247,39 +248,39 @@ export default function ExpensesPage() {
       {!expenses.length && (
         <div className="expenses-empty-state">
           <span className="expenses-empty-icon"><ReceiptIcon /></span>
-          <p className="expenses-empty-title">Nothing to show in your scope</p>
+          <p className="expenses-empty-title">{tr('Nothing to show in your scope')}</p>
         </div>
       )}
       {!!expenses.length && !visibleExpenses.length && (
         <div className="expenses-empty-state">
           <span className="expenses-empty-icon"><ReceiptIcon /></span>
-          <p className="expenses-empty-title">No expense claims match "{search}"</p>
+          <p className="expenses-empty-title">{tr('No expense claims match "')}{search}"</p>
         </div>
       )}
 
       {editTarget && (
         <div className="dialog-backdrop" onClick={() => setEditTarget(null)}>
           <form className="dialog expenses-edit-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitEdit}>
-            <h2>Edit expense claim</h2>
+            <h2>{tr('Edit expense claim')}</h2>
             {editError && <div className="error-banner">{editError}</div>}
             <div className="field">
-              <label htmlFor="eec-category">Category</label>
+              <label htmlFor="eec-category">{tr('Category')}</label>
               <input id="eec-category" className="input" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="eec-amount">Amount (GHS)</label>
+              <label htmlFor="eec-amount">{tr('Amount (GHS)')}</label>
               <input id="eec-amount" className="input" type="number" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="eec-date">Date</label>
+              <label htmlFor="eec-date">{tr('Date')}</label>
               <input id="eec-date" className="input" type="date" value={(editForm.date || '').slice(0, 10)} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="eec-description">Description</label>
+              <label htmlFor="eec-description">{tr('Description')}</label>
               <input id="eec-description" className="input" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} required />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditTarget(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? 'Saving…' : 'Save changes'}</button>
             </div>
           </form>
@@ -289,10 +290,10 @@ export default function ExpensesPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete {deleteTarget.category} claim</h2>
-            <p className="dialog-body">This cannot be undone.</p>
+            <h2>{tr('Delete')} {deleteTarget.category} {tr('claim')}</h2>
+            <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

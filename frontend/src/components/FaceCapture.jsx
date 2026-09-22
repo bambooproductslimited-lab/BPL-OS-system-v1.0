@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadFaceModels } from '../lib/faceModels';
+import { tr } from '../lib/i18n.jsx';
 import './FaceCapture.css';
 
 // Shared live-camera face capture, used two places: the Kiosk (verifying a
@@ -280,14 +281,14 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
         {status === 'error' && errorMessage}
       </div>
       {posesDone && (
-        <div className="facecap-pose-progress">Angle {poseIndex + 1} of {ENROLL_POSES.length}</div>
+        <div className="facecap-pose-progress">{tr('Angle')} {poseIndex + 1} {tr('of')} {ENROLL_POSES.length}</div>
       )}
       {subtitle && status !== 'error' && !posesDone && <div className="facecap-subtitle">{subtitle}</div>}
       <div className="facecap-actions">
         {mode === 'enroll' && status !== 'error' && (
-          <button type="button" className="btn btn-primary" disabled={status !== 'found'} onClick={captureNow}>Capture</button>
+          <button type="button" className="btn btn-primary" disabled={status !== 'found'} onClick={captureNow}>{tr('Capture')}</button>
         )}
-        {onCancel && <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>}
+        {onCancel && <button type="button" className="btn btn-secondary" onClick={onCancel}>{tr('Cancel')}</button>}
       </div>
     </div>
   );

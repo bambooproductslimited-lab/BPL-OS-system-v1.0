@@ -3,6 +3,7 @@ import DocItemsEditor from './DocItemsEditor';
 import DocPreview from './DocPreview';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
+import { tr } from '../lib/i18n.jsx';
 import './DocWizard.css';
 
 // Shared 3-step create flow for Quotations/Estimates/Invoices, modeled on
@@ -73,7 +74,7 @@ export default function DocWizard({
             {detailsSlot}
             <div className="field">
               <label>{messageLabel || 'Message to customer'}</label>
-              <textarea className="input" rows={3} value={message} onChange={(e) => onMessageChange(e.target.value)} placeholder="We look forward to working with you." />
+              <textarea className="input" rows={3} value={message} onChange={(e) => onMessageChange(e.target.value)} placeholder={tr('We look forward to working with you.')} />
             </div>
           </div>
         )}
@@ -95,33 +96,33 @@ export default function DocWizard({
               {(recapBlocks || []).map((b, i) => (
                 <div className="docwizard-recap-row" key={i}><span>{b.label}</span><span>{b.value}</span></div>
               ))}
-              <div className="docwizard-recap-row"><span>Items</span><span>{items.length}</span></div>
-              <div className="docwizard-recap-row"><span>Subtotal</span><span>{money(totals.subtotal, currency)}</span></div>
-              <div className="docwizard-recap-row"><span>Discount</span><span>{money(totals.discountTotal, currency)}</span></div>
-              <div className="docwizard-recap-row"><span>Tax</span><span>{money(totals.taxTotal, currency)}</span></div>
-              <div className="docwizard-recap-row docwizard-recap-total"><span>Total</span><span>{money(totals.grandTotal, currency)}</span></div>
+              <div className="docwizard-recap-row"><span>{tr('Items')}</span><span>{items.length}</span></div>
+              <div className="docwizard-recap-row"><span>{tr('Subtotal')}</span><span>{money(totals.subtotal, currency)}</span></div>
+              <div className="docwizard-recap-row"><span>{tr('Discount')}</span><span>{money(totals.discountTotal, currency)}</span></div>
+              <div className="docwizard-recap-row"><span>{tr('Tax')}</span><span>{money(totals.taxTotal, currency)}</span></div>
+              <div className="docwizard-recap-row docwizard-recap-total"><span>{tr('Total')}</span><span>{money(totals.grandTotal, currency)}</span></div>
               {message && <div className="docwizard-recap-message">"{message}"</div>}
             </div>
             {previewSchedule.length > 0 && (
               <div className="docwizard-recap">
-                <div className="docwizard-recap-row"><span><strong>Payment schedule</strong></span><span></span></div>
+                <div className="docwizard-recap-row"><span><strong>{tr('Payment schedule')}</strong></span><span></span></div>
                 {previewSchedule.map((row, i) => (
-                  <div className="docwizard-recap-row" key={i}><span>{row.label} — due {row.dueDate}</span><span>{row.amount}</span></div>
+                  <div className="docwizard-recap-row" key={i}><span>{row.label} {tr('— due')} {row.dueDate}</span><span>{row.amount}</span></div>
                 ))}
               </div>
             )}
-            <p className="docwizard-recap-hint">You can generate a share link or send this by WhatsApp once it's created — open it from the list and click Preview.</p>
+            <p className="docwizard-recap-hint">{tr('You can generate a share link or send this by WhatsApp once it\'s created — open it from the list and click Preview.')}</p>
           </div>
         )}
 
         <div className="dialog-actions docwizard-actions">
           <div className="docwizard-actions-left">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="button" className="btn btn-secondary" onClick={() => setPreviewOpen(true)}>Preview</button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setPreviewOpen(true)}>{tr('Preview')}</button>
           </div>
           <div className="docwizard-actions-right">
-            {step > 0 && <button type="button" className="btn btn-secondary" onClick={() => setStep(step - 1)}>Back</button>}
-            {step < STEPS.length - 1 && <button type="button" className="btn btn-primary" onClick={() => setStep(step + 1)}>Next</button>}
+            {step > 0 && <button type="button" className="btn btn-secondary" onClick={() => setStep(step - 1)}>{tr('Back')}</button>}
+            {step < STEPS.length - 1 && <button type="button" className="btn btn-primary" onClick={() => setStep(step + 1)}>{tr('Next')}</button>}
             {step === STEPS.length - 1 && <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : submitLabel}</button>}
           </div>
         </div>

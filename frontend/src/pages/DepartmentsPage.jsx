@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './DepartmentsPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's departments screen, then restructured
 // around a new Company tier sitting above Departments (see migration
 // 0032): Bamboo Products Limited, Star Bar Restaurant and Bamboo Garden
@@ -289,19 +290,19 @@ export default function DepartmentsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
       <div className="departments-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search companies, departments, managers…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNewCompany}>Add company</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search companies, departments, managers…')} />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNewCompany}>{tr('Add company')}</button>}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th /><th>Company</th><th>Departments</th><th>Status</th><th /></tr>
+          <tr><th /><th>{tr('Company')}</th><th>{tr('Departments')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleCompanies.map((c) => (
@@ -333,11 +334,11 @@ export default function DepartmentsPage() {
                 <tr>
                   <td />
                   <td colSpan={4} className="departments-nested-cell">
-                    {!c.departments.length && <p className="departments-nested-empty">No departments yet.</p>}
+                    {!c.departments.length && <p className="departments-nested-empty">{tr('No departments yet.')}</p>}
                     {!!c.departments.length && (
                       <table className="table departments-nested-table">
                         <thead>
-                          <tr><th>Code</th><th>Department</th><th>Manager</th><th>Headcount</th><th>Shifts</th><th /></tr>
+                          <tr><th>{tr('Code')}</th><th>{tr('Department')}</th><th>{tr('Manager')}</th><th>{tr('Headcount')}</th><th>{tr('Shifts')}</th><th /></tr>
                         </thead>
                         <tbody>
                           {c.departments.map((d) => (
@@ -355,7 +356,7 @@ export default function DepartmentsPage() {
                               <td>{d.headcount}</td>
                               <td>
                                 <button type="button" className="btn btn-secondary departments-row-btn departments-shifts-btn" onClick={() => openShifts(d)}>
-                                  <ClockIcon /> {d.shiftCount} shift{d.shiftCount === 1 ? '' : 's'}
+                                  <ClockIcon /> {d.shiftCount} {tr('shift')}{d.shiftCount === 1 ? '' : 's'}
                                 </button>
                               </td>
                               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
@@ -379,13 +380,13 @@ export default function DepartmentsPage() {
       {!companies.length && (
         <div className="departments-empty-state">
           <span className="departments-empty-icon"><PeopleIcon /></span>
-          <p className="departments-empty-title">No companies yet</p>
+          <p className="departments-empty-title">{tr('No companies yet')}</p>
         </div>
       )}
       {!!companies.length && !visibleCompanies.length && (
         <div className="departments-empty-state">
           <span className="departments-empty-icon"><PeopleIcon /></span>
-          <p className="departments-empty-title">No companies match "{search}"</p>
+          <p className="departments-empty-title">{tr('No companies match "')}{search}"</p>
         </div>
       )}
 
@@ -395,15 +396,15 @@ export default function DepartmentsPage() {
             <h2 className="departments-dialog-title">{editCompanyId ? 'Edit company' : 'Add company'}</h2>
             {companyDialogError && <div className="error-banner departments-dialog-span">{companyDialogError}</div>}
             <div className="field departments-dialog-span">
-              <label htmlFor="company-name">Company name</label>
-              <input id="company-name" className="input" value={companyForm.name} onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })} placeholder="Bamboo Products Limited" required />
+              <label htmlFor="company-name">{tr('Company name')}</label>
+              <input id="company-name" className="input" value={companyForm.name} onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })} placeholder={tr('Bamboo Products Limited')} required />
             </div>
             <div className="field">
-              <label htmlFor="company-code">Code</label>
-              <input id="company-code" className="input" maxLength={8} value={companyForm.code} onChange={(e) => setCompanyForm({ ...companyForm, code: e.target.value })} placeholder="BPL" required />
+              <label htmlFor="company-code">{tr('Code')}</label>
+              <input id="company-code" className="input" maxLength={8} value={companyForm.code} onChange={(e) => setCompanyForm({ ...companyForm, code: e.target.value })} placeholder={tr('BPL')} required />
             </div>
             <div className="dialog-actions departments-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setCompanyDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCompanyDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={savingCompany}>{savingCompany ? 'Saving…' : (editCompanyId ? 'Save changes' : 'Create')}</button>
             </div>
           </form>
@@ -416,29 +417,29 @@ export default function DepartmentsPage() {
             <h2 className="departments-dialog-title">{editDeptId ? 'Edit department' : 'Add department'}</h2>
             {deptDialogError && <div className="error-banner departments-dialog-span">{deptDialogError}</div>}
             <div className="field departments-dialog-span">
-              <label htmlFor="dept-company">Company</label>
+              <label htmlFor="dept-company">{tr('Company')}</label>
               <select id="dept-company" className="input" value={deptForm.companyId} onChange={(e) => setDeptForm({ ...deptForm, companyId: e.target.value })} required>
-                <option value="" disabled>Select a company…</option>
+                <option value="" disabled>{tr('Select a company…')}</option>
                 {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="dept-code">Code</label>
-              <input id="dept-code" className="input" maxLength={5} value={deptForm.code} onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })} placeholder="PROD" required />
+              <label htmlFor="dept-code">{tr('Code')}</label>
+              <input id="dept-code" className="input" maxLength={5} value={deptForm.code} onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })} placeholder={tr('PROD')} required />
             </div>
             <div className="field">
-              <label htmlFor="dept-name">Department name</label>
-              <input id="dept-name" className="input" value={deptForm.name} onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })} placeholder="Productions" required />
+              <label htmlFor="dept-name">{tr('Department name')}</label>
+              <input id="dept-name" className="input" value={deptForm.name} onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })} placeholder={tr('Productions')} required />
             </div>
             <div className="field departments-dialog-span">
-              <label htmlFor="dept-manager">Manager</label>
+              <label htmlFor="dept-manager">{tr('Manager')}</label>
               <select id="dept-manager" className="input" value={deptForm.managerId} onChange={(e) => setDeptForm({ ...deptForm, managerId: e.target.value })}>
-                <option value="">Unassigned</option>
+                <option value="">{tr('Unassigned')}</option>
                 {managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
             <div className="dialog-actions departments-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeptDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeptDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={savingDept}>{savingDept ? 'Saving…' : (editDeptId ? 'Save changes' : 'Create')}</button>
             </div>
           </form>
@@ -448,17 +449,17 @@ export default function DepartmentsPage() {
       {shiftsDialog && (
         <div className="dialog-backdrop" onClick={() => setShiftsDialog(null)}>
           <div className="dialog departments-shifts-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 className="departments-dialog-title">Shifts — {shiftsDialog.departmentName}</h2>
+            <h2 className="departments-dialog-title">{tr('Shifts —')} {shiftsDialog.departmentName}</h2>
             {shiftsDialog.error && <div className="error-banner">{shiftsDialog.error}</div>}
             {shiftsDialog.loading ? (
-              <div className="eyebrow">Loading…</div>
+              <div className="eyebrow">{tr('Loading…')}</div>
             ) : (
               <>
-                {!shiftsDialog.shifts.length && <p className="departments-nested-empty">No shifts yet for this department.</p>}
+                {!shiftsDialog.shifts.length && <p className="departments-nested-empty">{tr('No shifts yet for this department.')}</p>}
                 {!!shiftsDialog.shifts.length && (
                   <table className="table departments-shifts-table">
                     <thead>
-                      <tr><th>Shift</th><th>Start</th><th>End</th><th>Assigned</th><th /></tr>
+                      <tr><th>{tr('Shift')}</th><th>{tr('Start')}</th><th>{tr('End')}</th><th>{tr('Assigned')}</th><th /></tr>
                     </thead>
                     <tbody>
                       {shiftsDialog.shifts.map((s) => (
@@ -482,18 +483,18 @@ export default function DepartmentsPage() {
                   <form className="departments-shift-form" onSubmit={handleShiftSubmit}>
                     {shiftFormError && <div className="error-banner departments-dialog-span">{shiftFormError}</div>}
                     <div className="field">
-                      <label htmlFor="shift-name">Shift name</label>
-                      <input id="shift-name" className="input" maxLength={40} value={shiftForm.name} onChange={(e) => setShiftForm({ ...shiftForm, name: e.target.value })} placeholder="Day Shift" required />
+                      <label htmlFor="shift-name">{tr('Shift name')}</label>
+                      <input id="shift-name" className="input" maxLength={40} value={shiftForm.name} onChange={(e) => setShiftForm({ ...shiftForm, name: e.target.value })} placeholder={tr('Day Shift')} required />
                     </div>
                     <div className="field">
-                      <label htmlFor="shift-start">Start time</label>
+                      <label htmlFor="shift-start">{tr('Start time')}</label>
                       <input id="shift-start" className="input" type="time" value={shiftForm.startTime} onChange={(e) => setShiftForm({ ...shiftForm, startTime: e.target.value })} required />
                     </div>
                     <div className="field">
-                      <label htmlFor="shift-end">End time</label>
+                      <label htmlFor="shift-end">{tr('End time')}</label>
                       <input id="shift-end" className="input" type="time" value={shiftForm.endTime} onChange={(e) => setShiftForm({ ...shiftForm, endTime: e.target.value })} required />
                     </div>
-                    {editShiftId && <button type="button" className="btn btn-secondary" onClick={cancelEditShift}>Cancel</button>}
+                    {editShiftId && <button type="button" className="btn btn-secondary" onClick={cancelEditShift}>{tr('Cancel')}</button>}
                     <button className="btn btn-primary" type="submit" disabled={savingShift}>
                       {savingShift ? 'Saving…' : (editShiftId ? 'Save changes' : '+ Add shift')}
                     </button>
@@ -502,7 +503,7 @@ export default function DepartmentsPage() {
               </>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setShiftsDialog(null)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setShiftsDialog(null)}>{tr('Close')}</button>
             </div>
           </div>
         </div>
@@ -511,11 +512,11 @@ export default function DepartmentsPage() {
       {deleteCompanyTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteCompanyTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete company</h2>
-            <p className="dialog-body">Delete <strong>{deleteCompanyTarget.name}</strong>? This cannot be undone.</p>
+            <h2>{tr('Delete company')}</h2>
+            <p className="dialog-body">{tr('Delete')} <strong>{deleteCompanyTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteCompanyTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteCompanyTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteCompany}>
                 {deleting ? 'Deleting…' : 'Delete company'}
               </button>
@@ -527,11 +528,11 @@ export default function DepartmentsPage() {
       {deleteDeptTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteDeptTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete department</h2>
-            <p className="dialog-body">Delete <strong>{deleteDeptTarget.name}</strong>? This cannot be undone.</p>
+            <h2>{tr('Delete department')}</h2>
+            <p className="dialog-body">{tr('Delete')} <strong>{deleteDeptTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteDeptTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteDeptTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteDept}>
                 {deleting ? 'Deleting…' : 'Delete department'}
               </button>
@@ -543,11 +544,11 @@ export default function DepartmentsPage() {
       {deleteShiftTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteShiftTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete shift</h2>
-            <p className="dialog-body">Delete <strong>{deleteShiftTarget.name}</strong>? This cannot be undone.</p>
+            <h2>{tr('Delete shift')}</h2>
+            <p className="dialog-body">{tr('Delete')} <strong>{deleteShiftTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteShiftTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteShiftTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDeleteShift}>
                 {deleting ? 'Deleting…' : 'Delete shift'}
               </button>

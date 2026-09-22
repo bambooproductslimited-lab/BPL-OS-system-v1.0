@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './LeavePage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's leave screen (screens.leave block + the
 // leaveRows/leaveFilters/leaveHint computed values around its render()),
 // redesigned around the icon/avatar language established for Messages/
@@ -168,7 +169,7 @@ export default function LeavePage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const rows = leaveRequests
     .filter((l) => filter === 'all' || l.status === filter)
@@ -217,10 +218,10 @@ export default function LeavePage() {
       <div className="leave-grid">
         {can('leave.request') && (
           <form className="card leave-form" onSubmit={handleSubmitRequest}>
-            <h2 className="leave-form-title">Request leave</h2>
+            <h2 className="leave-form-title">{tr('Request leave')}</h2>
 
             <div className="field">
-              <label htmlFor="leave-type">Type</label>
+              <label htmlFor="leave-type">{tr('Type')}</label>
               <select
                 id="leave-type"
                 className="input"
@@ -234,14 +235,14 @@ export default function LeavePage() {
 
             <div className="leave-form-dates">
               <div className="field">
-                <label htmlFor="leave-start">From</label>
+                <label htmlFor="leave-start">{tr('From')}</label>
                 <input
                   id="leave-start" className="input" type="date" value={form.startDate}
                   onChange={(e) => setForm({ ...form, startDate: e.target.value })} required
                 />
               </div>
               <div className="field">
-                <label htmlFor="leave-end">To</label>
+                <label htmlFor="leave-end">{tr('To')}</label>
                 <input
                   id="leave-end" className="input" type="date" value={form.endDate}
                   onChange={(e) => setForm({ ...form, endDate: e.target.value })} required
@@ -250,21 +251,21 @@ export default function LeavePage() {
             </div>
 
             <div className="field">
-              <label htmlFor="leave-reason">Reason</label>
+              <label htmlFor="leave-reason">{tr('Reason')}</label>
               <textarea
                 id="leave-reason" className="input" value={form.reason}
                 onChange={(e) => setForm({ ...form, reason: e.target.value })}
-                placeholder="Kept on the record for HR." required
+                placeholder={tr('Kept on the record for HR.')} required
               />
             </div>
 
             {balance && (
               <div className={'leave-balance-chip' + (balance.left <= 0 ? ' leave-balance-chip-empty' : '')}>
                 <span className="leave-balance-chip-icon"><Icon name="calendar" /></span>
-                <span><strong>{balance.left}</strong> of {balance.entitled} day(s) remaining</span>
+                <span><strong>{balance.left}</strong> {tr('of')} {balance.entitled} {tr('day(s) remaining')}</span>
               </div>
             )}
-            <div className="leave-hint">Sundays are not counted as leave days.</div>
+            <div className="leave-hint">{tr('Sundays are not counted as leave days.')}</div>
 
             <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
               {submitting ? 'Submitting…' : 'Submit request'}
@@ -278,19 +279,19 @@ export default function LeavePage() {
           </div>
 
           <div className="leave-filters-row">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search employee, department, type…" />
+            <SearchInput value={search} onChange={setSearch} placeholder={tr('Search employee, department, type…')} />
             <select
-              className="input leave-company-filter" value={companyFilter} aria-label="Filter by company"
+              className="input leave-company-filter" value={companyFilter} aria-label={tr('Filter by company')}
               onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
             >
-              <option value="">All companies</option>
+              <option value="">{tr('All companies')}</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select
-              className="input leave-company-filter" value={deptFilter} aria-label="Filter by department"
+              className="input leave-company-filter" value={deptFilter} aria-label={tr('Filter by department')}
               onChange={(e) => setDeptFilter(e.target.value)}
             >
-              <option value="">All departments</option>
+              <option value="">{tr('All departments')}</option>
               {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
                 <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
               ))}
@@ -301,7 +302,7 @@ export default function LeavePage() {
             <div style={{ overflowX: 'auto', marginTop: 12 }}>
               <table className="table">
                 <thead>
-                  <tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th /></tr>
+                  <tr><th>{tr('Employee')}</th><th>{tr('Type')}</th><th>{tr('Dates')}</th><th>{tr('Days')}</th><th>{tr('Status')}</th><th /></tr>
                 </thead>
                 <tbody>
                   {rows.map((l) => {
@@ -339,8 +340,8 @@ export default function LeavePage() {
           {!rows.length && (
             <div className="leave-empty-state">
               <span className="leave-empty-icon"><Icon name="calendar" /></span>
-              <p className="leave-empty-title">Nothing matches this filter</p>
-              <p className="leave-empty-sub">Try a different status or search.</p>
+              <p className="leave-empty-title">{tr('Nothing matches this filter')}</p>
+              <p className="leave-empty-sub">{tr('Try a different status or search.')}</p>
             </div>
           )}
         </section>
@@ -349,22 +350,22 @@ export default function LeavePage() {
       {decisionDialog && (
         <div className="dialog-backdrop" onClick={() => setDecisionDialog(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmDecision}>
-            <h2>{decisionDialog.decision === 'approved' ? 'Approve' : 'Reject'} leave</h2>
+            <h2>{decisionDialog.decision === 'approved' ? 'Approve' : 'Reject'} {tr('leave')}</h2>
             <p className="dialog-body">
-              {decisionDialog.employeeName} · {decisionDialog.typeName} · {decisionDialog.days} day(s),{' '}
+              {decisionDialog.employeeName} · {decisionDialog.typeName} · {decisionDialog.days} {tr('day(s),')}{' '}
               {fmtDate(decisionDialog.startDate)} → {fmtDate(decisionDialog.endDate)}
             </p>
             <div className="field">
-              <label htmlFor="decision-note">Note for the record</label>
+              <label htmlFor="decision-note">{tr('Note for the record')}</label>
               <textarea
                 id="decision-note" className="input" value={decisionNote}
                 onChange={(e) => setDecisionNote(e.target.value)}
-                placeholder="Optional for approval, expected for a rejection."
+                placeholder={tr('Optional for approval, expected for a rejection.')}
               />
             </div>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDecisionDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDecisionDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={deciding}>
                 {deciding ? 'Saving…' : (decisionDialog.decision === 'approved' ? 'Approve request' : 'Reject request')}
               </button>

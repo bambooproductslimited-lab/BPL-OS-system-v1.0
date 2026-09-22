@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { tr } from '../lib/i18n.jsx';
 import './ApprovalsPage.css';
 
 // Ported from Bamboo OS.dc.html's approval centre screen (screens.approvals
@@ -108,7 +109,7 @@ export default function ApprovalsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleApprovals = approvals.filter((a) => matchesQuery(search, a.title, a.requesterName, a.requesterRole, a.department, a.company, a.detail, a.reason));
 
@@ -117,19 +118,19 @@ export default function ApprovalsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="approvals-filters-row">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search approval queue…" />
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search approval queue…')} />
         <select
-          className="input approvals-company-filter" value={companyFilter} aria-label="Filter by company"
+          className="input approvals-company-filter" value={companyFilter} aria-label={tr('Filter by company')}
           onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
         >
-          <option value="">All companies</option>
+          <option value="">{tr('All companies')}</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select
-          className="input approvals-company-filter" value={deptFilter} aria-label="Filter by department"
+          className="input approvals-company-filter" value={deptFilter} aria-label={tr('Filter by department')}
           onChange={(e) => setDeptFilter(e.target.value)}
         >
-          <option value="">All departments</option>
+          <option value="">{tr('All departments')}</option>
           {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
             <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
           ))}
@@ -147,8 +148,8 @@ export default function ApprovalsPage() {
               <div className="approvals-item-reason">{a.reason || '—'}</div>
             </div>
             <div className="approvals-item-actions">
-              <button type="button" className="btn btn-primary" disabled={decidingId === a.id} onClick={() => handleDecision(a, 'approved')}>Approve</button>
-              <button type="button" className="btn btn-secondary" disabled={decidingId === a.id} onClick={() => handleDecision(a, 'rejected')}>Reject</button>
+              <button type="button" className="btn btn-primary" disabled={decidingId === a.id} onClick={() => handleDecision(a, 'approved')}>{tr('Approve')}</button>
+              <button type="button" className="btn btn-secondary" disabled={decidingId === a.id} onClick={() => handleDecision(a, 'rejected')}>{tr('Reject')}</button>
             </div>
           </div>
         ))}
@@ -156,11 +157,11 @@ export default function ApprovalsPage() {
       {!approvals.length && (
         <div className="approvals-empty-state">
           <span className="approvals-empty-icon"><Icon name="checkCircle" /></span>
-          <p className="approvals-empty-title">You're all caught up</p>
-          <p className="approvals-empty-sub">Requests from the people you're responsible for will appear here.</p>
+          <p className="approvals-empty-title">{tr('You\'re all caught up')}</p>
+          <p className="approvals-empty-sub">{tr('Requests from the people you\'re responsible for will appear here.')}</p>
         </div>
       )}
-      {!!approvals.length && !visibleApprovals.length && <p className="table-empty">No approvals match "{search}".</p>}
+      {!!approvals.length && !visibleApprovals.length && <p className="table-empty">{tr('No approvals match "')}{search}".</p>}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

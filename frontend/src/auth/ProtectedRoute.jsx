@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import ForcedPasswordChangePage from '../pages/ForcedPasswordChangePage';
 
+import { tr } from '../lib/i18n.jsx';
 export default function ProtectedRoute() {
   const { session, loading } = useAuth();
   const location = useLocation();
@@ -9,7 +10,7 @@ export default function ProtectedRoute() {
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
-        Loading…
+        {tr('Loading…')}
       </div>
     );
   }

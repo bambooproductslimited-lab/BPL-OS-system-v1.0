@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import FaceCapture from '../components/FaceCapture';
+import { tr } from '../lib/i18n.jsx';
 import './FaceEnrollPage.css';
 
 // Public, unauthenticated self-enrollment page — the flip side of HR's
@@ -65,35 +66,32 @@ export default function FaceEnrollPage() {
     <div className="face-enroll-page">
       <div className="face-enroll-card">
         <img src="/logo.png" alt="" className="face-enroll-logo" />
-        <h1 className="face-enroll-title">Face ID setup</h1>
+        <h1 className="face-enroll-title">{tr('Face ID setup')}</h1>
 
-        {status === 'loading' && <p className="face-enroll-status">Loading…</p>}
+        {status === 'loading' && <p className="face-enroll-status">{tr('Loading…')}</p>}
 
         {status === 'error' && <p className="face-enroll-status face-enroll-error">{error}</p>}
 
         {status === 'ready' && target && (
           <>
             <p className="face-enroll-body">
-              Hi {target.firstName}, this sets up face recognition for the clock-in kiosk — once done, you'll
-              need to look at the kiosk's camera (in addition to your PIN) every time you clock in or out.
+              {tr('Hi')} {target.firstName}{tr(', this sets up face recognition for the clock-in kiosk — once done, you\'ll need to look at the kiosk\'s camera (in addition to your PIN) every time you clock in or out.')}
             </p>
             <p className="face-enroll-body face-enroll-muted">
-              Nothing is uploaded or stored except the face measurements captured right now — no photo is kept.
-              You'll be asked to look at your camera and slowly turn/tilt your head through a few angles, about
-              10 seconds in total.
+              {tr('Nothing is uploaded or stored except the face measurements captured right now — no photo is kept. You\'ll be asked to look at your camera and slowly turn/tilt your head through a few angles, about 10 seconds in total.')}
             </p>
             {target.alreadyEnrolled && (
-              <p className="face-enroll-body face-enroll-muted">You already have a face on file — continuing replaces it.</p>
+              <p className="face-enroll-body face-enroll-muted">{tr('You already have a face on file — continuing replaces it.')}</p>
             )}
             <button type="button" className="btn btn-primary face-enroll-start" onClick={() => setStatus('pin')}>
-              Start
+              {tr('Start')}
             </button>
           </>
         )}
 
         {status === 'pin' && (
           <form onSubmit={verifyPin} className="face-enroll-pin-form">
-            <p className="face-enroll-body">First, confirm it's you — enter your kiosk PIN.</p>
+            <p className="face-enroll-body">{tr('First, confirm it\'s you — enter your kiosk PIN.')}</p>
             {pinError && <div className="face-enroll-error-banner">{pinError}</div>}
             <input
               className="input face-enroll-pin-input" inputMode="numeric" pattern="\d{4}" maxLength={4} autoFocus
@@ -101,7 +99,7 @@ export default function FaceEnrollPage() {
               placeholder="••••"
             />
             <div className="face-enroll-pin-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => { setStatus('ready'); setPinError(null); }}>Back</button>
+              <button type="button" className="btn btn-secondary" onClick={() => { setStatus('ready'); setPinError(null); }}>{tr('Back')}</button>
               <button type="submit" className="btn btn-primary" disabled={pin.length !== 4 || pinChecking}>
                 {pinChecking ? 'Checking…' : 'Continue'}
               </button>
@@ -112,18 +110,18 @@ export default function FaceEnrollPage() {
         {status === 'capturing' && (
           <FaceCapture
             mode="enroll"
-            title="Look at the camera"
+            title={tr('Look at the camera')}
             subtitle="Look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down)."
             onCapture={submit}
             onCancel={() => setStatus('ready')}
           />
         )}
 
-        {status === 'submitting' && <p className="face-enroll-status">Saving…</p>}
+        {status === 'submitting' && <p className="face-enroll-status">{tr('Saving…')}</p>}
 
         {status === 'success' && (
           <p className="face-enroll-status face-enroll-success">
-            You're all set! Face recognition is now active for your clock-ins. You can close this page.
+            {tr('You\'re all set! Face recognition is now active for your clock-ins. You can close this page.')}
           </p>
         )}
       </div>

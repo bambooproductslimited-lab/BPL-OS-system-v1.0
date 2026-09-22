@@ -12,6 +12,7 @@ import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import { tr } from '../lib/i18n.jsx';
 import './QuotationsPage.css';
 
 // Ported from Bamboo OS.dc.html's quotations screen (screens.quotations
@@ -195,7 +196,7 @@ export default function QuotationsPage() {
     setPreviewQ({ ...q, customerName: cust.name || q.customerName, customerEmail: cust.email || '' });
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleQuotations = quotations.filter((q) =>
     matchesQuery(search, q.quoteNo, q.customerName, q.title) && (!statusFilter || q.status === statusFilter)
@@ -218,17 +219,17 @@ export default function QuotationsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="quotations-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search quotations…" />
-        <select className="input quotations-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search quotations…')} />
+        <select className="input quotations-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
           {QUOTATION_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{quoteStatusLabel(s)}</option>)}
         </select>
-        {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>New quotation</button>}
+        {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New quotation')}</button>}
       </div>
 
       <table className="table table-clickable">
         <thead>
-          <tr><th>Quote</th><th>Customer</th><th className="col-wide">Items</th><th>Total</th><th className="col-mid">Valid until</th><th>Status</th><th></th></tr>
+          <tr><th>{tr('Quote')}</th><th>{tr('Customer')}</th><th className="col-wide">{tr('Items')}</th><th>{tr('Total')}</th><th className="col-mid">{tr('Valid until')}</th><th>{tr('Status')}</th><th></th></tr>
         </thead>
         <tbody>
           {visibleQuotations.map((q) => {
@@ -261,7 +262,7 @@ export default function QuotationsPage() {
       {!quotations.length && (
         <div className="quotations-empty-state">
           <span className="quotations-empty-icon"><DocIcon /></span>
-          <p className="quotations-empty-title">No quotations yet</p>
+          <p className="quotations-empty-title">{tr('No quotations yet')}</p>
         </div>
       )}
       {!!quotations.length && !visibleQuotations.length && (
@@ -273,26 +274,26 @@ export default function QuotationsPage() {
 
       {dialogOpen && (
         <DocWizard
-          title="New quotation" docKind="quotation"
+          title={tr('New quotation')} docKind="quotation"
           detailsSlot={
             <div className="quotations-dialog-fields">
               <div className="field">
-                <label htmlFor="q-customer">Customer</label>
+                <label htmlFor="q-customer">{tr('Customer')}</label>
                 <CustomerPicker id="q-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required />
               </div>
               <div className="field">
-                <label htmlFor="q-title">Title</label>
-                <input id="q-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Quotation for ..." />
+                <label htmlFor="q-title">{tr('Title')}</label>
+                <input id="q-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr('Quotation for ...')} />
               </div>
               <div className="field">
-                <label htmlFor="q-currency">Currency</label>
+                <label htmlFor="q-currency">{tr('Currency')}</label>
                 <select id="q-currency" className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
-                  <option value="">Customer's default</option>
+                  <option value="">{tr('Customer\'s default')}</option>
                   {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="q-valid">Valid until</label>
+                <label htmlFor="q-valid">{tr('Valid until')}</label>
                 <input id="q-valid" className="input" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
               </div>
             </div>

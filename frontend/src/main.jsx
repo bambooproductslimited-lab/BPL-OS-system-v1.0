@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import { I18nProvider } from './lib/i18n.jsx'
 
 // Makes the app installable (PWA) and lets the app shell open instantly on
 // repeat visits — see public/sw.js. Registered at scope '/', which coexists
@@ -20,7 +21,9 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <ErrorBoundary>
-        <App />
+        <I18nProvider>
+          <App />
+        </I18nProvider>
       </ErrorBoundary>
     </BrowserRouter>
   </StrictMode>,

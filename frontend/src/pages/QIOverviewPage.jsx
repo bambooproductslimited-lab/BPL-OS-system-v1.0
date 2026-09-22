@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
+import { tr } from '../lib/i18n.jsx';
 import './QIOverviewPage.css';
 
 // Ported from Bamboo OS.dc.html's qioverview screen (screens.qioverview
@@ -52,7 +53,7 @@ export default function QIOverviewPage() {
     })();
   }, []);
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (error) return <div className="error-banner">{error}</div>;
   if (!data) return null;
 
@@ -89,9 +90,9 @@ export default function QIOverviewPage() {
       </div>
 
       <section>
-        <h2 className="qio-section-title">Invoiced vs collected — last 6 months ({data.baseCurrency})</h2>
+        <h2 className="qio-section-title">{tr('Invoiced vs collected — last 6 months (')}{data.baseCurrency})</h2>
         <table className="table">
-          <thead><tr><th>Month</th><th>Invoiced</th><th>Collected</th><th className="qio-bar-col">Invoiced share</th></tr></thead>
+          <thead><tr><th>{tr('Month')}</th><th>{tr('Invoiced')}</th><th>{tr('Collected')}</th><th className="qio-bar-col">{tr('Invoiced share')}</th></tr></thead>
           <tbody>
             {data.monthly.map((m) => (
               <tr key={m.month}>
@@ -111,9 +112,9 @@ export default function QIOverviewPage() {
 
       <div className="qio-columns">
         <section>
-          <h2 className="qio-section-title">Recent quotations</h2>
+          <h2 className="qio-section-title">{tr('Recent quotations')}</h2>
           <table className="table">
-            <thead><tr><th>Quote</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead>
+            <thead><tr><th>{tr('Quote')}</th><th>{tr('Customer')}</th><th>{tr('Total')}</th><th>{tr('Status')}</th></tr></thead>
             <tbody>
               {data.recentQuotes.map((q, i) => (
                 <tr key={i}>
@@ -123,9 +124,9 @@ export default function QIOverviewPage() {
               ))}
             </tbody>
           </table>
-          <h2 className="qio-section-title qio-section-title-spaced">Recent invoices</h2>
+          <h2 className="qio-section-title qio-section-title-spaced">{tr('Recent invoices')}</h2>
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Status')}</th></tr></thead>
             <tbody>
               {data.recentInvoices.map((iv, i) => (
                 <tr key={i}>
@@ -137,27 +138,27 @@ export default function QIOverviewPage() {
           </table>
         </section>
         <section>
-          <h2 className="qio-section-title">Upcoming invoice due dates</h2>
+          <h2 className="qio-section-title">{tr('Upcoming invoice due dates')}</h2>
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Due</th></tr></thead>
+            <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Due')}</th></tr></thead>
             <tbody>
               {data.upcomingDue.map((iv, i) => (
                 <tr key={i}><td>{iv.invoiceNo}</td><td>{iv.customerName}</td><td>{money(iv.balanceDue, iv.currency)}</td><td>{fmtDate(iv.dueDate)}</td></tr>
               ))}
             </tbody>
           </table>
-          <h2 className="qio-section-title qio-section-title-spaced">Overdue invoices</h2>
+          <h2 className="qio-section-title qio-section-title-spaced">{tr('Overdue invoices')}</h2>
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Due</th></tr></thead>
+            <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Due')}</th></tr></thead>
             <tbody>
               {data.overdueInvoices.map((iv, i) => (
                 <tr key={i}><td>{iv.invoiceNo}</td><td className="qio-overdue-customer">{iv.customerName}</td><td>{money(iv.balanceDue, iv.currency)}</td><td>{fmtDate(iv.dueDate)}</td></tr>
               ))}
             </tbody>
           </table>
-          <h2 className="qio-section-title qio-section-title-spaced">Recent payments</h2>
+          <h2 className="qio-section-title qio-section-title-spaced">{tr('Recent payments')}</h2>
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th></tr></thead>
+            <thead><tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th>{tr('Amount')}</th><th>{tr('Date')}</th></tr></thead>
             <tbody>
               {data.recentPayments.map((p, i) => (
                 <tr key={i}><td>{p.invoiceNo}</td><td>{p.customerName}</td><td>{money(p.amount, p.currency)}</td><td>{fmtDate(p.date)}</td></tr>

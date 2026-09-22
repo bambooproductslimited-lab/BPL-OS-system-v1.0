@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { tr } from '../lib/i18n.jsx';
 import './BillingSettingsPage.css';
 
 // Ported from Bamboo OS.dc.html's billing settings screen
@@ -108,7 +109,7 @@ export default function BillingSettingsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (!settings) return <div className="error-banner">{error}</div>;
 
   const numberingList = Object.keys(settings.numbering).map((k) => {
@@ -122,80 +123,80 @@ export default function BillingSettingsPage() {
 
       <form className="bs-form" onSubmit={handleSubmit}>
         <section className="bs-section">
-          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="document" /></span>Document templates & defaults</h2>
+          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="document" /></span>{tr('Document templates & defaults')}</h2>
           <div className="field">
-            <label htmlFor="bs-qi">Quotation introduction</label>
+            <label htmlFor="bs-qi">{tr('Quotation introduction')}</label>
             <textarea id="bs-qi" className="input" value={form.quotationIntro} onChange={(e) => setForm({ ...form, quotationIntro: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-qf">Quotation footer</label>
+            <label htmlFor="bs-qf">{tr('Quotation footer')}</label>
             <textarea id="bs-qf" className="input" value={form.quotationFooter} onChange={(e) => setForm({ ...form, quotationFooter: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-if">Invoice footer</label>
+            <label htmlFor="bs-if">{tr('Invoice footer')}</label>
             <textarea id="bs-if" className="input" value={form.invoiceFooter} onChange={(e) => setForm({ ...form, invoiceFooter: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-pt">Default payment terms</label>
+            <label htmlFor="bs-pt">{tr('Default payment terms')}</label>
             <input id="bs-pt" className="input" value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })} />
           </div>
           <div className="field bs-span">
-            <label htmlFor="bs-terms">Terms & conditions</label>
+            <label htmlFor="bs-terms">{tr('Terms & conditions')}</label>
             <textarea id="bs-terms" className="input" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-vd">Default quotation validity (days)</label>
+            <label htmlFor="bs-vd">{tr('Default quotation validity (days)')}</label>
             <input id="bs-vd" className="input" type="number" value={form.validityDays} onChange={(e) => setForm({ ...form, validityDays: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-dd">Default invoice due period (days)</label>
+            <label htmlFor="bs-dd">{tr('Default invoice due period (days)')}</label>
             <input id="bs-dd" className="input" type="number" value={form.invoiceDueDays} onChange={(e) => setForm({ ...form, invoiceDueDays: e.target.value })} />
           </div>
         </section>
 
         <section className="bs-section">
-          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="cash" /></span>Payment details shown on invoices</h2>
+          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="cash" /></span>{tr('Payment details shown on invoices')}</h2>
           <div className="field">
-            <label htmlFor="bs-bn">Bank name</label>
+            <label htmlFor="bs-bn">{tr('Bank name')}</label>
             <input id="bs-bn" className="input" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-an">Account name</label>
+            <label htmlFor="bs-an">{tr('Account name')}</label>
             <input id="bs-an" className="input" value={form.accountName} onChange={(e) => setForm({ ...form, accountName: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-acc">Account number</label>
+            <label htmlFor="bs-acc">{tr('Account number')}</label>
             <input id="bs-acc" className="input" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-br">Branch</label>
+            <label htmlFor="bs-br">{tr('Branch')}</label>
             <input id="bs-br" className="input" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-sw">SWIFT</label>
+            <label htmlFor="bs-sw">{tr('SWIFT')}</label>
             <input id="bs-sw" className="input" value={form.swift} onChange={(e) => setForm({ ...form, swift: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-mp">Mobile Money provider</label>
+            <label htmlFor="bs-mp">{tr('Mobile Money provider')}</label>
             <input id="bs-mp" className="input" value={form.momoProvider} onChange={(e) => setForm({ ...form, momoProvider: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-mn">Mobile Money number</label>
+            <label htmlFor="bs-mn">{tr('Mobile Money number')}</label>
             <input id="bs-mn" className="input" value={form.momoNumber} onChange={(e) => setForm({ ...form, momoNumber: e.target.value })} />
           </div>
           <div className="field bs-span">
-            <label htmlFor="bs-inst">Payment instructions</label>
+            <label htmlFor="bs-inst">{tr('Payment instructions')}</label>
             <input id="bs-inst" className="input" value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} />
           </div>
         </section>
 
-        <button className="btn btn-primary bs-save" type="submit" disabled={saving}>Save settings</button>
+        <button className="btn btn-primary bs-save" type="submit" disabled={saving}>{tr('Save settings')}</button>
       </form>
 
       <section className="bs-narrow">
-        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="hash" /></span>Document numbering</h2>
+        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="hash" /></span>{tr('Document numbering')}</h2>
         <table className="table">
-          <thead><tr><th>Document</th><th>Next number</th></tr></thead>
+          <thead><tr><th>{tr('Document')}</th><th>{tr('Next number')}</th></tr></thead>
           <tbody>
             {numberingList.map((n) => <tr key={n.doc}><td>{n.doc}</td><td className="bs-numbering-format">{n.format}</td></tr>)}
           </tbody>
@@ -203,23 +204,23 @@ export default function BillingSettingsPage() {
       </section>
 
       <section className="bs-narrow">
-        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="receipt" /></span>Tax rates</h2>
+        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="receipt" /></span>{tr('Tax rates')}</h2>
         <table className="table">
-          <thead><tr><th>Name</th><th>Rate</th></tr></thead>
+          <thead><tr><th>{tr('Name')}</th><th>{tr('Rate')}</th></tr></thead>
           <tbody>
             {settings.taxRates.map((t) => <tr key={t.id}><td>{t.name}</td><td>{t.rate}%</td></tr>)}
           </tbody>
         </table>
         <form className="bs-tax-form" onSubmit={handleAddTaxRate}>
           <div className="field bs-tax-name">
-            <label htmlFor="bs-taxname">New tax name</label>
+            <label htmlFor="bs-taxname">{tr('New tax name')}</label>
             <input id="bs-taxname" className="input" value={taxName} onChange={(e) => setTaxName(e.target.value)} required />
           </div>
           <div className="field bs-tax-rate">
-            <label htmlFor="bs-taxrate">Rate %</label>
+            <label htmlFor="bs-taxrate">{tr('Rate %')}</label>
             <input id="bs-taxrate" className="input" type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} required />
           </div>
-          <button className="btn btn-secondary" type="submit" disabled={addingTax}>Add</button>
+          <button className="btn btn-secondary" type="submit" disabled={addingTax}>{tr('Add')}</button>
         </form>
       </section>
 

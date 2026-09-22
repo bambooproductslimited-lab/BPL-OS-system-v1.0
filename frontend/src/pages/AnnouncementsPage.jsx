@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { tr } from '../lib/i18n.jsx';
 import './AnnouncementsPage.css';
 
 // Ported from Bamboo OS.dc.html's announcements screen (screens.announcements
@@ -108,7 +109,7 @@ export default function AnnouncementsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleAnnouncements = announcements.filter((a) => matchesQuery(search, a.title, a.body, a.publisherName));
 
@@ -117,8 +118,8 @@ export default function AnnouncementsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="announcements-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search announcements…" />
-        {canPublish && <button type="button" className="btn btn-primary" onClick={openNew}>Publish announcement</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search announcements…')} />
+        {canPublish && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Publish announcement')}</button>}
       </div>
 
       <div className="announcements-list">
@@ -140,38 +141,38 @@ export default function AnnouncementsPage() {
       {!announcements.length && (
         <div className="announcements-empty-state">
           <span className="announcements-empty-icon"><Icon name="megaphone" /></span>
-          <p className="announcements-empty-title">Nothing published yet</p>
+          <p className="announcements-empty-title">{tr('Nothing published yet')}</p>
         </div>
       )}
       {!!announcements.length && !visibleAnnouncements.length && (
         <div className="announcements-empty-state">
           <span className="announcements-empty-icon"><Icon name="megaphone" /></span>
-          <p className="announcements-empty-title">No announcements match "{search}"</p>
+          <p className="announcements-empty-title">{tr('No announcements match "')}{search}"</p>
         </div>
       )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog announcements-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handlePublish}>
-            <h2>Publish announcement</h2>
+            <h2>{tr('Publish announcement')}</h2>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="ann-title">Title</label>
+              <label htmlFor="ann-title">{tr('Title')}</label>
               <input id="ann-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="ann-body">Message</label>
+              <label htmlFor="ann-body">{tr('Message')}</label>
               <textarea id="ann-body" className="input" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="ann-audience">Audience</label>
+              <label htmlFor="ann-audience">{tr('Audience')}</label>
               <select id="ann-audience" className="input" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })}>
-                <option value="all">All staff</option>
-                {departments.map((d) => <option key={d.id} value={d.id}>{d.name} only</option>)}
+                <option value="all">{tr('All staff')}</option>
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name} {tr('only')}</option>)}
               </select>
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
             </div>
           </form>

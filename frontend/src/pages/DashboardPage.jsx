@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { moneyBreakdown } from '../lib/currency';
+import { tr } from '../lib/i18n.jsx';
 import './DashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's dashboard screen (screens.dashboard
@@ -92,7 +93,7 @@ export default function DashboardPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (error) return <div className="error-banner">{error}</div>;
 
   const firstName = session && session.employee ? session.employee.firstName : '';
@@ -129,7 +130,7 @@ export default function DashboardPage() {
       {dash.latestAnnouncement && (
         <button type="button" className="dashboard-announcement" onClick={() => navigate('/announcements')}>
           <span className="dashboard-announcement-icon"><Icon name="megaphone" /></span>
-          <span className="dashboard-announcement-text"><strong>Latest announcement</strong> — {dash.latestAnnouncement}</span>
+          <span className="dashboard-announcement-text"><strong>{tr('Latest announcement')}</strong> — {dash.latestAnnouncement}</span>
           <span className="dashboard-announcement-arrow"><Icon name="chevron" /></span>
         </button>
       )}
@@ -153,9 +154,9 @@ export default function DashboardPage() {
 
       <div className="dashboard-columns">
         <section className="card dashboard-card">
-          <h2 className="dashboard-section-title">Attendance by group — today</h2>
+          <h2 className="dashboard-section-title">{tr('Attendance by group — today')}</h2>
           <table className="table">
-            <thead><tr><th>Group</th><th>Headcount</th><th>Clocked in</th><th style={{ width: 120 }}>Rate</th></tr></thead>
+            <thead><tr><th>{tr('Group')}</th><th>{tr('Headcount')}</th><th>{tr('Clocked in')}</th><th style={{ width: 120 }}>{tr('Rate')}</th></tr></thead>
             <tbody>
               {sortedDepartments.map((row) => (
                 <tr key={row.code}>
@@ -178,12 +179,12 @@ export default function DashboardPage() {
             </tbody>
           </table>
           {!dash.departments.length && (
-            <p className="dashboard-empty-note">No group attendance is visible to your role. Your own record is on My Space.</p>
+            <p className="dashboard-empty-note">{tr('No group attendance is visible to your role. Your own record is on My Space.')}</p>
           )}
         </section>
 
         <section className="card dashboard-card">
-          <h2 className="dashboard-section-title">Needs your attention</h2>
+          <h2 className="dashboard-section-title">{tr('Needs your attention')}</h2>
           {attention.length ? (
             <div className="dashboard-attention">
               {attention.map((row) => (
@@ -198,13 +199,13 @@ export default function DashboardPage() {
           ) : (
             <div className="dashboard-caughtup">
               <span className="dashboard-caughtup-icon"><Icon name="check" /></span>
-              <span>You're all caught up.</span>
+              <span>{tr('You\'re all caught up.')}</span>
             </div>
           )}
 
           {dash.recentAudit.length > 0 && (
             <>
-              <h2 className="dashboard-section-title dashboard-activity-title">Latest activity</h2>
+              <h2 className="dashboard-section-title dashboard-activity-title">{tr('Latest activity')}</h2>
               <div className="dashboard-activity">
                 {dash.recentAudit.map((log) => (
                   <div className="dashboard-activity-item" key={log.id}>

@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProcurementPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's procurement screen (screens.procurement
 // block + the procurement computed values around its render()).
 //
@@ -121,7 +122,7 @@ export default function ProcurementPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleRequests = requests.filter((r) => matchesQuery(search, r.item, r.requesterName, r.departmentName));
 
@@ -132,39 +133,39 @@ export default function ProcurementPage() {
       {canRequest && (
         <form className="card procurement-form" onSubmit={handleSubmit}>
           <div className="field">
-            <label htmlFor="pc-item">Request a purchase · item</label>
+            <label htmlFor="pc-item">{tr('Request a purchase · item')}</label>
             <input id="pc-item" className="input" value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} required />
           </div>
           <div className="field">
-            <label htmlFor="pc-qty">Qty</label>
+            <label htmlFor="pc-qty">{tr('Qty')}</label>
             <input id="pc-qty" className="input" type="number" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="pc-price">Est. price (GHS)</label>
+            <label htmlFor="pc-price">{tr('Est. price (GHS)')}</label>
             <input id="pc-price" className="input" type="number" value={form.estimatedPrice} onChange={(e) => setForm({ ...form, estimatedPrice: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="pc-date">Needed by</label>
+            <label htmlFor="pc-date">{tr('Needed by')}</label>
             <input id="pc-date" className="input" type="date" value={form.requiredDate} onChange={(e) => setForm({ ...form, requiredDate: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="pc-priority">Priority</label>
+            <label htmlFor="pc-priority">{tr('Priority')}</label>
             <select id="pc-priority" className="input" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
-              <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+              <option value="low">{tr('Low')}</option><option value="medium">{tr('Medium')}</option><option value="high">{tr('High')}</option>
             </select>
           </div>
-          <button className="btn btn-primary procurement-submit-btn" type="submit" disabled={submitting}>Submit</button>
+          <button className="btn btn-primary procurement-submit-btn" type="submit" disabled={submitting}>{tr('Submit')}</button>
           <div className="field procurement-reason">
-            <label htmlFor="pc-reason">Reason</label>
+            <label htmlFor="pc-reason">{tr('Reason')}</label>
             <input id="pc-reason" className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required />
           </div>
         </form>
       )}
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search item, requester, group…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search item, requester, group…')} />
       <table className="table" style={{ marginTop: 12 }}>
         <thead>
-          <tr><th>Item</th><th>Qty</th><th>Requested by</th><th>Group</th><th>Est. cost</th><th>Needed by</th><th>Priority</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Item')}</th><th>{tr('Qty')}</th><th>{tr('Requested by')}</th><th>{tr('Group')}</th><th>{tr('Est. cost')}</th><th>{tr('Needed by')}</th><th>{tr('Priority')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleRequests.map((r) => {
@@ -180,7 +181,7 @@ export default function ProcurementPage() {
                   </div>
                 </td>
                 <td>{r.departmentName}</td>
-                <td>GHS {r.estimatedPrice.toLocaleString()}</td>
+                <td>{tr('GHS')} {r.estimatedPrice.toLocaleString()}</td>
                 <td>{fmtDate(r.requiredDate)}</td>
                 <td><span className={'tag ' + priorityClass(r.priority)}>{r.priority}</span></td>
                 <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
@@ -198,13 +199,13 @@ export default function ProcurementPage() {
       {!requests.length && (
         <div className="procurement-empty-state">
           <span className="procurement-empty-icon"><CartIcon /></span>
-          <p className="procurement-empty-title">Nothing to show in your scope</p>
+          <p className="procurement-empty-title">{tr('Nothing to show in your scope')}</p>
         </div>
       )}
       {!!requests.length && !visibleRequests.length && (
         <div className="procurement-empty-state">
           <span className="procurement-empty-icon"><CartIcon /></span>
-          <p className="procurement-empty-title">No requests match "{search}"</p>
+          <p className="procurement-empty-title">{tr('No requests match "')}{search}"</p>
         </div>
       )}
 

@@ -7,6 +7,7 @@ import {
   buildReceiptBytes, buildDrawerReportBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
+import { tr } from '../lib/i18n.jsx';
 import './KioskPage.css';
 import './RestaurantPosPage.css';
 
@@ -638,10 +639,10 @@ export default function RestaurantPosPage() {
       <div className="kiosk-root">
         <div className="kiosk-content pos-login-content">
           <div className="kiosk-header">
-            <div className="kiosk-brand">RESTAURANT POS</div>
+            <div className="kiosk-brand">{tr('RESTAURANT POS')}</div>
           </div>
           <div className="kiosk-pad-wrap">
-            <div className="kiosk-prompt">Enter your PIN to start your till</div>
+            <div className="kiosk-prompt">{tr('Enter your PIN to start your till')}</div>
             {loginError && <div className="error-banner" style={{ marginBottom: 16 }}>{loginError}</div>}
             <div className="kiosk-pin-dots">
               {Array.from({ length: PIN_LENGTH }).map((_, i) => (
@@ -652,11 +653,11 @@ export default function RestaurantPosPage() {
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
                 <button key={d} type="button" className="kiosk-key" disabled={loggingIn} onClick={() => tapDigit(d)}>{d}</button>
               ))}
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={loggingIn} onClick={tapClear}>Clear</button>
+              <button type="button" className="kiosk-key kiosk-key-muted" disabled={loggingIn} onClick={tapClear}>{tr('Clear')}</button>
               <button type="button" className="kiosk-key" disabled={loggingIn} onClick={() => tapDigit('0')}>0</button>
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={loggingIn} onClick={tapBackspace} aria-label="Backspace">⌫</button>
+              <button type="button" className="kiosk-key kiosk-key-muted" disabled={loggingIn} onClick={tapBackspace} aria-label={tr('Backspace')}>⌫</button>
             </div>
-            {loggingIn && <div className="kiosk-loading">Checking…</div>}
+            {loggingIn && <div className="kiosk-loading">{tr('Checking…')}</div>}
           </div>
         </div>
       </div>
@@ -675,15 +676,15 @@ export default function RestaurantPosPage() {
       <div className="kiosk-root">
         <div className="kiosk-content pos-login-content">
           <div className="kiosk-header">
-            <div className="kiosk-brand">RESTAURANT POS</div>
-            <button type="button" className="btn btn-secondary" onClick={logout}>Log out</button>
+            <div className="kiosk-brand">{tr('RESTAURANT POS')}</div>
+            <button type="button" className="btn btn-secondary" onClick={logout}>{tr('Log out')}</button>
           </div>
           <div className="kiosk-pad-wrap">
-            <div className="kiosk-prompt">Open your drawer to start, {session.employeeName}</div>
+            <div className="kiosk-prompt">{tr('Open your drawer to start,')} {session.employeeName}</div>
             {openDrawerError && <div className="error-banner" style={{ marginBottom: 16 }}>{openDrawerError}</div>}
             <form className="pos-open-drawer-form" onSubmit={submitOpenDrawer}>
               <div className="field">
-                <label htmlFor="opening-cash">Starting cash in drawer</label>
+                <label htmlFor="opening-cash">{tr('Starting cash in drawer')}</label>
                 <input
                   id="opening-cash" className="input" type="number" min="0" step="0.01" autoFocus
                   value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0.00"
@@ -707,7 +708,7 @@ export default function RestaurantPosPage() {
           {restaurantLogoUrl(session.companyCode) && (
             <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
           )}
-          <div className="pos-receipt-header">Drawer Report: {session.employeeName}</div>
+          <div className="pos-receipt-header">{tr('Drawer Report:')} {session.employeeName}</div>
           <div className="pos-receipt-meta">
             {new Date(r.session.openedAt).toLocaleString()} –<br />
             {new Date(r.session.closedAt).toLocaleString()}<br />
@@ -715,25 +716,25 @@ export default function RestaurantPosPage() {
           </div>
           <div className="pos-receipt-rule" />
           <div className="pos-receipt-lines">
-            <div className="pos-receipt-line"><span>Starting Cash</span><span>{money(r.startingCash)}</span></div>
-            <div className="pos-receipt-line"><span>Cash Sales</span><span>{money(r.cashSales)}</span></div>
-            <div className="pos-receipt-line"><span>Cash Refunds</span><span>{money(r.cashRefunds)}</span></div>
-            <div className="pos-receipt-line"><span>Paid In/Out</span><span>{r.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(r.netPaidInOut))}</span></div>
-            <div className="pos-receipt-line"><span>Expected in Drawer</span><span>{money(r.expected)}</span></div>
-            <div className="pos-receipt-line"><span>Actual in Drawer</span><span>{money(r.actual)}</span></div>
+            <div className="pos-receipt-line"><span>{tr('Starting Cash')}</span><span>{money(r.startingCash)}</span></div>
+            <div className="pos-receipt-line"><span>{tr('Cash Sales')}</span><span>{money(r.cashSales)}</span></div>
+            <div className="pos-receipt-line"><span>{tr('Cash Refunds')}</span><span>{money(r.cashRefunds)}</span></div>
+            <div className="pos-receipt-line"><span>{tr('Paid In/Out')}</span><span>{r.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(r.netPaidInOut))}</span></div>
+            <div className="pos-receipt-line"><span>{tr('Expected in Drawer')}</span><span>{money(r.expected)}</span></div>
+            <div className="pos-receipt-line"><span>{tr('Actual in Drawer')}</span><span>{money(r.actual)}</span></div>
           </div>
           <div className="pos-receipt-rule" />
           <div className="pos-receipt-total">
-            <span>Difference</span><span>{r.difference < 0 ? '-' : ''}{money(Math.abs(r.difference))}</span>
+            <span>{tr('Difference')}</span><span>{r.difference < 0 ? '-' : ''}{money(Math.abs(r.difference))}</span>
           </div>
           {!!r.movements.length && (
             <>
               <div className="pos-receipt-rule" />
-              <div className="pos-receipt-footer" style={{ fontWeight: 700, marginBottom: 6 }}>PAID IN/OUT</div>
+              <div className="pos-receipt-footer" style={{ fontWeight: 700, marginBottom: 6 }}>{tr('PAID IN/OUT')}</div>
               <div className="pos-receipt-lines">
                 {r.movements.map((m) => (
                   <div key={m.id} className="pos-receipt-line">
-                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} at {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -743,13 +744,13 @@ export default function RestaurantPosPage() {
         </div>
         {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
         <div className="pos-receipt-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print report</button>
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print report')}</button>
           {printer && (
             <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printDrawerReportThermal(closedReport)}>
               {printing ? 'Printing…' : 'Print via ' + printer.name}
             </button>
           )}
-          <button type="button" className="btn btn-primary" onClick={logout}>Done</button>
+          <button type="button" className="btn btn-primary" onClick={logout}>{tr('Done')}</button>
         </div>
       </div>
     );
@@ -764,12 +765,12 @@ export default function RestaurantPosPage() {
           )}
           <div className="pos-receipt-header">{session.companyName}</div>
           <div className="pos-receipt-meta">
-            Order {receipt.orderNo}<br />
+            {tr('Order')} {receipt.orderNo}<br />
             {new Date(receipt.createdAt).toLocaleString()}<br />
-            Served by {session.employeeName}
-            {receipt.tableName && <> at {receipt.tableName}</>}
-            {receipt.waiterName && <><br />Waiter: {receipt.waiterName}</>}
-            {receipt.guestName && <><br />Guest: {receipt.guestName}</>}
+            {tr('Served by')} {session.employeeName}
+            {receipt.tableName && <> {tr('at')} {receipt.tableName}</>}
+            {receipt.waiterName && <><br />{tr('Waiter:')} {receipt.waiterName}</>}
+            {receipt.guestName && <><br />{tr('Guest:')} {receipt.guestName}</>}
           </div>
           <div className="pos-receipt-rule" />
           <div className="pos-receipt-lines">
@@ -782,19 +783,19 @@ export default function RestaurantPosPage() {
           </div>
           <div className="pos-receipt-rule" />
           <div className="pos-receipt-total">
-            <span>Total</span><span>{money(receipt.total)}</span>
+            <span>{tr('Total')}</span><span>{money(receipt.total)}</span>
           </div>
-          <div className="pos-receipt-footer">Paid by {receipt.paymentMethod.replace('_', ' ')}</div>
+          <div className="pos-receipt-footer">{tr('Paid by')} {receipt.paymentMethod.replace('_', ' ')}</div>
         </div>
         {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
         <div className="pos-receipt-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print receipt</button>
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print receipt')}</button>
           {printer && (
             <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
               {printing ? 'Printing…' : 'Print via ' + printer.name}
             </button>
           )}
-          <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)}>New sale</button>
+          <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)}>{tr('New sale')}</button>
         </div>
       </div>
     );
@@ -814,7 +815,7 @@ export default function RestaurantPosPage() {
         </div>
         <div className="pos-topbar-actions">
           <button type="button" className="btn btn-secondary pos-drawer-btn" onClick={() => setDrawerPanelOpen(true)}>
-            Drawer · {money(drawer.expected)}
+            {tr('Drawer ·')} {money(drawer.expected)}
           </button>
           {printer ? (
             <span className="pos-printer-status" title={printer.name}>🖨 {printer.name}</span>
@@ -832,7 +833,7 @@ export default function RestaurantPosPage() {
               )}
             </>
           )}
-          <button type="button" className="btn btn-secondary" onClick={logout}>Log out</button>
+          <button type="button" className="btn btn-secondary" onClick={logout}>{tr('Log out')}</button>
         </div>
       </div>
       {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
@@ -840,7 +841,7 @@ export default function RestaurantPosPage() {
       <div className="pos-body">
         <div className="pos-menu">
           <div className="pos-menu-search">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search the menu…" />
+            <SearchInput value={search} onChange={setSearch} placeholder={tr('Search the menu…')} />
           </div>
           <div className="pos-view-tabs">
             {VIEW_TABS.map((t) => (
@@ -855,7 +856,7 @@ export default function RestaurantPosPage() {
           </div>
           {menuError && <div className="error-banner">{menuError}</div>}
           {menuLoading ? (
-            <div className="eyebrow">Loading menu…</div>
+            <div className="eyebrow">{tr('Loading menu…')}</div>
           ) : viewTab === 'all' ? (
             !grouped.length ? (
               <div className="pos-empty">{search ? 'No items match "' + search + '"' : 'No menu items yet — add some from Restaurants → Menu in the main app.'}</div>
@@ -880,7 +881,7 @@ export default function RestaurantPosPage() {
               <div className="pos-menu-grid pos-menu-grid-flat">{recentItems.map(renderTile)}</div>
             )
           ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
-            <div className="eyebrow">Loading…</div>
+            <div className="eyebrow">{tr('Loading…')}</div>
           ) : !mostlyBoughtItems.length ? (
             <div className="pos-empty">{search ? 'No results match "' + search + '"' : 'Not enough sales yet to rank — check back once a few orders have gone through.'}</div>
           ) : (
@@ -889,58 +890,58 @@ export default function RestaurantPosPage() {
         </div>
 
         <div className="pos-cart">
-          <div className="pos-cart-title">Current order</div>
+          <div className="pos-cart-title">{tr('Current order')}</div>
           <div className="pos-order-info-row">
             <button type="button" className={'pos-order-info-pill' + (selectedTable ? ' pos-order-info-pill-set' : '')} onClick={() => setTablePickerOpen(true)}>
-              Table: {selectedTable ? selectedTable.name : 'Select'}
+              {tr('Table:')} {selectedTable ? selectedTable.name : 'Select'}
             </button>
             <button type="button" className={'pos-order-info-pill' + (selectedWaiter ? ' pos-order-info-pill-set' : '')} onClick={() => setWaiterPickerOpen(true)}>
-              Waiter: {selectedWaiter ? selectedWaiter.name : 'Select'}
+              {tr('Waiter:')} {selectedWaiter ? selectedWaiter.name : 'Select'}
             </button>
             <button type="button" className={'pos-order-info-pill' + (selectedGuest ? ' pos-order-info-pill-set' : '')} onClick={openGuestPicker}>
-              Guest: {selectedGuest ? selectedGuest.name : 'Select'}
+              {tr('Guest:')} {selectedGuest ? selectedGuest.name : 'Select'}
             </button>
           </div>
-          {!cart.length && <div className="pos-cart-empty">Tap a menu item to add it</div>}
+          {!cart.length && <div className="pos-cart-empty">{tr('Tap a menu item to add it')}</div>}
           <div className="pos-cart-lines">
             {cart.map((l) => (
               <div key={lineKey(l.menuItemId, l.variationId)} className="pos-cart-line">
                 <div className="pos-cart-line-name">{l.name}</div>
                 <div className="pos-cart-line-controls">
-                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, -1)} aria-label="Decrease">−</button>
+                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, -1)} aria-label={tr('Decrease')}>−</button>
                   <span>{l.qty}</span>
-                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label="Increase">+</button>
+                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label={tr('Increase')}>+</button>
                 </div>
                 <div className="pos-cart-line-total">{money(l.price * l.qty)}</div>
-                <button type="button" className="pos-cart-remove" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label="Remove">×</button>
+                <button type="button" className="pos-cart-remove" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label={tr('Remove')}>×</button>
               </div>
             ))}
           </div>
           <div className="pos-cart-total">
-            <span>Total</span>
+            <span>{tr('Total')}</span>
             <strong>{money(animatedCartTotal)}</strong>
           </div>
-          <button type="button" className="btn btn-primary pos-checkout-btn" disabled={!cart.length} onClick={openCheckout}>Charge {money(cartTotal)}</button>
+          <button type="button" className="btn btn-primary pos-checkout-btn" disabled={!cart.length} onClick={openCheckout}>{tr('Charge')} {money(cartTotal)}</button>
         </div>
       </div>
 
       {checkoutOpen && (
         <div className="dialog-backdrop" onClick={() => !checkingOut && setCheckoutOpen(false)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); submitCheckout(); }}>
-            <h2>Take payment</h2>
+            <h2>{tr('Take payment')}</h2>
             {checkoutError && <div className="error-banner">{checkoutError}</div>}
-            <p className="pos-checkout-total">Total due: <strong>{money(cartTotal)}</strong></p>
+            <p className="pos-checkout-total">{tr('Total due:')} <strong>{money(cartTotal)}</strong></p>
             <div className="field">
-              <label htmlFor="pos-pay-method">Payment method</label>
+              <label htmlFor="pos-pay-method">{tr('Payment method')}</label>
               <select id="pos-pay-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-                <option value="cash">Cash</option>
-                <option value="mobile_money">Mobile Money</option>
-                <option value="card">Card</option>
-                <option value="other">Other</option>
+                <option value="cash">{tr('Cash')}</option>
+                <option value="mobile_money">{tr('Mobile Money')}</option>
+                <option value="card">{tr('Card')}</option>
+                <option value="other">{tr('Other')}</option>
               </select>
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? 'Processing…' : 'Complete sale'}</button>
             </div>
           </form>
@@ -950,33 +951,33 @@ export default function RestaurantPosPage() {
       {drawerPanelOpen && (
         <div className="dialog-backdrop" onClick={() => setDrawerPanelOpen(false)}>
           <div className="dialog pos-drawer-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Drawer — {session.employeeName}</h2>
+            <h2>{tr('Drawer —')} {session.employeeName}</h2>
             <p className="pos-checkout-total" style={{ marginBottom: 0 }}>
-              Opened {new Date(drawer.session.openedAt).toLocaleString()}
+              {tr('Opened')} {new Date(drawer.session.openedAt).toLocaleString()}
             </p>
             <div className="pos-drawer-lines">
-              <div className="pos-drawer-line"><span>Starting Cash</span><span>{money(drawer.startingCash)}</span></div>
-              <div className="pos-drawer-line"><span>Cash Sales</span><span>{money(drawer.cashSales)}</span></div>
-              <div className="pos-drawer-line"><span>Paid In/Out</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
-              <div className="pos-drawer-line pos-drawer-line-total"><span>Expected in Drawer</span><span>{money(drawer.expected)}</span></div>
+              <div className="pos-drawer-line"><span>{tr('Starting Cash')}</span><span>{money(drawer.startingCash)}</span></div>
+              <div className="pos-drawer-line"><span>{tr('Cash Sales')}</span><span>{money(drawer.cashSales)}</span></div>
+              <div className="pos-drawer-line"><span>{tr('Paid In/Out')}</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
+              <div className="pos-drawer-line pos-drawer-line-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
             </div>
             <div className="dialog-actions" style={{ justifyContent: 'flex-start' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => openMovement('in')}>Paid in…</button>
-              <button type="button" className="btn btn-secondary" onClick={() => openMovement('out')}>Paid out…</button>
+              <button type="button" className="btn btn-secondary" onClick={() => openMovement('in')}>{tr('Paid in…')}</button>
+              <button type="button" className="btn btn-secondary" onClick={() => openMovement('out')}>{tr('Paid out…')}</button>
             </div>
             {!!drawer.movements.length && (
               <div className="pos-drawer-movements">
                 {drawer.movements.slice().reverse().map((m) => (
                   <div key={m.id} className="pos-drawer-movement-row">
-                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} at {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? 'Paid in' : 'Paid out'} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
               </div>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDrawerPanelOpen(false)}>Close</button>
-              <button type="button" className="btn btn-primary" onClick={openCloseDrawer}>Close drawer…</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDrawerPanelOpen(false)}>{tr('Close')}</button>
+              <button type="button" className="btn btn-primary" onClick={openCloseDrawer}>{tr('Close drawer…')}</button>
             </div>
           </div>
         </div>
@@ -988,21 +989,21 @@ export default function RestaurantPosPage() {
             <h2>{movementDirection === 'in' ? 'Paid in' : 'Paid out'}</h2>
             {movementError && <div className="error-banner">{movementError}</div>}
             <div className="field">
-              <label htmlFor="movement-amount">Amount</label>
+              <label htmlFor="movement-amount">{tr('Amount')}</label>
               <input
                 id="movement-amount" className="input" type="number" min="0.01" step="0.01" autoFocus required
                 value={movementAmount} onChange={(e) => setMovementAmount(e.target.value)} placeholder="0.00"
               />
             </div>
             <div className="field">
-              <label htmlFor="movement-note">Note</label>
+              <label htmlFor="movement-note">{tr('Note')}</label>
               <input
                 id="movement-note" className="input" value={movementNote} onChange={(e) => setMovementNote(e.target.value)}
                 placeholder={movementDirection === 'in' ? 'e.g. Change fund top-up' : 'e.g. Delivery'}
               />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setMovementDirection(null)} disabled={addingMovement}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setMovementDirection(null)} disabled={addingMovement}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={addingMovement}>{addingMovement ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
@@ -1012,22 +1013,22 @@ export default function RestaurantPosPage() {
       {closeDrawerOpen && (
         <div className="dialog-backdrop" onClick={() => !closingDrawer && setCloseDrawerOpen(false)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitCloseDrawer}>
-            <h2>Close drawer</h2>
+            <h2>{tr('Close drawer')}</h2>
             {closeDrawerError && <div className="error-banner">{closeDrawerError}</div>}
-            <p className="pos-checkout-total">Expected in drawer: <strong>{money(drawer.expected)}</strong></p>
+            <p className="pos-checkout-total">{tr('Expected in drawer:')} <strong>{money(drawer.expected)}</strong></p>
             <div className="field">
-              <label htmlFor="close-actual">Actual cash counted</label>
+              <label htmlFor="close-actual">{tr('Actual cash counted')}</label>
               <input
                 id="close-actual" className="input" type="number" min="0" step="0.01" autoFocus required
                 value={closeActualCash} onChange={(e) => setCloseActualCash(e.target.value)} placeholder="0.00"
               />
             </div>
             <div className="field">
-              <label htmlFor="close-note">Note (optional)</label>
+              <label htmlFor="close-note">{tr('Note (optional)')}</label>
               <input id="close-note" className="input" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setCloseDrawerOpen(false)} disabled={closingDrawer}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCloseDrawerOpen(false)} disabled={closingDrawer}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={closingDrawer}>{closingDrawer ? 'Closing…' : 'Close drawer'}</button>
             </div>
           </form>
@@ -1050,7 +1051,7 @@ export default function RestaurantPosPage() {
               ))}
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setVariantPickerItem(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setVariantPickerItem(null)}>{tr('Cancel')}</button>
             </div>
           </div>
         </div>
@@ -1059,7 +1060,7 @@ export default function RestaurantPosPage() {
       {tablePickerOpen && (
         <div className="dialog-backdrop" onClick={() => setTablePickerOpen(false)}>
           <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Table</h2>
+            <h2>{tr('Table')}</h2>
             <div className="pos-picker-grid">
               {tables.map((t) => (
                 <button
@@ -1070,11 +1071,11 @@ export default function RestaurantPosPage() {
                   {t.name}
                 </button>
               ))}
-              {!tables.length && <div className="pos-empty">No tables set up yet — add some from Restaurants → Tables in the main app.</div>}
+              {!tables.length && <div className="pos-empty">{tr('No tables set up yet — add some from Restaurants → Tables in the main app.')}</div>}
             </div>
             <div className="dialog-actions">
-              {selectedTable && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedTable(null); setTablePickerOpen(false); }}>Clear</button>}
-              <button type="button" className="btn btn-primary" onClick={() => setTablePickerOpen(false)}>Done</button>
+              {selectedTable && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedTable(null); setTablePickerOpen(false); }}>{tr('Clear')}</button>}
+              <button type="button" className="btn btn-primary" onClick={() => setTablePickerOpen(false)}>{tr('Done')}</button>
             </div>
           </div>
         </div>
@@ -1083,7 +1084,7 @@ export default function RestaurantPosPage() {
       {waiterPickerOpen && (
         <div className="dialog-backdrop" onClick={() => setWaiterPickerOpen(false)}>
           <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Waiter</h2>
+            <h2>{tr('Waiter')}</h2>
             <div className="pos-picker-list">
               {waiters.map((w) => (
                 <button
@@ -1094,11 +1095,11 @@ export default function RestaurantPosPage() {
                   {w.name}
                 </button>
               ))}
-              {!waiters.length && <div className="pos-empty">No staff found for this company.</div>}
+              {!waiters.length && <div className="pos-empty">{tr('No staff found for this company.')}</div>}
             </div>
             <div className="dialog-actions">
-              {selectedWaiter && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedWaiter(null); setWaiterPickerOpen(false); }}>Clear</button>}
-              <button type="button" className="btn btn-primary" onClick={() => setWaiterPickerOpen(false)}>Done</button>
+              {selectedWaiter && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedWaiter(null); setWaiterPickerOpen(false); }}>{tr('Clear')}</button>}
+              <button type="button" className="btn btn-primary" onClick={() => setWaiterPickerOpen(false)}>{tr('Done')}</button>
             </div>
           </div>
         </div>
@@ -1107,15 +1108,15 @@ export default function RestaurantPosPage() {
       {guestPickerOpen && (
         <div className="dialog-backdrop" onClick={() => setGuestPickerOpen(false)}>
           <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Guest</h2>
+            <h2>{tr('Guest')}</h2>
             <div className="field">
               <input
-                className="input" value={guestSearch} placeholder="Search name or phone…" autoFocus
+                className="input" value={guestSearch} placeholder={tr('Search name or phone…')} autoFocus
                 onChange={(e) => { setGuestSearch(e.target.value); searchGuests(e.target.value); }}
               />
             </div>
             <div className="pos-picker-list">
-              {guestSearching && <div className="eyebrow">Searching…</div>}
+              {guestSearching && <div className="eyebrow">{tr('Searching…')}</div>}
               {!guestSearching && guestResults.map((g) => (
                 <button
                   key={g.id} type="button"
@@ -1125,18 +1126,18 @@ export default function RestaurantPosPage() {
                   {g.name}{g.phone ? ' · ' + g.phone : ''}
                 </button>
               ))}
-              {!guestSearching && !guestResults.length && <div className="pos-empty">No matching guests.</div>}
+              {!guestSearching && !guestResults.length && <div className="pos-empty">{tr('No matching guests.')}</div>}
             </div>
-            <div className="pos-picker-divider">Or add a new guest</div>
+            <div className="pos-picker-divider">{tr('Or add a new guest')}</div>
             {guestError && <div className="error-banner">{guestError}</div>}
             <form onSubmit={submitNewGuest} className="pos-new-guest-form">
-              <input className="input" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} placeholder="Name" required />
-              <input className="input" value={newGuestPhone} onChange={(e) => setNewGuestPhone(e.target.value)} placeholder="Phone (optional)" />
+              <input className="input" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} placeholder={tr('Name')} required />
+              <input className="input" value={newGuestPhone} onChange={(e) => setNewGuestPhone(e.target.value)} placeholder={tr('Phone (optional)')} />
               <button type="submit" className="btn btn-primary" disabled={addingGuest}>{addingGuest ? 'Adding…' : 'Add & select'}</button>
             </form>
             <div className="dialog-actions">
-              {selectedGuest && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedGuest(null); setGuestPickerOpen(false); }}>Clear</button>}
-              <button type="button" className="btn btn-secondary" onClick={() => setGuestPickerOpen(false)}>Close</button>
+              {selectedGuest && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedGuest(null); setGuestPickerOpen(false); }}>{tr('Clear')}</button>}
+              <button type="button" className="btn btn-secondary" onClick={() => setGuestPickerOpen(false)}>{tr('Close')}</button>
             </div>
           </div>
         </div>

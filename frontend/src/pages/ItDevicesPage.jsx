@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ItDevicesPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // IT device inventory: company laptops/desktops/phones/monitors/etc, owned
 // and tracked by IT specifically — separate from the general Assets &
 // Maintenance module.
@@ -178,7 +179,7 @@ export default function ItDevicesPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleDevices = devices.filter((d) => matchesQuery(search, d.deviceTag, d.category, d.brand, d.model, d.serialNumber, d.assigneeName));
 
@@ -187,18 +188,18 @@ export default function ItDevicesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="itdevices-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search devices…" />
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search devices…')} />
         {canManage && (
           <div className="itdevices-toolbar-actions">
-            <button type="button" className="btn btn-secondary" onClick={openImport}>Import from sheet</button>
-            <button type="button" className="btn btn-primary" onClick={openNew}>Register device</button>
+            <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>
+            <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Register device')}</button>
           </div>
         )}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>Tag</th><th>Category</th><th>Brand / model</th><th>Serial</th><th>Assigned to</th><th>Condition</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Tag')}</th><th>{tr('Category')}</th><th>{tr('Brand / model')}</th><th>{tr('Serial')}</th><th>{tr('Assigned to')}</th><th>{tr('Condition')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleDevices.map((d) => (
@@ -234,13 +235,13 @@ export default function ItDevicesPage() {
       {!devices.length && (
         <div className="itdevices-empty-state">
           <span className="itdevices-empty-icon"><DeviceIcon /></span>
-          <p className="itdevices-empty-title">No devices registered yet</p>
+          <p className="itdevices-empty-title">{tr('No devices registered yet')}</p>
         </div>
       )}
       {!!devices.length && !visibleDevices.length && (
         <div className="itdevices-empty-state">
           <span className="itdevices-empty-icon"><DeviceIcon /></span>
-          <p className="itdevices-empty-title">No devices match "{search}"</p>
+          <p className="itdevices-empty-title">{tr('No devices match "')}{search}"</p>
         </div>
       )}
 
@@ -250,79 +251,79 @@ export default function ItDevicesPage() {
             <h2 className="itdevices-dialog-title">{editId ? 'Edit device' : 'Register device'}</h2>
             {dialogError && <div className="error-banner itdevices-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="it-tag">Device tag</label>
-              <input id="it-tag" className="input" value={form.deviceTag} onChange={(e) => setForm({ ...form, deviceTag: e.target.value })} placeholder="Auto-generated if left blank" disabled={!!editId} />
+              <label htmlFor="it-tag">{tr('Device tag')}</label>
+              <input id="it-tag" className="input" value={form.deviceTag} onChange={(e) => setForm({ ...form, deviceTag: e.target.value })} placeholder={tr('Auto-generated if left blank')} disabled={!!editId} />
             </div>
             <div className="field">
-              <label htmlFor="it-category">Category</label>
-              <input id="it-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Laptop, Phone, Printer…" required />
+              <label htmlFor="it-category">{tr('Category')}</label>
+              <input id="it-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder={tr('Laptop, Phone, Printer…')} required />
             </div>
             <div className="field">
-              <label htmlFor="it-brand">Brand</label>
+              <label htmlFor="it-brand">{tr('Brand')}</label>
               <input id="it-brand" className="input" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-model">Model</label>
+              <label htmlFor="it-model">{tr('Model')}</label>
               <input id="it-model" className="input" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-serial">Serial number</label>
+              <label htmlFor="it-serial">{tr('Serial number')}</label>
               <input id="it-serial" className="input" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-location">Location</label>
+              <label htmlFor="it-location">{tr('Location')}</label>
               <input id="it-location" className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-assignee">Assigned to</label>
+              <label htmlFor="it-assignee">{tr('Assigned to')}</label>
               <select id="it-assignee" className="input" value={form.assignedEmployeeId} onChange={(e) => setForm({ ...form, assignedEmployeeId: e.target.value })}>
-                <option value="">Unassigned</option>
+                <option value="">{tr('Unassigned')}</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="it-department">Group</label>
+              <label htmlFor="it-department">{tr('Group')}</label>
               <select id="it-department" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
-                <option value="">Unassigned</option>
+                <option value="">{tr('Unassigned')}</option>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="it-purchase-date">Purchase date</label>
+              <label htmlFor="it-purchase-date">{tr('Purchase date')}</label>
               <input id="it-purchase-date" className="input" type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-purchase-price">Purchase price (GHS)</label>
+              <label htmlFor="it-purchase-price">{tr('Purchase price (GHS)')}</label>
               <input id="it-purchase-price" className="input" type="number" min="0" step="0.01" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-warranty">Warranty until</label>
+              <label htmlFor="it-warranty">{tr('Warranty until')}</label>
               <input id="it-warranty" className="input" type="date" value={form.warrantyUntil} onChange={(e) => setForm({ ...form, warrantyUntil: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="it-condition">Condition</label>
+              <label htmlFor="it-condition">{tr('Condition')}</label>
               <select id="it-condition" className="input" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
-                <option value="good">Good</option>
-                <option value="fair">Fair</option>
-                <option value="poor">Poor</option>
+                <option value="good">{tr('Good')}</option>
+                <option value="fair">{tr('Fair')}</option>
+                <option value="poor">{tr('Poor')}</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="it-status">Status</label>
+              <label htmlFor="it-status">{tr('Status')}</label>
               <select id="it-status" className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                <option value="in_use">In use</option>
-                <option value="in_storage">In storage</option>
-                <option value="under_repair">Under repair</option>
-                <option value="retired">Retired</option>
-                <option value="lost">Lost</option>
+                <option value="in_use">{tr('In use')}</option>
+                <option value="in_storage">{tr('In storage')}</option>
+                <option value="under_repair">{tr('Under repair')}</option>
+                <option value="retired">{tr('Retired')}</option>
+                <option value="lost">{tr('Lost')}</option>
               </select>
             </div>
             <div className="field itdevices-dialog-span">
-              <label htmlFor="it-notes">Notes</label>
+              <label htmlFor="it-notes">{tr('Notes')}</label>
               <textarea id="it-notes" className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
             <div className="dialog-actions itdevices-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Register device'}</button>
             </div>
           </form>
@@ -332,25 +333,24 @@ export default function ItDevicesPage() {
       {importOpen && (
         <div className="dialog-backdrop" onClick={() => setImportOpen(false)}>
           <div className="dialog itdevices-import-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 className="itdevices-dialog-title">Import from IT inventory sheet</h2>
+            <h2 className="itdevices-dialog-title">{tr('Import from IT inventory sheet')}</h2>
             <p className="dialog-body">
-              Export the sheet as CSV (File → Download → Comma-separated values) and upload it here. A sheet row
-              with a Total greater than 1 becomes that many individual devices, all sharing the same brand/model.
+              {tr('Export the sheet as CSV (File → Download → Comma-separated values) and upload it here. A sheet row with a Total greater than 1 becomes that many individual devices, all sharing the same brand/model.')}
             </p>
             {importError && <div className="error-banner">{importError}</div>}
 
             {!importPreview && (
               <>
                 <div className="field">
-                  <label htmlFor="it-import-file">CSV file</label>
+                  <label htmlFor="it-import-file">{tr('CSV file')}</label>
                   <input id="it-import-file" className="input" type="file" accept=".csv,text/csv" onChange={(e) => setImportFile(e.target.files[0] || null)} />
                 </div>
                 <label className="checkbox-field">
                   <input type="checkbox" checked={importIncludeCreds} onChange={(e) => setImportIncludeCreds(e.target.checked)} />
-                  Include device usernames/passcodes from the sheet in notes (not recommended — stored as plain text)
+                  {tr('Include device usernames/passcodes from the sheet in notes (not recommended — stored as plain text)')}
                 </label>
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
                     {importLoading ? 'Reading…' : 'Preview import'}
                   </button>
@@ -361,14 +361,14 @@ export default function ItDevicesPage() {
             {importPreview && (
               <>
                 <p className="itdevices-import-summary">
-                  {importPreview.rows.length} device row(s) found —
-                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} will be created,
-                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} already exist and will be skipped.
+                  {importPreview.rows.length} {tr('device row(s) found —')}
+                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} {tr('will be created,')}
+                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} {tr('already exist and will be skipped.')}
                 </p>
                 <div className="itdevices-import-scroll">
                   <table className="table itdevices-import-table">
                     <thead>
-                      <tr><th>Tag</th><th>Brand / model</th><th>Status</th><th>Assigned / location</th><th>Notes</th></tr>
+                      <tr><th>{tr('Tag')}</th><th>{tr('Brand / model')}</th><th>{tr('Status')}</th><th>{tr('Assigned / location')}</th><th>{tr('Notes')}</th></tr>
                     </thead>
                     <tbody>
                       {importPreview.rows.map((r, i) => (
@@ -378,7 +378,7 @@ export default function ItDevicesPage() {
                           <td style={{ textTransform: 'capitalize' }}>{r.status.replace('_', ' ')}</td>
                           <td>{r.location || (r.assignedEmployeeId ? 'Matched employee' : '—')}</td>
                           <td className="itdevices-import-warnings">
-                            {r.willSkip && <div>Already exists — will be skipped.</div>}
+                            {r.willSkip && <div>{tr('Already exists — will be skipped.')}</div>}
                             {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
                           </td>
                         </tr>
@@ -387,8 +387,8 @@ export default function ItDevicesPage() {
                   </table>
                 </div>
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>Back</button>
-                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
                     {importCommitting ? 'Importing…' : 'Import ' + importPreview.rows.filter((r) => !r.willSkip).length + ' device(s)'}
                   </button>

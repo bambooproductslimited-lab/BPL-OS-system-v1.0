@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { tr } from '../lib/i18n.jsx';
 import './RolesPage.css';
 
 // Ported from Bamboo OS.dc.html's roles screen (screens.roles block + the
@@ -154,7 +155,7 @@ export default function RolesPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleCatalogue = catalogue.filter((p) => matchesQuery(search, p.group, p.label, p.key));
   const groups = groupCatalogue(visibleCatalogue);
@@ -164,28 +165,27 @@ export default function RolesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
       <div className="roles-section-header">
         <p className="roles-intro">
-          Permissions are enforced on every operation in the system, not just hidden in the interface.
-          The System Administrator role is locked to full access.
+          {tr('Permissions are enforced on every operation in the system, not just hidden in the interface. The System Administrator role is locked to full access.')}
         </p>
         {canManage && (
-          <button type="button" className="btn btn-primary" onClick={openNewRoleDialog}>+ New role</button>
+          <button type="button" className="btn btn-primary" onClick={openNewRoleDialog}>{tr('+ New role')}</button>
         )}
       </div>
-      <SearchInput value={search} onChange={setSearch} placeholder="Search permissions…" />
+      <SearchInput value={search} onChange={setSearch} placeholder={tr('Search permissions…')} />
       <div className="roles-scroll" style={{ marginTop: 16 }}>
         <table className="table roles-table">
           <thead>
             <tr>
-              <th className="roles-perm-col roles-corner-cell">Permission</th>
+              <th className="roles-perm-col roles-corner-cell">{tr('Permission')}</th>
               {roles.map((r) => {
                 const isLockedCol = r.key === 'administrator';
                 return (
                   <th key={r.id} className={'roles-role-col' + (isLockedCol ? ' roles-role-col-locked' : '')}>
                     <div className="roles-role-name">
-                      {isLockedCol && <span className="roles-lock-icon" title="Always full access"><LockIcon /></span>}
+                      {isLockedCol && <span className="roles-lock-icon" title={tr('Always full access')}><LockIcon /></span>}
                       {r.name}
                     </div>
-                    <div className="roles-usercount">{r.userCount} users</div>
+                    <div className="roles-usercount">{r.userCount} {tr('users')}</div>
                     {canManage && !r.isSystem && (
                       <button
                         type="button" className="roles-delete-btn" disabled={deletingRoleId === r.id}
@@ -248,35 +248,34 @@ export default function RolesPage() {
       {!!catalogue.length && !visibleCatalogue.length && (
         <div className="roles-empty-state">
           <span className="roles-empty-icon"><KeyIcon /></span>
-          <p className="roles-empty-title">No permissions match "{search}"</p>
+          <p className="roles-empty-title">{tr('No permissions match "')}{search}"</p>
         </div>
       )}
 
       {newRoleDialog && (
         <div className="dialog-backdrop" onClick={() => setNewRoleDialog(false)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={saveNewRole}>
-            <h2>New role</h2>
+            <h2>{tr('New role')}</h2>
             {newRoleError && <div className="error-banner">{newRoleError}</div>}
             <div className="field">
-              <label htmlFor="role-name">Name</label>
+              <label htmlFor="role-name">{tr('Name')}</label>
               <input
                 id="role-name" className="input" value={newRoleForm.name}
                 onChange={(e) => setNewRoleForm({ ...newRoleForm, name: e.target.value })} required
               />
             </div>
             <div className="field">
-              <label htmlFor="role-description">Description (optional)</label>
+              <label htmlFor="role-description">{tr('Description (optional)')}</label>
               <input
                 id="role-description" className="input" value={newRoleForm.description}
                 onChange={(e) => setNewRoleForm({ ...newRoleForm, description: e.target.value })}
               />
             </div>
             <p className="roles-field-hint">
-              The role is created with no permissions. Once saved, it appears as a new column in the table below,
-              where you check off exactly what it should be able to do.
+              {tr('The role is created with no permissions. Once saved, it appears as a new column in the table below, where you check off exactly what it should be able to do.')}
             </p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setNewRoleDialog(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setNewRoleDialog(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={newRoleSaving}>{newRoleSaving ? 'Creating…' : 'Create role'}</button>
             </div>
           </form>

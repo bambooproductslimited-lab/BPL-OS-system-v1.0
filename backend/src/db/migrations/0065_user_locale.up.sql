@@ -1,0 +1,13 @@
+-- Each user's preferred interface language for Bamboo OS.
+--
+-- On the user, not the employee: it's a preference of whoever is signed in,
+-- the same kind of thing as the light/dark choice, and an employee record
+-- with no login has nobody to have a preference. Stored server-side rather
+-- than only in the browser so it follows someone from the office desktop to
+-- the shop-floor tablet instead of being re-chosen on every device.
+--
+-- Deliberately a plain text column with no CHECK constraint on the list of
+-- languages: adding a language should be a frontend change (a new catalogue
+-- in src/locales/) and not need a migration. An unrecognised value falls
+-- back to English at render time — see frontend/src/lib/i18n.js.
+ALTER TABLE users ADD COLUMN locale text NOT NULL DEFAULT 'en';

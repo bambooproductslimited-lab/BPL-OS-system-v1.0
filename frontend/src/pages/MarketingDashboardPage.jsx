@@ -4,6 +4,7 @@ import { money } from '../lib/currency';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import MarketingRecommendations from '../components/MarketingRecommendations';
+import { tr } from '../lib/i18n.jsx';
 import './MarketingDashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's marketing screen (screens.marketing
@@ -114,7 +115,7 @@ export default function MarketingDashboardPage() {
     downloadCsv('marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (error) return <div className="error-banner">{error}</div>;
   if (!data) return null;
 
@@ -132,7 +133,7 @@ export default function MarketingDashboardPage() {
   return (
     <div className="mkt">
       <div className="mkt-toolbar no-print">
-        <button type="button" className="btn btn-secondary" onClick={downloadCsvReport}>Download CSV</button>
+        <button type="button" className="btn btn-secondary" onClick={downloadCsvReport}>{tr('Download CSV')}</button>
         <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadPdf}>
           {exporting ? 'Preparing…' : 'Download PDF'}
         </button>
@@ -140,9 +141,9 @@ export default function MarketingDashboardPage() {
       <div ref={printRef}>
       <div className="mkt-top">
         <section>
-          <h2 className="mkt-section-title">Customer pipeline</h2>
+          <h2 className="mkt-section-title">{tr('Customer pipeline')}</h2>
           <table className="table">
-            <thead><tr><th>Category</th><th>Customers</th><th className="mkt-share-col">Share</th></tr></thead>
+            <thead><tr><th>{tr('Category')}</th><th>{tr('Customers')}</th><th className="mkt-share-col">{tr('Share')}</th></tr></thead>
             <tbody>
               {pipeline.map((p) => (
                 <tr key={p.label}>
@@ -155,7 +156,7 @@ export default function MarketingDashboardPage() {
             </tbody>
           </table>
 
-          <h2 className="mkt-section-title mkt-section-title-spaced">Quotation funnel</h2>
+          <h2 className="mkt-section-title mkt-section-title-spaced">{tr('Quotation funnel')}</h2>
           <div className="mkt-funnel">
             {funnel.map((f) => (
               <div key={f.label} className={'mkt-funnel-tile mkt-funnel-tile-' + f.tone}>
@@ -168,17 +169,17 @@ export default function MarketingDashboardPage() {
         </section>
 
         <section>
-          <h2 className="mkt-section-title">Top customers by sales value</h2>
+          <h2 className="mkt-section-title">{tr('Top customers by sales value')}</h2>
           <table className="table">
-            <thead><tr><th>Customer</th><th>Total</th></tr></thead>
+            <thead><tr><th>{tr('Customer')}</th><th>{tr('Total')}</th></tr></thead>
             <tbody>
               {data.topCustomers.map((c, i) => <tr key={i}><td>{c.name}</td><td>{money(c.total, c.currency)}</td></tr>)}
             </tbody>
           </table>
 
-          <h2 className="mkt-section-title mkt-section-title-spaced">Recent quotations</h2>
+          <h2 className="mkt-section-title mkt-section-title-spaced">{tr('Recent quotations')}</h2>
           <table className="table">
-            <thead><tr><th>Quote</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead>
+            <thead><tr><th>{tr('Quote')}</th><th>{tr('Customer')}</th><th>{tr('Total')}</th><th>{tr('Status')}</th></tr></thead>
             <tbody>
               {data.recentQuotes.map((q, i) => (
                 <tr key={i}>
@@ -192,9 +193,9 @@ export default function MarketingDashboardPage() {
       </div>
 
       <section>
-        <h2 className="mkt-section-title">Leads &amp; prospects to follow up</h2>
+        <h2 className="mkt-section-title">{tr('Leads & prospects to follow up')}</h2>
         <table className="table">
-          <thead><tr><th>Customer</th><th>Contact</th><th>Email / phone</th><th>Category</th><th>Account manager</th></tr></thead>
+          <thead><tr><th>{tr('Customer')}</th><th>{tr('Contact')}</th><th>{tr('Email / phone')}</th><th>{tr('Category')}</th><th>{tr('Account manager')}</th></tr></thead>
           <tbody>
             {data.leads.map((l, i) => (
               <tr key={i}>
@@ -219,7 +220,7 @@ export default function MarketingDashboardPage() {
             ))}
           </tbody>
         </table>
-        {!data.leads.length && <p className="table-empty">No leads or prospects to follow up right now.</p>}
+        {!data.leads.length && <p className="table-empty">{tr('No leads or prospects to follow up right now.')}</p>}
       </section>
 
       <MarketingRecommendations onGenerated={setRecommendation} />

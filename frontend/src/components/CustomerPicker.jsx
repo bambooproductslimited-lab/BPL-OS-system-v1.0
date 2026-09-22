@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { tr } from '../lib/i18n.jsx';
 import './CustomerPicker.css';
 
 // Search-or-browse customer field for the Quotations/Estimates/Invoices
@@ -90,7 +91,7 @@ export default function CustomerPicker({ customers, value, onChange, placeholder
       </div>
       {open && rect && createPortal(
         <div className="custpick-panel" ref={panelRef} style={{ top: rect.bottom + 3, left: rect.left, minWidth: rect.width }}>
-          {filtered.length === 0 && <div className="custpick-empty">No matching customers</div>}
+          {filtered.length === 0 && <div className="custpick-empty">{tr('No matching customers')}</div>}
           {filtered.map((c, i) => (
             <button
               type="button"

@@ -5,6 +5,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './SuppliersPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's suppliers screen (screens.suppliers
 // block + the suppliers computed values, and the shared "supplier"
 // create/edit dialog around its render()).
@@ -119,7 +120,7 @@ export default function SuppliersPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleSuppliers = suppliers.filter((s) => matchesQuery(search, s.name, s.contactPerson, s.phone, s.materialsSupplied));
 
@@ -128,13 +129,13 @@ export default function SuppliersPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="suppliers-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search suppliers…" />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>Add supplier</button>}
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search suppliers…')} />
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add supplier')}</button>}
       </div>
 
       <table className="table">
         <thead>
-          <tr><th>Supplier</th><th>Contact</th><th>Phone</th><th>Materials supplied</th><th>Terms</th><th>Batches</th><th>Status</th><th /></tr>
+          <tr><th>{tr('Supplier')}</th><th>{tr('Contact')}</th><th>{tr('Phone')}</th><th>{tr('Materials supplied')}</th><th>{tr('Terms')}</th><th>{tr('Batches')}</th><th>{tr('Status')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleSuppliers.map((s) => (
@@ -164,13 +165,13 @@ export default function SuppliersPage() {
       {!suppliers.length && (
         <div className="suppliers-empty-state">
           <span className="suppliers-empty-icon"><BuildingIcon /></span>
-          <p className="suppliers-empty-title">No suppliers on file yet</p>
+          <p className="suppliers-empty-title">{tr('No suppliers on file yet')}</p>
         </div>
       )}
       {!!suppliers.length && !visibleSuppliers.length && (
         <div className="suppliers-empty-state">
           <span className="suppliers-empty-icon"><BuildingIcon /></span>
-          <p className="suppliers-empty-title">No suppliers match "{search}"</p>
+          <p className="suppliers-empty-title">{tr('No suppliers match "')}{search}"</p>
         </div>
       )}
 
@@ -180,31 +181,31 @@ export default function SuppliersPage() {
             <h2 className="suppliers-dialog-title">{editId ? 'Edit supplier' : 'Add supplier'}</h2>
             {dialogError && <div className="error-banner suppliers-dialog-span">{dialogError}</div>}
             <div className="field suppliers-dialog-span">
-              <label htmlFor="sup-name">Supplier name</label>
+              <label htmlFor="sup-name">{tr('Supplier name')}</label>
               <input id="sup-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="sup-contact">Contact person</label>
+              <label htmlFor="sup-contact">{tr('Contact person')}</label>
               <input id="sup-contact" className="input" value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="sup-phone">Phone</label>
+              <label htmlFor="sup-phone">{tr('Phone')}</label>
               <input id="sup-phone" className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="sup-email">Email</label>
+              <label htmlFor="sup-email">{tr('Email')}</label>
               <input id="sup-email" className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="sup-address">Address</label>
+              <label htmlFor="sup-address">{tr('Address')}</label>
               <input id="sup-address" className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
             </div>
             <div className="field suppliers-dialog-span">
-              <label htmlFor="sup-materials">Materials supplied</label>
+              <label htmlFor="sup-materials">{tr('Materials supplied')}</label>
               <input id="sup-materials" className="input" value={form.materialsSupplied} onChange={(e) => setForm({ ...form, materialsSupplied: e.target.value })} required />
             </div>
             <div className="dialog-actions suppliers-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{editId ? 'Save changes' : 'Add supplier'}</button>
             </div>
           </form>
@@ -214,10 +215,10 @@ export default function SuppliersPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete supplier</h2>
-            <p className="dialog-body">Delete <strong>{deleteTarget.name}</strong>? This cannot be undone.</p>
+            <h2>{tr('Delete supplier')}</h2>
+            <p className="dialog-body">{tr('Delete')} <strong>{deleteTarget.name}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

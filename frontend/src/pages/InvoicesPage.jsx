@@ -12,6 +12,7 @@ import { itemsForDialog, totalsForDialog, adjustmentRows, paymentsForDocument } 
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import { tr } from '../lib/i18n.jsx';
 import './InvoicesPage.css';
 
 // Ported from Bamboo OS.dc.html's invoices screen (screens.invoices block,
@@ -283,7 +284,7 @@ export default function InvoicesPage() {
     setPreviewInv({ ...inv, customerName: cust.name || inv.customerName, customerEmail: cust.email || '' });
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleInvoices = invoices.filter((inv) =>
     matchesQuery(search, inv.invoiceNo, inv.customerName) && (!statusFilter || invoiceDisplayStatus(inv) === statusFilter)
@@ -309,30 +310,30 @@ export default function InvoicesPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="invoices-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search invoices…" />
-        <select className="input invoices-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search invoices…')} />
+        <select className="input invoices-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
           {INVOICE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{invoiceStatusLabel(s)}</option>)}
         </select>
-        {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>New manual invoice</button>}
+        {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New manual invoice')}</button>}
       </div>
 
       {canManage && canSeeSalesOrders && (
         <form className="invoices-order-form" onSubmit={createFromOrder}>
           <div className="field">
-            <label htmlFor="iv-order">Issue invoice for a sales order</label>
+            <label htmlFor="iv-order">{tr('Issue invoice for a sales order')}</label>
             <select id="iv-order" className="input" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-              <option value="">Choose a sales order</option>
+              <option value="">{tr('Choose a sales order')}</option>
               {orders.map((o) => <option key={o.id} value={o.id}>{o.orderNo} — {o.customerName}</option>)}
             </select>
           </div>
-          <button className="btn btn-primary" type="submit" disabled={!orderId || orderBusy}>Issue invoice</button>
+          <button className="btn btn-primary" type="submit" disabled={!orderId || orderBusy}>{tr('Issue invoice')}</button>
         </form>
       )}
 
       <table className="table table-clickable">
         <thead>
-          <tr><th>Invoice</th><th>Customer</th><th className="col-mid">Total</th><th>Balance</th><th className="col-wide">Due</th><th>Status</th><th></th></tr>
+          <tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th className="col-mid">{tr('Total')}</th><th>{tr('Balance')}</th><th className="col-wide">{tr('Due')}</th><th>{tr('Status')}</th><th></th></tr>
         </thead>
         <tbody>
           {visibleInvoices.map((inv) => {
@@ -365,7 +366,7 @@ export default function InvoicesPage() {
       {!invoices.length && (
         <div className="invoices-empty-state">
           <span className="invoices-empty-icon"><DocIcon /></span>
-          <p className="invoices-empty-title">No invoices yet</p>
+          <p className="invoices-empty-title">{tr('No invoices yet')}</p>
         </div>
       )}
       {!!invoices.length && !visibleInvoices.length && (
@@ -377,26 +378,26 @@ export default function InvoicesPage() {
 
       {dialogOpen && (
         <DocWizard
-          title="New manual invoice" docKind="invoice"
+          title={tr('New manual invoice')} docKind="invoice"
           detailsSlot={
             <div className="invoices-dialog-fields">
               <div className="field">
-                <label htmlFor="iv-customer">Customer</label>
+                <label htmlFor="iv-customer">{tr('Customer')}</label>
                 <CustomerPicker id="iv-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required />
               </div>
               <div className="field">
-                <label htmlFor="iv-currency">Currency</label>
+                <label htmlFor="iv-currency">{tr('Currency')}</label>
                 <select id="iv-currency" className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
-                  <option value="">Customer's default</option>
+                  <option value="">{tr('Customer\'s default')}</option>
                   {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="iv-due">Due date</label>
+                <label htmlFor="iv-due">{tr('Due date')}</label>
                 <input id="iv-due" className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
               </div>
               <div className="field">
-                <label htmlFor="iv-po">PO / reference</label>
+                <label htmlFor="iv-po">{tr('PO / reference')}</label>
                 <input id="iv-po" className="input" value={form.poReference} onChange={(e) => setForm({ ...form, poReference: e.target.value })} />
               </div>
             </div>
@@ -419,36 +420,36 @@ export default function InvoicesPage() {
       {payTarget && (
         <div className="dialog-backdrop" onClick={() => setPayTarget(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
-            <h2>Record payment</h2>
-            <p className="dialog-body">Outstanding balance: {money(payTarget.balanceDue, payTarget.currency)}</p>
+            <h2>{tr('Record payment')}</h2>
+            <p className="dialog-body">{tr('Outstanding balance:')} {money(payTarget.balanceDue, payTarget.currency)}</p>
             {payError && <div className="error-banner">{payError}</div>}
             <div className="field">
-              <label htmlFor="pay-amount">Amount ({payTarget.currency})</label>
+              <label htmlFor="pay-amount">{tr('Amount (')}{payTarget.currency})</label>
               <input id="pay-amount" className="input" type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
             </div>
             <div className="invoices-pay-grid">
               <div className="field">
-                <label htmlFor="pay-method">Method</label>
+                <label htmlFor="pay-method">{tr('Method')}</label>
                 <select id="pay-method" className="input" value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
-                  <option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option><option value="cheque">Cheque</option><option value="other">Other</option>
+                  <option value="cash">{tr('Cash')}</option><option value="bank_transfer">{tr('Bank transfer')}</option><option value="mobile_money">{tr('Mobile Money')}</option><option value="card">{tr('Card')}</option><option value="cheque">{tr('Cheque')}</option><option value="other">{tr('Other')}</option>
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="pay-date">Date</label>
+                <label htmlFor="pay-date">{tr('Date')}</label>
                 <input id="pay-date" className="input" type="date" value={payForm.date} onChange={(e) => setPayForm({ ...payForm, date: e.target.value })} />
               </div>
             </div>
             <div className="field">
-              <label htmlFor="pay-ref">Transaction / reference</label>
+              <label htmlFor="pay-ref">{tr('Transaction / reference')}</label>
               <input id="pay-ref" className="input" value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="pay-notes">Notes</label>
+              <label htmlFor="pay-notes">{tr('Notes')}</label>
               <input id="pay-notes" className="input" value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setPayTarget(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={paying}>Record payment</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setPayTarget(null)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={paying}>{tr('Record payment')}</button>
             </div>
           </form>
         </div>
@@ -457,19 +458,19 @@ export default function InvoicesPage() {
       {editTarget && (
         <div className="dialog-backdrop" onClick={() => setEditTarget(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitEdit}>
-            <h2>Edit invoice</h2>
+            <h2>{tr('Edit invoice')}</h2>
             {editError && <div className="error-banner">{editError}</div>}
             <div className="field">
-              <label htmlFor="ivedit-due">Due date</label>
+              <label htmlFor="ivedit-due">{tr('Due date')}</label>
               <input id="ivedit-due" className="input" type="date" value={editForm.dueDate} onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="ivedit-po">PO / reference</label>
+              <label htmlFor="ivedit-po">{tr('PO / reference')}</label>
               <input id="ivedit-po" className="input" value={editForm.poReference} onChange={(e) => setEditForm({ ...editForm, poReference: e.target.value })} />
             </div>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={editSaving}>Save changes</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditTarget(null)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={editSaving}>{tr('Save changes')}</button>
             </div>
           </form>
         </div>
@@ -529,10 +530,10 @@ export default function InvoicesPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete {deleteTarget.invoiceNo}</h2>
-            <p className="dialog-body">This cannot be undone.</p>
+            <h2>{tr('Delete')} {deleteTarget.invoiceNo}</h2>
+            <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>

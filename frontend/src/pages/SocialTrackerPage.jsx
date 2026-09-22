@@ -9,6 +9,7 @@ import { shareOrDownloadPdf } from '../lib/documentShare';
 import './SocialTrackerPage.css';
 import RowMenu from '../components/RowMenu';
 
+import { tr } from '../lib/i18n.jsx';
 // Metricool-style social & campaign tracker: channels (Facebook, Instagram,
 // TikTok, WhatsApp Business, Website, ThomasNet), campaigns, a content
 // calendar of posts with their engagement numbers, and follower/traffic
@@ -634,17 +635,14 @@ export default function SocialTrackerPage() {
     downloadCsv('social-tracker-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   return (
     <div className="soctrack">
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <p className="soctrack-intro">
-        A Metricool-style tracker for social &amp; marketing performance. Post metrics, follower counts and
-        campaign figures are logged here manually — a channel shows "Connected" once an API key for it is stored
-        on the Integrations screen, but pulling live numbers from each platform is a separate build per platform
-        once you have real developer app access there.
+        {tr('A Metricool-style tracker for social & marketing performance. Post metrics, follower counts and campaign figures are logged here manually — a channel shows "Connected" once an API key for it is stored on the Integrations screen, but pulling live numbers from each platform is a separate build per platform once you have real developer app access there.')}
       </p>
 
       <div className="soctrack-tabs">
@@ -658,10 +656,10 @@ export default function SocialTrackerPage() {
       {tab === 'overview' && dash && (
         <div className="soctrack-overview">
           <div className="soctrack-overview-header">
-            <h2 className="soctrack-section-title" style={{ margin: 0 }}>Performance</h2>
+            <h2 className="soctrack-section-title" style={{ margin: 0 }}>{tr('Performance')}</h2>
             <div className="soctrack-overview-actions">
               <DateRangePicker value={dateRange} onChange={setDateRange} />
-              <button type="button" className="btn btn-secondary" onClick={downloadOverviewCsv}>Download CSV</button>
+              <button type="button" className="btn btn-secondary" onClick={downloadOverviewCsv}>{tr('Download CSV')}</button>
               <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadOverviewPdf}>
                 {exporting ? 'Preparing…' : 'Download PDF'}
               </button>
@@ -671,14 +669,14 @@ export default function SocialTrackerPage() {
           {metricsError && <div className="error-banner" style={{ marginBottom: 12 }}>{metricsError}</div>}
           {metrics && (
             <div className="soc-metrics-stack">
-              <MetricSection title="Followers" metric={metrics.metrics.followers} />
-              <MetricSection title="Reach (by post publish date)" metric={metrics.metrics.reach} />
-              <MetricSection title="Interactions — likes, comments & shares (by post publish date)" metric={metrics.metrics.interactions} />
-              <MetricSection title="Number of posts (by publish date)" metric={metrics.metrics.posts} />
+              <MetricSection title={tr('Followers')} metric={metrics.metrics.followers} />
+              <MetricSection title={tr('Reach (by post publish date)')} metric={metrics.metrics.reach} />
+              <MetricSection title={tr('Interactions — likes, comments & shares (by post publish date)')} metric={metrics.metrics.interactions} />
+              <MetricSection title={tr('Number of posts (by publish date)')} metric={metrics.metrics.posts} />
             </div>
           )}
 
-          <h2 className="soctrack-section-title">Channels</h2>
+          <h2 className="soctrack-section-title">{tr('Channels')}</h2>
           <div className="soctrack-channel-grid">
             {dash.channels.map((c) => (
               <div key={c.id} className="soctrack-channel-card">
@@ -691,12 +689,12 @@ export default function SocialTrackerPage() {
                 </div>
                 {c.openInboxCount > 0 && (
                   <button type="button" className="soctrack-inbox-badge" onClick={() => { setInboxFilter({ channelId: c.id, status: 'open', kind: '' }); setTab('inbox'); }}>
-                    {c.openInboxCount} awaiting reply
+                    {c.openInboxCount} {tr('awaiting reply')}
                   </button>
                 )}
                 {c.followers !== null && (
                   <div className="soctrack-followers">
-                    {num(c.followers)} followers
+                    {num(c.followers)} {tr('followers')}
                     {c.followerChange !== null && (
                       <span className={c.followerChange >= 0 ? 'soctrack-delta-up' : 'soctrack-delta-down'}>
                         {' '}{c.followerChange >= 0 ? '+' : ''}{num(c.followerChange)}
@@ -705,19 +703,19 @@ export default function SocialTrackerPage() {
                   </div>
                 )}
                 <div className="soctrack-metric-row">
-                  <div><div className="soctrack-metric-value">{c.totals.posts}</div><div className="soctrack-metric-label">Posts</div></div>
-                  <div><div className="soctrack-metric-value">{num(c.totals.likes)}</div><div className="soctrack-metric-label">Likes</div></div>
-                  <div><div className="soctrack-metric-value">{num(c.totals.reach)}</div><div className="soctrack-metric-label">Reach</div></div>
-                  <div><div className="soctrack-metric-value">{num(c.totals.clicks)}</div><div className="soctrack-metric-label">Clicks</div></div>
-                  {c.totals.leads > 0 && <div><div className="soctrack-metric-value">{num(c.totals.leads)}</div><div className="soctrack-metric-label">Leads</div></div>}
+                  <div><div className="soctrack-metric-value">{c.totals.posts}</div><div className="soctrack-metric-label">{tr('Posts')}</div></div>
+                  <div><div className="soctrack-metric-value">{num(c.totals.likes)}</div><div className="soctrack-metric-label">{tr('Likes')}</div></div>
+                  <div><div className="soctrack-metric-value">{num(c.totals.reach)}</div><div className="soctrack-metric-label">{tr('Reach')}</div></div>
+                  <div><div className="soctrack-metric-value">{num(c.totals.clicks)}</div><div className="soctrack-metric-label">{tr('Clicks')}</div></div>
+                  {c.totals.leads > 0 && <div><div className="soctrack-metric-value">{num(c.totals.leads)}</div><div className="soctrack-metric-label">{tr('Leads')}</div></div>}
                 </div>
               </div>
             ))}
           </div>
 
-          <h2 className="soctrack-section-title">Campaigns</h2>
+          <h2 className="soctrack-section-title">{tr('Campaigns')}</h2>
           <table className="table">
-            <thead><tr><th>Campaign</th><th>Status</th><th>Dates</th><th>Posts</th><th>Likes</th><th>Reach</th><th>Clicks</th><th>Leads</th></tr></thead>
+            <thead><tr><th>{tr('Campaign')}</th><th>{tr('Status')}</th><th>{tr('Dates')}</th><th>{tr('Posts')}</th><th>{tr('Likes')}</th><th>{tr('Reach')}</th><th>{tr('Clicks')}</th><th>{tr('Leads')}</th></tr></thead>
             <tbody>
               {dash.campaigns.map((c) => (
                 <tr key={c.id}>
@@ -737,7 +735,7 @@ export default function SocialTrackerPage() {
           {!dash.campaigns.length && (
             <div className="soctrack-empty-state">
               <span className="soctrack-empty-icon"><DocIcon /></span>
-              <p className="soctrack-empty-title">No campaigns yet</p>
+              <p className="soctrack-empty-title">{tr('No campaigns yet')}</p>
             </div>
           )}
 
@@ -750,22 +748,22 @@ export default function SocialTrackerPage() {
         <div>
           <div className="soctrack-filters">
             <select className="input" value={calendarFilter.channelId} onChange={(e) => setCalendarFilter({ ...calendarFilter, channelId: e.target.value })}>
-              <option value="">All channels</option>
+              <option value="">{tr('All channels')}</option>
               {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select className="input" value={calendarFilter.campaignId} onChange={(e) => setCalendarFilter({ ...calendarFilter, campaignId: e.target.value })}>
-              <option value="">All campaigns</option>
+              <option value="">{tr('All campaigns')}</option>
               {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select className="input" value={calendarFilter.status} onChange={(e) => setCalendarFilter({ ...calendarFilter, status: e.target.value })}>
-              <option value="">All statuses</option>
+              <option value="">{tr('All statuses')}</option>
               {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
-            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewPost}>New post</button>}
+            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewPost}>{tr('New post')}</button>}
           </div>
 
           <table className="table">
-            <thead><tr><th>Date</th><th>Channel</th><th>Campaign</th><th>Title</th><th>Status</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Reach</th><th>Clicks</th><th>Leads</th><th /></tr></thead>
+            <thead><tr><th>{tr('Date')}</th><th>{tr('Channel')}</th><th>{tr('Campaign')}</th><th>{tr('Title')}</th><th>{tr('Status')}</th><th>{tr('Likes')}</th><th>{tr('Comments')}</th><th>{tr('Shares')}</th><th>{tr('Reach')}</th><th>{tr('Clicks')}</th><th>{tr('Leads')}</th><th /></tr></thead>
             <tbody>
               {posts.map((p) => (
                 <tr key={p.id}>
@@ -788,7 +786,7 @@ export default function SocialTrackerPage() {
           {!posts.length && (
             <div className="soctrack-empty-state">
               <span className="soctrack-empty-icon"><DocIcon /></span>
-              <p className="soctrack-empty-title">No posts logged yet</p>
+              <p className="soctrack-empty-title">{tr('No posts logged yet')}</p>
             </div>
           )}
         </div>
@@ -798,11 +796,11 @@ export default function SocialTrackerPage() {
         <div>
           {canManage && (
             <div className="soctrack-toolbar">
-              <button type="button" className="btn btn-primary" onClick={openNewCampaign}>New campaign</button>
+              <button type="button" className="btn btn-primary" onClick={openNewCampaign}>{tr('New campaign')}</button>
             </div>
           )}
           <table className="table">
-            <thead><tr><th>Campaign</th><th>Description</th><th>Dates</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>{tr('Campaign')}</th><th>{tr('Description')}</th><th>{tr('Dates')}</th><th>{tr('Status')}</th><th /></tr></thead>
             <tbody>
               {campaigns.map((c) => (
                 <tr key={c.id}>
@@ -827,7 +825,7 @@ export default function SocialTrackerPage() {
           {!campaigns.length && (
             <div className="soctrack-empty-state">
               <span className="soctrack-empty-icon"><DocIcon /></span>
-              <p className="soctrack-empty-title">No campaigns yet</p>
+              <p className="soctrack-empty-title">{tr('No campaigns yet')}</p>
             </div>
           )}
         </div>
@@ -836,24 +834,22 @@ export default function SocialTrackerPage() {
       {tab === 'inbox' && (
         <div>
           <p className="soctrack-inbox-note">
-            Comments and messages logged here are tracked in Bamboo OS — a reply you send below is recorded as the
-            reply, but doesn't post back to Facebook/Instagram/TikTok/WhatsApp itself yet (that needs the channel's
-            live API connected first). Until then, send your reply on the actual platform and record it here.
+            {tr('Comments and messages logged here are tracked in Bamboo OS — a reply you send below is recorded as the reply, but doesn\'t post back to Facebook/Instagram/TikTok/WhatsApp itself yet (that needs the channel\'s live API connected first). Until then, send your reply on the actual platform and record it here.')}
           </p>
           <div className="soctrack-filters">
             <select className="input" value={inboxFilter.channelId} onChange={(e) => setInboxFilter({ ...inboxFilter, channelId: e.target.value })}>
-              <option value="">All channels</option>
+              <option value="">{tr('All channels')}</option>
               {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select className="input" value={inboxFilter.kind} onChange={(e) => setInboxFilter({ ...inboxFilter, kind: e.target.value })}>
-              <option value="">Comments &amp; messages</option>
+              <option value="">{tr('Comments & messages')}</option>
               {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
             </select>
             <select className="input" value={inboxFilter.status} onChange={(e) => setInboxFilter({ ...inboxFilter, status: e.target.value })}>
-              <option value="">All statuses</option>
+              <option value="">{tr('All statuses')}</option>
               {INBOX_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
-            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewInboxItem}>Log incoming</button>}
+            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewInboxItem}>{tr('Log incoming')}</button>}
           </div>
 
           <div className="soctrack-inbox-list">
@@ -863,7 +859,7 @@ export default function SocialTrackerPage() {
                   <div className="soctrack-inbox-author-row">
                     <span className="soctrack-inbox-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }}>{initials(item.authorName || 'Unknown')}</span>
                     <div>
-                      <span className="soctrack-inbox-kind">{item.kind === 'comment' ? 'Comment' : 'Message'}</span> on <strong>{item.channelName}</strong>
+                      <span className="soctrack-inbox-kind">{item.kind === 'comment' ? 'Comment' : 'Message'}</span> {tr('on')} <strong>{item.channelName}</strong>
                       {item.postTitle && <span> · {item.postTitle}</span>}
                       <div className="soctrack-inbox-author">{item.authorName || 'Unknown'} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
                     </div>
@@ -874,16 +870,16 @@ export default function SocialTrackerPage() {
 
                 {item.status === 'replied' ? (
                   <div className="soctrack-inbox-reply">
-                    <div className="soctrack-inbox-reply-label">Reply · {item.repliedByName} · {fmtDate(item.repliedAt)}</div>
+                    <div className="soctrack-inbox-reply-label">{tr('Reply ·')} {item.repliedByName} · {fmtDate(item.repliedAt)}</div>
                     <p className="soctrack-inbox-reply-body">{item.replyBody}</p>
-                    {canManage && <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => reopenInboxItem(item)}>Reopen</button>}
+                    {canManage && <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => reopenInboxItem(item)}>{tr('Reopen')}</button>}
                   </div>
                 ) : item.status === 'open' && canManage ? (
                   <div className="soctrack-inbox-reply-form">
-                    <textarea className="input" placeholder="Write a reply…" value={replyDrafts[item.id] || ''} onChange={(e) => setReplyDrafts({ ...replyDrafts, [item.id]: e.target.value })} />
+                    <textarea className="input" placeholder={tr('Write a reply…')} value={replyDrafts[item.id] || ''} onChange={(e) => setReplyDrafts({ ...replyDrafts, [item.id]: e.target.value })} />
                     <div className="soctrack-inbox-reply-actions">
-                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => sendReply(item)}>Reply</button>
-                      <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => archiveInboxItem(item)}>Archive</button>
+                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => sendReply(item)}>{tr('Reply')}</button>
+                      <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => archiveInboxItem(item)}>{tr('Archive')}</button>
                     </div>
                   </div>
                 ) : null}
@@ -893,7 +889,7 @@ export default function SocialTrackerPage() {
           {!inboxItems.length && (
             <div className="soctrack-empty-state">
               <span className="soctrack-empty-icon"><InboxIcon /></span>
-              <p className="soctrack-empty-title">Nothing logged yet</p>
+              <p className="soctrack-empty-title">{tr('Nothing logged yet')}</p>
             </div>
           )}
         </div>
@@ -949,14 +945,14 @@ export default function SocialTrackerPage() {
                 {canManage ? (
                   <div className="soctrack-channel-fields">
                     <div className="field">
-                      <label>Handle / URL</label>
+                      <label>{tr('Handle / URL')}</label>
                       <input className="input" value={draft.handle} onChange={(e) => setChannelDrafts({ ...channelDrafts, [c.id]: { ...draft, handle: e.target.value } })} />
                     </div>
                     <div className="field">
-                      <label>Notes</label>
+                      <label>{tr('Notes')}</label>
                       <input className="input" value={draft.notes} onChange={(e) => setChannelDrafts({ ...channelDrafts, [c.id]: { ...draft, notes: e.target.value } })} />
                     </div>
-                    <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => saveChannel(c)}>Save</button>
+                    <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => saveChannel(c)}>{tr('Save')}</button>
                   </div>
                 ) : (
                   <div className="soctrack-channel-fields">
@@ -966,24 +962,24 @@ export default function SocialTrackerPage() {
                 )}
 
                 <div className="soctrack-stat-log">
-                  <div className="soctrack-stat-log-title">Follower / traffic log</div>
+                  <div className="soctrack-stat-log-title">{tr('Follower / traffic log')}</div>
                   {canManage && (
                     <div className="soctrack-stat-log-form">
                       <input className="input" type="date" value={statDraft.capturedOn} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, capturedOn: e.target.value } })} />
-                      <input className="input" type="number" min="0" placeholder="Follower count" value={statDraft.followers} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, followers: e.target.value } })} />
-                      <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => logStat(c)}>Log</button>
+                      <input className="input" type="number" min="0" placeholder={tr('Follower count')} value={statDraft.followers} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, followers: e.target.value } })} />
+                      <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => logStat(c)}>{tr('Log')}</button>
                     </div>
                   )}
-                  {!history && <button type="button" className="btn btn-secondary soctrack-row-btn" onClick={() => loadStatHistory(c)}>Show history</button>}
+                  {!history && <button type="button" className="btn btn-secondary soctrack-row-btn" onClick={() => loadStatHistory(c)}>{tr('Show history')}</button>}
                   {history && (
                     history.length ? (
                       <table className="table soctrack-stat-table">
-                        <thead><tr><th>Date</th><th>Followers</th></tr></thead>
+                        <thead><tr><th>{tr('Date')}</th><th>{tr('Followers')}</th></tr></thead>
                         <tbody>
                           {history.slice().reverse().map((h) => <tr key={h.id}><td>{fmtDate(h.capturedOn)}</td><td>{num(h.followers)}</td></tr>)}
                         </tbody>
                       </table>
-                    ) : <p className="table-empty">No entries logged yet.</p>
+                    ) : <p className="table-empty">{tr('No entries logged yet.')}</p>
                   )}
                 </div>
               </div>
@@ -999,56 +995,56 @@ export default function SocialTrackerPage() {
             {postError && <div className="error-banner soctrack-dialog-span">{postError}</div>}
 
             <div className="field">
-              <label htmlFor="post-channel">Channel</label>
+              <label htmlFor="post-channel">{tr('Channel')}</label>
               <select id="post-channel" className="input" value={postForm.channelId} onChange={(e) => setPostForm({ ...postForm, channelId: e.target.value })} required>
                 {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="post-campaign">Campaign (optional)</label>
+              <label htmlFor="post-campaign">{tr('Campaign (optional)')}</label>
               <select id="post-campaign" className="input" value={postForm.campaignId} onChange={(e) => setPostForm({ ...postForm, campaignId: e.target.value })}>
-                <option value="">None</option>
+                <option value="">{tr('None')}</option>
                 {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field soctrack-dialog-span">
-              <label htmlFor="post-title">Title</label>
+              <label htmlFor="post-title">{tr('Title')}</label>
               <input id="post-title" className="input" value={postForm.title} onChange={(e) => setPostForm({ ...postForm, title: e.target.value })} required />
             </div>
             <div className="field soctrack-dialog-span">
-              <label htmlFor="post-caption">Caption / notes</label>
+              <label htmlFor="post-caption">{tr('Caption / notes')}</label>
               <textarea id="post-caption" className="input" value={postForm.caption} onChange={(e) => setPostForm({ ...postForm, caption: e.target.value })} />
             </div>
             <div className="field soctrack-dialog-span">
-              <label htmlFor="post-media">Media URL (optional)</label>
+              <label htmlFor="post-media">{tr('Media URL (optional)')}</label>
               <input id="post-media" className="input" value={postForm.mediaUrl} onChange={(e) => setPostForm({ ...postForm, mediaUrl: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="post-status">Status</label>
+              <label htmlFor="post-status">{tr('Status')}</label>
               <select id="post-status" className="input" value={postForm.status} onChange={(e) => setPostForm({ ...postForm, status: e.target.value })}>
                 {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="post-scheduled">Scheduled for</label>
+              <label htmlFor="post-scheduled">{tr('Scheduled for')}</label>
               <input id="post-scheduled" className="input" type="datetime-local" value={postForm.scheduledAt} onChange={(e) => setPostForm({ ...postForm, scheduledAt: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="post-published">Published at</label>
+              <label htmlFor="post-published">{tr('Published at')}</label>
               <input id="post-published" className="input" type="datetime-local" value={postForm.publishedAt} onChange={(e) => setPostForm({ ...postForm, publishedAt: e.target.value })} />
             </div>
 
-            <div className="soctrack-dialog-span soctrack-section-title-inline">Engagement</div>
-            <div className="field"><label>Likes</label><input className="input" type="number" min="0" value={postForm.likes} onChange={(e) => setPostForm({ ...postForm, likes: e.target.value })} /></div>
-            <div className="field"><label>Comments</label><input className="input" type="number" min="0" value={postForm.comments} onChange={(e) => setPostForm({ ...postForm, comments: e.target.value })} /></div>
-            <div className="field"><label>Shares</label><input className="input" type="number" min="0" value={postForm.shares} onChange={(e) => setPostForm({ ...postForm, shares: e.target.value })} /></div>
-            <div className="field"><label>Reach</label><input className="input" type="number" min="0" value={postForm.reach} onChange={(e) => setPostForm({ ...postForm, reach: e.target.value })} /></div>
-            <div className="field"><label>Impressions</label><input className="input" type="number" min="0" value={postForm.impressions} onChange={(e) => setPostForm({ ...postForm, impressions: e.target.value })} /></div>
-            <div className="field"><label>Clicks</label><input className="input" type="number" min="0" value={postForm.clicks} onChange={(e) => setPostForm({ ...postForm, clicks: e.target.value })} /></div>
-            <div className="field"><label>Leads</label><input className="input" type="number" min="0" value={postForm.leads} onChange={(e) => setPostForm({ ...postForm, leads: e.target.value })} /></div>
+            <div className="soctrack-dialog-span soctrack-section-title-inline">{tr('Engagement')}</div>
+            <div className="field"><label>{tr('Likes')}</label><input className="input" type="number" min="0" value={postForm.likes} onChange={(e) => setPostForm({ ...postForm, likes: e.target.value })} /></div>
+            <div className="field"><label>{tr('Comments')}</label><input className="input" type="number" min="0" value={postForm.comments} onChange={(e) => setPostForm({ ...postForm, comments: e.target.value })} /></div>
+            <div className="field"><label>{tr('Shares')}</label><input className="input" type="number" min="0" value={postForm.shares} onChange={(e) => setPostForm({ ...postForm, shares: e.target.value })} /></div>
+            <div className="field"><label>{tr('Reach')}</label><input className="input" type="number" min="0" value={postForm.reach} onChange={(e) => setPostForm({ ...postForm, reach: e.target.value })} /></div>
+            <div className="field"><label>{tr('Impressions')}</label><input className="input" type="number" min="0" value={postForm.impressions} onChange={(e) => setPostForm({ ...postForm, impressions: e.target.value })} /></div>
+            <div className="field"><label>{tr('Clicks')}</label><input className="input" type="number" min="0" value={postForm.clicks} onChange={(e) => setPostForm({ ...postForm, clicks: e.target.value })} /></div>
+            <div className="field"><label>{tr('Leads')}</label><input className="input" type="number" min="0" value={postForm.leads} onChange={(e) => setPostForm({ ...postForm, leads: e.target.value })} /></div>
 
             <div className="dialog-actions soctrack-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setPostDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setPostDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={savingPost}>{savingPost ? 'Saving…' : 'Save post'}</button>
             </div>
           </form>
@@ -1062,30 +1058,30 @@ export default function SocialTrackerPage() {
             {campaignError && <div className="error-banner soctrack-dialog-span">{campaignError}</div>}
 
             <div className="field soctrack-dialog-span">
-              <label htmlFor="camp-name">Name</label>
+              <label htmlFor="camp-name">{tr('Name')}</label>
               <input id="camp-name" className="input" value={campaignForm.name} onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })} required />
             </div>
             <div className="field soctrack-dialog-span">
-              <label htmlFor="camp-desc">Description</label>
+              <label htmlFor="camp-desc">{tr('Description')}</label>
               <textarea id="camp-desc" className="input" value={campaignForm.description} onChange={(e) => setCampaignForm({ ...campaignForm, description: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="camp-start">Start date</label>
+              <label htmlFor="camp-start">{tr('Start date')}</label>
               <input id="camp-start" className="input" type="date" value={campaignForm.startDate} onChange={(e) => setCampaignForm({ ...campaignForm, startDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="camp-end">End date</label>
+              <label htmlFor="camp-end">{tr('End date')}</label>
               <input id="camp-end" className="input" type="date" value={campaignForm.endDate} onChange={(e) => setCampaignForm({ ...campaignForm, endDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="camp-status">Status</label>
+              <label htmlFor="camp-status">{tr('Status')}</label>
               <select id="camp-status" className="input" value={campaignForm.status} onChange={(e) => setCampaignForm({ ...campaignForm, status: e.target.value })}>
                 {CAMPAIGN_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
 
             <div className="dialog-actions soctrack-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setCampaignDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCampaignDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={savingCampaign}>{savingCampaign ? 'Saving…' : 'Save campaign'}</button>
             </div>
           </form>
@@ -1095,45 +1091,45 @@ export default function SocialTrackerPage() {
       {inboxDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setInboxDialogOpen(false)}>
           <form className="dialog soctrack-campaign-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitInboxItem}>
-            <h2 className="soctrack-dialog-title">Log an incoming comment or message</h2>
+            <h2 className="soctrack-dialog-title">{tr('Log an incoming comment or message')}</h2>
             {inboxError && <div className="error-banner soctrack-dialog-span">{inboxError}</div>}
 
             <div className="field">
-              <label htmlFor="ib-channel">Channel</label>
+              <label htmlFor="ib-channel">{tr('Channel')}</label>
               <select id="ib-channel" className="input" value={inboxForm.channelId} onChange={(e) => setInboxForm({ ...inboxForm, channelId: e.target.value, postId: '' })} required>
                 {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="ib-kind">Type</label>
+              <label htmlFor="ib-kind">{tr('Type')}</label>
               <select id="ib-kind" className="input" value={inboxForm.kind} onChange={(e) => setInboxForm({ ...inboxForm, kind: e.target.value, postId: e.target.value === 'message' ? '' : inboxForm.postId })}>
                 {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
               </select>
             </div>
             {inboxForm.kind === 'comment' && (
               <div className="field soctrack-dialog-span">
-                <label htmlFor="ib-post">On which post (optional)</label>
+                <label htmlFor="ib-post">{tr('On which post (optional)')}</label>
                 <select id="ib-post" className="input" value={inboxForm.postId} onChange={(e) => setInboxForm({ ...inboxForm, postId: e.target.value })}>
-                  <option value="">Not tied to a specific post</option>
+                  <option value="">{tr('Not tied to a specific post')}</option>
                   {allPosts.filter((p) => p.channelId === inboxForm.channelId).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
                 </select>
               </div>
             )}
             <div className="field">
-              <label htmlFor="ib-author-name">From (name)</label>
+              <label htmlFor="ib-author-name">{tr('From (name)')}</label>
               <input id="ib-author-name" className="input" value={inboxForm.authorName} onChange={(e) => setInboxForm({ ...inboxForm, authorName: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="ib-author-handle">Handle / phone</label>
+              <label htmlFor="ib-author-handle">{tr('Handle / phone')}</label>
               <input id="ib-author-handle" className="input" value={inboxForm.authorHandle} onChange={(e) => setInboxForm({ ...inboxForm, authorHandle: e.target.value })} />
             </div>
             <div className="field soctrack-dialog-span">
-              <label htmlFor="ib-body">What they wrote</label>
+              <label htmlFor="ib-body">{tr('What they wrote')}</label>
               <textarea id="ib-body" className="input" value={inboxForm.body} onChange={(e) => setInboxForm({ ...inboxForm, body: e.target.value })} required />
             </div>
 
             <div className="dialog-actions soctrack-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setInboxDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setInboxDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={savingInbox}>{savingInbox ? 'Saving…' : 'Log it'}</button>
             </div>
           </form>
@@ -1143,14 +1139,13 @@ export default function SocialTrackerPage() {
       {pagePickerOpen && (
         <div className="dialog-backdrop" onClick={() => setPagePickerOpen(false)}>
           <div className="dialog soctrack-page-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 className="soctrack-dialog-title">Choose a Facebook Page to connect</h2>
+            <h2 className="soctrack-dialog-title">{tr('Choose a Facebook Page to connect')}</h2>
             <p className="soctrack-dialog-note">
-              This account manages more than one Page — pick the one for Bamboo Products Limited. Its linked
-              Instagram account (if any) connects automatically at the same time.
+              {tr('This account manages more than one Page — pick the one for Bamboo Products Limited. Its linked Instagram account (if any) connects automatically at the same time.')}
             </p>
             {pagePickerError && <div className="error-banner">{pagePickerError}</div>}
             {pagePickerLoading ? (
-              <div className="eyebrow">Loading pages…</div>
+              <div className="eyebrow">{tr('Loading pages…')}</div>
             ) : (
               <div className="soctrack-page-list">
                 {pagePickerPages.map((p) => (
@@ -1164,11 +1159,11 @@ export default function SocialTrackerPage() {
                     </button>
                   </div>
                 ))}
-                {!pagePickerPages.length && <p className="table-empty">No Facebook Pages found for this account.</p>}
+                {!pagePickerPages.length && <p className="table-empty">{tr('No Facebook Pages found for this account.')}</p>}
               </div>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setPagePickerOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setPagePickerOpen(false)}>{tr('Cancel')}</button>
             </div>
           </div>
         </div>

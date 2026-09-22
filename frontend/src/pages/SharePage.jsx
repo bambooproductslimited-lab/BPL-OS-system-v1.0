@@ -5,6 +5,7 @@ import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { adjustmentRows, paymentsForDocument } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import { tr } from '../lib/i18n.jsx';
 import '../components/DocPreview.css';
 import './SharePage.css';
 
@@ -38,7 +39,7 @@ export default function SharePage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (loading) return <div className="share-page-status">Loading…</div>;
+  if (loading) return <div className="share-page-status">{tr('Loading…')}</div>;
   if (error) return <div className="share-page-status share-page-error">{error}</div>;
   if (!doc) return null;
 
@@ -59,12 +60,12 @@ export default function SharePage() {
           <div className="doc-preview-brand">
             <img src="/logo.png" alt="" className="doc-preview-logo" />
             <div>
-              <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+              <div className="doc-preview-brand-name">{tr('Bamboo Products Limited')}</div>
               <div className="doc-preview-brand-address">
-                Poki House<br />
-                35 J K Siaw St, Community 9, Tema, Ghana<br />
-                GT-191-1859 (GhanaPostGPS)<br />
-                WhatsApp: 0591933925
+                {tr('Poki House')}<br />
+                {tr('35 J K Siaw St, Community 9, Tema, Ghana')}<br />
+                {tr('GT-191-1859 (GhanaPostGPS)')}<br />
+                {tr('WhatsApp: 0591933925')}
               </div>
             </div>
           </div>
@@ -79,13 +80,13 @@ export default function SharePage() {
         <div className="doc-preview-subheading">{subHeadingText}</div>
         <div className="doc-preview-blocks">
           <div>
-            <div className="doc-preview-block-title">Customer</div>
+            <div className="doc-preview-block-title">{tr('Customer')}</div>
             <div className="doc-preview-block-line">{doc.customer.name}</div>
             <div className="doc-preview-block-line">{doc.customer.email}</div>
           </div>
           <div>
-            <div className="doc-preview-block-title">{DOC_LABEL[doc.documentType]} Details</div>
-            <div className="doc-preview-block-line">Issued {dateValue}</div>
+            <div className="doc-preview-block-title">{DOC_LABEL[doc.documentType]} {tr('Details')}</div>
+            <div className="doc-preview-block-line">{tr('Issued')} {dateValue}</div>
             <div className="doc-preview-block-line">{money(doc.grandTotal, cur)}</div>
           </div>
           <div>
@@ -95,7 +96,7 @@ export default function SharePage() {
           </div>
         </div>
         <table className="doc-preview-table">
-          <thead><tr><th>Items</th><th className="doc-preview-num">Quantity</th><th className="doc-preview-num">Price</th><th className="doc-preview-num">Amount</th></tr></thead>
+          <thead><tr><th>{tr('Items')}</th><th className="doc-preview-num">{tr('Quantity')}</th><th className="doc-preview-num">{tr('Price')}</th><th className="doc-preview-num">{tr('Amount')}</th></tr></thead>
           <tbody>
             {displayItems.map((it, i) => (
               <tr key={i}>
@@ -113,7 +114,7 @@ export default function SharePage() {
           </tbody>
         </table>
         <div className="doc-preview-row">
-          <div>Subtotal</div><div>{money(doc.subtotal, cur)}</div>
+          <div>{tr('Subtotal')}</div><div>{money(doc.subtotal, cur)}</div>
         </div>
         {/* The customer opening this link gets the same breakdown as the
             printed copy — what was taken off, and what was added. */}
@@ -130,16 +131,16 @@ export default function SharePage() {
         {isInvoice && paymentsForDocument(doc.payments, cur).map((pay, i) => (
           <div className="doc-preview-row" key={i}>
             <div>
-              Payment received {pay.date}
+              {tr('Payment received')} {pay.date}
               {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
-              {pay.reference && <span className="doc-preview-pay-meta"> · ref {pay.reference}</span>}
+              {pay.reference && <span className="doc-preview-pay-meta"> {tr('· ref')} {pay.reference}</span>}
             </div>
             <div>− {pay.amount}</div>
           </div>
         ))}
         {isInvoice && doc.amountPaid > 0 && doc.balanceDue > 0 && !(doc.payments || []).length && (
           <div className="doc-preview-row">
-            <div>Amount paid</div><div>{money(doc.amountPaid, cur)}</div>
+            <div>{tr('Amount paid')}</div><div>{money(doc.amountPaid, cur)}</div>
           </div>
         )}
         <div className="doc-preview-grand-row">
@@ -148,10 +149,10 @@ export default function SharePage() {
         </div>
         {schedule.length > 0 && (
           <div className="doc-preview-schedule">
-            <div className="doc-preview-notes-label">Payment schedule</div>
+            <div className="doc-preview-notes-label">{tr('Payment schedule')}</div>
             {schedule.map((row, i) => (
               <div className="doc-preview-schedule-row" key={i}>
-                <span>{row.label}</span><span>Due {row.dueDate}</span><span>{row.amount}</span>
+                <span>{row.label}</span><span>{tr('Due')} {row.dueDate}</span><span>{row.amount}</span>
               </div>
             ))}
           </div>
@@ -164,12 +165,12 @@ export default function SharePage() {
         )}
         {doc.terms && (
           <div className="doc-preview-notes">
-            <div className="doc-preview-notes-label">Terms &amp; conditions</div>
+            <div className="doc-preview-notes-label">{tr('Terms & conditions')}</div>
             <p className="doc-preview-terms-body">{doc.terms}</p>
           </div>
         )}
         <div className="doc-preview-actions no-print">
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
         </div>
       </div>
     </div>

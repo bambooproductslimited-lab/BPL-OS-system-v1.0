@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { tr } from '../lib/i18n.jsx';
 import './ProjectsPage.css';
 
 // Ported from Bamboo OS.dc.html's projects screen (screens.projects block
@@ -140,7 +141,7 @@ export default function ProjectsPage() {
     }
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleProjects = projects.filter((p) => matchesQuery(search, p.name, p.code, p.departmentName, p.companyName, p.ownerName));
   const isOverdue = (p) => p.deadline && p.deadline < todayISO() && !['completed', 'cancelled'].includes(p.status);
@@ -174,24 +175,24 @@ export default function ProjectsPage() {
       )}
 
       <div className="projects-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search projects…" />
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search projects…')} />
         <select
-          className="input projects-filter-select" value={companyFilter} aria-label="Filter by company"
+          className="input projects-filter-select" value={companyFilter} aria-label={tr('Filter by company')}
           onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
         >
-          <option value="">All companies</option>
+          <option value="">{tr('All companies')}</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select
-          className="input projects-filter-select" value={deptFilter} aria-label="Filter by department"
+          className="input projects-filter-select" value={deptFilter} aria-label={tr('Filter by department')}
           onChange={(e) => setDeptFilter(e.target.value)}
         >
-          <option value="">All departments</option>
+          <option value="">{tr('All departments')}</option>
           {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
             <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
           ))}
         </select>
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>New project</button>}
+        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New project')}</button>}
       </div>
 
       <div className="projects-grid">
@@ -210,14 +211,14 @@ export default function ProjectsPage() {
                 {p.ownerName}
                 <span className="projects-card-meta-sep">·</span>
                 <Icon name="calendar" />
-                Due {fmtDate(p.deadline)}
-                {overdue && <span className="projects-overdue-badge">overdue</span>}
+                {tr('Due')} {fmtDate(p.deadline)}
+                {overdue && <span className="projects-overdue-badge">{tr('overdue')}</span>}
               </div>
               <div>
                 <div className="projects-progress-track">
                   <div className={'projects-progress-bar' + (overdue ? ' projects-progress-bar-overdue' : '')} style={{ width: progress + '%' }} />
                 </div>
-                <div className="projects-task-line"><Icon name="checklist" /> {p.doneCount} / {p.taskCount} tasks done</div>
+                <div className="projects-task-line"><Icon name="checklist" /> {p.doneCount} / {p.taskCount} {tr('tasks done')}</div>
               </div>
             </div>
           );
@@ -226,52 +227,52 @@ export default function ProjectsPage() {
       {!projects.length && (
         <div className="projects-empty-state">
           <span className="projects-empty-icon"><Icon name="folder" /></span>
-          <p className="projects-empty-title">No projects visible to your role</p>
+          <p className="projects-empty-title">{tr('No projects visible to your role')}</p>
         </div>
       )}
       {!!projects.length && !visibleProjects.length && (
         <div className="projects-empty-state">
           <span className="projects-empty-icon"><Icon name="folder" /></span>
-          <p className="projects-empty-title">No projects match "{search}"</p>
+          <p className="projects-empty-title">{tr('No projects match "')}{search}"</p>
         </div>
       )}
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
           <form className="dialog projects-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleCreate}>
-            <h2 className="projects-dialog-title">New project</h2>
+            <h2 className="projects-dialog-title">{tr('New project')}</h2>
             {dialogError && <div className="error-banner projects-dialog-span">{dialogError}</div>}
             <div className="field projects-dialog-span">
-              <label htmlFor="proj-name">Name</label>
+              <label htmlFor="proj-name">{tr('Name')}</label>
               <input id="proj-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div className="field">
-              <label htmlFor="proj-dept">Department</label>
+              <label htmlFor="proj-dept">{tr('Department')}</label>
               <select id="proj-dept" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} required>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name} — {d.companyName}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="proj-owner">Owner</label>
+              <label htmlFor="proj-owner">{tr('Owner')}</label>
               <select id="proj-owner" className="input" value={form.ownerId} onChange={(e) => setForm({ ...form, ownerId: e.target.value })}>
-                <option value="">Me</option>
+                <option value="">{tr('Me')}</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="proj-start">Start</label>
+              <label htmlFor="proj-start">{tr('Start')}</label>
               <input id="proj-start" className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
             </div>
             <div className="field">
-              <label htmlFor="proj-deadline">Deadline</label>
+              <label htmlFor="proj-deadline">{tr('Deadline')}</label>
               <input id="proj-deadline" className="input" type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
             </div>
             <div className="field projects-dialog-span">
-              <label htmlFor="proj-desc">Description</label>
+              <label htmlFor="proj-desc">{tr('Description')}</label>
               <textarea id="proj-desc" className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </div>
             <div className="dialog-actions projects-dialog-span">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={creating}>{creating ? 'Creating…' : 'Create project'}</button>
             </div>
           </form>

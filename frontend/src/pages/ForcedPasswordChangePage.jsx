@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { tr } from '../lib/i18n.jsx';
 import './LoginPage.css';
 
 // Shown instead of the app whenever session.mustChangePassword is true —
@@ -90,17 +91,17 @@ export default function ForcedPasswordChangePage() {
       <div className="login-brand">
         <BambooDecoration />
         <div className="login-brand-content">
-          <img src="/logo.png" alt="Bamboo Products Limited" className="login-logo" />
+          <img src="/logo.png" alt={tr('Bamboo Products Limited')} className="login-logo" />
           <div>
-            <h1 className="login-brand-heading">Set a new<br />password</h1>
+            <h1 className="login-brand-heading">{tr('Set a new')}<br />{tr('password')}</h1>
             <p className="login-brand-sub">
-              Your account was created (or reset) with a temporary password.
-              <br />You need to set your own before continuing.
+              {tr('Your account was created (or reset) with a temporary password.')}
+              <br />{tr('You need to set your own before continuing.')}
             </p>
           </div>
           <div className="login-brand-footer">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.6" /></svg>
-            Internal system · authorised staff only
+            {tr('Internal system · authorised staff only')}
           </div>
         </div>
       </div>
@@ -108,10 +109,10 @@ export default function ForcedPasswordChangePage() {
       <div className="login-form-wrap">
         <form className="login-form" onSubmit={handleSubmit}>
           <h1 className="login-form-title">{firstName ? 'Welcome, ' + firstName : 'Set a new password'}</h1>
-          <p className="login-form-sub">Enter your current (temporary) password and choose a new one.</p>
+          <p className="login-form-sub">{tr('Enter your current (temporary) password and choose a new one.')}</p>
 
           <div className="field">
-            <label htmlFor="fpc-current">Current password</label>
+            <label htmlFor="fpc-current">{tr('Current password')}</label>
             <div className="login-input-wrap">
               <LockIcon />
               <input
@@ -125,7 +126,7 @@ export default function ForcedPasswordChangePage() {
           </div>
 
           <div className="field">
-            <label htmlFor="fpc-new">New password</label>
+            <label htmlFor="fpc-new">{tr('New password')}</label>
             <div className="login-input-wrap">
               <LockIcon />
               <input
@@ -139,7 +140,7 @@ export default function ForcedPasswordChangePage() {
           </div>
 
           <div className="field">
-            <label htmlFor="fpc-confirm">Confirm new password</label>
+            <label htmlFor="fpc-confirm">{tr('Confirm new password')}</label>
             <div className="login-input-wrap">
               <LockIcon />
               <input
@@ -155,7 +156,7 @@ export default function ForcedPasswordChangePage() {
             {submitting ? 'Saving…' : 'Set password and continue'}
           </button>
 
-          <button type="button" className="btn btn-secondary btn-block" onClick={logout}>Sign out instead</button>
+          <button type="button" className="btn btn-secondary btn-block" onClick={logout}>{tr('Sign out instead')}</button>
         </form>
       </div>
     </div>

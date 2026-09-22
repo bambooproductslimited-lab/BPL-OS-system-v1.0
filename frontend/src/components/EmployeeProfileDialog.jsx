@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { isPdf, toPreviewUrl } from '../lib/previewUrl';
+import { tr } from '../lib/i18n.jsx';
 import './EmployeeProfileDialog.css';
 
 const ID_SLOT_LABELS = { id_front: 'ID — front', id_back: 'ID — back', passport: 'Passport' };
@@ -95,7 +96,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="dialog employee-profile-dialog" onClick={(ev) => ev.stopPropagation()}>
-        {loading && <div className="eyebrow">Loading…</div>}
+        {loading && <div className="eyebrow">{tr('Loading…')}</div>}
         {error && <div className="error-banner">{error}</div>}
 
         {e && (
@@ -109,34 +110,34 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
             </div>
 
             <div className="employee-profile-grid">
-              <div><div className="employee-profile-label">Group</div><div>{data.departmentName}</div></div>
-              <div><div className="employee-profile-label">Reports to</div><div>{data.managerName}</div></div>
-              <div><div className="employee-profile-label">Work email</div><div>{e.email}</div></div>
-              <div><div className="employee-profile-label">Phone</div><div>{e.phone || '—'}</div></div>
-              <div><div className="employee-profile-label">Employment type</div><div>{EMPLOYMENT_TYPE_LABELS[e.employmentType] || e.employmentType}</div></div>
-              <div><div className="employee-profile-label">Hire date</div><div>{fmtDate(e.hireDate)}</div></div>
-              <div><div className="employee-profile-label">Location</div><div>{e.location || '—'}</div></div>
-              <div><div className="employee-profile-label">Shift</div><div>{e.shift || '—'}</div></div>
+              <div><div className="employee-profile-label">{tr('Group')}</div><div>{data.departmentName}</div></div>
+              <div><div className="employee-profile-label">{tr('Reports to')}</div><div>{data.managerName}</div></div>
+              <div><div className="employee-profile-label">{tr('Work email')}</div><div>{e.email}</div></div>
+              <div><div className="employee-profile-label">{tr('Phone')}</div><div>{e.phone || '—'}</div></div>
+              <div><div className="employee-profile-label">{tr('Employment type')}</div><div>{EMPLOYMENT_TYPE_LABELS[e.employmentType] || e.employmentType}</div></div>
+              <div><div className="employee-profile-label">{tr('Hire date')}</div><div>{fmtDate(e.hireDate)}</div></div>
+              <div><div className="employee-profile-label">{tr('Location')}</div><div>{e.location || '—'}</div></div>
+              <div><div className="employee-profile-label">{tr('Shift')}</div><div>{e.shift || '—'}</div></div>
               {e.payCycle !== undefined && (
                 <>
-                  <div><div className="employee-profile-label">Pay cycle</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
-                  <div><div className="employee-profile-label">Daily rate</div><div>{fmtMoney(e.dailyRate)}</div></div>
-                  <div><div className="employee-profile-label">Hourly rate</div><div>{e.hourlyRate == null ? 'Not set' : fmtMoney(e.hourlyRate) + '/hr'}</div></div>
+                  <div><div className="employee-profile-label">{tr('Pay cycle')}</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
+                  <div><div className="employee-profile-label">{tr('Daily rate')}</div><div>{fmtMoney(e.dailyRate)}</div></div>
+                  <div><div className="employee-profile-label">{tr('Hourly rate')}</div><div>{e.hourlyRate == null ? 'Not set' : fmtMoney(e.hourlyRate) + '/hr'}</div></div>
                 </>
               )}
               {canViewIdDocs && (
                 <div>
-                  <div className="employee-profile-label">Kiosk PIN</div>
+                  <div className="employee-profile-label">{tr('Kiosk PIN')}</div>
                   <div>
                     {kioskPin === null && (
                       <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} disabled={kioskPinLoading} onClick={revealKioskPin}>
                         {kioskPinLoading ? 'Loading…' : 'Show'}
                       </button>
                     )}
-                    {kioskPin && kioskPin.error && <span>Couldn't load — try again.</span>}
-                    {kioskPin && !kioskPin.error && !kioskPin.hasPin && <span>Not set</span>}
+                    {kioskPin && kioskPin.error && <span>{tr('Couldn\'t load — try again.')}</span>}
+                    {kioskPin && !kioskPin.error && !kioskPin.hasPin && <span>{tr('Not set')}</span>}
                     {kioskPin && !kioskPin.error && kioskPin.hasPin && kioskPin.pin && <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{kioskPin.pin}</span>}
-                    {kioskPin && !kioskPin.error && kioskPin.hasPin && !kioskPin.pin && <span>Set before this feature existed — reset it via "Kiosk PIN" to make it viewable.</span>}
+                    {kioskPin && !kioskPin.error && kioskPin.hasPin && !kioskPin.pin && <span>{tr('Set before this feature existed — reset it via "Kiosk PIN" to make it viewable.')}</span>}
                   </div>
                 </div>
               )}
@@ -144,9 +145,9 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
 
             {canViewIdDocs && (
               <div className="employee-profile-section">
-                <div className="employee-profile-section-title">ID &amp; passport</div>
+                <div className="employee-profile-section-title">{tr('ID & passport')}</div>
                 {idSlots === null ? (
-                  <div className="eyebrow">Loading…</div>
+                  <div className="eyebrow">{tr('Loading…')}</div>
                 ) : (
                   <div className="employee-profile-iddocs">
                     {idSlots.map((s) => (
@@ -154,14 +155,14 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                         <div className="employee-profile-label">{ID_SLOT_LABELS[s.kind]}</div>
                         {s.fileName && s.url ? (
                           isPdf(s.fileName) ? (
-                            <a href={toPreviewUrl(s.url, s.fileName)} target="_blank" rel="noopener noreferrer" className="employee-profile-iddoc-pdf">View PDF — {s.fileName}</a>
+                            <a href={toPreviewUrl(s.url, s.fileName)} target="_blank" rel="noopener noreferrer" className="employee-profile-iddoc-pdf">{tr('View PDF —')} {s.fileName}</a>
                           ) : (
                             <a href={s.url} target="_blank" rel="noopener noreferrer">
                               <img src={s.url} alt={ID_SLOT_LABELS[s.kind]} className="employee-profile-iddoc-img" />
                             </a>
                           )
                         ) : (
-                          <div className="employee-profile-iddoc-empty">Not uploaded</div>
+                          <div className="employee-profile-iddoc-empty">{tr('Not uploaded')}</div>
                         )}
                       </div>
                     ))}
@@ -171,10 +172,10 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
             )}
 
             <div className="employee-profile-section">
-              <div className="employee-profile-section-title">Recent attendance</div>
+              <div className="employee-profile-section-title">{tr('Recent attendance')}</div>
               {data.attendance.length ? (
                 <table className="table employee-profile-table">
-                  <thead><tr><th>Date</th><th>Status</th><th>Clock in</th><th>Clock out</th></tr></thead>
+                  <thead><tr><th>{tr('Date')}</th><th>{tr('Status')}</th><th>{tr('Clock in')}</th><th>{tr('Clock out')}</th></tr></thead>
                   <tbody>
                     {data.attendance.map((a) => (
                       <tr key={a.id}>
@@ -186,14 +187,14 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                     ))}
                   </tbody>
                 </table>
-              ) : <p className="table-empty">No attendance records yet.</p>}
+              ) : <p className="table-empty">{tr('No attendance records yet.')}</p>}
             </div>
 
             <div className="employee-profile-section">
-              <div className="employee-profile-section-title">Leave</div>
+              <div className="employee-profile-section-title">{tr('Leave')}</div>
               {data.leave.length ? (
                 <table className="table employee-profile-table">
-                  <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th></tr></thead>
+                  <thead><tr><th>{tr('Type')}</th><th>{tr('Dates')}</th><th>{tr('Days')}</th><th>{tr('Status')}</th></tr></thead>
                   <tbody>
                     {data.leave.map((l) => (
                       <tr key={l.id}>
@@ -205,14 +206,14 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                     ))}
                   </tbody>
                 </table>
-              ) : <p className="table-empty">No leave requests yet.</p>}
+              ) : <p className="table-empty">{tr('No leave requests yet.')}</p>}
             </div>
 
             <div className="employee-profile-section">
-              <div className="employee-profile-section-title">Open tasks</div>
+              <div className="employee-profile-section-title">{tr('Open tasks')}</div>
               {data.tasks.length ? (
                 <table className="table employee-profile-table">
-                  <thead><tr><th>Task</th><th>Status</th><th>Due</th></tr></thead>
+                  <thead><tr><th>{tr('Task')}</th><th>{tr('Status')}</th><th>{tr('Due')}</th></tr></thead>
                   <tbody>
                     {data.tasks.map((t) => (
                       <tr key={t.id}>
@@ -223,13 +224,13 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                     ))}
                   </tbody>
                 </table>
-              ) : <p className="table-empty">No tasks assigned.</p>}
+              ) : <p className="table-empty">{tr('No tasks assigned.')}</p>}
             </div>
           </>
         )}
 
         <div className="dialog-actions">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 
+import { tr } from '../lib/i18n.jsx';
 // Bookings — who occupies which unit, on what terms. Also where the tenancy
 // agreement gets generated (from a template, with the booking's own details
 // filled in) and where deposits and renewals are handled.
@@ -289,7 +290,7 @@ export default function PokiBookingsPage() {
     w.print();
   }
 
-  if (loading) return <div className="eyebrow">Loading…</div>;
+  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visible = bookings.filter((l) =>
     matchesQuery(search, l.bookingNo, l.tenantName, l.unitCode, l.propertyName) && (!statusFilter || l.status === statusFilter)
@@ -320,19 +321,19 @@ export default function PokiBookingsPage() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search bookings…" />
-        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="active">Active</option>
-          <option value="expired">Expired</option>
-          <option value="terminated">Terminated</option>
-          <option value="renewed">Renewed</option>
+        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search bookings…')} />
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
+          <option value="">{tr('All statuses')}</option>
+          <option value="draft">{tr('Draft')}</option>
+          <option value="active">{tr('Active')}</option>
+          <option value="expired">{tr('Expired')}</option>
+          <option value="terminated">{tr('Terminated')}</option>
+          <option value="renewed">{tr('Renewed')}</option>
         </select>
         <div className="poki-toolbar-spacer" />
         {canManage && (
           <button type="button" className="btn btn-primary" disabled={!tenants.length || !units.length} onClick={() => openBooking(null)}>
-            New booking
+            {tr('New booking')}
           </button>
         )}
       </div>
@@ -351,9 +352,9 @@ export default function PokiBookingsPage() {
         <table className="table table-clickable">
           <thead>
             <tr>
-              <th>Booking</th><th>Unit</th><th>Tenant</th><th>Term</th>
-              <th className="poki-num">Rent</th><th className="poki-num">Deposit</th><th className="poki-num">Owing</th>
-              <th>Status</th><th></th>
+              <th>{tr('Booking')}</th><th>{tr('Unit')}</th><th>{tr('Tenant')}</th><th>{tr('Term')}</th>
+              <th className="poki-num">{tr('Rent')}</th><th className="poki-num">{tr('Deposit')}</th><th className="poki-num">{tr('Owing')}</th>
+              <th>{tr('Status')}</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -366,7 +367,7 @@ export default function PokiBookingsPage() {
               >
                 <td className="poki-nowrap">
                   <div className="poki-strong">{l.bookingNo}</div>
-                  {l.agreementGeneratedAt && <div className="poki-muted">agreement ready</div>}
+                  {l.agreementGeneratedAt && <div className="poki-muted">{tr('agreement ready')}</div>}
                 </td>
                 <td className="poki-nowrap">
                   <div className="poki-strong">{l.unitCode}</div>
@@ -380,12 +381,12 @@ export default function PokiBookingsPage() {
                 </td>
                 <td className="poki-num">
                   {money(l.rentTotal, l.currency)}
-                  <div className="poki-muted">{money(l.monthlyRate, l.currency)}/month</div>
+                  <div className="poki-muted">{money(l.monthlyRate, l.currency)}{tr('/month')}</div>
                 </td>
                 <td className="poki-num">
                   {money(l.depositHeld, l.currency)}
                   {l.depositAmount > l.depositHeld && (
-                    <div className="poki-muted">of {money(l.depositAmount, l.currency)}</div>
+                    <div className="poki-muted">{tr('of')} {money(l.depositAmount, l.currency)}</div>
                   )}
                 </td>
                 <td className={'poki-num' + (l.balanceTotal > 0 ? ' poki-overdue' : '')}>{money(l.balanceTotal || 0, l.currency)}</td>
@@ -406,80 +407,80 @@ export default function PokiBookingsPage() {
             <h2 className="poki-dialog-title">{editId ? 'Edit booking' : 'New booking'}</h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="pl-unit">Unit</label>
+              <label htmlFor="pl-unit">{tr('Unit')}</label>
               <select id="pl-unit" className="input" value={form.unitId} onChange={(e) => onUnitChange(e.target.value)} required disabled={!!editId}>
-                <option value="">Choose a unit…</option>
+                <option value="">{tr('Choose a unit…')}</option>
                 {bookableUnits.map((u) => (
                   <option key={u.id} value={u.id}>{u.propertyName} · {u.code}{u.name ? ' — ' + u.name : ''}</option>
                 ))}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pl-tenant">Tenant</label>
+              <label htmlFor="pl-tenant">{tr('Tenant')}</label>
               <select id="pl-tenant" className="input" value={form.tenantId} onChange={set('tenantId')} required disabled={!!editId}>
-                <option value="">Choose a tenant…</option>
+                <option value="">{tr('Choose a tenant…')}</option>
                 {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pl-start">Start date</label>
+              <label htmlFor="pl-start">{tr('Start date')}</label>
               <input id="pl-start" className="input" type="date" value={form.startDate} onChange={set('startDate')} required />
             </div>
             <div className="field">
-              <label htmlFor="pl-months">For how many months</label>
+              <label htmlFor="pl-months">{tr('For how many months')}</label>
               <input id="pl-months" className="input" type="number" min="0" step="1"
                 value={form.durationMonths} onChange={set('durationMonths')} />
             </div>
             <div className="field">
-              <label htmlFor="pl-days">…plus how many days</label>
+              <label htmlFor="pl-days">{tr('…plus how many days')}</label>
               <input id="pl-days" className="input" type="number" min="0" step="1"
                 value={form.durationDays} onChange={set('durationDays')} />
-              <p className="poki-dialog-hint">Leave months at 0 for a booking of days only.</p>
+              <p className="poki-dialog-hint">{tr('Leave months at 0 for a booking of days only.')}</p>
             </div>
             <div className="field">
-              <label htmlFor="pl-rate">Rent per month</label>
+              <label htmlFor="pl-rate">{tr('Rent per month')}</label>
               <input id="pl-rate" className="input" type="number" step="0.01"
                 value={form.monthlyRate} onChange={(e) => onRateChange(e.target.value)} required />
             </div>
             <div className="field">
-              <label htmlFor="pl-daily">Rent per day</label>
+              <label htmlFor="pl-daily">{tr('Rent per day')}</label>
               <input id="pl-daily" className="input" type="number" step="0.01"
-                value={form.dailyRate} onChange={set('dailyRate')} placeholder="from the unit" />
-              <p className="poki-dialog-hint">Blank uses a thirtieth of the monthly rate.</p>
+                value={form.dailyRate} onChange={set('dailyRate')} placeholder={tr('from the unit')} />
+              <p className="poki-dialog-hint">{tr('Blank uses a thirtieth of the monthly rate.')}</p>
             </div>
             <div className="field">
-              <label htmlFor="pl-dep-months">Deposit (months of rent)</label>
+              <label htmlFor="pl-dep-months">{tr('Deposit (months of rent)')}</label>
               <input id="pl-dep-months" className="input" type="number" min="0" step="0.5"
                 value={form.depositMonths} onChange={(e) => onDepositMonthsChange(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="pl-dep">Deposit due</label>
+              <label htmlFor="pl-dep">{tr('Deposit due')}</label>
               <input id="pl-dep" className="input" type="number" step="0.01" value={form.depositAmount} onChange={set('depositAmount')} />
             </div>
             <div className="field">
-              <label htmlFor="pl-esc">Renewal increase (%)</label>
-              <input id="pl-esc" className="input" type="number" step="0.01" value={form.escalationPercent} onChange={set('escalationPercent')} placeholder="e.g. 10" />
+              <label htmlFor="pl-esc">{tr('Renewal increase (%)')}</label>
+              <input id="pl-esc" className="input" type="number" step="0.01" value={form.escalationPercent} onChange={set('escalationPercent')} placeholder={tr('e.g. 10')} />
             </div>
             {!editId && (
               <div className="field">
-                <label htmlFor="pl-status">Start as</label>
+                <label htmlFor="pl-status">{tr('Start as')}</label>
                 <select id="pl-status" className="input" value={form.status} onChange={set('status')}>
-                  <option value="draft">Draft — not yet occupying</option>
-                  <option value="active">Active — tenant moves in now</option>
+                  <option value="draft">{tr('Draft — not yet occupying')}</option>
+                  <option value="active">{tr('Active — tenant moves in now')}</option>
                 </select>
               </div>
             )}
             <div className="field poki-dialog-span">
-              <label htmlFor="pl-notes">Notes</label>
+              <label htmlFor="pl-notes">{tr('Notes')}</label>
               <textarea id="pl-notes" className="input" rows={2} value={form.notes} onChange={set('notes')} />
             </div>
             {quote && (
               <div className="poki-term-total poki-dialog-span">
                 <div className="poki-term-row">
                   <span>
-                    Rent — {quote.durationLabel}
+                    {tr('Rent —')} {quote.durationLabel}
                     <span className="poki-muted">
-                      {' '}({fmtDate(quote.startDate)} to {fmtDate(quote.endDate)})
+                      {' '}({fmtDate(quote.startDate)} {tr('to')} {fmtDate(quote.endDate)})
                     </span>
                   </span>
                   <strong>{money(quote.rentTotal, quote.currency)}</strong>
@@ -487,33 +488,32 @@ export default function PokiBookingsPage() {
                 {quote.daysAmount > 0 && (
                   <div className="poki-term-row poki-muted">
                     <span>
-                      of which {quote.durationDays} {quote.durationDays === 1 ? 'day' : 'days'} at {money(quote.dailyRate, quote.currency)}
+                      {tr('of which')} {quote.durationDays} {quote.durationDays === 1 ? 'day' : 'days'} {tr('at')} {money(quote.dailyRate, quote.currency)}
                     </span>
                     <span>{money(quote.daysAmount, quote.currency)}</span>
                   </div>
                 )}
                 <div className="poki-term-row">
-                  <span>Deposit</span>
+                  <span>{tr('Deposit')}</span>
                   <strong>{money(quote.depositAmount, quote.currency)}</strong>
                 </div>
                 <div className="poki-term-row poki-term-grand">
-                  <span>Payable before occupation</span>
+                  <span>{tr('Payable before occupation')}</span>
                   <strong>{money(quote.total, quote.currency)}</strong>
                 </div>
                 {!quote.available && (
                   <div className="poki-term-clash">
-                    Unavailable — {quote.clashesWith.bookingNo} has this unit from{' '}
-                    {fmtDate(quote.clashesWith.startDate)} to {fmtDate(quote.clashesWith.endDate)}.
+                    {tr('Unavailable —')} {quote.clashesWith.bookingNo} {tr('has this unit from')}{' '}
+                    {fmtDate(quote.clashesWith.startDate)} {tr('to')} {fmtDate(quote.clashesWith.endDate)}.
                   </div>
                 )}
               </div>
             )}
             <p className="poki-dialog-hint">
-              The whole booking is invoiced once, when it is made — there is no monthly rent run. Utilities, where the unit
-              has them, are billed separately as they are used.
+              {tr('The whole booking is invoiced once, when it is made — there is no monthly rent run. Utilities, where the unit has them, are billed separately as they are used.')}
             </p>
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving || (quote && !quote.available)}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
@@ -534,15 +534,15 @@ export default function PokiBookingsPage() {
             {dialog === 'deposit' && (
               <>
                 <p className="poki-dialog-hint">
-                  {target.tenantName} owes a deposit of {money(target.depositAmount, target.currency)};{' '}
-                  {money(target.depositHeld, target.currency)} has been received so far.
+                  {target.tenantName} {tr('owes a deposit of')} {money(target.depositAmount, target.currency)};{' '}
+                  {money(target.depositHeld, target.currency)} {tr('has been received so far.')}
                 </p>
                 <div className="field">
-                  <label htmlFor="pd-amt">Amount received</label>
+                  <label htmlFor="pd-amt">{tr('Amount received')}</label>
                   <input id="pd-amt" className="input" type="number" step="0.01" value={form.amount} onChange={set('amount')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="pd-notes">Reference / notes</label>
+                  <label htmlFor="pd-notes">{tr('Reference / notes')}</label>
                   <input id="pd-notes" className="input" value={form.notes} onChange={set('notes')} />
                 </div>
               </>
@@ -551,19 +551,18 @@ export default function PokiBookingsPage() {
             {dialog === 'refund' && (
               <>
                 <p className="poki-dialog-hint">
-                  {money(target.depositHeld - target.depositRefunded, target.currency)} is held on this booking. Anything you withhold
-                  for damage or unpaid rent goes in deductions and is not refunded.
+                  {money(target.depositHeld - target.depositRefunded, target.currency)} {tr('is held on this booking. Anything you withhold for damage or unpaid rent goes in deductions and is not refunded.')}
                 </p>
                 <div className="field">
-                  <label htmlFor="pr-amt">Refund to tenant</label>
+                  <label htmlFor="pr-amt">{tr('Refund to tenant')}</label>
                   <input id="pr-amt" className="input" type="number" step="0.01" value={form.amount} onChange={set('amount')} required />
                 </div>
                 <div className="field">
-                  <label htmlFor="pr-ded">Deductions withheld</label>
+                  <label htmlFor="pr-ded">{tr('Deductions withheld')}</label>
                   <input id="pr-ded" className="input" type="number" step="0.01" value={form.deductions} onChange={set('deductions')} />
                 </div>
                 <div className="field poki-dialog-span">
-                  <label htmlFor="pr-notes">What the deductions cover</label>
+                  <label htmlFor="pr-notes">{tr('What the deductions cover')}</label>
                   <textarea id="pr-notes" className="input" rows={2} value={form.notes} onChange={set('notes')} />
                 </div>
               </>
@@ -572,30 +571,29 @@ export default function PokiBookingsPage() {
             {dialog === 'renew' && (
               <>
                 <p className="poki-dialog-hint">
-                  Books the same unit again, starting the day after {fmtDate(target.endDate)} — this booking keeps its own
-                  price and signed agreement. Leave the fields blank to repeat the same length at the increased rate.
+                  {tr('Books the same unit again, starting the day after')} {fmtDate(target.endDate)} {tr('— this booking keeps its own price and signed agreement. Leave the fields blank to repeat the same length at the increased rate.')}
                 </p>
                 <div className="field">
-                  <label htmlFor="prn-esc">Rent increase (%)</label>
+                  <label htmlFor="prn-esc">{tr('Rent increase (%)')}</label>
                   <input id="prn-esc" className="input" type="number" step="0.01" value={form.escalationPercent} onChange={set('escalationPercent')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="prn-rate">Or set the monthly rate directly</label>
+                  <label htmlFor="prn-rate">{tr('Or set the monthly rate directly')}</label>
                   <input id="prn-rate" className="input" type="number" step="0.01" value={form.monthlyRate} onChange={set('monthlyRate')}
                     placeholder={String(target.monthlyRate)} />
                 </div>
                 <div className="field">
-                  <label htmlFor="prn-start">New start date</label>
+                  <label htmlFor="prn-start">{tr('New start date')}</label>
                   <input id="prn-start" className="input" type="date" value={form.startDate} onChange={set('startDate')}
-                    placeholder="day after this one ends" />
+                    placeholder={tr('day after this one ends')} />
                 </div>
                 <div className="field">
-                  <label htmlFor="prn-months">Months</label>
+                  <label htmlFor="prn-months">{tr('Months')}</label>
                   <input id="prn-months" className="input" type="number" min="0" step="1" value={form.durationMonths} onChange={set('durationMonths')}
                     placeholder={String(target.durationMonths)} />
                 </div>
                 <div className="field">
-                  <label htmlFor="prn-days">…plus days</label>
+                  <label htmlFor="prn-days">{tr('…plus days')}</label>
                   <input id="prn-days" className="input" type="number" min="0" step="1" value={form.durationDays} onChange={set('durationDays')}
                     placeholder={String(target.durationDays)} />
                 </div>
@@ -605,25 +603,24 @@ export default function PokiBookingsPage() {
             {dialog === 'end' && (
               <>
                 <p className="poki-dialog-hint">
-                  {target.unitCode} becomes vacant immediately. Any unpaid invoices stay outstanding — ending a tenancy doesn't
-                  cancel what's owed.
+                  {target.unitCode} {tr('becomes vacant immediately. Any unpaid invoices stay outstanding — ending a tenancy doesn\'t cancel what\'s owed.')}
                 </p>
                 <div className="field">
-                  <label htmlFor="pe-status">Reason type</label>
+                  <label htmlFor="pe-status">{tr('Reason type')}</label>
                   <select id="pe-status" className="input" value={form.status} onChange={set('status')}>
-                    <option value="terminated">Terminated early</option>
-                    <option value="expired">Ran to its end date</option>
+                    <option value="terminated">{tr('Terminated early')}</option>
+                    <option value="expired">{tr('Ran to its end date')}</option>
                   </select>
                 </div>
                 <div className="field poki-dialog-span">
-                  <label htmlFor="pe-reason">Reason</label>
+                  <label htmlFor="pe-reason">{tr('Reason')}</label>
                   <textarea id="pe-reason" className="input" rows={2} value={form.reason} onChange={set('reason')} />
                 </div>
               </>
             )}
 
             <div className="poki-dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </form>
@@ -633,7 +630,7 @@ export default function PokiBookingsPage() {
       {dialog === 'agreement' && target && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <div className="dialog poki-agreement-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ margin: 0 }}>Tenancy agreement — {target.bookingNo}</h2>
+            <h2 style={{ margin: 0 }}>{tr('Tenancy agreement —')} {target.bookingNo}</h2>
             <p className="poki-muted" style={{ margin: 0 }}>
               {target.tenantName} · {target.propertyName} · {target.unitCode} ·{' '}
               {fmtDate(target.startDate)} → {fmtDate(target.endDate)}
@@ -647,15 +644,15 @@ export default function PokiBookingsPage() {
               placeholder={saving ? 'Generating…' : 'No agreement yet — generate one from the template.'}
             />
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Close</button>
-              <button type="button" className="btn btn-secondary" disabled={!agreementBody} onClick={printAgreement}>Print / PDF</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>{tr('Close')}</button>
+              <button type="button" className="btn btn-secondary" disabled={!agreementBody} onClick={printAgreement}>{tr('Print / PDF')}</button>
               {canManage && (
                 <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => generateAgreement(target)}>
                   {saving ? 'Generating…' : 'Regenerate from template'}
                 </button>
               )}
               {canManage && (
-                <button type="button" className="btn btn-primary" disabled={saving || !agreementBody} onClick={saveAgreement}>Save</button>
+                <button type="button" className="btn btn-primary" disabled={saving || !agreementBody} onClick={saveAgreement}>{tr('Save')}</button>
               )}
             </div>
           </div>
