@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import Icon from '../layout/navIcons';
+import { playNotification, isMuted, setMuted } from '../lib/notificationSound';
 import './NotificationsBell.css';
 
 // The header bell + dropdown from the design prototype (Bamboo OS.dc.html's
@@ -13,6 +14,17 @@ import './NotificationsBell.css';
 // No websocket/push in this app, so freshness is a plain poll — 45s is
 // often enough to feel live without hammering the API.
 const POLL_MS = 45000;
+
+// Newest notification timestamp this session has already accounted for.
+// The chime fires when an UNREAD notification arrives that is newer than
+// this — tracked by time rather than by counting unread items, because the
+// count also moves when things are marked read, and by timestamp rather
+// than by remembering ids, because /api/notifications returns every
+// notification an employee has ever had and that set only grows.
+//
+// It is seeded on the very first poll without playing anything: opening the
+// OS to a backlog of yesterday's notifications should not set off a chime,
+// only something actually arriving while you are sitting there.
 
 function timeAgo(iso) {
   var diffMs = Date.now() - new Date(iso).getTime();
@@ -29,10 +41,22 @@ function timeAgo(iso) {
 export default function NotificationsBell() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
+  const [muted, setMutedState] = useState(isMuted);
+  const newestSeenRef = useRef(0);
+  const primedRef = useRef(false);
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
-    try { setItems(await api.get('/notifications')); } catch { /* silent — a failed poll shouldn't surface an error banner */ }
+    let next;
+    try { next = await api.get('/notifications'); } catch { return; } // silent — a failed poll shouldn't surface an error banner
+    setItems(next);
+
+    const newestUnread = next.reduce(
+      (max, n) => (!n.read ? Math.max(max, new Date(n.at).getTime()) : max), 0
+    );
+    if (primedRef.current && newestUnread > newestSeenRef.current) playNotification();
+    primedRef.current = true;
+    if (newestUnread > newestSeenRef.current) newestSeenRef.current = newestUnread;
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -47,6 +71,16 @@ export default function NotificationsBell() {
   function handleOpen() {
     setOpen(true);
     load(); // refresh right as the panel opens, not just on the timer
+  }
+
+  // Flipping the sound back on plays the chime once, so whoever just
+  // turned it on hears what they have signed up for (and finds out
+  // immediately if the device's volume is down).
+  function toggleMuted() {
+    const next = !muted;
+    setMuted(next);
+    setMutedState(next);
+    if (!next) playNotification();
   }
 
   async function markAllRead() {
@@ -79,9 +113,20 @@ export default function NotificationsBell() {
           <div className="notif-panel">
             <div className="notif-panel-head">
               <span className="notif-panel-title">Notifications</span>
-              {unreadCount > 0 && (
-                <button type="button" className="notif-markall" onClick={markAllRead}>Mark all read</button>
-              )}
+              <span className="notif-panel-tools">
+                <button
+                  type="button"
+                  className={'notif-mute' + (muted ? ' notif-mute-off' : '')}
+                  onClick={toggleMuted}
+                  aria-pressed={!muted}
+                  title={muted ? 'Notification sound is off — turn it on' : 'Notification sound is on — turn it off'}
+                >
+                  {muted ? 'Sound off' : 'Sound on'}
+                </button>
+                {unreadCount > 0 && (
+                  <button type="button" className="notif-markall" onClick={markAllRead}>Mark all read</button>
+                )}
+              </span>
             </div>
             <div className="notif-list">
               {items.slice(0, 8).map((n) => (

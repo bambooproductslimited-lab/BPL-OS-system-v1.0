@@ -6,6 +6,7 @@ import Icon from './navIcons';
 import NotificationsBell from '../components/NotificationsBell';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
+import { installUnlock } from '../lib/notificationSound';
 import './AppShell.css';
 
 // Redesigned around the icon/avatar language established across every
@@ -49,6 +50,12 @@ export default function AppShell() {
     applyTheme(theme);
     return clearTheme;
   }, [theme]);
+
+  // Browsers won't let anything make a sound until the person has
+  // interacted with the page. Arming that here, once, means the first
+  // click or keypress of the session is what unlocks the notification
+  // chime — see lib/notificationSound.js.
+  useEffect(installUnlock, []);
 
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark';

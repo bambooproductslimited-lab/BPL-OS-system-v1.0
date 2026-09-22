@@ -89,3 +89,21 @@
 .notif-item-when { font-size: 10px; color: var(--color-text-faint); margin-top: 6px; }
 
 .notif-empty { padding: 20px 14px; font-size: 12px; color: var(--color-text-muted); text-align: center; }
+
+/* Sound on/off beside "Mark all read" — see lib/notificationSound.js. */
+.notif-panel-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.notif-mute {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--color-accent, #3f7d3b);
+  cursor: pointer;
+}
+.notif-mute:hover { text-decoration: underline; }
+.notif-mute-off { color: var(--color-muted, #7a7570); }
