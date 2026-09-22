@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import Icon from '../layout/navIcons';
 import { playNotification, isMuted, setMuted } from '../lib/notificationSound';
+import { pushSupported, permissionState, iosNeedsInstall, enablePush, disablePush, isEnabledHere, sendTestPush } from '../lib/pushNotifications';
 import { tr } from '../lib/i18n.jsx';
 import './NotificationsBell.css';
 
@@ -43,7 +44,14 @@ export default function NotificationsBell() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [muted, setMutedState] = useState(isMuted);
+  // Pop-up (Web Push) state for THIS device: 'off' | 'on' | 'denied' |
+  // 'unsupported' | 'ios-install' | 'busy'.
+  const [popups, setPopups] = useState('off');
+  const [testSent, setTestSent] = useState('');
   const newestSeenRef = useRef(0);
+  // Read by the poll, which is a stable callback and so cannot see the
+  // popups state directly.
+  const popupsOnRef = useRef(false);
   const primedRef = useRef(false);
   const navigate = useNavigate();
 
@@ -55,12 +63,45 @@ export default function NotificationsBell() {
     const newestUnread = next.reduce(
       (max, n) => (!n.read ? Math.max(max, new Date(n.at).getTime()) : max), 0
     );
-    if (primedRef.current && newestUnread > newestSeenRef.current) playNotification();
+    // Exactly one alert per notification. Where this device has pop-up
+    // alerts on, the operating system has already made its own sound for
+    // this one and the in-app chime would just double it up.
+    if (primedRef.current && newestUnread > newestSeenRef.current && !popupsOnRef.current) playNotification();
     primedRef.current = true;
     if (newestUnread > newestSeenRef.current) newestSeenRef.current = newestUnread;
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // What this device's pop-up situation actually is. Permission alone does
+  // not settle it: site data can be cleared without the permission being
+  // revoked, leaving permission granted and no subscription.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (iosNeedsInstall()) { if (!cancelled) setPopups('ios-install'); return; }
+      if (!pushSupported()) { if (!cancelled) setPopups('unsupported'); return; }
+      if (permissionState() === 'denied') { if (!cancelled) setPopups('denied'); return; }
+      const here = await isEnabledHere();
+      if (!cancelled) setPopups(here ? 'on' : 'off');
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => { popupsOnRef.current = popups === 'on'; }, [popups]);
+
+  // Tapping a pop-up asks the service worker to open the right screen; it
+  // messages whichever window it found rather than reloading it, so the
+  // session and scroll position survive. See public/sw.js.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    function onMessage(event) {
+      const data = event.data;
+      if (data && data.type === 'bamboo-open' && typeof data.path === 'string') navigate(data.path);
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [navigate]);
 
   useEffect(() => {
     const t = setInterval(load, POLL_MS);
@@ -72,6 +113,32 @@ export default function NotificationsBell() {
   function handleOpen() {
     setOpen(true);
     load(); // refresh right as the panel opens, not just on the timer
+  }
+
+  // Pop-up alerts on this device. Both directions have to happen from the
+  // click itself — no browser will prompt for notification permission from
+  // anywhere but a real user gesture.
+  async function togglePopups() {
+    setTestSent('');
+    if (popups === 'on') {
+      setPopups('busy');
+      await disablePush();
+      setPopups('off');
+      return;
+    }
+    setPopups('busy');
+    const result = await enablePush();
+    setPopups(result === 'on' ? 'on' : result === 'denied' ? 'denied' : 'off');
+  }
+
+  async function testPopup() {
+    setTestSent(tr('Sending…'));
+    try {
+      await sendTestPush();
+      setTestSent(tr('Sent — it should appear shortly.'));
+    } catch {
+      setTestSent(tr('Could not send a test to this device.'));
+    }
   }
 
   // Flipping the sound back on plays the chime once, so whoever just
@@ -128,6 +195,37 @@ export default function NotificationsBell() {
                   <button type="button" className="notif-markall" onClick={markAllRead}>{tr('Mark all read')}</button>
                 )}
               </span>
+            </div>
+            <div className="notif-popups">
+              {popups === 'ios-install' ? (
+                <p className="notif-popups-note">
+                  {tr('To get pop-up alerts on an iPhone or iPad, add Bamboo OS to your Home Screen first: tap Share, then Add to Home Screen, and open it from there. Apple only allows them for an installed app.')}
+                </p>
+              ) : popups === 'unsupported' ? (
+                <p className="notif-popups-note">{tr("This browser can't show pop-up alerts.")}</p>
+              ) : popups === 'denied' ? (
+                <p className="notif-popups-note">
+                  {tr('Pop-up alerts are blocked for this site. Allow notifications for Bamboo OS in your browser settings, then come back here.')}
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={'notif-popups-toggle' + (popups === 'on' ? ' notif-popups-on' : '')}
+                    onClick={togglePopups}
+                    disabled={popups === 'busy'}
+                    aria-pressed={popups === 'on'}
+                  >
+                    {popups === 'busy' ? tr('Working…')
+                      : popups === 'on' ? tr('Pop-up alerts are on for this device')
+                      : tr('Turn on pop-up alerts for this device')}
+                  </button>
+                  {popups === 'on' && (
+                    <button type="button" className="notif-popups-test" onClick={testPopup}>{tr('Send a test')}</button>
+                  )}
+                </>
+              )}
+              {testSent && <span className="notif-popups-sent">{testSent}</span>}
             </div>
             <div className="notif-list">
               {items.slice(0, 8).map((n) => (

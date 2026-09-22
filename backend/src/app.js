@@ -56,6 +56,7 @@ var marketingRoutes = require('./routes/marketing.routes');
 var oauthRoutes = require('./routes/oauth.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
+var pushRoutes = require('./routes/push.routes');
 var squareRoutes = require('./routes/square.routes');
 var timestationRoutes = require('./routes/timestation.routes');
 var sharesRoutes = require('./routes/shares.routes');
@@ -161,6 +162,7 @@ app.use('/api/marketing/oauth', oauthRoutes);
 app.use('/api/marketing/whatsapp', whatsappRoutes);
 app.use('/api/marketing', marketingRoutes);
 app.use('/api/kiosk', kioskRoutes);
+app.use('/api/push', pushRoutes);
 app.use('/api/poki', pokiRoutes);
 app.use('/api/square', squareRoutes);
 

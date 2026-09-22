@@ -107,3 +107,45 @@
 }
 .notif-mute:hover { text-decoration: underline; }
 .notif-mute-off { color: var(--color-muted, #7a7570); }
+
+/* Pop-up (Web Push) controls at the top of the panel — see
+   lib/pushNotifications.js. Deliberately a row of its own rather than
+   another link beside "Mark all read": turning these on is a per-device
+   decision someone makes once, not a routine action. */
+.notif-popups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.7rem 0.95rem;
+  border-bottom: 1px solid var(--color-border, #eee8e1);
+}
+.notif-popups-toggle {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  color: var(--color-accent-800, #244a22);
+  background: var(--color-accent-100, #e8f1e7);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.notif-popups-toggle:hover:not(:disabled) { border-color: var(--color-accent, #3f7d3b); }
+.notif-popups-toggle:disabled { opacity: 0.6; cursor: default; }
+.notif-popups-on { background: var(--color-accent, #3f7d3b); color: #fff; }
+.notif-popups-test {
+  font: inherit;
+  font-size: 0.8rem;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--color-accent, #3f7d3b);
+  cursor: pointer;
+}
+.notif-popups-test:hover { text-decoration: underline; }
+.notif-popups-note, .notif-popups-sent {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--color-muted, #7a7570);
+}

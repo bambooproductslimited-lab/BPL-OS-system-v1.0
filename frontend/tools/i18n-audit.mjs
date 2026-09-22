@@ -20,8 +20,13 @@ function keysInSource() {
   for (const f of globSync('src/**/*.{jsx,js}')) {
     if (f.startsWith('src/locales/')) continue;
     const src = readFileSync(f, 'utf8');
-    for (const m of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)) {
-      keys.add(m[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')
+    // Both quote styles: a string containing an apostrophe is naturally
+    // written with double quotes, and an audit that only saw single-quoted
+    // calls reported those as orphans while quietly leaving them
+    // untranslated — which is the exact failure this tool exists to catch.
+    for (const m of src.matchAll(/\btr\(\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/g)) {
+      const raw = m[1] !== undefined ? m[1] : m[2];
+      keys.add(raw.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, '\\')
         .replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r'));
     }
   }

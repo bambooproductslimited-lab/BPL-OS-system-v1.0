@@ -66,6 +66,13 @@ module.exports = {
   // comment for why a keyed hash rather than bcrypt. Never stored in the
   // database; a DB dump alone can't be used to reverse a PIN without it.
   // Same fail-fast-in-production reasoning as JWT_SECRET above.
+  // Web Push signing keys. Optional: when unset, push.service.js generates
+  // a pair on first use and keeps it in the database, so this needs no
+  // setup. Set both to manage the pair yourself — and never change them on
+  // a live deployment without expecting every subscribed device to go
+  // quiet until it re-subscribes.
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || null,
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || null,
   kioskPinPepper: (process.env.NODE_ENV === 'production') ? required('KIOSK_PIN_PEPPER') : required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),

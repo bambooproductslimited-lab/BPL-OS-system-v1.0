@@ -12,6 +12,7 @@
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var app = require('../src/app');
+var { pool } = require('../src/db/pool');
 
 var server;
 var base;
@@ -19,7 +20,14 @@ var base;
 test.before(function (t, done) {
   server = app.listen(0, function () { base = 'http://127.0.0.1:' + server.address().port; done(); });
 });
-test.after(function () { server.close(); });
+// Leaves the database as it found it — the items created below are this
+// file's own fixtures, not data any other test should trip over.
+test.after(async function () {
+  for (var i = 0; i < createdItemIds.length; i++) {
+    await pool.query('DELETE FROM restaurant_menu_items WHERE id = $1', [createdItemIds[i]]);
+  }
+  server.close();
+});
 
 async function login(email) {
   var res = await fetch(base + '/api/auth/login', {
@@ -30,12 +38,28 @@ async function login(email) {
 }
 function authed(token) { return { Authorization: 'Bearer ' + token }; }
 
+// Creates an item of this file's own to test against, rather than picking
+// the first one that happens to exist.
+//
+// This used to read whatever was already there, and failed roughly two
+// runs in five. The seed creates no Star Bar menu items at all — it only
+// preserves Square-imported ones across a reseed, and a fresh test
+// database has none — so the item it found was a leftover from
+// restaurant.test.js. node --test runs files in parallel, so whether that
+// leftover existed yet was a coin flip.
+var createdItemIds = [];
 async function starBarMenuItemId(token) {
   var companies = await (await fetch(base + '/api/companies', { headers: authed(token) })).json();
   var sbr = companies.find(function (c) { return c.code === 'SBR'; });
-  var items = await (await fetch(base + '/api/restaurant/menu-items?companyId=' + sbr.id, { headers: authed(token) })).json();
-  assert.ok(items.length, 'expected at least one Star Bar menu item to test against');
-  return items[0].id;
+  assert.ok(sbr, 'the seed must contain Star Bar Restaurant');
+  var created = await (await fetch(base + '/api/restaurant/menu-items', {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, authed(token)),
+    body: JSON.stringify({ companyId: sbr.id, name: 'Photo test dish ' + Date.now() + '-' + createdItemIds.length, category: 'Mains', price: 25 })
+  })).json();
+  assert.ok(created.id, 'could not create a menu item to test against');
+  createdItemIds.push(created.id);
+  return created.id;
 }
 
 test('POST menu-items/:id/photo is forbidden without restaurant.manage', async function () {
