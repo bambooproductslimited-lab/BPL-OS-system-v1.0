@@ -1,5 +1,4 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AuthProvider } from './auth/AuthContext';
 import ProtectedRoute from './auth/ProtectedRoute';
 import AppShell from './layout/AppShell';
 import { ALL_NAV_ITEMS } from './layout/navModel';
@@ -86,24 +85,22 @@ const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/kiosk" element={<KioskPage />} />
-        <Route path="/pos" element={<RestaurantPosPage />} />
-        <Route path="/share/:token" element={<SharePage />} />
-        <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/kiosk" element={<KioskPage />} />
+      <Route path="/pos" element={<RestaurantPosPage />} />
+      <Route path="/share/:token" element={<SharePage />} />
+      <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />
 
-        <Route element={<ProtectedRoute />}>
-          <Route element={<AppShell />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            {SCREEN_ROUTES.map((route) => (
-              <Route key={route.key} path={route.key} element={route.element} />
-            ))}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Route>
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          {SCREEN_ROUTES.map((route) => (
+            <Route key={route.key} path={route.key} element={route.element} />
+          ))}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
-      </Routes>
-    </AuthProvider>
+      </Route>
+    </Routes>
   );
 }

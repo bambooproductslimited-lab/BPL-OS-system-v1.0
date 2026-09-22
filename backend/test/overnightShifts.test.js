@@ -75,6 +75,31 @@ async function rowsFor(employeeId) {
     [employeeId])).rows;
 }
 
+// Dates are anchored to a Monday in the recent past rather than written
+// out, because the kiosk refuses to backdate a tap by more than fourteen
+// days (attendance.service.js's MAX_BACKDATE_MS). Fixed dates worked when
+// these cases were written and then quietly aged past that limit, failing
+// the suite on a day nobody had touched attendance. The anchor is the most
+// recent Monday strictly before today, so the earliest date used here
+// (day(-6)) is at most thirteen days old however this is run, and the
+// weekday-dependent cases below — Friday to Monday, a Sunday night running
+// into Monday — still land on the weekdays they describe.
+var ANCHOR_MONDAY = (function () {
+  var d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  var back = ((d.getUTCDay() + 6) % 7) || 7; // 1..7 days back to the previous Monday
+  d.setUTCDate(d.getUTCDate() - back);
+  return d;
+})();
+
+// day(0) is that Monday; day(-3) the Friday before it, and so on.
+function day(offset) {
+  var d = new Date(ANCHOR_MONDAY);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+function at(offset, hhmm) { return day(offset) + 'T' + hhmm + ':00Z'; }
+
 function hm(t) { return t ? String(t).slice(0, 5) : null; }
 function iso(d) { return d ? String(d).slice(0, 10) : null; }
 
@@ -83,29 +108,28 @@ function iso(d) { return d ? String(d).slice(0, 10) : null; }
 test('a night shift is one row, filed under the day it started', async function () {
   var id = await guard(nightShift, '8101');
 
-  var inTap = await tap('8101', '2026-09-08T18:00:00Z');
+  var inTap = await tap('8101', at(-6, '18:00'));
   assert.equal(inTap.action, 'in');
   assert.equal(inTap.time, '18:00');
 
-  var outTap = await tap('8101', '2026-09-09T06:00:00Z');
+  var outTap = await tap('8101', at(-5, '06:00'));
   assert.equal(outTap.action, 'out', 'the 06:00 tap must close the night, not open a new shift');
   assert.equal(outTap.time, '06:00');
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 1, 'one night worked is one attendance row, not two');
-  assert.equal(iso(rows[0].date), '2026-09-08', 'filed under the night it started');
+  assert.equal(iso(rows[0].date), day(-6), 'filed under the night it started');
   assert.equal(hm(rows[0].clock_in), '18:00');
   assert.equal(hm(rows[0].clock_out), '06:00');
-  assert.equal(iso(rows[0].clock_out_date), '2026-09-09', 'the clock-out landed on the next day');
+  assert.equal(iso(rows[0].clock_out_date), day(-5), 'the clock-out landed on the next day');
 });
 
 test('three consecutive nights produce three rows, none of them inverted', async function () {
   var id = await guard(nightShift, '8102');
 
-  for (var n of [8, 9, 10]) {
-    var d = function (x) { return '2026-09-' + String(x).padStart(2, '0'); };
-    await tap('8102', d(n) + 'T18:00:00Z');
-    await tap('8102', d(n + 1) + 'T06:00:00Z');
+  for (var n of [-6, -5, -4]) {
+    await tap('8102', at(n, '18:00'));
+    await tap('8102', at(n + 1, '06:00'));
   }
 
   var rows = await rowsFor(id);
@@ -124,11 +148,11 @@ test('three consecutive nights produce three rows, none of them inverted', async
 test('an ordinary day shift is unchanged, including the third-tap refusal', async function () {
   var id = await guard(dayShift, '8103');
 
-  var a = await tap('8103', '2026-09-08T08:02:00Z');
+  var a = await tap('8103', at(-6, '08:02'));
   assert.equal(a.action, 'in');
-  var b = await tap('8103', '2026-09-08T17:10:00Z');
+  var b = await tap('8103', at(-6, '17:10'));
   assert.equal(b.action, 'out');
-  await assert.rejects(function () { return tap('8103', '2026-09-08T17:30:00Z'); },
+  await assert.rejects(function () { return tap('8103', at(-6, '17:30')); },
     /already clocked in and out today/i, 'a third tap on a finished day is still refused');
 
   var rows = await rowsFor(id);
@@ -149,14 +173,14 @@ test('an implausibly long shift is recorded but flagged', async function () {
   // this flag is the fallback for when there is no shift to reason about.
   var id = await guard(null, '8105');
 
-  await tap('8105', '2026-09-08T08:00:00Z');
-  var out = await tap('8105', '2026-09-09T04:00:00Z'); // 20 hours later
+  await tap('8105', at(-6, '08:00'));
+  var out = await tap('8105', at(-5, '04:00')); // 20 hours later
   assert.equal(out.action, 'out');
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 1);
   assert.match(rows[0].note, /check whether a clock-out was missed/i);
-  assert.equal(iso(rows[0].clock_out_date), '2026-09-09');
+  assert.equal(iso(rows[0].clock_out_date), day(-5));
 });
 
 test('a night guard clocking in on time is not marked late', async function () {
@@ -165,7 +189,7 @@ test('a night guard clocking in on time is not marked late', async function () {
   // against a company-wide morning threshold instead, every night shift in
   // the company would read as ten hours late.
   var id = await guard(nightShift, '8107');
-  var t = await tap('8107', '2026-09-08T18:00:00Z');
+  var t = await tap('8107', at(-6, '18:00'));
   assert.equal(t.status, 'present');
   assert.equal(t.minutesLate, 0);
 
@@ -188,8 +212,8 @@ test('clocking out shortly after clocking in still works', async function () {
   var start = hm(dayShift.start_time);
   var half = String(Number(start.slice(0, 2))).padStart(2, '0') + ':30';
 
-  await tap('8108', '2026-09-08T' + start + ':00Z');
-  var out = await tap('8108', '2026-09-08T' + half + ':00Z');
+  await tap('8108', at(-6, start));
+  var out = await tap('8108', at(-6, half));
   assert.equal(out.action, 'out', 'a tap-out 30 minutes into a 9-hour shift closes it');
 
   var rows = await rowsFor(id);
@@ -237,15 +261,15 @@ test('a forgotten clock-out keeps running until it is clocked out', async functi
   // reading until somebody taps out, whenever that is.
   var id = await guard(dayShift, '8111');
 
-  await tap('8111', '2026-09-11T07:00:00Z');                 // Friday, arrives
-  var out = await tap('8111', '2026-09-14T09:30:00Z');       // Monday, finally taps out
+  await tap('8111', at(-3, '07:00'));                 // Friday, arrives
+  var out = await tap('8111', at(0, '09:30'));       // Monday, finally taps out
   assert.equal(out.action, 'out', 'the tap closes the shift however long it has run');
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 1);
   assert.equal(hm(rows[0].clock_in), '07:00');
   assert.equal(hm(rows[0].clock_out), '09:30');
-  assert.equal(iso(rows[0].clock_out_date), '2026-09-14', 'three days later, recorded as such');
+  assert.equal(iso(rows[0].clock_out_date), day(0), 'three days later, recorded as such');
   assert.match(rows[0].note, /74\.5 hours/, 'and flagged, because it is almost certainly a missed tap-out');
 });
 
@@ -256,18 +280,18 @@ test('after clocking out they can start a fresh shift whatever the time', async 
   // of a shift and yesterday's was left open.
   var id = await guard(dayShift, '8112');
 
-  var a = await tap('8112', '2026-09-13T07:00:00Z');
+  var a = await tap('8112', at(-1, '07:00'));
   assert.equal(a.action, 'in');
-  var b = await tap('8112', '2026-09-14T07:00:00Z');   // 24h on, forgot to tap out
+  var b = await tap('8112', at(0, '07:00'));   // 24h on, forgot to tap out
   assert.equal(b.action, 'out', 'closes yesterday');
-  var c = await tap('8112', '2026-09-14T07:01:00Z');
+  var c = await tap('8112', at(0, '07:01'));
   assert.equal(c.action, 'in', 'and immediately starts today');
-  var d = await tap('8112', '2026-09-14T16:00:00Z');
+  var d = await tap('8112', at(0, '16:00'));
   assert.equal(d.action, 'out');
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 2);
-  assert.equal(iso(rows[0].clock_out_date), '2026-09-14', "Sunday's shift ran into Monday");
+  assert.equal(iso(rows[0].clock_out_date), day(0), "Sunday's shift ran into Monday");
   assert.equal(hm(rows[1].clock_in), '07:01');
   assert.equal(hm(rows[1].clock_out), '16:00');
 });
@@ -280,9 +304,9 @@ test('a second shift on the same calendar day is refused, and says so', async fu
   // says where to look rather than the behaviour changing unnoticed.
   var id = await guard(dayShift, '8113');
 
-  await tap('8113', '2026-09-14T07:00:00Z');
-  await tap('8113', '2026-09-14T12:00:00Z');
-  await assert.rejects(function () { return tap('8113', '2026-09-14T14:00:00Z'); },
+  await tap('8113', at(0, '07:00'));
+  await tap('8113', at(0, '12:00'));
+  await assert.rejects(function () { return tap('8113', at(0, '14:00')); },
     /already clocked in and out today/i);
 
   var rows = await rowsFor(id);

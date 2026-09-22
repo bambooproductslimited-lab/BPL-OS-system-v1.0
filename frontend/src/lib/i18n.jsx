@@ -1,4 +1,3 @@
-import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import fr from '../locales/fr';
 import zh from '../locales/zh';
 
@@ -99,57 +98,25 @@ export function translate(locale, key, vars) {
   return out;
 }
 
-const I18nContext = createContext(null);
-
-export function I18nProvider({ children }) {
-  const [locale, setLocaleState] = useState(getInitialLocale);
-
-  // Set during render, not in an effect: children render with the new
-  // language on the very same pass, so there is never a frame showing the
-  // old one. Assigning module state during render is normally a smell —
-  // here it is the point, and it is idempotent.
-  currentLocale = locale;
-  currentIntlTag = localeMeta(locale).intl;
-
-  useEffect(() => { document.documentElement.lang = locale; }, [locale]);
-
-  // Purely local: state plus the localStorage cache that makes the next
-  // first paint land in the right language. Saving the choice to the
-  // signed-in user's row is AppShell's job, since this provider also wraps
-  // screens where nobody is signed in (login, /kiosk, /pos).
-  const setLocale = useCallback((next) => {
-    if (!isKnownLocale(next)) return;
-    setLocaleState(next);
-    try { localStorage.setItem(STORAGE_KEY, next); } catch { /* storage blocked — won't persist on this device */ }
-  }, []);
-
-  const value = useMemo(() => ({
-    locale,
-    setLocale,
-    intlLocale: localeMeta(locale).intl,
-    t: (key, vars) => translate(locale, key, vars)
-  }), [locale, setLocale]);
-
-  // key={locale} remounts everything below on a language change — see the
-  // currentLocale comment above for why that is the mechanism rather than a
-  // shortcoming.
-  return (
-    <I18nContext.Provider value={value}>
-      <Fragment key={locale}>{children}</Fragment>
-    </I18nContext.Provider>
-  );
+// Applying a locale from outside React's tree.
+//
+// The user's saved language arrives with their session, and AuthProvider —
+// which is deliberately mounted ABOVE this provider, so that a language
+// switch never tears the session down — has no way to reach a hook in
+// here. It calls adoptLocale() instead. Registering rather than exporting
+// setLocale directly keeps the state in one place: there is still only one
+// setter, and it still writes the localStorage cache.
+let applyLocale = null;
+export function adoptLocale(code) {
+  if (isKnownLocale(code) && applyLocale) applyLocale(code);
 }
+// components/I18nProvider.jsx hands its setter over on mount.
+export function registerLocaleSetter(fn) { applyLocale = fn; }
 
-export function useI18n() {
-  const ctx = useContext(I18nContext);
-  // Outside a provider (a component rendered in isolation, a test) the app
-  // still has to render — in English rather than crashing.
-  if (!ctx) {
-    return { locale: DEFAULT_LOCALE, setLocale: () => {}, intlLocale: 'en-GB', t: (k, v) => translate(DEFAULT_LOCALE, k, v) };
-  }
-  return ctx;
+// Also called by that provider, during render, so the module-level locale
+// these plain functions read is in step on the very same pass that renders
+// the new language — never a frame behind.
+export function setCurrentLocale(code) {
+  currentLocale = code;
+  currentIntlTag = localeMeta(code).intl;
 }
-
-// For components that would rather take t from context than import it.
-// Equivalent to the exported t() above in every way that matters.
-export function useT() { return useI18n().t; }

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getMe, getToken, login as apiLogin, logout as apiLogout, setToken } from '../api/client';
+import { adoptLocale } from '../lib/i18n.jsx';
 
 const AuthContext = createContext(null);
 
@@ -16,7 +17,13 @@ export function AuthProvider({ children }) {
       if (!getToken()) { setLoading(false); return; }
       try {
         const me = await getMe();
-        if (!cancelled) setSession(me);
+        // The language belongs to the person, so the value on their row
+        // wins whenever a session arrives — that is what makes the choice
+        // follow them from a desk to a shop-floor tablet. Doing it here,
+        // once per sign-in, rather than in a component below I18nProvider,
+        // is deliberate: down there it re-ran on every language switch and
+        // immediately undid the switch. See lib/i18n.jsx's adoptLocale.
+        if (!cancelled) { adoptLocale(me.locale); setSession(me); }
       } catch {
         setToken(null);
       } finally {
@@ -30,6 +37,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     const result = await apiLogin(email, password);
     setToken(result.token);
+    adoptLocale(result.session.locale); // same reasoning as the rehydrate above
     setSession(result.session);
     return result.session;
   }, []);

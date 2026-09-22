@@ -8,8 +8,7 @@ import LanguagePicker from '../components/LanguagePicker';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import { installUnlock } from '../lib/notificationSound';
-import { useI18n, isKnownLocale, tr } from '../lib/i18n.jsx';
-import { api } from '../api/client';
+import { tr } from '../lib/i18n.jsx';
 import './AppShell.css';
 
 // Redesigned around the icon/avatar language established across every
@@ -40,7 +39,6 @@ function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_C
 
 export default function AppShell() {
   const { session, logout, can } = useAuth();
-  const { locale, setLocale } = useI18n();
   const location = useLocation();
   const [theme, setTheme] = useState(getInitialTheme);
   const isDarkPage = theme === 'dark';
@@ -61,26 +59,6 @@ export default function AppShell() {
   // chime — see lib/notificationSound.js.
   useEffect(installUnlock, []);
 
-  // The language choice belongs to the user, not the browser, so the value
-  // saved on their row wins when they sign in — that's what makes it follow
-  // them from the office desktop to a shop-floor tablet. localStorage is
-  // only a cache so the first paint isn't a flash of English.
-  const savedLocale = session && session.locale;
-  useEffect(() => {
-    if (savedLocale && isKnownLocale(savedLocale) && savedLocale !== locale) setLocale(savedLocale);
-    // Only ever reacts to what came back from the server, never to a change
-    // made here — otherwise picking a language would immediately undo itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [savedLocale]);
-
-  // Writing a change back. Fire-and-forget: the language has already
-  // switched locally, and a failed save only means this device keeps the
-  // choice while another one doesn't — not worth an error banner over.
-  useEffect(() => {
-    if (!session || !locale || locale === savedLocale) return;
-    api.post('/me/locale', { locale: locale }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale]);
 
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark';
