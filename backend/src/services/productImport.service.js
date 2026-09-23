@@ -58,8 +58,17 @@ var COLS = {
   variation: ['variation', 'variant'],
   unit: ['uom', 'unit', 'unitofmeasure'],
   physical: ['physicalcount', 'physical', 'count', 'counted'],
-  expected: ['expectedclosing', 'closingstock', 'closing']
+  expected: ['expectedclosing', 'closingstock', 'closing'],
+  // The rest of the day's columns, kept as that day's line on the daily
+  // stock sheet (stockSheet.service.js).
+  opening: ['openingstock', 'opening'],
+  received: ['received'],
+  transferred: ['transfered', 'transferred', 'transfer', 'transfers'],
+  breakage: ['breakage', 'breakages'],
+  sold: ['soldsquare', 'sold']
 };
+
+var MOVEMENTS = ['opening', 'received', 'transferred', 'breakage', 'sold'];
 
 // Spellings the sheet uses for its categories, written properly once here
 // so the OS doesn't show them on every product.
@@ -223,6 +232,11 @@ function readLines(rows) {
       warnings.push({ code: 'variance', counted: stock, expected: expected });
     }
     if (stock !== null && stock < 0) { warnings.push({ code: 'negative', counted: stock }); stock = 0; }
+    var movements = {};
+    MOVEMENTS.forEach(function (m) { movements[m] = Math.max(0, num(field(n, COLS[m])) || 0); });
+    // The sheet's Physical Count copies Expected Closing until someone types
+    // over it, so a count equal to the expected figure says nothing more.
+    movements.physical = physical !== null && physical !== expected ? Math.max(0, physical) : null;
     lines.push({
       sheetRow: idx + 2,
       code: parts.code,
@@ -233,6 +247,7 @@ function readLines(rows) {
       category: (cat.category || 'Other').slice(0, 40),
       unit: clean(field(n, COLS.unit)).slice(0, 20),
       stock: stock,
+      movements: movements,
       warnings: warnings
     });
   });
@@ -406,8 +421,6 @@ async function preview(ctx, buffer, fileName) {
   return { source: 'count', lines: lines, summary: summary, countDate: countDateFromFileName(fileName) };
 }
 
-// Re-reads each line rather than trusting the preview: the browser sends
-// back what it was shown, and this is where it is checked.
 // A summary line's daily figures, checked: real dates up to the import's
 // date, in order, each a stock of 0 or more.
 function readHistory(raw, date, name) {
@@ -422,6 +435,36 @@ function readHistory(raw, date, name) {
   });
 }
 
+// Keeps the imported day as that day's line on the daily stock sheet, with
+// the sheet's own columns, so imported days read the same as days entered
+// in the OS — and the monthly summary covers them.
+async function writeSheetLine(client, ctx, date, productId, p, stock) {
+  var m = p.movements || {};
+  var v = {};
+  MOVEMENTS.forEach(function (f) {
+    var x = m[f] === undefined || m[f] === null ? (f === 'opening' ? stock : 0) : Number(m[f]);
+    if (!Number.isFinite(x) || x < 0) fail('invalid', 'The ' + f + ' figure for ' + p.name + ' is not a number of 0 or more.');
+    v[f] = x;
+  });
+  var physical = m.physical === undefined || m.physical === null ? null : Number(m.physical);
+  if (physical !== null && (!Number.isFinite(physical) || physical < 0)) fail('invalid', 'The physical count for ' + p.name + ' is not a number of 0 or more.');
+  // The day must close at the stock the import sets, even where the sheet's
+  // own columns don't add up to it.
+  var expected = v.opening + v.received - v.transferred - v.breakage - v.sold;
+  if (physical === null && expected !== stock) physical = stock;
+  await client.query(
+    'INSERT INTO stock_sheet_lines (date, product_id, opening, received, transferred, breakage, sold, physical, updated_by, updated_at) ' +
+    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now()) ON CONFLICT (product_id, date) DO UPDATE SET opening = EXCLUDED.opening, ' +
+    'received = EXCLUDED.received, transferred = EXCLUDED.transferred, breakage = EXCLUDED.breakage, sold = EXCLUDED.sold, ' +
+    'physical = EXCLUDED.physical, updated_by = EXCLUDED.updated_by, updated_at = now()',
+    [date, productId, v.opening, v.received, v.transferred, v.breakage, v.sold, physical, ctx.employee ? ctx.employee.id : null]
+  );
+  var row = Number(p.sheetRow);
+  if (Number.isInteger(row) && row > 0 && row < 100000) await client.query('UPDATE products SET sheet_order = $1 WHERE id = $2', [row, productId]);
+}
+
+// Re-reads each line rather than trusting the preview: the browser sends
+// back what it was shown, and this is where it is checked.
 async function commit(ctx, lines, countDate, source) {
   if (!ctx.can('inventory.manage')) fail('forbidden', 'Your role does not allow this action (inventory.manage).');
   if (!Array.isArray(lines) || !lines.length) fail('invalid', 'Nothing to import.');
@@ -461,14 +504,19 @@ async function commit(ctx, lines, countDate, source) {
           [ins.rows[0].id, line.stock, date, ctx.employee ? ctx.employee.id : null, reference]
         );
         existing.bySku[line.sku] = { id: ins.rows[0].id, sku: line.sku, name: line.name, current_stock: line.stock };
+        await writeSheetLine(client, ctx, date, ins.rows[0].id, Object.assign({}, p, { name: line.name }), line.stock);
         created++;
         continue;
       }
+      await writeSheetLine(client, ctx, date, match.id, Object.assign({}, p, { name: line.name }), line.stock);
       // Counted on this day, even when the count matches what the OS had —
       // so a monthly summary uploaded later won't replace it.
       await client.query('UPDATE products SET last_counted_on = GREATEST(last_counted_on, $1::date) WHERE id = $2', [date, match.id]);
+      // An older day's tab (filling in past days) goes on the daily sheet but
+      // leaves today's stock alone when a later day is already there.
+      var later = (await client.query('SELECT 1 FROM stock_sheet_lines WHERE product_id = $1 AND date > $2 LIMIT 1', [match.id, date])).rows[0];
       var diff = line.stock - Number(match.current_stock);
-      if (diff === 0) { unchanged++; continue; }
+      if (diff === 0 || later) { unchanged++; continue; }
       // Stock only. A blank category or unit is filled in; anything already
       // set in the OS — including prices, reorder level and the name — is
       // left as it is.

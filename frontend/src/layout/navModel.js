@@ -33,6 +33,8 @@ export const NAV_GROUPS = [
   { label: msg('Operations'), items: [
     { key: 'production', label: msg('Raw bamboo & production'), perm: 'production.read', icon: 'leaf' },
     { key: 'inventory', label: msg('Products & inventory'), perm: 'inventory.read', icon: 'box' },
+    { key: 'stocksheet', label: msg('Daily stock sheet'), perm: 'inventory.read', icon: 'checklist' },
+    { key: 'stocksummary', label: msg('Stock summary'), perm: 'inventory.read', icon: 'chart' },
     { key: 'suppliers', label: msg('Suppliers'), perm: 'supplier.read', icon: 'building' },
     { key: 'procurement', label: msg('Procurement'), perm: 'procurement.request', icon: 'cart' },
     { key: 'assets', label: msg('Assets & maintenance'), perm: 'asset.read', icon: 'wrench' },

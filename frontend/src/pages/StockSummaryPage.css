@@ -1,0 +1,35 @@
+.stocksummary-intro { margin: 0 0 16px; font-size: 13px; max-width: 80ch; color: var(--color-text-muted); }
+.stocksummary-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.stocksummary-monthpicker { display: flex; gap: 6px; align-items: center; }
+.stocksummary-monthpicker .input { width: auto; }
+.stocksummary-category { width: auto; min-width: 150px; }
+.stocksummary-check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.stocksummary-status { font-size: 13px; margin-bottom: 10px; }
+.stocksummary-note { font-size: 13px; color: var(--color-text-muted); padding: 0 12px; }
+.stocksummary-empty {
+  border: var(--divider-width) solid var(--color-divider); padding: 28px; text-align: center;
+  font-size: 13px; color: var(--color-text-muted);
+}
+.stocksummary-empty p { margin: 0 0 12px; }
+
+.stocksummary-scroll { overflow-x: auto; border: var(--divider-width) solid var(--color-divider); max-width: 100%; }
+.stocksummary-table th { padding-top: 10px; white-space: nowrap; }
+.stocksummary-table td { padding: 7px 8px; vertical-align: middle; }
+.stocksummary-item {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--color-bg);
+  min-width: 200px; max-width: 260px;
+  border-right: var(--divider-width) solid var(--color-divider);
+}
+.stocksummary-name { font-weight: 600; font-size: 13px; }
+.stocksummary-meta { font-size: 11px; color: var(--color-text-faint); margin-top: 2px; }
+.stocksummary-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stocksummary-day a { color: inherit; }
+.stocksummary-day.is-empty { opacity: 0.45; }
+.stocksummary-blank { background: var(--color-bg-subtle); }
+.stocksummary-total { background: var(--color-bg-subtle); }
+.stocksummary-table td.has-variance {
+  color: var(--color-danger); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--color-danger);
+  cursor: help;
+}
