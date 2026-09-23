@@ -51,14 +51,17 @@ async function claim(ctx, id, status) {
 }
 
 async function confirm(ctx, id) {
-  var row = await claim(ctx, id, 'done');
+  return execute(ctx, await claim(ctx, id, 'done'), 'Confirmed in the AI Assistant: ');
+}
+
+async function execute(ctx, row, auditPrefix) {
   var tool = tools.get(row.tool);
   try {
     if (!tool || tool.kind !== 'action') fail('invalid', 'This kind of action is no longer available.');
     if (tool.perm && !ctx.can(tool.perm)) fail('forbidden', 'You no longer have permission to do this.');
     var out = await tool.execute(ctx, row.payload);
     await pool.query('UPDATE ai_actions SET result = $2 WHERE id = $1', [row.id, out.message]);
-    await audit(pool, ctx, 'ai.action', 'ai_action', row.id, 'Confirmed in the AI Assistant: ' + row.summary);
+    await audit(pool, ctx, 'ai.action', 'ai_action', row.id, auditPrefix + row.summary);
     return Object.assign(toCard(row), { status: 'done', result: out.message });
   } catch (err) {
     var message = err instanceof AppError ? err.message : 'Something went wrong doing this.';
@@ -66,6 +69,19 @@ async function confirm(ctx, id) {
     await pool.query("UPDATE ai_actions SET status = 'failed', result = $2 WHERE id = $1", [row.id, message]);
     return Object.assign(toCard(row), { status: 'failed', result: message });
   }
+}
+
+// Through the connector there is no Confirm button of ours: claude.ai and
+// the Claude apps ask the person to approve each call to a tool that
+// changes something before making it. So the change runs at once — still
+// recorded here, as done or failed, like one confirmed on the Assistant
+// screen.
+async function runNow(ctx, toolName, prepared, source) {
+  var res = await pool.query(
+    "INSERT INTO ai_actions (user_id, tool, summary, payload, status, decided_at, source) VALUES ($1,$2,$3,$4,'done',now(),$5) RETURNING *",
+    [ctx.user.id, toolName, prepared.summary, JSON.stringify(prepared.payload), source]
+  );
+  return execute(ctx, res.rows[0], 'Done through the Claude connector: ');
 }
 
 // Cancelling something that has already expired or been decided is not an
@@ -79,4 +95,4 @@ async function cancel(ctx, id) {
   }
 }
 
-module.exports = { offer: offer, confirm: confirm, cancel: cancel, EXPIRES_AFTER_MINUTES: EXPIRES_AFTER_MINUTES };
+module.exports = { offer: offer, confirm: confirm, cancel: cancel, runNow: runNow, EXPIRES_AFTER_MINUTES: EXPIRES_AFTER_MINUTES };

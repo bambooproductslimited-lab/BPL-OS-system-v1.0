@@ -81,3 +81,20 @@
   border-top: var(--divider-width) solid var(--color-divider);
 }
 .assistant-input { flex: 1; }
+
+.assistant-connector {
+  max-width: 820px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: var(--divider-width) solid var(--color-divider);
+  font-size: 13px;
+}
+.assistant-connector-title { font-weight: 700; margin-bottom: 4px; }
+.assistant-connector p { margin: 0 0 10px; color: var(--color-text-muted); max-width: 70ch; }
+.assistant-connector-url { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.assistant-connector-url code {
+  background: var(--color-bg-subtle);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}

@@ -129,6 +129,27 @@ step 1, and confirm the dashboard loads. From there, use the app itself
 see `backend/README.md` and `frontend/README.md` for what every screen
 does.
 
+## Optional — use Bamboo OS from claude.ai and the Claude apps
+
+The backend is also a Claude connector (remote MCP server, `backend/src/mcp/`):
+the same tools as the AI Assistant screen, used from claude.ai or the Claude
+desktop and mobile apps. It needs no Anthropic key — the person's own Claude
+plan does the thinking.
+
+1. In Claude: **Settings → Connectors → Add custom connector**. (On Team and
+   Enterprise plans an owner adds it for the organisation.)
+2. URL: `https://<your-backend>.onrender.com/mcp` — the AI Assistant screen
+   shows the exact address with a Copy button.
+3. Claude opens the OS's own sign-in page. Sign in with your OS email and
+   password and press **Sign in and allow**.
+
+Each person connects with their own account and sees only what their role
+allows. Claude asks before each change it makes (unless they tell it to
+always allow). A password change disconnects Claude from that account;
+disabling the account stops it at once. The sign-in addresses are built from
+Render's `RENDER_EXTERNAL_URL`; set `PUBLIC_URL` only if the backend is
+reached through a custom domain.
+
 ## Costs and alternatives
 
 Render's paid Postgres + web service starter plans run roughly $6–7/mo

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api/client';
+import { api, API_URL } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { tr, msg } from '../lib/i18n.jsx';
 import './AssistantPage.css';
@@ -82,6 +82,32 @@ function ActionCard({ action, onDecide }) {
           {action.result && action.status !== 'cancelled' ? ' · ' + action.result : ''}
         </div>
       )}
+    </div>
+  );
+}
+
+// The Claude connector (backend src/mcp/): the same tools, from claude.ai
+// and the Claude apps, signed in as the person with their OS email and
+// password.
+const CONNECTOR_URL = API_URL.replace(/\/api\/?$/, '') + '/mcp';
+
+function ConnectorHint() {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(CONNECTOR_URL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard permission denied — the address is still selectable text */ }
+  }
+  return (
+    <div className="assistant-connector">
+      <div className="assistant-connector-title">{tr('Use Bamboo OS from the Claude app')}</div>
+      <p>{tr('In claude.ai or the Claude app, go to Settings → Connectors → Add custom connector and paste this address. You sign in with your OS email and password, and Claude sees only what you can see.')}</p>
+      <div className="assistant-connector-url">
+        <code>{CONNECTOR_URL}</code>
+        <button type="button" className="btn btn-secondary" onClick={copy}>{copied ? tr('Copied!') : tr('Copy')}</button>
+      </div>
     </div>
   );
 }
@@ -195,6 +221,7 @@ export default function AssistantPage() {
           <button className="btn btn-primary" type="submit" disabled={busy}>{tr('Send')}</button>
         </form>
       </div>
+      <ConnectorHint />
     </div>
   );
 }

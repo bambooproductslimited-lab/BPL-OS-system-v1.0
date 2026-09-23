@@ -76,6 +76,10 @@ module.exports = {
   kioskPinPepper: (process.env.NODE_ENV === 'production') ? required('KIOSK_PIN_PEPPER') : required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
+  // Where this backend is reached from outside — the Claude connector's
+  // sign-in addresses are built from it (src/mcp/). Render sets
+  // RENDER_EXTERNAL_URL itself; PUBLIC_URL overrides it (e.g. a custom domain).
+  publicUrl: (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || ('http://localhost:' + (process.env.PORT || 4000))).trim().replace(/\/+$/, ''),
   ai: {
     // .trim() guards against a trailing newline/space from copy-pasting the
     // key into Render's environment UI — Anthropic rejects the key outright

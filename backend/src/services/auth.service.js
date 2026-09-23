@@ -79,6 +79,9 @@ async function changeOwnPassword(ctx, currentPassword, newPassword) {
     'UPDATE users SET password_hash = $1, must_change_password = false, updated_at = now() WHERE id = $2',
     [hash, ctx.user.id]
   );
+  // A new password also disconnects Claude (src/mcp/) from the account.
+  // Required here, not at the top, because mcp/oauth.js requires this file.
+  await require('../mcp/oauth').revokeAllForUser(pool, ctx.user.id);
   await audit(pool, ctx, 'auth.password_change', 'user', ctx.user.id, 'Changed their own password.');
   return true;
 }

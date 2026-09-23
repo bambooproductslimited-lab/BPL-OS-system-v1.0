@@ -57,7 +57,8 @@ function aboutTheAsker(ctx) {
 }
 
 function toolDefinition(t) {
-  return { name: t.name, description: t.description, input_schema: t.input_schema };
+  var description = t.kind === 'action' ? t.description + ' Only prepares the change: it happens when the person presses Confirm on screen.' : t.description;
+  return { name: t.name, description: description, input_schema: t.input_schema };
 }
 
 // Runs one tool_use block and returns its tool_result. Errors a person

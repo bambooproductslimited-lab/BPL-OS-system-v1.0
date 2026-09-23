@@ -117,6 +117,7 @@ var ALLOWED = {
   'GET /api/messages/directory': 'staff directory: colleagues to message. Names and job titles only',
   'GET /api/messages/:peerId': 'own conversation with one colleague',
   'POST /api/messages/:peerId': 'internal messaging — staff may message each other by design',
+  'POST /oauth/login': "the Claude connector's sign-in form — public like the login screen; issues nothing without a signed /authorize request and the person's own email and password (claudeConnector.test.js)",
   'POST /api/ai/chat': "assistant; each of Claude's tools runs with the caller's own permissions, asserted below",
   'POST /api/ai/actions/:id/confirm': "confirms a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)",
   'POST /api/ai/actions/:id/cancel': "cancels a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)"
@@ -186,6 +187,13 @@ function allRoutes() {
           if (layer.route.methods[m]) found.push({ method: m.toUpperCase(), path: prefix + layer.route.path });
         });
       } else if (layer.handle && layer.handle.stack) {
+        // Routers without a regexp are Express 5's: the OAuth library's own
+        // (@modelcontextprotocol/sdk's mcpAuthRouter, in src/mcp/). Their
+        // mount paths can't be read back, and they are public by design —
+        // /.well-known metadata, /register, /authorize, /token, /revoke are
+        // what an OAuth client calls before it has any token. What they
+        // hand out is covered by claudeConnector.test.js.
+        if (!layer.regexp) return;
         walk(layer.handle.stack, prefix + prefixOf(layer));
       }
     });

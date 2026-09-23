@@ -137,6 +137,7 @@ async function setPassword(ctx, userId, password) {
     'UPDATE users SET password_hash = $1, must_change_password = true, failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $2',
     [passwordHash, userId]
   );
+  await require('../mcp/oauth').revokeAllForUser(pool, userId); // also disconnects Claude (src/mcp/)
   await audit(pool, ctx, 'user.setPassword', 'user', userId, 'Reset password for ' + userRes.rows[0].email + '.');
   var updated = await list(ctx);
   return updated.filter(function (u) { return u.id === userId; })[0];

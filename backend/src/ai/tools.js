@@ -32,12 +32,12 @@ var expensesService = require('../services/expenses.service');
 // Two kinds of tool:
 //
 //   read    — look something up and return it. Nothing changes.
-//   action  — change something (create a task, request leave…). On the
-//             Assistant screen an action is never done by Claude directly:
-//             prepare() checks it and describes it, and it happens only when
-//             the person presses Confirm (see ai/actions.js). Through the
-//             connector, Claude's own apps ask the person to approve each
-//             such call before it runs.
+//   action  — change something (create a task, request leave…). prepare()
+//             checks the request and describes it; execute() does it. On
+//             the Assistant screen execute() runs only when the person
+//             presses Confirm (see ai/actions.js). Through the connector,
+//             Claude's own apps ask the person to approve each such call
+//             before it is made, and it runs at once.
 //
 // Results are JSON, trimmed to the fields that answer questions — ids and
 // internal columns are left out unless a follow-up needs them — and lists
@@ -397,7 +397,7 @@ var TOOLS = [
     name: 'create_task',
     kind: 'action',
     perm: 'task.manage',
-    description: 'Create a task and assign it. The task is not created until the person confirms it on screen.',
+    description: 'Create a task and assign it.',
     input_schema: {
       type: 'object',
       properties: {
@@ -431,7 +431,7 @@ var TOOLS = [
     name: 'request_leave',
     kind: 'action',
     perm: 'leave.request',
-    description: 'Submit a leave request for the person asking. Weekends and public holidays are not counted. Not submitted until the person confirms it on screen.',
+    description: 'Submit a leave request for the person asking. Weekends and public holidays are not counted.',
     input_schema: {
       type: 'object',
       properties: {
@@ -467,7 +467,7 @@ var TOOLS = [
     name: 'submit_purchase_request',
     kind: 'action',
     perm: 'procurement.request',
-    description: 'Raise a purchase request for approval. Not submitted until the person confirms it on screen.',
+    description: 'Raise a purchase request for approval.',
     input_schema: {
       type: 'object',
       properties: {
@@ -502,7 +502,7 @@ var TOOLS = [
     name: 'add_customer',
     kind: 'action',
     perm: 'customer.manage',
-    description: 'Add a new customer. Not added until the person confirms it on screen. Check search_customers first so the same customer is not added twice.',
+    description: 'Add a new customer. Check search_customers first so the same customer is not added twice.',
     input_schema: {
       type: 'object',
       properties: {
@@ -535,8 +535,9 @@ var TOOLS = [
   {
     name: 'update_product_stock',
     kind: 'action',
+    destructive: true, // overwrites the recorded quantity
     perm: 'inventory.manage',
-    description: 'Set the stock on hand of one product after a count or correction, recorded in the stock history with the reason. Not changed until the person confirms it on screen.',
+    description: 'Set the stock on hand of one product after a count or correction, recorded in the stock history with the reason.',
     input_schema: {
       type: 'object',
       properties: {
@@ -567,11 +568,11 @@ var TOOLS = [
       var diff = payload.newStock - Number(cur.current_stock);
       if (diff) {
         await pool.query(
-          "INSERT INTO inventory_tx (item_type, item_id, type, qty, date, user_id, reference, notes) VALUES ('product',$1,'adjustment',$2,$3,$4,'AI Assistant',$5)",
+          "INSERT INTO inventory_tx (item_type, item_id, type, qty, date, user_id, reference, notes) VALUES ('product',$1,'adjustment',$2,$3,$4,'Claude',$5)",
           [cur.id, diff, todayISO(), ctx.employee.id, payload.reason]
         );
       }
-      await audit(pool, ctx, 'product.stockAdjust', 'product', cur.id, 'Stock of ' + cur.sku + ' set to ' + payload.newStock + ' via the AI Assistant: ' + payload.reason);
+      await audit(pool, ctx, 'product.stockAdjust', 'product', cur.id, 'Stock of ' + cur.sku + ' set to ' + payload.newStock + ' via Claude: ' + payload.reason);
       return { message: 'Stock of ' + cur.name + ' is now ' + payload.newStock + '.' };
     }
   }

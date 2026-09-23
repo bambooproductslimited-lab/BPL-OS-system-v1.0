@@ -61,6 +61,7 @@ var squareRoutes = require('./routes/square.routes');
 var timestationRoutes = require('./routes/timestation.routes');
 var sharesRoutes = require('./routes/shares.routes');
 var pokiRoutes = require('./routes/poki.routes');
+var { connectorRouter } = require('./mcp');
 
 var app = express();
 
@@ -165,6 +166,10 @@ app.use('/api/kiosk', kioskRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/poki', pokiRoutes);
 app.use('/api/square', squareRoutes);
+
+// The Claude connector (src/mcp/): OAuth sign-in at the root, where OAuth
+// clients look for it, and the MCP endpoint at /mcp.
+app.use(connectorRouter());
 
 app.use(function (req, res) {
   res.status(404).json({ error: { code: 'notfound', message: 'Unknown endpoint: ' + req.method + ' ' + req.path } });
