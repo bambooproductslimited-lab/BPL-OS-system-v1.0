@@ -100,6 +100,7 @@ var ALLOWED = {
   'GET /api/me/': 'own profile',
   'GET /api/me/summary': 'own summary',
   'POST /api/me/password': 'changes own password; requires the current one',
+  'POST /api/me/locale': "sets the caller's own interface language; writes nothing but their own users.locale",
   'GET /api/notifications/': 'own notifications',
   'POST /api/notifications/read': 'marks own notifications read',
   'GET /api/leave/': 'own leave requests — scoped, asserted below',
@@ -162,6 +163,8 @@ var PROBES = {
   'POST /api/tool-room/import/preview': function () { return { path: '/api/tool-room/import/preview', form: csvUpload('Name,Kind,Quantity\nProbe,material,1\n') }; },
   'POST /api/it-devices/import/preview': function () { return { path: '/api/it-devices/import/preview', form: csvUpload('Name,Type,Total\nProbe,laptop,1\n') }; },
   'POST /api/suppliers/import/preview': function () { return { path: '/api/suppliers/import/preview', form: csvUpload('Name,Mobile,Town\nProbe,0209 999 999,Nowhere\n') }; },
+  'POST /api/products/import/preview': function () { return { path: '/api/products/import/preview', form: csvUpload(',Category,Variation,UOM,Physical Count\nZ99 Probe,Other,Regular,Each,1\n') }; },
+  'POST /api/products/import/commit': function () { return { path: '/api/products/import/commit', body: { countDate: '2026-09-22', lines: [{ sku: 'Z99-PROBE', name: 'Probe', category: 'Other', unit: 'each', stock: 1, action: 'create' }] } }; },
   'POST /api/suppliers/import/commit': function () { return { path: '/api/suppliers/import/commit', body: { suppliers: [{ name: 'Probe', phone: '0209 999 998' }] } }; }
 };
 

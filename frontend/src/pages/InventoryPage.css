@@ -1,5 +1,6 @@
 .inventory-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
@@ -42,3 +43,19 @@
 
 .inventory-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
 .inventory-dialog-span { grid-column: 1 / -1; }
+
+.inventory-toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.inventory-import-dialog { max-width: 760px; max-height: 90vh; overflow: auto; }
+.inventory-import-summary { font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+.inventory-import-warncount { color: var(--color-accent); font-size: 12px; font-weight: 600; }
+.inventory-import-date { max-width: 220px; }
+.inventory-import-list { max-height: 45vh; overflow: auto; border: var(--divider-width) solid var(--color-divider); }
+.inventory-import-row { padding: 8px 12px; border-bottom: var(--divider-width) solid var(--color-divider); font-size: 13px; }
+.inventory-import-row:last-child { border-bottom: 0; }
+.inventory-import-unchanged, .inventory-import-skip { opacity: 0.6; }
+.inventory-import-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.inventory-import-head .tag { margin-left: auto; }
+.inventory-import-meta { color: var(--color-text-muted); font-size: 12px; }
+.inventory-import-stock { font-size: 12px; margin-top: 3px; }
+.inventory-import-warning { font-size: 12px; margin-top: 3px; color: var(--color-accent); }
