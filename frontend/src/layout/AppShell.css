@@ -309,6 +309,19 @@
   .shell-content { padding: 18px 14px; }
 }
 
+/* Phones. The header's actions — theme, language, notifications — sat on
+   the same line as the page title with nowhere to go, and once the
+   language picker joined them they ran ~100px past the right edge of a
+   390px screen. That put the notification bell off-screen on every page,
+   on exactly the device where you turn pop-up alerts on. Below 640px the
+   actions drop to their own line under the title instead. */
+@media (max-width: 640px) {
+  .shell-header { flex-wrap: wrap; padding: 14px 14px 12px; gap: 10px; }
+  .shell-header-title-row { min-width: 0; }
+  .shell-header-title { font-size: 19px; }
+  .shell-header-actions { width: 100%; justify-content: flex-end; }
+}
+
 /* Wide content scrolls inside the page area instead of dragging the whole
    document sideways — which is what made the themed background run out and
    show a white band down the edge. One rule here covers every page, since

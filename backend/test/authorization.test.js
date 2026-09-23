@@ -160,7 +160,9 @@ var PROBES = {
   'GET /api/attendance/unassigned-shifts': function () { return { path: '/api/attendance/unassigned-shifts' }; },
   'POST /api/employees/import/preview': function () { return { path: '/api/employees/import/preview', form: csvUpload('Code,First name,Last name\nE1,Probe,Probe\n') }; },
   'POST /api/tool-room/import/preview': function () { return { path: '/api/tool-room/import/preview', form: csvUpload('Name,Kind,Quantity\nProbe,material,1\n') }; },
-  'POST /api/it-devices/import/preview': function () { return { path: '/api/it-devices/import/preview', form: csvUpload('Name,Type,Total\nProbe,laptop,1\n') }; }
+  'POST /api/it-devices/import/preview': function () { return { path: '/api/it-devices/import/preview', form: csvUpload('Name,Type,Total\nProbe,laptop,1\n') }; },
+  'POST /api/suppliers/import/preview': function () { return { path: '/api/suppliers/import/preview', form: csvUpload('Name,Mobile,Town\nProbe,0209 999 999,Nowhere\n') }; },
+  'POST /api/suppliers/import/commit': function () { return { path: '/api/suppliers/import/commit', body: { suppliers: [{ name: 'Probe', phone: '0209 999 998' }] } }; }
 };
 
 // ---------------------------------------------------------------------------

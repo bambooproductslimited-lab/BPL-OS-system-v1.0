@@ -42,3 +42,82 @@
 
 .suppliers-dialog-title { grid-column: 1 / -1; margin: 0; font-size: 20px; }
 .suppliers-dialog-span { grid-column: 1 / -1; }
+
+/* Farmer register additions — see the comment at the top of SuppliersPage.jsx. */
+.suppliers-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; flex: 1; min-width: 0; }
+.suppliers-region { width: auto; min-width: 150px; }
+.suppliers-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.suppliers-count { margin: -6px 0 10px; font-size: 12px; color: var(--color-text-muted); }
+.suppliers-sub { font-size: 12px; color: var(--color-text-muted); margin-top: 1px; }
+.suppliers-nowrap { white-space: nowrap; }
+.suppliers-inactive { margin-left: 8px; font-size: 11px; vertical-align: middle; }
+
+/* The form roughly doubled in length, and the base .dialog has no height
+   limit — without this the Save button ends up below the bottom of a
+   laptop screen with no way to reach it. */
+.suppliers-dialog { max-height: 90vh; overflow-y: auto; }
+.suppliers-dialog-section {
+  grid-column: 1 / -1;
+  margin: 6px 0 -4px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+@media (max-width: 560px) {
+  .suppliers-dialog { grid-template-columns: 1fr; }
+  .suppliers-toolbar { flex-direction: column; align-items: stretch; }
+}
+
+.suppliers-import-dialog { max-width: 760px; max-height: 90vh; overflow: auto; }
+.suppliers-import-summary { font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+.suppliers-import-datenote { color: var(--color-text-muted); font-size: 12px; }
+.suppliers-import-warncount { color: var(--color-accent); font-size: 12px; font-weight: 600; }
+.suppliers-import-list { max-height: 45vh; overflow: auto; border: var(--divider-width) solid var(--color-divider); }
+.suppliers-import-row { padding: 8px 12px; border-bottom: var(--divider-width) solid var(--color-divider); font-size: 13px; }
+.suppliers-import-row:last-child { border-bottom: 0; }
+.suppliers-import-unchanged { opacity: 0.6; }
+.suppliers-import-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.suppliers-import-head .tag { margin-left: auto; }
+.suppliers-import-meta { color: var(--color-text-muted); font-size: 12px; }
+.suppliers-import-change { font-size: 12px; margin-top: 3px; }
+.suppliers-import-warning { font-size: 12px; margin-top: 3px; color: var(--color-accent); }
+
+/* Phones: the table keeps only what you look someone up by — who and where,
+   and their number. Price, assessment, status and batches are all in the
+   row's detail panel, one tap away, instead of forcing a 760px table to
+   scroll sideways in a 330px space (and crushing names down to a letter per
+   line, which is what the columns that could not wrap did to the one that
+   could). */
+@media (max-width: 640px) {
+  .suppliers-col-optional { display: none; }
+  .suppliers-badge { display: none; }
+}
+
+/* Names break between words, never inside one. The app-wide table rule
+   (theme.css) lets any cell break anywhere, which keeps wide tables from
+   overflowing but let this column be squeezed to a letter per line
+   ("Abab / io"). Measured before changing it for everyone: making it
+   break-word app-wide pushed twenty other screens past the edge, so it is
+   relaxed here only, where the columns beside it are few enough to fit. */
+.suppliers-name-td { overflow-wrap: break-word; }
+
+/* A phone number stays on one line wherever there is room for it. On
+   phones the cells give up some of their side padding to make that room;
+   only on the very narrowest screens may a number break at its own spaces
+   (0541 385 / 813), which is still readable and is what keeps "Emmanuel"
+   in one piece beside it. */
+.suppliers-phone { white-space: nowrap; }
+@media (max-width: 640px) {
+  .suppliers-table th, .suppliers-table td { padding-left: 7px; padding-right: 7px; }
+}
+@media (max-width: 370px) {
+  .suppliers-phone { white-space: normal; overflow-wrap: normal; }
+}
+/* An iPad sits between the two, in either orientation — in landscape the
+   full sidebar is still showing and the page area is no wider than in
+   portrait. Price and status still fit; assessment and batch count go to
+   the detail panel. */
+@media (max-width: 1100px) {
+  .suppliers-col-wide { display: none; }
+}

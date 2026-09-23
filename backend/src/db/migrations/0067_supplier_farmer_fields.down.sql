@@ -1,0 +1,14 @@
+ALTER TABLE suppliers
+  DROP COLUMN IF EXISTS region,
+  DROP COLUMN IF EXISTS town,
+  DROP COLUMN IF EXISTS district,
+  DROP COLUMN IF EXISTS phone2,
+  DROP COLUMN IF EXISTS quoted_price,
+  DROP COLUMN IF EXISTS price_unit,
+  DROP COLUMN IF EXISTS assessment,
+  DROP COLUMN IF EXISTS sourcing_status,
+  DROP COLUMN IF EXISTS expected_qty,
+  DROP COLUMN IF EXISTS iou_amount,
+  DROP COLUMN IF EXISTS iou_notes,
+  DROP COLUMN IF EXISTS first_contact_date,
+  DROP COLUMN IF EXISTS notes;
