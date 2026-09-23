@@ -12,8 +12,10 @@ import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
+import { formatDocDate } from '../lib/dates';
 import './EstimatesPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's estimates screen (screens.estimates block,
 // dialog.estimate / dialog.estimateEdit / dialog.estimatePreview, and the
@@ -57,7 +59,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function docTagClass(bucket) {
@@ -167,7 +169,7 @@ export default function EstimatesPage() {
       };
       if (editId) await api.put('/estimates/' + editId, payload);
       else await api.post('/estimates', payload);
-      setToast(editId ? 'Estimate updated.' : 'Estimate created.');
+      setToast(editId ? tr('Estimate updated.') : tr('Estimate created.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -182,7 +184,7 @@ export default function EstimatesPage() {
     setError(null);
     try {
       await api.post('/estimates/' + es.id + '/status', { status: 'finalized' });
-      setToast(es.estimateNo + ' finalized.');
+      setToast(tr('{estimateNo} finalized.', { estimateNo: es.estimateNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -196,7 +198,7 @@ export default function EstimatesPage() {
     setError(null);
     try {
       const q = await api.post('/estimates/' + es.id + '/convert', {});
-      setToast(q.quoteNo + ' created from estimate.');
+      setToast(tr('{quoteNo} created from estimate.', { quoteNo: q.quoteNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -209,7 +211,7 @@ export default function EstimatesPage() {
     setDeleting(true);
     try {
       await api.del('/estimates/' + deleteTarget.id);
-      setToast(deleteTarget.estimateNo + ' deleted.');
+      setToast(tr('{estimateNo} deleted.', { estimateNo: deleteTarget.estimateNo }));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -231,11 +233,11 @@ export default function EstimatesPage() {
   // Shared by the row menu and the record panel so the two cannot drift.
   function rowActions(es) {
     return [
-      { label: 'Preview', onClick: () => openPreview(es) },
-      { label: 'Finalize', onClick: () => finalize(es), hidden: !(es.status === 'draft' && canManage) },
-      { label: 'Convert to quotation', onClick: () => convert(es), hidden: !(es.status === 'finalized' && canManage) },
-      { label: 'Edit', onClick: () => openEdit(es), hidden: !(es.status === 'draft' && canManage) },
-      { label: 'Delete', onClick: () => setDeleteTarget(es), danger: true, hidden: !(es.status !== 'converted' && canManage) },
+      { label: tr('Preview'), onClick: () => openPreview(es) },
+      { label: tr('Finalize'), onClick: () => finalize(es), hidden: !(es.status === 'draft' && canManage) },
+      { label: tr('Convert to quotation'), onClick: () => convert(es), hidden: !(es.status === 'finalized' && canManage) },
+      { label: tr('Edit'), onClick: () => openEdit(es), hidden: !(es.status === 'draft' && canManage) },
+      { label: tr('Delete'), onClick: () => setDeleteTarget(es), danger: true, hidden: !(es.status !== 'converted' && canManage) },
     ];
   }
 
@@ -271,7 +273,7 @@ export default function EstimatesPage() {
                 <td className="estimates-items-line col-wide">{es.items.map((i) => i.description + ' × ' + i.qty).join(', ')}</td>
                 <td>{money(es.grandTotal, es.currency)}</td>
                 <td className="col-mid">{fmtDate(es.validUntil)}</td>
-                <td><span className={'tag ' + estimateTagClass(es.status)}>{es.status}</span></td>
+                <td><span className={'tag ' + estimateTagClass(es.status)}>{codeLabel(es.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu disabled={busyId === es.id} actions={rowActions(es)} />
                 </td>
@@ -289,7 +291,7 @@ export default function EstimatesPage() {
       {!!estimates.length && !visibleEstimates.length && (
         <div className="estimates-empty-state">
           <span className="estimates-empty-icon"><DocIcon /></span>
-          <p className="estimates-empty-title">{tr('No estimates match "')}{search}"</p>
+          <p className="estimates-empty-title">{tr('No estimates match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -319,17 +321,17 @@ export default function EstimatesPage() {
               </div>
             </div>
           }
-          message={form.clientNotes} onMessageChange={(v) => setForm({ ...form, clientNotes: v })} messageLabel="Message to customer"
+          message={form.clientNotes} onMessageChange={(v) => setForm({ ...form, clientNotes: v })} messageLabel={tr('Message to customer')}
           items={items} onItemsChange={setItems} catalogOptions={catalog}
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
-            { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
-            { label: 'Valid until', value: fmtDate(form.validUntil) }
+            { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
+            { label: tr('Valid until'), value: fmtDate(form.validUntil) }
           ]}
-          submitLabel={editId ? 'Save changes' : 'Create estimate'} saving={saving} error={dialogError}
+          submitLabel={editId ? tr('Save changes') : tr('Create estimate')} saving={saving} error={dialogError}
           onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
         />
       )}
@@ -337,7 +339,7 @@ export default function EstimatesPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete')} {deleteTarget.estimateNo}</h2>
+            <h2>{tr('Delete {estimateNo}', { estimateNo: deleteTarget.estimateNo })}</h2>
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
@@ -351,17 +353,17 @@ export default function EstimatesPage() {
         <RecordDialog
           title={detail.estimateNo}
           subtitle={detail.customerName}
-          tag={<span className={'tag ' + estimateTagClass(detail.status)}>{detail.status}</span>}
+          tag={<span className={'tag ' + estimateTagClass(detail.status)}>{codeLabel(detail.status)}</span>}
           actions={rowActions(detail)}
           onClose={() => setDetail(null)}
           items={itemsForDialog(detail.items, detail.currency)}
           totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: 'Valid until', value: fmtDate(detail.validUntil) },
-            { label: 'Currency', value: detail.currency },
-            { label: 'Title', value: detail.title, wide: true },
-            { label: 'Notes', value: detail.notes, wide: true },
-            { label: 'Terms', value: detail.terms, wide: true },
+            { label: tr('Valid until'), value: fmtDate(detail.validUntil) },
+            { label: tr('Currency'), value: detail.currency },
+            { label: tr('Title'), value: detail.title, wide: true },
+            { label: tr('Notes'), value: detail.notes, wide: true },
+            { label: tr('Terms'), value: detail.terms, wide: true },
           ]}
         />
       )}
@@ -369,25 +371,25 @@ export default function EstimatesPage() {
       {previewEs && (
         <DocPreview
           documentType="estimate" documentId={previewEs.id}
-          docLabel={'Estimate #' + previewEs.estimateNo}
-          dateLabel="Issue date"
-          dateValue={fmtDate(previewEs.createdAt)}
-          heading={'Estimate for ' + previewEs.customerName}
-          subHeading={'Valid until ' + fmtDate(previewEs.validUntil)}
+          docLabel={docTr('Estimate #{estimateNo}', { estimateNo: previewEs.estimateNo })}
+          dateLabel={docTr('Issue date')}
+          dateValue={formatDocDate(previewEs.createdAt)}
+          heading={docTr('Estimate for {customerName}', { customerName: previewEs.customerName })}
+          subHeading={docTr('Valid until {date}', { date: formatDocDate(previewEs.validUntil) })}
           blocks={[
-            { title: 'Customer', lines: [previewEs.customerName, previewEs.customerEmail] },
-            { title: 'Estimate Details', lines: ['Created ' + fmtDate(previewEs.createdAt), money(previewEs.grandTotal, previewEs.currency)] },
-            { title: 'Validity', lines: ['Valid until ' + fmtDate(previewEs.validUntil), money(previewEs.grandTotal, previewEs.currency)] }
+            { title: docTr('Customer'), lines: [previewEs.customerName, previewEs.customerEmail] },
+            { title: docTr('Estimate Details'), lines: [docTr('Created {date}', { date: formatDocDate(previewEs.createdAt) }), money(previewEs.grandTotal, previewEs.currency)] },
+            { title: docTr('Validity'), lines: [docTr('Valid until {date}', { date: formatDocDate(previewEs.validUntil) }), money(previewEs.grandTotal, previewEs.currency)] }
           ]}
           items={groupPackageItems(previewEs.items, previewEs.currency)}
           subtotal={money(previewEs.subtotal, previewEs.currency)}
           discountRows={adjustmentRows(previewEs, previewEs.currency).discountRows}
           taxRows={adjustmentRows(previewEs, previewEs.currency).taxRows}
-          totalLabel="Grand Total"
+          totalLabel={docTr('Grand Total')}
           total={money(previewEs.grandTotal, previewEs.currency)}
-          notesLabel="Notes"
+          notesLabel={docTr('Notes')}
           notesValue={previewEs.clientNotes}
-          termsLabel="Terms & conditions"
+          termsLabel={docTr('Terms & conditions')}
           termsValue={previewEs.terms}
           paymentSchedule={formatPaymentSchedule(previewEs.paymentSchedule, previewEs.currency)}
           onClose={() => setPreviewEs(null)}

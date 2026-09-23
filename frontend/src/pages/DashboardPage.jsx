@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { moneyBreakdown } from '../lib/currency';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './DashboardPage.css';
 
 // Ported from Bamboo OS.dc.html's dashboard screen (screens.dashboard
@@ -22,23 +22,23 @@ import './DashboardPage.css';
 
 function greeting() {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return tr('Good morning');
+  if (h < 17) return tr('Good afternoon');
+  return tr('Good evening');
 }
 function fmtToday() {
-  return new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  return new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
 }
 function timeAgo(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
+  if (mins < 1) return tr('just now');
+  if (mins < 60) return tr('{mins}m ago', { mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + 'h ago';
+  if (hours < 24) return tr('{hours}h ago', { hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return days + 'd ago';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  if (days < 7) return tr('{days}d ago', { days });
+  return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short' });
 }
 
 const ICON_PATHS = {
@@ -99,23 +99,23 @@ export default function DashboardPage() {
   const firstName = session && session.employee ? session.employee.firstName : '';
 
   const kpis = [
-    { key: 'headcount', icon: 'users', tone: 'people', label: 'Headcount in scope', value: dash.headcount, note: 'Active employees you can see', route: '/people' },
-    { key: 'present', icon: 'clock', tone: 'people', label: 'Clocked in today', value: dash.presentToday, note: (dash.notClockedIn || 0) + ' still to clock in', route: '/attendance' },
-    { key: 'late', icon: 'clock', tone: 'warning', label: 'Late today', value: dash.lateToday, note: 'After ' + lateAfter, route: '/attendance' },
-    { key: 'onleave', icon: 'calendar', tone: 'people', label: 'On approved leave', value: dash.onLeaveToday, note: 'Away today', route: '/leave' },
-    { key: 'pendingleave', icon: 'calendar', tone: 'warning', label: 'Pending leave', value: dash.pendingLeave, note: 'Awaiting a decision', route: '/leave' },
-    { key: 'mytasks', icon: 'checklist', tone: 'people', label: 'Your open tasks', value: dash.myOpenTasks, note: 'Assigned to you', route: '/tasks' }
+    { key: 'headcount', icon: 'users', tone: 'people', label: tr('Headcount in scope'), value: dash.headcount, note: tr('Active employees you can see'), route: '/people' },
+    { key: 'present', icon: 'clock', tone: 'people', label: tr('Clocked in today'), value: dash.presentToday, note: tr('{notClockedIn} still to clock in', { notClockedIn: dash.notClockedIn || 0 }), route: '/attendance' },
+    { key: 'late', icon: 'clock', tone: 'warning', label: tr('Late today'), value: dash.lateToday, note: tr('After {lateAfter}', { lateAfter }), route: '/attendance' },
+    { key: 'onleave', icon: 'calendar', tone: 'people', label: tr('On approved leave'), value: dash.onLeaveToday, note: tr('Away today'), route: '/leave' },
+    { key: 'pendingleave', icon: 'calendar', tone: 'warning', label: tr('Pending leave'), value: dash.pendingLeave, note: tr('Awaiting a decision'), route: '/leave' },
+    { key: 'mytasks', icon: 'checklist', tone: 'people', label: tr('Your open tasks'), value: dash.myOpenTasks, note: tr('Assigned to you'), route: '/tasks' }
   ];
-  if (dash.lowStockCount != null) kpis.push({ key: 'lowstock', icon: 'box', tone: 'ops', label: 'Low stock products', value: dash.lowStockCount, note: 'At or below reorder level', route: '/inventory' });
-  if (dash.pendingProcurement != null) kpis.push({ key: 'procure', icon: 'cart', tone: 'ops', label: 'Pending purchase requests', value: dash.pendingProcurement, note: 'Company-wide', route: '/procurement' });
-  if (dash.assetsDueService != null) kpis.push({ key: 'assets', icon: 'wrench', tone: 'ops', label: 'Assets due service', value: dash.assetsDueService, note: 'Within 7 days', route: '/assets' });
-  if (dash.outstandingInvoices != null && dash.outstandingInvoices.length) kpis.push({ key: 'invoices', icon: 'document', tone: 'finance', label: 'Outstanding invoices', value: moneyBreakdown(dash.outstandingInvoices), note: 'Unpaid balance', route: '/invoices' });
-  if (dash.pendingExpenses != null) kpis.push({ key: 'expenses', icon: 'document', tone: 'finance', label: 'Pending expense claims', value: dash.pendingExpenses, note: 'Awaiting a decision', route: '/expenses' });
+  if (dash.lowStockCount != null) kpis.push({ key: 'lowstock', icon: 'box', tone: 'ops', label: tr('Low stock products'), value: dash.lowStockCount, note: tr('At or below reorder level'), route: '/inventory' });
+  if (dash.pendingProcurement != null) kpis.push({ key: 'procure', icon: 'cart', tone: 'ops', label: tr('Pending purchase requests'), value: dash.pendingProcurement, note: tr('Company-wide'), route: '/procurement' });
+  if (dash.assetsDueService != null) kpis.push({ key: 'assets', icon: 'wrench', tone: 'ops', label: tr('Assets due service'), value: dash.assetsDueService, note: tr('Within 7 days'), route: '/assets' });
+  if (dash.outstandingInvoices != null && dash.outstandingInvoices.length) kpis.push({ key: 'invoices', icon: 'document', tone: 'finance', label: tr('Outstanding invoices'), value: moneyBreakdown(dash.outstandingInvoices), note: tr('Unpaid balance'), route: '/invoices' });
+  if (dash.pendingExpenses != null) kpis.push({ key: 'expenses', icon: 'document', tone: 'finance', label: tr('Pending expense claims'), value: dash.pendingExpenses, note: tr('Awaiting a decision'), route: '/expenses' });
 
   const attention = [
-    { key: 'approvals', icon: 'checklist', count: dash.approvalQueue || 0, label: 'Items in your approval queue', route: '/approvals' },
-    { key: 'leave', icon: 'calendar', count: dash.pendingLeave || 0, label: 'Pending leave requests in scope', route: '/leave' },
-    { key: 'clockin', icon: 'clock', count: dash.notClockedIn || 0, label: 'People not yet clocked in today', route: '/attendance' }
+    { key: 'approvals', icon: 'checklist', count: dash.approvalQueue || 0, label: tr('Items in your approval queue'), route: '/approvals' },
+    { key: 'leave', icon: 'calendar', count: dash.pendingLeave || 0, label: tr('Pending leave requests in scope'), route: '/leave' },
+    { key: 'clockin', icon: 'clock', count: dash.notClockedIn || 0, label: tr('People not yet clocked in today'), route: '/attendance' }
   ].filter((a) => a.count > 0);
 
   const sortedDepartments = [...dash.departments].sort((a, b) => b.rate - a.rate);

@@ -86,7 +86,7 @@ export default function AppShell() {
         <div className="shell-brand">
           <img src="/logo.png" alt="" className="shell-brand-logo" />
           <div className="shell-brand-text">
-            <div className="shell-brand-name">{tr('Bamboo Products')}</div>
+            <div className="shell-brand-name">Bamboo Products</div>
             <div className="shell-brand-sub">{tr('Company OS · Phase 1')}</div>
           </div>
         </div>
@@ -97,16 +97,16 @@ export default function AppShell() {
             if (!visibleItems.length) return null;
             return (
               <div className="shell-nav-group" key={group.label}>
-                <div className="shell-nav-group-label">{group.label}</div>
+                <div className="shell-nav-group-label">{tr(group.label)}</div>
                 {visibleItems.map((item) => (
                   <NavLink
                     key={item.key}
                     to={'/' + item.key}
                     className={({ isActive }) => 'shell-nav-item' + (isActive ? ' is-active' : '')}
-                    title={item.label}
+                    title={tr(item.label)}
                   >
                     <span className="shell-nav-icon"><Icon name={item.icon} /></span>
-                    <span className="shell-nav-label">{item.label}</span>
+                    <span className="shell-nav-label">{tr(item.label)}</span>
                   </NavLink>
                 ))}
               </div>
@@ -133,8 +133,8 @@ export default function AppShell() {
           <div className="shell-header-title-row">
             {currentItem && <span className="shell-header-icon"><Icon name={currentItem.icon} /></span>}
             <div>
-              <div className="eyebrow">{currentGroup ? currentGroup.label : tr('Bamboo OS')}</div>
-              <h1 className="shell-header-title">{currentItem ? currentItem.label : tr('Not found')}</h1>
+              <div className="eyebrow">{currentGroup ? tr(currentGroup.label) : 'Bamboo OS'}</div>
+              <h1 className="shell-header-title">{currentItem ? tr(currentItem.label) : tr('Not found')}</h1>
             </div>
           </div>
           <div className="shell-header-actions">

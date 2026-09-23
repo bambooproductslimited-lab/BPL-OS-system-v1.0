@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './AssetsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's assets screen (screens.assets block +
 // the assets/maintenance computed values, and the "Register asset" /
@@ -39,7 +40,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_ASSET_FORM = { category: '', description: '', purchaseDate: '', purchasePrice: '', assignedEmployeeId: '', location: '' };
@@ -101,7 +102,7 @@ export default function AssetsPage() {
     setAssetDialogError(null);
     try {
       await api.post('/assets', { ...assetForm, assignedEmployeeId: assetForm.assignedEmployeeId || null });
-      setToast('Asset registered.');
+      setToast(tr('Asset registered.'));
       setAssetDialogOpen(false);
       await load();
     } catch (err) {
@@ -123,7 +124,7 @@ export default function AssetsPage() {
     setMaintDialogError(null);
     try {
       await api.post('/maintenance', maintForm);
-      setToast('Maintenance record saved.');
+      setToast(tr('Maintenance record saved.'));
       setMaintDialogOpen(false);
       await load();
     } catch (err) {
@@ -175,9 +176,9 @@ export default function AssetsPage() {
                 ) : '—'}
               </td>
               <td style={{ fontSize: 12 }}>{a.location}</td>
-              <td>{a.condition}</td>
+              <td>{codeLabel(a.condition)}</td>
               <td>{fmtDate(a.nextServiceDate)}</td>
-              <td><span className={'tag ' + (a.serviceDue ? 'tag-accent' : 'tag-neutral')}>{a.serviceDue ? tr('Service due') : 'OK'}</span></td>
+              <td><span className={'tag ' + (a.serviceDue ? 'tag-accent' : 'tag-neutral')}>{a.serviceDue ? tr('Service due') : tr('OK')}</span></td>
             </tr>
           ))}
         </tbody>
@@ -191,7 +192,7 @@ export default function AssetsPage() {
       {!!assets.length && !visibleAssets.length && (
         <div className="assets-empty-state">
           <span className="assets-empty-icon"><WrenchIcon /></span>
-          <p className="assets-empty-title">{tr('No assets match "')}{search}"</p>
+          <p className="assets-empty-title">{tr('No assets match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -206,9 +207,9 @@ export default function AssetsPage() {
               <td>{m.assetLabel}</td>
               <td>{fmtDate(m.date)}</td>
               <td>{m.technician}</td>
-              <td>{tr('GHS')} {m.cost.toLocaleString()}</td>
+              <td>GHS {m.cost.toLocaleString()}</td>
               <td style={{ fontSize: 13 }}>{m.faultReport}</td>
-              <td>{m.downtimeHours}{tr('h')}</td>
+              <td>{tr('{downtimeHours}h', { downtimeHours: m.downtimeHours })}</td>
               <td>{m.partsReplaced || '—'}</td>
             </tr>
           ))}

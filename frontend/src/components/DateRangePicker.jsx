@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './DateRangePicker.css';
 
 // A Metricool-style date-range control: preset rows (nobody fights a
@@ -14,18 +14,18 @@ function endOfMonth(d) { return new Date(d.getFullYear(), d.getMonth() + 1, 0); 
 function startOfYear(d) { return new Date(d.getFullYear(), 0, 1); }
 
 export const PRESETS = [
-  { key: 'today', label: 'Today', range: function () { var t = new Date(); return { from: toISO(t), to: toISO(t) }; } },
-  { key: 'last7', label: 'Last 7 days', range: function () { return { from: toISO(daysAgo(6)), to: toISO(new Date()) }; } },
-  { key: 'last30', label: 'Last 30 days', range: function () { return { from: toISO(daysAgo(29)), to: toISO(new Date()) }; } },
-  { key: 'last90', label: 'Last 90 days', range: function () { return { from: toISO(daysAgo(89)), to: toISO(new Date()) }; } },
-  { key: 'thisMonth', label: 'This month', range: function () { var t = new Date(); return { from: toISO(startOfMonth(t)), to: toISO(new Date()) }; } },
+  { key: 'today', label: msg('Today'), range: function () { var t = new Date(); return { from: toISO(t), to: toISO(t) }; } },
+  { key: 'last7', label: msg('Last 7 days'), range: function () { return { from: toISO(daysAgo(6)), to: toISO(new Date()) }; } },
+  { key: 'last30', label: msg('Last 30 days'), range: function () { return { from: toISO(daysAgo(29)), to: toISO(new Date()) }; } },
+  { key: 'last90', label: msg('Last 90 days'), range: function () { return { from: toISO(daysAgo(89)), to: toISO(new Date()) }; } },
+  { key: 'thisMonth', label: msg('This month'), range: function () { var t = new Date(); return { from: toISO(startOfMonth(t)), to: toISO(new Date()) }; } },
   {
-    key: 'lastMonth', label: 'Last month', range: function () {
+    key: 'lastMonth', label: msg('Last month'), range: function () {
       var t = new Date(); var lm = new Date(t.getFullYear(), t.getMonth() - 1, 1);
       return { from: toISO(startOfMonth(lm)), to: toISO(endOfMonth(lm)) };
     }
   },
-  { key: 'thisYear', label: 'This year', range: function () { var t = new Date(); return { from: toISO(startOfYear(t)), to: toISO(new Date()) }; } }
+  { key: 'thisYear', label: msg('This year'), range: function () { var t = new Date(); return { from: toISO(startOfYear(t)), to: toISO(new Date()) }; } }
 ];
 
 // Matches .drp-panel's width in the stylesheet; used to right-align the panel
@@ -34,7 +34,7 @@ const PANEL_WIDTH = 280;
 
 function fmt(iso) {
   if (!iso) return '';
-  return new Date(iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function DateRangePicker({ value, onChange, showAllTime }) {
@@ -85,14 +85,14 @@ export default function DateRangePicker({ value, onChange, showAllTime }) {
     setOpen(false);
   }
   function chooseAllTime() {
-    onChange({ from: null, to: null, presetKey: 'all', label: 'All time' });
+    onChange({ from: null, to: null, presetKey: 'all', label: tr('All time') });
     setOpen(false);
   }
 
   return (
     <div className="drp-wrap" ref={wrapRef}>
       <button type="button" className="drp-trigger" onClick={() => setOpen((o) => !o)}>
-        <span className="drp-trigger-label">{value.label || (fmt(value.from) + ' – ' + fmt(value.to))}</span>
+        <span className="drp-trigger-label">{value.label ? tr(value.label) : (fmt(value.from) + ' – ' + fmt(value.to))}</span>
         <span className="drp-trigger-caret">▾</span>
       </button>
       {open && (
@@ -115,7 +115,7 @@ export default function DateRangePicker({ value, onChange, showAllTime }) {
             {PRESETS.map((p) => (
               <button type="button" key={p.key} className="drp-preset-row" onClick={() => choosePreset(p)}>
                 <span className="drp-preset-check">{value.presetKey === p.key ? '✓' : ''}</span>
-                {p.label}
+                {tr(p.label)}
               </button>
             ))}
           </div>

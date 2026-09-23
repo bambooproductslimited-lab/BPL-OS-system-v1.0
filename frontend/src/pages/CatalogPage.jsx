@@ -38,7 +38,7 @@ function BoxIcon() {
   );
 }
 
-function statusLabel(active) { return active ? 'Active' : 'Archived'; }
+function statusLabel(active) { return active ? tr('Active') : tr('Archived'); }
 
 const EMPTY_ITEM_FORM = {
   name: '', description: '', categoryId: '', taxRateId: '',
@@ -144,14 +144,14 @@ export default function CatalogPage() {
       const payload = { name: itemForm.name, description: itemForm.description, categoryId: itemForm.categoryId || undefined, taxRateId: itemForm.taxRateId || undefined };
       if (editItemId) {
         await api.put('/catalog/items/' + editItemId, payload);
-        setToast('Item updated.');
+        setToast(tr('Item updated.'));
       } else {
         await api.post('/catalog/items', {
           ...payload, name: itemForm.name,
           variationName: itemForm.variationName, code: itemForm.code, unit: itemForm.unit,
           defaultQty: itemForm.defaultQty, unitPrice: itemForm.unitPrice, costPrice: itemForm.costPrice, stockQty: itemForm.stockQty
         });
-        setToast('Item added.');
+        setToast(tr('Item added.'));
       }
       setItemDialogOpen(false);
       await load();
@@ -167,7 +167,7 @@ export default function CatalogPage() {
     setError(null);
     try {
       await api.post('/catalog/items/' + item.id + '/active', { active: !item.active });
-      setToast(item.name + (item.active ? ' archived.' : ' unarchived.'));
+      setToast(item.active ? tr('{name} archived.', { name: item.name }) : tr('{name} unarchived.', { name: item.name }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -180,7 +180,7 @@ export default function CatalogPage() {
     setDeleting(true);
     try {
       await api.del('/catalog/items/' + deleteItemTarget.id);
-      setToast(deleteItemTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: deleteItemTarget.name }));
       setDeleteItemTarget(null);
       await load();
     } catch (err) {
@@ -206,7 +206,7 @@ export default function CatalogPage() {
     try {
       if (varDialog.editId) await api.put('/catalog/variations/' + varDialog.editId, varDialog.form);
       else await api.post('/catalog/items/' + varDialog.itemId + '/variations', varDialog.form);
-      setToast(varDialog.editId ? 'Variation updated.' : 'Variation added.');
+      setToast(varDialog.editId ? tr('Variation updated.') : tr('Variation added.'));
       setVarDialog(null);
       await load();
     } catch (err) {
@@ -240,7 +240,7 @@ export default function CatalogPage() {
     setStockDialogError(null);
     try {
       await api.post('/catalog/variations/' + stockDialog.variationId + '/stock', { delta: stockDialog.delta, note: stockDialog.note });
-      setToast('Stock updated.');
+      setToast(tr('Stock updated.'));
       setStockDialog(null);
       await load();
     } catch (err) {
@@ -254,7 +254,7 @@ export default function CatalogPage() {
     setDeleting(true);
     try {
       await api.del('/catalog/variations/' + deleteVarTarget.id);
-      setToast(deleteVarTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: deleteVarTarget.name }));
       setDeleteVarTarget(null);
       await load();
     } catch (err) {
@@ -317,9 +317,9 @@ export default function CatalogPage() {
                 <td><span className={'tag ' + (item.active ? 'tag-neutral' : 'tag-accent')}>{statusLabel(item.active)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Edit", onClick: () => openEditItem(item), hidden: !(canManage) },
-                    { label: item.active ? 'Archive' : 'Unarchive', onClick: () => toggleItemActive(item), disabled: busyId === item.id, hidden: !(canManage) },
-                    { label: "Delete", onClick: () => setDeleteItemTarget(item), danger: true, hidden: !(canManage) },
+                    { label: tr('Edit'), onClick: () => openEditItem(item), hidden: !(canManage) },
+                    { label: item.active ? tr('Archive') : tr('Unarchive'), onClick: () => toggleItemActive(item), disabled: busyId === item.id, hidden: !(canManage) },
+                    { label: tr('Delete'), onClick: () => setDeleteItemTarget(item), danger: true, hidden: !(canManage) },
                   ]} />
                 </td>
               </tr>
@@ -337,16 +337,16 @@ export default function CatalogPage() {
                             <td>{v.name}</td>
                             <td>{v.code}</td>
                             <td>{v.unit}</td>
-                            <td>{tr('GHS')} {v.unitPrice.toLocaleString()}</td>
-                            <td>{tr('GHS')} {v.costPrice.toLocaleString()}</td>
+                            <td>GHS {v.unitPrice.toLocaleString()}</td>
+                            <td>GHS {v.costPrice.toLocaleString()}</td>
                             <td>{v.stockQty.toLocaleString()} {v.unit !== 'each' ? v.unit : ''}</td>
                             <td><span className={'tag ' + (v.active ? 'tag-neutral' : 'tag-accent')}>{statusLabel(v.active)}</span></td>
                             <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                               <RowMenu actions={[
-                                { label: "Adjust stock", onClick: () => openStockDialog(v), hidden: !(canManage) },
-                                { label: "Edit", onClick: () => openEditVariation(item.id, v), hidden: !(canManage) },
-                                { label: v.active ? 'Archive' : 'Unarchive', onClick: () => toggleVariationActive(v), disabled: busyId === v.id, hidden: !(canManage) },
-                                { label: "Delete", onClick: () => setDeleteVarTarget(v), danger: true, hidden: !(canManage && item.variations.length > 1) },
+                                { label: tr('Adjust stock'), onClick: () => openStockDialog(v), hidden: !(canManage) },
+                                { label: tr('Edit'), onClick: () => openEditVariation(item.id, v), hidden: !(canManage) },
+                                { label: v.active ? tr('Archive') : tr('Unarchive'), onClick: () => toggleVariationActive(v), disabled: busyId === v.id, hidden: !(canManage) },
+                                { label: tr('Delete'), onClick: () => setDeleteVarTarget(v), danger: true, hidden: !(canManage && item.variations.length > 1) },
                               ]} />
                             </td>
                           </tr>
@@ -370,7 +370,7 @@ export default function CatalogPage() {
       {!!items.length && !visibleItems.length && (
         <div className="catalog-empty-state">
           <span className="catalog-empty-icon"><BoxIcon /></span>
-          <p className="catalog-empty-title">{tr('No items match "')}{search}"</p>
+          <p className="catalog-empty-title">{tr('No items match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -516,7 +516,7 @@ export default function CatalogPage() {
       {deleteItemTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteItemTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete')} {deleteItemTarget.name}</h2>
+            <h2>{tr('Delete {name}', { name: deleteItemTarget.name })}</h2>
             <p className="dialog-body">{tr('This deletes the item and all of its variations. This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteItemTarget(null)}>{tr('Cancel')}</button>
@@ -529,7 +529,7 @@ export default function CatalogPage() {
       {deleteVarTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteVarTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete')} {deleteVarTarget.name}</h2>
+            <h2>{tr('Delete {name}', { name: deleteVarTarget.name })}</h2>
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteVarTarget(null)}>{tr('Cancel')}</button>

@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { tr } from '../lib/i18n.jsx';
 import './ApprovalsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's approval centre screen (screens.approvals
 // block + the approvals computed values around its render()). One
@@ -142,7 +143,7 @@ export default function ApprovalsPage() {
           <div className="approvals-item" key={a.id}>
             <span className="approvals-avatar" style={{ background: avatarColor(a.requesterName) }}>{initials(a.requesterName)}</span>
             <div className="approvals-item-body">
-              <div className="approvals-item-eyebrow"><Icon name={subjectIcon(a.subjectType)} /> {a.title}</div>
+              <div className="approvals-item-eyebrow"><Icon name={subjectIcon(a.subjectType)} /> {codeLabel(a.subjectType) || a.title}</div>
               <div className="approvals-item-name">{a.requesterName} · {a.requesterRole} · {a.company}</div>
               <div className="approvals-item-detail">{a.detail}</div>
               <div className="approvals-item-reason">{a.reason || '—'}</div>
@@ -161,7 +162,7 @@ export default function ApprovalsPage() {
           <p className="approvals-empty-sub">{tr('Requests from the people you\'re responsible for will appear here.')}</p>
         </div>
       )}
-      {!!approvals.length && !visibleApprovals.length && <p className="table-empty">{tr('No approvals match "')}{search}".</p>}
+      {!!approvals.length && !visibleApprovals.length && <p className="table-empty">{tr('No approvals match "{search}".', { search })}</p>}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

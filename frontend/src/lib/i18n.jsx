@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import fr from '../locales/fr';
 import zh from '../locales/zh';
 
@@ -5,7 +6,7 @@ import zh from '../locales/zh';
 //
 // Translation keys ARE the English strings. There is no separate key
 // namespace to invent, keep tidy and drift out of sync with the screens —
-// t('Mark all read') looks up 'Mark all read' and falls back to it when a
+// tr('Mark all read') looks up 'Mark all read' and falls back to it when a
 // catalogue has no entry. Two consequences worth knowing:
 //
 //   * An untranslated string renders as correct English rather than as a
@@ -14,10 +15,6 @@ import zh from '../locales/zh';
 //   * Changing the English wording of a string orphans its translations.
 //     tools/i18n-audit.mjs reports catalogue entries that no longer match
 //     anything in the source, which is how those get caught.
-//
-// Where the same English word needs different translations in different
-// places, the key carries a context suffix after a pipe — t('Open|status')
-// — and only the part before the pipe is ever shown. See stripContext().
 //
 // Dates and numbers are NOT translated string-by-string; they go through
 // Intl with the locale's `intl` tag below (lib/dates.js, lib/format.js).
@@ -40,11 +37,6 @@ export function localeMeta(code) {
   return LOCALES.find((l) => l.code === code) || LOCALES[0];
 }
 
-function stripContext(key) {
-  const bar = key.indexOf('|');
-  return bar === -1 ? key : key.slice(0, bar);
-}
-
 // Read before React mounts so the first paint is already in the right
 // language — waiting for GET /api/me would show a flash of English.
 export function getInitialLocale() {
@@ -61,10 +53,12 @@ export function getInitialLocale() {
 // is the single most important decision in this file: it means translating
 // a screen is only ever "wrap this string in t()", with no component to
 // find, no hook to place legally, and no rule about where a string may
-// live. Column definitions in module-level arrays, helper functions outside
-// any component, a label built in a switch statement — all translate the
-// same way. Across sixty-odd pages that difference is the difference
-// between a mechanical change and a rewrite.
+// live. Helper functions outside any component, a label built in a switch
+// statement, a toast in an event handler — all translate the same way.
+// Across sixty-odd pages that difference is the difference between a
+// mechanical change and a rewrite. (The one place it can't go is a
+// module-level constant, which runs before any language is chosen — see
+// msg() below.)
 //
 // The cost is that changing this value doesn't re-render anything by
 // itself. I18nProvider pays it by remounting its subtree on a language
@@ -87,10 +81,57 @@ export function activeIntlLocale() { return currentIntlTag; }
 // nowhere in the codebase, so it means one thing everywhere.
 export function tr(key, vars) { return translate(currentLocale, key, vars); }
 
+// Customer-facing documents — invoices, quotations, estimates, letting
+// offers, receipts, waybills and the page behind a share link — are always
+// written in the company's document language, whatever language the person
+// preparing them has chosen for the interface. A clerk who works in French
+// is still sending a Ghanaian customer an English invoice; before this, the
+// preview (which is exactly what gets printed, turned into a PDF and sent
+// on WhatsApp) followed the clerk's language and the customer got French.
+//
+// docTr() is tr() pinned to that language. The strings stay in the
+// catalogues, so documents in another language later is this one constant.
+// Only the document itself uses it; the buttons around a preview — Print,
+// Share, Close — are interface and keep following the reader with tr().
+export const DOCUMENT_LOCALE = 'en';
+export const DOCUMENT_INTL_LOCALE = 'en-GB';
+export function docTr(key, vars) { return translate(DOCUMENT_LOCALE, key, vars); }
+
+// A marker for strings defined outside any component — in a module-level
+// constant such as the sidebar's navModel.js. It returns its argument
+// untouched, so the list still holds plain English; the point is that the
+// catalogue tools can see the string is meant for translation.
+//
+// tr() cannot be used there: at module level it runs once, when the file
+// is first loaded, and that string would stay in the language of the
+// moment for good — a language switch remounts components, it does not
+// reload modules. So a msg() string is translated where it is shown, with
+// tr(item.label), which runs on every render.
+export function msg(key) { return key; }
+
+// tr() for a sentence with markup inside it — a name in bold, say:
+// trNodes('Delete the record for {name}?', { name: <strong>{n}</strong> }).
+// Splitting the sentence around the <strong> is what hands translators
+// fragments they can't reorder; here the sentence stays one key and each
+// element lands wherever the translation puts its placeholder.
+export function trNodes(key, vars) {
+  const text = translate(currentLocale, key);
+  const parts = [];
+  let last = 0;
+  for (const m of text.matchAll(/\{(\w+)\}/g)) {
+    if (!Object.prototype.hasOwnProperty.call(vars, m[1])) continue;
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(vars[m[1]]);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.map((part, i) => <Fragment key={i}>{part}</Fragment>);
+}
+
 export function translate(locale, key, vars) {
   const catalogue = CATALOGUES[locale];
   const entry = catalogue && Object.prototype.hasOwnProperty.call(catalogue, key) ? catalogue[key] : null;
-  let out = entry || stripContext(key);
+  let out = entry || key;
   if (vars) {
     out = out.replace(/\{(\w+)\}/g, (whole, name) =>
       (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : whole));

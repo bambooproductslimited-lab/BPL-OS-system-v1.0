@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { tr } from '../lib/i18n.jsx';
 import './BillingSettingsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's billing settings screen
 // (screens.billingsettings block + saveBillingSettings/addTaxRate
@@ -83,7 +84,7 @@ export default function BillingSettingsPage() {
           swift: form.swift, momoProvider: form.momoProvider, momoNumber: form.momoNumber, instructions: form.instructions
         }
       });
-      setToast('Billing settings saved.');
+      setToast(tr('Billing settings saved.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -98,7 +99,7 @@ export default function BillingSettingsPage() {
     setError(null);
     try {
       await api.post('/commercial-settings/tax-rates', { name: taxName, rate: taxRate });
-      setToast('Tax rate added.');
+      setToast(tr('Tax rate added.'));
       setTaxName('');
       setTaxRate('');
       await load();
@@ -114,7 +115,7 @@ export default function BillingSettingsPage() {
 
   const numberingList = Object.keys(settings.numbering).map((k) => {
     const n = settings.numbering[k];
-    return { doc: k.charAt(0).toUpperCase() + k.slice(1), format: n.prefix + '-' + (n.includeYear ? new Date().getFullYear() + '-' : '') + String(n.nextNumber).padStart(n.padding, '0') };
+    return { doc: codeLabel(k), format: n.prefix + '-' + (n.includeYear ? new Date().getFullYear() + '-' : '') + String(n.nextNumber).padStart(n.padding, '0') };
   });
 
   return (
@@ -173,7 +174,7 @@ export default function BillingSettingsPage() {
             <input id="bs-br" className="input" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="bs-sw">{tr('SWIFT')}</label>
+            <label htmlFor="bs-sw">SWIFT</label>
             <input id="bs-sw" className="input" value={form.swift} onChange={(e) => setForm({ ...form, swift: e.target.value })} />
           </div>
           <div className="field">

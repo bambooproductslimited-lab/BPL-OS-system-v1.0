@@ -67,14 +67,14 @@ export default function IntegrationsPage() {
   async function connect(item) {
     const key = (drafts[item.id] || '').trim();
     if (!key) {
-      setToast('Enter an API key first.');
+      setToast(tr('Enter an API key first.'));
       return;
     }
     setBusyId(item.id);
     setError(null);
     try {
       const updated = await api.post('/settings/integrations/' + item.id + '/connect', { apiKey: key });
-      setToast(updated.name + ' connected.');
+      setToast(tr('{name} connected.', { name: updated.name }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -94,9 +94,9 @@ export default function IntegrationsPage() {
   // is read straight off the live server config (see settings.service.js's
   // withLiveConfigState) rather than a DB flag.
   const ENV_CONFIGURED_PLATFORMS = {
-    whatsappbusiness: 'Set WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN and WHATSAPP_VERIFY_TOKEN on the server to enable.',
-    googleanalytics: 'Set GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL and GA4_SERVICE_ACCOUNT_PRIVATE_KEY on the server to enable.',
-    squareup: 'Set SQUARE_ACCESS_TOKEN on the server to enable.'
+    whatsappbusiness: tr('Set {vars} on the server to enable.', { vars: 'WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN' }),
+    googleanalytics: tr('Set {vars} on the server to enable.', { vars: 'GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL, GA4_SERVICE_ACCOUNT_PRIVATE_KEY' }),
+    squareup: tr('Set {vars} on the server to enable.', { vars: 'SQUARE_ACCESS_TOKEN' })
   };
 
   const [squareBusy, setSquareBusy] = useState(false);
@@ -144,7 +144,7 @@ export default function IntegrationsPage() {
     setError(null);
     try {
       const updated = await api.post('/settings/integrations/' + item.id + '/disconnect', {});
-      setToast(updated.name + ' disconnected.');
+      setToast(tr('{name} disconnected.', { name: updated.name }));
       setDrafts({ ...drafts, [item.id]: '' });
       await load();
     } catch (err) {
@@ -171,12 +171,12 @@ export default function IntegrationsPage() {
                 <span className="integrations-badge" style={{ background: badgeColor(i.category) }}><PlugIcon /></span>
                 <div>
                   <div className="integrations-card-name">{i.name}</div>
-                  <div className="integrations-card-category">{i.category}</div>
+                  <div className="integrations-card-category">{tr(i.category)}</div>
                 </div>
               </div>
               <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? tr('Connected') : tr('Not connected')}</span>
             </div>
-            <p className="integrations-card-desc">{i.description}</p>
+            <p className="integrations-card-desc">{tr(i.description)}</p>
             {i.id === 'squareup' ? (
               <>
                 <p className="integrations-card-note">
@@ -190,8 +190,13 @@ export default function IntegrationsPage() {
                 {squareError && <p className="integrations-card-note" style={{ color: 'var(--color-danger-700, #b42318)' }}>{squareError}</p>}
                 {squareResult && (
                   <p className="integrations-card-note">
-                    {tr('Customers')} {squareResult.customers.imported} {tr('imported (')}{squareResult.customers.skipped} {tr('skipped) · Catalogue')} {squareResult.catalogItems.imported} {tr('imported (')}{squareResult.catalogItems.skipped} {tr('skipped) · Invoices')} {squareResult.invoices.imported} {tr('imported (')}{squareResult.invoices.skipped} {tr('skipped) · Payments')} {squareResult.payments.imported} {tr('imported (')}{squareResult.payments.skipped} {tr('skipped)')}
-                    {squareResult.errors.length > 0 && <> — {squareResult.errors.length} {tr('record(s) had errors; see server logs / audit trail.')}</>}
+                    {[
+                      tr('Customers {imported} imported ({skipped} skipped)', squareResult.customers),
+                      tr('Catalogue {imported} imported ({skipped} skipped)', squareResult.catalogItems),
+                      tr('Invoices {imported} imported ({skipped} skipped)', squareResult.invoices),
+                      tr('Payments {imported} imported ({skipped} skipped)', squareResult.payments)
+                    ].join(' · ')}
+                    {squareResult.errors.length > 0 && <>{' '}{tr('— {n} record(s) had errors; see server logs / audit trail.', { n: squareResult.errors.length })}</>}
                   </p>
                 )}
               </>
@@ -211,7 +216,7 @@ export default function IntegrationsPage() {
                   <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
                 ) : (
                   <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectSingleStep(i.id)}>
-                    {busyId === i.id ? tr('Redirecting…') : tr('Connect with ') + SINGLE_STEP_PLATFORMS[i.id]}
+                    {busyId === i.id ? tr('Redirecting…') : tr('Connect with {platform}', { platform: SINGLE_STEP_PLATFORMS[i.id] })}
                   </button>
                 )}
               </>

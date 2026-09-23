@@ -6,7 +6,8 @@ import { money } from '../lib/currency';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Properties and the units inside them. A unit is the thing that actually
 // gets let — a flat, a single room, an office suite, a shop, a warehouse
 // bay — so this is where the asking rent and the utility arrangement are
@@ -30,10 +31,10 @@ const UNIT_CURRENCIES = ['GHS', 'USD', 'EUR', 'GBP', 'CNY'];
 // this one is in the Add unit dialog, so the page itself was fine and only
 // opening the dialog broke.
 const UTILITY_MODES = [
-  { value: 'none', label: 'Tenant pays provider directly' },
-  { value: 'metered', label: 'Sub-meter — billed on consumption' },
-  { value: 'fixed', label: 'Fixed charge per period' },
-  { value: 'apportioned', label: 'Share of the building master bill' }
+  { value: 'none', label: msg('Tenant pays provider directly') },
+  { value: 'metered', label: msg('Sub-meter — billed on consumption') },
+  { value: 'fixed', label: msg('Fixed charge per period') },
+  { value: 'apportioned', label: msg('Share of the building master bill') }
 ];
 
 const EMPTY_PROPERTY = { code: '', name: '', propertyType: 'mixed', address: '', city: 'Tema', region: 'Greater Accra', ghanaPostGps: '', notes: '' };
@@ -116,11 +117,11 @@ export default function PokiPropertiesPage() {
       if (dialog === 'property') {
         if (editId) await api.patch('/poki/properties/' + editId, form);
         else await api.post('/poki/properties', form);
-        setToast(editId ? 'Property updated.' : 'Property added.');
+        setToast(editId ? tr('Property updated.') : tr('Property added.'));
       } else {
         if (editId) await api.patch('/poki/units/' + editId, form);
         else await api.post('/poki/units', form);
-        setToast(editId ? 'Unit updated.' : 'Unit added.');
+        setToast(editId ? tr('Unit updated.') : tr('Unit added.'));
       }
       setDialog(null);
       await load();
@@ -132,10 +133,10 @@ export default function PokiPropertiesPage() {
   }
 
   async function removeUnit(u) {
-    if (!window.confirm('Delete unit ' + u.code + '? This cannot be undone.')) return;
+    if (!window.confirm(tr('Delete unit {code}? This cannot be undone.', { code: u.code }))) return;
     try {
       await api.del('/poki/units/' + u.id);
-      setToast('Unit deleted.');
+      setToast(tr('Unit deleted.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -190,7 +191,7 @@ export default function PokiPropertiesPage() {
                 <div className="poki-stat-label">{p.code}</div>
                 <div className="poki-stat-value" style={{ fontSize: 17 }}>{p.name}</div>
                 <div className="poki-stat-sub">
-                  {p.unitCount} {tr('unit')}{p.unitCount === 1 ? '' : 's'} · {p.occupiedCount} {tr('let ·')} {p.vacantCount} {tr('vacant')}
+                  {p.unitCount === 1 ? tr('1 unit') : tr('{n} units', { n: p.unitCount })} · {tr('{occupied} let · {vacant} vacant', { occupied: p.occupiedCount, vacant: p.vacantCount })}
                 </div>
                 {canManage && (
                   <button type="button" className="btn btn-secondary poki-row-btn" style={{ marginTop: 8 }} onClick={() => openProperty(p)}>
@@ -224,9 +225,9 @@ export default function PokiPropertiesPage() {
                         <div className="poki-strong">{u.code}</div>
                         {u.name && <div className="poki-muted">{u.name}</div>}
                       </td>
-                      <td style={{ textTransform: 'capitalize' }}>{u.unitType}</td>
+                      <td>{codeLabel(u.unitType)}</td>
                       <td>{u.propertyName}</td>
-                      <td><span className={'poki-chip poki-chip-' + u.status}>{u.status}</span></td>
+                      <td><span className={'poki-chip poki-chip-' + u.status}>{codeLabel(u.status)}</span></td>
                       <td>{u.tenantName || <span className="poki-muted">—</span>}</td>
                       <td className="poki-num">
                         {money(u.baseRent, u.currency)}
@@ -238,13 +239,13 @@ export default function PokiPropertiesPage() {
                       <td className="poki-muted">
                         {u.utilityMode === 'none' && tr('Direct to provider')}
                         {u.utilityMode === 'metered' && tr('Sub-metered')}
-                        {u.utilityMode === 'fixed' && tr('Fixed ') + money(u.fixedUtilityAmount, u.currency)}
-                        {u.utilityMode === 'apportioned' && u.apportionShare + tr('% of master bill')}
+                        {u.utilityMode === 'fixed' && tr('Fixed {amount}', { amount: money(u.fixedUtilityAmount, u.currency) })}
+                        {u.utilityMode === 'apportioned' && tr('{apportionShare}% of master bill', { apportionShare: u.apportionShare })}
                       </td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
-                          { label: "Edit", onClick: () => openUnit(u), hidden: !(canManage) },
-                          { label: "Delete", onClick: () => removeUnit(u), danger: true, hidden: !(canManage && !u.bookingId) },
+                          { label: tr('Edit'), onClick: () => openUnit(u), hidden: !(canManage) },
+                          { label: tr('Delete'), onClick: () => removeUnit(u), danger: true, hidden: !(canManage && !u.bookingId) },
                         ]} />
                       </td>
                     </tr>
@@ -280,8 +281,8 @@ export default function PokiPropertiesPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="pp-gps">{tr('GhanaPost GPS')}</label>
-              <input id="pp-gps" className="input" value={form.ghanaPostGps} onChange={set('ghanaPostGps')} placeholder={tr('GT-191-1859')} />
+              <label htmlFor="pp-gps">GhanaPost GPS</label>
+              <input id="pp-gps" className="input" value={form.ghanaPostGps} onChange={set('ghanaPostGps')} placeholder="GT-191-1859" />
             </div>
             <div className="field poki-dialog-span">
               <label htmlFor="pp-address">{tr('Address')}</label>
@@ -360,7 +361,7 @@ export default function PokiPropertiesPage() {
             </div>
             {form.currency !== BASE_CURRENCY && (
               <div className="field">
-                <label htmlFor="pu-fx">{tr('Your rate — 1')} {form.currency} = ? {BASE_CURRENCY}</label>
+                <label htmlFor="pu-fx">{tr('Your rate — 1 {currency} = ? {base}', { currency: form.currency, base: BASE_CURRENCY })}</label>
                 <input
                   id="pu-fx" className="input" type="number" step="0.000001" min="0"
                   value={form.fxRate} onChange={set('fxRate')}
@@ -384,7 +385,7 @@ export default function PokiPropertiesPage() {
             <div className="field poki-dialog-span">
               <label htmlFor="pu-utility">{tr('Utilities')}</label>
               <select id="pu-utility" className="input" value={form.utilityMode} onChange={set('utilityMode')}>
-                {UTILITY_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                {UTILITY_MODES.map((m) => <option key={m.value} value={m.value}>{tr(m.label)}</option>)}
               </select>
             </div>
             {form.utilityMode === 'fixed' && (

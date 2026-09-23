@@ -10,6 +10,7 @@ import { itemsForDialog } from '../lib/docItems';
 import { formatDate } from '../lib/dates';
 
 import { tr } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's sales orders screen (screens.salesorders
 // block + createOrderFromQuote/setOrderStatus handlers and the salesOrders
 // computed values), backed by GET/POST /api/sales-orders and
@@ -49,7 +50,7 @@ function statusTone(bucket) {
   return 'warning';
 }
 
-function statusLabel(s) { return String(s || '').replace(/_/g, ' '); }
+function statusLabel(s) { return codeLabel(s); }
 
 function docTagClass(bucket) {
   if (bucket === 'approved') return 'tag-neutral';
@@ -111,7 +112,7 @@ export default function SalesOrdersPage() {
     setError(null);
     try {
       const o = await api.post('/sales-orders', { quotationId });
-      setToast(o.orderNo + ' created.');
+      setToast(tr('{orderNo} created.', { orderNo: o.orderNo }));
       setQuotationId('');
       await load();
     } catch (err) {
@@ -127,7 +128,7 @@ export default function SalesOrdersPage() {
     try {
       const nextStatus = order.status === 'pending' ? 'processing' : 'delivered';
       await api.post('/sales-orders/' + order.id + '/status', { status: nextStatus });
-      setToast(order.orderNo + ' set to ' + statusLabel(nextStatus) + '.');
+      setToast(tr('{orderNo} set to {status}.', { orderNo: order.orderNo, status: statusLabel(nextStatus) }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -203,7 +204,7 @@ export default function SalesOrdersPage() {
       {!!orders.length && !visibleOrders.length && (
         <div className="salesorders-empty-state">
           <span className="salesorders-empty-icon"><DocIcon /></span>
-          <p className="salesorders-empty-title">{tr('No sales orders match "')}{search}"</p>
+          <p className="salesorders-empty-title">{tr('No sales orders match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -213,15 +214,15 @@ export default function SalesOrdersPage() {
           title={detail.orderNo}
           subtitle={detail.customerName}
           tag={<span className={'tag ' + orderTagClass(detail.status)}>{statusLabel(detail.status)}</span>}
-          actions={[{ label: detail.status === 'pending' ? 'Start processing' : 'Mark delivered', onClick: () => advance(detail),
+          actions={[{ label: detail.status === 'pending' ? tr('Start processing') : tr('Mark delivered'), onClick: () => advance(detail),
                       disabled: busyId === detail.id,
                       hidden: !(detail.status !== 'delivered' && detail.status !== 'cancelled' && canManage) }]}
           onClose={() => setDetail(null)}
           items={itemsForDialog(detail.items, detail.currency)}
-          totals={[{ label: 'Total', value: money(detail.total, detail.currency), strong: true }]}
+          totals={[{ label: tr('Total'), value: money(detail.total, detail.currency), strong: true }]}
           fields={[
-            { label: 'Created', value: formatDate(detail.createdAt) },
-            { label: 'Currency', value: detail.currency },
+            { label: tr('Created'), value: formatDate(detail.createdAt) },
+            { label: tr('Currency'), value: detail.currency },
           ]}
         />
       )}

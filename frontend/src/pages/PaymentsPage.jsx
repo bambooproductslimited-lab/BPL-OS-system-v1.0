@@ -7,8 +7,9 @@ import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { money } from '../lib/currency';
-import { tr } from '../lib/i18n.jsx';
+import { tr, docTr, activeIntlLocale } from '../lib/i18n.jsx';
 import './PaymentsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's payments screen (screens.payments block).
 // Payments are a read-only ledger with one action: delete (which also
@@ -48,7 +49,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function PaymentsPage() {
@@ -90,9 +91,9 @@ export default function PaymentsPage() {
     setSharing(true);
     try {
       const filename = 'Receipt-' + previewR.receiptNo + '.pdf';
-      await shareOrDownloadPdf(previewRef.current, filename, 'Receipt ' + previewR.receiptNo, 'Receipt for ' + previewR.customerName);
+      await shareOrDownloadPdf(previewRef.current, filename, docTr('Receipt {no}', { no: previewR.receiptNo }), docTr('Receipt for {name}', { name: previewR.customerName }));
     } catch (err) {
-      if (err.name !== 'AbortError') setShareError(err.message || 'Could not share this receipt.');
+      if (err.name !== 'AbortError') setShareError(err.message || tr('Could not share this receipt.'));
     } finally {
       setSharing(false);
     }
@@ -110,7 +111,7 @@ export default function PaymentsPage() {
     setDeleting(true);
     try {
       await api.del('/payments/' + deleteTarget.id);
-      setToast('Payment on ' + deleteTarget.invoiceNo + ' deleted.');
+      setToast(tr('Payment on {invoiceNo} deleted.', { invoiceNo: deleteTarget.invoiceNo }));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -127,8 +128,8 @@ export default function PaymentsPage() {
   // Shared by the row menu and the record panel.
   function rowActions(p) {
     return [
-      { label: 'Preview receipt', onClick: () => { setShareError(null); setPreviewR(receiptByPaymentId[p.id]); }, hidden: !receiptByPaymentId[p.id] },
-      { label: 'Delete', onClick: () => setDeleteTarget(p), danger: true, hidden: !canManage },
+      { label: tr('Preview receipt'), onClick: () => { setShareError(null); setPreviewR(receiptByPaymentId[p.id]); }, hidden: !receiptByPaymentId[p.id] },
+      { label: tr('Delete'), onClick: () => setDeleteTarget(p), danger: true, hidden: !canManage },
     ];
   }
 
@@ -154,7 +155,7 @@ export default function PaymentsPage() {
               <td>{p.customerName}</td>
               <td>{money(p.amount, p.currency)}</td>
               <td className="col-mid">{fmtDate(p.date)}</td>
-              <td className="payments-method col-wide">{p.method.replace('_', ' ')}</td>
+              <td className="payments-method col-wide">{codeLabel(p.method)}</td>
               <td className="col-wide">{p.reference || '—'}</td>
               <td className="col-wide">
                 <div className="payments-receiver-cell">
@@ -178,14 +179,14 @@ export default function PaymentsPage() {
       {!!payments.length && !visiblePayments.length && (
         <div className="payments-empty-state">
           <span className="payments-empty-icon"><CashIcon /></span>
-          <p className="payments-empty-title">{tr('No payments match "')}{search}"</p>
+          <p className="payments-empty-title">{tr('No payments match "{search}"', { search })}</p>
         </div>
       )}
 
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete payment on')} {deleteTarget.invoiceNo}</h2>
+            <h2>{tr('Delete payment on {invoiceNo}', { invoiceNo: deleteTarget.invoiceNo })}</h2>
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
@@ -202,12 +203,12 @@ export default function PaymentsPage() {
           actions={rowActions(detail)}
           onClose={() => setDetail(null)}
           fields={[
-            { label: 'Date', value: fmtDate(detail.date) },
-            { label: 'Method', value: detail.method.replace('_', ' ') },
-            { label: 'Reference', value: detail.reference },
-            { label: 'Received by', value: detail.receivedByName },
-            { label: 'Invoice', value: detail.invoiceNo },
-            { label: 'Currency', value: detail.currency },
+            { label: tr('Date'), value: fmtDate(detail.date) },
+            { label: tr('Method'), value: codeLabel(detail.method) },
+            { label: tr('Reference'), value: detail.reference },
+            { label: tr('Received by'), value: detail.receivedByName },
+            { label: tr('Invoice'), value: detail.invoiceNo },
+            { label: tr('Currency'), value: detail.currency },
           ]}
         />
       )}

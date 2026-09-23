@@ -94,7 +94,7 @@ export default function LeaveTypesPage() {
     try {
       setTypes(await api.get('/leave/types/all'));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not load leave types.');
+      setError(err instanceof ApiError ? err.message : tr('Could not load leave types.'));
     } finally {
       setLoading(false);
     }
@@ -116,7 +116,7 @@ export default function LeaveTypesPage() {
     try {
       setHolidays(await api.get('/leave/holidays?companyId=' + companyId + '&year=' + encodeURIComponent(y)));
     } catch (err) {
-      setHolidayError(err instanceof ApiError ? err.message : 'Could not load holidays.');
+      setHolidayError(err instanceof ApiError ? err.message : tr('Could not load holidays.'));
     } finally {
       setHolidaysLoading(false);
     }
@@ -136,7 +136,7 @@ export default function LeaveTypesPage() {
       setHolidayForm(EMPTY_HOLIDAY_FORM);
       await loadHolidays(holidayCompanyId, holidayYear);
     } catch (err) {
-      setHolidayError(err instanceof ApiError ? err.message : 'Could not add that holiday.');
+      setHolidayError(err instanceof ApiError ? err.message : tr('Could not add that holiday.'));
     } finally {
       setHolidaySaving(false);
     }
@@ -148,7 +148,7 @@ export default function LeaveTypesPage() {
       await api.del('/leave/holidays/' + id);
       await loadHolidays(holidayCompanyId, holidayYear);
     } catch (err) {
-      setHolidayError(err instanceof ApiError ? err.message : 'Could not remove that holiday.');
+      setHolidayError(err instanceof ApiError ? err.message : tr('Could not remove that holiday.'));
     }
   }
 
@@ -174,7 +174,7 @@ export default function LeaveTypesPage() {
       setTypeDialog(null);
       await loadTypes();
     } catch (err) {
-      setTypeError(err instanceof ApiError ? err.message : 'Could not save that leave type.');
+      setTypeError(err instanceof ApiError ? err.message : tr('Could not save that leave type.'));
     } finally {
       setTypeSaving(false);
     }
@@ -189,7 +189,7 @@ export default function LeaveTypesPage() {
       setBalances(rows);
       setEntitledDrafts(Object.fromEntries(rows.map((r) => [r.leaveTypeId, String(r.entitled)])));
     } catch (err) {
-      setBalanceError(err instanceof ApiError ? err.message : 'Could not load balances.');
+      setBalanceError(err instanceof ApiError ? err.message : tr('Could not load balances.'));
       setBalances(null);
     } finally {
       setBalancesLoading(false);
@@ -206,7 +206,7 @@ export default function LeaveTypesPage() {
       setEntitlementDrafts(Object.fromEntries(res.types.map((r) => [r.leaveTypeId, String(r.daysPerYear)])));
       setLeaveDaysTotalDraft(res.leaveDaysTotal === null ? '' : String(res.leaveDaysTotal));
     } catch (err) {
-      setEntitlementError(err instanceof ApiError ? err.message : 'Could not load entitlements.');
+      setEntitlementError(err instanceof ApiError ? err.message : tr('Could not load entitlements.'));
       setEntitlements(null);
     } finally {
       setEntitlementsLoading(false);
@@ -220,7 +220,7 @@ export default function LeaveTypesPage() {
       await api.post('/leave/entitlements/total', { employeeId: selectedEmployeeId, leaveDaysTotal: leaveDaysTotalDraft === '' ? null : Number(leaveDaysTotalDraft) });
       await loadEntitlements(selectedEmployeeId);
     } catch (err) {
-      setEntitlementError(err instanceof ApiError ? err.message : 'Could not save the total.');
+      setEntitlementError(err instanceof ApiError ? err.message : tr('Could not save the total.'));
     } finally {
       setTotalSaving(false);
     }
@@ -257,7 +257,7 @@ export default function LeaveTypesPage() {
       setRecalculateResult(res);
       await loadBalances(selectedEmployeeId, year);
     } catch (err) {
-      setBalanceError(err instanceof ApiError ? err.message : 'Could not recalculate balances.');
+      setBalanceError(err instanceof ApiError ? err.message : tr('Could not recalculate balances.'));
     } finally {
       setRecalculating(false);
     }
@@ -266,7 +266,7 @@ export default function LeaveTypesPage() {
   async function saveEntitlement(leaveTypeId) {
     const draft = entitlementDrafts[leaveTypeId];
     const daysPerYear = Number(draft);
-    if (!Number.isInteger(daysPerYear) || daysPerYear < 0) { setEntitlementError('Days must be a whole number, 0 or more.'); return; }
+    if (!Number.isInteger(daysPerYear) || daysPerYear < 0) { setEntitlementError(tr('Days must be a whole number, 0 or more.')); return; }
     setEntitlementSavingId(leaveTypeId);
     setEntitlementError('');
     try {
@@ -276,7 +276,7 @@ export default function LeaveTypesPage() {
       await api.post('/leave/entitlements', { employeeId: selectedEmployeeId, leaveTypeId, daysPerYear, year: Number(year) });
       await Promise.all([loadEntitlements(selectedEmployeeId), loadBalances(selectedEmployeeId, year)]);
     } catch (err) {
-      setEntitlementError(err instanceof ApiError ? err.message : 'Could not save that entitlement.');
+      setEntitlementError(err instanceof ApiError ? err.message : tr('Could not save that entitlement.'));
     } finally {
       setEntitlementSavingId('');
     }
@@ -289,7 +289,7 @@ export default function LeaveTypesPage() {
       await api.del('/leave/entitlements/' + selectedEmployeeId + '/' + leaveTypeId + '?year=' + encodeURIComponent(year));
       await Promise.all([loadEntitlements(selectedEmployeeId), loadBalances(selectedEmployeeId, year)]);
     } catch (err) {
-      setEntitlementError(err instanceof ApiError ? err.message : 'Could not reset that entitlement.');
+      setEntitlementError(err instanceof ApiError ? err.message : tr('Could not reset that entitlement.'));
     } finally {
       setEntitlementSavingId('');
     }
@@ -298,14 +298,14 @@ export default function LeaveTypesPage() {
   async function saveEntitled(leaveTypeId) {
     const draft = entitledDrafts[leaveTypeId];
     const entitled = Number(draft);
-    if (!Number.isInteger(entitled) || entitled < 0) { setBalanceError('Days must be a whole number, 0 or more.'); return; }
+    if (!Number.isInteger(entitled) || entitled < 0) { setBalanceError(tr('Days must be a whole number, 0 or more.')); return; }
     setSavingRowId(leaveTypeId);
     setBalanceError('');
     try {
       await api.post('/leave/balances', { employeeId: selectedEmployeeId, leaveTypeId, year: Number(year), entitled });
       await loadBalances(selectedEmployeeId, year);
     } catch (err) {
-      setBalanceError(err instanceof ApiError ? err.message : 'Could not save that balance.');
+      setBalanceError(err instanceof ApiError ? err.message : tr('Could not save that balance.'));
     } finally {
       setSavingRowId('');
     }
@@ -313,7 +313,7 @@ export default function LeaveTypesPage() {
 
   async function runRollover() {
     const y = Number(rolloverYear);
-    if (!Number.isInteger(y)) { setRolloverError('Enter a valid year.'); return; }
+    if (!Number.isInteger(y)) { setRolloverError(tr('Enter a valid year.')); return; }
     setRolloverRunning(true);
     setRolloverError('');
     setRolloverResult(null);
@@ -322,7 +322,7 @@ export default function LeaveTypesPage() {
       setRolloverResult(res);
       if (selectedEmployeeId && String(y) === year) loadBalances(selectedEmployeeId, year);
     } catch (err) {
-      setRolloverError(err instanceof ApiError ? err.message : 'Could not run the rollover.');
+      setRolloverError(err instanceof ApiError ? err.message : tr('Could not run the rollover.'));
     } finally {
       setRolloverRunning(false);
     }
@@ -359,7 +359,7 @@ export default function LeaveTypesPage() {
                   <td><span className={'tag ' + (t.active ? 'tag-neutral' : 'tag-accent')}>{t.active ? tr('Active') : tr('Inactive')}</span></td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "Edit", onClick: () => openEditType(t) },
+                      { label: tr('Edit'), onClick: () => openEditType(t) },
                     ]} />
                   </td>
                 </tr>
@@ -403,7 +403,7 @@ export default function LeaveTypesPage() {
                       <td>{h.name}</td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
-                          { label: "Remove", onClick: () => removeHoliday(h.id), danger: true },
+                          { label: tr('Remove'), onClick: () => removeHoliday(h.id), danger: true },
                         ]} />
                       </td>
                     </tr>
@@ -450,7 +450,7 @@ export default function LeaveTypesPage() {
           <>
             <h3 className="leavetypes-subheading">{tr('Base entitlement')}</h3>
             <p className="leavetypes-intro">
-              {tr('This employee\'s own annual days per leave type — persists year to year until changed. Defaults to the company figure above until you set a personal one (seniority, a negotiated offer, a proration that should stick). Saving updates the')} {year} {tr('balance below immediately if one\'s already been granted.')}
+              {tr("This employee's own annual days per leave type — persists year to year until changed. Defaults to the company figure above until you set a personal one (seniority, a negotiated offer, a proration that should stick). Saving updates the {year} balance below immediately if one's already been granted.", { year })}
             </p>
             {entitlementError && <div className="error-banner">{entitlementError}</div>}
             {entitlementsLoading && <p className="table-empty">{tr('Loading…')}</p>}
@@ -472,13 +472,13 @@ export default function LeaveTypesPage() {
                   </button>
                   {entitlements.leaveDaysTotal !== null && (
                     <span className={'leavetypes-allocated' + (allocatedSum === entitlements.leaveDaysTotal ? ' leavetypes-allocated-match' : ' leavetypes-allocated-mismatch')}>
-                      {tr('Allocated')} {allocatedSum} {tr('of')} {entitlements.leaveDaysTotal}
+                      {tr('Allocated {allocatedSum} of {leaveDaysTotal}', { allocatedSum, leaveDaysTotal: entitlements.leaveDaysTotal })}
                     </span>
                   )}
                 </div>
                 {entitlements.leaveDaysTotal !== null && (
                   <p className="leavetypes-field-hint" style={{ marginTop: -8, marginBottom: 12 }}>
-                    {entitlements.usableLeaveDays} {tr('usable in')} {entitlements.year} — {entitlements.leaveDaysTotal} {tr('total days already include that year\'s')} {entitlements.holidaysThisYear} {tr('company holiday(s), so')} {entitlements.holidaysThisYear} {tr('of the')} {entitlements.leaveDaysTotal} {tr('are the public holidays themselves, not extra leave on top.')}
+                    {tr("{usableLeaveDays} usable in {year} — {leaveDaysTotal} total days already include that year's {holidaysThisYear} company holiday(s), so {holidaysThisYear} of the {leaveDaysTotal} are the public holidays themselves, not extra leave on top.", { usableLeaveDays: entitlements.usableLeaveDays, year: entitlements.year, leaveDaysTotal: entitlements.leaveDaysTotal, holidaysThisYear: entitlements.holidaysThisYear })}
                   </p>
                 )}
                 <table className="table" style={{ marginTop: 12, marginBottom: 24 }}>
@@ -497,8 +497,8 @@ export default function LeaveTypesPage() {
                       </td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
-                          { label: entitlementSavingId === en.leaveTypeId ? 'Saving…' : 'Save', onClick: () => saveEntitlement(en.leaveTypeId), disabled: entitlementSavingId === en.leaveTypeId || String(en.daysPerYear) === (entitlementDrafts[en.leaveTypeId] ?? String(en.daysPerYear)) },
-                          { label: "Reset to default", onClick: () => resetEntitlement(en.leaveTypeId), disabled: entitlementSavingId === en.leaveTypeId, hidden: !(en.isCustom) },
+                          { label: entitlementSavingId === en.leaveTypeId ? tr('Saving…') : tr('Save'), onClick: () => saveEntitlement(en.leaveTypeId), disabled: entitlementSavingId === en.leaveTypeId || String(en.daysPerYear) === (entitlementDrafts[en.leaveTypeId] ?? String(en.daysPerYear)) },
+                          { label: tr('Reset to default'), onClick: () => resetEntitlement(en.leaveTypeId), disabled: entitlementSavingId === en.leaveTypeId, hidden: !(en.isCustom) },
                         ]} />
                       </td>
                     </tr>
@@ -509,14 +509,14 @@ export default function LeaveTypesPage() {
             )}
 
             <div className="leavetypes-balance-subheader">
-              <h3 className="leavetypes-subheading">{year} {tr('balance')}</h3>
+              <h3 className="leavetypes-subheading">{tr('{year} balance', { year })}</h3>
               <button type="button" className="btn btn-secondary attendance-row-btn" disabled={recalculating} onClick={recalculateBalances}>
                 {recalculating ? tr('Recalculating…') : tr('Recalculate against current policy')}
               </button>
             </div>
             {recalculateResult && (
               <p className="leavetypes-rollover-result">
-                {tr('Checked')} {recalculateResult.checked} {tr('leave type(s), updated')} {recalculateResult.updated} {tr('to match the current company default/personal entitlement.')}
+                {tr('Checked {checked} leave type(s), updated {updated} to match the current company default/personal entitlement.', { checked: recalculateResult.checked, updated: recalculateResult.updated })}
               </p>
             )}
           </>
@@ -532,7 +532,7 @@ export default function LeaveTypesPage() {
                 <tr key={b.leaveTypeId}>
                   <td style={{ fontWeight: 600 }}>
                     {b.name}
-                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{b.daysPerYear} {tr('days/year ·')} {b.holidays} {tr('company holiday(s) this year won\'t count against a request')}{!b.hasRow ? tr(' (preview)') : ''}</div>}
+                    {b.holidays > 0 && b.daysPerYear > 0 && <div className="leavetypes-holiday-note">{tr("{days} days/year · {holidays} company holiday(s) this year won't count against a request", { days: b.daysPerYear, holidays: b.holidays })}{!b.hasRow ? tr(' (preview)') : ''}</div>}
                   </td>
                   <td>
                     <input
@@ -545,7 +545,7 @@ export default function LeaveTypesPage() {
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{b.entitled - b.used}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: savingRowId === b.leaveTypeId ? 'Saving…' : 'Save', onClick: () => saveEntitled(b.leaveTypeId), disabled: savingRowId === b.leaveTypeId || String(b.entitled) === (entitledDrafts[b.leaveTypeId] ?? String(b.entitled)) },
+                      { label: savingRowId === b.leaveTypeId ? tr('Saving…') : tr('Save'), onClick: () => saveEntitled(b.leaveTypeId), disabled: savingRowId === b.leaveTypeId || String(b.entitled) === (entitledDrafts[b.leaveTypeId] ?? String(b.entitled)) },
                     ]} />
                   </td>
                 </tr>
@@ -572,7 +572,7 @@ export default function LeaveTypesPage() {
         {rolloverError && <div className="error-banner">{rolloverError}</div>}
         {rolloverResult && (
           <p className="leavetypes-rollover-result">
-            {tr('Granted')} {rolloverResult.granted} {tr('new balance record(s) for')} {rolloverResult.year}{tr(', across')} {rolloverResult.employees} {tr('active employee(s) and')} {rolloverResult.types} {tr('leave type(s).')}
+            {tr('Granted {granted} new balance record(s) for {year}, across {employees} active employee(s) and {types} leave type(s).', { granted: rolloverResult.granted, year: rolloverResult.year, employees: rolloverResult.employees, types: rolloverResult.types })}
           </p>
         )}
       </section>

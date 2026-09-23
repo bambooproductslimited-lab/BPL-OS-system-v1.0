@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg } from '../lib/i18n.jsx';
 import './AssistantPage.css';
 
 // Ported from Bamboo OS.dc.html's assistant screen (screens.assistant
@@ -42,15 +42,15 @@ function SparkleIcon() {
 }
 
 const SUGGESTIONS = [
-  'Summarize company operations today.',
-  'Which products are below reorder level?',
-  'What is in my approval queue?',
-  'How is this month\'s revenue looking?'
+  msg('Summarize company operations today.'),
+  msg('Which products are below reorder level?'),
+  msg('What is in my approval queue?'),
+  msg('How is this month\'s revenue looking?')
 ];
 
 export default function AssistantPage() {
   const { session } = useAuth();
-  const userName = session && session.employee ? session.employee.firstName + ' ' + session.employee.lastName : 'You';
+  const userName = session && session.employee ? session.employee.firstName + ' ' + session.employee.lastName : tr('You');
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -97,7 +97,7 @@ export default function AssistantPage() {
             <div className="assistant-suggestions">
               <div className="assistant-suggestions-label">{tr('Try asking:')}</div>
               {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" className="btn btn-secondary assistant-suggestion-btn" onClick={() => send(s)}>{s}</button>
+                <button key={s} type="button" className="btn btn-secondary assistant-suggestion-btn" onClick={() => send(tr(s))}>{tr(s)}</button>
               ))}
             </div>
           )}

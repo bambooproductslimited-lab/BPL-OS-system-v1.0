@@ -4,8 +4,9 @@ import { useAuth } from '../auth/AuthContext';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import { money as moneyFmt, moneyBreakdown } from '../lib/currency';
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './FinancialReportsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Financial Reports: Profit & Loss, Cash Flow, Balance Sheet, AR Aging and
 // Expense Detail, all computed live from invoices/payments/expenses/
@@ -43,21 +44,21 @@ const ICON_PATHS = {
 function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
 
 const TABS = [
-  { key: 'pnl', label: 'Profit & Loss' },
-  { key: 'cashflow', label: 'Cash Flow' },
-  { key: 'balancesheet', label: 'Balance Sheet' },
-  { key: 'araging', label: 'AR Aging' },
-  { key: 'expensedetail', label: 'Expense Detail' },
-  { key: 'taxsummary', label: 'Tax Summary' }
+  { key: 'pnl', label: msg('Profit & Loss') },
+  { key: 'cashflow', label: msg('Cash Flow') },
+  { key: 'balancesheet', label: msg('Balance Sheet') },
+  { key: 'araging', label: msg('AR Aging') },
+  { key: 'expensedetail', label: msg('Expense Detail') },
+  { key: 'taxsummary', label: msg('Tax Summary') }
 ];
 const PERIOD_TABS = { pnl: true, cashflow: true, expensedetail: true, taxsummary: true };
-const BUCKET_LABELS = { current: 'Current', d1_30: '1–30 days', d31_60: '31–60 days', d61_90: '61–90 days', d90_plus: '90+ days' };
+const BUCKET_LABELS = { current: msg('Current'), d1_30: msg('1–30 days'), d31_60: msg('31–60 days'), d61_90: msg('61–90 days'), d90_plus: msg('90+ days') };
 
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function money(n) { return 'GHS ' + Number(n || 0).toLocaleString(); }
 function defaultFrom() { return new Date().toISOString().slice(0, 8) + '01'; }
@@ -128,7 +129,7 @@ export default function FinancialReportsPage() {
     setError(null);
     try {
       await api.patch('/reports/balance-sheet/inputs', bsForm);
-      setToast('Balance sheet inputs saved.');
+      setToast(tr('Balance sheet inputs saved.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -152,15 +153,15 @@ export default function FinancialReportsPage() {
   function exportPnlCsv() {
     if (!pnl) return;
     const rows = [
-      ['Profit & Loss', from + ' to ' + to],
+      [tr('Profit & Loss'), tr('{from} to {to}', { from, to })],
       [],
-      ['Metric', 'Amount (GHS)'],
-      ['Revenue', pnl.revenue],
-      ['Total expenses', pnl.totalExpenses],
-      ['Payroll cost', pnl.payrollCost],
-      ['Net profit', pnl.netProfit],
+      [tr('Metric'), tr('Amount (GHS)')],
+      [tr('Revenue'), pnl.revenue],
+      [tr('Total expenses'), pnl.totalExpenses],
+      [tr('Payroll cost'), pnl.payrollCost],
+      [tr('Net profit'), pnl.netProfit],
       [],
-      ['Expense category', 'Amount (GHS)'],
+      [tr('Expense category'), tr('Amount (GHS)')],
       ...pnl.expenseByCategory.map((r) => [r.category, r.amount])
     ];
     downloadCsv('profit-and-loss-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
@@ -168,15 +169,15 @@ export default function FinancialReportsPage() {
   function exportCashFlowCsv() {
     if (!cashFlow) return;
     const rows = [
-      ['Cash Flow', from + ' to ' + to],
+      [tr('Cash Flow'), tr('{from} to {to}', { from, to })],
       [],
-      ['Metric', 'Amount (GHS)'],
-      ['Cash in', cashFlow.cashIn],
-      ['Expenses paid out', cashFlow.expensesOut],
-      ['Payroll paid out', cashFlow.payrollOut],
-      ['Net cash flow', cashFlow.netCashFlow],
+      [tr('Metric'), tr('Amount (GHS)')],
+      [tr('Cash in'), cashFlow.cashIn],
+      [tr('Expenses paid out'), cashFlow.expensesOut],
+      [tr('Payroll paid out'), cashFlow.payrollOut],
+      [tr('Net cash flow'), cashFlow.netCashFlow],
       [],
-      ['Cash in by method', 'Amount (GHS)'],
+      [tr('Cash in by method'), tr('Amount (GHS)')],
       ...cashFlow.cashInByMethod.map((r) => [r.method, r.amount])
     ];
     downloadCsv('cash-flow-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
@@ -184,58 +185,58 @@ export default function FinancialReportsPage() {
   function exportBalanceSheetCsv() {
     if (!balanceSheet) return;
     const rows = [
-      ['Balance Sheet', 'as of ' + balanceSheet.asOf],
+      [tr('Balance Sheet'), tr('as of {asOf}', { asOf: balanceSheet.asOf })],
       [],
-      ['Assets', 'Amount (GHS)'],
-      ['Cash & bank', balanceSheet.assets.cashAndBank],
-      ['Accounts receivable', balanceSheet.assets.accountsReceivable],
-      ['Inventory', balanceSheet.assets.inventoryValue],
-      ['Fixed assets (at cost)', balanceSheet.assets.fixedAssets],
-      ['Total assets', balanceSheet.assets.total],
+      [tr('Assets'), tr('Amount (GHS)')],
+      [tr('Cash & bank'), balanceSheet.assets.cashAndBank],
+      [tr('Accounts receivable'), balanceSheet.assets.accountsReceivable],
+      [tr('Inventory'), balanceSheet.assets.inventoryValue],
+      [tr('Fixed assets (at cost)'), balanceSheet.assets.fixedAssets],
+      [tr('Total assets'), balanceSheet.assets.total],
       [],
-      ['Liabilities', 'Amount (GHS)'],
-      ['Accounts payable', balanceSheet.liabilities.accountsPayable],
-      ['Loans payable', balanceSheet.liabilities.loansPayable],
-      ['Other liabilities', balanceSheet.liabilities.otherLiabilities],
-      ['Total liabilities', balanceSheet.liabilities.total],
+      [tr('Liabilities'), tr('Amount (GHS)')],
+      [tr('Accounts payable'), balanceSheet.liabilities.accountsPayable],
+      [tr('Loans payable'), balanceSheet.liabilities.loansPayable],
+      [tr('Other liabilities'), balanceSheet.liabilities.otherLiabilities],
+      [tr('Total liabilities'), balanceSheet.liabilities.total],
       [],
-      ['Equity', 'Amount (GHS)'],
-      ["Owner's equity", balanceSheet.equity.ownersEquity],
-      ['Retained earnings', balanceSheet.equity.retainedEarnings],
-      ['Total equity', balanceSheet.equity.total]
+      [tr('Equity'), tr('Amount (GHS)')],
+      [tr('Owner\'s equity'), balanceSheet.equity.ownersEquity],
+      [tr('Retained earnings'), balanceSheet.equity.retainedEarnings],
+      [tr('Total equity'), balanceSheet.equity.total]
     ];
     downloadCsv('balance-sheet-' + balanceSheet.asOf + '.csv', rowsToCsv(rows));
   }
   function exportArAgingCsv() {
     if (!arAging) return;
     const rows = [
-      ['AR Aging', 'as of ' + arAging.asOf],
+      [tr('AR Aging'), tr('as of {asOf}', { asOf: arAging.asOf })],
       [],
-      ['Invoice', 'Customer', 'Currency', 'Balance due', 'Due date', 'Days overdue', 'Bucket'],
-      ...arAging.invoices.map((r) => [r.invoiceNo, r.customerName, r.currency, r.balanceDue, r.dueDate || '', r.daysOverdue, BUCKET_LABELS[r.bucket]])
+      [tr('Invoice'), tr('Customer'), tr('Currency'), tr('Balance due'), tr('Due date'), tr('Days overdue'), tr('Bucket')],
+      ...arAging.invoices.map((r) => [r.invoiceNo, r.customerName, r.currency, r.balanceDue, r.dueDate || '', r.daysOverdue, tr(BUCKET_LABELS[r.bucket])])
     ];
     downloadCsv('ar-aging-' + arAging.asOf + '.csv', rowsToCsv(rows));
   }
   function exportTaxSummaryCsv() {
     if (!taxSummary) return;
     const rows = [
-      ['Tax Summary', from + ' to ' + to],
+      [tr('Tax Summary'), tr('{from} to {to}', { from, to })],
       [],
-      ['Rate', 'Tax(es)', 'Taxable base (GHS)', 'Tax collected (GHS)', 'Invoices'],
+      [tr('Rate'), tr('Tax(es)'), tr('Taxable base (GHS)'), tr('Tax collected (GHS)'), tr('Invoices')],
       ...taxSummary.byRate.map((r) => [r.rate + '%', r.label, r.taxableBase, r.taxCollected, r.invoiceCount]),
       [],
-      ['Total tax (from line items)', taxSummary.totalTaxFromLineItems],
-      ['Total tax (recorded on invoices)', taxSummary.recordedTaxTotal],
-      ['Reconciliation difference', taxSummary.reconciliationDiff]
+      [tr('Total tax (from line items)'), taxSummary.totalTaxFromLineItems],
+      [tr('Total tax (recorded on invoices)'), taxSummary.recordedTaxTotal],
+      [tr('Reconciliation difference'), taxSummary.reconciliationDiff]
     ];
     downloadCsv('tax-summary-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
   }
   function exportExpenseDetailCsv() {
     if (!expenseDetail) return;
     const rows = [
-      ['Expense Detail', from + ' to ' + to],
+      [tr('Expense Detail'), tr('{from} to {to}', { from, to })],
       [],
-      ['Date', 'Category', 'Group', 'Requester', 'Description', 'Amount (GHS)'],
+      [tr('Date'), tr('Category'), tr('Group'), tr('Requester'), tr('Description'), tr('Amount (GHS)')],
       ...expenseDetail.items.map((r) => [r.date, r.category, r.departmentName, r.requesterName, r.description, r.amount])
     ];
     downloadCsv('expense-detail-' + from + '-to-' + to + '.csv', rowsToCsv(rows));
@@ -262,7 +263,7 @@ export default function FinancialReportsPage() {
       <div className="finreport-tabs">
         {TABS.map((t) => (
           <button key={t.key} type="button" className={'finreport-tab' + (tab === t.key ? ' finreport-tab-active' : '')} onClick={() => setTab(t.key)}>
-            {t.label}
+            {tr(t.label)}
           </button>
         ))}
       </div>
@@ -289,7 +290,9 @@ export default function FinancialReportsPage() {
 
       {['pnl', 'cashflow', 'balancesheet', 'taxsummary'].includes(tab) && (
         <p className="finreport-asof">
-          {tr('Totalled in the company\'s base currency (')}{(pnl && pnl.baseCurrency) || (cashFlow && cashFlow.baseCurrency) || (balanceSheet && balanceSheet.baseCurrency) || (taxSummary && taxSummary.baseCurrency) || 'GHS'}{tr(') — a document in another currency (Company settings → Enabled currencies) won\'t appear here, but still shows correctly on its own record and in the Invoices/Quotations lists.')}
+          {tr("Totalled in the company's base currency ({currency}) — a document in another currency (Company settings → Enabled currencies) won't appear here, but still shows correctly on its own record and in the Invoices/Quotations lists.", {
+            currency: (pnl && pnl.baseCurrency) || (cashFlow && cashFlow.baseCurrency) || (balanceSheet && balanceSheet.baseCurrency) || (taxSummary && taxSummary.baseCurrency) || 'GHS'
+          })}
         </p>
       )}
 
@@ -332,7 +335,7 @@ export default function FinancialReportsPage() {
             <table className="table">
               <thead><tr><th>{tr('Method')}</th><th>{tr('Amount')}</th></tr></thead>
               <tbody>
-                {cashFlow.cashInByMethod.map((r) => <tr key={r.method}><td style={{ textTransform: 'capitalize' }}>{r.method.replace('_', ' ')}</td><td>{money(r.amount)}</td></tr>)}
+                {cashFlow.cashInByMethod.map((r) => <tr key={r.method}><td>{codeLabel(r.method)}</td><td>{money(r.amount)}</td></tr>)}
               </tbody>
             </table>
             {!cashFlow.cashInByMethod.length && <p className="table-empty">{tr('No payments received in this period.')}</p>}
@@ -344,7 +347,7 @@ export default function FinancialReportsPage() {
             <div className={'finreport-balance-banner' + (Math.abs(balanceSheet.balanceCheck) < 0.01 ? ' finreport-balanced' : ' finreport-unbalanced')}>
               {Math.abs(balanceSheet.balanceCheck) < 0.01
                 ? tr('Balanced — assets equal liabilities plus equity.')
-                : tr('Off by ') + money(Math.abs(balanceSheet.balanceCheck)) + tr(' — check the manual inputs below (Cash & bank is usually the figure to correct).')}
+                : tr('Off by {amount} — check the manual inputs below (Cash & bank is usually the figure to correct).', { amount: money(Math.abs(balanceSheet.balanceCheck)) })}
             </div>
             <p className="finreport-asof">{tr('As of')} {fmtDate(balanceSheet.asOf)}</p>
 
@@ -408,7 +411,7 @@ export default function FinancialReportsPage() {
             <div className="finreport-kpis">
               {Object.keys(BUCKET_LABELS).map((k) => (
                 <div className="finreport-kpi" key={k}>
-                  <div className="finreport-kpi-label">{BUCKET_LABELS[k]}</div>
+                  <div className="finreport-kpi-label">{tr(BUCKET_LABELS[k])}</div>
                   <div className="finreport-kpi-value">{moneyBreakdown(arAging.buckets[k])}</div>
                   <div className="finreport-bar" style={{ width: Math.round((bucketSum(arAging.buckets[k]) / bucketMax) * 100) + '%' }} />
                 </div>
@@ -421,7 +424,7 @@ export default function FinancialReportsPage() {
                   <tr key={r.invoiceNo}>
                     <td style={{ fontWeight: 600 }}>{r.invoiceNo}</td><td>{r.customerName}</td><td>{moneyFmt(r.balanceDue, r.currency)}</td>
                     <td>{fmtDate(r.dueDate)}</td>
-                    <td><span className={'tag ' + (r.bucket === 'current' ? 'tag-outline' : 'tag-accent')}>{BUCKET_LABELS[r.bucket]}</span></td>
+                    <td><span className={'tag ' + (r.bucket === 'current' ? 'tag-outline' : 'tag-accent')}>{tr(BUCKET_LABELS[r.bucket])}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -490,7 +493,7 @@ export default function FinancialReportsPage() {
             <div className={'finreport-balance-banner' + (Math.abs(taxSummary.reconciliationDiff) < 0.01 ? ' finreport-balanced' : ' finreport-unbalanced')} style={{ marginTop: 16 }}>
               {Math.abs(taxSummary.reconciliationDiff) < 0.01
                 ? tr('Reconciled — line-item tax matches each invoice’s recorded total.')
-                : tr('Off by ') + money(Math.abs(taxSummary.reconciliationDiff)) + tr(' vs. invoices’ recorded tax totals — likely a document-level tax rate applied outside the line items.')}
+                : tr('Off by {amount} vs. invoices’ recorded tax totals — likely a document-level tax rate applied outside the line items.', { amount: money(Math.abs(taxSummary.reconciliationDiff)) })}
             </div>
           </div>
         )}

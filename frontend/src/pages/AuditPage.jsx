@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './AuditPage.css';
 
 // Ported from Bamboo OS.dc.html's audit log screen (screens.audit block +
@@ -41,7 +41,7 @@ function HistoryIcon() {
 }
 
 function fmtWhen(iso) {
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString(activeIntlLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 export default function AuditPage() {
@@ -100,7 +100,7 @@ export default function AuditPage() {
                     ) : (
                       <span className="audit-avatar audit-avatar-system"><GearIcon /></span>
                     )}
-                    {l.actorName || tr('System')}
+                    {!l.actorName || l.actorName === 'System' ? tr('System') : l.actorName}
                   </div>
                 </td>
                 <td><span className="tag tag-neutral">{l.action}</span></td>

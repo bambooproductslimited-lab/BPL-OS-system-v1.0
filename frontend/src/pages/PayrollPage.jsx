@@ -6,7 +6,8 @@ import DateRangePicker from '../components/DateRangePicker';
 import './PayrollPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Payroll: employees are paid a daily rate on one of three cycles (monthly,
 // paid on the 5th; biweekly; or daily, for staff paid per day worked). A
 // pay run auto-computes each employee's
@@ -48,7 +49,7 @@ function statusTone(status) {
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function fmtMoney(n) { return 'GHS ' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -184,7 +185,7 @@ export default function PayrollPage() {
     setDialogError(null);
     try {
       const created = await api.post('/payroll/runs', form);
-      setToast(created.runNo + ' created with ' + created.payslips.length + ' payslip(s).');
+      setToast(tr('{runNo} created with {n} payslip(s).', { runNo: created.runNo, n: created.payslips.length }));
       setDialogOpen(false);
       await load();
       setActiveRun(created);
@@ -231,7 +232,7 @@ export default function PayrollPage() {
     try {
       const updated = await api.post('/payroll/runs/' + activeRun.id + '/approve');
       setActiveRun(updated);
-      setToast(updated.runNo + ' approved.');
+      setToast(tr('{runNo} approved.', { runNo: updated.runNo }));
       await load();
     } catch (err) {
       setRunError(err.message);
@@ -246,7 +247,7 @@ export default function PayrollPage() {
     try {
       const updated = await api.post('/payroll/runs/' + activeRun.id + '/paid');
       setActiveRun(updated);
-      setToast(updated.runNo + ' marked paid.');
+      setToast(tr('{runNo} marked paid.', { runNo: updated.runNo }));
       await load();
     } catch (err) {
       setRunError(err.message);
@@ -301,11 +302,13 @@ export default function PayrollPage() {
           {history && (
             <>
               <p className="eyebrow" style={{ marginTop: 16 }}>
-                {history.employeeName} ({history.employeeCode}) — {history.payslips.length} {tr('payslip(s)')}{periodRange.from ? tr(' in ') + periodRange.label.toLowerCase() : ''}.
+                {periodRange.from
+                  ? tr('{name} ({code}) — {n} payslip(s) in {period}.', { name: history.employeeName, code: history.employeeCode, n: history.payslips.length, period: periodRange.label.toLowerCase() })
+                  : tr('{name} ({code}) — {n} payslip(s).', { name: history.employeeName, code: history.employeeCode, n: history.payslips.length })}
               </p>
               <table className="table" style={{ marginTop: 8 }}>
                 <thead>
-                  <tr><th>{tr('Pay date')}</th><th>{tr('Run')}</th><th>{tr('Cycle')}</th><th>{tr('Period')}</th><th>{tr('Days')}</th><th>{tr('Gross')}</th><th>{tr('SSNIT')}</th><th>{tr('PAYE')}</th><th>{tr('Net')}</th><th>{tr('Status')}</th><th /></tr>
+                  <tr><th>{tr('Pay date')}</th><th>{tr('Run')}</th><th>{tr('Cycle')}</th><th>{tr('Period')}</th><th>{tr('Days')}</th><th>{tr('Gross')}</th><th>SSNIT</th><th>PAYE</th><th>{tr('Net')}</th><th>{tr('Status')}</th><th /></tr>
                 </thead>
                 <tbody>
                   {history.payslips.map((s) => (
@@ -317,7 +320,7 @@ export default function PayrollPage() {
                           <span style={{ fontWeight: 600 }}>{s.runNo}</span>
                         </div>
                       </td>
-                      <td style={{ textTransform: 'capitalize' }}>{s.cycle}</td>
+                      <td>{codeLabel(s.cycle)}</td>
                       <td>{fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}</td>
                       <td>{s.daysWorked}</td>
                       <td>{fmtMoney(s.grossPay)}</td>
@@ -327,7 +330,7 @@ export default function PayrollPage() {
                       <td><span className={'tag ' + tagClass(s.runStatus)}>{s.runStatus}</span></td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
-                          { label: "View run", onClick: () => viewRunFromHistory(s.payRunId) },
+                          { label: tr('View run'), onClick: () => viewRunFromHistory(s.payRunId) },
                         ]} />
                       </td>
                     </tr>
@@ -337,7 +340,7 @@ export default function PayrollPage() {
               {!history.payslips.length && (
                 <div className="payroll-empty-state">
                   <span className="payroll-empty-icon"><DocIcon /></span>
-                  <p className="payroll-empty-title">{tr('No payslips for')} {history.employeeName} {tr('in this period')}</p>
+                  <p className="payroll-empty-title">{tr('No payslips for {employeeName} in this period', { employeeName: history.employeeName })}</p>
                 </div>
               )}
             </>
@@ -359,15 +362,15 @@ export default function PayrollPage() {
                     </div>
                   </td>
                   <td>{r.companyName}</td>
-                  <td style={{ textTransform: 'capitalize' }}>{r.cycle}</td>
+                  <td>{codeLabel(r.cycle)}</td>
                   <td>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</td>
                   <td>{fmtDate(r.payDate)}</td>
                   <td>{r.employeeCount}</td>
                   <td>{fmtMoney(r.totalNet)}</td>
-                  <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
+                  <td><span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span></td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "View", onClick: () => openRun(r) },
+                      { label: tr('View'), onClick: () => openRun(r) },
                     ]} />
                   </td>
                 </tr>
@@ -383,7 +386,7 @@ export default function PayrollPage() {
           {!!runs.length && !visibleRuns.length && search && (
             <div className="payroll-empty-state">
               <span className="payroll-empty-icon"><DocIcon /></span>
-              <p className="payroll-empty-title">{tr('No pay runs match "')}{search}"</p>
+              <p className="payroll-empty-title">{tr('No pay runs match "{search}"', { search })}</p>
             </div>
           )}
           {!!runs.length && !visibleRuns.length && !search && (
@@ -445,24 +448,23 @@ export default function PayrollPage() {
               <div>
                 <h2 className="payroll-run-title">{activeRun.runNo}</h2>
                 <div className="payroll-run-sub">
-                  {activeRun.companyName} · {activeRun.cycle} · {fmtDate(activeRun.periodStart)} – {fmtDate(activeRun.periodEnd)} {tr('· Pay date')} {fmtDate(activeRun.payDate)}
+                  {tr('{companyName} · {cycle} · {date} – {date2} · Pay date {date3}', { companyName: activeRun.companyName, cycle: codeLabel(activeRun.cycle), date: fmtDate(activeRun.periodStart), date2: fmtDate(activeRun.periodEnd), date3: fmtDate(activeRun.payDate) })}
                 </div>
               </div>
-              <span className={'tag ' + tagClass(activeRun.status)}>{activeRun.status}</span>
+              <span className={'tag ' + tagClass(activeRun.status)}>{codeLabel(activeRun.status)}</span>
             </div>
 
             {runError && <div className="error-banner">{runError}</div>}
 
             {companyFilter && (
               <p className="eyebrow" style={{ margin: '-4px 0 8px' }}>
-                {tr('Showing')} {visibleRunPayslips.length} {tr('of')} {activeRun.payslips.length} {tr('payslip(s) — filtered to')}{' '}
-                {companies.find((c) => c.id === companyFilter)?.name}{tr('. Clear the Company filter above to see everyone in this run.')}
+                {tr('Showing {n} of {n2} payslip(s) — filtered to {name}. Clear the Company filter above to see everyone in this run.', { n: visibleRunPayslips.length, n2: activeRun.payslips.length, name: companies.find((c) => c.id === companyFilter)?.name })}
               </p>
             )}
 
             <table className="table payroll-slip-table">
               <thead>
-                <tr><th>{tr('Employee')}</th><th>{tr('Company')}</th><th>{tr('Days')}</th><th>{tr('Rate')}</th><th>{tr('Gross')}</th><th>{tr('SSNIT')}</th><th>{tr('PAYE')}</th><th>{tr('Net')}</th><th /></tr>
+                <tr><th>{tr('Employee')}</th><th>{tr('Company')}</th><th>{tr('Days')}</th><th>{tr('Rate')}</th><th>{tr('Gross')}</th><th>SSNIT</th><th>PAYE</th><th>{tr('Net')}</th><th /></tr>
               </thead>
               <tbody>
                 {visibleRunPayslips.map((s) => (
@@ -489,8 +491,8 @@ export default function PayrollPage() {
                     <td style={{ fontWeight: 600 }}>{fmtMoney(s.netPay)}</td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                       <RowMenu actions={[
-                        { label: "Save", onClick: () => saveSlipEdit(s.employeeId), disabled: runBusy },
-                        { label: "Edit", onClick: () => startEditSlip(s) },
+                        { label: tr('Save'), onClick: () => saveSlipEdit(s.employeeId), disabled: runBusy },
+                        { label: tr('Edit'), onClick: () => startEditSlip(s) },
                       ]} />
                     </td>
                   </tr>
@@ -498,7 +500,7 @@ export default function PayrollPage() {
               </tbody>
             </table>
             {!visibleRunPayslips.length && (
-              <p className="table-empty">{tr('No payslips in this run for')} {companies.find((c) => c.id === companyFilter)?.name || tr('that company')}.</p>
+              <p className="table-empty">{tr('No payslips in this run for {company}.', { company: companies.find((c) => c.id === companyFilter)?.name || tr('that company') })}</p>
             )}
 
             <div className="dialog-actions">

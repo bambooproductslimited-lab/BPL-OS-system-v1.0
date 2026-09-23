@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadFaceModels } from '../lib/faceModels';
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg } from '../lib/i18n.jsx';
 import './FaceCapture.css';
 
 // Shared live-camera face capture, used two places: the Kiosk (verifying a
@@ -60,11 +60,11 @@ const CAMERA_BUSY_RETRY_DELAYS_MS = [500, 1000];
 function isCameraBusyError(err) { return !!err && (err.name === 'NotReadableError' || err.name === 'TrackStartError'); }
 
 const ENROLL_POSES = [
-  { label: 'Look straight at the camera' },
-  { label: 'Slowly turn your head to your left' },
-  { label: 'Slowly turn your head to your right' },
-  { label: 'Tilt your chin up slightly' },
-  { label: 'Tilt your chin down slightly' }
+  { label: msg('Look straight at the camera') },
+  { label: msg('Slowly turn your head to your left') },
+  { label: msg('Slowly turn your head to your right') },
+  { label: msg('Tilt your chin up slightly') },
+  { label: msg('Tilt your chin down slightly') }
 ];
 const POSE_SETTLE_MS = 1100; // time to actually move into the new position before it's trusted
 const POSE_FRAMES = 2; // frames captured & averaged per pose
@@ -169,7 +169,7 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
 
           if (errored && consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             setStatus('error');
-            var message = 'This device is having trouble running face detection. Try reloading the page, or ask IT for help.';
+            var message = tr('This device is having trouble running face detection. Try reloading the page, or ask IT for help.');
             setErrorMessage(message);
             if (onError) onError(message);
             return;
@@ -195,8 +195,8 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
       } catch (err) {
         if (cancelled) return;
         var message = err && err.name === 'NotAllowedError'
-          ? 'Camera access was denied. This device needs camera permission to continue.'
-          : 'Could not start the camera. ' + (err && err.message ? err.message : '');
+          ? tr('Camera access was denied. This device needs camera permission to continue.')
+          : tr('Could not start the camera. {message}', { message: err && err.message ? err.message : '' });
         setStatus('error');
         setErrorMessage(message);
         // The error's name goes out alongside the message so a caller can
@@ -277,11 +277,11 @@ export default function FaceCapture({ mode, onCapture, onCancel, onTimeout, onEr
         {status === 'starting' && tr('Starting camera…')}
         {status === 'searching' && (title || tr('Look at the camera'))}
         {status === 'found' && (mode === 'kiosk' ? tr('Got it…') : tr('Face found — capture when ready'))}
-        {posesDone && (ENROLL_POSES[poseIndex] ? ENROLL_POSES[poseIndex].label : tr('Almost done…'))}
+        {posesDone && (ENROLL_POSES[poseIndex] ? tr(ENROLL_POSES[poseIndex].label) : tr('Almost done…'))}
         {status === 'error' && errorMessage}
       </div>
       {posesDone && (
-        <div className="facecap-pose-progress">{tr('Angle')} {poseIndex + 1} {tr('of')} {ENROLL_POSES.length}</div>
+        <div className="facecap-pose-progress">{tr('Angle {n} of {n2}', { n: poseIndex + 1, n2: ENROLL_POSES.length })}</div>
       )}
       {subtitle && status !== 'error' && !posesDone && <div className="facecap-subtitle">{subtitle}</div>}
       <div className="facecap-actions">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { toPreviewUrl } from '../lib/previewUrl';
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeeIdDocsDialog.css';
 
 // Three fixed ID/passport document slots on an employee record — front of
@@ -10,11 +10,11 @@ import './EmployeeIdDocsDialog.css';
 // module (backend/src/services/employeeDocuments.service.js) — files open
 // in a new tab to view, never as a download.
 
-const SLOT_LABELS = { id_front: 'ID — front', id_back: 'ID — back', passport: 'Passport' };
+const SLOT_LABELS = { id_front: msg('ID — front'), id_back: msg('ID — back'), passport: msg('Passport') };
 
 function fmtDate(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function EmployeeIdDocsDialog({ employee, onClose }) {
@@ -78,9 +78,9 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
             {slots.map((s) => (
               <div className="id-docs-row" key={s.kind}>
                 <div className="id-docs-row-main">
-                  <div className="id-docs-row-label">{SLOT_LABELS[s.kind]}</div>
+                  <div className="id-docs-row-label">{tr(SLOT_LABELS[s.kind])}</div>
                   {s.fileName ? (
-                    <div className="id-docs-row-file">{s.fileName} <span className="id-docs-row-date">{tr('uploaded')} {fmtDate(s.uploadedAt)}</span></div>
+                    <div className="id-docs-row-file">{s.fileName} <span className="id-docs-row-date">{tr('uploaded {date}', { date: fmtDate(s.uploadedAt) })}</span></div>
                   ) : (
                     <div className="id-docs-row-empty">{tr('Not uploaded')}</div>
                   )}

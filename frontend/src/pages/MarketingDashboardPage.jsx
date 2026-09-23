@@ -6,6 +6,7 @@ import { shareOrDownloadPdf } from '../lib/documentShare';
 import MarketingRecommendations from '../components/MarketingRecommendations';
 import { tr } from '../lib/i18n.jsx';
 import './MarketingDashboardPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's marketing screen (screens.marketing
 // block + the pipeline/funnel/topCustomers/leadsList/recentQuotesM
@@ -77,7 +78,7 @@ export default function MarketingDashboardPage() {
   async function downloadPdf() {
     setExporting(true);
     try {
-      await shareOrDownloadPdf(printRef.current, 'marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.pdf', 'Marketing dashboard', 'Marketing dashboard');
+      await shareOrDownloadPdf(printRef.current, 'marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.pdf', tr('Marketing dashboard'), tr('Marketing dashboard'));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -87,30 +88,30 @@ export default function MarketingDashboardPage() {
 
   function downloadCsvReport() {
     const rows = [
-      ['Marketing Dashboard', new Date().toISOString().slice(0, 10)],
+      [tr('Marketing Dashboard'), new Date().toISOString().slice(0, 10)],
       [],
-      ['Customer pipeline'],
-      ['Category', 'Customers'],
+      [tr('Customer pipeline')],
+      [tr('Category'), tr('Customers')],
       ...data.pipeline.map((p) => [p.category, p.count]),
       [],
-      ['Quotation funnel'],
-      ['Sent', data.funnel.sent], ['Accepted', data.funnel.accepted], ['Rejected/expired', data.funnel.rejected],
-      ['Conversion rate', data.funnel.conversionRate + '%'],
+      [tr('Quotation funnel')],
+      [tr('Sent'), data.funnel.sent], [tr('Accepted'), data.funnel.accepted], [tr('Rejected/expired'), data.funnel.rejected],
+      [tr('Conversion rate'), data.funnel.conversionRate + '%'],
       [],
-      ['Top customers by sales value'],
-      ['Customer', 'Currency', 'Total'],
+      [tr('Top customers by sales value')],
+      [tr('Customer'), tr('Currency'), tr('Total')],
       ...data.topCustomers.map((c) => [c.name, c.currency, c.total]),
       [],
-      ['Recent quotations'],
-      ['Quote', 'Customer', 'Currency', 'Total', 'Status'],
+      [tr('Recent quotations')],
+      [tr('Quote'), tr('Customer'), tr('Currency'), tr('Total'), tr('Status')],
       ...data.recentQuotes.map((q) => [q.quoteNo, q.customerName, q.currency, q.total, q.status]),
       [],
-      ['Leads & prospects to follow up'],
-      ['Customer', 'Contact', 'Email', 'Phone', 'Category', 'Account manager'],
+      [tr('Leads & prospects to follow up')],
+      [tr('Customer'), tr('Contact'), tr('Email'), tr('Phone'), tr('Category'), tr('Account manager')],
       ...data.leads.map((l) => [l.name, l.contactPerson, l.email, l.phone, l.category, l.managerName])
     ];
     if (recommendation) {
-      rows.push([], ['Content recommendations'], [recommendation.recommendation]);
+      rows.push([], [tr('Content recommendations')], [recommendation.recommendation]);
     }
     downloadCsv('marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
@@ -124,10 +125,10 @@ export default function MarketingDashboardPage() {
     share: data.totalCustomers ? Math.round((p.count / data.totalCustomers) * 100) : 0
   }));
   const funnel = [
-    { label: 'Quotations sent', value: data.funnel.sent, icon: 'document', tone: 'ops' },
-    { label: 'Accepted', value: data.funnel.accepted, icon: 'check', tone: 'people' },
-    { label: 'Rejected / expired', value: data.funnel.rejected, icon: 'warning', tone: 'danger' },
-    { label: 'Conversion rate', value: data.funnel.conversionRate + '%', icon: 'cart', tone: 'finance' }
+    { label: tr('Quotations sent'), value: data.funnel.sent, icon: 'document', tone: 'ops' },
+    { label: tr('Accepted'), value: data.funnel.accepted, icon: 'check', tone: 'people' },
+    { label: tr('Rejected / expired'), value: data.funnel.rejected, icon: 'warning', tone: 'danger' },
+    { label: tr('Conversion rate'), value: data.funnel.conversionRate + '%', icon: 'cart', tone: 'finance' }
   ];
 
   return (
@@ -184,7 +185,7 @@ export default function MarketingDashboardPage() {
               {data.recentQuotes.map((q, i) => (
                 <tr key={i}>
                   <td>{q.quoteNo}</td><td>{q.customerName}</td><td>{money(q.total, q.currency)}</td>
-                  <td><span className={'tag ' + docTagClass(q.status === 'accepted' ? 'approved' : (q.status === 'rejected' || q.status === 'expired') ? 'rejected' : 'pending')}>{q.status}</span></td>
+                  <td><span className={'tag ' + docTagClass(q.status === 'accepted' ? 'approved' : (q.status === 'rejected' || q.status === 'expired') ? 'rejected' : 'pending')}>{codeLabel(q.status)}</span></td>
                 </tr>
               ))}
             </tbody>

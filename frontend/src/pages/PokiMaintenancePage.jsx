@@ -6,7 +6,8 @@ import { money } from '../lib/currency';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Repairs and issues logged against a specific unit. Where the tenant is
 // liable (a broken window rather than a failing water heater), the cost can
 // be recharged as its own invoice instead of being folded into rent.
@@ -15,7 +16,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(String(iso).length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY = { unitId: '', title: '', description: '', category: 'general', priority: 'normal', reportedBy: '', chargeToTenant: false };
@@ -73,7 +74,7 @@ export default function PokiMaintenancePage() {
     try {
       if (editId) await api.patch('/poki/maintenance/' + editId, form);
       else await api.post('/poki/maintenance', form);
-      setToast(editId ? 'Request updated.' : 'Request logged.');
+      setToast(editId ? tr('Request updated.') : tr('Request logged.'));
       setDialog(null);
       await load();
     } catch (err) {
@@ -87,7 +88,7 @@ export default function PokiMaintenancePage() {
     setBusyId(r.id);
     try {
       await api.patch('/poki/maintenance/' + r.id, { status });
-      setToast('Marked ' + status.replace('_', ' ') + '.');
+      setToast(tr('Marked {status}.', { status: codeLabel(status) }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -97,11 +98,11 @@ export default function PokiMaintenancePage() {
   }
 
   async function charge(r) {
-    if (!window.confirm('Charge ' + money(r.cost, 'GHS') + ' to ' + r.tenantName + ' as a separate invoice?')) return;
+    if (!window.confirm(tr('Charge {amount} to {tenant} as a separate invoice?', { amount: money(r.cost, 'GHS'), tenant: r.tenantName }))) return;
     setBusyId(r.id);
     try {
       const res = await api.post('/poki/maintenance/' + r.id + '/charge');
-      setToast('Raised ' + res.invoiceNo + ' for ' + money(res.amount, 'GHS') + '.');
+      setToast(tr('Raised {invoiceNo} for {amount}.', { invoiceNo: res.invoiceNo, amount: money(res.amount, 'GHS') }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -133,7 +134,7 @@ export default function PokiMaintenancePage() {
           <option value="closed">{tr('Closed')}</option>
           <option value="cancelled">{tr('Cancelled')}</option>
         </select>
-        <span className="poki-muted">{openCount} {tr('open')}</span>
+        <span className="poki-muted">{tr('{openCount} open', { openCount })}</span>
         <div className="poki-toolbar-spacer" />
         {canManage && <button type="button" className="btn btn-primary" disabled={!units.length} onClick={() => openDialog(null)}>{tr('Log request')}</button>}
       </div>
@@ -165,16 +166,16 @@ export default function PokiMaintenancePage() {
                 </td>
                 <td className="poki-nowrap">{r.unitCode}<div className="poki-muted">{r.propertyName}</div></td>
                 <td className="poki-nowrap">{r.tenantName || <span className="poki-muted">{tr('vacant')}</span>}</td>
-                <td><span className={'poki-chip poki-chip-' + (r.priority === 'urgent' ? 'urgent' : r.priority === 'high' ? 'expiring' : 'open')}>{r.priority}</span></td>
+                <td><span className={'poki-chip poki-chip-' + (r.priority === 'urgent' ? 'urgent' : r.priority === 'high' ? 'expiring' : 'open')}>{codeLabel(r.priority)}</span></td>
                 <td className="poki-nowrap">{fmtDate(r.reportedOn)}</td>
                 <td className="poki-num">{r.cost > 0 ? money(r.cost, 'GHS') : <span className="poki-muted">—</span>}</td>
-                <td><span className={'poki-chip poki-chip-' + r.status}>{r.status.replace('_', ' ')}</span></td>
+                <td><span className={'poki-chip poki-chip-' + r.status}>{codeLabel(r.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Start", onClick: () => setStatus(r, 'in_progress'), disabled: busyId === r.id, hidden: !(canManage && r.status === 'open') },
-                    { label: "Resolve", onClick: () => openDialog(r), hidden: !(canManage && (r.status === 'open' || r.status === 'in_progress')) },
-                    { label: "Edit", onClick: () => openDialog(r), hidden: !(canManage && r.status !== 'open') },
-                    { label: "Charge tenant", onClick: () => charge(r), disabled: busyId === r.id, hidden: !(canManage && r.cost > 0 && r.tenantName) },
+                    { label: tr('Start'), onClick: () => setStatus(r, 'in_progress'), disabled: busyId === r.id, hidden: !(canManage && r.status === 'open') },
+                    { label: tr('Resolve'), onClick: () => openDialog(r), hidden: !(canManage && (r.status === 'open' || r.status === 'in_progress')) },
+                    { label: tr('Edit'), onClick: () => openDialog(r), hidden: !(canManage && r.status !== 'open') },
+                    { label: tr('Charge tenant'), onClick: () => charge(r), disabled: busyId === r.id, hidden: !(canManage && r.cost > 0 && r.tenantName) },
                   ]} />
                 </td>
               </tr>

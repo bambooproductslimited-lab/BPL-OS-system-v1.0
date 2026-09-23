@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { tr } from '../lib/i18n.jsx';
 import './RowMenu.css';
 
 // The three-dot actions menu that replaces a row of buttons.
@@ -20,7 +21,7 @@ import './RowMenu.css';
 // Hidden entries are dropped rather than shown greyed out, which keeps the
 // caller's existing permission checks (canManage && ...) reading the same
 // way they did when they guarded whole buttons.
-export default function RowMenu({ actions, disabled, label = 'Actions' }) {
+export default function RowMenu({ actions, disabled, label = tr('Actions') }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const btnRef = useRef(null);

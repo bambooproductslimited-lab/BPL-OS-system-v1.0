@@ -6,6 +6,7 @@ import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Poki's tenant register. Deliberately separate from Bamboo Products'
 // client list: a tenant carries things a sales customer doesn't (ID
 // document, next of kin, employer) and shouldn't clutter the furniture
@@ -68,7 +69,7 @@ export default function PokiTenantsPage() {
     try {
       if (editId) await api.patch('/poki/tenants/' + editId, form);
       else await api.post('/poki/tenants', form);
-      setToast(editId ? 'Tenant updated.' : 'Tenant added.');
+      setToast(editId ? tr('Tenant updated.') : tr('Tenant added.'));
       setOpen(false);
       await load();
     } catch (err) {
@@ -79,10 +80,10 @@ export default function PokiTenantsPage() {
   }
 
   async function remove(t) {
-    if (!window.confirm('Delete ' + t.name + '? This cannot be undone.')) return;
+    if (!window.confirm(tr('Delete {name}? This cannot be undone.', { name: t.name }))) return;
     try {
       await api.del('/poki/tenants/' + t.id);
-      setToast('Tenant deleted.');
+      setToast(tr('Tenant deleted.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -133,7 +134,7 @@ export default function PokiTenantsPage() {
               <tr key={t.id}>
                 <td>
                   <div className="poki-strong">{t.name}</div>
-                  <div className="poki-muted" style={{ textTransform: 'capitalize' }}>{t.tenantType}</div>
+                  <div className="poki-muted">{codeLabel(t.tenantType)}</div>
                 </td>
                 <td>
                   <div>{t.phone || <span className="poki-muted">{tr('no phone')}</span>}</div>
@@ -141,11 +142,11 @@ export default function PokiTenantsPage() {
                 </td>
                 <td className="poki-muted poki-nowrap">{t.idNumber ? t.idType + ' · ' + t.idNumber : '—'}</td>
                 <td className="poki-nowrap">{t.unitLabels || <span className="poki-muted">—</span>}</td>
-                <td><span className={'poki-chip poki-chip-' + t.status}>{t.status}</span></td>
+                <td><span className={'poki-chip poki-chip-' + t.status}>{codeLabel(t.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Edit", onClick: () => openDialog(t), hidden: !(canManage) },
-                    { label: "Delete", onClick: () => remove(t), danger: true, hidden: !(canManage && !t.activeBookings) },
+                    { label: tr('Edit'), onClick: () => openDialog(t), hidden: !(canManage) },
+                    { label: tr('Delete'), onClick: () => remove(t), danger: true, hidden: !(canManage && !t.activeBookings) },
                   ]} />
                 </td>
               </tr>

@@ -78,7 +78,7 @@ export default function CompanySettingsPage() {
     setError(null);
     try {
       await api.patch('/settings', form);
-      setToast('Company settings saved.');
+      setToast(tr('Company settings saved.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -93,7 +93,7 @@ export default function CompanySettingsPage() {
     e.preventDefault();
     const code = currencyDraft.trim().toUpperCase();
     if (!code) return;
-    if (currencyList.includes(code)) { setCurrencyError('"' + code + '" is already enabled.'); return; }
+    if (currencyList.includes(code)) { setCurrencyError(tr('"{code}" is already enabled.', { code })); return; }
     setCurrencySaving(true);
     setCurrencyError(null);
     try {
@@ -108,7 +108,7 @@ export default function CompanySettingsPage() {
   }
 
   async function removeCurrency(code) {
-    if (currencyList.length <= 1) { setCurrencyError('Keep at least one currency enabled.'); return; }
+    if (currencyList.length <= 1) { setCurrencyError(tr('Keep at least one currency enabled.')); return; }
     setCurrencySaving(true);
     setCurrencyError(null);
     try {
@@ -179,7 +179,7 @@ export default function CompanySettingsPage() {
           <span key={c} className="tag tag-outline cs-currency-chip">
             {c}
             {!locked && (
-              <button type="button" className="cs-currency-remove" disabled={currencySaving} onClick={() => removeCurrency(c)} aria-label={tr('Remove ') + c}>×</button>
+              <button type="button" className="cs-currency-remove" disabled={currencySaving} onClick={() => removeCurrency(c)} aria-label={tr('Remove {c}', { c })}>×</button>
             )}
           </span>
         ))}

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './QIOverviewPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's qioverview screen (screens.qioverview
 // block + the qiKpis/qiMonthly/qiRecent*/qiUpcomingDue/qiOverdueInvoices
@@ -27,7 +28,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function docTagClass(bucket) {
@@ -58,20 +59,20 @@ export default function QIOverviewPage() {
   if (!data) return null;
 
   const kpis = [
-    { label: 'Total quotations', value: data.totalQuotations, icon: 'document', tone: 'ops' },
-    { label: 'Awaiting response', value: data.awaitingResponse, icon: 'clock', tone: 'warning' },
-    { label: 'Accepted', value: data.acceptedQuotations, icon: 'check', tone: 'people' },
-    { label: 'Rejected', value: data.rejectedQuotations, icon: 'warning', tone: 'danger' },
-    { label: 'Expired', value: data.expiredQuotations, icon: 'clock', tone: 'danger' },
-    { label: 'Quotation value', value: moneyBreakdown(data.totalQuotationValueByCurrency), icon: 'cash', tone: 'finance' },
-    { label: 'Conversion rate', value: data.conversionRate + '%', icon: 'check', tone: 'people' },
-    { label: 'Total invoices', value: data.totalInvoices, icon: 'document', tone: 'ops' },
-    { label: 'Invoiced amount', value: moneyBreakdown(data.totalInvoicedByCurrency), icon: 'cash', tone: 'finance' },
-    { label: 'Total paid', value: moneyBreakdown(data.totalPaidByCurrency), icon: 'cash', tone: 'people' },
-    { label: 'Outstanding balance', value: moneyBreakdown(data.outstandingByCurrency), icon: 'clock', tone: 'warning' },
-    { label: 'Overdue invoices', value: data.overdueCount, note: moneyBreakdown(data.overdueAmountByCurrency), icon: 'warning', tone: 'danger' },
-    { label: 'Revenue this month', value: moneyBreakdown(data.revenueThisMonthByCurrency), icon: 'cash', tone: 'people' },
-    { label: 'Revenue this year', value: moneyBreakdown(data.revenueThisYearByCurrency), icon: 'cash', tone: 'people' }
+    { label: tr('Total quotations'), value: data.totalQuotations, icon: 'document', tone: 'ops' },
+    { label: tr('Awaiting response'), value: data.awaitingResponse, icon: 'clock', tone: 'warning' },
+    { label: tr('Accepted'), value: data.acceptedQuotations, icon: 'check', tone: 'people' },
+    { label: tr('Rejected'), value: data.rejectedQuotations, icon: 'warning', tone: 'danger' },
+    { label: tr('Expired'), value: data.expiredQuotations, icon: 'clock', tone: 'danger' },
+    { label: tr('Quotation value'), value: moneyBreakdown(data.totalQuotationValueByCurrency), icon: 'cash', tone: 'finance' },
+    { label: tr('Conversion rate'), value: data.conversionRate + '%', icon: 'check', tone: 'people' },
+    { label: tr('Total invoices'), value: data.totalInvoices, icon: 'document', tone: 'ops' },
+    { label: tr('Invoiced amount'), value: moneyBreakdown(data.totalInvoicedByCurrency), icon: 'cash', tone: 'finance' },
+    { label: tr('Total paid'), value: moneyBreakdown(data.totalPaidByCurrency), icon: 'cash', tone: 'people' },
+    { label: tr('Outstanding balance'), value: moneyBreakdown(data.outstandingByCurrency), icon: 'clock', tone: 'warning' },
+    { label: tr('Overdue invoices'), value: data.overdueCount, note: moneyBreakdown(data.overdueAmountByCurrency), icon: 'warning', tone: 'danger' },
+    { label: tr('Revenue this month'), value: moneyBreakdown(data.revenueThisMonthByCurrency), icon: 'cash', tone: 'people' },
+    { label: tr('Revenue this year'), value: moneyBreakdown(data.revenueThisYearByCurrency), icon: 'cash', tone: 'people' }
   ];
 
   const maxInvoiced = data.monthly.length ? Math.max(...data.monthly.map((m) => m.invoiced)) : 0;
@@ -119,7 +120,7 @@ export default function QIOverviewPage() {
               {data.recentQuotes.map((q, i) => (
                 <tr key={i}>
                   <td>{q.quoteNo}</td><td>{q.customerName}</td><td>{money(q.grandTotal, q.currency)}</td>
-                  <td><span className={'tag ' + docTagClass(q.status === 'accepted' ? 'approved' : 'pending')}>{q.status}</span></td>
+                  <td><span className={'tag ' + docTagClass(q.status === 'accepted' ? 'approved' : 'pending')}>{codeLabel(q.status)}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -131,7 +132,7 @@ export default function QIOverviewPage() {
               {data.recentInvoices.map((iv, i) => (
                 <tr key={i}>
                   <td>{iv.invoiceNo}</td><td>{iv.customerName}</td><td>{money(iv.grandTotal, iv.currency)}</td>
-                  <td><span className={'tag ' + docTagClass(iv.status === 'paid' ? 'approved' : 'pending')}>{iv.status}</span></td>
+                  <td><span className={'tag ' + docTagClass(iv.status === 'paid' ? 'approved' : 'pending')}>{codeLabel(iv.status)}</span></td>
                 </tr>
               ))}
             </tbody>

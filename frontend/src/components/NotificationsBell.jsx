@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import Icon from '../layout/navIcons';
 import { playNotification, isMuted, setMuted } from '../lib/notificationSound';
 import { pushSupported, permissionState, iosNeedsInstall, enablePush, disablePush, isEnabledHere, sendTestPush } from '../lib/pushNotifications';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './NotificationsBell.css';
 
 // The header bell + dropdown from the design prototype (Bamboo OS.dc.html's
@@ -31,13 +31,13 @@ const POLL_MS = 45000;
 function timeAgo(iso) {
   var diffMs = Date.now() - new Date(iso).getTime();
   var mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
+  if (mins < 1) return tr('just now');
+  if (mins < 60) return tr('{mins}m ago', { mins });
   var hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + 'h ago';
+  if (hours < 24) return tr('{hours}h ago', { hours });
   var days = Math.floor(hours / 24);
-  if (days < 7) return days + 'd ago';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  if (days < 7) return tr('{days}d ago', { days });
+  return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short' });
 }
 
 export default function NotificationsBell() {

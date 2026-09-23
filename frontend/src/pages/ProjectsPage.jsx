@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './ProjectsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's projects screen (screens.projects block
 // + the projects computed values, and the "New project" dialog around its
@@ -26,14 +27,14 @@ function tagClass(status) {
 }
 
 function statusLabel(s) {
-  return s.replace(/_/g, ' ');
+  return codeLabel(s);
 }
 
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -131,7 +132,7 @@ export default function ProjectsPage() {
         name: form.name, departmentId: form.departmentId, ownerId: form.ownerId || undefined,
         startDate: form.startDate || undefined, deadline: form.deadline || undefined, description: form.description
       });
-      setToast('Project created.');
+      setToast(tr('Project created.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -150,10 +151,10 @@ export default function ProjectsPage() {
   const inProgressCount = projects.filter((p) => p.status === 'in_progress').length;
 
   const summary = [
-    { label: 'Projects', value: projects.length, icon: 'folder', tone: 'people' },
-    { label: 'In progress', value: inProgressCount, icon: 'clock', tone: 'people' },
-    { label: 'Completed', value: completedCount, icon: 'checkCircle', tone: 'people' },
-    { label: 'Overdue', value: overdueCount, icon: 'clock', tone: 'danger' }
+    { label: tr('Projects'), value: projects.length, icon: 'folder', tone: 'people' },
+    { label: tr('In progress'), value: inProgressCount, icon: 'clock', tone: 'people' },
+    { label: tr('Completed'), value: completedCount, icon: 'checkCircle', tone: 'people' },
+    { label: tr('Overdue'), value: overdueCount, icon: 'clock', tone: 'danger' }
   ];
 
   return (
@@ -211,14 +212,14 @@ export default function ProjectsPage() {
                 {p.ownerName}
                 <span className="projects-card-meta-sep">·</span>
                 <Icon name="calendar" />
-                {tr('Due')} {fmtDate(p.deadline)}
+                {tr('Due {date}', { date: fmtDate(p.deadline) })}
                 {overdue && <span className="projects-overdue-badge">{tr('overdue')}</span>}
               </div>
               <div>
                 <div className="projects-progress-track">
                   <div className={'projects-progress-bar' + (overdue ? ' projects-progress-bar-overdue' : '')} style={{ width: progress + '%' }} />
                 </div>
-                <div className="projects-task-line"><Icon name="checklist" /> {p.doneCount} / {p.taskCount} {tr('tasks done')}</div>
+                <div className="projects-task-line"><Icon name="checklist" /> {tr('{done} / {total} tasks done', { done: p.doneCount, total: p.taskCount })}</div>
               </div>
             </div>
           );
@@ -233,7 +234,7 @@ export default function ProjectsPage() {
       {!!projects.length && !visibleProjects.length && (
         <div className="projects-empty-state">
           <span className="projects-empty-icon"><Icon name="folder" /></span>
-          <p className="projects-empty-title">{tr('No projects match "')}{search}"</p>
+          <p className="projects-empty-title">{tr('No projects match "{search}"', { search })}</p>
         </div>
       )}
 

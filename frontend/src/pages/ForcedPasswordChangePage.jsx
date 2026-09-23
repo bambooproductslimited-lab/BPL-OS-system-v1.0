@@ -70,15 +70,15 @@ export default function ForcedPasswordChangePage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-    if (newPassword.length < 8) { setError('New password must be at least 8 characters.'); return; }
-    if (newPassword !== confirmPassword) { setError('Passwords do not match.'); return; }
+    if (newPassword.length < 8) { setError(tr('New password must be at least 8 characters.')); return; }
+    if (newPassword !== confirmPassword) { setError(tr('Passwords do not match.')); return; }
 
     setSubmitting(true);
     try {
       await api.post('/me/password', { currentPassword, newPassword });
       await refreshSession();
     } catch (err) {
-      setError(err.message || 'Something went wrong.');
+      setError(err.message || tr('Something went wrong.'));
     } finally {
       setSubmitting(false);
     }
@@ -91,7 +91,7 @@ export default function ForcedPasswordChangePage() {
       <div className="login-brand">
         <BambooDecoration />
         <div className="login-brand-content">
-          <img src="/logo.png" alt={tr('Bamboo Products Limited')} className="login-logo" />
+          <img src="/logo.png" alt="Bamboo Products Limited" className="login-logo" />
           <div>
             <h1 className="login-brand-heading">{tr('Set a new')}<br />{tr('password')}</h1>
             <p className="login-brand-sub">
@@ -108,7 +108,7 @@ export default function ForcedPasswordChangePage() {
 
       <div className="login-form-wrap">
         <form className="login-form" onSubmit={handleSubmit}>
-          <h1 className="login-form-title">{firstName ? tr('Welcome, ') + firstName : tr('Set a new password')}</h1>
+          <h1 className="login-form-title">{firstName ? tr('Welcome, {firstName}', { firstName }) : tr('Set a new password')}</h1>
           <p className="login-form-sub">{tr('Enter your current (temporary) password and choose a new one.')}</p>
 
           <div className="field">

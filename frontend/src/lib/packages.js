@@ -1,4 +1,9 @@
 import { money } from './currency';
+import { docTr } from './i18n.jsx';
+
+// Everything this file writes goes onto a customer document (the preview and
+// the page behind a share link), so it is in the document language — see
+// docTr in i18n.jsx.
 
 // Mirrors the line-total formula used everywhere else in the doc wizard
 // (qty * unitPrice, minus the line's own discount, tax excluded) — kept
@@ -25,15 +30,15 @@ function lineDiscountAmount(it) {
 function discountNote(it, currency) {
   const amt = lineDiscountAmount(it);
   if (!amt) return '';
-  const basis = it.discountType === 'percent' ? (Number(it.discount) || 0) + '% off' : 'discount';
-  return 'Less ' + basis + ': ' + money(amt, currency);
+  const basis = it.discountType === 'percent' ? docTr('{n}% off', { n: Number(it.discount) || 0 }) : docTr('discount');
+  return docTr('Less {basis}: {amount}', { basis: basis, amount: money(amt, currency) });
 }
 
 function taxNote(it, currency) {
   const rate = Number(it.taxRate) || 0;
   if (!rate) return '';
   const taxable = Math.max(0, lineGross(it) - lineDiscountAmount(it));
-  return 'Tax ' + rate + '%: ' + money((taxable * rate) / 100, currency);
+  return docTr('Tax {rate}%: {amount}', { rate: rate, amount: money((taxable * rate) / 100, currency) });
 }
 
 // Groups line items that share a non-empty packageLabel into one display
@@ -67,9 +72,9 @@ export function groupPackageItems(items, currency) {
   });
   return order.map((g) => (g.isPackage
     ? {
-        description: g.description, notes: 'Includes: ' + g.names.join(', '),
+        description: g.description, notes: docTr('Includes: {items}', { items: g.names.join(', ') }),
         qty: '', unitPrice: '', lineTotal: money(g.total, currency),
-        discountNote: g.discountAmount ? 'Less discount: ' + money(g.discountAmount, currency) : '',
+        discountNote: g.discountAmount ? docTr('Less discount: {amount}', { amount: money(g.discountAmount, currency) }) : '',
         taxNote: '',
       }
     : {

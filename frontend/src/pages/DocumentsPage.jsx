@@ -6,7 +6,7 @@ import { toPreviewUrl } from '../lib/previewUrl';
 import './DocumentsPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's documents screen (screens.documents
 // block + the "Add document" dialog around its render()), extended with
 // real file upload/preview against Cloudflare R2 (see
@@ -25,7 +25,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
@@ -110,8 +110,8 @@ export default function DocumentsPage() {
   }
 
   function visLabel(doc) {
-    if (doc.visibility === 'all') return 'All staff';
-    if (doc.visibility === 'managers') return 'Managers';
+    if (doc.visibility === 'all') return tr('All staff');
+    if (doc.visibility === 'managers') return tr('Managers');
     return deptName(doc.departmentId);
   }
 
@@ -124,7 +124,7 @@ export default function DocumentsPage() {
 
   async function handleUpload(e) {
     e.preventDefault();
-    if (!file) { setDialogError('Choose a file to upload.'); return; }
+    if (!file) { setDialogError(tr('Choose a file to upload.')); return; }
     setUploading(true);
     setDialogError(null);
     try {
@@ -134,7 +134,7 @@ export default function DocumentsPage() {
       body.append('visibility', form.visibility);
       body.append('file', file);
       await api.upload('/documents', body);
-      setToast('Document added.');
+      setToast(tr('Document added.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -161,7 +161,7 @@ export default function DocumentsPage() {
     setDeleting(true);
     try {
       await api.del('/documents/' + deleteTarget.id);
-      setToast('Document removed.');
+      setToast(tr('Document removed.'));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -217,7 +217,7 @@ export default function DocumentsPage() {
                 </td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Remove", onClick: () => setDeleteTarget(dc), danger: true, hidden: !(canManage) },
+                    { label: tr('Remove'), onClick: () => setDeleteTarget(dc), danger: true, hidden: !(canManage) },
                   ]} />
                 </td>
               </tr>
@@ -234,7 +234,7 @@ export default function DocumentsPage() {
       {!!documents.length && !visibleDocuments.length && (
         <div className="documents-empty-state">
           <span className="documents-empty-icon"><Icon name="folder" /></span>
-          <p className="documents-empty-title">{tr('No documents match "')}{search}"</p>
+          <p className="documents-empty-title">{tr('No documents match "{search}"', { search })}</p>
         </div>
       )}
 

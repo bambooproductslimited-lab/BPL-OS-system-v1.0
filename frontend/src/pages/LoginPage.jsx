@@ -73,7 +73,7 @@ export default function LoginPage() {
       await login(email, password);
       navigate(redirectTo, { replace: true });
     } catch (err) {
-      setError(err.message || 'Something went wrong.');
+      setError(err.message || tr('Something went wrong.'));
     } finally {
       setSubmitting(false);
     }
@@ -90,7 +90,7 @@ export default function LoginPage() {
       <div className="login-brand">
         <BambooDecoration />
         <div className="login-brand-content">
-          <img src="/logo.png" alt={tr('Bamboo Products Limited')} className="login-logo" />
+          <img src="/logo.png" alt="Bamboo Products Limited" className="login-logo" />
           <div>
             <h1 className="login-brand-heading">{tr('Company')}<br />{tr('Operating')}<br />{tr('System')}</h1>
             <p className="login-brand-sub">
@@ -122,7 +122,7 @@ export default function LoginPage() {
                 className="input login-input"
                 type="email"
                 autoComplete="username"
-                placeholder={tr('name@bplghana.com')}
+                placeholder="name@bplghana.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required

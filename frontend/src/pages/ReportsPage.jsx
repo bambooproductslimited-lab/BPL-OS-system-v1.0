@@ -44,12 +44,12 @@ export default function ReportsPage() {
   if (error) return <div className="error-banner">{error}</div>;
 
   const kpis = summary ? [
-    { label: 'Total invoiced', value: 'GHS ' + (summary.totalInvoiced || 0).toLocaleString(), icon: 'document', tone: 'finance' },
-    { label: 'Total collected', value: 'GHS ' + (summary.totalPaid || 0).toLocaleString(), icon: 'cash', tone: 'people' },
-    { label: 'Outstanding', value: 'GHS ' + (summary.outstanding || 0).toLocaleString(), icon: 'clock', tone: 'warning' },
-    { label: 'Sales orders', value: summary.ordersCount || 0, icon: 'cart', tone: 'ops' },
-    { label: 'Quotations accepted', value: summary.quotationsAccepted || 0, icon: 'check', tone: 'people' },
-    { label: 'Expenses approved', value: 'GHS ' + (summary.totalExpensesApproved || 0).toLocaleString(), icon: 'receipt', tone: 'finance' }
+    { label: tr('Total invoiced'), value: 'GHS ' + (summary.totalInvoiced || 0).toLocaleString(), icon: 'document', tone: 'finance' },
+    { label: tr('Total collected'), value: 'GHS ' + (summary.totalPaid || 0).toLocaleString(), icon: 'cash', tone: 'people' },
+    { label: tr('Outstanding'), value: 'GHS ' + (summary.outstanding || 0).toLocaleString(), icon: 'clock', tone: 'warning' },
+    { label: tr('Sales orders'), value: summary.ordersCount || 0, icon: 'cart', tone: 'ops' },
+    { label: tr('Quotations accepted'), value: summary.quotationsAccepted || 0, icon: 'check', tone: 'people' },
+    { label: tr('Expenses approved'), value: 'GHS ' + (summary.totalExpensesApproved || 0).toLocaleString(), icon: 'receipt', tone: 'finance' }
   ] : [];
 
   const expenseByCategory = (summary && summary.expenseByCategory) || [];
@@ -74,7 +74,7 @@ export default function ReportsPage() {
             <thead><tr><th>{tr('Category')}</th><th>{tr('Amount')}</th></tr></thead>
             <tbody>
               {expenseByCategory.map((r) => (
-                <tr key={r.category}><td>{r.category}</td><td>{tr('GHS')} {r.amount.toLocaleString()}</td></tr>
+                <tr key={r.category}><td>{r.category}</td><td>GHS {r.amount.toLocaleString()}</td></tr>
               ))}
             </tbody>
           </table>
@@ -85,7 +85,7 @@ export default function ReportsPage() {
             <thead><tr><th>{tr('Customer')}</th><th>{tr('Amount')}</th></tr></thead>
             <tbody>
               {salesByCustomer.map((r) => (
-                <tr key={r.customer}><td>{r.customer}</td><td>{tr('GHS')} {r.amount.toLocaleString()}</td></tr>
+                <tr key={r.customer}><td>{r.customer}</td><td>GHS {r.amount.toLocaleString()}</td></tr>
               ))}
             </tbody>
           </table>

@@ -3,8 +3,9 @@ import DocItemsEditor from './DocItemsEditor';
 import DocPreview from './DocPreview';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
-import { tr } from '../lib/i18n.jsx';
+import { tr, docTr, msg } from '../lib/i18n.jsx';
 import './DocWizard.css';
+import { docCodeLabel } from '../lib/codeLabels.js';
 
 // Shared 3-step create flow for Quotations/Estimates/Invoices, modeled on
 // Square's own "Details -> Estimate/Invoice -> Finish & update" wizard
@@ -18,7 +19,7 @@ import './DocWizard.css';
 // existing Preview dialog (DocPreview.jsx) instead of in here — this
 // wizard's last step is "review, then create."
 
-const STEPS = ['Details', 'Items & pricing', 'Finish'];
+const STEPS = [msg('Details'), msg('Items & pricing'), msg('Finish')];
 
 export default function DocWizard({
   title, docKind, detailsSlot, message, onMessageChange, messageLabel,
@@ -42,10 +43,10 @@ export default function DocWizard({
   // both passed, which they deliberately aren't here).
   const customerName = (recapBlocks && recapBlocks[0] && recapBlocks[0].value) || '';
   const secondBlock = (recapBlocks && recapBlocks[1]) || null;
-  const kindLabel = docKind ? docKind.charAt(0).toUpperCase() + docKind.slice(1) : 'Document';
+  const kindLabel = docKind ? docCodeLabel(docKind) : docTr('Document');
   const previewItems = groupPackageItems(items, currency);
   const previewSchedule = (paymentSchedule || []).filter((r) => Number(r.value) > 0).map((r) => ({
-    label: r.label || 'Installment',
+    label: r.label || docTr('Installment'),
     dueDate: r.dueDate || '—',
     amount: money(r.type === 'fixed' ? Number(r.value) || 0 : (totals.grandTotal * (Number(r.value) || 0)) / 100, currency)
   }));
@@ -62,7 +63,7 @@ export default function DocWizard({
               className={'docwizard-step' + (i === step ? ' docwizard-step-active' : '') + (i < step ? ' docwizard-step-done' : '')}
               onClick={() => setStep(i)}
             >
-              <span className="docwizard-step-num">{i + 1}</span>{label}
+              <span className="docwizard-step-num">{i + 1}</span>{tr(label)}
             </button>
           ))}
         </div>
@@ -107,7 +108,7 @@ export default function DocWizard({
               <div className="docwizard-recap">
                 <div className="docwizard-recap-row"><span><strong>{tr('Payment schedule')}</strong></span><span></span></div>
                 {previewSchedule.map((row, i) => (
-                  <div className="docwizard-recap-row" key={i}><span>{row.label} {tr('— due')} {row.dueDate}</span><span>{row.amount}</span></div>
+                  <div className="docwizard-recap-row" key={i}><span>{tr('{label} — due {dueDate}', { label: row.label, dueDate: row.dueDate })}</span><span>{row.amount}</span></div>
                 ))}
               </div>
             )}
@@ -132,20 +133,20 @@ export default function DocWizard({
     {previewOpen && (
       <DocPreview
         docLabel={title}
-        dateLabel="Status"
-        dateValue="Draft — not yet created"
-        heading={kindLabel + (customerName ? ' for ' + customerName : '')}
+        dateLabel={docTr('Status')}
+        dateValue={docTr('Draft — not yet created')}
+        heading={customerName ? docTr('{kind} for {name}', { kind: kindLabel, name: customerName }) : kindLabel}
         subHeading={secondBlock ? secondBlock.label + ': ' + secondBlock.value : ''}
         blocks={[
-          { title: 'Customer', lines: [customerName || '—'] },
-          { title: kindLabel + ' Details', lines: [items.length + ' item' + (items.length === 1 ? '' : 's'), money(totals.grandTotal, currency)] },
+          { title: docTr('Customer'), lines: [customerName || '—'] },
+          { title: docTr('{kind} Details', { kind: kindLabel }), lines: [items.length === 1 ? docTr('1 item') : docTr('{n} items', { n: items.length }), money(totals.grandTotal, currency)] },
           secondBlock ? { title: secondBlock.label, lines: [secondBlock.value] } : { title: '', lines: [] }
         ]}
         items={previewItems}
         subtotal={money(totals.subtotal, currency)}
-        totalLabel="Grand Total"
+        totalLabel={docTr('Grand Total')}
         total={money(totals.grandTotal, currency)}
-        notesLabel={messageLabel || 'Message to customer'}
+        notesLabel={messageLabel || docTr('Message to customer')}
         notesValue={message}
         paymentSchedule={previewSchedule}
         onClose={() => setPreviewOpen(false)}

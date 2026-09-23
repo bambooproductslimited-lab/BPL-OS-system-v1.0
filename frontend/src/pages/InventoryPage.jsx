@@ -92,7 +92,7 @@ export default function InventoryPage() {
     try {
       if (editId) await api.put('/products/' + editId, form);
       else await api.post('/products', form);
-      setToast(editId ? 'Product updated.' : 'Product added.');
+      setToast(editId ? tr('Product updated.') : tr('Product added.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -117,7 +117,7 @@ export default function InventoryPage() {
 
       <table className="table">
         <thead>
-          <tr><th>{tr('SKU')}</th><th>{tr('Product')}</th><th>{tr('Category')}</th><th>{tr('Cost')}</th><th>{tr('Selling price')}</th><th>{tr('Stock')}</th><th>{tr('Reorder level')}</th><th /><th /></tr>
+          <tr><th>SKU</th><th>{tr('Product')}</th><th>{tr('Category')}</th><th>{tr('Cost')}</th><th>{tr('Selling price')}</th><th>{tr('Stock')}</th><th>{tr('Reorder level')}</th><th /><th /></tr>
         </thead>
         <tbody>
           {visibleProducts.map((p) => (
@@ -134,10 +134,10 @@ export default function InventoryPage() {
               <td>{p.sellingPrice}</td>
               <td>{p.currentStock} {p.unit}</td>
               <td>{p.reorderLevel}</td>
-              <td><span className={'tag ' + (p.lowStock ? 'tag-accent' : 'tag-neutral')}>{p.lowStock ? tr('Low stock') : 'OK'}</span></td>
+              <td><span className={'tag ' + (p.lowStock ? 'tag-accent' : 'tag-neutral')}>{p.lowStock ? tr('Low stock') : tr('OK')}</span></td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
-                  { label: "Edit", onClick: () => openEdit(p), hidden: !(canManage) },
+                  { label: tr('Edit'), onClick: () => openEdit(p), hidden: !(canManage) },
                 ]} />
               </td>
             </tr>
@@ -153,7 +153,7 @@ export default function InventoryPage() {
       {!!products.length && !visibleProducts.length && (
         <div className="inventory-empty-state">
           <span className="inventory-empty-icon"><BoxIcon /></span>
-          <p className="inventory-empty-title">{tr('No products match "')}{search}"</p>
+          <p className="inventory-empty-title">{tr('No products match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -163,7 +163,7 @@ export default function InventoryPage() {
             <h2 className="inventory-dialog-title">{editId ? tr('Edit product') : tr('Add product')}</h2>
             {dialogError && <div className="error-banner inventory-dialog-span">{dialogError}</div>}
             <div className="field">
-              <label htmlFor="prod-sku">{tr('SKU')}</label>
+              <label htmlFor="prod-sku">SKU</label>
               <input id="prod-sku" className="input" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
             </div>
             <div className="field">

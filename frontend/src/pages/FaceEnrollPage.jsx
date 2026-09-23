@@ -75,7 +75,7 @@ export default function FaceEnrollPage() {
         {status === 'ready' && target && (
           <>
             <p className="face-enroll-body">
-              {tr('Hi')} {target.firstName}{tr(', this sets up face recognition for the clock-in kiosk — once done, you\'ll need to look at the kiosk\'s camera (in addition to your PIN) every time you clock in or out.')}
+              {tr("Hi {firstName}, this sets up face recognition for the clock-in kiosk — once done, you'll need to look at the kiosk's camera (in addition to your PIN) every time you clock in or out.", { firstName: target.firstName })}
             </p>
             <p className="face-enroll-body face-enroll-muted">
               {tr('Nothing is uploaded or stored except the face measurements captured right now — no photo is kept. You\'ll be asked to look at your camera and slowly turn/tilt your head through a few angles, about 10 seconds in total.')}
@@ -111,7 +111,7 @@ export default function FaceEnrollPage() {
           <FaceCapture
             mode="enroll"
             title={tr('Look at the camera')}
-            subtitle="Look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down)."
+            subtitle={tr('Look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down).')}
             onCapture={submit}
             onCancel={() => setStatus('ready')}
           />

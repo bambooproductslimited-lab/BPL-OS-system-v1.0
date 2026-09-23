@@ -155,7 +155,7 @@ export default function DepartmentsPage() {
     try {
       const body = { name: companyForm.name, code: companyForm.code };
       const saved = editCompanyId ? await api.put('/companies/' + editCompanyId, body) : await api.post('/companies', body);
-      setToast('Company ' + saved.code + ' saved.');
+      setToast(tr('Company {code} saved.', { code: saved.code }));
       setCompanyDialogOpen(false);
       await load();
     } catch (err) {
@@ -169,7 +169,7 @@ export default function DepartmentsPage() {
     setDialogError(null);
     try {
       await api.del('/companies/' + deleteCompanyTarget.id);
-      setToast(deleteCompanyTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: deleteCompanyTarget.name }));
       setDeleteCompanyTarget(null);
       await load();
     } catch (err) {
@@ -199,7 +199,7 @@ export default function DepartmentsPage() {
     try {
       const body = { code: deptForm.code, name: deptForm.name, companyId: deptForm.companyId || undefined, managerId: deptForm.managerId || null };
       const saved = editDeptId ? await api.put('/departments/' + editDeptId, body) : await api.post('/departments', body);
-      setToast('Department ' + saved.code + ' saved.');
+      setToast(tr('Department {code} saved.', { code: saved.code }));
       setDeptDialogOpen(false);
       await load();
     } catch (err) {
@@ -213,7 +213,7 @@ export default function DepartmentsPage() {
     setDialogError(null);
     try {
       await api.del('/departments/' + deleteDeptTarget.id);
-      setToast(deleteDeptTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: deleteDeptTarget.name }));
       setDeleteDeptTarget(null);
       await load();
     } catch (err) {
@@ -263,7 +263,7 @@ export default function DepartmentsPage() {
       const body = { name: shiftForm.name, startTime: shiftForm.startTime, endTime: shiftForm.endTime, departmentId: shiftsDialog.departmentId };
       if (editShiftId) await api.put('/shifts/' + editShiftId, body);
       else await api.post('/shifts', body);
-      setToast(editShiftId ? 'Shift updated.' : 'Shift added.');
+      setToast(editShiftId ? tr('Shift updated.') : tr('Shift added.'));
       setEditShiftId(null);
       setShiftForm(EMPTY_SHIFT_FORM);
       await reloadShifts();
@@ -279,7 +279,7 @@ export default function DepartmentsPage() {
     setDialogError(null);
     try {
       await api.del('/shifts/' + deleteShiftTarget.id);
-      setToast(deleteShiftTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: deleteShiftTarget.name }));
       setDeleteShiftTarget(null);
       await reloadShifts();
       await load();
@@ -324,9 +324,9 @@ export default function DepartmentsPage() {
                 <td><span className={'tag ' + (c.status === 'active' ? 'tag-neutral' : 'tag-accent')}>{c.status === 'active' ? tr('Active') : tr('Archived')}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Edit", onClick: () => openEditCompany(c), hidden: !(canManage) },
-                    { label: "+ Department", onClick: () => openNewDept(c.id), hidden: !(canManage) },
-                    { label: "Delete", onClick: () => { setDialogError(null); setDeleteCompanyTarget(c); }, danger: true, hidden: !(canManage && c.departments.length === 0) },
+                    { label: tr('Edit'), onClick: () => openEditCompany(c), hidden: !(canManage) },
+                    { label: tr('+ Department'), onClick: () => openNewDept(c.id), hidden: !(canManage) },
+                    { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteCompanyTarget(c); }, danger: true, hidden: !(canManage && c.departments.length === 0) },
                   ]} />
                 </td>
               </tr>
@@ -356,13 +356,13 @@ export default function DepartmentsPage() {
                               <td>{d.headcount}</td>
                               <td>
                                 <button type="button" className="btn btn-secondary departments-row-btn departments-shifts-btn" onClick={() => openShifts(d)}>
-                                  <ClockIcon /> {d.shiftCount} {tr('shift')}{d.shiftCount === 1 ? '' : 's'}
+                                  <ClockIcon /> {d.shiftCount === 1 ? tr('1 shift') : tr('{n} shifts', { n: d.shiftCount })}
                                 </button>
                               </td>
                               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                                 <RowMenu actions={[
-                                  { label: "Edit", onClick: () => openEditDept(c.id, d), hidden: !(canManage) },
-                                  { label: "Delete", onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) },
+                                  { label: tr('Edit'), onClick: () => openEditDept(c.id, d), hidden: !(canManage) },
+                                  { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) },
                                 ]} />
                               </td>
                             </tr>
@@ -386,7 +386,7 @@ export default function DepartmentsPage() {
       {!!companies.length && !visibleCompanies.length && (
         <div className="departments-empty-state">
           <span className="departments-empty-icon"><PeopleIcon /></span>
-          <p className="departments-empty-title">{tr('No companies match "')}{search}"</p>
+          <p className="departments-empty-title">{tr('No companies match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -397,11 +397,11 @@ export default function DepartmentsPage() {
             {companyDialogError && <div className="error-banner departments-dialog-span">{companyDialogError}</div>}
             <div className="field departments-dialog-span">
               <label htmlFor="company-name">{tr('Company name')}</label>
-              <input id="company-name" className="input" value={companyForm.name} onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })} placeholder={tr('Bamboo Products Limited')} required />
+              <input id="company-name" className="input" value={companyForm.name} onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })} placeholder="Bamboo Products Limited" required />
             </div>
             <div className="field">
               <label htmlFor="company-code">{tr('Code')}</label>
-              <input id="company-code" className="input" maxLength={8} value={companyForm.code} onChange={(e) => setCompanyForm({ ...companyForm, code: e.target.value })} placeholder={tr('BPL')} required />
+              <input id="company-code" className="input" maxLength={8} value={companyForm.code} onChange={(e) => setCompanyForm({ ...companyForm, code: e.target.value })} placeholder="BPL" required />
             </div>
             <div className="dialog-actions departments-dialog-span">
               <button type="button" className="btn btn-secondary" onClick={() => setCompanyDialogOpen(false)}>{tr('Cancel')}</button>
@@ -425,7 +425,7 @@ export default function DepartmentsPage() {
             </div>
             <div className="field">
               <label htmlFor="dept-code">{tr('Code')}</label>
-              <input id="dept-code" className="input" maxLength={5} value={deptForm.code} onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })} placeholder={tr('PROD')} required />
+              <input id="dept-code" className="input" maxLength={5} value={deptForm.code} onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })} placeholder="PROD" required />
             </div>
             <div className="field">
               <label htmlFor="dept-name">{tr('Department name')}</label>
@@ -470,8 +470,8 @@ export default function DepartmentsPage() {
                           <td>{s.assignedCount}</td>
                           <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                             <RowMenu actions={[
-                              { label: "Edit", onClick: () => startEditShift(s), hidden: !(canManage) },
-                              { label: "Delete", onClick: () => { setDialogError(null); setDeleteShiftTarget(s); }, danger: true, hidden: !(canManage && s.assignedCount === 0) },
+                              { label: tr('Edit'), onClick: () => startEditShift(s), hidden: !(canManage) },
+                              { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteShiftTarget(s); }, danger: true, hidden: !(canManage && s.assignedCount === 0) },
                             ]} />
                           </td>
                         </tr>

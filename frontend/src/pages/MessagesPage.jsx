@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './MessagesPage.css';
 
 // Ported from Bamboo OS.dc.html's messages screen (screens.messages block
@@ -49,9 +49,9 @@ function dayLabel(iso) {
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-  if (sameCalendarDay(d, today)) return 'Today';
-  if (sameCalendarDay(d, yesterday)) return 'Yesterday';
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  if (sameCalendarDay(d, today)) return tr('Today');
+  if (sameCalendarDay(d, yesterday)) return tr('Yesterday');
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
 }
 
 function fmtBubbleTime(iso) { return new Date(iso).toTimeString().slice(0, 5); }
@@ -61,9 +61,9 @@ function fmtInboxAt(iso) {
   const now = new Date();
   if (sameCalendarDay(d, now)) return d.toTimeString().slice(0, 5);
   const diffDays = Math.round((new Date(now.toDateString()) - new Date(d.toDateString())) / 86400000);
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return d.toLocaleDateString('en-GB', { weekday: 'short' });
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  if (diffDays === 1) return tr('Yesterday');
+  if (diffDays < 7) return d.toLocaleDateString(activeIntlLocale(), { weekday: 'short' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short' });
 }
 
 // Flattens a thread's messages into render items: day separators, plus each

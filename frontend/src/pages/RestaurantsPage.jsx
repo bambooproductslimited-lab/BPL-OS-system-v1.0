@@ -7,7 +7,8 @@ import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import './RestaurantsPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Restaurant module, Phase 1: each restaurant company (Star Bar Restaurant,
 // Bamboo Garden — see migration 0032) gets its own sellable menu plus two
 // separate stock trackers: general supplies (glassware, napkins — no
@@ -454,7 +455,7 @@ export default function RestaurantsPage() {
       } else if (menuPhotoRemoved && menuEditId) {
         await api.del('/restaurant/menu-items/' + saved.id + '/photo');
       }
-      setToast(menuEditId ? 'Menu item updated.' : 'Menu item added.');
+      setToast(menuEditId ? tr('Menu item updated.') : tr('Menu item added.'));
       setMenuDialogOpen(false);
       await load(companyId);
       flash(saved.id);
@@ -476,7 +477,7 @@ export default function RestaurantsPage() {
     setVariationError(null);
   }
   async function submitVariationForm() {
-    if (!variationForm.name.trim()) { setVariationError('Name a variation before adding it.'); return; }
+    if (!variationForm.name.trim()) { setVariationError(tr('Name a variation before adding it.')); return; }
     setVariationSaving(true);
     setVariationError(null);
     try {
@@ -519,7 +520,7 @@ export default function RestaurantsPage() {
     setBusyId(m.id);
     try {
       await api.del('/restaurant/menu-items/' + m.id);
-      setToast('Menu item removed.');
+      setToast(tr('Menu item removed.'));
       await load(companyId);
     } catch (err) {
       setError(err.message);
@@ -548,7 +549,7 @@ export default function RestaurantsPage() {
     try {
       if (supplyEditId) await api.put('/restaurant/supplies/' + supplyEditId, supplyForm);
       else await api.post('/restaurant/supplies', { ...supplyForm, companyId });
-      setToast(supplyEditId ? 'Supply item updated.' : 'Supply item added.');
+      setToast(supplyEditId ? tr('Supply item updated.') : tr('Supply item added.'));
       setSupplyDialogOpen(false);
       await load(companyId);
     } catch (err) {
@@ -561,7 +562,7 @@ export default function RestaurantsPage() {
     setBusyId(s.id);
     try {
       await api.del('/restaurant/supplies/' + s.id);
-      setToast('Supply item removed.');
+      setToast(tr('Supply item removed.'));
       await load(companyId);
     } catch (err) {
       setError(err.message);
@@ -590,7 +591,7 @@ export default function RestaurantsPage() {
     try {
       if (tableEditId) await api.put('/restaurant/tables/' + tableEditId, tableForm);
       else await api.post('/restaurant/tables', { ...tableForm, companyId });
-      setToast(tableEditId ? 'Table updated.' : 'Table added.');
+      setToast(tableEditId ? tr('Table updated.') : tr('Table added.'));
       setTableDialogOpen(false);
       await load(companyId);
     } catch (err) {
@@ -603,7 +604,7 @@ export default function RestaurantsPage() {
     setBusyId(t.id);
     try {
       await api.post('/restaurant/tables/' + t.id + '/active', { active: t.status !== 'active' });
-      setToast(t.status === 'active' ? 'Table archived.' : 'Table reactivated.');
+      setToast(t.status === 'active' ? tr('Table archived.') : tr('Table reactivated.'));
       await load(companyId);
     } catch (err) {
       setError(err.message);
@@ -615,7 +616,7 @@ export default function RestaurantsPage() {
     setBusyId(t.id);
     try {
       await api.del('/restaurant/tables/' + t.id);
-      setToast('Table removed.');
+      setToast(tr('Table removed.'));
       await load(companyId);
     } catch (err) {
       setError(err.message);
@@ -644,7 +645,7 @@ export default function RestaurantsPage() {
     try {
       if (guestEditId) await api.put('/restaurant/guests/' + guestEditId, guestForm);
       else await api.post('/restaurant/guests', { ...guestForm, companyId });
-      setToast(guestEditId ? 'Guest updated.' : 'Guest added.');
+      setToast(guestEditId ? tr('Guest updated.') : tr('Guest added.'));
       setGuestDialogOpen(false);
       await load(companyId);
     } catch (err) {
@@ -657,7 +658,7 @@ export default function RestaurantsPage() {
     setBusyId(g.id);
     try {
       await api.del('/restaurant/guests/' + g.id);
-      setToast('Guest removed.');
+      setToast(tr('Guest removed.'));
       await load(companyId);
     } catch (err) {
       setError(err.message);
@@ -686,7 +687,7 @@ export default function RestaurantsPage() {
     try {
       if (ingredientEditId) await api.put('/restaurant/ingredients/' + ingredientEditId, ingredientForm);
       else await api.post('/restaurant/ingredients', { ...ingredientForm, companyId });
-      setToast(ingredientEditId ? 'Ingredient updated.' : 'Ingredient added.');
+      setToast(ingredientEditId ? tr('Ingredient updated.') : tr('Ingredient added.'));
       setIngredientDialogOpen(false);
       await load(companyId);
     } catch (err) {
@@ -699,7 +700,7 @@ export default function RestaurantsPage() {
     setBusyId(i.id);
     try {
       await api.del('/restaurant/ingredients/' + i.id);
-      setToast('Ingredient removed.');
+      setToast(tr('Ingredient removed.'));
       await load(companyId);
     } catch (err) {
       setError(err.message);
@@ -713,7 +714,7 @@ export default function RestaurantsPage() {
     setBusyId(o.id);
     try {
       await api.post('/restaurant/orders/' + o.id + '/void');
-      setToast('Order voided.');
+      setToast(tr('Order voided.'));
       await loadOrders(companyId, ordersOffset, ordersFrom, ordersTo);
       flash(o.id);
     } catch (err) {
@@ -754,7 +755,7 @@ export default function RestaurantsPage() {
     try {
       const path = stockDialog.kind === 'supply' ? '/restaurant/supplies/' : '/restaurant/ingredients/';
       await api.post(path + stockDialog.id + '/stock', { delta: stockDialog.delta, note: stockDialog.note });
-      setToast('Stock updated.');
+      setToast(tr('Stock updated.'));
       setStockDialog(null);
       await load(companyId);
     } catch (err) {
@@ -826,7 +827,7 @@ export default function RestaurantsPage() {
               ))}
             </div>
             {tab !== 'sales' && tab !== 'drawer' && (
-              <SearchInput value={search} onChange={setSearch} placeholder={tr('Search ') + (tab === 'ingredients' ? 'food' : tab) + '…'} />
+              <SearchInput value={search} onChange={setSearch} placeholder={({ menu: tr('Search menu…'), supplies: tr('Search supplies…'), ingredients: tr('Search food…'), tables: tr('Search tables…'), guests: tr('Search guests…') })[tab] || tr('Search…')} />
             )}
             {tab === 'menu' && (
               <label className="checkbox-field restaurants-hide-disabled">
@@ -870,44 +871,44 @@ export default function RestaurantsPage() {
           {squareError && <div className="error-banner" style={{ marginBottom: 16 }}>{squareError}</div>}
           {squareResult && (
             <div className="restaurants-square-result">
-              {tr('Menu items')} {squareResult.menuItems.imported} {tr('imported (')}{squareResult.menuItems.skipped} {tr('skipped) · Orders')} {squareResult.orders.imported} {tr('imported (')}{squareResult.orders.skipped} {tr('skipped)')}
-              {squareResult.errors.length > 0 && <> — {squareResult.errors.length} {tr('record(s) had errors; see server logs / audit trail.')}</>}
+              {tr('Menu items {imported} imported ({skipped} skipped)', squareResult.menuItems)} · {tr('Orders {imported} imported ({skipped} skipped)', squareResult.orders)}
+              {squareResult.errors.length > 0 && <>{' '}{tr('— {n} record(s) had errors; see server logs / audit trail.', { n: squareResult.errors.length })}</>}
             </div>
           )}
 
           <div key={tab} className="restaurants-tab-content">
           {tab === 'menu' && (
             <div className="restaurants-stats">
-              <StatTile icon="list" tone="people" value={menuStats.total} label="Menu items" />
-              <StatTile icon="check" tone="people" value={menuStats.active} label="Active" />
-              <StatTile icon="tag" tone="ops" value={menuStats.categories} label="Categories" />
+              <StatTile icon="list" tone="people" value={menuStats.total} label={tr('Menu items')} />
+              <StatTile icon="check" tone="people" value={menuStats.active} label={tr('Active')} />
+              <StatTile icon="tag" tone="ops" value={menuStats.categories} label={tr('Categories')} />
             </div>
           )}
           {tab === 'supplies' && (
             <div className="restaurants-stats">
-              <StatTile icon="list" tone="people" value={supplyStats.total} label="Supplies tracked" />
-              <StatTile icon="alert" tone="warning" value={supplyStats.lowStock} label="Low stock" />
+              <StatTile icon="list" tone="people" value={supplyStats.total} label={tr('Supplies tracked')} />
+              <StatTile icon="alert" tone="warning" value={supplyStats.lowStock} label={tr('Low stock')} />
             </div>
           )}
           {tab === 'ingredients' && (
             <div className="restaurants-stats">
-              <StatTile icon="list" tone="people" value={ingredientStats.total} label="Ingredients tracked" />
-              <StatTile icon="alert" tone="warning" value={ingredientStats.lowStock} label="Low stock" />
-              <StatTile icon="clock" tone="danger" value={ingredientStats.expiringSoon} label="Expiring soon" />
+              <StatTile icon="list" tone="people" value={ingredientStats.total} label={tr('Ingredients tracked')} />
+              <StatTile icon="alert" tone="warning" value={ingredientStats.lowStock} label={tr('Low stock')} />
+              <StatTile icon="clock" tone="danger" value={ingredientStats.expiringSoon} label={tr('Expiring soon')} />
             </div>
           )}
           {tab === 'sales' && ordersTotal > 0 && (
             <div className="restaurants-stats restaurants-stats-wide">
               <StatTile icon="list" tone="people" value={ordersTotal} label={(ordersFrom || ordersTo) ? tr('Orders in range') : tr('Orders')} />
               <StatTile icon="money" tone="ops" value={ordersRevenueTotal} format={money} label={(ordersFrom || ordersTo) ? tr('Revenue in range') : tr('Revenue')} />
-              <StatTile icon="ban" tone="danger" value={ordersVoidedCount} label="Voided" />
+              <StatTile icon="ban" tone="danger" value={ordersVoidedCount} label={tr('Voided')} />
             </div>
           )}
           {tab === 'drawer' && drawerSessionsTotal > 0 && (
             <div className="restaurants-stats restaurants-stats-wide">
               <StatTile icon="list" tone="people" value={drawerSessionsTotal} label={(drawerSessionsFrom || drawerSessionsTo) ? tr('Sessions in range') : tr('Sessions')} />
-              <StatTile icon="clock" tone="ops" value={drawerSessions.filter((s) => s.session.status === 'open').length} label="Open now (this page)" />
-              <StatTile icon="ban" tone="danger" value={drawerSessions.filter((s) => s.difference != null && Math.abs(s.difference) > 0.01).length} label="With a discrepancy (this page)" />
+              <StatTile icon="clock" tone="ops" value={drawerSessions.filter((s) => s.session.status === 'open').length} label={tr('Open now (this page)')} />
+              <StatTile icon="ban" tone="danger" value={drawerSessions.filter((s) => s.difference != null && Math.abs(s.difference) > 0.01).length} label={tr('With a discrepancy (this page)')} />
             </div>
           )}
 
@@ -952,7 +953,7 @@ export default function RestaurantsPage() {
                                 : money(m.price)}
                               {hasVariations && (
                                 <span className={'restaurants-menu-card-variation-toggle' + (isExpanded ? ' restaurants-menu-card-variation-toggle-open' : '')}>
-                                  {m.variations.length} {tr('variation')}{m.variations.length > 1 ? 's' : ''}
+                                  {m.variations.length === 1 ? tr('1 variation') : tr('{n} variations', { n: m.variations.length })}
                                   <svg className={'restaurants-menu-category-chevron' + (isExpanded ? '' : ' restaurants-menu-category-chevron-collapsed')} viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                     <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                   </svg>
@@ -1008,9 +1009,9 @@ export default function RestaurantsPage() {
                     <td>{money(s.unitCost)}</td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                       <RowMenu actions={[
-                        { label: "Adjust stock", onClick: () => openStockDialog('supply', s), hidden: !(canManage) },
-                        { label: "Edit", onClick: () => openEditSupply(s), hidden: !(canManage) },
-                        { label: "Delete", onClick: () => deleteSupply(s), disabled: busyId === s.id, danger: true, hidden: !(canManage) },
+                        { label: tr('Adjust stock'), onClick: () => openStockDialog('supply', s), hidden: !(canManage) },
+                        { label: tr('Edit'), onClick: () => openEditSupply(s), hidden: !(canManage) },
+                        { label: tr('Delete'), onClick: () => deleteSupply(s), disabled: busyId === s.id, danger: true, hidden: !(canManage) },
                       ]} />
                     </td>
                   </tr>
@@ -1035,9 +1036,9 @@ export default function RestaurantsPage() {
                     </td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                       <RowMenu actions={[
-                        { label: "Adjust stock", onClick: () => openStockDialog('ingredient', i), hidden: !(canManage) },
-                        { label: "Edit", onClick: () => openEditIngredient(i), hidden: !(canManage) },
-                        { label: "Delete", onClick: () => deleteIngredient(i), disabled: busyId === i.id, danger: true, hidden: !(canManage) },
+                        { label: tr('Adjust stock'), onClick: () => openStockDialog('ingredient', i), hidden: !(canManage) },
+                        { label: tr('Edit'), onClick: () => openEditIngredient(i), hidden: !(canManage) },
+                        { label: tr('Delete'), onClick: () => deleteIngredient(i), disabled: busyId === i.id, danger: true, hidden: !(canManage) },
                       ]} />
                     </td>
                   </tr>
@@ -1053,12 +1054,12 @@ export default function RestaurantsPage() {
                 {visibleTables.map((t) => (
                   <tr key={t.id}>
                     <td style={{ fontWeight: 600 }}>{t.name}</td>
-                    <td><span className={'tag ' + (t.status === 'active' ? 'tag-neutral' : 'tag-outline')}>{t.status}</span></td>
+                    <td><span className={'tag ' + (t.status === 'active' ? 'tag-neutral' : 'tag-outline')}>{codeLabel(t.status)}</span></td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                       <RowMenu actions={[
-                        { label: "Rename", onClick: () => openEditTable(t), hidden: !(canManage) },
-                        { label: t.status === 'active' ? 'Archive' : 'Reactivate', onClick: () => toggleTableActive(t), disabled: busyId === t.id, hidden: !(canManage) },
-                        { label: "Delete", onClick: () => deleteTable(t), disabled: busyId === t.id, danger: true, hidden: !(canManage) },
+                        { label: tr('Rename'), onClick: () => openEditTable(t), hidden: !(canManage) },
+                        { label: t.status === 'active' ? tr('Archive') : tr('Reactivate'), onClick: () => toggleTableActive(t), disabled: busyId === t.id, hidden: !(canManage) },
+                        { label: tr('Delete'), onClick: () => deleteTable(t), disabled: busyId === t.id, danger: true, hidden: !(canManage) },
                       ]} />
                     </td>
                   </tr>
@@ -1078,8 +1079,8 @@ export default function RestaurantsPage() {
                     <td>{g.notes || '—'}</td>
                     <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                       <RowMenu actions={[
-                        { label: "Edit", onClick: () => openEditGuest(g), hidden: !(canManage) },
-                        { label: "Delete", onClick: () => deleteGuest(g), disabled: busyId === g.id, danger: true, hidden: !(canManage) },
+                        { label: tr('Edit'), onClick: () => openEditGuest(g), hidden: !(canManage) },
+                        { label: tr('Delete'), onClick: () => deleteGuest(g), disabled: busyId === g.id, danger: true, hidden: !(canManage) },
                       ]} />
                     </td>
                   </tr>
@@ -1100,12 +1101,12 @@ export default function RestaurantsPage() {
                       <td>{o.tableName || '—'}</td>
                       <td>{o.waiterName || '—'}</td>
                       <td className="restaurants-amount-col restaurants-amount">{money(o.total)}</td>
-                      <td><span className="tag tag-neutral">{o.paymentMethod.replace('_', ' ')}</span></td>
-                      <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{o.status}</span></td>
-                      <td className="restaurants-time">{new Date(o.createdAt).toLocaleString()}</td>
+                      <td><span className="tag tag-neutral">{codeLabel(o.paymentMethod)}</span></td>
+                      <td><span className={'tag ' + (o.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{codeLabel(o.status)}</span></td>
+                      <td className="restaurants-time">{new Date(o.createdAt).toLocaleString(activeIntlLocale())}</td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
-                          { label: "Void", onClick: (e) => { e.stopPropagation(); voidOrderAction(o); }, disabled: busyId === o.id, danger: true, hidden: !(canManage && o.status === 'completed') },
+                          { label: tr('Void'), onClick: (e) => { e.stopPropagation(); voidOrderAction(o); }, disabled: busyId === o.id, danger: true, hidden: !(canManage && o.status === 'completed') },
                         ]} />
                       </td>
                     </tr>
@@ -1114,7 +1115,7 @@ export default function RestaurantsPage() {
               </table>
               {ordersTotal > 0 && (
                 <div className="restaurants-pager">
-                  <span>{ordersOffset + 1}–{Math.min(ordersOffset + ORDERS_PAGE_SIZE, ordersTotal)} {tr('of')} {ordersTotal.toLocaleString()}</span>
+                  <span>{tr('{n}–{n2} of {ordersTotal}', { n: ordersOffset + 1, n2: Math.min(ordersOffset + ORDERS_PAGE_SIZE, ordersTotal), ordersTotal: ordersTotal.toLocaleString() })}</span>
                   <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset === 0 || ordersLoading} onClick={() => setOrdersOffset(Math.max(0, ordersOffset - ORDERS_PAGE_SIZE))}>{tr('Previous')}</button>
                   <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={ordersOffset + ORDERS_PAGE_SIZE >= ordersTotal || ordersLoading} onClick={() => setOrdersOffset(ordersOffset + ORDERS_PAGE_SIZE)}>{tr('Next')}</button>
                 </div>
@@ -1137,8 +1138,8 @@ export default function RestaurantsPage() {
                   {drawerSessions.map((s) => (
                     <tr key={s.session.id} className="restaurants-sales-row" onClick={() => openDrawerDetail(s.session.id)}>
                       <td style={{ fontWeight: 600 }}>{s.cashierName}</td>
-                      <td className="restaurants-time">{new Date(s.session.openedAt).toLocaleString()}</td>
-                      <td className="restaurants-time">{s.session.closedAt ? new Date(s.session.closedAt).toLocaleString() : '—'}</td>
+                      <td className="restaurants-time">{new Date(s.session.openedAt).toLocaleString(activeIntlLocale())}</td>
+                      <td className="restaurants-time">{s.session.closedAt ? new Date(s.session.closedAt).toLocaleString(activeIntlLocale()) : '—'}</td>
                       <td className="restaurants-amount-col restaurants-amount">{money(s.startingCash)}</td>
                       <td className="restaurants-amount-col restaurants-amount">{money(s.cashSales)}</td>
                       <td className="restaurants-amount-col restaurants-amount">{s.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(s.netPaidInOut))}</td>
@@ -1151,14 +1152,14 @@ export default function RestaurantsPage() {
                           </span>
                         )}
                       </td>
-                      <td><span className={'tag ' + (s.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{s.session.status}</span></td>
+                      <td><span className={'tag ' + (s.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{codeLabel(s.session.status)}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {drawerSessionsTotal > 0 && (
                 <div className="restaurants-pager">
-                  <span>{drawerSessionsOffset + 1}–{Math.min(drawerSessionsOffset + DRAWER_PAGE_SIZE, drawerSessionsTotal)} {tr('of')} {drawerSessionsTotal.toLocaleString()}</span>
+                  <span>{tr('{n}–{n2} of {drawerSessionsTotal}', { n: drawerSessionsOffset + 1, n2: Math.min(drawerSessionsOffset + DRAWER_PAGE_SIZE, drawerSessionsTotal), drawerSessionsTotal: drawerSessionsTotal.toLocaleString() })}</span>
                   <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset === 0 || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(Math.max(0, drawerSessionsOffset - DRAWER_PAGE_SIZE))}>{tr('Previous')}</button>
                   <button type="button" className="btn btn-secondary restaurants-row-btn" disabled={drawerSessionsOffset + DRAWER_PAGE_SIZE >= drawerSessionsTotal || drawerSessionsLoading} onClick={() => setDrawerSessionsOffset(drawerSessionsOffset + DRAWER_PAGE_SIZE)}>{tr('Next')}</button>
                 </div>
@@ -1173,7 +1174,7 @@ export default function RestaurantsPage() {
             <div className="restaurants-empty-state">
               <span className="restaurants-empty-icon"><UtensilsIcon /></span>
               <p className="restaurants-empty-title">
-                {search ? tr('No menu items match "') + search + '"' : tr('Every menu item here is disabled')}
+                {search ? tr('No menu items match "{search}"', { search }) : tr('Every menu item here is disabled')}
               </p>
               {!search && hideDisabled && (
                 <button type="button" className="btn btn-secondary" onClick={() => setHideDisabled(false)}>{tr('Show disabled items')}</button>
@@ -1184,25 +1185,25 @@ export default function RestaurantsPage() {
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No supplies tracked yet')}</p></div>
           )}
           {tab === 'supplies' && !!supplies.length && !visibleSupplies.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No supplies match "')}{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No supplies match "{search}"', { search })}</p></div>
           )}
           {tab === 'ingredients' && !ingredients.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No food ingredients tracked yet')}</p></div>
           )}
           {tab === 'ingredients' && !!ingredients.length && !visibleIngredients.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No ingredients match "')}{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No ingredients match "{search}"', { search })}</p></div>
           )}
           {tab === 'tables' && !tables.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No tables set up yet')}</p></div>
           )}
           {tab === 'tables' && !!tables.length && !visibleTables.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No tables match "')}{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No tables match "{search}"', { search })}</p></div>
           )}
           {tab === 'guests' && !guests.length && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No guests saved yet')}</p></div>
           )}
           {tab === 'guests' && !!guests.length && !visibleGuests.length && (
-            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No guests match "')}{search}"</p></div>
+            <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No guests match "{search}"', { search })}</p></div>
           )}
           {tab === 'sales' && !ordersLoading && !orders.length && (ordersFrom || ordersTo) && (
             <div className="restaurants-empty-state"><span className="restaurants-empty-icon"><UtensilsIcon /></span><p className="restaurants-empty-title">{tr('No sales in that date range')}</p></div>
@@ -1435,9 +1436,9 @@ export default function RestaurantsPage() {
                 <div className="restaurants-order-dialog-meta">
                   <span>{orderDetail.cashierName}</span>
                   <span>·</span>
-                  <span>{new Date(orderDetail.createdAt).toLocaleString()}</span>
+                  <span>{new Date(orderDetail.createdAt).toLocaleString(activeIntlLocale())}</span>
                   <span>·</span>
-                  <span className={'tag ' + (orderDetail.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{orderDetail.status}</span>
+                  <span className={'tag ' + (orderDetail.status === 'voided' ? 'tag-accent' : 'tag-neutral')}>{codeLabel(orderDetail.status)}</span>
                 </div>
                 <div className="restaurants-order-dialog-items">
                   {orderDetail.items.map((it, i) => (
@@ -1452,7 +1453,7 @@ export default function RestaurantsPage() {
                   <span>{tr('Total')}</span>
                   <strong>{money(orderDetail.total)}</strong>
                 </div>
-                <div className="restaurants-order-dialog-meta">{tr('Paid by')} {orderDetail.paymentMethod.replace('_', ' ')}</div>
+                <div className="restaurants-order-dialog-meta">{tr('Paid by')} {codeLabel(orderDetail.paymentMethod)}</div>
                 {(orderDetail.tableName || orderDetail.waiterName || orderDetail.guestName) && (
                   <div className="restaurants-order-dialog-meta">
                     {orderDetail.tableName && <>{tr('Table:')} {orderDetail.tableName}</>}
@@ -1478,11 +1479,11 @@ export default function RestaurantsPage() {
               <>
                 <h2>{tr('Drawer Report:')} {drawerDetail.cashierName}</h2>
                 <div className="restaurants-order-dialog-meta">
-                  <span>{new Date(drawerDetail.session.openedAt).toLocaleString()}</span>
+                  <span>{new Date(drawerDetail.session.openedAt).toLocaleString(activeIntlLocale())}</span>
                   <span>–</span>
-                  <span>{drawerDetail.session.closedAt ? new Date(drawerDetail.session.closedAt).toLocaleString() : tr('still open')}</span>
+                  <span>{drawerDetail.session.closedAt ? new Date(drawerDetail.session.closedAt).toLocaleString(activeIntlLocale()) : tr('still open')}</span>
                   <span>·</span>
-                  <span className={'tag ' + (drawerDetail.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{drawerDetail.session.status}</span>
+                  <span className={'tag ' + (drawerDetail.session.status === 'open' ? 'tag-outline' : 'tag-neutral')}>{codeLabel(drawerDetail.session.status)}</span>
                 </div>
                 <div className="restaurants-order-dialog-items">
                   <div className="restaurants-order-dialog-item"><span className="restaurants-order-dialog-item-name">{tr('Starting Cash')}</span><span className="restaurants-order-dialog-item-total">{money(drawerDetail.startingCash)}</span></div>
@@ -1506,7 +1507,7 @@ export default function RestaurantsPage() {
                       {drawerDetail.movements.map((m) => (
                         <div className="restaurants-order-dialog-item" key={m.id}>
                           <span className="restaurants-order-dialog-item-name">
-                            {m.direction === 'in' ? tr('Paid in') : tr('Paid out')} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}
+                            {m.direction === 'in' ? tr('Paid in at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) }) : tr('Paid out at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })}{m.note ? ' — ' + m.note : ''}
                           </span>
                           <span className="restaurants-order-dialog-item-total">{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                         </div>

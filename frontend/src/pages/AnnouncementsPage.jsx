@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './AnnouncementsPage.css';
 
 // Ported from Bamboo OS.dc.html's announcements screen (screens.announcements
@@ -36,7 +36,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_FORM = { title: '', body: '', audience: 'all' };
@@ -84,7 +84,7 @@ export default function AnnouncementsPage() {
   }
 
   function audienceLabel(audience) {
-    return audience === 'all' ? 'All staff' : deptName(audience);
+    return audience === 'all' ? tr('All staff') : deptName(audience);
   }
 
   function openNew() {
@@ -99,7 +99,7 @@ export default function AnnouncementsPage() {
     setDialogError(null);
     try {
       await api.post('/announcements', { title: form.title, body: form.body, audience: form.audience, pinned: false });
-      setToast('Announcement published.');
+      setToast(tr('Announcement published.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -147,7 +147,7 @@ export default function AnnouncementsPage() {
       {!!announcements.length && !visibleAnnouncements.length && (
         <div className="announcements-empty-state">
           <span className="announcements-empty-icon"><Icon name="megaphone" /></span>
-          <p className="announcements-empty-title">{tr('No announcements match "')}{search}"</p>
+          <p className="announcements-empty-title">{tr('No announcements match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -168,7 +168,7 @@ export default function AnnouncementsPage() {
               <label htmlFor="ann-audience">{tr('Audience')}</label>
               <select id="ann-audience" className="input" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })}>
                 <option value="all">{tr('All staff')}</option>
-                {departments.map((d) => <option key={d.id} value={d.id}>{d.name} {tr('only')}</option>)}
+                {departments.map((d) => <option key={d.id} value={d.id}>{tr('{name} only', { name: d.name })}</option>)}
               </select>
             </div>
             <div className="dialog-actions">

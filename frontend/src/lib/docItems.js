@@ -1,5 +1,6 @@
 import { money } from './currency';
-import { formatDate } from './dates';
+import { formatDocDate } from './dates';
+import { tr, docTr } from './i18n.jsx';
 
 // Line items, shaped for RecordDialog's items table.
 //
@@ -29,10 +30,11 @@ export function itemsForDialog(items, currency) {
 // document with no discount should not carry an empty "Discount 0.00" line.
 export function totalsForDialog(doc, currency) {
   return [
-    { label: 'Subtotal', value: money(doc.subtotal, currency) },
-    Number(doc.discountTotal) > 0 ? { label: 'Discount', value: '− ' + money(doc.discountTotal, currency) } : null,
-    Number(doc.taxTotal) > 0 ? { label: 'Tax', value: money(doc.taxTotal, currency) } : null,
-    { label: 'Total', value: money(doc.grandTotal, currency), strong: true },
+    // On-screen (the row's detail panel), so these follow the reader.
+    { label: tr('Subtotal'), value: money(doc.subtotal, currency) },
+    Number(doc.discountTotal) > 0 ? { label: tr('Discount'), value: '− ' + money(doc.discountTotal, currency) } : null,
+    Number(doc.taxTotal) > 0 ? { label: tr('Tax'), value: money(doc.taxTotal, currency) } : null,
+    { label: tr('Total'), value: money(doc.grandTotal, currency), strong: true },
   ].filter(Boolean);
 }
 
@@ -44,6 +46,7 @@ export function totalsForDialog(doc, currency) {
 // is enough to separate the two, and separating them matters: "Less 10% on
 // the total" and "Less GHS 50" are different promises to a customer, and a
 // document that shows neither is asking to be queried.
+// For the printed document, so docTr — see the note on totalsForDialog.
 export function adjustmentRows(doc, currency) {
   const subtotal = Number(doc.subtotal) || 0;
   const discountTotal = Number(doc.discountTotal) || 0;
@@ -77,17 +80,17 @@ export function adjustmentRows(doc, currency) {
   }
 
   const discountRows = [];
-  if (itemDiscounts > 0.005) discountRows.push({ label: 'Discount on items', value: money(itemDiscounts, currency) });
+  if (itemDiscounts > 0.005) discountRows.push({ label: docTr('Discount on items'), value: money(itemDiscounts, currency) });
   if (docDiscAmount > 0.005) {
     discountRows.push({
-      label: docDisc.type === 'percent' ? 'Discount (' + docDiscValue + '%)' : 'Discount',
+      label: docDisc.type === 'percent' ? docTr('Discount ({n}%)', { n: docDiscValue }) : docTr('Discount'),
       value: money(docDiscAmount, currency),
     });
   }
 
   const docTaxRate = Number(doc.taxRate) || 0;
   const taxRows = taxTotal > 0.005
-    ? [{ label: docTaxRate ? 'Tax (' + docTaxRate + '%)' : 'Tax', value: money(taxTotal, currency) }]
+    ? [{ label: docTaxRate ? docTr('Tax ({n}%)', { n: docTaxRate }) : docTr('Tax'), value: money(taxTotal, currency) }]
     : [];
 
   return { discountRows, taxRows };
@@ -99,7 +102,7 @@ export function adjustmentRows(doc, currency) {
 export function paymentsForDocument(payments, currency) {
   return (payments || []).map((p) => ({
     id: p.id,
-    date: formatDate(p.date),
+    date: formatDocDate(p.date),
     amount: money(p.amount, currency),
     methodLabel: String(p.method || '').replace(/_/g, ' '),
     reference: p.reference || '',

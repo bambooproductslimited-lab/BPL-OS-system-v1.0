@@ -37,7 +37,7 @@ export default class ErrorBoundary extends Component {
     return (
       <div className="errbound">
         <div className="errbound-card">
-          <h2 className="errbound-title">{tr('Something in')} {where} {tr('stopped working')}</h2>
+          <h2 className="errbound-title">{tr('Something in {where} stopped working', { where })}</h2>
           <p className="errbound-body">
             {tr('Nothing was saved or lost — this screen failed to draw. You can try again, or move to another page and come back.')}
           </p>
@@ -52,7 +52,7 @@ export default class ErrorBoundary extends Component {
           {showDetail && (
             <pre className="errbound-detail">
               {String(error && error.stack ? error.stack : error)}
-              {info && info.componentStack ? tr('\n\nComponent stack:') + info.componentStack : ''}
+              {info && info.componentStack ? '\n\n' + tr('Component stack:') + info.componentStack : ''}
             </pre>
           )}
         </div>

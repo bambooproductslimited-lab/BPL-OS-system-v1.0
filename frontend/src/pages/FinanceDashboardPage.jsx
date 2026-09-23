@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './FinanceDashboardPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's finance dashboard screen
 // (screens.financedash block + the financeKpis/financeTrend/etc computed
@@ -43,7 +44,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function FinanceDashboardPage() {
@@ -68,16 +69,16 @@ export default function FinanceDashboardPage() {
 
   function handleDownloadCsv() {
     const data = fin || {};
-    const rows = [['Period', 'Revenue collected (GHS)', 'Expenses approved (GHS)']];
+    const rows = [[tr('Period'), tr('Revenue collected (GHS)'), tr('Expenses approved (GHS)')]];
     (data.monthlyTrend || []).forEach((m) => rows.push([m.month, m.revenue, m.expense]));
     rows.push([]);
-    rows.push(['Metric', 'Value']);
-    (data.cashCollectedThisMonthByCurrency || []).forEach((r) => rows.push(['Cash collected this month (' + r.currency + ')', r.amount]));
-    rows.push(['Net position this month (' + (data.baseCurrency || 'GHS') + ')', data.netPositionThisMonth || 0]);
-    (data.outstandingByCurrency || []).forEach((r) => rows.push(['Outstanding (' + r.currency + ')', r.amount]));
-    (data.overdueTotalByCurrency || []).forEach((r) => rows.push(['Overdue total (' + r.currency + ')', r.amount]));
-    rows.push(['Pending expense claims', data.pendingExpensesTotal || 0]);
-    rows.push(['Expenses approved this month', data.approvedExpensesThisMonth || 0]);
+    rows.push([tr('Metric'), tr('Value')]);
+    (data.cashCollectedThisMonthByCurrency || []).forEach((r) => rows.push([tr('Cash collected this month ({currency})', { currency: r.currency }), r.amount]));
+    rows.push([tr('Net position this month ({currency})', { currency: data.baseCurrency || 'GHS' }), data.netPositionThisMonth || 0]);
+    (data.outstandingByCurrency || []).forEach((r) => rows.push([tr('Outstanding ({currency})', { currency: r.currency }), r.amount]));
+    (data.overdueTotalByCurrency || []).forEach((r) => rows.push([tr('Overdue total ({currency})', { currency: r.currency }), r.amount]));
+    rows.push([tr('Pending expense claims'), data.pendingExpensesTotal || 0]);
+    rows.push([tr('Expenses approved this month'), data.approvedExpensesThisMonth || 0]);
     downloadCsv('finance-summary-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
@@ -86,12 +87,12 @@ export default function FinanceDashboardPage() {
   if (!fin) return <p className="table-empty">{tr('No data yet.')}</p>;
 
   const kpis = [
-    { label: 'Cash collected this month', value: moneyBreakdown(fin.cashCollectedThisMonthByCurrency), note: '', icon: 'cash', tone: 'people' },
-    { label: 'Net position this month', value: money(fin.netPositionThisMonth || 0, fin.baseCurrency), note: 'Collected minus approved expenses, in ' + fin.baseCurrency, icon: 'document', tone: 'ops' },
-    { label: 'Outstanding (all invoices)', value: moneyBreakdown(fin.outstandingByCurrency), note: fin.unpaidCount + ' unpaid', icon: 'clock', tone: 'warning' },
-    { label: 'Overdue total', value: moneyBreakdown(fin.overdueTotalByCurrency), note: fin.overdueInvoices.length + ' invoice(s)', icon: 'warning', tone: 'danger' },
-    { label: 'Pending expense claims', value: 'GHS ' + fin.pendingExpensesTotal.toLocaleString(), note: fin.pendingExpenses.length + ' claim(s)', icon: 'receipt', tone: 'warning' },
-    { label: 'Expenses approved this month', value: 'GHS ' + fin.approvedExpensesThisMonth.toLocaleString(), note: '', icon: 'receipt', tone: 'finance' }
+    { label: tr('Cash collected this month'), value: moneyBreakdown(fin.cashCollectedThisMonthByCurrency), note: '', icon: 'cash', tone: 'people' },
+    { label: tr('Net position this month'), value: money(fin.netPositionThisMonth || 0, fin.baseCurrency), note: tr('Collected minus approved expenses, in {baseCurrency}', { baseCurrency: fin.baseCurrency }), icon: 'document', tone: 'ops' },
+    { label: tr('Outstanding (all invoices)'), value: moneyBreakdown(fin.outstandingByCurrency), note: tr('{unpaidCount} unpaid', { unpaidCount: fin.unpaidCount }), icon: 'clock', tone: 'warning' },
+    { label: tr('Overdue total'), value: moneyBreakdown(fin.overdueTotalByCurrency), note: tr('{n} invoice(s)', { n: fin.overdueInvoices.length }), icon: 'warning', tone: 'danger' },
+    { label: tr('Pending expense claims'), value: 'GHS ' + fin.pendingExpensesTotal.toLocaleString(), note: tr('{n} claim(s)', { n: fin.pendingExpenses.length }), icon: 'receipt', tone: 'warning' },
+    { label: tr('Expenses approved this month'), value: 'GHS ' + fin.approvedExpensesThisMonth.toLocaleString(), note: '', icon: 'receipt', tone: 'finance' }
   ];
 
   const trendMax = Math.max(1, ...(fin.monthlyTrend || []).flatMap((m) => [m.revenue, m.expense]));
@@ -153,7 +154,7 @@ export default function FinanceDashboardPage() {
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{p.invoiceNo}</td><td>{p.customerName}</td>
                   <td>{money(p.amount, p.currency)}</td><td>{fmtDate(p.date)}</td>
-                  <td style={{ textTransform: 'capitalize' }}>{p.method.replace('_', ' ')}</td>
+                  <td>{codeLabel(p.method)}</td>
                 </tr>
               ))}
             </tbody>
@@ -172,7 +173,7 @@ export default function FinanceDashboardPage() {
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{inv.invoiceNo}</td><td>{inv.customerName}</td>
                   <td>{money(inv.amount, inv.currency)}</td>
-                  <td><span className="tag tag-accent">{inv.daysOverdue} {tr('day(s)')}</span></td>
+                  <td><span className="tag tag-accent">{tr('{daysOverdue} day(s)', { daysOverdue: inv.daysOverdue })}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -187,7 +188,7 @@ export default function FinanceDashboardPage() {
             <tbody>
               {fin.pendingExpenses.map((e, i) => (
                 <tr key={i}>
-                  <td>{e.category}</td><td>{tr('GHS')} {e.amount.toLocaleString()}</td>
+                  <td>{e.category}</td><td>GHS {e.amount.toLocaleString()}</td>
                   <td>
                     <div className="finance-requester-cell">
                       <span className="finance-avatar" style={{ background: avatarColor(e.requesterName) }}>{initials(e.requesterName)}</span>

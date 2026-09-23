@@ -1,3 +1,11 @@
+import { tr } from './i18n.jsx';
+
+// What this file PRINTS stays in English, whatever language the till's
+// screen is in: text is sent as one Latin-1 byte per character (see
+// textBytes), so Chinese would come out as garbage and French accents
+// depend on the printer's code page. Receipts are also customer documents
+// (see docTr in i18n.jsx). Only the messages shown on screen — a browser
+// that cannot reach a printer — follow the reader, with tr().
 // Restaurant module, Phase 3: direct ESC/POS thermal-printer output for
 // the POS receipt, over WebUSB or WebBluetooth — no driver, no OS print
 // dialog, straight bytes to the printer. This is a real, deliberate
@@ -145,7 +153,7 @@ export function usbSupported() {
 // standard USB Printer class (0x07), so filtering would hide real
 // candidates more often than it narrows a genuinely long list.
 export async function requestUsbPrinter() {
-  if (!usbSupported()) throw new Error('This browser doesn\'t support WebUSB — use Chrome or Edge.');
+  if (!usbSupported()) throw new Error(tr('This browser doesn\'t support WebUSB — use Chrome or Edge.'));
   var device = await navigator.usb.requestDevice({ filters: [] });
   return connectUsbPrinter(device);
 }
@@ -159,11 +167,11 @@ async function connectUsbPrinter(device) {
     var out = alt.endpoints.find(function (e) { return e.direction === 'out'; });
     if (out) { iface = device.configuration.interfaces[i].interfaceNumber; endpoint = out.endpointNumber; break; }
   }
-  if (iface === null) throw new Error('No usable USB endpoint found on that device — is it a printer?');
+  if (iface === null) throw new Error(tr('No usable USB endpoint found on that device — is it a printer?'));
   await device.claimInterface(iface);
   return {
     kind: 'usb',
-    name: device.productName || 'USB printer',
+    name: device.productName || tr('USB printer'),
     write: async function (byteArray) {
       await device.transferOut(endpoint, new Uint8Array(byteArray));
     }
@@ -196,7 +204,7 @@ export function bluetoothSupported() {
 }
 
 export async function requestBluetoothPrinter() {
-  if (!bluetoothSupported()) throw new Error('This browser doesn\'t support WebBluetooth — use Chrome or Edge (desktop or Android).');
+  if (!bluetoothSupported()) throw new Error(tr('This browser doesn\'t support WebBluetooth — use Chrome or Edge (desktop or Android).'));
   var device = await navigator.bluetooth.requestDevice({
     filters: [{ services: [BLE_PRINTER_SERVICE] }],
     optionalServices: [BLE_PRINTER_SERVICE]
@@ -210,7 +218,7 @@ async function connectBluetoothPrinter(device) {
   var characteristic = await service.getCharacteristic(BLE_PRINTER_WRITE_CHARACTERISTIC);
   return {
     kind: 'bluetooth',
-    name: device.name || 'Bluetooth printer',
+    name: device.name || tr('Bluetooth printer'),
     write: async function (byteArray) {
       // BLE GATT writes are capped (typically ~20 bytes per write on
       // older stacks, more on modern ones) — chunk conservatively so a

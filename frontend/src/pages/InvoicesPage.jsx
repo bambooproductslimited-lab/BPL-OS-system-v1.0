@@ -12,8 +12,10 @@ import { itemsForDialog, totalsForDialog, adjustmentRows, paymentsForDocument } 
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
+import { formatDocDate } from '../lib/dates';
 import './InvoicesPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's invoices screen (screens.invoices block,
 // dialog.invoiceManual / dialog.invoiceEdit / dialog.payment /
@@ -54,7 +56,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function docTagClass(bucket) {
@@ -74,8 +76,7 @@ function invoiceTagClass(inv) { return docTagClass(invoiceBucket(inv)); }
 const INVOICE_STATUS_OPTIONS = ['unpaid', 'partially_paid', 'paid', 'overdue', 'void'];
 function invoiceDisplayStatus(inv) { return inv.overdue ? 'overdue' : inv.status; }
 function invoiceStatusLabel(s) {
-  const label = String(s || '').replace(/_/g, ' ');
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return codeLabel(s);
 }
 
 const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '', notes: '' };
@@ -180,7 +181,7 @@ export default function InvoicesPage() {
         customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, notes: form.notes,
         currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       });
-      setToast('Invoice created.');
+      setToast(tr('Invoice created.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -197,7 +198,7 @@ export default function InvoicesPage() {
     setError(null);
     try {
       const inv = await api.post('/invoices/from-order', { salesOrderId: orderId });
-      setToast(inv.invoiceNo + ' issued for the order.');
+      setToast(tr('{invoiceNo} issued for the order.', { invoiceNo: inv.invoiceNo }));
       setOrderId('');
       await load();
     } catch (err) {
@@ -212,7 +213,7 @@ export default function InvoicesPage() {
     setError(null);
     try {
       await api.post('/invoices/' + inv.id + '/void', {});
-      setToast(inv.invoiceNo + ' voided.');
+      setToast(tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -225,7 +226,7 @@ export default function InvoicesPage() {
     setDeleting(true);
     try {
       await api.del('/invoices/' + deleteTarget.id);
-      setToast(deleteTarget.invoiceNo + ' deleted.');
+      setToast(tr('{invoiceNo} deleted.', { invoiceNo: deleteTarget.invoiceNo }));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -247,7 +248,7 @@ export default function InvoicesPage() {
     setPayError(null);
     try {
       const r = await api.post('/invoices/' + payTarget.id + '/payments', payForm);
-      setToast('Payment recorded — receipt ' + r.receipt.receiptNo + ' generated.');
+      setToast(tr('Payment recorded — receipt {receiptNo} generated.', { receiptNo: r.receipt.receiptNo }));
       setPayTarget(null);
       await load();
     } catch (err) {
@@ -269,7 +270,7 @@ export default function InvoicesPage() {
     setEditError(null);
     try {
       const updated = await api.patch('/invoices/' + editTarget.id, editForm);
-      setToast(updated.invoiceNo + ' updated.');
+      setToast(tr('{invoiceNo} updated.', { invoiceNo: updated.invoiceNo }));
       setEditTarget(null);
       await load();
     } catch (err) {
@@ -297,11 +298,11 @@ export default function InvoicesPage() {
   function rowActions(inv) {
     const canRecordPayment = inv.status !== 'paid' && inv.status !== 'void';
     return [
-      { label: 'Preview', onClick: () => openPreview(inv) },
-      { label: 'Record payment', onClick: () => openPay(inv), hidden: !(canRecordPayment && canManage) },
-      { label: 'Edit', onClick: () => openEdit(inv), hidden: !canManage },
-      { label: 'Void', onClick: () => voidInvoice(inv), hidden: !(inv.status === 'unpaid' && canManage) },
-      { label: 'Delete', onClick: () => setDeleteTarget(inv), danger: true, hidden: !(inv.status === 'unpaid' && canManage) },
+      { label: tr('Preview'), onClick: () => openPreview(inv) },
+      { label: tr('Record payment'), onClick: () => openPay(inv), hidden: !(canRecordPayment && canManage) },
+      { label: tr('Edit'), onClick: () => openEdit(inv), hidden: !canManage },
+      { label: tr('Void'), onClick: () => voidInvoice(inv), hidden: !(inv.status === 'unpaid' && canManage) },
+      { label: tr('Delete'), onClick: () => setDeleteTarget(inv), danger: true, hidden: !(inv.status === 'unpaid' && canManage) },
     ];
   }
 
@@ -372,7 +373,7 @@ export default function InvoicesPage() {
       {!!invoices.length && !visibleInvoices.length && (
         <div className="invoices-empty-state">
           <span className="invoices-empty-icon"><DocIcon /></span>
-          <p className="invoices-empty-title">{search ? tr('No invoices match "') + search + '"' : tr('No invoices match this filter')}</p>
+          <p className="invoices-empty-title">{search ? tr('No invoices match "{search}"', { search }) : tr('No invoices match this filter')}</p>
         </div>
       )}
 
@@ -402,17 +403,17 @@ export default function InvoicesPage() {
               </div>
             </div>
           }
-          message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel="Message to customer"
+          message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel={tr('Message to customer')}
           items={items} onItemsChange={setItems} catalogOptions={catalog}
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
-            { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
-            { label: 'Due date', value: fmtDate(form.dueDate) }
+            { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
+            { label: tr('Due date'), value: fmtDate(form.dueDate) }
           ]}
-          submitLabel="Create invoice" saving={saving} error={dialogError}
+          submitLabel={tr('Create invoice')} saving={saving} error={dialogError}
           onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
         />
       )}
@@ -486,9 +487,9 @@ export default function InvoicesPage() {
           items={itemsForDialog(detail.items, detail.currency)}
           totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: 'Paid', value: money(detail.amountPaid, detail.currency) },
+            { label: tr('Paid'), value: money(detail.amountPaid, detail.currency) },
             {
-              label: 'Payments received',
+              label: tr('Payments received'),
               wide: true,
               value: (detail.payments || []).length ? (
                 <ul className="record-dialog-list">
@@ -496,19 +497,19 @@ export default function InvoicesPage() {
                     <li key={pay.id || i}>
                       {pay.date} · {pay.amount}
                       {pay.methodLabel ? ' · ' + pay.methodLabel : ''}
-                      {pay.reference ? tr(' · ref ') + pay.reference : ''}
+                      {pay.reference ? tr(' · ref {reference}', { reference: pay.reference }) : ''}
                     </li>
                   ))}
                 </ul>
               ) : null,
             },
-            { label: 'Balance due', value: money(detail.balanceDue, detail.currency) },
-            { label: 'Due', value: fmtDate(detail.dueDate) },
-            { label: 'Issued', value: fmtDate(detail.issuedAt) },
-            { label: 'Currency', value: detail.currency },
-            { label: 'PO reference', value: detail.poReference },
+            { label: tr('Balance due'), value: money(detail.balanceDue, detail.currency) },
+            { label: tr('Due'), value: fmtDate(detail.dueDate) },
+            { label: tr('Issued'), value: fmtDate(detail.issuedAt) },
+            { label: tr('Currency'), value: detail.currency },
+            { label: tr('PO reference'), value: detail.poReference },
             {
-              label: 'Payment schedule',
+              label: tr('Payment schedule'),
               wide: true,
               // formatPaymentSchedule returns rows, not a string — handing the
               // array straight to React renders nothing when it is empty and
@@ -521,8 +522,8 @@ export default function InvoicesPage() {
                 </ul>
               ) : null,
             },
-            { label: 'Notes', value: detail.notes, wide: true },
-            { label: 'Terms', value: detail.terms, wide: true },
+            { label: tr('Notes'), value: detail.notes, wide: true },
+            { label: tr('Terms'), value: detail.terms, wide: true },
           ]}
         />
       )}
@@ -530,7 +531,7 @@ export default function InvoicesPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete')} {deleteTarget.invoiceNo}</h2>
+            <h2>{tr('Delete {invoiceNo}', { invoiceNo: deleteTarget.invoiceNo })}</h2>
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
@@ -543,15 +544,15 @@ export default function InvoicesPage() {
       {previewInv && (
         <DocPreview
           documentType="invoice" documentId={previewInv.id}
-          docLabel={'Invoice #' + previewInv.invoiceNo}
-          dateLabel="Issue date"
-          dateValue={fmtDate(previewInv.issuedAt)}
-          heading={'Invoice for ' + previewInv.customerName}
-          subHeading={'Due ' + fmtDate(previewInv.dueDate)}
+          docLabel={docTr('Invoice #{invoiceNo}', { invoiceNo: previewInv.invoiceNo })}
+          dateLabel={docTr('Issue date')}
+          dateValue={formatDocDate(previewInv.issuedAt)}
+          heading={docTr('Invoice for {customerName}', { customerName: previewInv.customerName })}
+          subHeading={docTr('Due {date}', { date: formatDocDate(previewInv.dueDate) })}
           blocks={[
-            { title: 'Customer', lines: [previewInv.customerName, previewInv.customerEmail] },
-            { title: 'Invoice Details', lines: ['Issued ' + fmtDate(previewInv.issuedAt), money(previewInv.grandTotal, previewInv.currency)] },
-            { title: 'Payment', lines: ['Due ' + fmtDate(previewInv.dueDate), money(previewInv.balanceDue, previewInv.currency)] }
+            { title: docTr('Customer'), lines: [previewInv.customerName, previewInv.customerEmail] },
+            { title: docTr('Invoice Details'), lines: [docTr('Issued {date}', { date: formatDocDate(previewInv.issuedAt) }), money(previewInv.grandTotal, previewInv.currency)] },
+            { title: docTr('Payment'), lines: [docTr('Due {date}', { date: formatDocDate(previewInv.dueDate) }), money(previewInv.balanceDue, previewInv.currency)] }
           ]}
           items={groupPackageItems(previewInv.items, previewInv.currency)}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
@@ -560,9 +561,9 @@ export default function InvoicesPage() {
           payments={paymentsForDocument(previewInv.payments, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
-          totalLabel="Total Due"
+          totalLabel={docTr('Total Due')}
           total={money(previewInv.balanceDue, previewInv.currency)}
-          notesLabel="Payment instructions"
+          notesLabel={docTr('Payment instructions')}
           notesValue={previewInv.bankInstructions}
           paymentSchedule={formatPaymentSchedule(previewInv.paymentSchedule, previewInv.currency)}
           onClose={() => setPreviewInv(null)}

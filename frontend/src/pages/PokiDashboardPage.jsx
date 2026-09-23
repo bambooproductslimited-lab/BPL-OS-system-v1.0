@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './PokiPages.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Poki rentals — the overview a landlord opens first: how much of the
 // portfolio is earning, what's owed, and what needs attention this quarter.
@@ -11,7 +12,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(String(iso).length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function daysUntil(iso) {
@@ -54,7 +55,7 @@ export default function PokiDashboardPage() {
         <div className="poki-stat">
           <div className="poki-stat-label">{tr('Occupancy')}</div>
           <div className="poki-stat-value">{u.occupancyRate}%</div>
-          <div className="poki-stat-sub">{u.occupied} {tr('of')} {u.total} {tr('units let')}</div>
+          <div className="poki-stat-sub">{tr('{occupied} of {total} units let', { occupied: u.occupied, total: u.total })}</div>
           <div className="poki-occupancy-bar">
             <div className="poki-occupancy-fill" style={{ width: Math.min(100, u.occupancyRate) + '%' }} />
           </div>
@@ -73,14 +74,16 @@ export default function PokiDashboardPage() {
           <div className="poki-stat-value">{moneyBreakdown(data.outstanding, money(0))}</div>
           <div className="poki-stat-sub">
             {data.overdueCount > 0
-              ? moneyBreakdown(data.overdueAmount, money(0)) + tr(' of it overdue (') + data.overdueCount + tr(' invoice') + (data.overdueCount === 1 ? '' : 's') + ')'
+              ? (data.overdueCount === 1
+                ? tr('{amount} of it overdue (1 invoice)', { amount: moneyBreakdown(data.overdueAmount, money(0)) })
+                : tr('{amount} of it overdue ({n} invoices)', { amount: moneyBreakdown(data.overdueAmount, money(0)), n: data.overdueCount }))
               : tr('nothing past its due date')}
           </div>
         </div>
         <div className="poki-stat">
           <div className="poki-stat-label">{tr('Vacant units')}</div>
           <div className="poki-stat-value">{u.vacant}</div>
-          <div className="poki-stat-sub">{u.other > 0 ? u.other + tr(' held back (maintenance/reserved)') : tr('nothing held back')}</div>
+          <div className="poki-stat-sub">{u.other > 0 ? tr('{other} held back (maintenance/reserved)', { other: u.other }) : tr('nothing held back')}</div>
         </div>
         <div className="poki-stat">
           <div className="poki-stat-label">{tr('Open maintenance')}</div>
@@ -116,7 +119,7 @@ export default function PokiDashboardPage() {
                     <td className="poki-nowrap">
                       {fmtDate(l.endDate)}{' '}
                       <span className={'poki-chip ' + (days <= 30 ? 'poki-chip-expired' : 'poki-chip-expiring')}>
-                        {days <= 0 ? tr('due now') : days + tr(' days')}
+                        {days <= 0 ? tr('due now') : tr('{days} days', { days })}
                       </span>
                     </td>
                     <td className="poki-num">{money(l.rentTotal, l.currency)}</td>
@@ -154,10 +157,10 @@ export default function PokiDashboardPage() {
                   <td className="poki-strong poki-nowrap">{r.invoiceNo}</td>
                   <td className="poki-nowrap">{r.tenantName}</td>
                   <td className="poki-nowrap">{r.unitCode || '—'}{r.unitCode && <div className="poki-muted">{r.propertyName}</div>}</td>
-                  <td><span className="poki-chip poki-chip-open">{r.docKind}</span></td>
+                  <td><span className="poki-chip poki-chip-open">{codeLabel(r.docKind)}</span></td>
                   <td className="poki-nowrap">
                     {fmtDate(r.dueDate)}
-                    {r.daysOverdue > 0 && <div className="poki-overdue poki-muted">{r.daysOverdue} {tr('days overdue')}</div>}
+                    {r.daysOverdue > 0 && <div className="poki-overdue poki-muted">{tr('{daysOverdue} days overdue', { daysOverdue: r.daysOverdue })}</div>}
                   </td>
                   <td className="poki-num poki-strong">{money(r.balanceDue, r.currency)}</td>
                 </tr>

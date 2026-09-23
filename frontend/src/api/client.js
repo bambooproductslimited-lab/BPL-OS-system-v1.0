@@ -1,3 +1,4 @@
+import { tr } from '../lib/i18n.jsx';
 // Thin fetch wrapper around the backend API (../../backend). Keeps a single
 // place that knows about the base URL, bearer token, and error shape
 // (backend/src/utils/errors.js: { error: { code, message } }).
@@ -51,7 +52,7 @@ async function request(method, path, body) {
 
   if (!res.ok) {
     var err = data && data.error;
-    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : 'Something went wrong.');
+    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : tr('Something went wrong.'));
   }
   return data;
 }
@@ -69,7 +70,7 @@ async function upload(path, formData) {
   }
   if (!res.ok) {
     var err = data && data.error;
-    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : 'Something went wrong.');
+    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : tr('Something went wrong.'));
   }
   return data;
 }

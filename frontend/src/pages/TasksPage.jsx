@@ -4,7 +4,8 @@ import { useAuth } from '../auth/AuthContext';
 import './TasksPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's tasks screen (screens.tasks block + the
 // tasks/taskScopeFilters computed values, and the taskDetail dialog around
 // its render()), redesigned around the icon/avatar language established
@@ -65,14 +66,14 @@ function priorityClass(p) {
 }
 
 function statusLabel(s) {
-  return s.replace(/_/g, ' ');
+  return codeLabel(s);
 }
 
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_FORM = { title: '', projectId: '', assigneeId: '', dueDate: '' };
@@ -172,7 +173,7 @@ export default function TasksPage() {
         assigneeIds: form.assigneeId ? [form.assigneeId] : undefined,
         dueDate: form.dueDate || undefined
       });
-      setToast('Task added.');
+      setToast(tr('Task added.'));
       setForm(EMPTY_FORM);
       await load();
     } catch (err) {
@@ -245,7 +246,7 @@ export default function TasksPage() {
       const updated = await api.patch('/tasks/' + detail.id, fullUpdatePayload(detail, editForm));
       setDetail(updated);
       setEditing(false);
-      setToast('Task updated.');
+      setToast(tr('Task updated.'));
       await load();
     } catch (err) {
       setDetailError(err.message);
@@ -273,7 +274,7 @@ export default function TasksPage() {
     setDeleting(true);
     try {
       await api.del('/tasks/' + row.id);
-      setToast('Task deleted.');
+      setToast(tr('Task deleted.'));
       setDeleteTarget(null);
       if (detail && detail.id === row.id) setDetail(null);
       await load();
@@ -293,12 +294,12 @@ export default function TasksPage() {
   // rows/visibleRows.
   const visibleTasks = tasks.filter((t) => !statusFilter || (statusFilter === 'overdue' ? t.overdue : t.status === statusFilter));
   const taskSummary = [
-    { key: '', label: 'All tasks', value: tasks.length, icon: 'checklist', tone: 'people' },
-    { key: 'not_started', label: 'Not started', value: tasks.filter((t) => t.status === 'not_started').length, icon: 'circle', tone: 'people' },
-    { key: 'in_progress', label: 'In progress', value: tasks.filter((t) => t.status === 'in_progress').length, icon: 'clock', tone: 'warning' },
-    { key: 'under_review', label: 'Under review', value: tasks.filter((t) => t.status === 'under_review').length, icon: 'eye', tone: 'warning' },
-    { key: 'completed', label: 'Completed', value: tasks.filter((t) => t.status === 'completed').length, icon: 'checkCircle', tone: 'people' },
-    { key: 'overdue', label: 'Overdue', value: tasks.filter((t) => t.overdue).length, icon: 'xCircle', tone: 'danger' }
+    { key: '', label: tr('All tasks'), value: tasks.length, icon: 'checklist', tone: 'people' },
+    { key: 'not_started', label: tr('Not started'), value: tasks.filter((t) => t.status === 'not_started').length, icon: 'circle', tone: 'people' },
+    { key: 'in_progress', label: tr('In progress'), value: tasks.filter((t) => t.status === 'in_progress').length, icon: 'clock', tone: 'warning' },
+    { key: 'under_review', label: tr('Under review'), value: tasks.filter((t) => t.status === 'under_review').length, icon: 'eye', tone: 'warning' },
+    { key: 'completed', label: tr('Completed'), value: tasks.filter((t) => t.status === 'completed').length, icon: 'checkCircle', tone: 'people' },
+    { key: 'overdue', label: tr('Overdue'), value: tasks.filter((t) => t.overdue).length, icon: 'xCircle', tone: 'danger' }
   ];
 
   return (
@@ -312,7 +313,7 @@ export default function TasksPage() {
             key={s.label}
             className={'tasks-summary-tile tasks-summary-tile-' + s.tone + (statusFilter === s.key ? ' tasks-summary-tile-active' : '')}
             aria-pressed={statusFilter === s.key}
-            title={s.key ? tr('Show only ') + s.label.toLowerCase() : tr('Clear the status filter')}
+            title={s.key ? tr('Show only {label}', { label: s.label.toLowerCase() }) : tr('Clear the status filter')}
             onClick={() => setStatusFilter(statusFilter === s.key ? '' : s.key)}
           >
             <span className="tasks-summary-icon glow-badge"><Icon name={s.icon} /></span>
@@ -335,7 +336,7 @@ export default function TasksPage() {
         </div>
         <select className="input tasks-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">{tr('All statuses')}</option>
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
+          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
           <option value="overdue">{tr('Overdue')}</option>
         </select>
         <select
@@ -400,22 +401,22 @@ export default function TasksPage() {
               </td>
               <td>{t.projectName}</td>
               <td><AssigneeStack names={t.assigneeNames} /></td>
-              <td><span className={'tag ' + priorityClass(t.priority)}>{t.priority}</span></td>
+              <td><span className={'tag ' + priorityClass(t.priority)}>{codeLabel(t.priority)}</span></td>
               <td>
                 <input type="date" className="input tasks-date-input" value={(t.createdAt || '').slice(0, 10)} disabled={!canManage} onChange={(e) => handleSetStarted(t, e.target.value)} />
               </td>
               <td>
                 <input type="date" className="input tasks-date-input" value={t.dueDate || ''} disabled={!canManage} onChange={(e) => handleSetDue(t, e.target.value)} />
-                {t.overdue && <div className="tasks-overdue">{t.daysOverdue} {tr('day(s) overdue')}</div>}
+                {t.overdue && <div className="tasks-overdue">{tr('{daysOverdue} day(s) overdue', { daysOverdue: t.daysOverdue })}</div>}
               </td>
               <td>
                 <select className="input tasks-status-select" value={t.status} onChange={(e) => handleSetStatus(t, e.target.value)}>
-                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s).charAt(0).toUpperCase() + statusLabel(s).slice(1)}</option>)}
+                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                 </select>
               </td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
-                  { label: "Delete", onClick: () => setDeleteTarget(t), danger: true, hidden: !(canManage) },
+                  { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !(canManage) },
                 ]} />
               </td>
             </tr>
@@ -475,11 +476,11 @@ export default function TasksPage() {
                 <div className="tasks-detail-meta">
                   <div>{tr('Project:')} {detail.projectName}</div>
                   <div>{tr('Assignees:')} {detail.assigneeNames.join(', ')}</div>
-                  <div>{tr('Priority:')} {detail.priority}</div>
+                  <div>{tr('Priority:')} {codeLabel(detail.priority)}</div>
                   <div>{tr('Started:')} {fmtDate((detail.createdAt || '').slice(0, 10))}</div>
                   <div>{tr('Due:')} {fmtDate(detail.dueDate)}</div>
                 </div>
-                {detail.overdue && <div className="tasks-overdue">{detail.daysOverdue} {tr('day(s) overdue')}</div>}
+                {detail.overdue && <div className="tasks-overdue">{tr('{daysOverdue} day(s) overdue', { daysOverdue: detail.daysOverdue })}</div>}
                 {detail.description && <p className="tasks-detail-desc">{detail.description}</p>}
                 {canManage && (
                   <div className="dialog-actions" style={{ justifyContent: 'flex-start' }}>

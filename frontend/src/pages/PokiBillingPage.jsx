@@ -8,7 +8,9 @@ import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
+import { formatDocDate } from '../lib/dates';
+import { codeLabel } from '../lib/codeLabels.js';
 // Rent & utilities — the billing desk. Three tabs because the three jobs
 // are genuinely separate: raising the period's rent, turning meter
 // readings and shared bills into invoices, and looking at what's been
@@ -19,7 +21,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(String(iso).length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function PokiBillingPage() {
@@ -122,7 +124,7 @@ export default function PokiBillingPage() {
     setInvError(null);
     try {
       await api.post('/poki/invoices/' + payFor.id + '/payments', payForm);
-      setToast('Payment recorded on ' + payFor.invoiceNo + '.');
+      setToast(tr('Payment recorded on {invoiceNo}.', { invoiceNo: payFor.invoiceNo }));
       setPayFor(null);
       await load();
     } catch (err) {
@@ -133,11 +135,11 @@ export default function PokiBillingPage() {
   }
 
   async function voidInvoice(inv) {
-    if (!window.confirm('Void ' + inv.invoiceNo + '? The number stays used, but the charge is cancelled.')) return;
+    if (!window.confirm(tr('Void {invoiceNo}? The number stays used, but the charge is cancelled.', { invoiceNo: inv.invoiceNo }))) return;
     setBusy(true);
     try {
       await api.post('/poki/invoices/' + inv.id + '/void', {});
-      setToast(inv.invoiceNo + ' voided.');
+      setToast(tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -165,7 +167,7 @@ export default function PokiBillingPage() {
         dueDate: newInv.dueDate || undefined,
         items: newInv.items.filter((i) => String(i.description).trim())
       });
-      setToast('Raised ' + res.invoiceNo + '.');
+      setToast(tr('Raised {invoiceNo}.', { invoiceNo: res.invoiceNo }));
       setNewInv(null);
       setTab('invoices');
       await load();
@@ -183,13 +185,13 @@ export default function PokiBillingPage() {
     try {
       if (dialog === 'meter') {
         await api.post('/poki/meters', form);
-        setToast('Meter added.');
+        setToast(tr('Meter added.'));
       } else if (dialog === 'reading') {
         await api.post('/poki/readings', form);
-        setToast('Reading recorded.');
+        setToast(tr('Reading recorded.'));
       } else if (dialog === 'master') {
         await api.post('/poki/master-bills', form);
-        setToast('Master bill recorded.');
+        setToast(tr('Master bill recorded.'));
       }
       setDialog(null);
       await load();
@@ -202,13 +204,14 @@ export default function PokiBillingPage() {
 
   async function billSelectedReadings() {
     const ids = readings.filter((r) => !r.invoiceId && selected['r_' + r.id]).map((r) => r.id);
-    if (!ids.length) { setError('Select at least one unbilled reading.'); return; }
+    if (!ids.length) { setError(tr('Select at least one unbilled reading.')); return; }
     setBusy(true);
     setError(null);
     try {
       const res = await api.post('/poki/readings/bill', { readingIds: ids });
-      setToast('Raised ' + res.created + ' utility invoice(s).' +
-        (res.skippedUnits && res.skippedUnits.length ? ' Skipped ' + res.skippedUnits.join(', ') + ' — no active booking.' : ''));
+      setToast(res.skippedUnits && res.skippedUnits.length
+        ? tr('Raised {n} utility invoice(s). Skipped {units} — no active booking.', { n: res.created, units: res.skippedUnits.join(', ') })
+        : tr('Raised {n} utility invoice(s).', { n: res.created }));
       setSelected({});
       await load();
     } catch (err) {
@@ -231,7 +234,7 @@ export default function PokiBillingPage() {
     setBusy(true);
     try {
       const res = await api.post('/poki/master-bills/' + split.billId + '/bill');
-      setToast('Apportioned to ' + res.created + ' tenant(s).');
+      setToast(tr('Apportioned to {created} tenant(s).', { created: res.created }));
       setDialog(null);
       await load();
     } catch (err) {
@@ -301,11 +304,11 @@ export default function PokiBillingPage() {
                         {!r.invoiceId && (
                           <input type="checkbox" checked={!!selected['r_' + r.id]}
                             onChange={(e) => setSelected({ ...selected, ['r_' + r.id]: e.target.checked })}
-                            aria-label={tr('Select reading for ') + r.unitCode} />
+                            aria-label={tr('Select reading for {unitCode}', { unitCode: r.unitCode })} />
                         )}
                       </td>
                       <td className="poki-strong">{r.unitCode}</td>
-                      <td style={{ textTransform: 'capitalize' }}>{r.utilityType}</td>
+                      <td>{codeLabel(r.utilityType)}</td>
                       <td>{fmtDate(r.periodStart)} → {fmtDate(r.periodEnd)}</td>
                       <td className="poki-num">{r.previousReading}</td>
                       <td className="poki-num">{r.currentReading}</td>
@@ -351,10 +354,10 @@ export default function PokiBillingPage() {
                   {masterBills.map((b) => (
                     <tr key={b.id}>
                       <td className="poki-strong">{b.propertyName}</td>
-                      <td style={{ textTransform: 'capitalize' }}>{b.utilityType}</td>
+                      <td>{codeLabel(b.utilityType)}</td>
                       <td>{fmtDate(b.periodStart)} → {fmtDate(b.periodEnd)}</td>
                       <td className="poki-num">{money(b.totalAmount, 'GHS')}</td>
-                      <td className="poki-muted">{b.splitMethod === 'share' ? tr('unit share %') : b.splitMethod === 'sqm' ? tr('floor area') : 'equally'}</td>
+                      <td className="poki-muted">{b.splitMethod === 'share' ? tr('unit share %') : b.splitMethod === 'sqm' ? tr('floor area') : tr('equally')}</td>
                       <td>
                         {b.billedAt
                           ? <span className="poki-chip poki-chip-active">{tr('apportioned')}</span>
@@ -362,7 +365,7 @@ export default function PokiBillingPage() {
                       </td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <RowMenu actions={[
-                          { label: b.billedAt ? 'View split' : 'Review & bill', onClick: () => showSplit(b) },
+                          { label: b.billedAt ? tr('View split') : tr('Review & bill'), onClick: () => showSplit(b) },
                         ]} />
                       </td>
                     </tr>
@@ -388,7 +391,7 @@ export default function PokiBillingPage() {
         ) : (
           <>
           <div className="poki-toolbar">
-            <span className="poki-muted">{invoices.length} {tr('invoice(s)')}</span>
+            <span className="poki-muted">{tr('{n} invoice(s)', { n: invoices.length })}</span>
             <div className="poki-toolbar-spacer" />
             {canManage && <button type="button" className="btn btn-primary" onClick={openNewInvoice}>{tr('New invoice')}</button>}
           </div>
@@ -404,7 +407,7 @@ export default function PokiBillingPage() {
               {invoices.map((i) => (
                 <tr key={i.id}>
                   <td className="poki-strong poki-nowrap">{i.invoiceNo}</td>
-                  <td><span className="poki-chip poki-chip-open">{i.docKind}</span></td>
+                  <td><span className="poki-chip poki-chip-open">{codeLabel(i.docKind)}</span></td>
                   <td className="poki-nowrap">{i.customerName}</td>
                   <td className="poki-nowrap">{i.unitCode || <span className="poki-muted">—</span>}</td>
                   <td className="poki-muted poki-nowrap">
@@ -420,14 +423,14 @@ export default function PokiBillingPage() {
                   <td className={'poki-num' + (i.balanceDue > 0 ? ' poki-overdue' : '')}>{money(i.balanceDue, i.currency)}</td>
                   <td>
                     <span className={'poki-chip poki-chip-' + (i.status === 'void' ? 'expired' : i.status === 'paid' ? 'active' : i.overdue ? 'expired' : 'open')}>
-                      {i.status === 'void' ? 'void' : i.overdue && i.status !== 'paid' ? 'overdue' : i.status.replace('_', ' ')}
+                      {codeLabel(i.status === 'void' ? 'void' : i.overdue && i.status !== 'paid' ? 'overdue' : i.status)}
                     </span>
                   </td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "Print", onClick: () => openPreview(i) },
-                      { label: "Record payment", onClick: () => openPay(i), disabled: busy, hidden: !(canManage && i.status !== 'paid' && i.status !== 'void') },
-                      { label: "Void", onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) },
+                      { label: tr('Print'), onClick: () => openPreview(i) },
+                      { label: tr('Record payment'), onClick: () => openPay(i), disabled: busy, hidden: !(canManage && i.status !== 'paid' && i.status !== 'void') },
+                      { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) },
                     ]} />
                   </td>
                 </tr>
@@ -473,7 +476,7 @@ export default function PokiBillingPage() {
                 </div>
                 <div className="field">
                   <label htmlFor="pm-unitlbl">{tr('Measured in')}</label>
-                  <input id="pm-unitlbl" className="input" value={form.measureUnit} onChange={set('measureUnit')} placeholder={tr('kWh, m³')} />
+                  <input id="pm-unitlbl" className="input" value={form.measureUnit} onChange={set('measureUnit')} placeholder="kWh, m³" />
                 </div>
                 <div className="field">
                   <label htmlFor="pm-rate">{tr('Rate per unit')}</label>
@@ -489,7 +492,7 @@ export default function PokiBillingPage() {
                   <select id="prd-meter" className="input" value={form.meterId || ''} onChange={set('meterId')} required>
                     {meters.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.propertyName} · {m.unitCode} — {m.utilityType} ({m.meterNumber || tr('no number')}{tr(') · last')} {m.lastReading}
+                        {tr('{property} · {unit} — {utility} ({meter}) · last {reading}', { property: m.propertyName, unit: m.unitCode, utility: codeLabel(m.utilityType), meter: m.meterNumber || tr('no number'), reading: m.lastReading })}
                       </option>
                     ))}
                   </select>
@@ -574,8 +577,10 @@ export default function PokiBillingPage() {
           <div className="dialog poki-dialog" onClick={(e) => e.stopPropagation()}>
             <h2 className="poki-dialog-title">{tr('Split —')} {split.propertyName}</h2>
             <p className="poki-dialog-hint">
-              {money(split.totalAmount, 'GHS')} {tr('for')} {fmtDate(split.periodStart)} → {fmtDate(split.periodEnd)}{tr(', split by')}{' '}
-              {split.splitMethod === 'share' ? tr('each unit\'s share %') : split.splitMethod === 'sqm' ? tr('floor area') : tr('equal shares')}.
+              {tr('{amount} for {from} → {to}, split by {method}.', {
+                amount: money(split.totalAmount, 'GHS'), from: fmtDate(split.periodStart), to: fmtDate(split.periodEnd),
+                method: split.splitMethod === 'share' ? tr("each unit's share %") : split.splitMethod === 'sqm' ? tr('floor area') : tr('equal shares')
+              })}
             </p>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
             {split.weightBasisMissing && (
@@ -619,7 +624,7 @@ export default function PokiBillingPage() {
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
             <h2 className="poki-dialog-title">{tr('Record payment —')} {payFor.invoiceNo}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
-              {payFor.customerName} {tr('· outstanding')} {money(payFor.balanceDue, payFor.currency)}{tr('. A receipt is generated automatically, and part payments are fine.')}
+              {tr('{customerName} · outstanding {amount}. A receipt is generated automatically, and part payments are fine.', { customerName: payFor.customerName, amount: money(payFor.balanceDue, payFor.currency) })}
             </p>
             {invError && <div className="error-banner poki-dialog-span">{invError}</div>}
             <div className="field">
@@ -701,19 +706,19 @@ export default function PokiBillingPage() {
               {newInv.items.map((it, idx) => (
                 <div className="poki-line-row" key={idx}>
                   <input className="input" placeholder={tr('Description')} value={it.description}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' description')}
+                    aria-label={tr('Line {n} description', { n: idx + 1 })}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, description: e.target.value } : x)) })} />
                   <input className="input" type="number" step="0.01" placeholder={tr('Qty')} value={it.qty}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' quantity')}
+                    aria-label={tr('Line {n} quantity', { n: idx + 1 })}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, qty: e.target.value } : x)) })} />
                   <input className="input" placeholder={tr('Unit')} value={it.unit || ''}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' unit')}
+                    aria-label={tr('Line {n} unit', { n: idx + 1 })}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unit: e.target.value } : x)) })} />
                   <input className="input" type="number" step="0.01" placeholder={tr('Price')} value={it.unitPrice}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' price')}
+                    aria-label={tr('Line {n} price', { n: idx + 1 })}
                     onChange={(e) => setNewInv({ ...newInv, items: newInv.items.map((x, j) => (j === idx ? { ...x, unitPrice: e.target.value } : x)) })} />
                   <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 'GHS')}</span>
-                  <button type="button" className="btn btn-secondary poki-row-btn" aria-label={tr('Remove line ') + (idx + 1)}
+                  <button type="button" className="btn btn-secondary poki-row-btn" aria-label={tr('Remove line {n}', { n: idx + 1 })}
                     onClick={() => setNewInv({ ...newInv, items: newInv.items.length > 1 ? newInv.items.filter((_, j) => j !== idx) : newInv.items })}>×</button>
                 </div>
               ))}
@@ -750,33 +755,33 @@ export default function PokiBillingPage() {
             create: (expiresInDays) => api.post('/poki/invoices/' + previewInv.id + '/share', { expiresInDays: expiresInDays || undefined }),
             whatsapp: (url) => api.post('/poki/invoices/' + previewInv.id + '/share/whatsapp', { url })
           }}
-          docLabel={'Invoice #' + previewInv.invoiceNo}
-          dateLabel="Issue date"
-          dateValue={fmtDate(previewInv.issuedAt)}
-          heading={'Invoice for ' + previewInv.customerName}
-          subHeading={'Due ' + fmtDate(previewInv.dueDate)}
+          docLabel={docTr('Invoice #{invoiceNo}', { invoiceNo: previewInv.invoiceNo })}
+          dateLabel={docTr('Issue date')}
+          dateValue={formatDocDate(previewInv.issuedAt)}
+          heading={docTr('Invoice for {customerName}', { customerName: previewInv.customerName })}
+          subHeading={docTr('Due {date}', { date: formatDocDate(previewInv.dueDate) })}
           blocks={[
-            { title: 'Tenant', lines: [previewInv.customerName, previewInv.customerEmail || previewInv.customerPhone || ''] },
+            { title: docTr('Tenant'), lines: [previewInv.customerName, previewInv.customerEmail || previewInv.customerPhone || ''] },
             {
-              title: 'Property',
+              title: docTr('Property'),
               lines: previewInv.unitCode
                 ? [previewInv.propertyName + ' · ' + previewInv.unitCode, previewInv.bookingNo || '']
                 : ['—', '']
             },
             {
-              title: previewInv.periodStart ? 'Period' : 'Invoice',
+              title: previewInv.periodStart ? docTr('Period') : docTr('Invoice'),
               lines: previewInv.periodStart
-                ? [fmtDate(previewInv.periodStart) + ' → ' + fmtDate(previewInv.periodEnd), money(previewInv.grandTotal, previewInv.currency)]
-                : ['Issued ' + fmtDate(previewInv.issuedAt), money(previewInv.grandTotal, previewInv.currency)]
+                ? [formatDocDate(previewInv.periodStart) + ' → ' + formatDocDate(previewInv.periodEnd), money(previewInv.grandTotal, previewInv.currency)]
+                : [docTr('Issued {date}', { date: formatDocDate(previewInv.issuedAt) }), money(previewInv.grandTotal, previewInv.currency)]
             }
           ]}
           items={groupPackageItems(previewInv.items, previewInv.currency)}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
-          totalLabel="Total Due"
+          totalLabel={docTr('Total Due')}
           total={money(previewInv.balanceDue, previewInv.currency)}
-          notesLabel="Payment instructions"
+          notesLabel={docTr('Payment instructions')}
           notesValue={previewInv.bankInstructions}
           paymentSchedule={formatPaymentSchedule(previewInv.paymentSchedule, previewInv.currency)}
           onClose={() => setPreviewInv(null)}

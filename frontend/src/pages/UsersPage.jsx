@@ -5,7 +5,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './UsersPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's users screen (screens.users block + the
 // users computed value), backed by GET /api/users, POST /api/users/:id/role,
 // and POST /api/users/:id/status. The backend blocks changing your own role
@@ -48,8 +49,8 @@ function tagClass(status) {
 }
 
 function fmtLastLogin(iso) {
-  if (!iso) return 'Never';
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  if (!iso) return tr('Never');
+  return new Date(iso).toLocaleString(activeIntlLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 const EMPTY_NEW_USER = { employeeId: '', roleId: '', password: '', confirmPassword: '', mustChangePassword: true };
@@ -115,7 +116,7 @@ export default function UsersPage() {
     setError(null);
     try {
       await api.post('/users/' + user.id + '/role', { roleId });
-      setToast(user.name + "'s role updated.");
+      setToast(tr("{name}'s role updated.", { name: user.name }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -130,7 +131,7 @@ export default function UsersPage() {
     try {
       const nextStatus = user.status === 'active' ? 'disabled' : 'active';
       await api.post('/users/' + user.id + '/status', { status: nextStatus });
-      setToast(user.name + ' account ' + nextStatus + '.');
+      setToast(nextStatus === 'active' ? tr("{name}'s account enabled.", { name: user.name }) : tr("{name}'s account disabled.", { name: user.name }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -148,8 +149,8 @@ export default function UsersPage() {
   async function handleCreate(e) {
     e.preventDefault();
     setCreateError(null);
-    if (newUser.password.length < 8) { setCreateError('Password must be at least 8 characters.'); return; }
-    if (newUser.password !== newUser.confirmPassword) { setCreateError('Passwords do not match.'); return; }
+    if (newUser.password.length < 8) { setCreateError(tr('Password must be at least 8 characters.')); return; }
+    if (newUser.password !== newUser.confirmPassword) { setCreateError(tr('Passwords do not match.')); return; }
 
     setCreating(true);
     try {
@@ -159,7 +160,7 @@ export default function UsersPage() {
         password: newUser.password,
         mustChangePassword: newUser.mustChangePassword
       });
-      setToast(created.name + "'s account was created.");
+      setToast(tr("{name}'s account was created.", { name: created.name }));
       setShowCreate(false);
       await load();
     } catch (err) {
@@ -179,13 +180,13 @@ export default function UsersPage() {
   async function handleReset(e) {
     e.preventDefault();
     setResetError(null);
-    if (resetPassword.length < 8) { setResetError('Password must be at least 8 characters.'); return; }
-    if (resetPassword !== resetConfirm) { setResetError('Passwords do not match.'); return; }
+    if (resetPassword.length < 8) { setResetError(tr('Password must be at least 8 characters.')); return; }
+    if (resetPassword !== resetConfirm) { setResetError(tr('Passwords do not match.')); return; }
 
     setResetting(true);
     try {
       await api.post('/users/' + resetTarget.id + '/password', { password: resetPassword });
-      setToast("Password reset for " + resetTarget.name + '.');
+      setToast(tr('Password reset for {name}.', { name: resetTarget.name }));
       setResetTarget(null);
       await load();
     } catch (err) {
@@ -207,7 +208,7 @@ export default function UsersPage() {
     setEmailSaving(true);
     try {
       await api.post('/users/' + emailTarget.id + '/email', { email: emailDraft });
-      setToast("Login email updated for " + emailTarget.name + '.');
+      setToast(tr('Login email updated for {name}.', { name: emailTarget.name }));
       setEmailTarget(null);
       await load();
     } catch (err) {
@@ -261,12 +262,12 @@ export default function UsersPage() {
                   </select>
                 </td>
                 <td className="users-lastlogin">{fmtLastLogin(u.lastLoginAt)}</td>
-                <td><span className={'tag ' + tagClass(u.status)}>{u.status}</span></td>
+                <td><span className={'tag ' + tagClass(u.status)}>{codeLabel(u.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: u.status === 'active' ? 'Disable' : 'Enable', onClick: () => toggleStatus(u), disabled: busyId === u.id, hidden: !(!isSelf) },
-                    { label: "Change email", onClick: () => openEmail(u), hidden: !(canCreate) },
-                    { label: "Reset password", onClick: () => openReset(u), hidden: !(canCreate) },
+                    { label: u.status === 'active' ? tr('Disable') : tr('Enable'), onClick: () => toggleStatus(u), disabled: busyId === u.id, hidden: !(!isSelf) },
+                    { label: tr('Change email'), onClick: () => openEmail(u), hidden: !(canCreate) },
+                    { label: tr('Reset password'), onClick: () => openReset(u), hidden: !(canCreate) },
                   ]} />
                 </td>
               </tr>
@@ -283,7 +284,7 @@ export default function UsersPage() {
       {!!users.length && !visibleUsers.length && (
         <div className="users-empty-state">
           <span className="users-empty-icon"><UsersIcon /></span>
-          <p className="users-empty-title">{tr('No users match "')}{search}"</p>
+          <p className="users-empty-title">{tr('No users match "{search}"', { search })}</p>
         </div>
       )}
 

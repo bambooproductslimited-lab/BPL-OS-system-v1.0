@@ -5,7 +5,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './LeavePage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr, trNodes } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's leave screen (screens.leave block + the
 // leaveRows/leaveFilters/leaveHint computed values around its render()),
 // redesigned around the icon/avatar language established for Messages/
@@ -46,7 +47,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_FORM = { leaveTypeId: '', startDate: '', endDate: '', reason: '' };
@@ -122,7 +123,7 @@ export default function LeavePage() {
     setError(null);
     try {
       const created = await api.post('/leave', form);
-      setToast('Request submitted for approval (' + created.days + ' day(s)).');
+      setToast(tr('Request submitted for approval ({days} day(s)).', { days: created.days }));
       setForm({ ...EMPTY_FORM, leaveTypeId: form.leaveTypeId });
       await loadAll();
     } catch (err) {
@@ -148,7 +149,7 @@ export default function LeavePage() {
     setDialogError(null);
     try {
       await api.post('/leave/' + decisionDialog.id + '/decision', { decision: decisionDialog.decision, note: decisionNote });
-      setToast('Leave ' + decisionDialog.decision + '.');
+      setToast(decisionDialog.decision === 'approved' ? tr('Leave approved.') : tr('Leave rejected.'));
       setDecisionDialog(null);
       await loadAll();
     } catch (err) {
@@ -162,7 +163,7 @@ export default function LeavePage() {
     setError(null);
     try {
       await api.post('/leave/' + row.id + '/cancel');
-      setToast('Request cancelled.');
+      setToast(tr('Request cancelled.'));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -174,7 +175,7 @@ export default function LeavePage() {
   const rows = leaveRequests
     .filter((l) => filter === 'all' || l.status === filter)
     .filter((l) => matchesQuery(search, l.employeeName, l.department, l.company, l.typeName));
-  const listTitle = can('leave.read.all') ? 'Leave requests in your scope' : 'My leave requests';
+  const listTitle = can('leave.read.all') ? tr('Leave requests in your scope') : tr('My leave requests');
   const selectedType = leaveTypes.find((t) => t.id === form.leaveTypeId);
   const balance = selectedType && balances.find((b) => b.name === selectedType.name);
   const filterCounts = {
@@ -186,10 +187,10 @@ export default function LeavePage() {
   // Same clickable-tile treatment as AttendancePage.jsx's summary row —
   // each tile IS the status filter (no separate segmented control needed).
   const leaveSummary = [
-    { key: 'pending', label: 'Pending', value: filterCounts.pending, icon: 'clock', tone: 'warning' },
-    { key: 'approved', label: 'Approved', value: filterCounts.approved, icon: 'checkCircle', tone: 'people' },
-    { key: 'rejected', label: 'Rejected', value: filterCounts.rejected, icon: 'xCircle', tone: 'danger' },
-    { key: 'all', label: 'All requests', value: filterCounts.all, icon: 'calendar', tone: 'people' }
+    { key: 'pending', label: tr('Pending'), value: filterCounts.pending, icon: 'clock', tone: 'warning' },
+    { key: 'approved', label: tr('Approved'), value: filterCounts.approved, icon: 'checkCircle', tone: 'people' },
+    { key: 'rejected', label: tr('Rejected'), value: filterCounts.rejected, icon: 'xCircle', tone: 'danger' },
+    { key: 'all', label: tr('All requests'), value: filterCounts.all, icon: 'calendar', tone: 'people' }
   ];
 
   return (
@@ -203,7 +204,7 @@ export default function LeavePage() {
             key={s.key}
             className={'leave-summary-tile leave-summary-tile-' + s.tone + (filter === s.key ? ' leave-summary-tile-active' : '')}
             aria-pressed={filter === s.key}
-            title={tr('Show ') + s.label.toLowerCase()}
+            title={tr('Show {label}', { label: s.label.toLowerCase() })}
             onClick={() => setFilter(s.key)}
           >
             <span className="leave-summary-icon glow-badge"><Icon name={s.icon} /></span>
@@ -262,7 +263,7 @@ export default function LeavePage() {
             {balance && (
               <div className={'leave-balance-chip' + (balance.left <= 0 ? ' leave-balance-chip-empty' : '')}>
                 <span className="leave-balance-chip-icon"><Icon name="calendar" /></span>
-                <span><strong>{balance.left}</strong> {tr('of')} {balance.entitled} {tr('day(s) remaining')}</span>
+                <span>{trNodes('{left} of {entitled} day(s) remaining', { left: <strong>{balance.left}</strong>, entitled: balance.entitled })}</span>
               </div>
             )}
             <div className="leave-hint">{tr('Sundays are not counted as leave days.')}</div>
@@ -322,12 +323,12 @@ export default function LeavePage() {
                         <td>{l.typeName}</td>
                         <td style={{ fontSize: 13 }}>{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</td>
                         <td>{l.days}</td>
-                        <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
+                        <td><span className={'tag ' + tagClass(l.status)}>{codeLabel(l.status)}</span></td>
                         <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                           <RowMenu actions={[
-                            { label: "Approve", onClick: () => openDecision(l, 'approved'), hidden: !(decidable) },
-                            { label: "Reject", onClick: () => openDecision(l, 'rejected'), danger: true, hidden: !(decidable) },
-                            { label: "Cancel", onClick: () => handleCancel(l), danger: true, hidden: !(cancellable) },
+                            { label: tr('Approve'), onClick: () => openDecision(l, 'approved'), hidden: !(decidable) },
+                            { label: tr('Reject'), onClick: () => openDecision(l, 'rejected'), danger: true, hidden: !(decidable) },
+                            { label: tr('Cancel'), onClick: () => handleCancel(l), danger: true, hidden: !(cancellable) },
                           ]} />
                         </td>
                       </tr>
@@ -350,10 +351,9 @@ export default function LeavePage() {
       {decisionDialog && (
         <div className="dialog-backdrop" onClick={() => setDecisionDialog(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmDecision}>
-            <h2>{decisionDialog.decision === 'approved' ? tr('Approve') : tr('Reject')} {tr('leave')}</h2>
+            <h2>{decisionDialog.decision === 'approved' ? tr('Approve leave') : tr('Reject leave')}</h2>
             <p className="dialog-body">
-              {decisionDialog.employeeName} · {decisionDialog.typeName} · {decisionDialog.days} {tr('day(s),')}{' '}
-              {fmtDate(decisionDialog.startDate)} → {fmtDate(decisionDialog.endDate)}
+              {tr('{employeeName} · {typeName} · {days} day(s), {date} → {date2}', { employeeName: decisionDialog.employeeName, typeName: decisionDialog.typeName, days: decisionDialog.days, date: fmtDate(decisionDialog.startDate), date2: fmtDate(decisionDialog.endDate) })}
             </p>
             <div className="field">
               <label htmlFor="decision-note">{tr('Note for the record')}</label>

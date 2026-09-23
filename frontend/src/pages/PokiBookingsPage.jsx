@@ -7,7 +7,8 @@ import './PokiPages.css';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Bookings — who occupies which unit, on what terms. Also where the tenancy
 // agreement gets generated (from a template, with the booking's own details
 // filled in) and where deposits and renewals are handled.
@@ -16,7 +17,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(String(iso).length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY = {
@@ -171,7 +172,7 @@ export default function PokiBookingsPage() {
     try {
       if (editId) await api.patch('/poki/bookings/' + editId, form);
       else await api.post('/poki/bookings', form);
-      setToast(editId ? 'Booking updated.' : 'Booking created.');
+      setToast(editId ? tr('Booking updated.') : tr('Booking created.'));
       setDialog(null);
       await load();
     } catch (err) {
@@ -211,12 +212,12 @@ export default function PokiBookingsPage() {
     try {
       if (dialog === 'deposit') {
         await api.post('/poki/bookings/' + target.id + '/deposit', { amount: form.amount, notes: form.notes });
-        setToast('Deposit recorded.');
+        setToast(tr('Deposit recorded.'));
       } else if (dialog === 'refund') {
         await api.post('/poki/bookings/' + target.id + '/deposit-refund', {
           amount: form.amount, deductions: form.deductions, notes: form.notes
         });
-        setToast('Deposit refund recorded.');
+        setToast(tr('Deposit refund recorded.'));
       } else if (dialog === 'renew') {
         const body = { escalationPercent: form.escalationPercent };
         if (form.startDate) body.startDate = form.startDate;
@@ -225,10 +226,10 @@ export default function PokiBookingsPage() {
         if (form.monthlyRate) body.monthlyRate = form.monthlyRate;
         if (form.notes) body.notes = form.notes;
         await api.post('/poki/bookings/' + target.id + '/renew', body);
-        setToast('Booking renewed.');
+        setToast(tr('Booking renewed.'));
       } else if (dialog === 'end') {
         await api.post('/poki/bookings/' + target.id + '/end', { reason: form.reason, status: form.status });
-        setToast('Booking ended — the unit is now vacant.');
+        setToast(tr('Booking ended — the unit is now vacant.'));
       }
       setDialog(null);
       await load();
@@ -266,7 +267,7 @@ export default function PokiBookingsPage() {
     setDialogError(null);
     try {
       await api.put('/poki/bookings/' + target.id + '/agreement', { body: agreementBody });
-      setToast('Agreement saved.');
+      setToast(tr('Agreement saved.'));
       setDialog(null);
       await load();
     } catch (err) {
@@ -306,13 +307,13 @@ export default function PokiBookingsPage() {
   // One list, shared by the row menu and the record panel.
   function bookingActions(l) {
     return [
-      { label: 'Agreement', onClick: () => openAgreement(l) },
-      { label: 'Activate', onClick: () => act(l, '/activate', {}, 'Booking activated — the unit is now occupied.'), disabled: busyId === l.id, hidden: !(canManage && l.status === 'draft') },
-      { label: 'Edit', onClick: () => openBooking(l), hidden: !(canManage && (l.status === 'draft' || l.status === 'active')) },
-      { label: 'Deposit', onClick: () => openSimple('deposit', l), hidden: !(canManage && l.status === 'active') },
-      { label: 'Renew', onClick: () => openSimple('renew', l), hidden: !(canManage && l.status === 'active') },
-      { label: 'End', onClick: () => openSimple('end', l), hidden: !(canManage && l.status === 'active') },
-      { label: 'Refund deposit', onClick: () => openSimple('refund', l), hidden: !(canManage && l.depositHeld > l.depositRefunded && l.status !== 'active' && l.status !== 'draft') },
+      { label: tr('Agreement'), onClick: () => openAgreement(l) },
+      { label: tr('Activate'), onClick: () => act(l, '/activate', {}, tr('Booking activated — the unit is now occupied.')), disabled: busyId === l.id, hidden: !(canManage && l.status === 'draft') },
+      { label: tr('Edit'), onClick: () => openBooking(l), hidden: !(canManage && (l.status === 'draft' || l.status === 'active')) },
+      { label: tr('Deposit'), onClick: () => openSimple('deposit', l), hidden: !(canManage && l.status === 'active') },
+      { label: tr('Renew'), onClick: () => openSimple('renew', l), hidden: !(canManage && l.status === 'active') },
+      { label: tr('End'), onClick: () => openSimple('end', l), hidden: !(canManage && l.status === 'active') },
+      { label: tr('Refund deposit'), onClick: () => openSimple('refund', l), hidden: !(canManage && l.depositHeld > l.depositRefunded && l.status !== 'active' && l.status !== 'draft') },
     ];
   }
 
@@ -386,11 +387,11 @@ export default function PokiBookingsPage() {
                 <td className="poki-num">
                   {money(l.depositHeld, l.currency)}
                   {l.depositAmount > l.depositHeld && (
-                    <div className="poki-muted">{tr('of')} {money(l.depositAmount, l.currency)}</div>
+                    <div className="poki-muted">{tr('of {amount}', { amount: money(l.depositAmount, l.currency) })}</div>
                   )}
                 </td>
                 <td className={'poki-num' + (l.balanceTotal > 0 ? ' poki-overdue' : '')}>{money(l.balanceTotal || 0, l.currency)}</td>
-                <td><span className={'poki-chip poki-chip-' + l.status}>{l.status}</span></td>
+                <td><span className={'poki-chip poki-chip-' + l.status}>{codeLabel(l.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
 <RowMenu actions={bookingActions(l)} />
                 </td>
@@ -480,15 +481,16 @@ export default function PokiBookingsPage() {
                   <span>
                     {tr('Rent —')} {quote.durationLabel}
                     <span className="poki-muted">
-                      {' '}({fmtDate(quote.startDate)} {tr('to')} {fmtDate(quote.endDate)})
-                    </span>
+                      {' '}{tr('({date} to {date2})', { date: fmtDate(quote.startDate), date2: fmtDate(quote.endDate) })}</span>
                   </span>
                   <strong>{money(quote.rentTotal, quote.currency)}</strong>
                 </div>
                 {quote.daysAmount > 0 && (
                   <div className="poki-term-row poki-muted">
                     <span>
-                      {tr('of which')} {quote.durationDays} {quote.durationDays === 1 ? 'day' : 'days'} {tr('at')} {money(quote.dailyRate, quote.currency)}
+                      {quote.durationDays === 1
+                        ? tr('of which 1 day at {rate}', { rate: money(quote.dailyRate, quote.currency) })
+                        : tr('of which {n} days at {rate}', { n: quote.durationDays, rate: money(quote.dailyRate, quote.currency) })}
                     </span>
                     <span>{money(quote.daysAmount, quote.currency)}</span>
                   </div>
@@ -503,9 +505,7 @@ export default function PokiBookingsPage() {
                 </div>
                 {!quote.available && (
                   <div className="poki-term-clash">
-                    {tr('Unavailable —')} {quote.clashesWith.bookingNo} {tr('has this unit from')}{' '}
-                    {fmtDate(quote.clashesWith.startDate)} {tr('to')} {fmtDate(quote.clashesWith.endDate)}.
-                  </div>
+                    {tr('Unavailable — {bookingNo} has this unit from {date} to {date2}.', { bookingNo: quote.clashesWith.bookingNo, date: fmtDate(quote.clashesWith.startDate), date2: fmtDate(quote.clashesWith.endDate) })}</div>
                 )}
               </div>
             )}
@@ -524,18 +524,17 @@ export default function PokiBookingsPage() {
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitSimple}>
             <h2 className="poki-dialog-title">
-              {dialog === 'deposit' && tr('Record deposit — ') + target.bookingNo}
-              {dialog === 'refund' && tr('Refund deposit — ') + target.bookingNo}
-              {dialog === 'renew' && tr('Renew booking — ') + target.bookingNo}
-              {dialog === 'end' && tr('End booking — ') + target.bookingNo}
+              {dialog === 'deposit' && tr('Record deposit — {bookingNo}', { bookingNo: target.bookingNo })}
+              {dialog === 'refund' && tr('Refund deposit — {bookingNo}', { bookingNo: target.bookingNo })}
+              {dialog === 'renew' && tr('Renew booking — {bookingNo}', { bookingNo: target.bookingNo })}
+              {dialog === 'end' && tr('End booking — {bookingNo}', { bookingNo: target.bookingNo })}
             </h2>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
             {dialog === 'deposit' && (
               <>
                 <p className="poki-dialog-hint">
-                  {target.tenantName} {tr('owes a deposit of')} {money(target.depositAmount, target.currency)};{' '}
-                  {money(target.depositHeld, target.currency)} {tr('has been received so far.')}
+                  {tr('{tenantName} owes a deposit of {amount}; {amount2} has been received so far.', { tenantName: target.tenantName, amount: money(target.depositAmount, target.currency), amount2: money(target.depositHeld, target.currency) })}
                 </p>
                 <div className="field">
                   <label htmlFor="pd-amt">{tr('Amount received')}</label>
@@ -551,7 +550,7 @@ export default function PokiBookingsPage() {
             {dialog === 'refund' && (
               <>
                 <p className="poki-dialog-hint">
-                  {money(target.depositHeld - target.depositRefunded, target.currency)} {tr('is held on this booking. Anything you withhold for damage or unpaid rent goes in deductions and is not refunded.')}
+                  {tr('{amount} is held on this booking. Anything you withhold for damage or unpaid rent goes in deductions and is not refunded.', { amount: money(target.depositHeld - target.depositRefunded, target.currency) })}
                 </p>
                 <div className="field">
                   <label htmlFor="pr-amt">{tr('Refund to tenant')}</label>
@@ -571,7 +570,7 @@ export default function PokiBookingsPage() {
             {dialog === 'renew' && (
               <>
                 <p className="poki-dialog-hint">
-                  {tr('Books the same unit again, starting the day after')} {fmtDate(target.endDate)} {tr('— this booking keeps its own price and signed agreement. Leave the fields blank to repeat the same length at the increased rate.')}
+                  {tr('Books the same unit again, starting the day after {date} — this booking keeps its own price and signed agreement. Leave the fields blank to repeat the same length at the increased rate.', { date: fmtDate(target.endDate) })}
                 </p>
                 <div className="field">
                   <label htmlFor="prn-esc">{tr('Rent increase (%)')}</label>
@@ -603,7 +602,7 @@ export default function PokiBookingsPage() {
             {dialog === 'end' && (
               <>
                 <p className="poki-dialog-hint">
-                  {target.unitCode} {tr('becomes vacant immediately. Any unpaid invoices stay outstanding — ending a tenancy doesn\'t cancel what\'s owed.')}
+                  {tr("{unitCode} becomes vacant immediately. Any unpaid invoices stay outstanding — ending a tenancy doesn't cancel what's owed.", { unitCode: target.unitCode })}
                 </p>
                 <div className="field">
                   <label htmlFor="pe-status">{tr('Reason type')}</label>
@@ -667,21 +666,21 @@ export default function PokiBookingsPage() {
           actions={bookingActions(detail)}
           onClose={() => setDetail(null)}
           fields={[
-            { label: 'Unit', value: detail.unitCode },
-            { label: 'Property', value: detail.propertyName },
-            { label: 'Starts', value: fmtDate(detail.startDate) },
-            { label: 'Ends', value: fmtDate(detail.endDate) },
-            { label: 'Duration', value: [detail.durationMonths ? detail.durationMonths + ' month' + (detail.durationMonths === 1 ? '' : 's') : null,
+            { label: tr('Unit'), value: detail.unitCode },
+            { label: tr('Property'), value: detail.propertyName },
+            { label: tr('Starts'), value: fmtDate(detail.startDate) },
+            { label: tr('Ends'), value: fmtDate(detail.endDate) },
+            { label: tr('Duration'), value: [detail.durationMonths ? detail.durationMonths + ' month' + (detail.durationMonths === 1 ? '' : 's') : null,
                                          detail.durationDays ? detail.durationDays + ' day' + (detail.durationDays === 1 ? '' : 's') : null]
                                          .filter(Boolean).join(' + ') },
-            { label: 'Status', value: detail.status },
-            { label: 'Monthly rate', value: money(detail.monthlyRate, detail.currency) },
-            { label: 'Daily rate', value: Number(detail.dailyRate) ? money(detail.dailyRate, detail.currency) : null },
-            { label: 'Rent for the term', value: money(detail.rentTotal, detail.currency) },
-            { label: 'Deposit due', value: money(detail.depositAmount, detail.currency) },
-            { label: 'Deposit held', value: money(detail.depositHeld, detail.currency) },
-            { label: 'Deposit refunded', value: Number(detail.depositRefunded) ? money(detail.depositRefunded, detail.currency) : null },
-            { label: 'Notes', value: detail.notes, wide: true },
+            { label: tr('Status'), value: codeLabel(detail.status) },
+            { label: tr('Monthly rate'), value: money(detail.monthlyRate, detail.currency) },
+            { label: tr('Daily rate'), value: Number(detail.dailyRate) ? money(detail.dailyRate, detail.currency) : null },
+            { label: tr('Rent for the term'), value: money(detail.rentTotal, detail.currency) },
+            { label: tr('Deposit due'), value: money(detail.depositAmount, detail.currency) },
+            { label: tr('Deposit held'), value: money(detail.depositHeld, detail.currency) },
+            { label: tr('Deposit refunded'), value: Number(detail.depositRefunded) ? money(detail.depositRefunded, detail.currency) : null },
+            { label: tr('Notes'), value: detail.notes, wide: true },
           ]}
         />
       )}

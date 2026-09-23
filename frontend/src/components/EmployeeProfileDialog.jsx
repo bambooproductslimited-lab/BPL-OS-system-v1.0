@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { isPdf, toPreviewUrl } from '../lib/previewUrl';
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeeProfileDialog.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
-const ID_SLOT_LABELS = { id_front: 'ID — front', id_back: 'ID — back', passport: 'Passport' };
-const EMPLOYMENT_TYPE_LABELS = { permanent: 'Permanent', contract: 'Contract', casual: 'Casual', day_rate: 'By day' };
+const ID_SLOT_LABELS = { id_front: msg('ID — front'), id_back: msg('ID — back'), passport: msg('Passport') };
+const EMPLOYMENT_TYPE_LABELS = { permanent: msg('Permanent'), contract: msg('Contract'), casual: msg('Casual'), day_rate: msg('By day') };
 
 // Full-detail read-only preview for one employee — profile fields, recent
 // attendance, leave history, and open tasks — via the existing
@@ -18,7 +19,7 @@ const EMPLOYMENT_TYPE_LABELS = { permanent: 'Permanent', contract: 'Contract', c
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  return new Date(iso.length > 10 ? iso : iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso.length > 10 ? iso : iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function fmtTime(t) {
   if (!t) return '—';
@@ -106,7 +107,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                 <h2 className="employee-profile-name">{e.firstName} {e.lastName}</h2>
                 <div className="employee-profile-sub">{e.code} · {e.positionTitle || '—'}</div>
               </div>
-              <span className={'tag ' + tagClass(e.status)}>{e.status}</span>
+              <span className={'tag ' + tagClass(e.status)}>{codeLabel(e.status)}</span>
             </div>
 
             <div className="employee-profile-grid">
@@ -114,7 +115,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
               <div><div className="employee-profile-label">{tr('Reports to')}</div><div>{data.managerName}</div></div>
               <div><div className="employee-profile-label">{tr('Work email')}</div><div>{e.email}</div></div>
               <div><div className="employee-profile-label">{tr('Phone')}</div><div>{e.phone || '—'}</div></div>
-              <div><div className="employee-profile-label">{tr('Employment type')}</div><div>{EMPLOYMENT_TYPE_LABELS[e.employmentType] || e.employmentType}</div></div>
+              <div><div className="employee-profile-label">{tr('Employment type')}</div><div>{EMPLOYMENT_TYPE_LABELS[e.employmentType] ? tr(EMPLOYMENT_TYPE_LABELS[e.employmentType]) : e.employmentType}</div></div>
               <div><div className="employee-profile-label">{tr('Hire date')}</div><div>{fmtDate(e.hireDate)}</div></div>
               <div><div className="employee-profile-label">{tr('Location')}</div><div>{e.location || '—'}</div></div>
               <div><div className="employee-profile-label">{tr('Shift')}</div><div>{e.shift || '—'}</div></div>
@@ -122,7 +123,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                 <>
                   <div><div className="employee-profile-label">{tr('Pay cycle')}</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
                   <div><div className="employee-profile-label">{tr('Daily rate')}</div><div>{fmtMoney(e.dailyRate)}</div></div>
-                  <div><div className="employee-profile-label">{tr('Hourly rate')}</div><div>{e.hourlyRate == null ? tr('Not set') : fmtMoney(e.hourlyRate) + '/hr'}</div></div>
+                  <div><div className="employee-profile-label">{tr('Hourly rate')}</div><div>{e.hourlyRate == null ? tr('Not set') : tr('{rate}/hr', { rate: fmtMoney(e.hourlyRate) })}</div></div>
                 </>
               )}
               {canViewIdDocs && (
@@ -152,13 +153,13 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                   <div className="employee-profile-iddocs">
                     {idSlots.map((s) => (
                       <div className="employee-profile-iddoc" key={s.kind}>
-                        <div className="employee-profile-label">{ID_SLOT_LABELS[s.kind]}</div>
+                        <div className="employee-profile-label">{tr(ID_SLOT_LABELS[s.kind])}</div>
                         {s.fileName && s.url ? (
                           isPdf(s.fileName) ? (
                             <a href={toPreviewUrl(s.url, s.fileName)} target="_blank" rel="noopener noreferrer" className="employee-profile-iddoc-pdf">{tr('View PDF —')} {s.fileName}</a>
                           ) : (
                             <a href={s.url} target="_blank" rel="noopener noreferrer">
-                              <img src={s.url} alt={ID_SLOT_LABELS[s.kind]} className="employee-profile-iddoc-img" />
+                              <img src={s.url} alt={tr(ID_SLOT_LABELS[s.kind])} className="employee-profile-iddoc-img" />
                             </a>
                           )
                         ) : (
@@ -180,7 +181,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                     {data.attendance.map((a) => (
                       <tr key={a.id}>
                         <td>{fmtDate(a.date)}</td>
-                        <td><span className={'tag ' + tagClass(a.status)}>{a.status}</span></td>
+                        <td><span className={'tag ' + tagClass(a.status)}>{codeLabel(a.status)}</span></td>
                         <td>{fmtTime(a.clock_in)}</td>
                         <td>{fmtTime(a.clock_out)}</td>
                       </tr>
@@ -201,7 +202,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                         <td>{l.typeName}</td>
                         <td>{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</td>
                         <td>{l.days}</td>
-                        <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
+                        <td><span className={'tag ' + tagClass(l.status)}>{codeLabel(l.status)}</span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -218,7 +219,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                     {data.tasks.map((t) => (
                       <tr key={t.id}>
                         <td>{t.title}</td>
-                        <td><span className={'tag ' + tagClass(t.status)}>{t.status.replace('_', ' ')}</span></td>
+                        <td><span className={'tag ' + tagClass(t.status)}>{codeLabel(t.status)}</span></td>
                         <td>{fmtDate(t.dueDate)}</td>
                       </tr>
                     ))}

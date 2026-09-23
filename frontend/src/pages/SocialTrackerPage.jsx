@@ -9,7 +9,8 @@ import { shareOrDownloadPdf } from '../lib/documentShare';
 import './SocialTrackerPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, msg, tr, trNodes } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Metricool-style social & campaign tracker: channels (Facebook, Instagram,
 // TikTok, WhatsApp Business, Website, ThomasNet), campaigns, a content
 // calendar of posts with their engagement numbers, and follower/traffic
@@ -63,37 +64,37 @@ function statusTone(status) {
 }
 
 const TABS = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'calendar', label: 'Content calendar' },
-  { key: 'campaigns', label: 'Campaigns' },
-  { key: 'inbox', label: 'Inbox' },
-  { key: 'channels', label: 'Channels' }
+  { key: 'overview', label: msg('Overview') },
+  { key: 'calendar', label: msg('Content calendar') },
+  { key: 'campaigns', label: msg('Campaigns') },
+  { key: 'inbox', label: msg('Inbox') },
+  { key: 'channels', label: msg('Channels') }
 ];
 
 const POST_STATUSES = [
-  { value: 'planned', label: 'Planned' },
-  { value: 'scheduled', label: 'Scheduled' },
-  { value: 'published', label: 'Published' },
-  { value: 'failed', label: 'Failed' }
+  { value: 'planned', label: msg('Planned') },
+  { value: 'scheduled', label: msg('Scheduled') },
+  { value: 'published', label: msg('Published') },
+  { value: 'failed', label: msg('Failed') }
 ];
 const CAMPAIGN_STATUSES = [
-  { value: 'planned', label: 'Planned' },
-  { value: 'active', label: 'Active' },
-  { value: 'completed', label: 'Completed' }
+  { value: 'planned', label: msg('Planned') },
+  { value: 'active', label: msg('Active') },
+  { value: 'completed', label: msg('Completed') }
 ];
 const INBOX_KINDS = [
-  { value: 'comment', label: 'Comment' },
-  { value: 'message', label: 'Message / DM' }
+  { value: 'comment', label: msg('Comment') },
+  { value: 'message', label: msg('Message / DM') }
 ];
 const INBOX_STATUSES = [
-  { value: 'open', label: 'Open' },
-  { value: 'replied', label: 'Replied' },
-  { value: 'archived', label: 'Archived' }
+  { value: 'open', label: msg('Open') },
+  { value: 'replied', label: msg('Replied') },
+  { value: 'archived', label: msg('Archived') }
 ];
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  return new Date(iso.length > 10 ? iso : iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso.length > 10 ? iso : iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function num(n) { return Number(n || 0).toLocaleString(); }
 
@@ -236,10 +237,10 @@ export default function SocialTrackerPage() {
     const tiktok = params.get('tiktok');
     if (!tiktok) return;
     if (tiktok === 'connected') {
-      setToast('TikTok connected.');
+      setToast(tr('TikTok connected.'));
       setTab('channels');
     } else if (tiktok === 'error') {
-      setError(params.get('message') || 'TikTok connection failed.');
+      setError(params.get('message') || tr('TikTok connection failed.'));
     }
     window.history.replaceState({}, '', window.location.pathname);
   }, []);
@@ -256,7 +257,7 @@ export default function SocialTrackerPage() {
     if (meta === 'choose-page') {
       openPagePicker(params.get('pending'));
     } else if (meta === 'error') {
-      setError(params.get('message') || 'Facebook/Instagram connection failed.');
+      setError(params.get('message') || tr('Facebook/Instagram connection failed.'));
     }
     window.history.replaceState({}, '', window.location.pathname);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,10 +273,10 @@ export default function SocialTrackerPage() {
       if (!value) return;
       changed = true;
       if (value === 'connected') {
-        setToast(label + ' connected.');
+        setToast(tr('{label} connected.', { label }));
         setTab('channels');
       } else if (value === 'error') {
-        setError(params.get('message') || (label + ' connection failed.'));
+        setError(params.get('message') || (tr('{label} connection failed.', { label })));
       }
     });
     if (changed) window.history.replaceState({}, '', window.location.pathname);
@@ -287,9 +288,11 @@ export default function SocialTrackerPage() {
     try {
       const r = await api.post('/marketing/tiktok/sync', {});
       if (r.videoError) {
-        setToast('Synced followers (' + num(r.followers) + '), but video sync failed: ' + r.videoError);
+        setToast(tr('Synced followers ({n}), but video sync failed: {videoError}', { n: num(r.followers), videoError: r.videoError }));
       } else {
-        setToast('Synced ' + r.synced + ' TikTok video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+        setToast(r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} TikTok video(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} TikTok video(s).', { n: r.synced }));
       }
       await loadAll();
     } catch (err) {
@@ -305,9 +308,11 @@ export default function SocialTrackerPage() {
     try {
       const r = await api.post('/marketing/facebook/sync', {});
       if (r.syncError) {
-        setToast('Facebook: partially synced (' + r.synced + ' post(s)) — ' + r.syncError);
+        setToast(tr('Facebook: partially synced ({synced} post(s)) — {syncError}', { synced: r.synced, syncError: r.syncError }));
       } else {
-        setToast('Synced ' + r.synced + ' Facebook post(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+        setToast(r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} Facebook post(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} Facebook post(s).', { n: r.synced }));
       }
       await loadAll();
     } catch (err) {
@@ -323,9 +328,11 @@ export default function SocialTrackerPage() {
     try {
       const r = await api.post('/marketing/instagram/sync', {});
       if (r.syncError) {
-        setToast('Instagram: partially synced (' + r.synced + ' post(s)) — ' + r.syncError);
+        setToast(tr('Instagram: partially synced ({synced} post(s)) — {syncError}', { synced: r.synced, syncError: r.syncError }));
       } else {
-        setToast('Synced ' + r.synced + ' Instagram post(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+        setToast(r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} Instagram post(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} Instagram post(s).', { n: r.synced }));
       }
       await loadAll();
     } catch (err) {
@@ -340,7 +347,9 @@ export default function SocialTrackerPage() {
     setError(null);
     try {
       const r = await api.post('/marketing/youtube/sync', {});
-      setToast('Synced ' + r.synced + ' YouTube video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' subscribers' : '') + '.');
+      setToast(r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} YouTube video(s), {followers} subscribers.', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} YouTube video(s).', { n: r.synced }));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -354,7 +363,9 @@ export default function SocialTrackerPage() {
     setError(null);
     try {
       const r = await api.post('/marketing/twitch/sync', {});
-      setToast('Synced ' + r.synced + ' Twitch video(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' followers' : '') + '.');
+      setToast(r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} Twitch video(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} Twitch video(s).', { n: r.synced }));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -368,7 +379,9 @@ export default function SocialTrackerPage() {
     setError(null);
     try {
       const r = await api.post('/marketing/website/sync', {});
-      setToast('Synced ' + r.synced + ' website page(s)' + (r.followers !== null && r.followers !== undefined ? ', ' + num(r.followers) + ' active users (30d)' : '') + '.');
+      setToast(r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} website page(s), {followers} active users (30d).', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} website page(s).', { n: r.synced }));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -397,7 +410,9 @@ export default function SocialTrackerPage() {
     try {
       const r = await api.post('/marketing/meta/pages/' + page.id + '/connect', { pending: pagePickerPending });
       setPagePickerOpen(false);
-      setToast('Connected "' + r.pageName + '"' + (r.instagramConnected ? ' and its linked Instagram account.' : ' (no Instagram account linked).'));
+      setToast(r.instagramConnected
+        ? tr('Connected "{name}" and its linked Instagram account.', { name: r.pageName })
+        : tr('Connected "{name}" (no Instagram account linked).', { name: r.pageName }));
       setTab('channels');
       await loadAll();
     } catch (err) {
@@ -435,10 +450,10 @@ export default function SocialTrackerPage() {
       const body = { ...postForm, campaignId: postForm.campaignId || null, scheduledAt: postForm.scheduledAt || null, publishedAt: postForm.publishedAt || null };
       if (editingPostId) {
         await api.patch('/marketing/posts/' + editingPostId, body);
-        setToast('Post updated.');
+        setToast(tr('Post updated.'));
       } else {
         await api.post('/marketing/posts', body);
-        setToast('Post added.');
+        setToast(tr('Post added.'));
       }
       setPostDialogOpen(false);
       await loadAll();
@@ -449,10 +464,10 @@ export default function SocialTrackerPage() {
     }
   }
   async function removePost(post) {
-    if (!window.confirm('Delete "' + post.title + '"?')) return;
+    if (!window.confirm(tr('Delete "{title}"?', { title: post.title }))) return;
     try {
       await api.del('/marketing/posts/' + post.id);
-      setToast('Post deleted.');
+      setToast(tr('Post deleted.'));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -480,10 +495,10 @@ export default function SocialTrackerPage() {
       const body = { ...campaignForm, startDate: campaignForm.startDate || null, endDate: campaignForm.endDate || null };
       if (editingCampaignId) {
         await api.patch('/marketing/campaigns/' + editingCampaignId, body);
-        setToast('Campaign updated.');
+        setToast(tr('Campaign updated.'));
       } else {
         await api.post('/marketing/campaigns', body);
-        setToast('Campaign added.');
+        setToast(tr('Campaign added.'));
       }
       setCampaignDialogOpen(false);
       await loadAll();
@@ -503,7 +518,7 @@ export default function SocialTrackerPage() {
     setBusyChannelId(c.id);
     try {
       await api.patch('/marketing/channels/' + c.id, draft);
-      setToast(c.name + ' updated.');
+      setToast(tr('{name} updated.', { name: c.name }));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -521,13 +536,13 @@ export default function SocialTrackerPage() {
   async function logStat(c) {
     const draft = statDrafts[c.id] || {};
     if (!draft.capturedOn || draft.followers === undefined || draft.followers === '') {
-      setToast('Enter a date and follower count first.');
+      setToast(tr('Enter a date and follower count first.'));
       return;
     }
     setBusyChannelId(c.id);
     try {
       await api.post('/marketing/channels/' + c.id + '/stats', draft);
-      setToast('Logged ' + draft.followers + ' followers for ' + c.name + '.');
+      setToast(tr('Logged {followers} followers for {name}.', { followers: draft.followers, name: c.name }));
       setStatDrafts({ ...statDrafts, [c.id]: { capturedOn: '', followers: '' } });
       await loadStatHistory(c);
       await loadAll();
@@ -555,7 +570,7 @@ export default function SocialTrackerPage() {
     setInboxError(null);
     try {
       await api.post('/marketing/inbox', { ...inboxForm, postId: inboxForm.postId || null });
-      setToast('Logged.');
+      setToast(tr('Logged.'));
       setInboxDialogOpen(false);
       await loadAll();
     } catch (err) {
@@ -567,13 +582,13 @@ export default function SocialTrackerPage() {
   async function sendReply(item) {
     const replyBody = (replyDrafts[item.id] || '').trim();
     if (!replyBody) {
-      setToast('Write a reply first.');
+      setToast(tr('Write a reply first.'));
       return;
     }
     setBusyInboxId(item.id);
     try {
       await api.post('/marketing/inbox/' + item.id + '/reply', { replyBody });
-      setToast('Reply recorded.');
+      setToast(tr('Reply recorded.'));
       setReplyDrafts({ ...replyDrafts, [item.id]: '' });
       await loadAll();
     } catch (err) {
@@ -586,7 +601,7 @@ export default function SocialTrackerPage() {
     setBusyInboxId(item.id);
     try {
       await api.post('/marketing/inbox/' + item.id + '/status', { status: 'archived' });
-      setToast('Archived.');
+      setToast(tr('Archived.'));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -598,7 +613,7 @@ export default function SocialTrackerPage() {
     setBusyInboxId(item.id);
     try {
       await api.post('/marketing/inbox/' + item.id + '/status', { status: 'open' });
-      setToast('Reopened.');
+      setToast(tr('Reopened.'));
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -610,7 +625,7 @@ export default function SocialTrackerPage() {
   async function downloadOverviewPdf() {
     setExporting(true);
     try {
-      await shareOrDownloadPdf(overviewRef.current, 'social-tracker-' + new Date().toISOString().slice(0, 10) + '.pdf', 'Social & campaign tracker', 'Social & campaign tracker');
+      await shareOrDownloadPdf(overviewRef.current, 'social-tracker-' + new Date().toISOString().slice(0, 10) + '.pdf', tr('Social & campaign tracker'), tr('Social & campaign tracker'));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -621,17 +636,17 @@ export default function SocialTrackerPage() {
   function downloadOverviewCsv() {
     if (!dash) return;
     const rows = [
-      ['Social & Campaign Tracker — Overview', new Date().toISOString().slice(0, 10)],
+      [tr('Social & Campaign Tracker — Overview'), new Date().toISOString().slice(0, 10)],
       [],
-      ['Channels'],
-      ['Channel', 'Handle', 'Connected', 'Followers', 'Follower change', 'Posts', 'Likes', 'Reach', 'Clicks', 'Leads'],
+      [tr('Channels')],
+      [tr('Channel'), tr('Handle'), tr('Connected'), tr('Followers'), tr('Follower change'), tr('Posts'), tr('Likes'), tr('Reach'), tr('Clicks'), tr('Leads')],
       ...dash.channels.map((c) => [c.name, c.handle || '', c.connected ? 'yes' : 'no', c.followers, c.followerChange, c.totals.posts, c.totals.likes, c.totals.reach, c.totals.clicks, c.totals.leads]),
       [],
-      ['Campaigns'],
-      ['Campaign', 'Status', 'Start', 'End', 'Posts', 'Likes', 'Reach', 'Clicks', 'Leads'],
+      [tr('Campaigns')],
+      [tr('Campaign'), tr('Status'), tr('Start'), tr('End'), tr('Posts'), tr('Likes'), tr('Reach'), tr('Clicks'), tr('Leads')],
       ...dash.campaigns.map((c) => [c.name, c.status, c.startDate || '', c.endDate || '', c.totals.posts, c.totals.likes, c.totals.reach, c.totals.clicks, c.totals.leads])
     ];
-    if (recommendation) rows.push([], ['Content recommendations'], [recommendation.recommendation]);
+    if (recommendation) rows.push([], [tr('Content recommendations')], [recommendation.recommendation]);
     downloadCsv('social-tracker-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
@@ -648,7 +663,7 @@ export default function SocialTrackerPage() {
       <div className="soctrack-tabs">
         {TABS.map((t) => (
           <button key={t.key} type="button" className={'soctrack-tab' + (tab === t.key ? ' soctrack-tab-active' : '')} onClick={() => setTab(t.key)}>
-            {t.label}
+            {tr(t.label)}
           </button>
         ))}
       </div>
@@ -689,12 +704,12 @@ export default function SocialTrackerPage() {
                 </div>
                 {c.openInboxCount > 0 && (
                   <button type="button" className="soctrack-inbox-badge" onClick={() => { setInboxFilter({ channelId: c.id, status: 'open', kind: '' }); setTab('inbox'); }}>
-                    {c.openInboxCount} {tr('awaiting reply')}
+                    {tr('{openInboxCount} awaiting reply', { openInboxCount: c.openInboxCount })}
                   </button>
                 )}
                 {c.followers !== null && (
                   <div className="soctrack-followers">
-                    {num(c.followers)} {tr('followers')}
+                    {tr('{n} followers', { n: num(c.followers) })}
                     {c.followerChange !== null && (
                       <span className={c.followerChange >= 0 ? 'soctrack-delta-up' : 'soctrack-delta-down'}>
                         {' '}{c.followerChange >= 0 ? '+' : ''}{num(c.followerChange)}
@@ -725,7 +740,7 @@ export default function SocialTrackerPage() {
                       <span style={{ fontWeight: 600 }}>{c.name}</span>
                     </div>
                   </td>
-                  <td><span className={'tag ' + statusTagClass(c.status)}>{c.status}</span></td>
+                  <td><span className={'tag ' + statusTagClass(c.status)}>{codeLabel(c.status)}</span></td>
                   <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
                   <td>{c.totals.posts}</td><td>{num(c.totals.likes)}</td><td>{num(c.totals.reach)}</td><td>{num(c.totals.clicks)}</td><td>{num(c.totals.leads)}</td>
                 </tr>
@@ -757,7 +772,7 @@ export default function SocialTrackerPage() {
             </select>
             <select className="input" value={calendarFilter.status} onChange={(e) => setCalendarFilter({ ...calendarFilter, status: e.target.value })}>
               <option value="">{tr('All statuses')}</option>
-              {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
             </select>
             {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewPost}>{tr('New post')}</button>}
           </div>
@@ -771,12 +786,12 @@ export default function SocialTrackerPage() {
                   <td>{p.channelName}</td>
                   <td>{p.campaignName || '—'}</td>
                   <td style={{ fontWeight: 600 }}>{p.title}</td>
-                  <td><span className={'tag ' + statusTagClass(p.status)}>{p.status}</span></td>
+                  <td><span className={'tag ' + statusTagClass(p.status)}>{codeLabel(p.status)}</span></td>
                   <td>{num(p.likes)}</td><td>{num(p.comments)}</td><td>{num(p.shares)}</td><td>{num(p.reach)}</td><td>{num(p.clicks)}</td><td>{num(p.leads)}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "Edit", onClick: () => openEditPost(p), hidden: !(canManage) },
-                      { label: "Delete", onClick: () => removePost(p), danger: true, hidden: !(canManage) },
+                      { label: tr('Edit'), onClick: () => openEditPost(p), hidden: !(canManage) },
+                      { label: tr('Delete'), onClick: () => removePost(p), danger: true, hidden: !(canManage) },
                     ]} />
                   </td>
                 </tr>
@@ -812,10 +827,10 @@ export default function SocialTrackerPage() {
                   </td>
                   <td className="soctrack-desc-cell">{c.description || '—'}</td>
                   <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
-                  <td><span className={'tag ' + statusTagClass(c.status)}>{c.status}</span></td>
+                  <td><span className={'tag ' + statusTagClass(c.status)}>{codeLabel(c.status)}</span></td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "Edit", onClick: () => openEditCampaign(c), hidden: !(canManage) },
+                      { label: tr('Edit'), onClick: () => openEditCampaign(c), hidden: !(canManage) },
                     ]} />
                   </td>
                 </tr>
@@ -843,11 +858,11 @@ export default function SocialTrackerPage() {
             </select>
             <select className="input" value={inboxFilter.kind} onChange={(e) => setInboxFilter({ ...inboxFilter, kind: e.target.value })}>
               <option value="">{tr('Comments & messages')}</option>
-              {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+              {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{tr(k.label)}</option>)}
             </select>
             <select className="input" value={inboxFilter.status} onChange={(e) => setInboxFilter({ ...inboxFilter, status: e.target.value })}>
               <option value="">{tr('All statuses')}</option>
-              {INBOX_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {INBOX_STATUSES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
             </select>
             {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewInboxItem}>{tr('Log incoming')}</button>}
           </div>
@@ -859,12 +874,15 @@ export default function SocialTrackerPage() {
                   <div className="soctrack-inbox-author-row">
                     <span className="soctrack-inbox-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }}>{initials(item.authorName || tr('Unknown'))}</span>
                     <div>
-                      <span className="soctrack-inbox-kind">{item.kind === 'comment' ? tr('Comment') : tr('Message')}</span> {tr('on')} <strong>{item.channelName}</strong>
+                      {trNodes('{kind} on {channel}', {
+                        kind: <span className="soctrack-inbox-kind">{item.kind === 'comment' ? tr('Comment') : tr('Message')}</span>,
+                        channel: <strong>{item.channelName}</strong>
+                      })}
                       {item.postTitle && <span> · {item.postTitle}</span>}
                       <div className="soctrack-inbox-author">{item.authorName || tr('Unknown')} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
                     </div>
                   </div>
-                  <span className={'tag ' + statusTagClass(item.status)}>{item.status}</span>
+                  <span className={'tag ' + statusTagClass(item.status)}>{codeLabel(item.status)}</span>
                 </div>
                 <p className="soctrack-inbox-body">{item.body}</p>
 
@@ -906,7 +924,7 @@ export default function SocialTrackerPage() {
                 <div className="soctrack-channel-row-top">
                   <div>
                     <div className="soctrack-channel-name">{c.name}</div>
-                    <div className="soctrack-channel-handle">{c.kind}</div>
+                    <div className="soctrack-channel-handle">{codeLabel(c.kind)}</div>
                   </div>
                   <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? tr('Connected') : tr('Not connected')}</span>
                 </div>
@@ -1022,7 +1040,7 @@ export default function SocialTrackerPage() {
             <div className="field">
               <label htmlFor="post-status">{tr('Status')}</label>
               <select id="post-status" className="input" value={postForm.status} onChange={(e) => setPostForm({ ...postForm, status: e.target.value })}>
-                {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
               </select>
             </div>
             <div className="field">
@@ -1076,7 +1094,7 @@ export default function SocialTrackerPage() {
             <div className="field">
               <label htmlFor="camp-status">{tr('Status')}</label>
               <select id="camp-status" className="input" value={campaignForm.status} onChange={(e) => setCampaignForm({ ...campaignForm, status: e.target.value })}>
-                {CAMPAIGN_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {CAMPAIGN_STATUSES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
               </select>
             </div>
 
@@ -1103,7 +1121,7 @@ export default function SocialTrackerPage() {
             <div className="field">
               <label htmlFor="ib-kind">{tr('Type')}</label>
               <select id="ib-kind" className="input" value={inboxForm.kind} onChange={(e) => setInboxForm({ ...inboxForm, kind: e.target.value, postId: e.target.value === 'message' ? '' : inboxForm.postId })}>
-                {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{tr(k.label)}</option>)}
               </select>
             </div>
             {inboxForm.kind === 'comment' && (
@@ -1152,7 +1170,7 @@ export default function SocialTrackerPage() {
                   <div key={p.id} className="soctrack-page-row">
                     <div>
                       <div className="soctrack-channel-name">{p.name}</div>
-                      <div className="soctrack-channel-handle">{p.hasInstagram ? tr('Instagram linked: @') + p.instagramUsername : tr('No Instagram account linked')}</div>
+                      <div className="soctrack-channel-handle">{p.hasInstagram ? tr('Instagram linked: @{instagramUsername}', { instagramUsername: p.instagramUsername }) : tr('No Instagram account linked')}</div>
                     </div>
                     <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!connectingPageId} onClick={() => connectPage(p)}>
                       {connectingPageId === p.id ? tr('Connecting…') : tr('Connect')}

@@ -7,6 +7,7 @@ import './CustomersPage.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's customers screen (screens.customers
 // block + the customers computed values, and the shared "customer"
 // create/edit dialog around its render()).
@@ -119,7 +120,7 @@ export default function CustomersPage() {
     try {
       if (editId) await api.put('/customers/' + editId, form);
       else await api.post('/customers', form);
-      setToast(editId ? 'Customer updated.' : 'Customer added.');
+      setToast(editId ? tr('Customer updated.') : tr('Customer added.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -133,7 +134,7 @@ export default function CustomersPage() {
     setDeleting(true);
     try {
       await api.del('/customers/' + deleteTarget.id);
-      setToast(deleteTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: deleteTarget.name }));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -183,15 +184,15 @@ export default function CustomersPage() {
                   ) : '—'}
                 </td>
                 <td className="customers-contact-cell">{c.email}<br />{c.phone}</td>
-                <td><span className={'tag ' + tagClass(c.category)}>{c.category}</span></td>
+                <td><span className={'tag ' + tagClass(c.category)}>{codeLabel(c.category)}</span></td>
                 <td>{moneyBreakdown(c.quotedTotals)}</td>
                 <td>{moneyBreakdown(invoicedTotals)}</td>
                 <td>{moneyBreakdown(paidTotals)}</td>
                 <td style={{ fontWeight: 600 }}>{moneyBreakdown(outstandingTotals)}</td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Edit", onClick: () => openEdit(c), hidden: !(canManage) },
-                    { label: "Delete", onClick: () => setDeleteTarget(c), danger: true, hidden: !(canDelete) },
+                    { label: tr('Edit'), onClick: () => openEdit(c), hidden: !(canManage) },
+                    { label: tr('Delete'), onClick: () => setDeleteTarget(c), danger: true, hidden: !(canDelete) },
                   ]} />
                 </td>
               </tr>
@@ -208,7 +209,7 @@ export default function CustomersPage() {
       {!!customers.length && !visibleCustomers.length && (
         <div className="customers-empty-state">
           <span className="customers-empty-icon"><BuildingIcon /></span>
-          <p className="customers-empty-title">{tr('No customers match "')}{search}"</p>
+          <p className="customers-empty-title">{tr('No customers match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -240,7 +241,7 @@ export default function CustomersPage() {
             <div className="field">
               <label htmlFor="cu-category">{tr('Category')}</label>
               <select id="cu-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                {CATEGORIES.map((c) => <option key={c} value={c}>{codeLabel(c)}</option>)}
               </select>
             </div>
             <div className="field">
@@ -271,7 +272,7 @@ export default function CustomersPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete')} {deleteTarget.name}</h2>
+            <h2>{tr('Delete {name}', { name: deleteTarget.name })}</h2>
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>

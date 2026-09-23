@@ -49,7 +49,7 @@ export default function RecordDialog({ title, subtitle, tag, fields, items, tota
           </div>
           <div className="record-dialog-head-right">
             {tag}
-            {actions && actions.length > 0 && <RowMenu actions={actions} label="Actions" />}
+            {actions && actions.length > 0 && <RowMenu actions={actions} label={tr('Actions')} />}
             <button type="button" ref={closeRef} className="record-dialog-close" onClick={onClose} aria-label={tr('Close')}>
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                 <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -88,9 +88,9 @@ export default function RecordDialog({ title, subtitle, tag, fields, items, tota
                       {it.notes && <span className="record-dialog-item-note">{it.notes}</span>}
                       {(Number(it.discount) > 0 || Number(it.taxRate) > 0) && (
                         <span className="record-dialog-item-note">
-                          {Number(it.discount) > 0 && (tr('less ') + it.discount + (it.discountType === 'percent' ? '%' : ''))}
+                          {Number(it.discount) > 0 && tr('less {amount}', { amount: it.discount + (it.discountType === 'percent' ? '%' : '') })}
                           {Number(it.discount) > 0 && Number(it.taxRate) > 0 && ' · '}
-                          {Number(it.taxRate) > 0 && (tr('tax ') + it.taxRate + '%')}
+                          {Number(it.taxRate) > 0 && (tr('tax {taxRate}%', { taxRate: it.taxRate }))}
                         </span>
                       )}
                     </td>

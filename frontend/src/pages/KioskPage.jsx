@@ -4,7 +4,7 @@ import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/of
 import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
 import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './KioskPage.css';
 
 // The clock-in/out kiosk — a full-screen, standalone page meant to be
@@ -227,7 +227,7 @@ export default function KioskPage() {
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
       if (err instanceof ApiError) {
-        setResult({ kind: 'error', message: err.message || 'Something went wrong.' });
+        setResult({ kind: 'error', message: err.message || tr('Something went wrong.') });
         playWrongPin();
       } else {
         enqueueTap(fullPin, new Date().toISOString(), locationRef.current, faceDescriptor);
@@ -268,7 +268,7 @@ export default function KioskPage() {
     } catch (err) {
       setSubmitting(false);
       if (err instanceof ApiError) {
-        showErrorResult(err.message || 'Something went wrong.');
+        showErrorResult(err.message || tr('Something went wrong.'));
       } else {
         // Offline — we can't ask the server whether this PIN needs a face,
         // so try briefly for one anyway (covers an enrolled employee
@@ -303,17 +303,17 @@ export default function KioskPage() {
       <div className="kiosk-content">
         <div className="kiosk-header">
           <div>
-            <div className="kiosk-brand">{tr('CHOU AND ASSOCIATES')}</div>
+            <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
             {pendingCount > 0 && (
               <div className="kiosk-pending-badge">
                 <Icon name="cloud" />
-                {pendingCount} {tr('tap')}{pendingCount === 1 ? '' : 's'} {tr('syncing…')}
+                {pendingCount === 1 ? tr('1 tap syncing…') : tr('{n} taps syncing…', { n: pendingCount })}
               </div>
             )}
           </div>
           <div className="kiosk-clock">
-            <div className="kiosk-time">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-            <div className="kiosk-date">{now.toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
+            <div className="kiosk-time">{now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}</div>
+            <div className="kiosk-date">{now.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
           </div>
         </div>
 
@@ -330,7 +330,7 @@ export default function KioskPage() {
                 {result.action === 'in' && result.status && (
                   <div className={'kiosk-result-late' + (result.status === 'late' ? ' kiosk-result-late-yes' : '')}>
                     {result.status === 'late'
-                      ? tr('You\'re ') + result.minutesLate + tr(' minute') + (result.minutesLate === 1 ? '' : 's') + tr(' late')
+                      ? (result.minutesLate === 1 ? tr("You're 1 minute late") : tr("You're {n} minutes late", { n: result.minutesLate }))
                       : tr('You\'re on time')}
                   </div>
                 )}
@@ -351,7 +351,7 @@ export default function KioskPage() {
             <FaceCapture
               mode="kiosk"
               title={tr('Confirm it\'s you')}
-              subtitle="Hold still and look at the camera to finish clocking in or out."
+              subtitle={tr('Hold still and look at the camera to finish clocking in or out.')}
               timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
               onCapture={(descriptor) => {
                 const p = faceStage.pin;
@@ -363,7 +363,7 @@ export default function KioskPage() {
                 const p = faceStage.pin, optional = faceStage.optional;
                 setFaceStage(null);
                 if (optional) submitPin(p);
-                else showErrorResult("Couldn't see your face clearly — try again.");
+                else showErrorResult(tr("Couldn't see your face clearly — try again."));
               }}
               onError={(message, name) => {
                 const p = faceStage.pin, optional = faceStage.optional;

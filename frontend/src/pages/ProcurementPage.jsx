@@ -5,7 +5,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProcurementPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's procurement screen (screens.procurement
 // block + the procurement computed values around its render()).
 //
@@ -51,7 +52,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_FORM = { item: '', quantity: '', estimatedPrice: '', requiredDate: '', priority: 'medium', reason: '' };
@@ -98,7 +99,7 @@ export default function ProcurementPage() {
     setError(null);
     try {
       await api.post('/procurement', form);
-      setToast('Purchase request submitted.');
+      setToast(tr('Purchase request submitted.'));
       setForm(EMPTY_FORM);
       await load();
     } catch (err) {
@@ -113,7 +114,7 @@ export default function ProcurementPage() {
     setError(null);
     try {
       await api.post('/procurement/' + row.id + '/decision', { decision: decision });
-      setToast('Request ' + decision + '.');
+      setToast(decision === 'approved' ? tr('Request approved.') : tr('Request rejected.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -181,14 +182,14 @@ export default function ProcurementPage() {
                   </div>
                 </td>
                 <td>{r.departmentName}</td>
-                <td>{tr('GHS')} {r.estimatedPrice.toLocaleString()}</td>
+                <td>GHS {r.estimatedPrice.toLocaleString()}</td>
                 <td>{fmtDate(r.requiredDate)}</td>
-                <td><span className={'tag ' + priorityClass(r.priority)}>{r.priority}</span></td>
-                <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
+                <td><span className={'tag ' + priorityClass(r.priority)}>{codeLabel(r.priority)}</span></td>
+                <td><span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Approve", onClick: () => handleDecision(r, 'approved'), disabled: decidingId === r.id, hidden: !(decidable) },
-                    { label: "Reject", onClick: () => handleDecision(r, 'rejected'), disabled: decidingId === r.id, danger: true, hidden: !(decidable) },
+                    { label: tr('Approve'), onClick: () => handleDecision(r, 'approved'), disabled: decidingId === r.id, hidden: !(decidable) },
+                    { label: tr('Reject'), onClick: () => handleDecision(r, 'rejected'), disabled: decidingId === r.id, danger: true, hidden: !(decidable) },
                   ]} />
                 </td>
               </tr>
@@ -205,7 +206,7 @@ export default function ProcurementPage() {
       {!!requests.length && !visibleRequests.length && (
         <div className="procurement-empty-state">
           <span className="procurement-empty-icon"><CartIcon /></span>
-          <p className="procurement-empty-title">{tr('No requests match "')}{search}"</p>
+          <p className="procurement-empty-title">{tr('No requests match "{search}"', { search })}</p>
         </div>
       )}
 

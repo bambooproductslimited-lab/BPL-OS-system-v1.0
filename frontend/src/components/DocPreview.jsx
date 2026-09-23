@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import './DocPreview.css';
 import PrintLayer from './PrintLayer';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, docTr, tr, msg } from '../lib/i18n.jsx';
 // Shared print-style preview modal for Estimates/Quotations/Invoices,
 // ported from Bamboo OS.dc.html's dialog.estimatePreview / .quotationPreview
 // / .invoicePreview blocks (nearly identical white-page layouts, only the
@@ -23,9 +23,9 @@ import { tr } from '../lib/i18n.jsx';
 // the document's figures, so every one expires (see migration 0060). 30
 // days is the server's default and its ceiling.
 const EXPIRY_OPTIONS = [
-  { value: '7', label: '7 days' },
-  { value: '14', label: '14 days' },
-  { value: '30', label: '30 days' }
+  { value: '7', label: msg('7 days') },
+  { value: '14', label: msg('14 days') },
+  { value: '30', label: msg('30 days') }
 ];
 
 export default function DocPreview({ docLabel, dateLabel, dateValue, heading, subHeading, blocks, items, subtotal, discountRows, taxRows, payments, isPartial, amountPaid, totalLabel, total, notesLabel, notesValue, termsLabel, termsValue, paymentSchedule, documentType, documentId, shareApi, company, onClose }) {
@@ -46,10 +46,10 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
     setShareError(null);
     setSharing(true);
     try {
-      const filename = (docLabel || 'Document').replace(/[^a-zA-Z0-9-]+/g, '-') + '.pdf';
+      const filename = (docLabel || docTr('Document')).replace(/[^a-zA-Z0-9-]+/g, '-') + '.pdf';
       await shareOrDownloadPdf(nodeRef.current, filename, docLabel, heading);
     } catch (err) {
-      if (err.name !== 'AbortError') setShareError(err.message || 'Could not share this document.');
+      if (err.name !== 'AbortError') setShareError(err.message || tr('Could not share this document.'));
     } finally {
       setSharing(false);
     }
@@ -99,7 +99,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
         setShareUrl(url);
       }
       await share.whatsapp(url);
-      setWaResult({ ok: true, message: 'Sent via WhatsApp.' });
+      setWaResult({ ok: true, message: tr('Sent via WhatsApp.') });
     } catch (err) {
       setWaResult({ ok: false, message: err.message });
     } finally {
@@ -111,6 +111,11 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
     <PrintLayer onClose={onClose}>
       <div className="dialog-backdrop" onClick={onClose}>
         <div className="doc-preview" ref={nodeRef} onClick={(e) => e.stopPropagation()}>
+          {/* Everything from here to the Communication panel is the document
+              itself — what gets printed, made into a PDF and sent to the
+              customer — so it is written with docTr(), always in the
+              company's document language. The panel and buttons after it
+              are the interface, and follow the reader with tr(). */}
           <div className="doc-preview-head">
             <div className="doc-preview-brand">
               {/* The group's logo belongs only on the group's own documents.
@@ -127,19 +132,19 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
                     {company.subtitle && <div className="doc-preview-wordmark-sub">{company.subtitle}</div>}
                     <div className="doc-preview-brand-address">
                       {company.address && <>{company.address}<br /></>}
-                      {company.ghanaPostGps && <>{company.ghanaPostGps} {tr('(GhanaPostGPS)')}<br /></>}
-                      {company.phone && <>{tr('WhatsApp:')} {company.phone}<br /></>}
+                      {company.ghanaPostGps && <>{company.ghanaPostGps} (GhanaPostGPS)<br /></>}
+                      {company.phone && <>{docTr('WhatsApp:')} {company.phone}<br /></>}
                       {company.email && <>{company.email}</>}
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className="doc-preview-brand-name">{tr('Bamboo Products Limited')}</div>
+                    <div className="doc-preview-brand-name">Bamboo Products Limited</div>
                     <div className="doc-preview-brand-address">
-                      {tr('Poki House')}<br />
-                      {tr('35 J K Siaw St, Community 9, Tema, Ghana')}<br />
-                      {tr('GT-191-1859 (GhanaPostGPS)')}<br />
-                      {tr('WhatsApp: 0591933925')}
+                      Poki House<br />
+                      35 J K Siaw St, Community 9, Tema, Ghana<br />
+                      GT-191-1859 (GhanaPostGPS)<br />
+                      WhatsApp: 0591933925
                     </div>
                   </>
                 )}
@@ -164,7 +169,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           </div>
           <div className="doc-preview-table-wrap">
           <table className="doc-preview-table">
-            <thead><tr><th>{tr('Items')}</th><th className="doc-preview-num">{tr('Quantity')}</th><th className="doc-preview-num">{tr('Price')}</th><th className="doc-preview-num">{tr('Amount')}</th></tr></thead>
+            <thead><tr><th>{docTr('Items')}</th><th className="doc-preview-num">{docTr('Quantity')}</th><th className="doc-preview-num">{docTr('Price')}</th><th className="doc-preview-num">{docTr('Amount')}</th></tr></thead>
             <tbody>
               {items.map((it, i) => (
                 <tr key={i}>
@@ -181,7 +186,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           </table>
           </div>
           <div className="doc-preview-row">
-            <div>{tr('Subtotal')}</div><div>{subtotal}</div>
+            <div>{docTr('Subtotal')}</div><div>{subtotal}</div>
           </div>
           {/* Everything between the subtotal and the total is spelled out. It
               used to jump straight from one to the other, so a discount or a
@@ -202,16 +207,16 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           {(payments || []).map((pay, i) => (
             <div className="doc-preview-row" key={pay.id || i}>
               <div>
-                {tr('Payment received')} {pay.date}
+                {docTr('Payment received')} {pay.date}
                 {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
-                {pay.reference && <span className="doc-preview-pay-meta"> {tr('· ref')} {pay.reference}</span>}
+                {pay.reference && <span className="doc-preview-pay-meta"> {docTr('· ref')} {pay.reference}</span>}
               </div>
               <div>− {pay.amount}</div>
             </div>
           ))}
           {isPartial && !(payments || []).length && (
             <div className="doc-preview-row">
-              <div>{tr('Amount paid')}</div><div>{amountPaid}</div>
+              <div>{docTr('Amount paid')}</div><div>{amountPaid}</div>
             </div>
           )}
           <div className="doc-preview-grand-row">
@@ -219,10 +224,10 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           </div>
           {paymentSchedule && paymentSchedule.length > 0 && (
             <div className="doc-preview-schedule">
-              <div className="doc-preview-notes-label">{tr('Payment schedule')}</div>
+              <div className="doc-preview-notes-label">{docTr('Payment schedule')}</div>
               {paymentSchedule.map((row, i) => (
                 <div className="doc-preview-schedule-row" key={i}>
-                  <span>{row.label}</span><span>{tr('Due')} {row.dueDate}</span><span>{row.amount}</span>
+                  <span>{row.label}</span><span>{docTr('Due')} {row.dueDate}</span><span>{row.amount}</span>
                 </div>
               ))}
             </div>
@@ -245,7 +250,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
               <div className="doc-preview-share-row">
                 <label htmlFor="dp-expiry">{tr('Share link expires')}</label>
                 <select id="dp-expiry" className="input" value={expiryDays} onChange={(e) => { setExpiryDays(e.target.value); setShareUrl(null); setShareExpiresAt(null); }}>
-                  {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{tr(o.label)}</option>)}
                 </select>
                 <button type="button" className="btn btn-secondary" disabled={generating} onClick={generateLink}>
                   {generating ? tr('Generating…') : shareUrl ? tr('Regenerate link') : tr('Generate share link')}
@@ -266,8 +271,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
                 // tell the customer rather than field a "the link is broken"
                 // call a month later.
                 <div className="doc-preview-share-expiry">
-                  {tr('Anyone with this link can view the document until')}{' '}
-                  {new Date(shareExpiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.
+                  {tr('Anyone with this link can view the document until {date}.', { date: new Date(shareExpiresAt).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' }) })}
                 </div>
               )}
               {waResult && <div className={waResult.ok ? 'doc-preview-wa-ok' : 'error-banner'}>{waResult.message}</div>}

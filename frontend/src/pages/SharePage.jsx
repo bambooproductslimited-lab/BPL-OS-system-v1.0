@@ -5,7 +5,7 @@ import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { adjustmentRows, paymentsForDocument } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
-import { tr } from '../lib/i18n.jsx';
+import { docTr, DOCUMENT_INTL_LOCALE } from '../lib/i18n.jsx';
 import '../components/DocPreview.css';
 import './SharePage.css';
 
@@ -17,15 +17,21 @@ import './SharePage.css';
 // included) can open it. Reuses DocPreview.css's classes so a shared
 // document looks identical to what staff see in the app's own preview.
 
-const DOC_LABEL = { quotation: 'Quotation', estimate: 'Estimate', invoice: 'Invoice' };
+// docTr() is safe at module level, unlike tr(): the document language is
+// a constant, so there is no later language for this to fall behind.
+const DOC_LABEL = { quotation: docTr('Quotation'), estimate: docTr('Estimate'), invoice: docTr('Invoice') };
 
 function fmtDate(value) {
   if (!value) return '—';
   const d = new Date(value.length > 10 ? value : value + 'T00:00');
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(DOCUMENT_INTL_LOCALE, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// The page behind a share link is what the customer opens, so all of it —
+// the document and the Print button alike — is in the company's document
+// language. A customer never chose a language; the clerk's choice of one
+// for their own screen should not decide what the customer reads.
 export default function SharePage() {
   const { token } = useParams();
   const [doc, setDoc] = useState(null);
@@ -39,7 +45,7 @@ export default function SharePage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (loading) return <div className="share-page-status">{tr('Loading…')}</div>;
+  if (loading) return <div className="share-page-status">{docTr('Loading…')}</div>;
   if (error) return <div className="share-page-status share-page-error">{error}</div>;
   if (!doc) return null;
 
@@ -47,11 +53,11 @@ export default function SharePage() {
   const displayItems = groupPackageItems(doc.items, cur);
   const schedule = formatPaymentSchedule(doc.paymentSchedule, cur);
   const isInvoice = doc.documentType === 'invoice';
-  const dateLabel = isInvoice ? 'Issue date' : 'Issue date';
+  const dateLabel = docTr('Issue date');
   const dateValue = fmtDate(doc.dateValue);
   const subHeadingText = isInvoice
-    ? 'Due ' + fmtDate(doc.dueDate)
-    : 'Valid until ' + fmtDate(doc.validUntil);
+    ? docTr('Due {date}', { date: fmtDate(doc.dueDate) })
+    : docTr('Valid until {date}', { date: fmtDate(doc.validUntil) });
 
   return (
     <div className="share-page">
@@ -60,12 +66,12 @@ export default function SharePage() {
           <div className="doc-preview-brand">
             <img src="/logo.png" alt="" className="doc-preview-logo" />
             <div>
-              <div className="doc-preview-brand-name">{tr('Bamboo Products Limited')}</div>
+              <div className="doc-preview-brand-name">Bamboo Products Limited</div>
               <div className="doc-preview-brand-address">
-                {tr('Poki House')}<br />
-                {tr('35 J K Siaw St, Community 9, Tema, Ghana')}<br />
-                {tr('GT-191-1859 (GhanaPostGPS)')}<br />
-                {tr('WhatsApp: 0591933925')}
+                Poki House<br />
+                35 J K Siaw St, Community 9, Tema, Ghana<br />
+                GT-191-1859 (GhanaPostGPS)<br />
+                WhatsApp: 0591933925
               </div>
             </div>
           </div>
@@ -76,27 +82,27 @@ export default function SharePage() {
           </div>
         </div>
         <div className="doc-preview-rule" />
-        <h1 className="doc-preview-heading">{doc.title || (DOC_LABEL[doc.documentType] + tr(' for ') + doc.customer.name)}</h1>
+        <h1 className="doc-preview-heading">{doc.title || (docTr('{document} for {name}', { document: DOC_LABEL[doc.documentType], name: doc.customer.name }))}</h1>
         <div className="doc-preview-subheading">{subHeadingText}</div>
         <div className="doc-preview-blocks">
           <div>
-            <div className="doc-preview-block-title">{tr('Customer')}</div>
+            <div className="doc-preview-block-title">{docTr('Customer')}</div>
             <div className="doc-preview-block-line">{doc.customer.name}</div>
             <div className="doc-preview-block-line">{doc.customer.email}</div>
           </div>
           <div>
-            <div className="doc-preview-block-title">{DOC_LABEL[doc.documentType]} {tr('Details')}</div>
-            <div className="doc-preview-block-line">{tr('Issued')} {dateValue}</div>
+            <div className="doc-preview-block-title">{DOC_LABEL[doc.documentType]} {docTr('Details')}</div>
+            <div className="doc-preview-block-line">{docTr('Issued')} {dateValue}</div>
             <div className="doc-preview-block-line">{money(doc.grandTotal, cur)}</div>
           </div>
           <div>
-            <div className="doc-preview-block-title">{isInvoice ? tr('Payment') : tr('Validity')}</div>
+            <div className="doc-preview-block-title">{isInvoice ? docTr('Payment') : docTr('Validity')}</div>
             <div className="doc-preview-block-line">{subHeadingText}</div>
             <div className="doc-preview-block-line">{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
           </div>
         </div>
         <table className="doc-preview-table">
-          <thead><tr><th>{tr('Items')}</th><th className="doc-preview-num">{tr('Quantity')}</th><th className="doc-preview-num">{tr('Price')}</th><th className="doc-preview-num">{tr('Amount')}</th></tr></thead>
+          <thead><tr><th>{docTr('Items')}</th><th className="doc-preview-num">{docTr('Quantity')}</th><th className="doc-preview-num">{docTr('Price')}</th><th className="doc-preview-num">{docTr('Amount')}</th></tr></thead>
           <tbody>
             {displayItems.map((it, i) => (
               <tr key={i}>
@@ -114,7 +120,7 @@ export default function SharePage() {
           </tbody>
         </table>
         <div className="doc-preview-row">
-          <div>{tr('Subtotal')}</div><div>{money(doc.subtotal, cur)}</div>
+          <div>{docTr('Subtotal')}</div><div>{money(doc.subtotal, cur)}</div>
         </div>
         {/* The customer opening this link gets the same breakdown as the
             printed copy — what was taken off, and what was added. */}
@@ -131,46 +137,46 @@ export default function SharePage() {
         {isInvoice && paymentsForDocument(doc.payments, cur).map((pay, i) => (
           <div className="doc-preview-row" key={i}>
             <div>
-              {tr('Payment received')} {pay.date}
+              {docTr('Payment received')} {pay.date}
               {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
-              {pay.reference && <span className="doc-preview-pay-meta"> {tr('· ref')} {pay.reference}</span>}
+              {pay.reference && <span className="doc-preview-pay-meta"> {docTr('· ref')} {pay.reference}</span>}
             </div>
             <div>− {pay.amount}</div>
           </div>
         ))}
         {isInvoice && doc.amountPaid > 0 && doc.balanceDue > 0 && !(doc.payments || []).length && (
           <div className="doc-preview-row">
-            <div>{tr('Amount paid')}</div><div>{money(doc.amountPaid, cur)}</div>
+            <div>{docTr('Amount paid')}</div><div>{money(doc.amountPaid, cur)}</div>
           </div>
         )}
         <div className="doc-preview-grand-row">
-          <div>{isInvoice ? tr('Total Due') : tr('Grand Total')}</div>
+          <div>{isInvoice ? docTr('Total Due') : docTr('Grand Total')}</div>
           <div>{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
         </div>
         {schedule.length > 0 && (
           <div className="doc-preview-schedule">
-            <div className="doc-preview-notes-label">{tr('Payment schedule')}</div>
+            <div className="doc-preview-notes-label">{docTr('Payment schedule')}</div>
             {schedule.map((row, i) => (
               <div className="doc-preview-schedule-row" key={i}>
-                <span>{row.label}</span><span>{tr('Due')} {row.dueDate}</span><span>{row.amount}</span>
+                <span>{row.label}</span><span>{docTr('Due')} {row.dueDate}</span><span>{row.amount}</span>
               </div>
             ))}
           </div>
         )}
         {doc.notes && (
           <div className="doc-preview-notes">
-            <div className="doc-preview-notes-label">{isInvoice ? tr('Payment instructions') : tr('Notes')}</div>
+            <div className="doc-preview-notes-label">{isInvoice ? docTr('Payment instructions') : docTr('Notes')}</div>
             <p className="doc-preview-notes-body">{doc.notes}</p>
           </div>
         )}
         {doc.terms && (
           <div className="doc-preview-notes">
-            <div className="doc-preview-notes-label">{tr('Terms & conditions')}</div>
+            <div className="doc-preview-notes-label">{docTr('Terms & conditions')}</div>
             <p className="doc-preview-terms-body">{doc.terms}</p>
           </div>
         )}
         <div className="doc-preview-actions no-print">
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{docTr('Print')}</button>
         </div>
       </div>
     </div>

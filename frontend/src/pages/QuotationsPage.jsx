@@ -12,8 +12,10 @@ import { itemsForDialog, totalsForDialog, adjustmentRows } from '../lib/docItems
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
+import { formatDocDate } from '../lib/dates';
 import './QuotationsPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Ported from Bamboo OS.dc.html's quotations screen (screens.quotations
 // block, dialog.quotation / dialog.quotationPreview, and the quotations
@@ -49,7 +51,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function docTagClass(bucket) {
@@ -65,8 +67,7 @@ function quoteTagClass(status) { return docTagClass(quoteBucket(status)); }
 
 const QUOTATION_STATUS_OPTIONS = ['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired', 'cancelled'];
 function quoteStatusLabel(s) {
-  const label = String(s || '');
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return codeLabel(s);
 }
 
 const EMPTY_FORM = { customerId: '', title: '', validUntil: '', notes: '', currency: '' };
@@ -153,7 +154,7 @@ export default function QuotationsPage() {
         customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes,
         currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       });
-      setToast('Quotation created.');
+      setToast(tr('Quotation created.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -168,7 +169,7 @@ export default function QuotationsPage() {
     setError(null);
     try {
       await api.post('/quotations/' + q.id + '/status', { status });
-      setToast(q.quoteNo + ' set to ' + status + '.');
+      setToast(tr('{quoteNo} set to {status}.', { quoteNo: q.quoteNo, status: codeLabel(status) }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -182,7 +183,7 @@ export default function QuotationsPage() {
     setError(null);
     try {
       const inv = await api.post('/invoices/from-quotation', { quotationId: q.id });
-      setToast(inv.invoiceNo + ' issued from quotation.');
+      setToast(tr('{invoiceNo} issued from quotation.', { invoiceNo: inv.invoiceNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -206,11 +207,11 @@ export default function QuotationsPage() {
   // the record panel so the two cannot drift apart.
   function rowActions(q) {
     return [
-      { label: 'Preview', onClick: () => openPreview(q) },
-      { label: 'Send', onClick: () => setStatus(q, 'sent'), hidden: !(q.status === 'draft' && canManage) },
-      { label: 'Accept', onClick: () => setStatus(q, 'accepted'), hidden: !((q.status === 'sent' || q.status === 'viewed') && canManage) },
-      { label: 'Reject', onClick: () => setStatus(q, 'rejected'), danger: true, hidden: !((q.status === 'sent' || q.status === 'draft' || q.status === 'viewed') && canManage) },
-      { label: 'Convert to invoice', onClick: () => convertToInvoice(q), hidden: !(q.status === 'accepted' && canInvoice) },
+      { label: tr('Preview'), onClick: () => openPreview(q) },
+      { label: tr('Send'), onClick: () => setStatus(q, 'sent'), hidden: !(q.status === 'draft' && canManage) },
+      { label: tr('Accept'), onClick: () => setStatus(q, 'accepted'), hidden: !((q.status === 'sent' || q.status === 'viewed') && canManage) },
+      { label: tr('Reject'), onClick: () => setStatus(q, 'rejected'), danger: true, hidden: !((q.status === 'sent' || q.status === 'draft' || q.status === 'viewed') && canManage) },
+      { label: tr('Convert to invoice'), onClick: () => convertToInvoice(q), hidden: !(q.status === 'accepted' && canInvoice) },
     ];
   }
 
@@ -268,7 +269,7 @@ export default function QuotationsPage() {
       {!!quotations.length && !visibleQuotations.length && (
         <div className="quotations-empty-state">
           <span className="quotations-empty-icon"><DocIcon /></span>
-          <p className="quotations-empty-title">{search ? tr('No quotations match "') + search + '"' : tr('No quotations match this filter')}</p>
+          <p className="quotations-empty-title">{search ? tr('No quotations match "{search}"', { search }) : tr('No quotations match this filter')}</p>
         </div>
       )}
 
@@ -298,17 +299,17 @@ export default function QuotationsPage() {
               </div>
             </div>
           }
-          message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel="Message to customer"
+          message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel={tr('Message to customer')}
           items={items} onItemsChange={setItems} catalogOptions={catalog}
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
-            { label: 'Customer', value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
-            { label: 'Valid until', value: fmtDate(form.validUntil) }
+            { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
+            { label: tr('Valid until'), value: fmtDate(form.validUntil) }
           ]}
-          submitLabel="Create quotation" saving={saving} error={dialogError}
+          submitLabel={tr('Create quotation')} saving={saving} error={dialogError}
           onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
         />
       )}
@@ -323,12 +324,12 @@ export default function QuotationsPage() {
           items={itemsForDialog(detail.items, detail.currency)}
           totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: 'Valid until', value: fmtDate(detail.validUntil) },
-            { label: 'Created', value: fmtDate(detail.createdAt) },
-            { label: 'Currency', value: detail.currency },
-            { label: 'Title', value: detail.title, wide: true },
-            { label: 'Notes', value: detail.notes, wide: true },
-            { label: 'Terms', value: detail.terms, wide: true },
+            { label: tr('Valid until'), value: fmtDate(detail.validUntil) },
+            { label: tr('Created'), value: fmtDate(detail.createdAt) },
+            { label: tr('Currency'), value: detail.currency },
+            { label: tr('Title'), value: detail.title, wide: true },
+            { label: tr('Notes'), value: detail.notes, wide: true },
+            { label: tr('Terms'), value: detail.terms, wide: true },
           ]}
         />
       )}
@@ -336,25 +337,25 @@ export default function QuotationsPage() {
       {previewQ && (
         <DocPreview
           documentType="quotation" documentId={previewQ.id}
-          docLabel={'Quotation #' + previewQ.quoteNo}
-          dateLabel="Issue date"
-          dateValue={fmtDate(previewQ.createdAt)}
-          heading={previewQ.title || ('Quotation for ' + previewQ.customerName)}
-          subHeading={'Valid until ' + fmtDate(previewQ.validUntil)}
+          docLabel={docTr('Quotation #{quoteNo}', { quoteNo: previewQ.quoteNo })}
+          dateLabel={docTr('Issue date')}
+          dateValue={formatDocDate(previewQ.createdAt)}
+          heading={previewQ.title || (docTr('Quotation for {customerName}', { customerName: previewQ.customerName }))}
+          subHeading={docTr('Valid until {date}', { date: formatDocDate(previewQ.validUntil) })}
           blocks={[
-            { title: 'Customer', lines: [previewQ.customerName, previewQ.customerEmail] },
-            { title: 'Quotation Details', lines: ['Created ' + fmtDate(previewQ.createdAt), money(previewQ.grandTotal, previewQ.currency)] },
-            { title: 'Validity', lines: ['Valid until ' + fmtDate(previewQ.validUntil), money(previewQ.grandTotal, previewQ.currency)] }
+            { title: docTr('Customer'), lines: [previewQ.customerName, previewQ.customerEmail] },
+            { title: docTr('Quotation Details'), lines: [docTr('Created {date}', { date: formatDocDate(previewQ.createdAt) }), money(previewQ.grandTotal, previewQ.currency)] },
+            { title: docTr('Validity'), lines: [docTr('Valid until {date}', { date: formatDocDate(previewQ.validUntil) }), money(previewQ.grandTotal, previewQ.currency)] }
           ]}
           items={groupPackageItems(previewQ.items, previewQ.currency)}
           subtotal={money(previewQ.subtotal, previewQ.currency)}
           discountRows={adjustmentRows(previewQ, previewQ.currency).discountRows}
           taxRows={adjustmentRows(previewQ, previewQ.currency).taxRows}
-          totalLabel="Grand Total"
+          totalLabel={docTr('Grand Total')}
           total={money(previewQ.grandTotal, previewQ.currency)}
-          notesLabel="Notes"
+          notesLabel={docTr('Notes')}
           notesValue={previewQ.notes}
-          termsLabel="Terms & conditions"
+          termsLabel={docTr('Terms & conditions')}
           termsValue={previewQ.terms}
           paymentSchedule={formatPaymentSchedule(previewQ.paymentSchedule, previewQ.currency)}
           onClose={() => setPreviewQ(null)}

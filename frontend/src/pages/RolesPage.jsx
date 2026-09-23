@@ -142,7 +142,7 @@ export default function RolesPage() {
   }
 
   async function deleteRole(role) {
-    if (!window.confirm('Delete the "' + role.name + '" role? This can\'t be undone.')) return;
+    if (!window.confirm(tr('Delete the "{name}" role? This can\'t be undone.', { name: role.name }))) return;
     setDeletingRoleId(role.id);
     setError(null);
     try {
@@ -157,7 +157,7 @@ export default function RolesPage() {
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  const visibleCatalogue = catalogue.filter((p) => matchesQuery(search, p.group, p.label, p.key));
+  const visibleCatalogue = catalogue.filter((p) => matchesQuery(search, p.group, p.label, tr(p.group), tr(p.label), p.key));
   const groups = groupCatalogue(visibleCatalogue);
 
   return (
@@ -185,7 +185,7 @@ export default function RolesPage() {
                       {isLockedCol && <span className="roles-lock-icon" title={tr('Always full access')}><LockIcon /></span>}
                       {r.name}
                     </div>
-                    <div className="roles-usercount">{r.userCount} {tr('users')}</div>
+                    <div className="roles-usercount">{tr('{userCount} users', { userCount: r.userCount })}</div>
                     {canManage && !r.isSystem && (
                       <button
                         type="button" className="roles-delete-btn" disabled={deletingRoleId === r.id}
@@ -208,7 +208,7 @@ export default function RolesPage() {
                     <th colSpan={1 + roles.length} className="roles-group-cell">
                       <button type="button" className="roles-group-toggle" onClick={() => toggleGroup(group)}>
                         <span className={'roles-group-chevron' + (isCollapsed ? '' : ' roles-group-chevron-open')}><ChevronIcon /></span>
-                        {group}
+                        {tr(group)}
                         <span className="roles-group-count">{permissions.length}</span>
                       </button>
                     </th>
@@ -216,7 +216,7 @@ export default function RolesPage() {
                   {!isCollapsed && permissions.map((p) => (
                     <tr key={p.key} className="roles-perm-row">
                       <td className="roles-perm-cell">
-                        <div className="roles-perm-label">{p.label}</div>
+                        <div className="roles-perm-label">{tr(p.label)}</div>
                         <div className="roles-perm-key">{p.key}</div>
                       </td>
                       {roles.map((r) => {
@@ -248,7 +248,7 @@ export default function RolesPage() {
       {!!catalogue.length && !visibleCatalogue.length && (
         <div className="roles-empty-state">
           <span className="roles-empty-icon"><KeyIcon /></span>
-          <p className="roles-empty-title">{tr('No permissions match "')}{search}"</p>
+          <p className="roles-empty-title">{tr('No permissions match "{search}"', { search })}</p>
         </div>
       )}
 

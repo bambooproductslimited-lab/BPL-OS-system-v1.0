@@ -7,7 +7,8 @@ import FaceCapture from '../components/FaceCapture';
 import './EmployeesPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's employee directory screen (screens.people
 // block) — search/department filter, show-terminated toggle, the
 // add/edit employee dialog, and the terminate + purge-terminated
@@ -55,10 +56,10 @@ function effectiveShiftHours(form, shifts) {
 
 
 const EMPLOYMENT_TYPES = [
-  { value: 'permanent', label: 'Permanent' },
-  { value: 'contract', label: 'Contract' },
-  { value: 'casual', label: 'Casual' },
-  { value: 'day_rate', label: 'By day' }
+  { value: 'permanent', label: msg('Permanent') },
+  { value: 'contract', label: msg('Contract') },
+  { value: 'casual', label: msg('Casual') },
+  { value: 'day_rate', label: msg('By day') }
 ];
 
 const EMPTY_EMPLOYEE_FORM = {
@@ -67,6 +68,15 @@ const EMPTY_EMPLOYEE_FORM = {
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '',
   shiftStart: '', shiftEnd: ''
 };
+
+// "Imported 12 employee(s) (3 skipped, 1 failed)." — the count and each
+// extra as whole phrases, so every language can word them its own way.
+function importSummary(created, extras) {
+  const details = extras.filter(Boolean);
+  return details.length
+    ? tr('Imported {n} employee(s) ({details}).', { n: created, details: details.join(', ') })
+    : tr('Imported {n} employee(s).', { n: created });
+}
 
 export default function EmployeesPage() {
   const { session, can } = useAuth();
@@ -233,7 +243,7 @@ export default function EmployeesPage() {
           body.hourlyRate = form.hourlyRate === '' ? null : form.hourlyRate;
         }
         const updated = await api.patch('/employees/' + editId, body);
-        setToast('Updated ' + updated.firstName + ' ' + updated.lastName + '.');
+        setToast(tr('Updated {firstName} {lastName}.', { firstName: updated.firstName, lastName: updated.lastName }));
       } else {
         const created = await api.post('/employees', {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
@@ -242,7 +252,7 @@ export default function EmployeesPage() {
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd,
           createAccount: !!form.roleId, roleId: form.roleId || null
         });
-        setToast(created.code + ' — ' + created.firstName + ' ' + created.lastName + ' added.');
+        setToast(tr('{code} — {firstName} {lastName} added.', { code: created.code, firstName: created.firstName, lastName: created.lastName }));
       }
       setDialog(null);
       await load();
@@ -266,7 +276,7 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       await api.post('/employees/' + terminateTarget.id + '/terminate', { reason: termReason });
-      setToast(terminateTarget.firstName + ' ' + terminateTarget.lastName + ' has been terminated.');
+      setToast(tr('{firstName} {lastName} has been terminated.', { firstName: terminateTarget.firstName, lastName: terminateTarget.lastName }));
       setDialog(null);
       await load();
     } catch (err) {
@@ -289,7 +299,7 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       await api.post('/employees/' + kioskPinTarget.id + '/kiosk-pin', { pin: kioskPinValue });
-      setToast('Kiosk PIN set for ' + kioskPinTarget.firstName + ' ' + kioskPinTarget.lastName + '.');
+      setToast(tr('Kiosk PIN set for {firstName} {lastName}.', { firstName: kioskPinTarget.firstName, lastName: kioskPinTarget.lastName }));
       setDialog(null);
     } catch (err) {
       setDialogError(err.message);
@@ -303,7 +313,7 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       await api.del('/employees/' + kioskPinTarget.id + '/kiosk-pin');
-      setToast('Kiosk PIN cleared for ' + kioskPinTarget.firstName + ' ' + kioskPinTarget.lastName + '.');
+      setToast(tr('Kiosk PIN cleared for {firstName} {lastName}.', { firstName: kioskPinTarget.firstName, lastName: kioskPinTarget.lastName }));
       setDialog(null);
     } catch (err) {
       setDialogError(err.message);
@@ -334,7 +344,7 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face', { descriptors });
-      setToast('Face enrolled for ' + kioskFaceTarget.firstName + ' ' + kioskFaceTarget.lastName + '.');
+      setToast(tr('Face enrolled for {firstName} {lastName}.', { firstName: kioskFaceTarget.firstName, lastName: kioskFaceTarget.lastName }));
       setKioskFaceCapturing(false);
       setKioskFaceStatus(await api.get('/employees/' + kioskFaceTarget.id + '/kiosk-face'));
     } catch (err) {
@@ -350,7 +360,7 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       await api.del('/employees/' + kioskFaceTarget.id + '/kiosk-face');
-      setToast('Kiosk face cleared for ' + kioskFaceTarget.firstName + ' ' + kioskFaceTarget.lastName + '.');
+      setToast(tr('Kiosk face cleared for {firstName} {lastName}.', { firstName: kioskFaceTarget.firstName, lastName: kioskFaceTarget.lastName }));
       setKioskFaceStatus({ enrolled: false, enrolledAt: null });
     } catch (err) {
       setDialogError(err.message);
@@ -393,7 +403,7 @@ export default function EmployeesPage() {
         setFaceLinkUrl(url);
       }
       await api.post('/employees/' + kioskFaceTarget.id + '/kiosk-face-link/whatsapp', { url });
-      setFaceLinkWaResult({ ok: true, message: 'Sent via WhatsApp.' });
+      setFaceLinkWaResult({ ok: true, message: tr('Sent via WhatsApp.') });
     } catch (err) {
       setFaceLinkWaResult({ ok: false, message: err.message });
     } finally {
@@ -406,7 +416,7 @@ export default function EmployeesPage() {
     setDialogError(null);
     try {
       const result = await api.post('/employees/purge-terminated');
-      setToast('Permanently removed ' + result.removed + ' employee record(s).');
+      setToast(tr('Permanently removed {removed} employee record(s).', { removed: result.removed }));
       setDialog(null);
       await load();
     } catch (err) {
@@ -480,7 +490,9 @@ export default function EmployeesPage() {
     try {
       const result = await api.post('/timestation/commit', { rows: syncEffectiveRows() });
       setSyncResult(result);
-      setToast('Imported ' + result.created + ' employee(s)' + (result.linked ? ', linked ' + result.linked : '') + ' from TimeStation.');
+      setToast(result.linked
+        ? tr('Imported {n} employee(s) from TimeStation and linked {linked} already-imported record(s).', { n: result.created, linked: result.linked })
+        : tr('Imported {n} employee(s) from TimeStation.', { n: result.created }));
       await load();
     } catch (err) {
       setSyncError(err.message);
@@ -519,7 +531,10 @@ export default function EmployeesPage() {
     try {
       const result = await api.post('/employees/import/commit', { rows: importPreview.rows });
       setImportResult(result);
-      setToast('Imported ' + result.created + ' employee(s)' + (result.skipped ? ', skipped ' + result.skipped : '') + (result.failed.length ? ', ' + result.failed.length + ' failed' : '') + ' from spreadsheet.');
+      setToast(importSummary(result.created, [
+        result.skipped && tr('{n} skipped', { n: result.skipped }),
+        result.failed.length && tr('{n} failed', { n: result.failed.length })
+      ]));
       await load();
     } catch (err) {
       setImportError(err.message);
@@ -531,8 +546,9 @@ export default function EmployeesPage() {
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
-  const footer = employees.length + ' record(s) visible to your role' +
-    (can('employee.read.all') ? ' — company-wide access.' : ' — limited to your group and reporting line.');
+  const footer = can('employee.read.all')
+    ? tr('{n} record(s) visible to your role — company-wide access.', { n: employees.length })
+    : tr('{n} record(s) visible to your role — limited to your group and reporting line.', { n: employees.length });
 
   return (
     <div>
@@ -614,7 +630,7 @@ export default function EmployeesPage() {
                 <td>{deptName(p.departmentId)}</td>
                 <td>{p.managerId ? empName(p.managerId) : '—'}</td>
                 <td className="employees-shift">{p.shift}</td>
-                <td><span className={'tag ' + tagClass(p.status)}>{p.status}</span></td>
+                <td><span className={'tag ' + tagClass(p.status)}>{codeLabel(p.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={menuItems} />
                 </td>
@@ -699,7 +715,7 @@ export default function EmployeesPage() {
             )}
             <div className="field"><label htmlFor="emp-type">{tr('Employment type')}</label>
               <select id="emp-type" className="input" value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value })}>
-                {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{tr(t.label)}</option>)}
               </select>
             </div>
             <div className="field"><label htmlFor="emp-shift-start">{tr('Shift start')}</label>
@@ -754,7 +770,7 @@ export default function EmployeesPage() {
                     value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
                   />
                   <p style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '4px 0 0' }}>
-                    {tr('Auto-filled from Daily rate ÷ shift hours (')}{effectiveShiftHours(form, shifts)}{tr('h/day) — edit it directly to override.')}
+                    {tr('Auto-filled from Daily rate ÷ shift hours ({hours}h/day) — edit it directly to override.', { hours: effectiveShiftHours(form, shifts) })}
                   </p>
                 </div>
               </>
@@ -797,7 +813,7 @@ export default function EmployeesPage() {
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Remove all deleted employees')}</h2>
             <p className="dialog-body">
-              {tr('This permanently removes all')} {terminatedCount} {tr('terminated employee record(s) and their logins. Unlike deleting a single employee, this cannot be undone — their attendance, leave and task history will remain but will no longer show a name.')}
+              {tr('This permanently removes all {terminatedCount} terminated employee record(s) and their logins. Unlike deleting a single employee, this cannot be undone — their attendance, leave and task history will remain but will no longer show a name.', { terminatedCount })}
             </p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
@@ -815,7 +831,7 @@ export default function EmployeesPage() {
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitKioskPin}>
             <h2>{tr('Kiosk PIN —')} {kioskPinTarget.firstName} {kioskPinTarget.lastName}</h2>
             <p className="dialog-body">
-              {tr('This 4-digit PIN is what')} {kioskPinTarget.firstName} {tr('taps in at the clock-in/out kiosk — no name or employee code is entered there, the PIN alone identifies them, so it must be unique across everyone.')}
+              {tr('This 4-digit PIN is what {firstName} taps in at the clock-in/out kiosk — no name or employee code is entered there, the PIN alone identifies them, so it must be unique across everyone.', { firstName: kioskPinTarget.firstName })}
             </p>
             <div className="field">
               <label htmlFor="kiosk-pin-input">{tr('New PIN (4 digits)')}</label>
@@ -843,7 +859,7 @@ export default function EmployeesPage() {
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Kiosk face match —')} {kioskFaceTarget.firstName} {kioskFaceTarget.lastName}</h2>
             <p className="dialog-body">
-              {tr('Once enrolled,')} {kioskFaceTarget.firstName} {tr('has to look at the kiosk\'s camera to confirm it\'s them every time they tap their PIN — the PIN alone stops being enough. Nothing is stored except the measurements the camera captures right now; no photo is kept.')}
+              {tr("Once enrolled, {firstName} has to look at the kiosk's camera to confirm it's them every time they tap their PIN — the PIN alone stops being enough. Nothing is stored except the measurements the camera captures right now; no photo is kept.", { firstName: kioskFaceTarget.firstName })}
             </p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             {!kioskFaceCapturing && (
@@ -852,7 +868,9 @@ export default function EmployeesPage() {
                   {kioskFaceStatus === null && tr('Loading…')}
                   {kioskFaceStatus && !kioskFaceStatus.enrolled && tr('Not enrolled — the PIN alone still clocks them in and out.')}
                   {kioskFaceStatus && kioskFaceStatus.enrolled && (
-                    tr('Enrolled') + (kioskFaceStatus.enrolledAt ? tr(' on ') + new Date(kioskFaceStatus.enrolledAt).toLocaleDateString() : '') + '.'
+                    kioskFaceStatus.enrolledAt
+                      ? tr('Enrolled on {date}.', { date: new Date(kioskFaceStatus.enrolledAt).toLocaleDateString(activeIntlLocale()) })
+                      : tr('Enrolled.')
                   )}
                 </p>
                 <div className="dialog-actions">
@@ -868,7 +886,7 @@ export default function EmployeesPage() {
                 </div>
 
                 <div className="employees-face-link">
-                  <div className="employees-face-link-head">{tr('Or, send')} {kioskFaceTarget.firstName} {tr('a link to do this themselves')}</div>
+                  <div className="employees-face-link-head">{tr('Or, send {firstName} a link to do this themselves', { firstName: kioskFaceTarget.firstName })}</div>
                   <p className="dialog-body">
                     {tr('Opens on their own phone and walks them through the same camera steps — no need to hand them this device. The link only works once and expires on its own.')}
                   </p>
@@ -902,7 +920,7 @@ export default function EmployeesPage() {
                 <FaceCapture
                   mode="enroll"
                   title={tr('Look at the camera')}
-                  subtitle={tr('Have ') + kioskFaceTarget.firstName + tr(' look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down), about 10 seconds, to build a reference that holds up at whatever angle they happen to be at the kiosk.')}
+                  subtitle={tr('Have {firstName} look straight at the camera, then click Capture — it walks through a few head angles (straight, left, right, up, down), about 10 seconds, to build a reference that holds up at whatever angle they happen to be at the kiosk.', { firstName: kioskFaceTarget.firstName })}
                   onCapture={submitKioskFace}
                   onCancel={() => setKioskFaceCapturing(false)}
                 />
@@ -933,14 +951,13 @@ export default function EmployeesPage() {
               return (
                 <>
                   <p className="itdevices-import-summary">
-                    {effRows.length} {tr('employee(s) found on TimeStation —')}
-                    {' '}{toCreate} {tr('will be created,')}
-                    {toLink > 0 && <>{' '}{toLink} {tr('already imported (will just link for the attendance sync),')}</>}
-                    {' '}{toSkip} {tr('will be skipped.')}
+                    {toLink > 0
+                      ? tr('{found} employee(s) found on TimeStation — {toCreate} will be created, {toLink} already imported (will just link for the attendance sync), {toSkip} will be skipped.', { found: effRows.length, toCreate, toLink, toSkip })
+                      : tr('{found} employee(s) found on TimeStation — {toCreate} will be created, {toSkip} will be skipped.', { found: effRows.length, toCreate, toSkip })}
                     {missingCount > 0 && (
                       <>
                         {' '}<button type="button" className="btn btn-secondary" style={{ fontSize: 12, marginLeft: 8 }} onClick={autoFillMissingEmails}>
-                          {tr('Fill in all')} {missingCount} {tr('missing email(s) with placeholders')}
+                          {tr('Fill in all {missingCount} missing email(s) with placeholders', { missingCount })}
                         </button>
                       </>
                     )}
@@ -966,7 +983,7 @@ export default function EmployeesPage() {
                                 />
                               ) : (r.email || '—')}
                             </td>
-                            <td>{r.hourlyRate ? r.hourlyRate + '/hr' : '—'}</td>
+                            <td>{r.hourlyRate ? tr('{rate}/hr', { rate: r.hourlyRate }) : '—'}</td>
                             <td className="itdevices-import-warnings">
                               {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
                             </td>
@@ -979,8 +996,8 @@ export default function EmployeesPage() {
                     <button type="button" className="btn btn-secondary" onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={syncCommitting || (!toCreate && !toLink)} onClick={commitSync}>
                       {syncCommitting ? tr('Working…') : toCreate
-                        ? tr('Import ') + toCreate + tr(' employee(s)') + (toLink ? tr(' + link ') + toLink : '')
-                        : toLink ? tr('Link ') + toLink + tr(' employee(s)') : tr('Nothing to do')}
+                        ? (toLink ? tr('Import {toCreate} employee(s) + link {toLink}', { toCreate, toLink }) : tr('Import {toCreate} employee(s)', { toCreate }))
+                        : toLink ? tr('Link {toLink} employee(s)', { toLink }) : tr('Nothing to do')}
                     </button>
                   </div>
                 </>
@@ -990,9 +1007,11 @@ export default function EmployeesPage() {
             {syncResult && (
               <>
                 <p className="itdevices-import-summary">
-                  {tr('Imported')} {syncResult.created} {tr('employee(s)')}{syncResult.skipped ? tr(', skipped ') + syncResult.skipped : ''}
-                  {syncResult.linked ? tr(', linked ') + syncResult.linked + tr(' already-imported record(s) to TimeStation') : ''}
-                  {syncResult.failed.length ? ', ' + syncResult.failed.length + tr(' failed') : ''}.
+                  {importSummary(syncResult.created, [
+                    syncResult.skipped && tr('{n} skipped', { n: syncResult.skipped }),
+                    syncResult.linked && tr('{n} already-imported record(s) linked to TimeStation', { n: syncResult.linked }),
+                    syncResult.failed.length && tr('{n} failed', { n: syncResult.failed.length })
+                  ])}
                 </p>
                 {syncResult.failed.length > 0 && (
                   <ul>
@@ -1001,7 +1020,7 @@ export default function EmployeesPage() {
                 )}
                 {syncResult.pinIssues && syncResult.pinIssues.length > 0 && (
                   <>
-                    <p className="itdevices-import-summary">{tr('Kiosk PIN not set for')} {syncResult.pinIssues.length} {tr('employee(s) — set these manually via the Kiosk PIN button:')}</p>
+                    <p className="itdevices-import-summary">{tr('Kiosk PIN not set for {n} employee(s) — set these manually via the Kiosk PIN button:', { n: syncResult.pinIssues.length })}</p>
                     <ul>
                       {syncResult.pinIssues.map((f, i) => <li key={i}>{f.name || tr('Unnamed record')} — {f.reason}</li>)}
                     </ul>
@@ -1046,7 +1065,7 @@ export default function EmployeesPage() {
               return (
                 <>
                   <p className="itdevices-import-summary">
-                    {importPreview.rows.length} {tr('row(s) found —')} {toCreate} {tr('will be created,')} {toSkip} {tr('will be skipped.')}
+                    {tr('{n} row(s) found — {toCreate} will be created, {toSkip} will be skipped.', { n: importPreview.rows.length, toCreate, toSkip })}
                   </p>
                   <div className="itdevices-import-scroll">
                     <table className="table itdevices-import-table">
@@ -1073,7 +1092,7 @@ export default function EmployeesPage() {
                     <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                     <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={importCommitting || !toCreate} onClick={commitImport}>
-                      {importCommitting ? tr('Importing…') : toCreate ? tr('Import ') + toCreate + tr(' employee(s)') : tr('Nothing to import')}
+                      {importCommitting ? tr('Importing…') : toCreate ? tr('Import {toCreate} employee(s)', { toCreate }) : tr('Nothing to import')}
                     </button>
                   </div>
                 </>
@@ -1083,8 +1102,10 @@ export default function EmployeesPage() {
             {importResult && (
               <>
                 <p className="itdevices-import-summary">
-                  {tr('Imported')} {importResult.created} {tr('employee(s)')}{importResult.skipped ? tr(', skipped ') + importResult.skipped : ''}
-                  {importResult.failed.length ? ', ' + importResult.failed.length + tr(' failed') : ''}.
+                  {importSummary(importResult.created, [
+                    importResult.skipped && tr('{n} skipped', { n: importResult.skipped }),
+                    importResult.failed.length && tr('{n} failed', { n: importResult.failed.length })
+                  ])}
                 </p>
                 {importResult.failed.length > 0 && (
                   <ul>

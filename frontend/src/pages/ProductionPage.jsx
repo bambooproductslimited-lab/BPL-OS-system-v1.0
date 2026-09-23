@@ -5,7 +5,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ProductionPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's production screen (screens.production
 // block + the rawBatches/warehouses/productionBatches computed values,
 // and the shared supplier/warehouse/product dialogs around its render()).
@@ -47,7 +48,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_RAW_BATCH_FORM = { species: '', supplierId: '', quantity: '', grade: 'B', cost: '', warehouseId: '', unit: 'kg' };
@@ -159,7 +160,7 @@ export default function ProductionPage() {
     try {
       const payload = { species: rbForm.species, supplierId: rbForm.supplierId, quantity: rbForm.quantity, unit: rbForm.unit, qualityGrade: rbForm.grade, cost: rbForm.cost, warehouseId: rbForm.warehouseId };
       const r = rbEditId ? await api.put('/raw-batches/' + rbEditId, payload) : await api.post('/raw-batches', payload);
-      setToast(rbEditId ? 'Updated batch ' + r.batchNo + '.' : 'Received ' + r.batchNo + '.');
+      setToast(rbEditId ? tr('Updated batch {batchNo}.', { batchNo: r.batchNo }) : tr('Received {batchNo}.', { batchNo: r.batchNo }));
       setRbEditId(null);
       setRbForm((f) => ({ ...f, species: '', quantity: '', cost: '' }));
       await load();
@@ -192,7 +193,7 @@ export default function ProductionPage() {
     try {
       if (whEditId) await api.put('/warehouses/' + whEditId, whForm);
       else await api.post('/warehouses', whForm);
-      setToast(whEditId ? 'Warehouse updated.' : 'Warehouse added.');
+      setToast(whEditId ? tr('Warehouse updated.') : tr('Warehouse added.'));
       setWhDialogOpen(false);
       await load();
     } catch (err) {
@@ -206,7 +207,7 @@ export default function ProductionPage() {
     setWhDeleting(true);
     try {
       await api.del('/warehouses/' + whDeleteTarget.id);
-      setToast(whDeleteTarget.name + ' deleted.');
+      setToast(tr('{name} deleted.', { name: whDeleteTarget.name }));
       setWhDeleteTarget(null);
       await load();
     } catch (err) {
@@ -229,7 +230,7 @@ export default function ProductionPage() {
     setSupDialogError(null);
     try {
       await api.post('/suppliers', supForm);
-      setToast('Supplier added.');
+      setToast(tr('Supplier added.'));
       setSupDialogOpen(false);
       await load();
     } catch (err) {
@@ -249,7 +250,7 @@ export default function ProductionPage() {
 
   function editSelectedProduct() {
     const p = products.find((x) => x.id === pbForm.outputProductId);
-    if (!p) { setToast('Pick a product first.'); return; }
+    if (!p) { setToast(tr('Pick a product first.')); return; }
     setProdDialogError(null);
     setProdEditId(p.id);
     setProdForm({ sku: p.sku, name: p.name, category: p.category, unit: p.unit, costPrice: p.costPrice, sellingPrice: p.sellingPrice, currentStock: p.currentStock, reorderLevel: p.reorderLevel });
@@ -262,7 +263,7 @@ export default function ProductionPage() {
     setProdDialogError(null);
     try {
       const r = prodEditId ? await api.put('/products/' + prodEditId, prodForm) : await api.post('/products', prodForm);
-      setToast(prodEditId ? 'Product ' + r.sku + ' updated.' : 'Product ' + r.sku + ' added.');
+      setToast(prodEditId ? tr('Product {sku} updated.', { sku: r.sku }) : tr('Product {sku} added.', { sku: r.sku }));
       setProdDialogOpen(false);
       await load();
     } catch (err) {
@@ -282,7 +283,7 @@ export default function ProductionPage() {
         rawBatchId: pbForm.rawBatchId, outputProductId: pbForm.outputProductId, productionLine: 'Weaving Line',
         inputQty: pbForm.inputQty, outputQty: pbForm.outputQty, wasteQty: pbForm.wasteQty, rejectedQty: pbForm.rejectedQty, notes: ''
       });
-      setToast('Batch ' + r.batchNo + ' recorded.');
+      setToast(tr('Batch {batchNo} recorded.', { batchNo: r.batchNo }));
       setPbForm((f) => ({ ...f, inputQty: '', outputQty: '', wasteQty: '', rejectedQty: '' }));
       await load();
     } catch (err) {
@@ -306,7 +307,7 @@ export default function ProductionPage() {
         <form className="card production-rb-form" ref={rawBatchFormRef} onSubmit={submitRawBatch}>
           <div className="field">
             <label htmlFor="rb-species">{rbEditId ? tr('Edit raw bamboo batch · species') : tr('Receive raw bamboo · species')}</label>
-            <input id="rb-species" className="input" value={rbForm.species} onChange={(e) => setRbForm({ ...rbForm, species: e.target.value })} placeholder={tr('Bambusa vulgaris')} required />
+            <input id="rb-species" className="input" value={rbForm.species} onChange={(e) => setRbForm({ ...rbForm, species: e.target.value })} placeholder="Bambusa vulgaris" required />
           </div>
           <div className="field">
             <label htmlFor="rb-supplier">{tr('Supplier')}</label>
@@ -325,7 +326,7 @@ export default function ProductionPage() {
           <div className="field">
             <label htmlFor="rb-grade">{tr('Grade')}</label>
             <select id="rb-grade" className="input" value={rbForm.grade} onChange={(e) => setRbForm({ ...rbForm, grade: e.target.value })}>
-              <option value="A">{tr('A')}</option><option value="B">{tr('B')}</option><option value="C">{tr('C')}</option>
+              <option value="A">A</option><option value="B">B</option><option value="C">C</option>
             </select>
           </div>
           <div className="field">
@@ -363,10 +364,10 @@ export default function ProductionPage() {
               <td>{r.quantity} {r.unit}</td>
               <td>{r.qualityGrade}</td>
               <td>{fmtDate(r.dateReceived)}</td>
-              <td><span className={'tag ' + (r.status === 'depleted' ? 'tag-accent' : 'tag-neutral')}>{r.status}</span></td>
+              <td><span className={'tag ' + (r.status === 'depleted' ? 'tag-accent' : 'tag-neutral')}>{codeLabel(r.status)}</span></td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
-                  { label: "Edit", onClick: () => openEditRawBatch(r), hidden: !(canProduction) },
+                  { label: tr('Edit'), onClick: () => openEditRawBatch(r), hidden: !(canProduction) },
                 ]} />
               </td>
             </tr>
@@ -382,7 +383,7 @@ export default function ProductionPage() {
       {!!rawBatches.length && !visibleRawBatches.length && (
         <div className="production-empty-state">
           <span className="production-empty-icon"><LeafIcon /></span>
-          <p className="production-empty-title">{tr('No batches match "')}{rbSearch}"</p>
+          <p className="production-empty-title">{tr('No batches match "{search}"', { search: rbSearch })}</p>
         </div>
       )}
 
@@ -400,8 +401,8 @@ export default function ProductionPage() {
               <td>{w.rawQty}</td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
-                  { label: "Edit", onClick: () => openEditWarehouse(w), hidden: !(canWarehouse) },
-                  { label: "Delete", onClick: () => setWhDeleteTarget(w), danger: true, hidden: !(canWarehouse && w.rawQty === 0) },
+                  { label: tr('Edit'), onClick: () => openEditWarehouse(w), hidden: !(canWarehouse) },
+                  { label: tr('Delete'), onClick: () => setWhDeleteTarget(w), danger: true, hidden: !(canWarehouse && w.rawQty === 0) },
                 ]} />
               </td>
             </tr>
@@ -488,7 +489,7 @@ export default function ProductionPage() {
       {!!productionBatches.length && !visibleProductionBatches.length && (
         <div className="production-empty-state">
           <span className="production-empty-icon"><LeafIcon /></span>
-          <p className="production-empty-title">{tr('No batches match "')}{pbSearch}"</p>
+          <p className="production-empty-title">{tr('No batches match "{search}"', { search: pbSearch })}</p>
         </div>
       )}
 
@@ -573,7 +574,7 @@ export default function ProductionPage() {
             <h2 className="production-dialog-title">{prodEditId ? tr('Edit product') : tr('Add product')}</h2>
             {prodDialogError && <div className="error-banner production-dialog-span">{prodDialogError}</div>}
             <div className="field">
-              <label htmlFor="prprod-sku">{tr('SKU')}</label>
+              <label htmlFor="prprod-sku">SKU</label>
               <input id="prprod-sku" className="input" value={prodForm.sku} onChange={(e) => setProdForm({ ...prodForm, sku: e.target.value })} required />
             </div>
             <div className="field">

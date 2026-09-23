@@ -11,7 +11,9 @@ import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 import { itemsForDialog, totalsForDialog } from '../lib/docItems';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, docTr, msg, tr, trNodes } from '../lib/i18n.jsx';
+import { formatDocDate } from '../lib/dates';
+import { codeLabel } from '../lib/codeLabels.js';
 // Letting offers — what a unit costs to take, quoted before any booking
 // exists.
 //
@@ -28,16 +30,16 @@ import { tr } from '../lib/i18n.jsx';
 // the unit is still free and flips it to occupied.
 
 const KINDS = [
-  { value: 'letting', label: 'Letting offer' },
-  { value: 'maintenance', label: 'Repair / fit-out quote' },
-  { value: 'other', label: 'Other' }
+  { value: 'letting', label: msg('Letting offer') },
+  { value: 'maintenance', label: msg('Repair / fit-out quote') },
+  { value: 'other', label: msg('Other') }
 ];
 
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(String(iso).length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function addYear(iso) {
@@ -55,6 +57,14 @@ const EMPTY = {
   docKind: 'letting', tenantId: '', unitId: '', rentPeriods: 1, depositMonths: 1,
   validUntil: '', clientNotes: '', internalNotes: '', terms: '', items: [blankLine()]
 };
+
+// A finalized letting offer has gone to the customer and a converted one
+// has become a booking, so the list says Sent and Booked.
+function offerStatusLabel(status) {
+  if (status === 'converted') return tr('Booked');
+  if (status === 'finalized') return codeLabel('sent');
+  return codeLabel(status);
+}
 
 export default function PokiEstimatesPage() {
   const { can } = useAuth();
@@ -142,7 +152,7 @@ export default function PokiEstimatesPage() {
   // quarterly or annual unit lives in one place on the server, and a copy
   // in the browser would be a second place for it to drift.
   async function buildFromUnit() {
-    if (!form.unitId) { setDialogError('Pick a unit first.'); return; }
+    if (!form.unitId) { setDialogError(tr('Pick a unit first.')); return; }
     setBuilding(true);
     setDialogError(null);
     try {
@@ -155,7 +165,7 @@ export default function PokiEstimatesPage() {
         // than leaving the field blank and stamping one on save.
         validUntil: f.validUntil || d.validUntil
       }));
-      setToast('Costed from ' + d.propertyName + ' · ' + d.unitCode + '.');
+      setToast(tr('Costed from {propertyName} · {unitCode}.', { propertyName: d.propertyName, unitCode: d.unitCode }));
     } catch (err) {
       setDialogError(err.message);
     } finally {
@@ -190,7 +200,7 @@ export default function PokiEstimatesPage() {
       };
       if (editId) await api.patch('/poki/estimates/' + editId, payload);
       else await api.post('/poki/estimates', payload);
-      setToast(editId ? 'Offer updated.' : 'Offer created.');
+      setToast(editId ? tr('Offer updated.') : tr('Offer created.'));
       setDialog(null);
       await load();
     } catch (err) {
@@ -204,7 +214,7 @@ export default function PokiEstimatesPage() {
     setBusyId(est.id);
     try {
       await api.post('/poki/estimates/' + est.id + '/status', { status });
-      setToast('Marked ' + status + '.');
+      setToast(tr('Marked {status}.', { status: offerStatusLabel(status) }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -214,11 +224,11 @@ export default function PokiEstimatesPage() {
   }
 
   async function remove(est) {
-    if (!window.confirm('Delete ' + est.estimateNo + '?')) return;
+    if (!window.confirm(tr('Delete {estimateNo}?', { estimateNo: est.estimateNo }))) return;
     setBusyId(est.id);
     try {
       await api.delete('/poki/estimates/' + est.id);
-      setToast('Deleted ' + est.estimateNo + '.');
+      setToast(tr('Deleted {estimateNo}.', { estimateNo: est.estimateNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -269,7 +279,7 @@ export default function PokiEstimatesPage() {
         depositAmount: convert.depositAmount,
         escalationPercent: convert.escalationPercent
       });
-      setToast('Created draft booking ' + res.booking.bookingNo + '. Activate it on the Bookings screen.');
+      setToast(tr('Created draft booking {bookingNo}. Activate it on the Bookings screen.', { bookingNo: res.booking.bookingNo }));
       setDialog(null);
       await load();
     } catch (err) {
@@ -302,11 +312,11 @@ export default function PokiEstimatesPage() {
   // One list, used by the row menu and by the record panel.
   function rowActionsFor(e) {
     return [
-      { label: 'Print', onClick: () => openPreview(e) },
-      { label: 'Edit', onClick: () => openOffer(e), hidden: !(canManage && e.status === 'draft') },
-      { label: 'Mark sent', onClick: () => setStatus(e, 'finalized'), disabled: busyId === e.id, hidden: !(canManage && e.status === 'draft') },
-      { label: 'Accept → booking', onClick: () => openConvert(e), hidden: !(canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived') },
-      { label: 'Delete', onClick: () => remove(e), disabled: busyId === e.id, danger: true, hidden: !(canManage && e.status !== 'converted') },
+      { label: tr('Print'), onClick: () => openPreview(e) },
+      { label: tr('Edit'), onClick: () => openOffer(e), hidden: !(canManage && e.status === 'draft') },
+      { label: tr('Mark sent'), onClick: () => setStatus(e, 'finalized'), disabled: busyId === e.id, hidden: !(canManage && e.status === 'draft') },
+      { label: tr('Accept → booking'), onClick: () => openConvert(e), hidden: !(canManage && e.docKind === 'letting' && e.status !== 'converted' && e.status !== 'archived') },
+      { label: tr('Delete'), onClick: () => remove(e), disabled: busyId === e.id, danger: true, hidden: !(canManage && e.status !== 'converted') },
     ];
   }
 
@@ -363,7 +373,7 @@ export default function PokiEstimatesPage() {
                     {e.estimateNo}
                     {e.bookingNo && <div className="poki-muted">→ {e.bookingNo}</div>}
                   </td>
-                  <td><span className="poki-chip poki-chip-open">{e.docKind}</span></td>
+                  <td><span className="poki-chip poki-chip-open">{codeLabel(e.docKind)}</span></td>
                   <td className="poki-nowrap">{e.customerName}</td>
                   <td className="poki-nowrap">
                     {e.unitCode || <span className="poki-muted">—</span>}
@@ -373,7 +383,7 @@ export default function PokiEstimatesPage() {
                   <td className="poki-num">{money(e.grandTotal, e.currency)}</td>
                   <td>
                     <span className={'poki-chip poki-chip-' + (e.status === 'converted' ? 'active' : e.status === 'finalized' ? 'expiring' : 'open')}>
-                      {e.status === 'converted' ? 'booked' : e.status === 'finalized' ? 'sent' : e.status}
+                      {offerStatusLabel(e.status)}
                     </span>
                   </td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
@@ -395,7 +405,7 @@ export default function PokiEstimatesPage() {
             <div className="field">
               <label htmlFor="pe-kind">{tr('Kind')}</label>
               <select id="pe-kind" className="input" value={form.docKind} onChange={set('docKind')} disabled={!!editId}>
-                {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                {KINDS.map((k) => <option key={k.value} value={k.value}>{tr(k.label)}</option>)}
               </select>
             </div>
             <div className="field">
@@ -451,25 +461,25 @@ export default function PokiEstimatesPage() {
                   <input
                     className="input" placeholder={tr('Description')} value={it.description}
                     onChange={(ev) => setItem(idx, 'description', ev.target.value)}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' description')}
+                    aria-label={tr('Line {n} description', { n: idx + 1 })}
                   />
                   <input
                     className="input" type="number" step="0.01" placeholder={tr('Qty')} value={it.qty}
                     onChange={(ev) => setItem(idx, 'qty', ev.target.value)}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' quantity')}
+                    aria-label={tr('Line {n} quantity', { n: idx + 1 })}
                   />
                   <input
                     className="input" placeholder={tr('Unit')} value={it.unit || ''}
                     onChange={(ev) => setItem(idx, 'unit', ev.target.value)}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' unit')}
+                    aria-label={tr('Line {n} unit', { n: idx + 1 })}
                   />
                   <input
                     className="input" type="number" step="0.01" placeholder={tr('Price')} value={it.unitPrice}
                     onChange={(ev) => setItem(idx, 'unitPrice', ev.target.value)}
-                    aria-label={tr('Line ') + (idx + 1) + tr(' price')}
+                    aria-label={tr('Line {n} price', { n: idx + 1 })}
                   />
                   <span className="poki-line-total">{money((Number(it.qty) || 0) * (Number(it.unitPrice) || 0), formCurrency)}</span>
-                  <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => dropLine(idx)} aria-label={tr('Remove line ') + (idx + 1)}>×</button>
+                  <button type="button" className="btn btn-secondary poki-row-btn" onClick={() => dropLine(idx)} aria-label={tr('Remove line {n}', { n: idx + 1 })}>×</button>
                 </div>
               ))}
               <button type="button" className="btn btn-secondary poki-row-btn" onClick={addLine}>{tr('Add line')}</button>
@@ -524,10 +534,12 @@ export default function PokiEstimatesPage() {
       {dialog === 'convert' && convert && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog poki-dialog" onClick={(ev) => ev.stopPropagation()} onSubmit={submitConvert}>
-            <h2 className="poki-dialog-title">{tr('Accept')} {convert.est.estimateNo}</h2>
+            <h2 className="poki-dialog-title">{tr('Accept {estimateNo}', { estimateNo: convert.est.estimateNo })}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
-              {convert.est.customerName} · {convert.est.propertyName} · {convert.est.unitCode}{tr('. This creates a')}
-              <strong> {tr('draft')} </strong> {tr('booking — activate it on the Bookings screen once it is signed, which is what marks the unit occupied.')}
+              {trNodes('{offer}. This creates a {draft} booking — activate it on the Bookings screen once it is signed, which is what marks the unit occupied.', {
+                offer: [convert.est.customerName, convert.est.propertyName, convert.est.unitCode].join(' · '),
+                draft: <strong>{tr('draft')}</strong>
+              })}
             </p>
             {dialogError && <div className="error-banner poki-dialog-span">{dialogError}</div>}
 
@@ -576,23 +588,23 @@ export default function PokiEstimatesPage() {
             create: (expiresInDays) => api.post('/poki/estimates/' + previewEst.id + '/share', { expiresInDays: expiresInDays || undefined }),
             whatsapp: (url) => api.post('/poki/estimates/' + previewEst.id + '/share/whatsapp', { url })
           }}
-          docLabel={'Offer #' + previewEst.estimateNo}
-          dateLabel="Valid until"
-          dateValue={fmtDate(previewEst.validUntil)}
-          heading={'Letting offer for ' + previewEst.customerName}
+          docLabel={docTr('Offer #{estimateNo}', { estimateNo: previewEst.estimateNo })}
+          dateLabel={docTr('Valid until')}
+          dateValue={formatDocDate(previewEst.validUntil)}
+          heading={docTr('Letting offer for {customerName}', { customerName: previewEst.customerName })}
           subHeading={previewEst.unitCode ? previewEst.propertyName + ' \u00b7 ' + previewEst.unitCode : ''}
           blocks={[
-            { title: 'Prospect', lines: [previewEst.customerName, previewEst.customerEmail || previewEst.customerPhone || ''] },
-            { title: 'Unit', lines: [previewEst.unitCode || '—', previewEst.propertyName || ''] },
-            { title: 'Offer', lines: ['Valid until ' + fmtDate(previewEst.validUntil), money(previewEst.grandTotal, previewEst.currency)] }
+            { title: docTr('Prospect'), lines: [previewEst.customerName, previewEst.customerEmail || previewEst.customerPhone || ''] },
+            { title: docTr('Unit'), lines: [previewEst.unitCode || '—', previewEst.propertyName || ''] },
+            { title: docTr('Offer'), lines: [docTr('Valid until {date}', { date: formatDocDate(previewEst.validUntil) }), money(previewEst.grandTotal, previewEst.currency)] }
           ]}
           items={groupPackageItems(previewEst.items, previewEst.currency)}
           subtotal={money(previewEst.subtotal, previewEst.currency)}
-          totalLabel="Total"
+          totalLabel={docTr('Total')}
           total={money(previewEst.grandTotal, previewEst.currency)}
-          notesLabel="Notes"
+          notesLabel={docTr('Notes')}
           notesValue={previewEst.clientNotes}
-          termsLabel="Terms"
+          termsLabel={docTr('Terms')}
           termsValue={previewEst.terms}
           paymentSchedule={formatPaymentSchedule(previewEst.paymentSchedule, previewEst.currency)}
           onClose={() => setPreviewEst(null)}
@@ -604,18 +616,18 @@ export default function PokiEstimatesPage() {
         <RecordDialog
           title={detail.estimateNo}
           subtitle={detail.customerName}
-          tag={<span className={'poki-chip poki-chip-' + (detail.status === 'converted' ? 'active' : detail.status === 'finalized' ? 'expiring' : 'open')}>{detail.status}</span>}
+          tag={<span className={'poki-chip poki-chip-' + (detail.status === 'converted' ? 'active' : detail.status === 'finalized' ? 'expiring' : 'open')}>{offerStatusLabel(detail.status)}</span>}
           actions={rowActionsFor(detail)}
           onClose={() => setDetail(null)}
           items={itemsForDialog(detail.items, detail.currency)}
           totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: 'Kind', value: detail.docKind },
-            { label: 'Unit', value: detail.unitCode },
-            { label: 'Property', value: detail.propertyName },
-            { label: 'Valid until', value: fmtDate(detail.validUntil) },
-            { label: 'Booking', value: detail.bookingNo },
-            { label: 'Notes', value: detail.clientNotes, wide: true },
+            { label: tr('Kind'), value: codeLabel(detail.docKind) },
+            { label: tr('Unit'), value: detail.unitCode },
+            { label: tr('Property'), value: detail.propertyName },
+            { label: tr('Valid until'), value: fmtDate(detail.validUntil) },
+            { label: tr('Booking'), value: detail.bookingNo },
+            { label: tr('Notes'), value: detail.clientNotes, wide: true },
           ]}
         />
       )}

@@ -8,7 +8,8 @@ import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr, trNodes } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
 // block + the attendance/attSummary computed values around its render()).
 // Clock in/out lives on the "My space" screen, not here — this screen is
@@ -90,7 +91,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // One row per scoped employee, counting a status across every calendar
@@ -146,7 +147,7 @@ function enumerateDates(from, to) {
 
 function dayHeader(iso) {
   const d = new Date(iso + 'T00:00');
-  const weekday = d.toLocaleDateString('en-GB', { weekday: 'short' });
+  const weekday = d.toLocaleDateString(activeIntlLocale(), { weekday: 'short' });
   return weekday + ' ' + iso.slice(5, 7) + '/' + iso.slice(8, 10);
 }
 
@@ -173,6 +174,16 @@ function buildPivotReport(rows, from, to) {
 }
 
 const CORRECTION_STATUSES = ['present', 'late', 'absent', 'leave', 'off'];
+
+// "No one matches "kofi" and status "Late"." as whole sentences, so each
+// language can arrange them its own way.
+function noMatchText(search, statusFilter) {
+  const status = statusFilter === 'absentLeaveOff' ? tr('Absent/leave/off') : codeLabel(statusFilter);
+  if (search && statusFilter) return tr('No one matches "{search}" and status "{status}".', { search, status });
+  if (search) return tr('No one matches "{search}".', { search });
+  if (statusFilter) return tr('No one matches status "{status}".', { status });
+  return tr('No one matches.');
+}
 
 export default function AttendancePage() {
   const { can } = useAuth();
@@ -288,11 +299,11 @@ export default function AttendancePage() {
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || r.status === statusFilter);
   const summary = [
-    { label: 'In scope', value: rows.length, icon: 'users', tone: 'people', filterKey: null },
-    { label: 'Present', value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people', filterKey: 'present' },
-    { label: 'Late', value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning', filterKey: 'late' },
-    { label: 'No record', value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger', filterKey: 'absent' },
-    { label: 'Off (rest day)', value: rows.filter((r) => r.status === 'off').length, icon: 'calendar', tone: 'people', filterKey: 'off' }
+    { label: tr('In scope'), value: rows.length, icon: 'users', tone: 'people', filterKey: null },
+    { label: tr('Present'), value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people', filterKey: 'present' },
+    { label: tr('Late'), value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning', filterKey: 'late' },
+    { label: tr('No record'), value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger', filterKey: 'absent' },
+    { label: tr('Off (rest day)'), value: rows.filter((r) => r.status === 'off').length, icon: 'calendar', tone: 'people', filterKey: 'off' }
   ];
 
   // periodStatusMatches lets the "Absent/leave/off days" tile below filter
@@ -306,10 +317,10 @@ export default function AttendancePage() {
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || periodStatusMatches(r, statusFilter));
   const periodSummary = [
-    { label: 'Employees', value: periodRows.length, icon: 'users', tone: 'people', filterKey: null },
-    { label: 'Present days', value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people', filterKey: 'present' },
-    { label: 'Late days', value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning', filterKey: 'late' },
-    { label: 'Absent/leave/off days', value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger', filterKey: 'absentLeaveOff' }
+    { label: tr('Employees'), value: periodRows.length, icon: 'users', tone: 'people', filterKey: null },
+    { label: tr('Present days'), value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people', filterKey: 'present' },
+    { label: tr('Late days'), value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning', filterKey: 'late' },
+    { label: tr('Absent/leave/off days'), value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger', filterKey: 'absentLeaveOff' }
   ];
 
   function openCorrection(row) {
@@ -330,7 +341,7 @@ export default function AttendancePage() {
         id: correction.id || undefined, employeeId: correction.employeeId, date: dateRange.from,
         clockIn: corrForm.clockIn, clockOut: corrForm.clockOut, status: corrForm.status, note: corrForm.note
       });
-      setToast('Attendance corrected and logged.');
+      setToast(tr('Attendance corrected and logged.'));
       setCorrection(null);
       await load();
     } catch (err) {
@@ -344,7 +355,7 @@ export default function AttendancePage() {
     setDeleting(true);
     try {
       await api.del('/attendance/' + deleteTarget.id);
-      setToast('Attendance record deleted.');
+      setToast(tr('Attendance record deleted.'));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -400,10 +411,10 @@ export default function AttendancePage() {
         setSyncProgress({ done: Math.min(i + COMMIT_BATCH_SIZE, rows.length), total: rows.length });
       }
       setSyncResult(totals);
-      setToast('Synced attendance from TimeStation.');
+      setToast(tr('Synced attendance from TimeStation.'));
       await load();
     } catch (err) {
-      setSyncError(err.message + ' (' + totals.created + ' created, ' + totals.updated + ' updated so far — already written, not lost)');
+      setSyncError(tr('{message} ({created} created, {updated} updated so far — already written, not lost)', { message: err.message, created: totals.created, updated: totals.updated }));
       setSyncResult(totals);
     } finally {
       setSyncCommitting(false);
@@ -455,15 +466,15 @@ export default function AttendancePage() {
 
   function downloadLatenessCsv() {
     if (!lateData) return;
-    const header = ['Employee ID', 'Employee', 'Title', 'Department', 'Company', 'Shift',
-      'Days recorded', 'Days late', 'Late %', 'Total minutes late', 'Average minutes late',
-      'Worst minutes', 'Worst day', 'Measured against'];
+    const header = [tr('Employee ID'), tr('Employee'), tr('Title'), tr('Department'), tr('Company'), tr('Shift'),
+      tr('Days recorded'), tr('Days late'), tr('Late %'), tr('Total minutes late'), tr('Average minutes late'),
+      tr('Worst minutes'), tr('Worst day'), tr('Measured against')];
     const body = lateData.rows.map((r) => [
       r.code, r.name, r.positionTitle || '', r.department || '', r.company || '',
-      r.hasShift ? (r.shiftName || 'shift times on the employee') : 'NO SHIFT ASSIGNED',
+      r.hasShift ? (r.shiftName || tr('shift times on the employee')) : tr('NO SHIFT ASSIGNED'),
       r.daysRecorded, r.daysLate, r.latePercent, r.minutesLate, r.averageMinutesLate,
       r.worstMinutes, r.worstDate || '',
-      r.hasShift ? 'their own shift start + grace' : 'company cutoff ' + lateData.fallbackCutoff + ' — not meaningful'
+      r.hasShift ? tr('their own shift start + grace') : tr('company cutoff {time} — not meaningful', { time: lateData.fallbackCutoff })
     ]);
     downloadCsv('attendance-lateness-' + reportRange.from + '-to-' + reportRange.to + '.csv',
       rowsToCsv([header, ...body]));
@@ -494,7 +505,7 @@ export default function AttendancePage() {
   function downloadReportCsv() {
     if (!reportData) return;
     const { dates, rows: pivotRows } = buildPivotReport(reportData.rows, reportRange.from, reportRange.to);
-    const header = ['Employee ID', 'Title', 'Employee', 'Department', ...dates.map(dayHeader), 'Total Hours', 'Hourly Rate', 'Total Pay'];
+    const header = [tr('Employee ID'), tr('Title'), tr('Employee'), tr('Department'), ...dates.map(dayHeader), tr('Total Hours'), tr('Hourly Rate'), tr('Total Pay')];
     const body = pivotRows.map((e) => [
       e.code, e.positionTitle, e.name, e.department,
       ...dates.map((d) => e.byDate[d] || 0),
@@ -542,7 +553,7 @@ export default function AttendancePage() {
               key={s.label}
               className={'attendance-summary-tile attendance-summary-tile-' + s.tone + (active ? ' attendance-summary-tile-active' : '')}
               aria-pressed={active}
-              title={s.filterKey ? tr('Show only ') + s.label.toLowerCase() : tr('Clear the status filter')}
+              title={s.filterKey ? tr('Show only {label}', { label: s.label.toLowerCase() }) : tr('Clear the status filter')}
               onClick={() => setStatusFilter(s.filterKey && statusFilter !== s.filterKey ? s.filterKey : '')}
             >
               <span className="attendance-summary-icon glow-badge"><Icon name={s.icon} /></span>
@@ -586,7 +597,7 @@ export default function AttendancePage() {
 
       {!isSingleDay && (
         <p className="eyebrow" style={{ marginTop: 12 }}>
-          {fmtDate(dateRange.from)} – {fmtDate(dateRange.to)}{tr(', per-employee totals. Total is days actually worked (present + late) — Off already excludes rest days (e.g. Sundays for most Bamboo Products Limited staff) from Absent, so Absent only counts real missed workdays. Pick a single day above to see and correct individual records.')}
+          {tr('{date} – {date2}, per-employee totals. Total is days actually worked (present + late) — Off already excludes rest days (e.g. Sundays for most Bamboo Products Limited staff) from Absent, so Absent only counts real missed workdays. Pick a single day above to see and correct individual records.', { date: fmtDate(dateRange.from), date2: fmtDate(dateRange.to) })}
         </p>
       )}
 
@@ -610,12 +621,12 @@ export default function AttendancePage() {
                   <td>{r.department}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'} <LocationLink loc={r.clockInLocation} /></td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'} <LocationLink loc={r.clockOutLocation} /></td>
-                  <td><span className={'tag ' + tagClass(r.status)}>{r.status}</span></td>
+                  <td><span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span></td>
                   <td className="attendance-note">{r.note || '—'}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "Correct", onClick: () => openCorrection(r), hidden: !(canAdjust) },
-                      { label: "Delete", onClick: () => setDeleteTarget(r), danger: true, hidden: !(canAdjust && r.id) },
+                      { label: tr('Correct'), onClick: () => openCorrection(r), hidden: !(canAdjust) },
+                      { label: tr('Delete'), onClick: () => setDeleteTarget(r), danger: true, hidden: !(canAdjust && r.id) },
                     ]} />
                   </td>
                 </tr>
@@ -625,7 +636,7 @@ export default function AttendancePage() {
           {!rows.length && <EmptyState title={tr('No employees in scope for this date')} />}
           {!!rows.length && !visibleRows.length && (
             <p className="table-empty">
-              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? tr(' and ') : ' ') + tr('status "') + statusFilter + '"' : ''}.
+              {noMatchText(search, statusFilter)}
             </p>
           )}
         </>
@@ -660,7 +671,7 @@ export default function AttendancePage() {
           {!periodRows.length && <EmptyState title={tr('No employees in scope for this filter')} />}
           {!!periodRows.length && !visiblePeriodRows.length && (
             <p className="table-empty">
-              {tr('No one matches')}{search ? ' "' + search + '"' : ''}{statusFilter ? (search ? tr(' and ') : ' ') + tr('status "') + statusFilter + '"' : ''}.
+              {noMatchText(search, statusFilter)}
             </p>
           )}
         </>
@@ -684,7 +695,7 @@ export default function AttendancePage() {
               <div className="field">
                 <label htmlFor="corr-status">{tr('Status')}</label>
                 <select id="corr-status" className="input" value={corrForm.status} onChange={(e) => setCorrForm({ ...corrForm, status: e.target.value })}>
-                  {CORRECTION_STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                  {CORRECTION_STATUSES.map((s) => <option key={s} value={s}>{codeLabel(s)}</option>)}
                 </select>
               </div>
             </div>
@@ -704,7 +715,7 @@ export default function AttendancePage() {
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Delete attendance record')}</h2>
-            <p className="dialog-body">{tr('Delete the record for')} <strong>{deleteTarget.name}</strong> ({fmtDate(dateRange.from)}{tr(')? This cannot be undone.')}</p>
+            <p className="dialog-body">{trNodes('Delete the record for {name} ({date})? This cannot be undone.', { name: <strong>{deleteTarget.name}</strong>, date: fmtDate(dateRange.from) })}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
               <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
@@ -755,11 +766,13 @@ export default function AttendancePage() {
                 <>
                   {syncError && <div className="error-banner">{syncError}</div>}
                   <p className="itdevices-import-summary">
-                    {syncPreview.rows.length} {tr('record(s) found —')}
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'create').length} {tr('new,')}
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'update' || r.action === 'overwrite').length} {tr('will be updated,')}
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'unchanged').length} {tr('unchanged,')}
-                    {' '}{syncPreview.rows.filter((r) => r.action === 'skip').length} {tr('skipped.')}
+                    {tr('{found} record(s) found — {created} new, {updated} will be updated, {unchanged} unchanged, {skipped} skipped.', {
+                      found: syncPreview.rows.length,
+                      created: syncPreview.rows.filter((r) => r.action === 'create').length,
+                      updated: syncPreview.rows.filter((r) => r.action === 'update' || r.action === 'overwrite').length,
+                      unchanged: syncPreview.rows.filter((r) => r.action === 'unchanged').length,
+                      skipped: syncPreview.rows.filter((r) => r.action === 'skip').length
+                    })}
                   </p>
                   <div className="itdevices-import-scroll">
                     <table className="table itdevices-import-table">
@@ -773,7 +786,7 @@ export default function AttendancePage() {
                             <td>{r.date || '—'}</td>
                             <td>{r.clockIn || '—'}</td>
                             <td>{r.clockOut || '—'}</td>
-                            <td>{r.status || '—'}</td>
+                            <td>{codeLabel(r.status) || '—'}</td>
                             <td style={{ textTransform: 'capitalize' }}>{r.action}</td>
                             <td className="itdevices-import-warnings">
                               {(r.warnings || []).map((w, wi) => <div key={wi}>{w}</div>)}
@@ -784,13 +797,13 @@ export default function AttendancePage() {
                     </table>
                   </div>
                   {syncProgress && (
-                    <p className="eyebrow">{tr('Syncing')} {syncProgress.done.toLocaleString()} {tr('of')} {syncProgress.total.toLocaleString()}…</p>
+                    <p className="eyebrow">{tr('Syncing {done} of {total}…', { done: syncProgress.done.toLocaleString(), total: syncProgress.total.toLocaleString() })}</p>
                   )}
                   <div className="dialog-actions">
                     <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncPreview(null)}>{tr('Back')}</button>
                     <button type="button" className="btn btn-secondary" disabled={syncCommitting} onClick={() => setSyncOpen(false)}>{tr('Cancel')}</button>
                     <button type="button" className="btn btn-primary" disabled={syncCommitting || !toWrite.length} onClick={commitAttendanceSync}>
-                      {syncCommitting ? tr('Syncing…') : tr('Sync ') + toWrite.length + tr(' record(s)')}
+                      {syncCommitting ? tr('Syncing…') : tr('Sync {n} record(s)', { n: toWrite.length })}
                     </button>
                   </div>
                 </>
@@ -801,8 +814,9 @@ export default function AttendancePage() {
               <>
                 {syncError && <div className="error-banner">{syncError}</div>}
                 <p className="itdevices-import-summary">
-                  {syncResult.created} {tr('created,')} {syncResult.updated} {tr('updated,')} {syncResult.unchanged} {tr('unchanged')}
-                  {syncResult.failed.length ? ', ' + syncResult.failed.length + tr(' failed') : ''}.
+                  {syncResult.failed.length
+                    ? tr('{created} created, {updated} updated, {unchanged} unchanged, {failed} failed.', { created: syncResult.created, updated: syncResult.updated, unchanged: syncResult.unchanged, failed: syncResult.failed.length })
+                    : tr('{created} created, {updated} updated, {unchanged} unchanged.', { created: syncResult.created, updated: syncResult.updated, unchanged: syncResult.unchanged })}
                 </p>
                 {syncResult.failed.length > 0 && (
                   <ul>
@@ -852,14 +866,14 @@ export default function AttendancePage() {
             {lateUnassigned && lateUnassigned.rows.length > 0 && (
               <div className="attendance-noshift">
                 <div className="attendance-noshift-head">
-                  <strong>{lateUnassigned.rows.length} {lateUnassigned.rows.length === 1 ? tr('person has') : tr('people have')} {tr('no shift assigned.')}</strong>
+                  <strong>{lateUnassigned.rows.length === 1 ? tr('1 person has no shift assigned.') : tr('{n} people have no shift assigned.', { n: lateUnassigned.rows.length })}</strong>
                   <button type="button" className="btn btn-secondary attendance-noshift-btn"
                     onClick={() => setShowUnassigned((v) => !v)}>
                     {showUnassigned ? tr('Hide') : tr('Show who')}
                   </button>
                 </div>
                 <p className="attendance-noshift-body">
-                  {tr('Their arrival is measured against the company cutoff of')} {lateUnassigned.fallbackCutoff}{tr(', which describes a day shift. A guard arriving on time at 18:00 scores as 640 minutes late against it; one arriving at 01:00 scores as on time. Assign each of them a shift and these figures become real. Until then they are excluded from the totals below.')}
+                  {tr('Their arrival is measured against the company cutoff of {fallbackCutoff}, which describes a day shift. A guard arriving on time at 18:00 scores as 640 minutes late against it; one arriving at 01:00 scores as on time. Assign each of them a shift and these figures become real. Until then they are excluded from the totals below.', { fallbackCutoff: lateUnassigned.fallbackCutoff })}
                 </p>
                 {showUnassigned && (
                   <table className="table attendance-noshift-table">
@@ -870,7 +884,7 @@ export default function AttendancePage() {
                           <td>{r.code}</td>
                           <td>{r.name}</td>
                           <td>{r.department}</td>
-                          <td className="attendance-num">{r.lateRecords} {tr('of')} {r.daysRecorded}</td>
+                          <td className="attendance-num">{tr('{lateRecords} of {daysRecorded}', { lateRecords: r.lateRecords, daysRecorded: r.daysRecorded })}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -882,11 +896,11 @@ export default function AttendancePage() {
             {lateData && (
               <>
                 <p className="dialog-body">
-                  {lateData.totals.daysLate} {tr('late')} {lateData.totals.daysLate === 1 ? 'day' : 'days'} {tr('out of')}{' '}
-                  {lateData.totals.daysRecorded} {tr('recorded, across')} {lateData.totals.employees}{' '}
-                  {lateData.totals.employees === 1 ? 'person' : 'people'} {tr('with a shift —')}{' '}
-                  {lateData.totals.minutesLate} {tr('minutes in total.')}
-                  {lateData.totals.withoutShift > 0 && ' ' + lateData.totals.withoutShift + tr(' more excluded for having no shift.')}
+                  {tr('{daysLate} late day(s) out of {daysRecorded} recorded, across {employees} employee(s) with a shift — {minutesLate} minutes in total.', {
+                    daysLate: lateData.totals.daysLate, daysRecorded: lateData.totals.daysRecorded,
+                    employees: lateData.totals.employees, minutesLate: lateData.totals.minutesLate
+                  })}
+                  {lateData.totals.withoutShift > 0 && tr(' {withoutShift} more excluded for having no shift.', { withoutShift: lateData.totals.withoutShift })}
                 </p>
                 {lateData.rows.length === 0
                   ? <p className="table-empty">{tr('Nobody clocked in during this period.')}</p>
@@ -916,7 +930,7 @@ export default function AttendancePage() {
                               <td className="attendance-num col-mid">{r.latePercent}%</td>
                               <td className="attendance-num">{r.minutesLate}</td>
                               <td className="attendance-num col-wide">{r.averageMinutesLate}</td>
-                              <td className="col-wide">{r.worstDate ? r.worstMinutes + tr(' min · ') + r.worstDate : '—'}</td>
+                              <td className="col-wide">{r.worstDate ? tr('{worstMinutes} min · {worstDate}', { worstMinutes: r.worstMinutes, worstDate: r.worstDate }) : '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -989,14 +1003,17 @@ export default function AttendancePage() {
                 <>
                   <div ref={reportPrintRef}>
                     <p className="itdevices-import-summary">
-                      {(companies.find((c) => c.id === reportCompanyId) || { name: tr('All companies') }).name}
-                      {reportDeptId ? ' — ' + (departments.find((d) => d.id === reportDeptId) || { name: '' }).name : ''}
-                      , {reportRange.from} {tr('to')} {reportRange.to} — {pivot.rows.length.toLocaleString()} {tr('employee(s),')} {reportData.rows.length.toLocaleString()} {tr('record(s).')}
+                      {tr('{scope}, {from} to {to} — {employees} employee(s), {records} record(s).', {
+                        scope: (companies.find((c) => c.id === reportCompanyId) || { name: tr('All companies') }).name +
+                          (reportDeptId ? ' — ' + (departments.find((d) => d.id === reportDeptId) || { name: '' }).name : ''),
+                        from: reportRange.from, to: reportRange.to,
+                        employees: pivot.rows.length.toLocaleString(), records: reportData.rows.length.toLocaleString()
+                      })}
                       {!canSeePay && tr(' Hourly rate/pay is hidden — your role doesn\'t have payroll access.')}
                     </p>
                     {!showDetailTable && (
                       <p className="itdevices-import-summary">
-                        {tr('Too many employees (')}{pivot.rows.length.toLocaleString()}{tr(') to list on screen — download the CSV for the full detail.')}
+                        {tr('Too many employees ({n}) to list on screen — download the CSV for the full detail.', { n: pivot.rows.length.toLocaleString() })}
                       </p>
                     )}
                     {showDetailTable && (

@@ -8,7 +8,8 @@ import './WaybillsPage.css';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Waybills document goods leaving the factory or showroom — a delivery
 // note, not a sales document (no pricing on the line items). The printed
 // document (WaybillPreview.jsx) carries the full company letterhead, a
@@ -44,7 +45,7 @@ function TruckIcon() {
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -150,7 +151,7 @@ export default function WaybillsPage() {
     try {
       const body = { ...form, customerId: form.customerId || null, salesRepId: form.salesRepId || null };
       const created = await api.post('/waybills', body);
-      setToast(created.waybillNo + ' dispatched.');
+      setToast(tr('{waybillNo} dispatched.', { waybillNo: created.waybillNo }));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -164,7 +165,7 @@ export default function WaybillsPage() {
     setBusyId(wb.id);
     try {
       await api.post('/waybills/' + wb.id + '/status', { status });
-      setToast(wb.waybillNo + ' marked ' + status + '.');
+      setToast(tr('{waybillNo} marked {status}.', { waybillNo: wb.waybillNo, status: codeLabel(status) }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -180,9 +181,9 @@ export default function WaybillsPage() {
   // One list, shared by the row menu and the record panel.
   function waybillActions(wb) {
     return [
-      { label: 'Preview', onClick: () => setPreviewWb(wb) },
-      { label: 'Mark delivered', onClick: () => setStatus(wb, 'delivered'), disabled: busyId === wb.id, hidden: !(canManage && wb.status === 'dispatched') },
-      { label: 'Cancel', onClick: () => setStatus(wb, 'cancelled'), disabled: busyId === wb.id, danger: true, hidden: !(canManage && wb.status === 'dispatched') },
+      { label: tr('Preview'), onClick: () => setPreviewWb(wb) },
+      { label: tr('Mark delivered'), onClick: () => setStatus(wb, 'delivered'), disabled: busyId === wb.id, hidden: !(canManage && wb.status === 'dispatched') },
+      { label: tr('Cancel'), onClick: () => setStatus(wb, 'cancelled'), disabled: busyId === wb.id, danger: true, hidden: !(canManage && wb.status === 'dispatched') },
     ];
   }
 
@@ -225,7 +226,7 @@ export default function WaybillsPage() {
               </td>
               <td>{wb.vehicleNo || '—'}</td>
               <td>{fmtDate(wb.createdAt)}</td>
-              <td><span className={'tag ' + tagClass(wb.status)}>{wb.status}</span></td>
+              <td><span className={'tag ' + tagClass(wb.status)}>{codeLabel(wb.status)}</span></td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={waybillActions(wb)} />
               </td>
@@ -242,7 +243,7 @@ export default function WaybillsPage() {
       {!!waybills.length && !visibleWaybills.length && (
         <div className="waybills-empty-state">
           <span className="waybills-empty-icon"><TruckIcon /></span>
-          <p className="waybills-empty-title">{tr('No waybills match "')}{search}"</p>
+          <p className="waybills-empty-title">{tr('No waybills match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -377,21 +378,21 @@ export default function WaybillsPage() {
           actions={waybillActions(detail)}
           onClose={() => setDetail(null)}
           fields={[
-            { label: 'Origin', value: detail.origin },
-            { label: 'Destination', value: detail.destination },
-            { label: 'Customer', value: detail.customerName },
-            { label: 'Driver', value: detail.driverName },
-            { label: 'Vehicle', value: detail.vehicleNo },
-            { label: 'Dispatched', value: fmtDate(detail.createdAt) },
-            { label: 'Shipping date', value: detail.shippingDate ? fmtDate(detail.shippingDate) : null },
-            { label: 'Shipped to', value: detail.shippedToName },
-            { label: 'Address', value: detail.shippedToAddress, wide: true },
-            { label: 'Received by', value: detail.receivedBy },
-            { label: 'Status', value: detail.status },
-            { label: 'Delivered', value: detail.deliveredAt ? fmtDate(detail.deliveredAt) : null },
-            { label: 'Notes', value: detail.notes, wide: true },
+            { label: tr('Origin'), value: detail.origin },
+            { label: tr('Destination'), value: detail.destination },
+            { label: tr('Customer'), value: detail.customerName },
+            { label: tr('Driver'), value: detail.driverName },
+            { label: tr('Vehicle'), value: detail.vehicleNo },
+            { label: tr('Dispatched'), value: fmtDate(detail.createdAt) },
+            { label: tr('Shipping date'), value: detail.shippingDate ? fmtDate(detail.shippingDate) : null },
+            { label: tr('Shipped to'), value: detail.shippedToName },
+            { label: tr('Address'), value: detail.shippedToAddress, wide: true },
+            { label: tr('Received by'), value: detail.receivedBy },
+            { label: tr('Status'), value: codeLabel(detail.status) },
+            { label: tr('Delivered'), value: detail.deliveredAt ? fmtDate(detail.deliveredAt) : null },
+            { label: tr('Notes'), value: detail.notes, wide: true },
             {
-              label: 'Items',
+              label: tr('Items'),
               wide: true,
               value: (detail.items || []).length ? (
                 <ul className="record-dialog-list">

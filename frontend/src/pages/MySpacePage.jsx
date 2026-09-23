@@ -5,7 +5,8 @@ import { useAuth } from '../auth/AuthContext';
 import './MySpacePage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's "My space" screen (screens.myspace block
 // + the myAttendance/myBalances/myLeave computed values around its
 // render()). Self-service only: your own clock in/out, your leave
@@ -28,7 +29,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function fmtElapsed(hhmm, now) {
@@ -61,7 +62,7 @@ function useClock() {
 export default function MySpacePage() {
   const { session, can } = useAuth();
   const navigate = useNavigate();
-  const shift = (session && session.employee && session.employee.shift) || 'Day · 08:00–17:00';
+  const shift = (session && session.employee && session.employee.shift) || tr('Day · 08:00–17:00');
   const now = useClock();
 
   const [leaveTypes, setLeaveTypes] = useState([]);
@@ -96,19 +97,19 @@ export default function MySpacePage() {
   const canSelf = can('attendance.self');
   const onDuty = !!(att && !att.clockOut);
   const attendance = {
-    headline: att ? (att.clockOut ? att.clockIn + ' → ' + att.clockOut : 'On duty since ' + att.clockIn) : 'Not clocked in',
-    detail: att ? (att.status === 'late' ? 'Recorded as late.' : 'Recorded as present.') : 'Clock in to start today’s record.',
+    headline: att ? (att.clockOut ? att.clockIn + ' → ' + att.clockOut : tr('On duty since {time}', { time: att.clockIn })) : tr('Not clocked in'),
+    detail: att ? (att.status === 'late' ? tr('Recorded as late.') : tr('Recorded as present.')) : tr('Clock in to start today’s record.'),
     inDisabled: !!att || !canSelf,
     outDisabled: !att || !!(att && att.clockOut) || !canSelf
   };
-  const statusLabel = onDuty ? 'On duty' : att ? 'Shift complete' : 'Not clocked in';
+  const statusLabel = onDuty ? tr('On duty') : att ? tr('Shift complete') : tr('Not clocked in');
 
   async function handleClockIn() {
     setClocking(true);
     setError(null);
     try {
       await api.post('/attendance/clock-in');
-      setToast('Clocked in. Have a good shift.');
+      setToast(tr('Clocked in. Have a good shift.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -122,7 +123,7 @@ export default function MySpacePage() {
     setError(null);
     try {
       await api.post('/attendance/clock-out');
-      setToast('Clocked out. Your hours are recorded.');
+      setToast(tr('Clocked out. Your hours are recorded.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -134,7 +135,7 @@ export default function MySpacePage() {
   async function handleCancel(row) {
     try {
       await api.post('/leave/' + row.id + '/cancel');
-      setToast('Request cancelled.');
+      setToast(tr('Request cancelled.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -164,11 +165,11 @@ export default function MySpacePage() {
               {statusLabel}
             </div>
           </div>
-          <div className="myspace-live-time">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+          <div className="myspace-live-time">{now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
           <div className="myspace-headline">{attendance.headline}</div>
           <div className="myspace-detail">
             {attendance.detail}
-            {onDuty && att && ' · ' + fmtElapsed(att.clockIn, now) + tr(' so far')}
+            {onDuty && att && tr(' · {elapsed} so far', { elapsed: fmtElapsed(att.clockIn, now) })}
           </div>
           <div className="myspace-actions">
             <button type="button" className="btn btn-primary" disabled={attendance.inDisabled || clocking} onClick={handleClockIn}>
@@ -189,9 +190,9 @@ export default function MySpacePage() {
                 <div className="myspace-balance-card" key={b.name}>
                   <span className="myspace-balance-icon"><Icon name="calendar" /></span>
                   <div className="myspace-balance-name">{b.name}</div>
-                  <div className="myspace-balance-remaining">{b.left}<span className="myspace-balance-unit"> / {b.entitled} {tr('left')}</span></div>
+                  <div className="myspace-balance-remaining">{b.left}<span className="myspace-balance-unit">{' '}{tr('/ {entitled} left', { entitled: b.entitled })}</span></div>
                   <div className="myspace-balance-track"><div className="myspace-balance-bar" style={{ width: pct + '%' }} /></div>
-                  <div className="myspace-balance-used">{b.used} {tr('used')}</div>
+                  <div className="myspace-balance-used">{tr('{used} used', { used: b.used })}</div>
                 </div>
               );
             })}
@@ -211,11 +212,11 @@ export default function MySpacePage() {
                   <td>{typeName(l.leaveTypeId)}</td>
                   <td style={{ fontSize: 13 }}>{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</td>
                   <td>{l.days}</td>
-                  <td><span className={'tag ' + tagClass(l.status)}>{l.status}</span></td>
+                  <td><span className={'tag ' + tagClass(l.status)}>{codeLabel(l.status)}</span></td>
                   <td className="myspace-note">{l.decisionNote || '—'}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
-                      { label: "Cancel", onClick: () => handleCancel(l), danger: true, hidden: !(l.status === 'pending') },
+                      { label: tr('Cancel'), onClick: () => handleCancel(l), danger: true, hidden: !(l.status === 'pending') },
                     ]} />
                   </td>
                 </tr>

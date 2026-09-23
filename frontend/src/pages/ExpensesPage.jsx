@@ -5,7 +5,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ExpensesPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Ported from Bamboo OS.dc.html's expenses screen (screens.expenses block
 // + the expenses computed values, and the "Edit expense claim" dialog
 // around its render()).
@@ -45,7 +46,7 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const EMPTY_FORM = { category: '', amount: '', date: '', description: '' };
@@ -100,7 +101,7 @@ export default function ExpensesPage() {
     setError(null);
     try {
       await api.post('/expenses', form);
-      setToast('Expense claim submitted.');
+      setToast(tr('Expense claim submitted.'));
       setForm(EMPTY_FORM);
       await load();
     } catch (err) {
@@ -115,7 +116,7 @@ export default function ExpensesPage() {
     setError(null);
     try {
       await api.post('/expenses/' + row.id + '/decision', { decision: decision });
-      setToast('Claim ' + decision + '.');
+      setToast(decision === 'approved' ? tr('Claim approved.') : tr('Claim rejected.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -129,7 +130,7 @@ export default function ExpensesPage() {
     setError(null);
     try {
       await api.post('/expenses/' + row.id + '/mark-paid');
-      setToast('Claim marked paid.');
+      setToast(tr('Claim marked paid.'));
       await load();
     } catch (err) {
       setError(err.message);
@@ -150,7 +151,7 @@ export default function ExpensesPage() {
     setEditError(null);
     try {
       await api.patch('/expenses/' + editTarget.id, editForm);
-      setToast('Expense claim updated.');
+      setToast(tr('Expense claim updated.'));
       setEditTarget(null);
       await load();
     } catch (err) {
@@ -165,7 +166,7 @@ export default function ExpensesPage() {
     setError(null);
     try {
       await api.del('/expenses/' + deleteTarget.id);
-      setToast(deleteTarget.category + ' claim removed.');
+      setToast(tr('{category} claim removed.', { category: deleteTarget.category }));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -227,17 +228,17 @@ export default function ExpensesPage() {
                 </td>
                 <td>{x.departmentName}</td>
                 <td>{x.category}</td>
-                <td>{tr('GHS')} {x.amount.toLocaleString()}</td>
+                <td>GHS {x.amount.toLocaleString()}</td>
                 <td>{fmtDate(x.date)}</td>
                 <td className="expenses-description">{x.description}</td>
-                <td><span className={'tag ' + tagClass(x.status)}>{x.status}</span></td>
+                <td><span className={'tag ' + tagClass(x.status)}>{codeLabel(x.status)}</span></td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
-                    { label: "Approve", onClick: () => handleDecision(x, 'approved'), disabled: busy, hidden: !(decidable) },
-                    { label: "Reject", onClick: () => handleDecision(x, 'rejected'), disabled: busy, danger: true, hidden: !(decidable) },
-                    { label: "Mark paid", onClick: () => handleMarkPaid(x), disabled: busy, hidden: !(payable) },
-                    { label: "Edit", onClick: () => openEdit(x), disabled: busy, hidden: !(canEdit) },
-                    { label: "Delete", onClick: () => setDeleteTarget(x), disabled: busy, danger: true, hidden: !(canEdit) },
+                    { label: tr('Approve'), onClick: () => handleDecision(x, 'approved'), disabled: busy, hidden: !(decidable) },
+                    { label: tr('Reject'), onClick: () => handleDecision(x, 'rejected'), disabled: busy, danger: true, hidden: !(decidable) },
+                    { label: tr('Mark paid'), onClick: () => handleMarkPaid(x), disabled: busy, hidden: !(payable) },
+                    { label: tr('Edit'), onClick: () => openEdit(x), disabled: busy, hidden: !(canEdit) },
+                    { label: tr('Delete'), onClick: () => setDeleteTarget(x), disabled: busy, danger: true, hidden: !(canEdit) },
                   ]} />
                 </td>
               </tr>
@@ -254,7 +255,7 @@ export default function ExpensesPage() {
       {!!expenses.length && !visibleExpenses.length && (
         <div className="expenses-empty-state">
           <span className="expenses-empty-icon"><ReceiptIcon /></span>
-          <p className="expenses-empty-title">{tr('No expense claims match "')}{search}"</p>
+          <p className="expenses-empty-title">{tr('No expense claims match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -290,7 +291,7 @@ export default function ExpensesPage() {
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Delete')} {deleteTarget.category} {tr('claim')}</h2>
+            <h2>{tr('Delete {category} claim', { category: deleteTarget.category })}</h2>
             <p className="dialog-body">{tr('This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>

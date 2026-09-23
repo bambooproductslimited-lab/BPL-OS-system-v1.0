@@ -7,9 +7,10 @@ import {
   buildReceiptBytes, buildDrawerReportBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import './KioskPage.css';
 import './RestaurantPosPage.css';
+import { codeLabel } from '../lib/codeLabels.js';
 
 // Same "animate a live-data-driven number, not a CSS keyframe" hook as
 // RestaurantsPage.jsx's — small enough, and specific enough to each page's
@@ -85,7 +86,7 @@ async function posFetch(method, path, token, body) {
   if (text) { try { data = JSON.parse(text); } catch { data = null; } }
   if (!res.ok) {
     var err = data && data.error;
-    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : 'Something went wrong.');
+    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : tr('Something went wrong.'));
   }
   return data;
 }
@@ -242,7 +243,7 @@ export default function RestaurantPosPage() {
       const bytes = buildReceiptBytes(order, session.companyName, session.employeeName, { kickDrawer: order.paymentMethod === 'cash' });
       await printer.write(bytes);
     } catch (err) {
-      setPrinterError('Could not print: ' + err.message);
+      setPrinterError(tr('Could not print: {message}', { message: err.message }));
     } finally {
       setPrinting(false);
     }
@@ -486,7 +487,7 @@ export default function RestaurantPosPage() {
       const bytes = buildDrawerReportBytes(report, session.companyName, session.employeeName);
       await printer.write(bytes);
     } catch (err) {
-      setPrinterError('Could not print: ' + err.message);
+      setPrinterError(tr('Could not print: {message}', { message: err.message }));
     } finally {
       setPrinting(false);
     }
@@ -590,15 +591,15 @@ export default function RestaurantPosPage() {
   const mostlyBoughtItems = useMemo(() => mostlyBought.filter((m) => matchesQuery(search, m.name, m.category)), [mostlyBought, search]);
 
   const VIEW_TABS = [
-    { key: 'all', label: 'All items' },
-    { key: 'favorites', label: 'Favorites', count: favoriteItems.length },
-    { key: 'recent', label: 'Recent', count: recentItems.length },
-    { key: 'mostly', label: 'Mostly bought' }
+    { key: 'all', label: tr('All items') },
+    { key: 'favorites', label: tr('Favorites'), count: favoriteItems.length },
+    { key: 'recent', label: tr('Recent'), count: recentItems.length },
+    { key: 'mostly', label: tr('Mostly bought') }
   ];
 
   function tilePriceLabel(m) {
     if (!m.variations || !m.variations.length) return money(m.price);
-    return m.variations.length + ' prices';
+    return tr('{n} prices', { n: m.variations.length });
   }
   function renderTile(m) {
     const qty = cartQtyById.get(m.id);
@@ -680,7 +681,7 @@ export default function RestaurantPosPage() {
             <button type="button" className="btn btn-secondary" onClick={logout}>{tr('Log out')}</button>
           </div>
           <div className="kiosk-pad-wrap">
-            <div className="kiosk-prompt">{tr('Open your drawer to start,')} {session.employeeName}</div>
+            <div className="kiosk-prompt">{tr('Open your drawer to start, {employeeName}', { employeeName: session.employeeName })}</div>
             {openDrawerError && <div className="error-banner" style={{ marginBottom: 16 }}>{openDrawerError}</div>}
             <form className="pos-open-drawer-form" onSubmit={submitOpenDrawer}>
               <div className="field">
@@ -710,8 +711,8 @@ export default function RestaurantPosPage() {
           )}
           <div className="pos-receipt-header">{tr('Drawer Report:')} {session.employeeName}</div>
           <div className="pos-receipt-meta">
-            {new Date(r.session.openedAt).toLocaleString()} –<br />
-            {new Date(r.session.closedAt).toLocaleString()}<br />
+            {new Date(r.session.openedAt).toLocaleString(activeIntlLocale())} –<br />
+            {new Date(r.session.closedAt).toLocaleString(activeIntlLocale())}<br />
             {session.companyName}
           </div>
           <div className="pos-receipt-rule" />
@@ -734,7 +735,7 @@ export default function RestaurantPosPage() {
               <div className="pos-receipt-lines">
                 {r.movements.map((m) => (
                   <div key={m.id} className="pos-receipt-line">
-                    <span>{m.direction === 'in' ? tr('Paid in') : tr('Paid out')} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) }) : tr('Paid out at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -747,7 +748,7 @@ export default function RestaurantPosPage() {
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print report')}</button>
           {printer && (
             <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printDrawerReportThermal(closedReport)}>
-              {printing ? tr('Printing…') : tr('Print via ') + printer.name}
+              {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
             </button>
           )}
           <button type="button" className="btn btn-primary" onClick={logout}>{tr('Done')}</button>
@@ -765,10 +766,11 @@ export default function RestaurantPosPage() {
           )}
           <div className="pos-receipt-header">{session.companyName}</div>
           <div className="pos-receipt-meta">
-            {tr('Order')} {receipt.orderNo}<br />
-            {new Date(receipt.createdAt).toLocaleString()}<br />
-            {tr('Served by')} {session.employeeName}
-            {receipt.tableName && <> {tr('at')} {receipt.tableName}</>}
+            {tr('Order {orderNo}', { orderNo: receipt.orderNo })}<br />
+            {new Date(receipt.createdAt).toLocaleString(activeIntlLocale())}<br />
+            {receipt.tableName
+              ? tr('Served by {name} at {table}', { name: session.employeeName, table: receipt.tableName })
+              : tr('Served by {name}', { name: session.employeeName })}
             {receipt.waiterName && <><br />{tr('Waiter:')} {receipt.waiterName}</>}
             {receipt.guestName && <><br />{tr('Guest:')} {receipt.guestName}</>}
           </div>
@@ -785,14 +787,14 @@ export default function RestaurantPosPage() {
           <div className="pos-receipt-total">
             <span>{tr('Total')}</span><span>{money(receipt.total)}</span>
           </div>
-          <div className="pos-receipt-footer">{tr('Paid by')} {receipt.paymentMethod.replace('_', ' ')}</div>
+          <div className="pos-receipt-footer">{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</div>
         </div>
         {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
         <div className="pos-receipt-actions">
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print receipt')}</button>
           {printer && (
             <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
-              {printing ? tr('Printing…') : tr('Print via ') + printer.name}
+              {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
             </button>
           )}
           <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)}>{tr('New sale')}</button>
@@ -859,7 +861,7 @@ export default function RestaurantPosPage() {
             <div className="eyebrow">{tr('Loading menu…')}</div>
           ) : viewTab === 'all' ? (
             !grouped.length ? (
-              <div className="pos-empty">{search ? tr('No items match "') + search + '"' : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</div>
+              <div className="pos-empty">{search ? tr('No items match "{search}"', { search }) : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</div>
             ) : (
               grouped.map(([category, items]) => (
                 <div key={category} className="pos-menu-group">
@@ -870,20 +872,20 @@ export default function RestaurantPosPage() {
             )
           ) : viewTab === 'favorites' ? (
             !favoriteItems.length ? (
-              <div className="pos-empty">{search ? tr('No favorites match "') + search + '"' : tr('No favorites yet — tap the ★ on any item to pin it here.')}</div>
+              <div className="pos-empty">{search ? tr('No favorites match "{search}"', { search }) : tr('No favorites yet — tap the ★ on any item to pin it here.')}</div>
             ) : (
               <div className="pos-menu-grid pos-menu-grid-flat">{favoriteItems.map(renderTile)}</div>
             )
           ) : viewTab === 'recent' ? (
             !recentItems.length ? (
-              <div className="pos-empty">{search ? tr('No recent items match "') + search + '"' : tr('Nothing added to an order yet this shift.')}</div>
+              <div className="pos-empty">{search ? tr('No recent items match "{search}"', { search }) : tr('Nothing added to an order yet this shift.')}</div>
             ) : (
               <div className="pos-menu-grid pos-menu-grid-flat">{recentItems.map(renderTile)}</div>
             )
           ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
             <div className="eyebrow">{tr('Loading…')}</div>
           ) : !mostlyBoughtItems.length ? (
-            <div className="pos-empty">{search ? tr('No results match "') + search + '"' : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</div>
+            <div className="pos-empty">{search ? tr('No results match "{search}"', { search }) : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</div>
           ) : (
             <div className="pos-menu-grid pos-menu-grid-flat">{mostlyBoughtItems.map(renderTile)}</div>
           )}
@@ -953,7 +955,7 @@ export default function RestaurantPosPage() {
           <div className="dialog pos-drawer-dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Drawer —')} {session.employeeName}</h2>
             <p className="pos-checkout-total" style={{ marginBottom: 0 }}>
-              {tr('Opened')} {new Date(drawer.session.openedAt).toLocaleString()}
+              {tr('Opened')} {new Date(drawer.session.openedAt).toLocaleString(activeIntlLocale())}
             </p>
             <div className="pos-drawer-lines">
               <div className="pos-drawer-line"><span>{tr('Starting Cash')}</span><span>{money(drawer.startingCash)}</span></div>
@@ -969,7 +971,7 @@ export default function RestaurantPosPage() {
               <div className="pos-drawer-movements">
                 {drawer.movements.slice().reverse().map((m) => (
                   <div key={m.id} className="pos-drawer-movement-row">
-                    <span>{m.direction === 'in' ? tr('Paid in') : tr('Paid out')} {tr('at')} {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) }) : tr('Paid out at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}

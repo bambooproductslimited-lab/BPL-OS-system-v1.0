@@ -231,7 +231,7 @@ export default function DocItemsEditor({
           <div className="doc-items-schedule-foot">
             <button type="button" className="btn btn-secondary doc-items-add" onClick={addScheduleRow}>{tr('+ Add installment')}</button>
             <span className={'doc-items-schedule-check' + (Math.abs(scheduledAmount - totals.grandTotal) > 0.01 ? ' doc-items-schedule-mismatch' : '')}>
-              {tr('Scheduled')} {money(scheduledAmount, cur)} {tr('of')} {money(totals.grandTotal, cur)}
+              {tr('Scheduled {amount} of {amount2}', { amount: money(scheduledAmount, cur), amount2: money(totals.grandTotal, cur) })}
             </span>
           </div>
         </div>

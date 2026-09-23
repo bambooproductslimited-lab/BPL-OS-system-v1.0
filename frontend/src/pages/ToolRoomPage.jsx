@@ -5,7 +5,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './ToolRoomPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, msg } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // Tool room inventory: tools, equipment and materials — separate from the
 // finished-goods Products & Inventory module. Tools/equipment can be
 // checked out to an employee; materials are tracked by quantity like
@@ -48,7 +49,7 @@ function BoxIcon() {
 }
 function kindIcon(kind) { return kind === 'material' ? <BoxIcon /> : <WrenchIcon />; }
 
-const KIND_LABELS = { tool: 'Tool', equipment: 'Equipment', material: 'Material' };
+const KIND_LABELS = { tool: msg('Tool'), equipment: msg('Equipment'), material: msg('Material') };
 const EMPTY_FORM = { code: '', name: '', kind: 'tool', category: '', unit: 'each', quantityOnHand: '', reorderLevel: '', condition: 'good', location: 'Tool room', notes: '' };
 
 function tagClass(status) {
@@ -133,7 +134,7 @@ export default function ToolRoomPage() {
     try {
       if (editId) await api.put('/tool-room/' + editId, form);
       else await api.post('/tool-room', form);
-      setToast(editId ? 'Item updated.' : 'Item added.');
+      setToast(editId ? tr('Item updated.') : tr('Item added.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -155,7 +156,7 @@ export default function ToolRoomPage() {
     setCheckoutError(null);
     try {
       await api.post('/tool-room/' + checkoutTarget.id + '/checkout', { employeeId: checkoutEmployeeId });
-      setToast(checkoutTarget.name + ' checked out.');
+      setToast(tr('{name} checked out.', { name: checkoutTarget.name }));
       setCheckoutTarget(null);
       await load();
     } catch (err) {
@@ -169,7 +170,7 @@ export default function ToolRoomPage() {
     setBusyId(it.id);
     try {
       await api.post('/tool-room/' + it.id + '/checkout', { employeeId: null });
-      setToast(it.name + ' checked in.');
+      setToast(tr('{name} checked in.', { name: it.name }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -206,7 +207,9 @@ export default function ToolRoomPage() {
     setImportError(null);
     try {
       const result = await api.post('/tool-room/import/commit', { rows: importPreview.rows });
-      setToast('Imported ' + result.created + ' item(s)' + (result.skipped ? ' (' + result.skipped + ' already existed, skipped).' : '.'));
+      setToast(result.skipped
+        ? tr('Imported {n} item(s) ({skipped} already existed, skipped).', { n: result.created, skipped: result.skipped })
+        : tr('Imported {n} item(s).', { n: result.created }));
       setImportOpen(false);
       await load();
     } catch (err) {
@@ -248,11 +251,11 @@ export default function ToolRoomPage() {
                 </div>
               </td>
               <td>{it.name}</td>
-              <td>{KIND_LABELS[it.kind]}</td>
+              <td>{tr(KIND_LABELS[it.kind])}</td>
               <td>{it.category || '—'}</td>
               <td>{it.quantityOnHand}{it.unit !== 'each' ? ' ' + it.unit : ''} {it.lowStock && <span className="tag tag-accent toolroom-lowstock">{tr('Low')}</span>}</td>
-              <td style={{ textTransform: 'capitalize' }}>{it.condition.replace('_', ' ')}</td>
-              <td><span className={'tag ' + tagClass(it.status)}>{it.status.replace('_', ' ')}</span></td>
+              <td>{codeLabel(it.condition)}</td>
+              <td><span className={'tag ' + tagClass(it.status)}>{codeLabel(it.status)}</span></td>
               <td>
                 {it.checkedOutToName ? (
                   <div className="toolroom-driver-cell">
@@ -263,9 +266,9 @@ export default function ToolRoomPage() {
               </td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
-                  { label: "Edit", onClick: () => openEdit(it), hidden: !(canManage) },
-                  { label: "Check out", onClick: () => openCheckout(it), hidden: !(canManage && it.kind !== 'material' && it.status === 'available') },
-                  { label: "Check in", onClick: () => handleCheckIn(it), disabled: busyId === it.id, hidden: !(canManage && it.kind !== 'material' && it.status === 'checked_out') },
+                  { label: tr('Edit'), onClick: () => openEdit(it), hidden: !(canManage) },
+                  { label: tr('Check out'), onClick: () => openCheckout(it), hidden: !(canManage && it.kind !== 'material' && it.status === 'available') },
+                  { label: tr('Check in'), onClick: () => handleCheckIn(it), disabled: busyId === it.id, hidden: !(canManage && it.kind !== 'material' && it.status === 'checked_out') },
                 ]} />
               </td>
             </tr>
@@ -281,7 +284,7 @@ export default function ToolRoomPage() {
       {!!items.length && !visibleItems.length && (
         <div className="toolroom-empty-state">
           <span className="toolroom-empty-icon"><WrenchIcon /></span>
-          <p className="toolroom-empty-title">{tr('No items match "')}{search}"</p>
+          <p className="toolroom-empty-title">{tr('No items match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -292,7 +295,7 @@ export default function ToolRoomPage() {
             {dialogError && <div className="error-banner toolroom-dialog-span">{dialogError}</div>}
             <div className="field">
               <label htmlFor="tr-code">{tr('Code')}</label>
-              <input id="tr-code" className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} disabled={!!editId} placeholder={tr('TR-001')} required />
+              <input id="tr-code" className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} disabled={!!editId} placeholder="TR-001" required />
             </div>
             <div className="field">
               <label htmlFor="tr-name">{tr('Name')}</label>
@@ -350,7 +353,7 @@ export default function ToolRoomPage() {
       {checkoutTarget && (
         <div className="dialog-backdrop" onClick={() => setCheckoutTarget(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleCheckout}>
-            <h2>{tr('Check out')} {checkoutTarget.name}</h2>
+            <h2>{tr('Check out {name}', { name: checkoutTarget.name })}</h2>
             {checkoutError && <div className="error-banner">{checkoutError}</div>}
             <div className="field">
               <label htmlFor="tr-checkout-emp">{tr('Employee')}</label>
@@ -394,9 +397,7 @@ export default function ToolRoomPage() {
             {importPreview && (
               <>
                 <p className="toolroom-import-summary">
-                  {importPreview.rows.length} {tr('item row(s) found —')}
-                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} {tr('will be created,')}
-                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} {tr('already exist and will be skipped.')}
+                  {tr('{n} item row(s) found — {n2} will be created, {n3} already exist and will be skipped.', { n: importPreview.rows.length, n2: importPreview.rows.filter((r) => !r.willSkip).length, n3: importPreview.rows.filter((r) => r.willSkip).length })}
                 </p>
                 <div className="toolroom-import-scroll">
                   <table className="table toolroom-import-table">
@@ -408,9 +409,9 @@ export default function ToolRoomPage() {
                         <tr key={i} className={r.willSkip ? 'toolroom-import-row-skip' : ''}>
                           <td style={{ fontWeight: 600 }}>{r.code}</td>
                           <td>{r.name}</td>
-                          <td>{KIND_LABELS[r.kind]}</td>
+                          <td>{tr(KIND_LABELS[r.kind])}</td>
                           <td>{r.quantityOnHand}{r.unit !== 'each' ? ' ' + r.unit : ''}</td>
-                          <td style={{ textTransform: 'capitalize' }}>{r.condition.replace('_', ' ')}</td>
+                          <td>{codeLabel(r.condition)}</td>
                           <td className="toolroom-import-warnings">
                             {r.willSkip && <div>{tr('Already exists — will be skipped.')}</div>}
                             {r.warnings.map((w, wi) => <div key={wi}>{w}</div>)}
@@ -424,7 +425,7 @@ export default function ToolRoomPage() {
                   <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
-                    {importCommitting ? tr('Importing…') : tr('Import ') + importPreview.rows.filter((r) => !r.willSkip).length + tr(' item(s)')}
+                    {importCommitting ? tr('Importing…') : tr('Import {n} item(s)', { n: importPreview.rows.filter((r) => !r.willSkip).length })}
                   </button>
                 </div>
               </>

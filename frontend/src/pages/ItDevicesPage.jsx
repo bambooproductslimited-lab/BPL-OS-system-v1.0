@@ -6,6 +6,7 @@ import './ItDevicesPage.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr } from '../lib/i18n.jsx';
+import { codeLabel } from '../lib/codeLabels.js';
 // IT device inventory: company laptops/desktops/phones/monitors/etc, owned
 // and tracked by IT specifically — separate from the general Assets &
 // Maintenance module.
@@ -129,7 +130,7 @@ export default function ItDevicesPage() {
       const body = { ...form, assignedEmployeeId: form.assignedEmployeeId || null, departmentId: form.departmentId || null };
       if (editId) await api.put('/it-devices/' + editId, body);
       else await api.post('/it-devices', body);
-      setToast(editId ? 'Device updated.' : 'Device registered.');
+      setToast(editId ? tr('Device updated.') : tr('Device registered.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -169,7 +170,9 @@ export default function ItDevicesPage() {
     setImportError(null);
     try {
       const result = await api.post('/it-devices/import/commit', { rows: importPreview.rows });
-      setToast('Imported ' + result.created + ' device(s)' + (result.skipped ? ' (' + result.skipped + ' already existed, skipped).' : '.'));
+      setToast(result.skipped
+        ? tr('Imported {n} device(s) ({skipped} already existed, skipped).', { n: result.created, skipped: result.skipped })
+        : tr('Imported {n} device(s).', { n: result.created }));
       setImportOpen(false);
       await load();
     } catch (err) {
@@ -221,11 +224,11 @@ export default function ItDevicesPage() {
                   </div>
                 ) : d.assigneeName}
               </td>
-              <td style={{ textTransform: 'capitalize' }}>{d.condition}</td>
-              <td><span className={'tag ' + tagClass(d.status)}>{d.status.replace('_', ' ')}</span></td>
+              <td>{codeLabel(d.condition)}</td>
+              <td><span className={'tag ' + tagClass(d.status)}>{codeLabel(d.status)}</span></td>
               <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                 <RowMenu actions={[
-                  { label: "Edit", onClick: () => openEdit(d), hidden: !(canManage) },
+                  { label: tr('Edit'), onClick: () => openEdit(d), hidden: !(canManage) },
                 ]} />
               </td>
             </tr>
@@ -241,7 +244,7 @@ export default function ItDevicesPage() {
       {!!devices.length && !visibleDevices.length && (
         <div className="itdevices-empty-state">
           <span className="itdevices-empty-icon"><DeviceIcon /></span>
-          <p className="itdevices-empty-title">{tr('No devices match "')}{search}"</p>
+          <p className="itdevices-empty-title">{tr('No devices match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -361,9 +364,7 @@ export default function ItDevicesPage() {
             {importPreview && (
               <>
                 <p className="itdevices-import-summary">
-                  {importPreview.rows.length} {tr('device row(s) found —')}
-                  {' '}{importPreview.rows.filter((r) => !r.willSkip).length} {tr('will be created,')}
-                  {' '}{importPreview.rows.filter((r) => r.willSkip).length} {tr('already exist and will be skipped.')}
+                  {tr('{n} device row(s) found — {n2} will be created, {n3} already exist and will be skipped.', { n: importPreview.rows.length, n2: importPreview.rows.filter((r) => !r.willSkip).length, n3: importPreview.rows.filter((r) => r.willSkip).length })}
                 </p>
                 <div className="itdevices-import-scroll">
                   <table className="table itdevices-import-table">
@@ -375,7 +376,7 @@ export default function ItDevicesPage() {
                         <tr key={i} className={r.willSkip ? 'itdevices-import-row-skip' : ''}>
                           <td style={{ fontWeight: 600 }}>{r.deviceTag}</td>
                           <td>{(r.brand + ' ' + r.model).trim() || '—'}</td>
-                          <td style={{ textTransform: 'capitalize' }}>{r.status.replace('_', ' ')}</td>
+                          <td>{codeLabel(r.status)}</td>
                           <td>{r.location || (r.assignedEmployeeId ? tr('Matched employee') : '—')}</td>
                           <td className="itdevices-import-warnings">
                             {r.willSkip && <div>{tr('Already exists — will be skipped.')}</div>}
@@ -390,7 +391,7 @@ export default function ItDevicesPage() {
                   <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
                   <button type="button" className="btn btn-primary" disabled={importCommitting} onClick={commitImport}>
-                    {importCommitting ? tr('Importing…') : tr('Import ') + importPreview.rows.filter((r) => !r.willSkip).length + tr(' device(s)')}
+                    {importCommitting ? tr('Importing…') : tr('Import {n} device(s)', { n: importPreview.rows.filter((r) => !r.willSkip).length })}
                   </button>
                 </div>
               </>

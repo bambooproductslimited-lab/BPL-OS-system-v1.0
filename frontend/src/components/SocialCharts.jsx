@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { tr } from '../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './SocialCharts.css';
 
 // Metricool-style graphical metrics for the Social Tracker's Overview tab:
@@ -58,7 +58,7 @@ export function compactNum(n) {
 // "26 Jul … 10 Jul" with no year reads as backwards even when the
 // underlying dates are correctly sorted (one is just the following year).
 function fmtShortDate(t) {
-  return new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(t).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 var PAD = { left: 44, right: 16, top: 16, bottom: 28 };

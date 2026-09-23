@@ -8,7 +8,7 @@ import { money } from '../lib/currency';
 import { formatDate } from '../lib/dates';
 import './SuppliersPage.css';
 
-import { tr } from '../lib/i18n.jsx';
+import { tr, trNodes } from '../lib/i18n.jsx';
 // Ported from Bamboo OS.dc.html's suppliers screen (screens.suppliers
 // block + the suppliers computed values, and the shared "supplier"
 // create/edit dialog around its render()).
@@ -183,7 +183,7 @@ export default function SuppliersPage() {
     setDeleting(true);
     try {
       await api.del('/suppliers/' + deleteTarget.id);
-      setToast(deleteTarget.name + ' ' + tr('deleted.'));
+      setToast(tr('{name} deleted.', { name: deleteTarget.name }));
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -318,7 +318,7 @@ export default function SuppliersPage() {
       {!!suppliers.length && !visibleSuppliers.length && (
         <div className="suppliers-empty-state">
           <span className="suppliers-empty-icon"><BuildingIcon /></span>
-          <p className="suppliers-empty-title">{tr('No suppliers match "')}{search}"</p>
+          <p className="suppliers-empty-title">{tr('No suppliers match "{search}"', { search })}</p>
         </div>
       )}
 
@@ -482,7 +482,7 @@ export default function SuppliersPage() {
             {importPreview && (
               <>
                 <div className="suppliers-import-summary">
-                  <div><strong>{importPreview.sheetRows}</strong> {tr('sheet rows')} → <strong>{importPreview.suppliers.length}</strong> {tr('suppliers')}</div>
+                  <div>{trNodes('{rows} sheet rows → {suppliers} suppliers', { rows: <strong>{importPreview.sheetRows}</strong>, suppliers: <strong>{importPreview.suppliers.length}</strong> })}</div>
                   <div>
                     {tr('{n} new', { n: importPreview.summary.create })} · {tr('{n} updated', { n: importPreview.summary.update })} · {tr('{n} unchanged', { n: importPreview.summary.unchanged })}
                     {!!importPreview.summary.merged && <> · {tr('{n} merged from repeated rows', { n: importPreview.summary.merged })}</>}
@@ -497,7 +497,7 @@ export default function SuppliersPage() {
                     <div key={i} className={'suppliers-import-row suppliers-import-' + c.action}>
                       <div className="suppliers-import-head">
                         <strong>{c.name}</strong>
-                        <span className="suppliers-import-meta">{c.phone || tr('no phone')} · {place(c) || '—'} · {tr('sheet rows')} {c.sheetRows.join(', ')}</span>
+                        <span className="suppliers-import-meta">{c.phone || tr('no phone')} · {place(c) || '—'} · {tr('sheet rows {rows}', { rows: c.sheetRows.join(', ') })}</span>
                         <span className={'tag ' + (c.action === 'create' ? 'tag-neutral' : 'tag-accent')}>
                           {c.action === 'create' ? tr('New') : c.action === 'update' ? tr('Update') : tr('Unchanged')}
                         </span>
