@@ -443,29 +443,22 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   var resolved = attendanceService.resolveOccurredAt(occurredAt);
   var source = occurredAt ? 'kiosk_offline' : 'kiosk';
 
-  // One rule, both ways round: a tap closes whatever shift is open, and
-  // starts one if none is. Nothing else is consulted — not the time of day,
-  // not how long the shift has run, not what the employee's shift template
-  // says.
+  // A tap closes the employee's open shift, and starts one if none is open.
   //
   // Keyed on the open shift rather than on today's date, because a night
   // shift's two taps fall on two different dates: a guard starting 18:00 on
   // Tuesday taps out at 06:00 on Wednesday, and looking for "Wednesday's
-  // row" found nothing to close and opened a second shift instead. Three
-  // nights produced four rows, the middle ones recording the rest period
-  // between shifts as the shift itself.
+  // row" found nothing to close and opened a second shift instead.
   //
-  // An earlier version of this tried to be clever: a tap that looked more
-  // like the start of a shift than the end of one left the old shift open
-  // and started a new one, so that a single missed tap-out could not invert
-  // a guard's record from then on. That is not the behaviour the business
-  // wants. A shift that is not clocked out keeps running until somebody
-  // clocks it out, whenever that is, and the next tap starts the next shift
-  // — so an employee who forgot yesterday taps twice on arrival, once to
-  // close yesterday and once to start today. The kiosk names the action it
-  // just took on screen, which makes that recoverable by the person
-  // standing at it; a heuristic they cannot see is not.
+  // A shift nobody clocked out of does not wait for this tap to close it:
+  // it is clocked out automatically once it has run its limit (11 hours —
+  // see attendance.service.js's closeOverdueShifts). That normally happens
+  // in the background, and is repeated here, as of the moment of the tap, so
+  // the rule holds even for a tap the background check hasn't caught up
+  // with. An employee who forgot to tap out yesterday therefore taps once
+  // today, is clocked in, and is told what happened to yesterday's shift.
   var at = resolved.date + 'T' + resolved.time + ':00';
+  await attendanceService.closeOverdueShifts({ date: resolved.date, time: resolved.time }, emp.id);
   var open = await attendanceService.findOpenShift(emp.id, at);
 
   var action, rec;
@@ -473,21 +466,35 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
     rec = await attendanceService.clockOutEmployee(emp.id, occurredAt, location);
     action = 'out';
   } else {
-    // Nothing open. If today's shift is already finished, this is a second
-    // shift in one day rather than a mistake — but the row is keyed on
-    // (employee, date), so it cannot be recorded and saying so is better
-    // than failing obscurely.
-    var todays = await pool.query(
-      'SELECT clock_out FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, resolved.date]);
-    if (todays.rows[0] && todays.rows[0].clock_out) {
-      fail('conflict', 'You have already clocked in and out today.');
+    // A tap inside a shift the system already closed is that shift's real
+    // clock-out arriving late — a tap from the offline queue replayed after
+    // the automatic clock-out. The real time wins.
+    rec = await attendanceService.correctAutoClockOut(emp.id, resolved, location);
+    if (rec) {
+      action = 'out';
+    } else {
+      // Nothing open. If today's shift is already finished, this is a second
+      // shift in one day rather than a mistake — but the row is keyed on
+      // (employee, date), so it cannot be recorded and saying so is better
+      // than failing obscurely.
+      var closedMsg = await attendanceService.alreadyClosedMessage(emp.id, resolved.date);
+      if (closedMsg) fail('conflict', closedMsg);
+      rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt, location);
+      action = 'in';
     }
-    rec = await attendanceService.clockInEmployee(emp.id, source, occurredAt, location);
-    action = 'in';
   }
 
+  // Shifts the system clocked out since the employee last clocked in, to
+  // tell them now. Only on a live tap: a tap replayed from the offline queue
+  // has nobody standing at the screen to read it, so the notice waits for
+  // one that does.
+  var autoClosedShifts = action === 'in' && !occurredAt ? await attendanceService.takeAutoClockOutNotices(emp.id) : [];
+
   var time = (action === 'in' ? rec.clock_in : rec.clock_out).slice(0, 5);
-  return { action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status, minutesLate: rec.minutesLate || 0 };
+  return {
+    action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status,
+    minutesLate: rec.minutesLate || 0, autoClosedShifts: autoClosedShifts
+  };
 }
 
 module.exports = {

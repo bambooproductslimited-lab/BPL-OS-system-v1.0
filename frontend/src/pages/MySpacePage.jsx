@@ -59,12 +59,22 @@ function useClock() {
   return now;
 }
 
+// "Tuesday 22 September" from the server's YYYY-MM-DD.
+function noticeDate(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
+}
+function shiftHours(s) {
+  const h = (new Date(s.clockOutDate + 'T' + s.clockOut + ':00Z') - new Date(s.date + 'T' + s.clockIn + ':00Z')) / 3600000;
+  return Number.isInteger(h) ? h : Math.round(h * 10) / 10;
+}
+
 export default function MySpacePage() {
   const { session, can } = useAuth();
   const navigate = useNavigate();
   const shift = (session && session.employee && session.employee.shift) || tr('Day · 08:00–17:00');
   const now = useClock();
 
+  const [autoClosed, setAutoClosed] = useState(null);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [summary, setSummary] = useState({ todayAttendance: null, balances: [], myLeave: [] });
   const [loading, setLoading] = useState(true);
@@ -108,8 +118,11 @@ export default function MySpacePage() {
     setClocking(true);
     setError(null);
     try {
-      await api.post('/attendance/clock-in');
+      const r = await api.post('/attendance/clock-in');
       setToast(tr('Clocked in. Have a good shift.'));
+      // Shifts the system clocked out because nobody did — told once, here
+      // or at the kiosk, whichever they clock in at next.
+      if (r && r.autoClosedShifts && r.autoClosedShifts.length) setAutoClosed(r.autoClosedShifts);
       await load();
     } catch (err) {
       setError(err.message);
@@ -232,6 +245,30 @@ export default function MySpacePage() {
           </div>
         )}
       </section>
+
+      {autoClosed && (
+        <div className="dialog-backdrop" onClick={() => setAutoClosed(null)}>
+          <div className="dialog" role="alertdialog" aria-labelledby="myspace-autoclosed-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="myspace-autoclosed-title">{tr('Your last shift was not clocked out')}</h2>
+            <p className="dialog-body">
+              {tr('You clocked in at {clockIn} on {date} but didn\'t clock out, so the system clocked you out automatically at {clockOut}, {hours} hours later.', {
+                clockIn: autoClosed[0].clockIn, date: noticeDate(autoClosed[0].date), clockOut: autoClosed[0].clockOut, hours: shiftHours(autoClosed[0])
+              })}
+            </p>
+            {autoClosed.length > 1 && (
+              <p className="dialog-body">
+                {autoClosed.length === 2
+                  ? tr('One earlier shift was also clocked out automatically.')
+                  : tr('{n} earlier shifts were also clocked out automatically.', { n: autoClosed.length - 1 })}
+              </p>
+            )}
+            <p className="dialog-body">{tr('If you left at a different time, tell your supervisor so they can correct it. Remember to clock out at the end of every shift.')}</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-primary" onClick={() => setAutoClosed(null)}>{tr('OK, got it')}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

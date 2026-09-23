@@ -42,6 +42,22 @@ import './KioskPage.css';
 
 const PIN_LENGTH = 4;
 const RESULT_DISPLAY_MS = 3500;
+// A clock-in that comes with news about a previous shift stays up until the
+// employee taps OK — long enough to read — but never leaves the kiosk stuck
+// on one person's result if they walk away.
+const NOTICE_DISPLAY_MS = 20000;
+
+// "Tuesday 22 September" in the kiosk's language, from the server's
+// YYYY-MM-DD.
+function noticeDate(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
+}
+function shiftHours(s) {
+  const start = new Date(s.date + 'T' + s.clockIn + ':00Z').getTime();
+  const end = new Date(s.clockOutDate + 'T' + s.clockOut + ':00Z').getTime();
+  const h = (end - start) / 3600000;
+  return Number.isInteger(h) ? h : Math.round(h * 10) / 10;
+}
 const FLUSH_INTERVAL_MS = 20000;
 // requiresFace came back true from /kiosk/identify — the server knows this
 // PIN belongs to an enrolled employee, so a face capture is mandatory
@@ -75,6 +91,7 @@ const ICON_PATHS = {
   exit: <><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /><path d="M20 12H9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /><path d="M16 8l4 4-4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
   cloud: <path d="M7 18a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.2 8.06 4.5 4.5 0 0 1 17 17H7Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />,
   xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
+  clock: <><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.7" /><path d="M12 7.5V12l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></>,
   backspace: <><path d="M8 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8l-6-6 6-6Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="M13 10l4 4m0-4l-4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></>
 };
 function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
@@ -219,10 +236,15 @@ export default function KioskPage() {
   }
 
   async function submitPin(fullPin, faceDescriptor) {
+    let noticeShown = false;
     setSubmitting(true);
     try {
       const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
-      setResult({ kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time, status: r.status, minutesLate: r.minutesLate });
+      setResult({
+        kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time, status: r.status, minutesLate: r.minutesLate,
+        autoClosedShifts: r.autoClosedShifts || []
+      });
+      noticeShown = !!(r.autoClosedShifts && r.autoClosedShifts.length);
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
@@ -237,8 +259,13 @@ export default function KioskPage() {
     } finally {
       setSubmitting(false);
       setPin('');
-      resultTimerRef.current = setTimeout(() => setResult(null), RESULT_DISPLAY_MS);
+      resultTimerRef.current = setTimeout(() => setResult(null), noticeShown ? NOTICE_DISPLAY_MS : RESULT_DISPLAY_MS);
     }
+  }
+
+  function dismissResult() {
+    clearTimeout(resultTimerRef.current);
+    setResult(null);
   }
 
   function showErrorResult(message) {
@@ -334,6 +361,33 @@ export default function KioskPage() {
                       : tr('You\'re on time')}
                   </div>
                 )}
+                {result.autoClosedShifts && result.autoClosedShifts.length > 0 && (() => {
+                  const last = result.autoClosedShifts[0];
+                  const earlier = result.autoClosedShifts.length - 1;
+                  return (
+                    <div className="kiosk-notice" role="alertdialog" aria-labelledby="kiosk-notice-title">
+                      <div className="kiosk-notice-title" id="kiosk-notice-title">
+                        <Icon name="clock" /> {tr('Your last shift was not clocked out')}
+                      </div>
+                      <p className="kiosk-notice-body">
+                        {tr('You clocked in at {clockIn} on {date} but didn\'t clock out, so the system clocked you out automatically at {clockOut}, {hours} hours later.', {
+                          clockIn: last.clockIn, date: noticeDate(last.date), clockOut: last.clockOut, hours: shiftHours(last)
+                        })}
+                      </p>
+                      {earlier > 0 && (
+                        <p className="kiosk-notice-body">
+                          {earlier === 1
+                            ? tr('One earlier shift was also clocked out automatically.')
+                            : tr('{n} earlier shifts were also clocked out automatically.', { n: earlier })}
+                        </p>
+                      )}
+                      <p className="kiosk-notice-body kiosk-notice-hint">
+                        {tr('If you left at a different time, tell your supervisor so they can correct it. Remember to clock out at the end of every shift.')}
+                      </p>
+                      <button type="button" className="kiosk-notice-ok" onClick={dismissResult} autoFocus>{tr('OK, got it')}</button>
+                    </div>
+                  );
+                })()}
               </>
             )}
             {result.kind === 'pending' && (

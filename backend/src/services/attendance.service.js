@@ -180,14 +180,12 @@ var IMPLAUSIBLE_SHIFT_HOURS = 16;
 // The employee's shift that is still running: the most recent row with a
 // clock-in and no clock-out.
 //
-// There is no time limit on this by design. A shift that is not clocked out
-// keeps running until somebody clocks it out, however long that takes, and
-// the hours read accordingly. A tap-in that was never followed by a tap-out
-// is therefore never quietly abandoned — it stays open, visible, and closes
-// on the next tap. Shifts that ran implausibly long are flagged on the row
-// (see below) so a supervisor can correct them.
+// A shift does not stay open indefinitely: one nobody clocked out of is
+// closed automatically once it has run its limit (closeOverdueShifts below),
+// and every clock tap runs that first, so this only ever finds a shift that
+// is still within it.
 //
-// Only the upper bound remains: a shift cannot be closed by a tap that
+// Only the upper bound matters here: a shift cannot be closed by a tap that
 // happened before it started, which matters because the kiosk's offline
 // queue can replay a tap long after the fact.
 //
@@ -239,17 +237,164 @@ async function clockOutEmployee(employeeId, occurredAt, location) {
   return updated.rows[0];
 }
 
+// ---- Automatic clock-out -------------------------------------------------
+//
+// A shift nobody clocked out of is clocked out automatically once it has run
+// AUTO_CLOCK_OUT_HOURS, and the employee is told the next time they clock in
+// (takeAutoClockOutNotices). Before this, the open shift stayed open until
+// the next tap closed it — so someone who forgot on Monday closed Monday's
+// shift on Tuesday morning, recorded as 24 hours, and had to tap twice.
+//
+// The recorded clock-out is the limit itself (clock-in + 11 hours), not the
+// moment the check happened to run, so the row reads the same whenever the
+// sweep got to it. It is flagged auto_clocked_out and noted on the row, so a
+// supervisor can see which times were the system's and correct them.
+//
+// One exception: an employee whose assigned shift is itself longer than the
+// limit — a 12-hour guard shift, 18:00 to 06:00 — gets their shift's length
+// plus LONG_SHIFT_GRACE_HOURS instead. Cutting them at 11 hours would close
+// every shift before they finished it, and their real tap-out an hour later
+// would then read as the start of the next shift.
+var AUTO_CLOCK_OUT_HOURS = 11;
+var LONG_SHIFT_GRACE_HOURS = 1;
+// How far back the clock-in notice looks. An older automatic clock-out —
+// the backlog of long-open rows closed the first time this ran — is marked
+// seen without troubling the employee about a shift from weeks ago.
+var AUTO_CLOCK_OUT_NOTICE_DAYS = 7;
+
+function shiftLimitHours(row) {
+  if (!row.shift_start || !row.shift_end) return AUTO_CLOCK_OUT_HOURS;
+  var minutes = hmToMinutes(String(row.shift_end).slice(0, 5)) - hmToMinutes(String(row.shift_start).slice(0, 5));
+  if (minutes <= 0) minutes += 1440; // crosses midnight
+  return Math.max(AUTO_CLOCK_OUT_HOURS, minutes / 60 + LONG_SHIFT_GRACE_HOURS);
+}
+
+// Wall-clock arithmetic on the naive date + time the attendance table
+// stores: 'YYYY-MM-DD' + 'HH:MM[:SS]' plus some hours, as the same pair.
+function addHours(dateISO, time, hours) {
+  var t = new Date(String(dateISO).slice(0, 10) + 'T' + String(time).slice(0, 8).padEnd(8, ':00') + 'Z');
+  t = new Date(t.getTime() + Math.round(hours * 3600000));
+  var iso = t.toISOString();
+  return { date: iso.slice(0, 10), time: iso.slice(11, 19) };
+}
+
+function formatHours(h) {
+  return Number.isInteger(h) ? String(h) : h.toFixed(1);
+}
+
+// Closes every open shift that has run past its limit as of `asOf` ({ date,
+// time }, the kiosk's own convention — see resolveOccurredAt). Scoped to one
+// employee when a tap is being handled, so the tap is judged against the
+// shift as it stood at the moment of the tap; unscoped from the background
+// sweep (jobs/autoClockOut.js). Returns the rows it closed.
+async function closeOverdueShifts(asOf, employeeId) {
+  var params = [];
+  var where = 'a.clock_in IS NOT NULL AND a.clock_out IS NULL';
+  if (employeeId) { params.push(employeeId); where += ' AND a.employee_id = $1'; }
+  var res = await pool.query(
+    'SELECT a.id, a.employee_id, a.date, a.clock_in, a.note, s.start_time AS shift_start, s.end_time AS shift_end ' +
+    'FROM attendance a JOIN employees e ON e.id = a.employee_id LEFT JOIN shifts s ON s.id = e.shift_id WHERE ' + where,
+    params
+  );
+  var nowKey = asOf.date + 'T' + String(asOf.time).slice(0, 8).padEnd(8, ':00');
+  var closed = [];
+  for (var i = 0; i < res.rows.length; i++) {
+    var row = res.rows[i];
+    var limit = shiftLimitHours(row);
+    var out = addHours(row.date, row.clock_in, limit);
+    if (out.date + 'T' + out.time > nowKey) continue;
+
+    var flag = 'Clocked out automatically after ' + formatHours(limit) + ' hours — no clock-out was recorded.';
+    var upd = await pool.query(
+      'UPDATE attendance SET clock_out = $1, clock_out_date = $2, auto_clocked_out = true, auto_clock_out_seen_at = NULL, note = $3 ' +
+      'WHERE id = $4 AND clock_out IS NULL RETURNING *',
+      [out.time, out.date === String(row.date).slice(0, 10) ? null : out.date, row.note ? row.note + ' ' + flag : flag, row.id]
+    );
+    if (!upd.rows[0]) continue; // a tap closed it in the meantime
+    await audit(pool, null, 'attendance.autoClockOut', 'attendance', row.id,
+      'Clocked out automatically at ' + out.time.slice(0, 5) + ' after ' + formatHours(limit) + ' hours (shift of ' + String(row.date).slice(0, 10) + ').');
+    closed.push(upd.rows[0]);
+  }
+  return closed;
+}
+
+// A tap that lands inside a shift the system already closed was the real
+// clock-out, delivered late — in practice a tap from the kiosk's offline
+// queue, replayed after the sweep had run. The real time replaces the
+// automatic one. Returns the corrected row, or null if the tap is not one.
+async function correctAutoClockOut(employeeId, resolved, location) {
+  var at = resolved.date + 'T' + resolved.time + ':00';
+  var res = await pool.query(
+    'SELECT * FROM attendance WHERE employee_id = $1 AND auto_clocked_out ' +
+    '  AND (date + clock_in) <= $2::timestamp AND (COALESCE(clock_out_date, date) + clock_out) > $2::timestamp ' +
+    'ORDER BY (date + clock_in) DESC LIMIT 1',
+    [employeeId, at]
+  );
+  var row = res.rows[0];
+  if (!row) return null;
+  var note = String(row.note || '').replace(/\s*Clocked out automatically after [\d.]+ hours — no clock-out was recorded\./, '').trim();
+  var upd = await pool.query(
+    'UPDATE attendance SET clock_out = $1, clock_out_date = $2, clock_out_location = $3, auto_clocked_out = false, note = $4 WHERE id = $5 RETURNING *',
+    [resolved.time, resolved.date === String(row.date).slice(0, 10) ? null : resolved.date, sanitizeLocation(location), note, row.id]
+  );
+  return upd.rows[0];
+}
+
+// The automatic clock-outs this employee hasn't been told about yet, most
+// recent first — and marks them told. Called when they clock in, which is
+// when they are standing in front of a screen to read it.
+async function takeAutoClockOutNotices(employeeId) {
+  var res = await pool.query(
+    'UPDATE attendance SET auto_clock_out_seen_at = now() ' +
+    'WHERE employee_id = $1 AND auto_clocked_out AND auto_clock_out_seen_at IS NULL ' +
+    'RETURNING date, clock_in, clock_out, clock_out_date',
+    [employeeId]
+  );
+  var cutoff = addHours(todayISO(), '00:00', -24 * AUTO_CLOCK_OUT_NOTICE_DAYS).date;
+  return res.rows
+    .filter(function (r) { return String(r.date).slice(0, 10) >= cutoff; })
+    .sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); })
+    .map(function (r) {
+      return {
+        date: String(r.date).slice(0, 10),
+        clockIn: String(r.clock_in).slice(0, 5),
+        clockOut: String(r.clock_out).slice(0, 5),
+        clockOutDate: String(r.clock_out_date || r.date).slice(0, 10)
+      };
+    });
+}
+
+// A tap that finds nothing open and today's shift already closed. When the
+// system closed it, say so — "you have already clocked in and out today"
+// would be baffling to someone who never tapped out.
+async function alreadyClosedMessage(employeeId, dateISO) {
+  var res = await pool.query('SELECT clock_out, auto_clocked_out FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, dateISO]);
+  var row = res.rows[0];
+  if (!row || !row.clock_out) return null;
+  return row.auto_clocked_out
+    ? 'Your shift today was already clocked out automatically at ' + String(row.clock_out).slice(0, 5) + ' because it ran over ' + AUTO_CLOCK_OUT_HOURS + ' hours. Ask your supervisor to correct the time if you left later.'
+    : 'You have already clocked in and out today.';
+}
+
 // kernel.js: handlers['attendance.clockIn']
 async function clockIn(ctx) {
   if (!ctx.can('attendance.self')) fail('forbidden', 'Your role does not allow this action (attendance.self).');
+  await closeOverdueShifts(resolveOccurredAt(null), ctx.employee.id);
+  var closedMsg = await alreadyClosedMessage(ctx.employee.id, todayISO());
+  if (closedMsg) fail('conflict', closedMsg);
   var rec = await clockInEmployee(ctx.employee.id, 'web');
   await audit(pool, ctx, 'attendance.clockIn', 'attendance', rec.id, 'Clocked in at ' + rec.clock_in.slice(0, 5) + (rec.status === 'late' ? ' (late).' : '.'));
-  return rowToAttendance(rec);
+  return Object.assign(rowToAttendance(rec), { autoClosedShifts: await takeAutoClockOutNotices(ctx.employee.id) });
 }
 
 // kernel.js: handlers['attendance.clockOut']
 async function clockOut(ctx) {
   if (!ctx.can('attendance.self')) fail('forbidden', 'Your role does not allow this action (attendance.self).');
+  await closeOverdueShifts(resolveOccurredAt(null), ctx.employee.id);
+  if (!(await findOpenShift(ctx.employee.id, todayISO() + 'T' + nowHM() + ':00'))) {
+    var closedMsg = await alreadyClosedMessage(ctx.employee.id, todayISO());
+    if (closedMsg) fail('conflict', closedMsg);
+  }
   var rec = await clockOutEmployee(ctx.employee.id);
   await audit(pool, ctx, 'attendance.clockOut', 'attendance', rec.id, 'Clocked out at ' + rec.clock_out.slice(0, 5) + '.');
   return rowToAttendance(rec);
@@ -303,6 +448,7 @@ async function list(ctx, params) {
         department: e.department_name || '—', company: e.company_name || '—',
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
+        autoClockedOut: !!(r && r.auto_clocked_out),
         status: r ? r.status : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), note: r ? r.note : ''
       };
     })
@@ -361,6 +507,7 @@ async function report(ctx, from, to, filters) {
         department: e.department_name || '—', company: e.company_name || '—',
         date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
+        autoClockedOut: !!(r && r.auto_clocked_out),
         status: r ? r.status : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
@@ -539,8 +686,11 @@ async function adjust(ctx, p) {
   var note = V.text(p.note, 'Reason for the correction', 200);
 
   var updated = await pool.query(
-    'UPDATE attendance SET clock_in = COALESCE($1, clock_in), clock_out = COALESCE($2, clock_out), status = $3, note = $4, adjusted_by = $5 WHERE id = $6 RETURNING *',
-    [p.clockIn !== undefined ? (p.clockIn || null) : rec.clock_in, p.clockOut !== undefined ? (p.clockOut || null) : rec.clock_out, status, note, ctx.employee.id, rec.id]
+    'UPDATE attendance SET clock_in = COALESCE($1, clock_in), clock_out = COALESCE($2, clock_out), status = $3, note = $4, adjusted_by = $5, ' +
+    // A supervisor entering the clock-out is the real time; it stops being
+    // the automatic one.
+    'auto_clocked_out = auto_clocked_out AND $7::boolean WHERE id = $6 RETURNING *',
+    [p.clockIn !== undefined ? (p.clockIn || null) : rec.clock_in, p.clockOut !== undefined ? (p.clockOut || null) : rec.clock_out, status, note, ctx.employee.id, rec.id, !(p.clockOut)]
   );
 
   await audit(pool, ctx, 'attendance.adjust', 'attendance', rec.id, 'Corrected attendance for ' + rec.date + ': ' + note);
@@ -565,12 +715,16 @@ function rowToAttendance(r) {
     id: r.id, employeeId: r.employee_id, date: r.date,
     clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
     clockInLocation: r.clock_in_location, clockOutLocation: r.clock_out_location,
-    status: r.status, source: r.source, note: r.note, adjustedBy: r.adjusted_by
+    status: r.status, source: r.source, note: r.note, adjustedBy: r.adjusted_by,
+    autoClockedOut: !!r.auto_clocked_out
   };
 }
 
 module.exports = {
   findOpenShift: findOpenShift, hoursBetween: hoursBetween,
+  closeOverdueShifts: closeOverdueShifts, correctAutoClockOut: correctAutoClockOut,
+  takeAutoClockOutNotices: takeAutoClockOutNotices, alreadyClosedMessage: alreadyClosedMessage,
+  AUTO_CLOCK_OUT_HOURS: AUTO_CLOCK_OUT_HOURS,
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
   resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,

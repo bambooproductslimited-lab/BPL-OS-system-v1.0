@@ -620,7 +620,12 @@ export default function AttendancePage() {
                   <td>{r.company}</td>
                   <td>{r.department}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'} <LocationLink loc={r.clockInLocation} /></td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockOut || '—'} <LocationLink loc={r.clockOutLocation} /></td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {r.clockOut || '—'} <LocationLink loc={r.clockOutLocation} />
+                    {r.autoClockedOut && (
+                      <span className="tag tag-warning attendance-auto-tag" title={tr('Nobody clocked out, so the system did after the shift ran its limit. Correct it if you know the real time.')}>{tr('Auto')}</span>
+                    )}
+                  </td>
                   <td><span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span></td>
                   <td className="attendance-note">{r.note || '—'}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>

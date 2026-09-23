@@ -144,3 +144,6 @@
 .attendance-num { text-align: right; font-variant-numeric: tabular-nums; }
 .attendance-unscored { opacity: 0.72; }
 .attendance-muted { color: var(--color-text-muted); }
+
+.attendance-auto-tag { margin-left: 6px; font-size: 10px; padding: 1px 6px; vertical-align: middle;
+  background: var(--color-warning-100); border-color: var(--color-warning); color: var(--color-warning); }

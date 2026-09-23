@@ -425,7 +425,8 @@ async function bulkUpsertAttendance(rows) {
     var res = await pool.query(
       'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) VALUES ' + placeholders.join(',') +
       ' ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, status = EXCLUDED.status, ' +
-      "source = 'timestation', note = '', adjusted_by = NULL RETURNING (xmax = 0) AS inserted",
+      // A synced time is a real one, so it replaces an automatic clock-out.
+      "source = 'timestation', note = '', adjusted_by = NULL, auto_clocked_out = false RETURNING (xmax = 0) AS inserted",
       values
     );
     var created = 0, updated = 0;
@@ -443,7 +444,7 @@ async function bulkUpsertAttendance(rows) {
         var single = await pool.query(
           'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) ' +
           "VALUES ($1,$2,$3,$4,$5,'timestation','',NULL) " +
-          'ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL ' +
+          'ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL, auto_clocked_out = false ' +
           'RETURNING (xmax = 0) AS inserted',
           [r.employeeId, r.date, r.clockIn, r.clockOut, r.status]
         );

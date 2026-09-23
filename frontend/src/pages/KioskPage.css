@@ -229,3 +229,33 @@
 .kiosk-camera-warning:hover { background: rgba(196, 120, 20, 0.32); }
 .kiosk-camera-warning svg { width: 1.4rem; height: 1.4rem; flex: 0 0 auto; margin-top: 0.05rem; }
 .kiosk-camera-warning strong { display: block; margin-bottom: 0.15rem; color: #fff6e6; }
+
+/* A clock-in that brings news about the previous shift (clocked out
+   automatically): stays until the employee taps OK. */
+.kiosk-notice {
+  margin-top: 22px;
+  max-width: 520px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: rgba(255, 196, 70, 0.16);
+  border: 1px solid rgba(255, 196, 70, 0.55);
+  text-align: left;
+  animation: kiosk-fade-in 0.3s ease-out 0.25s both;
+}
+.kiosk-notice-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 18px; }
+.kiosk-notice-title svg { width: 22px; height: 22px; flex-shrink: 0; }
+.kiosk-notice-body { margin: 10px 0 0; font-size: 15px; line-height: 1.45; }
+.kiosk-notice-hint { opacity: 0.85; font-size: 14px; }
+.kiosk-notice-ok {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 17px;
+  background: #fff;
+  color: #1a1a1a;
+  cursor: pointer;
+}
