@@ -31,6 +31,24 @@ var { parseCsvBuffer, field } = require('../lib/csvImport');
 //    the stock figures and nothing else: prices, reorder levels and any
 //    renaming done in the OS are left alone, and every stock change is
 //    written to the stock history as a count adjustment dated to the count.
+//
+// The monthly summary tab ("2026 Sept") can be uploaded too. It has a column
+// per day with each line's closing figure, so one upload brings in the whole
+// month: the latest day's figure becomes the stock, and every day's change
+// goes into the stock history. But it is not a count — its figures are the
+// day tabs' Expected Closing, and its UOM column is a copy of one value down
+// the whole sheet — so:
+//
+// - a product physically counted on or after the summary's latest day keeps
+//   its count (products.last_counted_on, set by day-tab imports);
+// - history is only added for days after the product's latest history entry,
+//   so uploading the summary again, or after a day tab, adds nothing twice;
+// - the UOM is ignored, and there is no category column: a new product takes
+//   the category of another product with the same code, or "Other";
+// - the summary can't tell apart two identical lines that its day tabs tell
+//   apart by category ("2.7m poles" twice, once "[for slats]"), so the
+//   second such line is matched to the day-tab product with the same code
+//   and variation that the first line didn't take.
 
 var COLS = {
   // Later tabs lost the first header ("Items/Description" became blank),
@@ -132,6 +150,31 @@ function assignSkus(lines) {
   });
 }
 
+// The summary tab's date columns, e.g. "9/1/2026" … "9/30/2026". Whether
+// that is month/day or day/month depends on the sheet's locale; one month's
+// columns tell it apart, as the part that stays the same is the month.
+function readDateColumns(headers) {
+  var cols = [];
+  headers.forEach(function (h) {
+    var t = String(h).trim();
+    var iso = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    var sl = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (iso) cols.push({ header: h, y: +iso[1], a: +iso[2], b: +iso[3], iso: true });
+    else if (sl) cols.push({ header: h, y: +sl[3], a: +sl[1], b: +sl[2] });
+  });
+  if (!cols.length) return [];
+  var slashed = cols.filter(function (c) { return !c.iso; });
+  var dayFirst = slashed.length > 1
+    ? slashed.every(function (c) { return c.b === slashed[0].b; }) && !slashed.every(function (c) { return c.a === slashed[0].a; })
+    : slashed.some(function (c) { return c.a > 12; });
+  return cols.map(function (c) {
+    var m = c.iso || !dayFirst ? c.a : c.b, d = c.iso || !dayFirst ? c.b : c.a;
+    var dt = new Date(Date.UTC(c.y, m - 1, d));
+    if (dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+    return { header: c.header, date: c.y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0') };
+  }).filter(Boolean).sort(function (x, y) { return x.date < y.date ? -1 : 1; });
+}
+
 // "202609 BPL Finish Inventory - 22.csv", as Google Sheets names a
 // downloaded tab, is the count of 22 September 2026.
 function countDateFromFileName(name) {
@@ -144,13 +187,16 @@ function countDateFromFileName(name) {
 }
 
 async function loadExisting(db) {
-  var res = await db.query('SELECT id, sku, name, category, unit, current_stock FROM products');
+  var res = await db.query(
+    "SELECT p.id, p.sku, p.name, p.category, p.unit, p.current_stock, p.last_counted_on, " +
+    "(SELECT max(t.date) FROM inventory_tx t WHERE t.item_type = 'product' AND t.item_id = p.id) AS last_history FROM products p"
+  );
   var bySku = {}, byName = {};
   res.rows.forEach(function (r) {
     bySku[r.sku.toUpperCase()] = r;
     byName[r.name.trim().toLowerCase()] = byName[r.name.trim().toLowerCase()] || r;
   });
-  return { bySku: bySku, byName: byName };
+  return { bySku: bySku, byName: byName, all: res.rows };
 }
 
 function matchExisting(existing, line) {
@@ -193,6 +239,132 @@ function readLines(rows) {
   return lines;
 }
 
+// ---- the monthly summary tab ----------------------------------------------
+
+var SUMMARY_ITEM = ['item', 'items', 'itemsdescription', 'itemdescription', 'description'];
+
+function readSummaryLines(rows, dateCols) {
+  // The latest day any line has a figure for (later days are #REF! until
+  // their tab exists).
+  var latest = null;
+  dateCols.forEach(function (dc) {
+    if (rows.some(function (r) { return num(r.raw[dc.header]) !== null; })) latest = dc.date;
+  });
+  if (!latest) fail('invalid', 'The summary has no figures in any of its date columns.');
+  var lines = [];
+  rows.forEach(function (row, idx) {
+    var item = field(row.norm, SUMMARY_ITEM);
+    if (!item) return;
+    var parts = splitCode(item);
+    var variation = tidyVariation(field(row.norm, COLS.variation));
+    var warnings = [];
+    var history = [];
+    dateCols.forEach(function (dc) {
+      var v = num(row.raw[dc.header]);
+      if (v === null || dc.date > latest) return;
+      history.push({ date: dc.date, stock: Math.max(0, v) });
+    });
+    var last = history.length && history[history.length - 1].date === latest ? history[history.length - 1].stock : null;
+    var raw = num(row.raw[dateCols.filter(function (dc) { return dc.date === latest; })[0].header]);
+    if (raw !== null && raw < 0) warnings.push({ code: 'negative', counted: raw });
+    lines.push({
+      sheetRow: idx + 2, code: parts.code, itemName: parts.name, note: '', variation: variation,
+      name: productName({ name: parts.name, note: '', variation: variation }),
+      category: 'Other', unit: 'each', stock: last, history: history, warnings: warnings
+    });
+  });
+  return { lines: lines, countDate: latest };
+}
+
+// Changes after the product's latest history entry, as signed quantities
+// chained from its current stock: what the summary adds to the history.
+function historyChanges(history, fromStock, after) {
+  var prev = fromStock;
+  var out = [];
+  history.forEach(function (h) {
+    if (after && h.date <= after) return;
+    if (prev === null) { out.push({ date: h.date, qty: h.stock, stock: h.stock, opening: true }); prev = h.stock; return; }
+    if (h.stock !== prev) out.push({ date: h.date, qty: h.stock - prev, stock: h.stock });
+    prev = h.stock;
+  });
+  return out;
+}
+
+function dateText(d) { return d instanceof Date ? d.toISOString().slice(0, 10) : (d ? String(d).slice(0, 10) : null); }
+
+// Matches summary lines to products, each product at most once — see the
+// module comment on identical lines.
+function matchSummaryLines(existing, lines) {
+  var claimed = {};
+  var byCodeCategory = {};
+  existing.all.forEach(function (p) {
+    var code = p.sku.split('-')[0];
+    if (!byCodeCategory[code] && p.category) byCodeCategory[code] = p.category;
+  });
+  lines.forEach(function (l) {
+    var base = baseSku(l).toUpperCase();
+    var m = existing.bySku[l.sku.toUpperCase()];
+    if (m && claimed[m.id]) m = null;
+    if (!m) {
+      var byName = existing.byName[l.name.trim().toLowerCase()];
+      if (byName && !claimed[byName.id]) m = byName;
+    }
+    if (!m) {
+      m = existing.all.filter(function (p) { return !claimed[p.id] && p.sku.toUpperCase().indexOf(base + '-') === 0; })
+        .sort(function (a, b) { return a.sku < b.sku ? -1 : 1; })[0] || null;
+    }
+    if (m) {
+      claimed[m.id] = true;
+      l.match = m;
+    } else if (l.code && byCodeCategory[l.code]) {
+      l.category = byCodeCategory[l.code];
+    }
+  });
+}
+
+function planSummaryLine(l, countDate) {
+  var m = l.match;
+  delete l.match;
+  if (l.stock === null) { l.action = 'skip'; l.warnings.push({ code: 'no_stock' }); return; }
+  if (!m) { l.action = 'create'; l.historyDays = l.history.length; return; }
+  l.productId = m.id;
+  l.sku = m.sku;
+  l.existingSku = m.sku;
+  l.name = m.name;
+  l.category = m.category;
+  l.unit = m.unit;
+  l.previousStock = Number(m.current_stock);
+  var counted = dateText(m.last_counted_on);
+  if (counted && counted >= countDate) {
+    // Counted since: the count stays. Worth a look only where the summary's
+    // figure for that day differs from what was counted.
+    l.action = 'kept';
+    l.countedOn = counted;
+    if (counted === countDate && l.stock !== l.previousStock) l.warnings.push({ code: 'count_differs', figure: l.stock, counted: l.previousStock });
+    l.stock = l.previousStock;
+    return;
+  }
+  var changes = historyChanges(l.history, l.previousStock, dateText(m.last_history));
+  l.historyDays = changes.length;
+  l.action = changes.length || l.stock !== l.previousStock ? 'update' : 'unchanged';
+}
+
+async function previewSummary(rows, dateCols) {
+  var read = readSummaryLines(rows, dateCols);
+  var lines = read.lines;
+  if (!lines.length) fail('invalid', 'Found no items in that file.');
+  assignSkus(lines);
+  var existing = await loadExisting(pool);
+  matchSummaryLines(existing, lines);
+  var summary = { create: 0, update: 0, unchanged: 0, kept: 0, skipped: 0, withWarnings: 0 };
+  lines.forEach(function (l) {
+    planSummaryLine(l, read.countDate);
+    summary[l.action === 'skip' ? 'skipped' : l.action] += 1;
+    if (l.warnings.length) summary.withWarnings += 1;
+  });
+  return { source: 'summary', lines: lines, summary: summary, countDate: read.countDate, firstDate: dateCols[0].date };
+}
+
 async function preview(ctx, buffer, fileName) {
   if (!ctx.can('inventory.manage')) fail('forbidden', 'Your role does not allow this action (inventory.manage).');
   if (!buffer || !buffer.length) fail('invalid', 'No file uploaded.');
@@ -202,11 +374,10 @@ async function preview(ctx, buffer, fileName) {
   var headers = Object.keys(rows[0].norm);
   var hasCount = headers.some(function (h) { return COLS.physical.indexOf(h) >= 0 || COLS.expected.indexOf(h) >= 0; });
   if (!hasCount) {
-    // The monthly summary tab has a column per date and no count column.
-    var looksLikeSummary = Object.keys(rows[0].raw).some(function (h) { return /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(h.trim()); });
-    fail('invalid', looksLikeSummary
-      ? 'That is the monthly summary tab. Download one day\'s count tab instead (the tabs named 1, 2, 3 …) — it has the Physical Count column.'
-      : 'Could not find a Physical Count column. Download one day\'s count tab from the Finish Inventory sheet as CSV and try again.');
+    // The monthly summary tab: a column per date and no count column.
+    var dateCols = readDateColumns(Object.keys(rows[0].raw));
+    if (dateCols.length) return previewSummary(rows, dateCols);
+    fail('invalid', 'Could not find a Physical Count column or date columns. Download a day\'s tab (1, 2, 3 …) or the monthly summary tab from the Finish Inventory sheet as CSV and try again.');
   }
 
   var lines = readLines(rows);
@@ -232,16 +403,31 @@ async function preview(ctx, buffer, fileName) {
     if (l.warnings.length) summary.withWarnings += 1;
   });
 
-  return { lines: lines, summary: summary, countDate: countDateFromFileName(fileName) };
+  return { source: 'count', lines: lines, summary: summary, countDate: countDateFromFileName(fileName) };
 }
 
 // Re-reads each line rather than trusting the preview: the browser sends
 // back what it was shown, and this is where it is checked.
-async function commit(ctx, lines, countDate) {
+// A summary line's daily figures, checked: real dates up to the import's
+// date, in order, each a stock of 0 or more.
+function readHistory(raw, date, name) {
+  if (!Array.isArray(raw) || raw.length > 62) fail('invalid', 'The daily figures for ' + name + ' are not readable.');
+  var prev = '';
+  return raw.map(function (h) {
+    var d = V.date(h && h.date, 'Date');
+    var n = Number(h && h.stock);
+    if (d > date || d <= prev || !Number.isFinite(n) || n < 0) fail('invalid', 'The daily figures for ' + name + ' are not readable.');
+    prev = d;
+    return { date: d, stock: n };
+  });
+}
+
+async function commit(ctx, lines, countDate, source) {
   if (!ctx.can('inventory.manage')) fail('forbidden', 'Your role does not allow this action (inventory.manage).');
   if (!Array.isArray(lines) || !lines.length) fail('invalid', 'Nothing to import.');
   if (lines.length > 3000) fail('invalid', 'That is more lines than one import can take — split the sheet.');
   var date = V.date(countDate, 'Count date');
+  if (source === 'summary') return commitSummary(ctx, lines, date);
 
   var client = await pool.connect();
   var created = 0, updated = 0, unchanged = 0;
@@ -267,8 +453,8 @@ async function commit(ctx, lines, countDate) {
       var reference = 'Stock count ' + date;
       if (!match) {
         var ins = await client.query(
-          'INSERT INTO products (sku, name, category, unit, current_stock) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-          [line.sku, line.name, line.category, line.unit, line.stock]
+          'INSERT INTO products (sku, name, category, unit, current_stock, last_counted_on) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+          [line.sku, line.name, line.category, line.unit, line.stock, date]
         );
         await client.query(
           "INSERT INTO inventory_tx (item_type, item_id, type, qty, date, user_id, reference, notes) VALUES ('product',$1,'stock_count',$2,$3,$4,$5,'Opening stock from the count sheet.')",
@@ -278,6 +464,9 @@ async function commit(ctx, lines, countDate) {
         created++;
         continue;
       }
+      // Counted on this day, even when the count matches what the OS had —
+      // so a monthly summary uploaded later won't replace it.
+      await client.query('UPDATE products SET last_counted_on = GREATEST(last_counted_on, $1::date) WHERE id = $2', [date, match.id]);
       var diff = line.stock - Number(match.current_stock);
       if (diff === 0) { unchanged++; continue; }
       // Stock only. A blank category or unit is filled in; anything already
@@ -306,6 +495,77 @@ async function commit(ctx, lines, countDate) {
   return { created: created, updated: updated, unchanged: unchanged };
 }
 
+// The monthly summary: see the module comment. Everything is re-derived
+// from the database here — which products were counted since, and where
+// each one's history ends — not taken from the preview.
+async function commitSummary(ctx, lines, date) {
+  var client = await pool.connect();
+  var created = 0, updated = 0, unchanged = 0, kept = 0;
+  var who = ctx.employee ? ctx.employee.id : null;
+  try {
+    await client.query('BEGIN');
+    var existing = await loadExisting(client);
+    var seenSku = {};
+    var addHistory = async function (productId, changes) {
+      for (var j = 0; j < changes.length; j++) {
+        var c = changes[j];
+        await client.query(
+          "INSERT INTO inventory_tx (item_type, item_id, type, qty, date, user_id, reference, notes) VALUES ('product',$1,'sheet_closing',$2,$3,$4,$5,$6)",
+          [productId, c.qty, c.date, who, 'Monthly summary ' + c.date,
+            c.opening ? 'Opening figure from the monthly summary.' : 'Closing figure on the sheet: ' + c.stock + '.']
+        );
+      }
+    };
+    for (var i = 0; i < lines.length; i++) {
+      var p = lines[i] || {};
+      if (p.action === 'skip') continue;
+      var line = {
+        sku: V.text(p.sku, 'SKU', 30).toUpperCase(),
+        name: V.text(p.name, 'Product name', 80),
+        category: V.text(p.category, 'Category', 40),
+        unit: clean(p.unit).slice(0, 20) || 'each',
+        stock: Number(p.stock)
+      };
+      if (!Number.isFinite(line.stock) || line.stock < 0) fail('invalid', 'Stock for ' + line.name + ' must be 0 or more.');
+      if (seenSku[line.sku]) fail('invalid', 'SKU ' + line.sku + ' appears twice in this import.');
+      seenSku[line.sku] = true;
+      var history = readHistory(p.history, date, line.name);
+      if (!history.length || history[history.length - 1].date !== date || history[history.length - 1].stock !== line.stock) {
+        history.push({ date: date, stock: line.stock });
+      }
+
+      var match = existing.bySku[line.sku];
+      if (!match) {
+        var ins = await client.query(
+          'INSERT INTO products (sku, name, category, unit, current_stock) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+          [line.sku, line.name, line.category, line.unit, line.stock]
+        );
+        await addHistory(ins.rows[0].id, historyChanges(history, null, null));
+        existing.bySku[line.sku] = { id: ins.rows[0].id, sku: line.sku };
+        created++;
+        continue;
+      }
+      var counted = dateText(match.last_counted_on);
+      if (counted && counted >= date) { kept++; continue; }
+      var changes = historyChanges(history, Number(match.current_stock), dateText(match.last_history));
+      if (!changes.length && line.stock === Number(match.current_stock)) { unchanged++; continue; }
+      await client.query('UPDATE products SET current_stock = $1 WHERE id = $2', [line.stock, match.id]);
+      await addHistory(match.id, changes);
+      updated++;
+    }
+    await audit(client, ctx, 'product.import', 'product', 'bulk',
+      'Imported the monthly summary up to ' + date + ': ' + created + ' product(s) added, ' + updated + ' updated, ' +
+      unchanged + ' unchanged, ' + kept + ' kept at a later physical count.');
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+  return { created: created, updated: updated, unchanged: unchanged, kept: kept };
+}
+
 module.exports = {
   preview: preview,
   commit: commit,
@@ -314,5 +574,6 @@ module.exports = {
   splitCategory: splitCategory,
   tidyVariation: tidyVariation,
   assignSkus: assignSkus,
-  countDateFromFileName: countDateFromFileName
+  countDateFromFileName: countDateFromFileName,
+  readDateColumns: readDateColumns
 };

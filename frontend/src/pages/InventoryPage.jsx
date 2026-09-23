@@ -6,6 +6,7 @@ import './InventoryPage.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr, trNodes } from '../lib/i18n.jsx';
+import { formatDate } from '../lib/dates';
 // Ported from Bamboo OS.dc.html's inventory screen (screens.inventory
 // block + the products computed values, and the shared "product"
 // create/edit dialog around its render()).
@@ -39,11 +40,12 @@ function lineWarning(w) {
     case 'no_count': return tr('No physical count on this line — the expected closing figure ({expected}) is used.', w);
     case 'negative': return tr('Counted {counted} — stock can\'t be negative, so it is imported as 0.', w);
     case 'no_stock': return tr('No stock figure on this line — it is skipped.');
+    case 'count_differs': return tr('The summary says {figure} for that day, but {counted} was counted — the count is kept.', w);
     default: return w.code;
   }
 }
 
-const IMPORT_ORDER = { create: 1, update: 1, unchanged: 2, skip: 3 };
+const IMPORT_ORDER = { create: 1, update: 1, unchanged: 2, kept: 2, skip: 3 };
 
 const EMPTY_FORM = { sku: '', name: '', category: '', unit: '', costPrice: '', sellingPrice: '', currentStock: '', reorderLevel: '' };
 
@@ -151,10 +153,15 @@ export default function InventoryPage() {
     setImportCommitting(true);
     setImportError(null);
     try {
-      const lines = importPreview.lines.filter((l) => l.action === 'create' || l.action === 'update');
-      const result = await api.post('/products/import/commit', { lines, countDate });
+      const summaryTab = importPreview.source === 'summary';
+      // A day's count sends its unchanged lines too, so the OS records that
+      // they were counted that day (a later monthly summary won't replace them).
+      const lines = importPreview.lines.filter((l) => (summaryTab ? l.action === 'create' || l.action === 'update' : l.action !== 'skip'));
+      const result = await api.post('/products/import/commit', { lines, countDate, source: importPreview.source });
       setImportOpen(false);
-      setToast(tr('Stock count imported: {created} products added, {updated} stock figures changed.', result));
+      setToast(summaryTab
+        ? tr('Monthly summary imported: {created} products added, {updated} updated.', result)
+        : tr('Stock count imported: {created} products added, {updated} stock figures changed.', result));
       await load();
     } catch (err) {
       setImportError(err.message);
@@ -171,6 +178,8 @@ export default function InventoryPage() {
       (b.warnings.length > 0) - (a.warnings.length > 0) || IMPORT_ORDER[a.action] - IMPORT_ORDER[b.action] || a.sheetRow - b.sheetRow)
     : [];
   const toWrite = importPreview ? importPreview.summary.create + importPreview.summary.update : 0;
+  const isSummary = !!importPreview && importPreview.source === 'summary';
+  const canConfirmCount = !!importPreview && !isSummary && importPreview.summary.unchanged > 0;
 
   return (
     <div>
@@ -280,6 +289,9 @@ export default function InventoryPage() {
             <p className="dialog-body">
               {tr('In the Finish Inventory sheet, open the tab for the day you counted (the tabs named 1, 2, 3 …), then File → Download → Comma-separated values, and upload that file here. Each item and variation becomes a product, with its Physical Count as the stock. Uploading a later day\'s tab updates the stock figures only — prices, reorder levels and names you changed here are kept.')}
             </p>
+            <p className="dialog-body">
+              {tr('You can also upload the monthly summary tab (e.g. "2026 Sept"): it brings in each day\'s figure as stock history, and its latest day as the stock.')}
+            </p>
             {importError && <div className="error-banner">{importError}</div>}
 
             {!importPreview && (
@@ -302,16 +314,23 @@ export default function InventoryPage() {
                 <div className="inventory-import-summary">
                   <div>
                     {tr('{n} new', { n: importPreview.summary.create })} · {tr('{n} updated', { n: importPreview.summary.update })} · {tr('{n} unchanged', { n: importPreview.summary.unchanged })}
+                    {!!importPreview.summary.kept && <> · {tr('{n} kept at their count', { n: importPreview.summary.kept })}</>}
                     {!!importPreview.summary.skipped && <> · {tr('{n} skipped', { n: importPreview.summary.skipped })}</>}
                   </div>
                   {!!importPreview.summary.withWarnings && (
                     <div className="inventory-import-warncount">{tr('{n} need a look — listed first below.', { n: importPreview.summary.withWarnings })}</div>
                   )}
                 </div>
-                <div className="field inventory-import-date">
-                  <label htmlFor="inv-count-date">{tr('Count date')}</label>
-                  <input id="inv-count-date" className="input" type="date" value={countDate} onChange={(e) => setCountDate(e.target.value)} required />
-                </div>
+                {isSummary ? (
+                  <div className="inventory-import-note">
+                    {tr('Monthly summary, {from} to {to}. Its figures are the sheet\'s expected closing stock, not a physical count: the stock becomes the {to} figure, each day\'s change goes into the stock history, and products counted on or after {to} keep their count.', { from: formatDate(importPreview.firstDate), to: formatDate(importPreview.countDate) })}
+                  </div>
+                ) : (
+                  <div className="field inventory-import-date">
+                    <label htmlFor="inv-count-date">{tr('Count date')}</label>
+                    <input id="inv-count-date" className="input" type="date" value={countDate} onChange={(e) => setCountDate(e.target.value)} required />
+                  </div>
+                )}
                 <div className="inventory-import-list">
                   {previewLines.map((l) => (
                     <div key={l.sheetRow} className={'inventory-import-row inventory-import-' + l.action}>
@@ -319,14 +338,19 @@ export default function InventoryPage() {
                         <strong>{l.name}</strong>
                         <span className="inventory-import-meta">{l.existingSku || l.sku} · {l.category} · {tr('sheet row {row}', { row: l.sheetRow })}</span>
                         <span className={'tag ' + (l.action === 'create' ? 'tag-neutral' : l.action === 'update' ? 'tag-accent' : 'tag-outline')}>
-                          {l.action === 'create' ? tr('New') : l.action === 'update' ? tr('Update') : l.action === 'skip' ? tr('Skipped') : tr('Unchanged')}
+                          {l.action === 'create' ? tr('New') : l.action === 'update' ? tr('Update') : l.action === 'skip' ? tr('Skipped') : l.action === 'kept' ? tr('Kept') : tr('Unchanged')}
                         </span>
                       </div>
                       {l.stock !== null && (
                         <div className="inventory-import-stock">
-                          {l.action === 'update'
-                            ? trNodes('Stock {from} → {to} {unit}', { from: l.previousStock, to: <strong>{l.stock}</strong>, unit: l.unit })
-                            : tr('Stock {n} {unit}', { n: l.stock, unit: l.unit })}
+                          {l.action === 'kept'
+                            ? tr('Counted {n} {unit} on {date}', { n: l.stock, unit: l.unit, date: formatDate(l.countedOn) })
+                            : l.action === 'update' && l.stock !== l.previousStock
+                              ? trNodes('Stock {from} → {to} {unit}', { from: l.previousStock, to: <strong>{l.stock}</strong>, unit: l.unit })
+                              : tr('Stock {n} {unit}', { n: l.stock, unit: l.unit })}
+                          {isSummary && !!l.historyDays && (l.action === 'create' || l.action === 'update') && (
+                            <span className="inventory-import-history"> · {tr('{n} daily figures added to the stock history', { n: l.historyDays })}</span>
+                          )}
                         </div>
                       )}
                       {l.warnings.map((w, wi) => <div key={wi} className="inventory-import-warning">{lineWarning(w)}</div>)}
@@ -336,8 +360,8 @@ export default function InventoryPage() {
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
-                  <button type="button" className="btn btn-primary" disabled={importCommitting || !toWrite || !countDate} onClick={commitImport}>
-                    {importCommitting ? tr('Importing…') : toWrite ? tr('Import {n} products', { n: toWrite }) : tr('Nothing to import')}
+                  <button type="button" className="btn btn-primary" disabled={importCommitting || (!toWrite && !canConfirmCount) || !countDate} onClick={commitImport}>
+                    {importCommitting ? tr('Importing…') : toWrite ? tr('Import {n} products', { n: toWrite }) : canConfirmCount ? tr('Record the count') : tr('Nothing to import')}
                   </button>
                 </div>
               </>

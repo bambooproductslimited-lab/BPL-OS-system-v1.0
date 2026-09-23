@@ -50,10 +50,20 @@
 .inventory-import-summary { font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
 .inventory-import-warncount { color: var(--color-accent); font-size: 12px; font-weight: 600; }
 .inventory-import-date { max-width: 220px; }
+.inventory-import-note {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--color-warning-100);
+  color: var(--color-warning);
+  border-left: 3px solid var(--color-warning);
+}
+.inventory-import-history { color: var(--color-text-muted); }
 .inventory-import-list { max-height: 45vh; overflow: auto; border: var(--divider-width) solid var(--color-divider); }
 .inventory-import-row { padding: 8px 12px; border-bottom: var(--divider-width) solid var(--color-divider); font-size: 13px; }
 .inventory-import-row:last-child { border-bottom: 0; }
-.inventory-import-unchanged, .inventory-import-skip { opacity: 0.6; }
+.inventory-import-unchanged, .inventory-import-kept, .inventory-import-skip { opacity: 0.6; }
 .inventory-import-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .inventory-import-head .tag { margin-left: auto; }
 .inventory-import-meta { color: var(--color-text-muted); font-size: 12px; }

@@ -29,7 +29,7 @@ router.post('/import/preview', upload.single('file'), async function (req, res, 
   } catch (e) { next(e); }
 });
 router.post('/import/commit', async function (req, res, next) {
-  try { res.json(await productImportService.commit(req.ctx, req.body.lines, req.body.countDate)); } catch (e) { next(e); }
+  try { res.json(await productImportService.commit(req.ctx, req.body.lines, req.body.countDate, req.body.source)); } catch (e) { next(e); }
 });
 router.put('/:id', async function (req, res, next) {
   try { res.json(await productsService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
