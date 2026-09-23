@@ -69,3 +69,7 @@
 .inventory-import-meta { color: var(--color-text-muted); font-size: 12px; }
 .inventory-import-stock { font-size: 12px; margin-top: 3px; }
 .inventory-import-warning { font-size: 12px; margin-top: 3px; color: var(--color-accent); }
+
+.inventory-workbook-days td, .inventory-workbook-days th { padding: 6px 12px; }
+.inventory-workbook-days th { padding-top: 10px; }
+.inventory-workbook-diff { color: var(--color-danger); font-weight: 600; }

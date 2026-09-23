@@ -45,6 +45,68 @@ function lineWarning(w) {
   }
 }
 
+const isWorkbook = (file) => !!file && /\.xlsx$/i.test(file.name);
+
+// The whole-month workbook's preview: one row per day tab, what it holds,
+// and where stock will end up.
+function WorkbookPreview({ preview, month, onMonth }) {
+  const days = preview.days || [];
+  const overwrite = days.filter((d) => d.alreadyInOs > 0);
+  return (
+    <>
+      <div className="field inventory-import-date">
+        <label htmlFor="inv-workbook-month">{tr('Month of this workbook')}</label>
+        <input id="inv-workbook-month" className="input" type="month" value={month} onChange={(e) => onMonth(e.target.value)} required />
+      </div>
+      {!preview.month ? (
+        <div className="inventory-import-note">{tr('Choose the month this workbook is for — the file name doesn\'t say.')}</div>
+      ) : (
+        <>
+          <div className="inventory-import-summary">
+            <div>
+              {tr('{n} day tabs, {from} to {to}', { n: days.length, from: formatDate(days[0].date), to: formatDate(preview.lastDate) })}
+              {' · '}{tr('{n} new', { n: preview.newProducts })}
+            </div>
+            <div className="inventory-import-warncount">
+              {preview.laterInOs
+                ? tr('The daily stock sheet already has {date}, so stock stays as it is — these days are added as history.', { date: formatDate(preview.laterInOs) })
+                : tr('Stock will be set from {date}: {n} products change.', { date: formatDate(preview.lastDate), n: preview.stockChanges })}
+            </div>
+          </div>
+          {overwrite.length > 0 && (
+            <div className="inventory-import-note">
+              {tr('{n} of these days are already on the daily stock sheet. Importing replaces those days with the workbook\'s figures.', { n: overwrite.length })}
+            </div>
+          )}
+          <div className="inventory-import-list">
+            <table className="table inventory-workbook-days">
+              <thead>
+                <tr><th>{tr('Day')}</th><th>{tr('Items')}</th><th>{tr('Counted')}</th><th>{tr('Differences')}</th><th /></tr>
+              </thead>
+              <tbody>
+                {days.map((d) => (
+                  <tr key={d.sheet}>
+                    <td>{formatDate(d.date)}</td>
+                    <td>{d.items}</td>
+                    <td>{d.counted}</td>
+                    <td className={d.differences ? 'inventory-workbook-diff' : undefined}>{d.differences}</td>
+                    <td className="inventory-import-meta">{d.alreadyInOs ? tr('Already in the OS — replaced') : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {!!(preview.skippedTabs || []).length && (
+        <p className="inventory-import-meta" style={{ marginTop: 8 }}>
+          {tr('Left out: {tabs} — the OS works out the monthly summary itself.', { tabs: preview.skippedTabs.map((t) => '"' + t.sheet + '"').join(', ') })}
+        </p>
+      )}
+    </>
+  );
+}
+
 const IMPORT_ORDER = { create: 1, update: 1, unchanged: 2, kept: 2, skip: 3 };
 
 const EMPTY_FORM = { sku: '', name: '', category: '', unit: '', costPrice: '', sellingPrice: '', currentStock: '', reorderLevel: '' };
@@ -69,6 +131,7 @@ export default function InventoryPage() {
   const [importFile, setImportFile] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
   const [countDate, setCountDate] = useState('');
+  const [workbookMonth, setWorkbookMonth] = useState('');
   const [importError, setImportError] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importCommitting, setImportCommitting] = useState(false);
@@ -133,12 +196,19 @@ export default function InventoryPage() {
     setImportOpen(true);
   }
 
-  async function runImportPreview() {
+  async function runImportPreview(month) {
     setImportLoading(true);
     setImportError(null);
     try {
       const fd = new FormData();
       fd.append('file', importFile);
+      if (isWorkbook(importFile)) {
+        if (month) fd.append('month', month);
+        const preview = await api.upload('/products/import/workbook/preview', fd);
+        setImportPreview(preview);
+        setWorkbookMonth(preview.month || month || '');
+        return;
+      }
       const preview = await api.upload('/products/import/preview', fd);
       setImportPreview(preview);
       setCountDate(preview.countDate || new Date().toISOString().slice(0, 10));
@@ -153,6 +223,16 @@ export default function InventoryPage() {
     setImportCommitting(true);
     setImportError(null);
     try {
+      if (importPreview.source === 'workbook') {
+        const fd = new FormData();
+        fd.append('file', importFile);
+        fd.append('month', workbookMonth);
+        const result = await api.upload('/products/import/workbook/commit', fd);
+        setImportOpen(false);
+        setToast(tr('Workbook imported: {days} days, {created} products added.', result));
+        await load();
+        return;
+      }
       const summaryTab = importPreview.source === 'summary';
       // A day's count sends its unchanged lines too, so the OS records that
       // they were counted that day (a later monthly summary won't replace them).
@@ -173,13 +253,15 @@ export default function InventoryPage() {
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleProducts = products.filter((p) => matchesQuery(search, p.sku, p.name, p.category));
-  const previewLines = importPreview
+  const previewLines = importPreview && importPreview.lines
     ? importPreview.lines.slice().sort((a, b) =>
       (b.warnings.length > 0) - (a.warnings.length > 0) || IMPORT_ORDER[a.action] - IMPORT_ORDER[b.action] || a.sheetRow - b.sheetRow)
     : [];
-  const toWrite = importPreview ? importPreview.summary.create + importPreview.summary.update : 0;
+  const toWrite = importPreview && importPreview.summary ? importPreview.summary.create + importPreview.summary.update : 0;
   const isSummary = !!importPreview && importPreview.source === 'summary';
-  const canConfirmCount = !!importPreview && !isSummary && importPreview.summary.unchanged > 0;
+  const isWorkbookPreview = !!importPreview && importPreview.source === 'workbook';
+  const workbookDays = isWorkbookPreview && importPreview.month ? importPreview.days.length : 0;
+  const canConfirmCount = !!importPreview && importPreview.source === 'count' && importPreview.summary.unchanged > 0;
 
   return (
     <div>
@@ -292,24 +374,44 @@ export default function InventoryPage() {
             <p className="dialog-body">
               {tr('You can also upload the monthly summary tab (e.g. "2026 Sept"): it brings in each day\'s figure as stock history, and its latest day as the stock.')}
             </p>
+            <p className="dialog-body">
+              {tr('Or bring in a whole month at once: File → Download → Microsoft Excel (.xlsx), and upload that. Every day tab goes onto the daily stock sheet, oldest first.')}
+            </p>
             {importError && <div className="error-banner">{importError}</div>}
 
             {!importPreview && (
               <>
                 <div className="field">
                   <label htmlFor="inv-import-file">{tr('CSV file')}</label>
-                  <input id="inv-import-file" className="input" type="file" accept=".csv,text/csv" onChange={(e) => setImportFile(e.target.files[0] || null)} />
+                  <input id="inv-import-file" className="input" type="file" accept=".csv,text/csv,.xlsx" onChange={(e) => setImportFile(e.target.files[0] || null)} />
                 </div>
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
-                  <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={runImportPreview}>
+                  <button type="button" className="btn btn-primary" disabled={!importFile || importLoading} onClick={() => runImportPreview()}>
                     {importLoading ? tr('Reading…') : tr('Preview import')}
                   </button>
                 </div>
               </>
             )}
 
-            {importPreview && (
+            {isWorkbookPreview && (
+              <>
+                <WorkbookPreview
+                  preview={importPreview}
+                  month={workbookMonth}
+                  onMonth={(m) => { setWorkbookMonth(m); if (m) runImportPreview(m); }}
+                />
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(false)}>{tr('Cancel')}</button>
+                  <button type="button" className="btn btn-primary" disabled={importCommitting || importLoading || !workbookDays} onClick={commitImport}>
+                    {importCommitting ? tr('Importing…') : tr('Import {n} days', { n: workbookDays })}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {importPreview && !isWorkbookPreview && (
               <>
                 <div className="inventory-import-summary">
                   <div>

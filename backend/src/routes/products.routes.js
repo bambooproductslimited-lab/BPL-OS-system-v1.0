@@ -11,6 +11,13 @@ var upload = multer({
   fileFilter: allowlistFilter(['csv'], 'Download the count tab as CSV before uploading.')
 });
 
+// The whole month's workbook (.xlsx) — larger than one tab's CSV.
+var workbookUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: allowlistFilter(['xlsx'], 'Download the workbook as Microsoft Excel (.xlsx) before uploading.')
+});
+
 var router = express.Router();
 router.use(requireAuth);
 
@@ -26,6 +33,16 @@ router.post('/', async function (req, res, next) {
 router.post('/import/preview', upload.single('file'), async function (req, res, next) {
   try {
     res.json(await productImportService.preview(req.ctx, req.file ? req.file.buffer : null, req.file ? req.file.originalname : ''));
+  } catch (e) { next(e); }
+});
+router.post('/import/workbook/preview', workbookUpload.single('file'), async function (req, res, next) {
+  try {
+    res.json(await productImportService.previewWorkbook(req.ctx, req.file ? req.file.buffer : null, req.file ? req.file.originalname : '', req.body.month));
+  } catch (e) { next(e); }
+});
+router.post('/import/workbook/commit', workbookUpload.single('file'), async function (req, res, next) {
+  try {
+    res.json(await productImportService.commitWorkbook(req.ctx, req.file ? req.file.buffer : null, req.file ? req.file.originalname : '', req.body.month));
   } catch (e) { next(e); }
 });
 router.post('/import/commit', async function (req, res, next) {
