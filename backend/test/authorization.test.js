@@ -42,7 +42,7 @@ var crypto = require('crypto');
 var bcrypt = require('bcrypt');
 var app = require('../src/app');
 var { pool } = require('../src/db/pool');
-var aiService = require('../src/services/ai.service');
+var aiTools = require('../src/ai/tools');
 var { buildContext } = require('../src/services/context.service');
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,9 @@ var ALLOWED = {
   'GET /api/messages/directory': 'staff directory: colleagues to message. Names and job titles only',
   'GET /api/messages/:peerId': 'own conversation with one colleague',
   'POST /api/messages/:peerId': 'internal messaging — staff may message each other by design',
-  'POST /api/ai/chat': 'assistant; its snapshot is permission-scoped, asserted below'
+  'POST /api/ai/chat': "assistant; each of Claude's tools runs with the caller's own permissions, asserted below",
+  'POST /api/ai/actions/:id/confirm': "confirms a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)",
+  'POST /api/ai/actions/:id/cancel': "cancels a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)"
 };
 
 // ---------------------------------------------------------------------------
@@ -397,22 +399,33 @@ test('list endpoints any employee may call return only their own rows', async fu
   assert.deepEqual(leaks, [], "Self-scoped endpoints leaked another employee's data:\n  " + leaks.join('\n  '));
 });
 
-test('the AI assistant snapshot is permission-scoped', async function () {
+test("the AI assistant's tools are permission-scoped", async function () {
   // POST /api/ai/chat is reachable by any signed-in employee by design, so
-  // what protects payroll and revenue figures is the snapshot it builds,
-  // not the route. That scoping had never actually been executed — there
-  // is no ANTHROPIC_API_KEY in test, so the endpoint returns its
-  // "not configured" message and the snapshot was never reached. Call the
-  // builder directly instead, which needs no key.
+  // what protects payroll, revenue and stock figures is what Claude's tools
+  // return. There is no ANTHROPIC_API_KEY in test, so run the tools directly
+  // as the account with no permissions — exactly what they would return to
+  // Claude on that person's behalf.
   var ctx = await buildContext(nobody.userId);
   assert.equal(ctx.permissions.length, 0, 'fixture drifted: the test account should hold no permissions');
 
-  var snapshot = await aiService.buildContext(ctx);
+  var offered = aiTools.toolsFor(ctx);
+  var gated = offered.filter(function (t) { return t.perm; });
+  assert.deepEqual(gated.map(function (t) { return t.name; }), [], 'tools needing a permission were offered without it');
+  assert.ok(offered.every(function (t) { return t.kind === 'read'; }), 'an action was offered to someone who may not do anything');
 
-  assert.equal(snapshot.lowStockProducts, null, 'inventory detail leaked without inventory.read');
-  assert.equal(snapshot.myApprovalQueue, null, 'approval queue leaked without approval.act');
-  assert.equal(snapshot.revenueThisMonth, null, 'revenue leaked without report.read');
-  assert.equal(snapshot.revenueThisYear, null, 'revenue leaked without report.read');
-  assert.equal(snapshot.outstandingBalance, null, 'outstanding balance leaked without report.read');
-  assert.equal(snapshot.headcount, 1, 'headcount should count only the caller, not the company');
+  var overview = await aiTools.get('get_company_overview').run(ctx, {});
+  assert.equal(overview.revenueThisMonth, undefined, 'revenue leaked without report.read');
+  assert.equal(overview.outstandingBalance, undefined, 'outstanding balance leaked without report.read');
+  assert.equal(overview.headcount, 1, 'headcount should count only the caller, not the company');
+
+  var attendance = await aiTools.get('get_attendance').run(ctx, {});
+  assert.ok(attendance.items.every(function (r) { return r.code === ctx.employee.code; }), "attendance returned other employees' rows");
+  var leave = await aiTools.get('list_leave_requests').run(ctx, {});
+  var expenses = await aiTools.get('list_expense_claims').run(ctx, {});
+  var purchases = await aiTools.get('list_purchase_requests').run(ctx, {});
+  var who = ctx.employee.first_name + ' ' + ctx.employee.last_name;
+  [['leave', leave], ['expenses', expenses], ['purchases', purchases]].forEach(function (pair) {
+    var others = pair[1].items.filter(function (x) { return (x.employee || x.requester) !== who; });
+    assert.deepEqual(others, [], pair[0] + ' tool returned other people\'s records');
+  });
 });

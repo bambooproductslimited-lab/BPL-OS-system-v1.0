@@ -48,6 +48,9 @@ that they live on the same host.
      any time later and add it here to turn on real answers — no redeploy
      of the frontend needed, just set the var and it takes effect on the
      backend's next restart.
+   - `ANTHROPIC_MODEL` — optional, default `claude-opus-5`. Set
+     `claude-sonnet-5` for a cheaper, faster assistant. `ANTHROPIC_EFFORT`
+     — optional, default `medium`.
 3. Click **Apply**. Render provisions the database, then builds and starts
    the backend (`npm install && npm run migrate && npm run bootstrap`,
    then `npm start`). First deploy takes a few minutes.

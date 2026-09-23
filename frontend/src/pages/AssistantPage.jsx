@@ -4,17 +4,16 @@ import { useAuth } from '../auth/AuthContext';
 import { tr, msg } from '../lib/i18n.jsx';
 import './AssistantPage.css';
 
-// Ported from Bamboo OS.dc.html's assistant screen (screens.assistant
-// block + aiMessages/aiSuggestions/sendAi). The prototype's own sendAi()
-// calls window.claude.complete, a bridge that only exists inside the
-// design tool's own preview runtime — there is no such thing in a real
-// deployment. This talks to a real backend proxy instead
-// (POST /api/ai/chat -> ai.service.js), which assembles the same kind of
-// permission-scoped company snapshot the prototype's ai.context described
-// and calls the real Anthropic API server-side. Without an
+// The AI Assistant: Claude, answering from the OS through the backend
+// (POST /api/ai/chat -> ai.service.js), which runs Claude's tools as the
+// signed-in person — so it sees only what their role can see. Without an
 // ANTHROPIC_API_KEY configured on the server, every reply is the same
 // "not configured" message — that's the backend's own graceful fallback,
 // not something this page special-cases.
+//
+// When asked to change something (create a task, request leave…), Claude
+// only prepares it: the reply carries action cards, and nothing happens
+// until the person presses Confirm on one (POST /api/ai/actions/:id/confirm).
 //
 // Redesigned around the icon/avatar language established elsewhere: an
 // initials avatar for the signed-in user's own messages, a sparkle badge
@@ -41,11 +40,59 @@ function SparkleIcon() {
   );
 }
 
+// Claude is asked to write plain text; **bold** is the one mark-up it may
+// use, rendered here without ever treating the reply as HTML.
+function ReplyText({ text }) {
+  const parts = String(text || '').split(/\*\*(.+?)\*\*/g);
+  return parts.map((p, i) => (i % 2 ? <strong key={i}>{p}</strong> : p));
+}
+
+const ACTION_STATUS = {
+  pending: msg('Waiting for you to confirm'),
+  done: msg('Done'),
+  cancelled: msg('Cancelled'),
+  failed: msg('Could not be done'),
+  expired: msg('Expired — ask again')
+};
+
+// How a card ended, told to Claude with the rest of the conversation so it
+// knows what was confirmed and doesn't offer the same change twice.
+function historyText(m) {
+  if (!m.actions || !m.actions.length) return m.text;
+  return m.text + '\n\n' + m.actions.map((a) => '[Prepared: ' + a.summary + ' — ' + a.status + (a.result ? ': ' + a.result : '') + ']').join('\n');
+}
+
+function ActionCard({ action, onDecide }) {
+  const [working, setWorking] = useState(false);
+  async function decide(what) {
+    setWorking(true);
+    try { await onDecide(action.id, what); } finally { setWorking(false); }
+  }
+  return (
+    <div className={'assistant-action assistant-action-' + action.status}>
+      <div className="assistant-action-summary">{action.summary}</div>
+      {action.status === 'pending' ? (
+        <div className="assistant-action-buttons">
+          <button type="button" className="btn btn-primary" disabled={working} onClick={() => decide('confirm')}>{tr('Confirm')}</button>
+          <button type="button" className="btn btn-secondary" disabled={working} onClick={() => decide('cancel')}>{tr('Cancel')}</button>
+        </div>
+      ) : (
+        <div className="assistant-action-status">
+          {tr(ACTION_STATUS[action.status] || ACTION_STATUS.failed)}
+          {action.result && action.status !== 'cancelled' ? ' · ' + action.result : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const SUGGESTIONS = [
   msg('Summarize company operations today.'),
   msg('Which products are below reorder level?'),
   msg('What is in my approval queue?'),
-  msg('How is this month\'s revenue looking?')
+  msg('How is this month\'s revenue looking?'),
+  msg('Who is late today?'),
+  msg('Create a task for me to check the kiln by Friday.')
 ];
 
 export default function AssistantPage() {
@@ -64,18 +111,34 @@ export default function AssistantPage() {
   async function send(text) {
     const q = text.trim();
     if (!q || busy) return;
-    const history = messages.concat([{ role: 'user', text: q }]);
-    setMessages(history);
+    const history = messages.map((m) => ({ role: m.role, text: historyText(m) }));
+    setMessages(messages.concat([{ role: 'user', text: q }]));
     setInput('');
     setBusy(true);
     setError(null);
     try {
       const r = await api.post('/ai/chat', { message: q, history });
-      setMessages((prev) => prev.concat([{ role: 'assistant', text: r.reply }]));
+      setMessages((prev) => prev.concat([{ role: 'assistant', text: r.reply, actions: r.actions || [] }]));
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  function updateAction(id, patch) {
+    setMessages((prev) => prev.map((m) => (m.actions && m.actions.some((a) => a.id === id)
+      ? { ...m, actions: m.actions.map((a) => (a.id === id ? { ...a, ...patch } : a)) }
+      : m)));
+  }
+
+  async function decide(id, what) {
+    try {
+      const r = await api.post('/ai/actions/' + id + '/' + what, {});
+      updateAction(id, { status: r.status, result: r.result });
+    } catch (err) {
+      // Already decided or expired: the server says which, in words.
+      updateAction(id, { status: /expired/i.test(err.message) ? 'expired' : 'failed', result: err.message });
     }
   }
 
@@ -87,7 +150,7 @@ export default function AssistantPage() {
   return (
     <div>
       <p className="assistant-intro">
-        {tr('Answers only from what your role can see — the same data your dashboard and screens already show you. It does not take actions on your behalf.')}
+        {tr('Answers only from what your role can see — the same data your dashboard and screens already show you. When you ask it to do something, it prepares it and nothing happens until you press Confirm.')}
       </p>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
@@ -108,7 +171,10 @@ export default function AssistantPage() {
               ) : (
                 <span className="assistant-avatar assistant-avatar-bot"><SparkleIcon /></span>
               )}
-              <div className="assistant-bubble">{m.text}</div>
+              <div className="assistant-message">
+                <div className="assistant-bubble">{m.role === 'user' ? m.text : <ReplyText text={m.text} />}</div>
+                {(m.actions || []).map((a) => <ActionCard key={a.id} action={a} onDecide={decide} />)}
+              </div>
             </div>
           ))}
           {busy && (

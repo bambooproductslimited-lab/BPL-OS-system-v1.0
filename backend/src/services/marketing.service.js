@@ -5,7 +5,7 @@ var { audit } = require('../utils/audit');
 var whatsappService = require('./whatsapp.service');
 var { withLiveConfigState } = require('./envConfiguredIntegrations');
 var config = require('../config');
-var aiService = require('./ai.service');
+var claude = require('../ai/claude');
 
 // Social & campaign tracker (Metricool-style): channels, campaigns, a
 // content calendar of posts with their engagement numbers, and periodic
@@ -543,7 +543,7 @@ async function dashboardMetrics(ctx, from, to) {
 // this account's own real post/channel numbers rather than generic advice.
 // Ranks actual data first (top/bottom posts by engagement, channels with no
 // recent activity or falling followers), then hands that ranked snapshot to
-// the same Anthropic call ai.service.js's chat() uses — the LLM's job here
+// the same Claude client the AI Assistant uses (src/ai/claude.js) — the LLM's job here
 // is only to turn already-computed rankings into a short written brief, not
 // to invent numbers itself.
 var RECOMMENDATION_SYSTEM_PROMPT =
@@ -614,13 +614,13 @@ async function recommendations(ctx) {
   }
 
   try {
-    var text = await aiService.callAnthropic(
+    var text = await claude.complete(
       RECOMMENDATION_SYSTEM_PROMPT + '\n\nSNAPSHOT:\n' + JSON.stringify(snapshot),
       [{ role: 'user', content: 'Write the brief.' }]
     );
     return { generatedAt: new Date().toISOString(), basedOn: snapshot, recommendation: text || 'Could not generate a recommendation.' };
   } catch (err) {
-    return { generatedAt: new Date().toISOString(), basedOn: snapshot, recommendation: 'Something went wrong generating a recommendation: ' + err.message };
+    return { generatedAt: new Date().toISOString(), basedOn: snapshot, recommendation: 'Something went wrong generating a recommendation: ' + (claude.describeError(err) || err.message) };
   }
 }
 

@@ -81,7 +81,9 @@ module.exports = {
     // key into Render's environment UI — Anthropic rejects the key outright
     // (invalid x-api-key) rather than trimming it for you.
     apiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
-    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
+    model: (process.env.ANTHROPIC_MODEL || '').trim() || 'claude-opus-5',
+    // How hard the model thinks before answering — see src/ai/claude.js.
+    effort: (process.env.ANTHROPIC_EFFORT || '').trim() || 'medium',
     baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
   },
   // Cloudflare R2 (S3-compatible) storage for real Documents uploads — see

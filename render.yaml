@@ -75,8 +75,10 @@ services:
       # https://console.anthropic.com/ to enable real answers.
       - key: ANTHROPIC_API_KEY
         sync: false
+      # claude-opus-5 is the most capable; claude-sonnet-5 is cheaper and
+      # faster. See backend/src/ai/claude.js.
       - key: ANTHROPIC_MODEL
-        value: claude-sonnet-5
+        value: claude-opus-5
       # Optional — leave unset and Documents uploads are refused with a
       # clear error (everything else still works). Create a free R2 bucket
       # + API token at https://dash.cloudflare.com/ (R2 > Manage API tokens)
