@@ -42,7 +42,7 @@ router.post('/import/workbook/preview', workbookUpload.single('file'), async fun
 });
 router.post('/import/workbook/commit', workbookUpload.single('file'), async function (req, res, next) {
   try {
-    res.json(await productImportService.commitWorkbook(req.ctx, req.file ? req.file.buffer : null, req.file ? req.file.originalname : '', req.body.month));
+    res.json(await productImportService.commitWorkbook(req.ctx, req.file ? req.file.buffer : null, req.file ? req.file.originalname : '', req.body.month, req.body.mappings));
   } catch (e) { next(e); }
 });
 router.post('/import/commit', async function (req, res, next) {

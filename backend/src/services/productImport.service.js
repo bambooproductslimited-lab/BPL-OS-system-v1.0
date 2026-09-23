@@ -201,27 +201,53 @@ async function loadExisting(db) {
     "SELECT p.id, p.sku, p.name, p.category, p.unit, p.current_stock, p.last_counted_on, " +
     "(SELECT max(t.date) FROM inventory_tx t WHERE t.item_type = 'product' AND t.item_id = p.id) AS last_history FROM products p"
   );
-  var bySku = {}, byName = {};
+  var bySku = {}, byName = {}, byId = {}, byAlias = {};
   res.rows.forEach(function (r) {
     bySku[r.sku.toUpperCase()] = r;
     byName[r.name.trim().toLowerCase()] = byName[r.name.trim().toLowerCase()] || r;
+    byId[r.id] = r;
   });
-  return { bySku: bySku, byName: byName, all: res.rows };
+  (await db.query('SELECT alias, product_id FROM product_aliases')).rows.forEach(function (a) {
+    if (byId[a.product_id]) byAlias[a.alias.toUpperCase()] = byId[a.product_id];
+  });
+  return { bySku: bySku, byName: byName, byId: byId, byAlias: byAlias, all: res.rows };
 }
 
 function matchExisting(existing, line) {
-  return existing.bySku[line.sku.toUpperCase()] || existing.byName[line.name.trim().toLowerCase()] || null;
+  return existing.bySku[line.sku.toUpperCase()] || existing.byName[line.name.trim().toLowerCase()] ||
+    existing.byAlias[line.sku.toUpperCase()] || null;
+}
+
+// Early tabs (April 2026) have no Category column, and put the bundle size
+// in the variation — "4' (12/bundle) A - pcs", UOM "Each" — where later
+// tabs have "4' A - pcs" with UOM "12/bundle". Read both the same way, so
+// they land on the same products.
+var BUNDLE_IN_VARIATION = /\s*\((\d+\s*\/\s*[a-z]+)\)\s*/i;
+// …and the same for a pack size typed at the end: "P 60 - 5", 100pcs/box"
+// is "P 60 - 5"" in packs of 100pcs/box. A stray trailing comma goes too.
+var PACK_AT_END = /,\s*(\d+\s*pcs\s*\/\s*[a-z]+)\s*$/i;
+
+// The item column's heading isn't always "Item": later tabs leave it blank,
+// and some early ones have the day's number typed into it.
+function itemOf(row) {
+  var item = field(row.norm, COLS.item);
+  if (item) return item;
+  var first = Object.keys(row.raw)[0];
+  return first !== undefined && /^\d{0,2}$/.test(String(first).trim()) ? String(row.raw[first] || '').trim() : '';
 }
 
 function readLines(rows) {
   var lines = [];
+  var hasCategory = rows.length > 0 && COLS.category.some(function (c) { return c in rows[0].norm; });
   rows.forEach(function (row, idx) {
     var n = row.norm;
-    var item = field(n, COLS.item);
-    if (!item) return; // blank rows and the counter's initials under the table
+    var item = itemOf(row);
+    if (!item || /^\d+$/.test(item)) return; // blank rows, the counter's initials, row numbers
     var parts = splitCode(item);
     var cat = splitCategory(field(n, COLS.category));
-    var variation = tidyVariation(field(n, COLS.variation));
+    var rawVariation = field(n, COLS.variation);
+    var bundle = rawVariation.match(BUNDLE_IN_VARIATION) || rawVariation.match(PACK_AT_END);
+    var variation = tidyVariation((bundle ? rawVariation.replace(bundle[0], ' ') : rawVariation).replace(/[\s,]+$/, ''));
     var physical = num(field(n, COLS.physical));
     var expected = num(field(n, COLS.expected));
     var warnings = [];
@@ -248,7 +274,8 @@ function readLines(rows) {
       variation: variation,
       name: productName({ name: parts.name, note: cat.note, variation: variation }),
       category: (cat.category || 'Other').slice(0, 40),
-      unit: clean(field(n, COLS.unit)).slice(0, 20),
+      noCategory: !hasCategory,
+      unit: (bundle && /^(each|)$/i.test(clean(field(n, COLS.unit))) ? bundle[1].replace(/\s+/g, '') : clean(field(n, COLS.unit))).slice(0, 20),
       stock: stock,
       movements: movements,
       warnings: warnings
@@ -321,7 +348,7 @@ function matchSummaryLines(existing, lines) {
   });
   lines.forEach(function (l) {
     var base = baseSku(l).toUpperCase();
-    var m = existing.bySku[l.sku.toUpperCase()];
+    var m = existing.bySku[l.sku.toUpperCase()] || existing.byAlias[l.sku.toUpperCase()];
     if (m && claimed[m.id]) m = null;
     if (!m) {
       var byName = existing.byName[l.name.trim().toLowerCase()];
@@ -495,6 +522,7 @@ async function commitCountLines(client, ctx, lines, date) {
   var created = 0, updated = 0, unchanged = 0;
   var existing = await loadExisting(client);
   var seenSku = {};
+  var usedBy = {};
   for (var i = 0; i < lines.length; i++) {
     var p = lines[i] || {};
     if (p.action === 'skip') continue;
@@ -511,6 +539,17 @@ async function commitCountLines(client, ctx, lines, date) {
 
     var match = matchExisting(existing, line);
     var reference = 'Stock count ' + date;
+    if (!match && p.noCategory) {
+      // A tab with no Category column: take the category of another product
+      // with the same code, if there is one.
+      var code = line.sku.split('-')[0];
+      var sibling = existing.all.filter(function (x) { return x.sku.split('-')[0] === code && x.category && x.category !== 'Other'; })[0];
+      if (sibling) line.category = sibling.category;
+    }
+    if (match && usedBy[match.id]) {
+      fail('invalid', '"' + usedBy[match.id] + '" and "' + line.name + '" are both matched to ' + match.name + ' on ' + date + ' — two lines of one day must be two products.');
+    }
+    if (match) usedBy[match.id] = line.name;
     if (!match) {
       var ins = await client.query(
         'INSERT INTO products (sku, name, category, unit, current_stock, last_counted_on) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
@@ -520,12 +559,18 @@ async function commitCountLines(client, ctx, lines, date) {
         "INSERT INTO inventory_tx (item_type, item_id, type, qty, date, user_id, reference, notes) VALUES ('product',$1,'stock_count',$2,$3,$4,$5,'Opening stock from the count sheet.')",
         [ins.rows[0].id, line.stock, date, ctx.employee ? ctx.employee.id : null, reference]
       );
-      existing.bySku[line.sku] = { id: ins.rows[0].id, sku: line.sku, name: line.name, current_stock: line.stock };
+      existing.bySku[line.sku] = { id: ins.rows[0].id, sku: line.sku, name: line.name, category: line.category, current_stock: line.stock };
+      existing.all.push(existing.bySku[line.sku]);
       await writeSheetLine(client, ctx, date, ins.rows[0].id, Object.assign({}, p, { name: line.name }), line.stock);
       created++;
       continue;
     }
     await writeSheetLine(client, ctx, date, match.id, Object.assign({}, p, { name: line.name }), line.stock);
+    // A product first seen on a tab with no Category column gets its real
+    // category from the first later tab that has one.
+    if (!p.noCategory && line.category !== 'Other') {
+      await client.query("UPDATE products SET category = $1 WHERE id = $2 AND category IN ('', 'Other')", [line.category, match.id]);
+    }
     // Counted on this day, even when the count matches what the OS had —
     // so a monthly summary uploaded later won't replace it.
     await client.query('UPDATE products SET last_counted_on = GREATEST(last_counted_on, $1::date) WHERE id = $2', [date, match.id]);
@@ -761,10 +806,18 @@ async function previewWorkbook(ctx, buffer, fileName, monthArg) {
   )).rows.forEach(function (r) { inOs[r.date] = r.n; });
 
   var newSkus = {};
+  var unmatched = {};
+  var usedOn = {}; // product id -> dates it already has a line on, in this workbook
   var days = found.days.map(function (d) {
     var lines = dayLines(d.rows);
     var items = lines.filter(function (l) { return l.action !== 'skip'; });
-    items.forEach(function (l) { if (!matchExisting(existing, l)) newSkus[l.sku] = l.name; });
+    items.forEach(function (l) {
+      var m = matchExisting(existing, l);
+      if (m) { (usedOn[m.id] = usedOn[m.id] || {})[d.date] = true; return; }
+      newSkus[l.sku] = l.name;
+      var u = unmatched[l.sku] = unmatched[l.sku] || { sku: l.sku, name: l.name, code: l.code, days: [] };
+      u.days.push(d.date);
+    });
     return {
       date: d.date, sheet: d.sheet, items: items.length,
       counted: items.filter(function (l) { return l.movements.physical !== null; }).length,
@@ -785,8 +838,26 @@ async function previewWorkbook(ctx, buffer, fileName, monthArg) {
     return !m || Number(m.current_stock) !== l.stock;
   }).length;
 
+  // For each line the OS can't find, the products it might be: same code,
+  // and not already on the sheet on a day this line is.
+  var unmatchedList = Object.keys(unmatched).map(function (k) {
+    var u = unmatched[k];
+    var code = (u.code || u.sku.split('-')[0]).toUpperCase();
+    u.candidates = existing.all.filter(function (p) {
+      if (p.sku.split('-')[0].toUpperCase() !== code) return false;
+      var used = usedOn[p.id] || {};
+      return !u.days.some(function (d) { return used[d]; });
+    }).map(function (p) { return { id: p.id, sku: p.sku, name: p.name }; });
+    u.firstDay = u.days[0];
+    u.lastDay = u.days[u.days.length - 1];
+    u.dayCount = u.days.length;
+    delete u.days;
+    return u;
+  });
+
   return {
     source: 'workbook', month: month,
+    unmatched: unmatchedList,
     days: days.map(function (d) { var out = Object.assign({}, d); delete out.lines; return out; }),
     skippedTabs: found.skipped,
     newProducts: Object.keys(newSkus).length,
@@ -805,7 +876,25 @@ function readMonth(v) {
 
 // Reads the file again rather than trusting a preview sent back: the
 // workbook itself is the record. Every day or none.
-async function commitWorkbook(ctx, buffer, fileName, monthArg) {
+// mappings: { lineSku: productId } — lines the preview couldn't match,
+// said by the person importing to be an existing product. Kept as aliases.
+function readMappings(raw) {
+  var m = raw;
+  if (typeof raw === 'string') {
+    try { m = raw ? JSON.parse(raw) : {}; } catch (e) { fail('invalid', 'The product matches could not be read.'); }
+  }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+  var out = {};
+  Object.keys(m).forEach(function (k) {
+    if (!m[k] || m[k] === 'new') return;
+    if (!/^[0-9a-f-]{36}$/i.test(String(m[k])) || k.length > 30) fail('invalid', 'The product matches could not be read.');
+    out[k.toUpperCase()] = String(m[k]);
+  });
+  if (Object.keys(out).length > 500) fail('invalid', 'Too many product matches.');
+  return out;
+}
+
+async function commitWorkbook(ctx, buffer, fileName, monthArg, mappingsArg) {
   if (!ctx.can('inventory.manage')) fail('forbidden', 'Your role does not allow this action (inventory.manage).');
   if (!buffer || !buffer.length) fail('invalid', 'No file uploaded.');
   var month = readMonth(monthArg);
@@ -813,10 +902,22 @@ async function commitWorkbook(ctx, buffer, fileName, monthArg) {
   var found = workbookDays(wb, month);
   if (!found.days.length) fail('invalid', 'Found no day tabs (1, 2, 3 …) with a Physical Count column in that workbook.');
 
+  var mappings = readMappings(mappingsArg);
+
   var client = await pool.connect();
-  var totals = { days: 0, created: 0, updated: 0, unchanged: 0 };
+  var totals = { days: 0, created: 0, updated: 0, unchanged: 0, matched: 0 };
   try {
     await client.query('BEGIN');
+    var aliasKeys = Object.keys(mappings);
+    for (var a = 0; a < aliasKeys.length; a++) {
+      var target = (await client.query('SELECT id FROM products WHERE id = $1', [mappings[aliasKeys[a]]])).rows[0];
+      if (!target) fail('invalid', 'A product chosen as a match no longer exists. Preview the workbook again.');
+      await client.query(
+        'INSERT INTO product_aliases (alias, product_id, created_by) VALUES ($1,$2,$3) ON CONFLICT (alias) DO UPDATE SET product_id = EXCLUDED.product_id, created_by = EXCLUDED.created_by, created_at = now()',
+        [aliasKeys[a], target.id, ctx.employee ? ctx.employee.id : null]
+      );
+      totals.matched++;
+    }
     for (var i = 0; i < found.days.length; i++) {
       var d = found.days[i];
       var counts = await commitCountLines(client, ctx, dayLines(d.rows), d.date);

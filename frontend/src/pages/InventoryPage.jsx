@@ -49,8 +49,9 @@ const isWorkbook = (file) => !!file && /\.xlsx$/i.test(file.name);
 
 // The whole-month workbook's preview: one row per day tab, what it holds,
 // and where stock will end up.
-function WorkbookPreview({ preview, month, onMonth }) {
+function WorkbookPreview({ preview, month, onMonth, mappings, onMap }) {
   const days = preview.days || [];
+  const unmatched = preview.unmatched || [];
   const overwrite = days.filter((d) => d.alreadyInOs > 0);
   return (
     <>
@@ -76,6 +77,30 @@ function WorkbookPreview({ preview, month, onMonth }) {
           {overwrite.length > 0 && (
             <div className="inventory-import-note">
               {tr('{n} of these days are already on the daily stock sheet. Importing replaces those days with the workbook\'s figures.', { n: overwrite.length })}
+            </div>
+          )}
+          {unmatched.length > 0 && (
+            <div className="inventory-workbook-unmatched">
+              <div className="inventory-workbook-unmatched-title">{tr('Not found in the OS ({n})', { n: unmatched.length })}</div>
+              <p className="inventory-import-meta">
+                {tr('Lines were sometimes renamed or mistyped on the sheet. If one of these is a product the OS already has, choose it — the OS remembers, so the next import finds it by itself.')}
+              </p>
+              {unmatched.map((u) => (
+                <div key={u.sku} className="inventory-workbook-unmatched-row">
+                  <div>
+                    <div className="inventory-workbook-unmatched-name">{u.name}</div>
+                    <div className="inventory-import-meta">
+                      {u.sku} · {u.dayCount === 1
+                        ? tr('on {date}', { date: formatDate(u.firstDay) })
+                        : tr('{n} days, {from} to {to}', { n: u.dayCount, from: formatDate(u.firstDay), to: formatDate(u.lastDay) })}
+                    </div>
+                  </div>
+                  <select className="input" value={mappings[u.sku] || 'new'} onChange={(e) => onMap(u.sku, e.target.value)} aria-label={u.name}>
+                    <option value="new">{tr('Add as a new product')}</option>
+                    {u.candidates.map((c) => <option key={c.id} value={c.id}>{tr('Same as: {name}', { name: c.name + ' (' + c.sku + ')' })}</option>)}
+                  </select>
+                </div>
+              ))}
             </div>
           )}
           <div className="inventory-import-list">
@@ -132,6 +157,7 @@ export default function InventoryPage() {
   const [importPreview, setImportPreview] = useState(null);
   const [countDate, setCountDate] = useState('');
   const [workbookMonth, setWorkbookMonth] = useState('');
+  const [workbookMappings, setWorkbookMappings] = useState({});
   const [importError, setImportError] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importCommitting, setImportCommitting] = useState(false);
@@ -207,6 +233,7 @@ export default function InventoryPage() {
         const preview = await api.upload('/products/import/workbook/preview', fd);
         setImportPreview(preview);
         setWorkbookMonth(preview.month || month || '');
+        setWorkbookMappings({});
         return;
       }
       const preview = await api.upload('/products/import/preview', fd);
@@ -227,6 +254,7 @@ export default function InventoryPage() {
         const fd = new FormData();
         fd.append('file', importFile);
         fd.append('month', workbookMonth);
+        fd.append('mappings', JSON.stringify(workbookMappings));
         const result = await api.upload('/products/import/workbook/commit', fd);
         setImportOpen(false);
         setToast(tr('Workbook imported: {days} days, {created} products added.', result));
@@ -400,6 +428,8 @@ export default function InventoryPage() {
                   preview={importPreview}
                   month={workbookMonth}
                   onMonth={(m) => { setWorkbookMonth(m); if (m) runImportPreview(m); }}
+                  mappings={workbookMappings}
+                  onMap={(sku, value) => setWorkbookMappings((prev) => ({ ...prev, [sku]: value }))}
                 />
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setImportPreview(null)}>{tr('Back')}</button>

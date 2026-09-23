@@ -47,6 +47,9 @@
 .inventory-toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .inventory-import-dialog { max-width: 760px; max-height: 90vh; overflow: auto; }
+/* The dialog scrolls as a whole; its parts keep their height rather than
+   being squeezed to fit. */
+.inventory-import-dialog > * { flex-shrink: 0; }
 .inventory-import-summary { font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
 .inventory-import-warncount { color: var(--color-accent); font-size: 12px; font-weight: 600; }
 .inventory-import-date { max-width: 220px; }
@@ -73,3 +76,20 @@
 .inventory-workbook-days td, .inventory-workbook-days th { padding: 6px 12px; }
 .inventory-workbook-days th { padding-top: 10px; }
 .inventory-workbook-diff { color: var(--color-danger); font-weight: 600; }
+.inventory-workbook-unmatched {
+  border: var(--divider-width) solid var(--color-warning);
+  background: var(--color-warning-100);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.inventory-workbook-unmatched-title { font-weight: 700; font-size: 13px; color: var(--color-warning); }
+.inventory-workbook-unmatched .inventory-import-meta { margin: 2px 0 8px; }
+.inventory-workbook-unmatched-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 8px 12px; align-items: center;
+  padding: 8px 0; border-top: var(--divider-width) solid var(--color-divider); font-size: 13px;
+}
+.inventory-workbook-unmatched-name { font-weight: 600; }
+.inventory-workbook-unmatched-row select { width: 100%; }
+@media (max-width: 640px) {
+  .inventory-workbook-unmatched-row { grid-template-columns: 1fr; }
+}

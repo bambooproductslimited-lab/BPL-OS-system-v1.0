@@ -21,7 +21,8 @@ var nobody = { can: function () { return false; }, employee: { id: null }, user:
 var FILE = '202608 BPL Finish Inventory.xlsx';
 
 async function cleanup() {
-  var ours = "(sku LIKE 'Z71%' OR sku LIKE 'Z72%')";
+  var ours = "(sku LIKE 'Z71%' OR sku LIKE 'Z72%' OR sku LIKE 'Z73%')";
+  await pool.query("DELETE FROM product_aliases WHERE alias LIKE 'Z7%'");
   await pool.query("DELETE FROM inventory_tx WHERE item_type = 'product' AND item_id IN (SELECT id FROM products WHERE " + ours + ')');
   await pool.query('DELETE FROM products WHERE ' + ours);
 }
@@ -116,4 +117,59 @@ test('commit: every day lands on the daily sheet, and stock ends at the latest d
   var r = await svc.previewWorkbook(admin, await workbook(), FILE);
   assert.deepEqual(r.days.map(function (d) { return d.alreadyInOs; }), [2, 2]);
   assert.equal(r.stockChanges, 0);
+});
+
+// A July workbook written the way the April 2026 one was: no Category
+// column, the day's number typed into the item heading, the bundle size in
+// the variation. Day 2 has the slats' variation left blank (as on 31 Aug)
+// and a pack size typed into a sandpaper line's variation.
+async function olderWorkbook() {
+  var wb = new ExcelJS.Workbook();
+  var d1 = wb.addWorksheet('1');
+  d1.getRow(1).values = ['1', 'Variation', 'UOM', 'Opening Stock', 'Received', 'total stock', 'transfered', 'Breakage', 'Sold (Square)', 'Expected Closing', 'Physical Count', 'Variance'];
+  d1.getRow(2).values = ['Z71 Test Slats', "8' (25/bundle) A - pcs", 'Each', 80, null, { formula: 'D2+E2', result: 80 }, null, null, null, { formula: 'D2', result: 80 }, { formula: 'J2', result: 80 }, { formula: 'J2-K2' }];
+  var d2 = wb.addWorksheet('2');
+  d2.getRow(1).values = HEADER;
+  line(d2, 2, 'Z71 Test Slats', 'Bamboo', ' ', '25/bundle', 80, 0, 0, 0, 10);
+  line(d2, 3, 'Z72 Test Poles', 'Bamboo', '2.7m poles', 'M', 12, 0, 0, 0, 0);
+  line(d2, 4, 'Z73 Test Sandpaper', 'Supplies', 'P 20 - 5", 100pcs/box', 'Each', 9, 0, 0, 0, 0);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+var OLD_FILE = '202607 BPL Finish Inventory.xlsx';
+
+test('an older layout reads the same, and a line the OS can\'t find is offered the products it might be', async function () {
+  var r = await svc.previewWorkbook(admin, await olderWorkbook(), OLD_FILE);
+  assert.deepEqual(r.days.map(function (d) { return [d.date, d.items]; }), [['2026-07-01', 1], ['2026-07-02', 3]]);
+  // Day 1's "8' (25/bundle) A - pcs" is the slats product; the blank variation on day 2 isn't.
+  assert.deepEqual(r.unmatched.map(function (u) { return u.sku; }).sort(), ['Z71', 'Z73-P-20-5IN']);
+  var blank = r.unmatched.filter(function (u) { return u.sku === 'Z71'; })[0];
+  assert.deepEqual(blank.candidates.map(function (c) { return c.sku; }), ['Z71-8FT-A-PCS'], 'same code, and not already on the sheet that day');
+  assert.equal(blank.firstDay, '2026-07-02');
+  var sand = r.unmatched.filter(function (u) { return u.sku === 'Z73-P-20-5IN'; })[0];
+  assert.equal(sand.name, 'Test Sandpaper — P 20 - 5"', 'the pack size is not part of the name');
+});
+
+test('the person importing says which product it is; the OS remembers, and two lines of a day can\'t become one product', async function () {
+  var slats = (await pool.query("SELECT id FROM products WHERE sku = 'Z71-8FT-A-PCS'")).rows[0].id;
+  var poles = (await pool.query("SELECT id FROM products WHERE sku = 'Z72-2.7M-POLES'")).rows[0].id;
+
+  await assert.rejects(svc.commitWorkbook(admin, await olderWorkbook(), OLD_FILE, '2026-07', JSON.stringify({ Z71: poles })), /both matched/);
+  var none = await pool.query("SELECT count(*)::int AS n FROM stock_sheet_lines WHERE date BETWEEN '2026-07-01' AND '2026-07-02'");
+  assert.equal(none.rows[0].n, 0, 'a refused import saves nothing');
+  await assert.rejects(svc.commitWorkbook(admin, await olderWorkbook(), OLD_FILE, '2026-07', '{"Z71":"not-an-id"}'), /could not be read/);
+
+  var res = await svc.commitWorkbook(admin, await olderWorkbook(), OLD_FILE, '2026-07', JSON.stringify({ Z71: slats, 'Z73-P-20-5IN': 'new' }));
+  assert.equal(res.matched, 1);
+  assert.equal(res.created, 1, 'the sandpaper, kept as new');
+  var day2 = await sheet.getDay(admin, '2026-07-02');
+  assert.equal(day2.lines.filter(function (l) { return l.productId === slats; })[0].closing, 70, 'the blank line landed on the slats');
+  var sand = (await pool.query("SELECT unit, category FROM products WHERE sku = 'Z73-P-20-5IN'")).rows[0];
+  assert.deepEqual(sand, { unit: '100pcs/box', category: 'Supplies' });
+  var alias = (await pool.query("SELECT product_id FROM product_aliases WHERE alias = 'Z71'")).rows[0];
+  assert.equal(alias.product_id, slats);
+  assert.equal(Number((await pool.query('SELECT current_stock FROM products WHERE id = $1', [slats])).rows[0].current_stock), 98,
+    'July is older than the August days already there, so today\'s stock is untouched');
+
+  var again = await svc.previewWorkbook(admin, await olderWorkbook(), OLD_FILE);
+  assert.deepEqual(again.unmatched, [], 'the next import finds it by itself');
 });
