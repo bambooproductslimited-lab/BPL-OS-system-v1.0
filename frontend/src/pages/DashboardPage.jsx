@@ -2,23 +2,29 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { moneyBreakdown } from '../lib/currency';
+import { money, moneyBreakdown } from '../lib/currency';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import {
+  CompanySwitcher, Empty, Glossary, Hero, Icon, Insights, LinkButton, Row, Section,
+  avatarColor, fmtDate, initials, jump, pctChange
+} from '../components/DashKit';
 import './DashboardPage.css';
 
-// Ported from Bamboo OS.dc.html's dashboard screen (screens.dashboard
-// block + the kpiDefs/deptStats/attention computed values around its
-// render()), then redesigned into a proper "morning briefing" dashboard:
-// a personal greeting, clickable icon KPI tiles color-coded by category,
-// a filtered attention list with a celebratory empty state, and a
-// connected-dot activity timeline. dash.myOpenTasks and
-// dash.latestAnnouncement were already computed by the backend but never
-// surfaced anywhere — both are now used here, no backend changes needed.
-//
-// Icon badges get a small border-radius and KPI tiles get a hover lift —
-// both scoped to this page's own CSS, same as Messages' bubble rounding:
-// a deliberate, contained exception to the app's flat/zero-radius system
-// where the exception earns real legibility (an icon chip, a hover cue).
+// The OS overview (GET /api/dashboard): a morning briefing that explains
+// itself, in the language of the finance and marketing dashboards. Every
+// company together by default, or one company at a time from the switcher
+// (?company=SB, remembered on this device). Leads with a greeting and four
+// numbers, then "what stands out" written from today's figures, today's
+// people (by group, who came in late, who has not clocked in, who is
+// away), the restaurants' tills, what is waiting across the business, and
+// the latest activity. Everything is only what the person may see.
+
+const COMPANY_KEY = 'bos.overviewCompany';
+function initialCompany() {
+  const q = new URLSearchParams(window.location.search).get('company');
+  if (q) return q.toUpperCase();
+  try { return localStorage.getItem(COMPANY_KEY) || 'ALL'; } catch { return 'ALL'; }
+}
 
 function greeting() {
   const h = new Date().getHours();
@@ -40,28 +46,18 @@ function timeAgo(iso) {
   if (days < 7) return tr('{days}d ago', { days });
   return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short' });
 }
+function lastWeekday() {
+  return new Date(Date.now() - 7 * 86400000).toLocaleDateString(activeIntlLocale(), { weekday: 'long' });
+}
 
-const ICON_PATHS = {
-  users: <><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
-  calendar: <><rect x="4" y="5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  box: <><path d="M12 3.5 20 8 12 12.5 4 8 12 3.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M4 8v8l8 4.5 8-4.5V8" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 12.5V21" stroke="currentColor" strokeWidth="1.6" /></>,
-  cart: <><path d="M3 4h2.2l2 11.5h10.6l1.7-8.2H6.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /><circle cx="9.5" cy="19.5" r="1.3" stroke="currentColor" strokeWidth="1.6" /><circle cx="16.5" cy="19.5" r="1.3" stroke="currentColor" strokeWidth="1.6" /></>,
-  wrench: <path d="M14.7 5.3a4.3 4.3 0 0 1-5.6 5.6L4.5 15.5l3 3 4.6-4.6a4.3 4.3 0 0 1 5.6-5.6l-2.6 2.6-2.4-2.4 2.6-2.6Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />,
-  document: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  checklist: <><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M8 12.5l2.3 2.3L16 9.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
-  megaphone: <><path d="M3 10v4h3l7 4V6l-7 4H3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M17 9a4 4 0 0 1 0 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  check: <><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M8 12.5l2.3 2.3L16 9.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
-  chevron: <path d="M8 5l6 7-6 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-};
-
-function Icon({ name }) {
-  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>;
+function Person({ name }) {
+  return <span className="dk-avatar" style={{ background: avatarColor(name) }} aria-hidden="true">{initials(name)}</span>;
 }
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
+  const [company, setCompany] = useState(initialCompany);
   const [dash, setDash] = useState(null);
   const [lateAfter, setLateAfter] = useState('08:15');
   const [loading, setLoading] = useState(true);
@@ -70,155 +66,271 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const dashData = await api.get('/dashboard');
-      setDash(dashData);
+      setDash(await api.get('/dashboard?company=' + encodeURIComponent(company)));
     } catch (err) {
       setError(err.message);
+    } finally {
       setLoading(false);
-      return;
     }
-    // /settings also carries integration API keys, so it's correctly
-    // gated behind employee.read (unlike /dashboard, which any signed-in
-    // user can load) -- a viewer without it just keeps the default
-    // lateAfter shown below rather than losing the whole dashboard to a
-    // Promise.all rejection, which is what used to happen here.
-    try {
-      const settings = await api.get('/settings');
-      if (settings.lateAfter) setLateAfter(settings.lateAfter);
-    } catch (err) {
-      // ignore — cosmetic fallback only
-    }
-    setLoading(false);
-  }, []);
-
+  }, [company]);
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
-  if (error) return <div className="error-banner">{error}</div>;
+  // /settings also carries integration API keys, so it's gated behind
+  // employee.read (unlike /dashboard, which anyone signed in can load) — a
+  // viewer without it just keeps the default lateAfter.
+  useEffect(() => {
+    api.get('/settings').then((s) => { if (s.lateAfter) setLateAfter(s.lateAfter); }).catch(() => {});
+  }, []);
 
+  function pick(code) {
+    if (code === company) return;
+    setLoading(true);
+    setCompany(code);
+    try { localStorage.setItem(COMPANY_KEY, code); } catch { /* remembered for this visit only */ }
+    window.history.replaceState({}, '', window.location.pathname + (code !== 'ALL' ? '?company=' + code : ''));
+  }
+
+  const choices = dash && dash.companies.length > 1
+    ? [{ code: 'ALL', name: tr('All companies'), kind: 'all' }, ...dash.companies]
+    : [];
+  const switcher = (
+    <CompanySwitcher companies={choices} company={dash ? dash.company.code : company} onPick={pick}
+      describe={(co) => (co.kind === 'all' ? tr('Everything together') : co.kind === 'restaurant' ? tr('Restaurant') : tr('Company'))} />
+  );
+
+  if (loading && !dash) return <div className="eyebrow">{tr('Loading…')}</div>;
+  if (!dash) return <div className="error-banner">{error}</div>;
+
+  const d = dash;
   const firstName = session && session.employee ? session.employee.firstName : '';
+  const scopeName = d.company.code === 'ALL' ? tr('the business') : d.company.name;
+  const rate = d.headcount ? Math.round((d.presentToday / d.headcount) * 100) : 0;
+  const waiting = d.approvalQueue + (d.pendingLeave || 0);
+  const lowestGroup = d.departments.filter((g) => g.headcount >= 3).sort((a, b) => a.rate - b.rate)[0];
+  const showCompany = d.company.code === 'ALL' && d.companies.length > 1;
 
-  const kpis = [
-    { key: 'headcount', icon: 'users', tone: 'people', label: tr('Headcount in scope'), value: dash.headcount, note: tr('Active employees you can see'), route: '/people' },
-    { key: 'present', icon: 'clock', tone: 'people', label: tr('Clocked in today'), value: dash.presentToday, note: tr('{notClockedIn} still to clock in', { notClockedIn: dash.notClockedIn || 0 }), route: '/attendance' },
-    { key: 'late', icon: 'clock', tone: 'warning', label: tr('Late today'), value: dash.lateToday, note: tr('After {lateAfter}', { lateAfter }), route: '/attendance' },
-    { key: 'onleave', icon: 'calendar', tone: 'people', label: tr('On approved leave'), value: dash.onLeaveToday, note: tr('Away today'), route: '/leave' },
-    { key: 'pendingleave', icon: 'calendar', tone: 'warning', label: tr('Pending leave'), value: dash.pendingLeave, note: tr('Awaiting a decision'), route: '/leave' },
-    { key: 'mytasks', icon: 'checklist', tone: 'people', label: tr('Your open tasks'), value: dash.myOpenTasks, note: tr('Assigned to you'), route: '/tasks' }
+  const insights = [];
+  if (d.headcount > 1) {
+    insights.push({ tone: rate >= 90 ? 'good' : rate < 70 ? 'warn' : 'info', icon: 'people', text: tr('{present} of {headcount} people have clocked in today ({rate}%).', { present: d.presentToday, headcount: d.headcount, rate }) });
+  }
+  if (d.lateToday) {
+    insights.push({ tone: 'warn', icon: 'clock', text: d.lateToday === 1 ? tr('1 person came in late today.') : tr('{n} people came in late today.', { n: d.lateToday }), action: { label: tr('See who'), run: () => jump('ov-late') } });
+  }
+  if (lowestGroup && lowestGroup.rate < 80 && d.departments.length > 1) {
+    insights.push({ tone: 'warn', icon: 'people', text: tr('{group} has the lowest attendance today: {rate}% ({present} of {headcount}).', { group: lowestGroup.name, rate: lowestGroup.rate, present: lowestGroup.present, headcount: lowestGroup.headcount }) });
+  }
+  if (d.approvalQueue) {
+    insights.push({ tone: 'warn', icon: 'check', text: d.approvalQueue === 1 ? tr('1 item is waiting for your approval.') : tr('{n} items are waiting for your approval.', { n: d.approvalQueue }), action: { label: tr('Open approvals'), run: () => navigate('/approvals') } });
+  }
+  if (d.pendingLeave) {
+    insights.push({ tone: 'info', icon: 'calendar', text: d.pendingLeave === 1 ? tr('1 leave request is waiting for a decision.') : tr('{n} leave requests are waiting for a decision.', { n: d.pendingLeave }), action: { label: tr('Open leave'), run: () => navigate('/leave') } });
+  }
+  if (d.myOverdueTasks) {
+    insights.push({ tone: 'bad', icon: 'doc', text: d.myOverdueTasks === 1 ? tr('1 of your tasks is past its due date.') : tr('{n} of your tasks are past their due date.', { n: d.myOverdueTasks }), action: { label: tr('Open tasks'), run: () => navigate('/tasks') } });
+  }
+  if (d.overdueInvoices) {
+    insights.push({ tone: 'bad', icon: 'warn', text: d.overdueInvoices === 1 ? tr('1 invoice is overdue.') : tr('{n} invoices are overdue.', { n: d.overdueInvoices }), action: { label: tr('Finance dashboard'), run: () => navigate('/financedash' + (d.company.code !== 'ALL' ? '?company=' + d.company.code : '')) } });
+  }
+  (d.restaurants || []).forEach((r) => {
+    if (r.salesToday) {
+      const pct = pctChange(r.salesToday, r.salesSameDayLastWeek);
+      insights.push({ tone: 'info', icon: 'cash', text: pct === null
+        ? tr('{name} has taken {amount} today from {n} orders.', { name: r.name, amount: money(r.salesToday, d.currency), n: r.ordersToday })
+        : tr('{name} has taken {amount} today from {n} orders, {pct}% against last {day}.', { name: r.name, amount: money(r.salesToday, d.currency), n: r.ordersToday, pct: (pct > 0 ? '+' : '') + pct, day: lastWeekday() }) });
+    }
+    if (r.expiringSoon) {
+      insights.push({ tone: 'warn', icon: 'warn', text: tr('{name}: {n} ingredient(s) expire within 3 days.', { name: r.name, n: r.expiringSoon }), action: { label: tr('Open restaurants'), run: () => navigate('/restaurant') } });
+    }
+  });
+  if (d.lowStockCount) {
+    insights.push({ tone: 'warn', icon: 'bag', text: d.lowStockCount === 1 ? tr('1 product is at or below its reorder level.') : tr('{n} products are at or below their reorder level.', { n: d.lowStockCount }), action: { label: tr('Open inventory'), run: () => navigate('/inventory') } });
+  }
+
+  const tiles = [];
+  if (d.lowStockCount != null) tiles.push({ key: 'stock', icon: 'bag', value: d.lowStockCount, label: tr('Products to reorder'), help: tr('Bamboo Products stock at or below its reorder level.'), route: '/inventory', alert: d.lowStockCount > 0 });
+  (d.restaurants || []).forEach((r) => tiles.push({ key: 'r-' + r.code, icon: 'bag', value: r.lowStock, label: tr('{name}: kitchen stock to reorder', { name: r.name }), help: r.expiringSoon ? tr('{n} ingredient(s) expire within 3 days.', { n: r.expiringSoon }) : tr('Ingredients and supplies at or below their reorder level.'), route: '/restaurant', alert: r.lowStock > 0 || r.expiringSoon > 0 }));
+  if (d.pendingProcurement != null) tiles.push({ key: 'proc', icon: 'receipt', value: d.pendingProcurement, label: tr('Purchase requests waiting'), help: tr('Requests to buy something, waiting for a decision.'), route: '/procurement', alert: d.pendingProcurement > 0 });
+  if (d.pendingExpenses != null) tiles.push({ key: 'exp', icon: 'receipt', value: d.pendingExpenses, label: tr('Expense claims waiting'), help: tr('Staff waiting to be paid back.'), route: '/expenses', alert: d.pendingExpenses > 0 });
+  if (d.assetsDueService != null) tiles.push({ key: 'assets', icon: 'clock', value: d.assetsDueService, label: tr('Assets due for service'), help: tr('Machines and vehicles due within 7 days.'), route: '/assets', alert: d.assetsDueService > 0 });
+  if (d.outstandingInvoices != null && d.company.kind !== 'restaurant') tiles.push({ key: 'inv', icon: 'owed', value: moneyBreakdown(d.outstandingInvoices, money(0, d.currency)), label: tr('Owed by customers'), help: d.overdueInvoices ? tr('{n} invoice(s) overdue.', { n: d.overdueInvoices }) : tr('Nothing overdue.'), route: '/invoices', alert: d.overdueInvoices > 0 });
+
+  const restaurantHere = d.company.kind === 'restaurant' && d.restaurants && d.restaurants[0];
+  const stats = [
+    d.headcount
+      ? { icon: 'people', value: d.presentToday + '/' + d.headcount, label: tr('in today'), note: d.lateToday ? tr('{rate}% · {n} late', { rate, n: d.lateToday }) : tr('{rate}% of people', { rate }), onClick: () => jump('ov-people') }
+      : { icon: 'people', value: '—', label: tr('in today'), note: tr('no staff here that you can see') },
+    { icon: 'check', value: String(waiting), label: tr('waiting for you'), note: tr('{a} approvals · {l} leave requests', { a: d.approvalQueue, l: d.pendingLeave || 0 }), tone: waiting ? 'alert' : '', onClick: () => navigate('/approvals') },
+    { icon: 'doc', value: String(d.myOpenTasks), label: tr('your open tasks'), note: d.myOverdueTasks ? tr('{n} overdue', { n: d.myOverdueTasks }) : d.myTasksDueToday ? tr('{n} due today', { n: d.myTasksDueToday }) : tr('nothing overdue'), tone: d.myOverdueTasks ? 'bad' : '', onClick: () => navigate('/tasks') }
   ];
-  if (dash.lowStockCount != null) kpis.push({ key: 'lowstock', icon: 'box', tone: 'ops', label: tr('Low stock products'), value: dash.lowStockCount, note: tr('At or below reorder level'), route: '/inventory' });
-  if (dash.pendingProcurement != null) kpis.push({ key: 'procure', icon: 'cart', tone: 'ops', label: tr('Pending purchase requests'), value: dash.pendingProcurement, note: tr('Company-wide'), route: '/procurement' });
-  if (dash.assetsDueService != null) kpis.push({ key: 'assets', icon: 'wrench', tone: 'ops', label: tr('Assets due service'), value: dash.assetsDueService, note: tr('Within 7 days'), route: '/assets' });
-  if (dash.outstandingInvoices != null && dash.outstandingInvoices.length) kpis.push({ key: 'invoices', icon: 'document', tone: 'finance', label: tr('Outstanding invoices'), value: moneyBreakdown(dash.outstandingInvoices), note: tr('Unpaid balance'), route: '/invoices' });
-  if (dash.pendingExpenses != null) kpis.push({ key: 'expenses', icon: 'document', tone: 'finance', label: tr('Pending expense claims'), value: dash.pendingExpenses, note: tr('Awaiting a decision'), route: '/expenses' });
-
-  const attention = [
-    { key: 'approvals', icon: 'checklist', count: dash.approvalQueue || 0, label: tr('Items in your approval queue'), route: '/approvals' },
-    { key: 'leave', icon: 'calendar', count: dash.pendingLeave || 0, label: tr('Pending leave requests in scope'), route: '/leave' },
-    { key: 'clockin', icon: 'clock', count: dash.notClockedIn || 0, label: tr('People not yet clocked in today'), route: '/attendance' }
-  ].filter((a) => a.count > 0);
-
-  const sortedDepartments = [...dash.departments].sort((a, b) => b.rate - a.rate);
+  if (restaurantHere) {
+    const pct = pctChange(restaurantHere.salesToday, restaurantHere.salesSameDayLastWeek);
+    stats.push({ icon: 'cash', value: money(restaurantHere.salesToday, d.currency), label: tr('sales today'), note: pct === null ? tr('{n} orders today', { n: restaurantHere.ordersToday }) : tr('{pct}% against last {day}', { pct: (pct > 0 ? '+' : '') + pct, day: lastWeekday() }), onClick: () => navigate('/financedash?company=' + restaurantHere.code) });
+  } else if (d.outstandingInvoices != null) {
+    stats.push({ icon: 'owed', value: moneyBreakdown(d.outstandingInvoices, money(0, d.currency)), label: tr('owed by customers'), note: d.overdueInvoices ? tr('{n} invoice(s) overdue', { n: d.overdueInvoices }) : tr('nothing overdue'), tone: d.overdueInvoices ? 'bad' : '', onClick: () => navigate('/financedash' + (d.company.code !== 'ALL' ? '?company=' + d.company.code : '')) });
+  } else {
+    stats.push({ icon: 'calendar', value: String(d.onLeaveToday), label: tr('away on leave'), note: d.upcomingLeave.length ? tr('{n} more in the next 7 days', { n: d.upcomingLeave.length }) : tr('today'), onClick: () => jump('ov-away') });
+  }
 
   return (
-    <div>
-      <div className="dashboard-greeting">
-        <div className="eyebrow">{fmtToday()}</div>
-        <h2 className="dashboard-greeting-title">{greeting()}{firstName ? ', ' + firstName : ''}.</h2>
-      </div>
+    <div className="dk ov">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {switcher}
 
-      {dash.latestAnnouncement && (
-        <button type="button" className="dashboard-announcement" onClick={() => navigate('/announcements')}>
-          <span className="dashboard-announcement-icon"><Icon name="megaphone" /></span>
-          <span className="dashboard-announcement-text"><strong>{tr('Latest announcement')}</strong> — {dash.latestAnnouncement}</span>
-          <span className="dashboard-announcement-arrow"><Icon name="chevron" /></span>
+      <Hero eyebrow={fmtToday()} title={greeting() + (firstName ? ', ' + firstName : '') + '.'}
+        sub={tr('Here is how {scope} is doing today: who is in, what is waiting for you, and what needs attention.', { scope: scopeName })}
+        stats={stats} />
+
+      {d.latestAnnouncement && (
+        <button type="button" className="ov-announcement" onClick={() => navigate('/announcements')}>
+          <span className="ov-announcement-icon"><Icon name="send" /></span>
+          <span className="ov-announcement-text"><strong>{tr('Latest announcement')}</strong> {d.latestAnnouncement}</span>
+          <Icon name="arrow" />
         </button>
       )}
 
-      <div className="dashboard-kpis">
-        {kpis.map((k) => (
-          <button
-            type="button"
-            key={k.key}
-            className={'dashboard-kpi dashboard-kpi-' + k.tone}
-            onClick={() => navigate(k.route)}
-          >
-            <span className="dashboard-kpi-icon glow-badge"><Icon name={k.icon} /></span>
-            <span className="dashboard-kpi-arrow"><Icon name="chevron" /></span>
-            <span className="dashboard-kpi-value">{k.value == null ? '—' : k.value}</span>
-            <span className="dashboard-kpi-label">{k.label}</span>
-            <span className="dashboard-kpi-note">{k.note}</span>
-          </button>
-        ))}
-      </div>
+      <Insights items={insights.slice(0, 9)} />
 
-      <div className="dashboard-columns">
-        <section className="card dashboard-card">
-          <h2 className="dashboard-section-title">{tr('Attendance by group — today')}</h2>
-          <table className="table">
-            <thead><tr><th>{tr('Group')}</th><th>{tr('Headcount')}</th><th>{tr('Clocked in')}</th><th style={{ width: 120 }}>{tr('Rate')}</th></tr></thead>
-            <tbody>
-              {sortedDepartments.map((row) => (
-                <tr key={row.code}>
-                  <td>{row.name}</td>
-                  <td>{row.headcount}</td>
-                  <td>{row.present}</td>
-                  <td>
-                    <div className="dashboard-rate-cell">
-                      <div className="dashboard-rate-track">
-                        <div
-                          className={'dashboard-rate-bar' + (row.rate < 70 ? ' dashboard-rate-bar-low' : row.rate < 90 ? ' dashboard-rate-bar-mid' : '')}
-                          style={{ width: row.rate + '%' }}
-                        />
-                      </div>
-                      <span className="dashboard-rate-label">{row.rate}%</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!dash.departments.length && (
-            <p className="dashboard-empty-note">{tr('No group attendance is visible to your role. Your own record is on My Space.')}</p>
-          )}
-        </section>
-
-        <section className="card dashboard-card">
-          <h2 className="dashboard-section-title">{tr('Needs your attention')}</h2>
-          {attention.length ? (
-            <div className="dashboard-attention">
-              {attention.map((row) => (
-                <button type="button" className="dashboard-attention-row" key={row.key} onClick={() => navigate(row.route)}>
-                  <span className="dashboard-attention-icon glow-badge"><Icon name={row.icon} /></span>
-                  <span className="dashboard-attention-count">{row.count}</span>
-                  <span className="dashboard-attention-label">{row.label}</span>
-                  <span className="dashboard-attention-chevron"><Icon name="chevron" /></span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="dashboard-caughtup">
-              <span className="dashboard-caughtup-icon"><Icon name="check" /></span>
-              <span>{tr('You\'re all caught up.')}</span>
-            </div>
-          )}
-
-          {dash.recentAudit.length > 0 && (
-            <>
-              <h2 className="dashboard-section-title dashboard-activity-title">{tr('Latest activity')}</h2>
-              <div className="dashboard-activity">
-                {dash.recentAudit.map((log) => (
-                  <div className="dashboard-activity-item" key={log.id}>
-                    <span className="dashboard-activity-dot" />
-                    <div className="dashboard-activity-summary">{log.summary}</div>
-                    <div className="dashboard-activity-meta">{(log.actorName || tr('System')) + ' · ' + timeAgo(log.at)}</div>
+      <Section id="ov-people" title={tr('Today\'s people')} sub={tr('Attendance by group. The bar shows how many have clocked in; late and away are counted separately.')}
+        action={<LinkButton onClick={() => navigate('/attendance')}>{tr('Open attendance')}</LinkButton>}>
+        {d.departments.length ? (
+          <div className="ov-groups">
+            {d.departments.slice().sort((a, b) => a.rate - b.rate).map((g) => (
+              <div key={g.companyCode + g.code} className="ov-group">
+                <div className="ov-group-top">
+                  <div className="ov-group-name">
+                    {g.name}
+                    {showCompany && <span className="ov-group-co">{g.company}</span>}
                   </div>
-                ))}
+                  <strong className={'ov-group-rate' + (g.rate < 70 ? ' is-low' : g.rate < 90 ? ' is-mid' : '')}>{g.rate}%</strong>
+                </div>
+                <div className="dk-track" aria-hidden="true"><span className={g.rate < 70 ? 'is-low' : g.rate < 90 ? 'is-mid' : ''} style={{ width: g.rate + '%' }} /></div>
+                <div className="dk-muted ov-group-meta">
+                  {tr('{present} of {headcount} in', { present: g.present, headcount: g.headcount })}
+                  {g.late ? ' · ' + tr('{n} late', { n: g.late }) : ''}
+                  {g.onLeave ? ' · ' + tr('{n} away', { n: g.onLeave }) : ''}
+                </div>
               </div>
-            </>
-          )}
-        </section>
-      </div>
+            ))}
+          </div>
+        ) : <Empty icon="people">{tr('No group attendance is visible to your role. Your own record is on My Space.')}</Empty>}
+      </Section>
+
+      {d.headcount > 1 && (
+        <div className="dk-two">
+          <Section card id="ov-late" title={tr('Came in late')} sub={tr('Clocked in after their start time ({time} unless they have their own shift).', { time: lateAfter })}>
+            {d.lateList.length ? (
+              <ul className="dk-rows">
+                {d.lateList.map((p, i) => (
+                  <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={p.department}
+                    amount={p.clockIn} side={p.shiftStart ? tr('starts {time}', { time: p.shiftStart }) : ''} sideClass="is-warn" />
+                ))}
+              </ul>
+            ) : <Empty>{tr('Nobody was late today.')}</Empty>}
+          </Section>
+          <Section card title={tr('Not clocked in yet')} sub={tr('Not on leave and not clocked in. Some may simply start later.')}>
+            {d.notClockedInList.length ? (
+              <>
+                <ul className="dk-rows">
+                  {d.notClockedInList.map((p, i) => (
+                    <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={p.department}
+                      side={p.shiftStart ? tr('starts {time}', { time: p.shiftStart }) : ''} />
+                  ))}
+                </ul>
+                {d.notClockedIn > d.notClockedInList.length && <p className="dk-muted">{tr('and {n} more', { n: d.notClockedIn - d.notClockedInList.length })}</p>}
+              </>
+            ) : <Empty>{tr('Everyone expected today has clocked in.')}</Empty>}
+          </Section>
+        </div>
+      )}
+
+      {d.headcount > 1 && (
+        <div className="dk-two">
+          <Section card id="ov-away" title={tr('Away today')} sub={tr('On approved leave.')}>
+            {d.onLeaveList.length ? (
+              <ul className="dk-rows">
+                {d.onLeaveList.map((p, i) => (
+                  <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={[p.department, p.type].filter(Boolean).join(' · ')}
+                    side={p.until === d.today ? tr('back tomorrow') : tr('until {date}', { date: fmtDate(p.until) })} />
+                ))}
+              </ul>
+            ) : <Empty>{tr('Nobody is on leave today.')}</Empty>}
+          </Section>
+          <Section card title={tr('Leave coming up')} sub={tr('Starting in the next 7 days, so cover can be planned.')}>
+            {d.upcomingLeave.length ? (
+              <ul className="dk-rows">
+                {d.upcomingLeave.map((p, i) => (
+                  <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={[p.department, p.type].filter(Boolean).join(' · ')}
+                    side={fmtDate(p.from) + ' – ' + fmtDate(p.until)} />
+                ))}
+              </ul>
+            ) : <Empty icon="calendar">{tr('No leave starts in the next 7 days.')}</Empty>}
+          </Section>
+        </div>
+      )}
+
+      {d.restaurants && d.restaurants.length > 0 && (
+        <Section title={tr('Restaurants today')} sub={tr('What each till has taken so far today, against the same day last week.')}
+          action={<LinkButton onClick={() => navigate('/restaurant')}>{tr('Open restaurants')}</LinkButton>}>
+          <div className="ov-restaurants">
+            {d.restaurants.map((r) => {
+              const pct = pctChange(r.salesToday, r.salesSameDayLastWeek);
+              return (
+                <button key={r.code} type="button" className="dk-card ov-restaurant" onClick={() => navigate('/financedash?company=' + r.code)}>
+                  <span className="ov-restaurant-name">{r.name}</span>
+                  <strong className="ov-restaurant-sales">{money(r.salesToday, d.currency)}</strong>
+                  <span className="dk-muted">{r.ordersToday === 1 ? tr('1 order today') : tr('{n} orders today', { n: r.ordersToday })}</span>
+                  <span className={'dk-change' + (pct === null ? ' is-none' : pct >= 0 ? ' is-good' : ' is-bad')}>
+                    {pct === null ? tr('nothing to compare with yet') : tr('{pct}% against last {day}', { pct: (pct > 0 ? '+' : '') + pct, day: lastWeekday() })}
+                  </span>
+                  {(r.lowStock > 0 || r.expiringSoon > 0) && (
+                    <span className="ov-restaurant-warn"><Icon name="warn" /> {[r.lowStock ? tr('{n} to reorder', { n: r.lowStock }) : '', r.expiringSoon ? tr('{n} expiring soon', { n: r.expiringSoon }) : ''].filter(Boolean).join(' · ')}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {tiles.length > 0 && (
+        <Section title={tr('Waiting across the business')} sub={tr('Things that need someone to act. Press one to open it.')}>
+          <div className="ov-tiles">
+            {tiles.map((t) => (
+              <button key={t.key} type="button" className={'ov-tile' + (t.alert ? ' is-alert' : '')} onClick={() => navigate(t.route)}>
+                <span className="ov-tile-icon"><Icon name={t.icon} /></span>
+                <span className="ov-tile-value">{t.value}</span>
+                <span className="ov-tile-label">{t.label}</span>
+                <span className="dk-muted ov-tile-help">{t.help}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {d.recentAudit.length > 0 && (
+        <Section card title={tr('Latest activity')} sub={tr('The most recent changes made in the OS.')}>
+          <ol className="ov-activity">
+            {d.recentAudit.map((log) => (
+              <li key={log.id}>
+                <span className="ov-activity-dot" aria-hidden="true" />
+                <div>
+                  <div className="ov-activity-summary">{log.summary}</div>
+                  <div className="dk-muted ov-activity-meta">{(log.actorName || tr('System')) + ' · ' + timeAgo(log.at)}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
+
+      <Glossary items={[
+        [tr('In today'), tr('People who have clocked in today, out of everyone you can see.')],
+        [tr('Late'), tr('Clocked in after their start time: {time}, or their own shift start if they have one.', { time: lateAfter })],
+        [tr('Not clocked in yet'), tr('Not on leave and no clock-in today. Night-shift and later-shift staff show here until they arrive.')],
+        [tr('Waiting for you'), tr('Approvals in your queue (leave, expenses, purchases) and leave requests you can decide.')],
+        [tr('Reorder level'), tr('The stock level at which more should be ordered.')],
+        [tr('All companies'), tr('Every company you can see, together. Pick a company at the top to see only its people and figures.')]
+      ]} />
     </div>
   );
 }

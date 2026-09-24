@@ -7,7 +7,7 @@ router.use(requireAuth);
 
 // kernel.js: handlers['dashboard.load'] -> GET /api/dashboard
 router.get('/', async function (req, res, next) {
-  try { res.json(await dashboardService.load(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await dashboardService.load(req.ctx, req.query.company)); } catch (e) { next(e); }
 });
 
 module.exports = router;
