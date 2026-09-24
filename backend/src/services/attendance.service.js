@@ -15,7 +15,23 @@ function nowHM() { return new Date().toTimeString().slice(0, 5); }
 // then a personal shift_start override (employees.shift_start, predates the
 // shift catalogue but still supported), then the old company-wide fallback
 // — settings.late_after, unchanged for anyone with neither.
-var LATE_GRACE_MINUTES = 20; // matches the historical default (shift 07:00, late after 07:20)
+//
+// The grace — how long after the shift start someone is still on time — is
+// kept by date in late_grace (migration 0074): 20 minutes until the change,
+// 10 from then, and whatever Company settings says after that. Each day is
+// judged by the grace in force on that day, so changing it never re-judges
+// the past.
+var DEFAULT_GRACE_MINUTES = 10;
+
+async function graceSchedule(db) {
+  var res = await (db || pool).query('SELECT effective_from::text AS from_date, minutes FROM late_grace ORDER BY effective_from DESC');
+  return res.rows.map(function (r) { return { from: r.from_date, minutes: Number(r.minutes) }; });
+}
+function graceOn(schedule, dateISO) {
+  for (var i = 0; i < schedule.length; i++) if (schedule[i].from <= dateISO) return schedule[i].minutes;
+  return DEFAULT_GRACE_MINUTES;
+}
+
 function addMinutesToHM(hm, minutes) {
   var parts = hm.split(':').map(Number);
   var total = ((parts[0] * 60 + parts[1] + minutes) % 1440 + 1440) % 1440;
@@ -39,8 +55,8 @@ function isRestDay(companyName, departmentName, dateISO) {
   return new Date(dateISO + 'T00:00').getDay() === 0; // Sunday
 }
 
-async function resolveLateAfter(employeeId) {
-  return (await resolveLateRule(employeeId)).cutoff;
+async function resolveLateAfter(employeeId, dateISO) {
+  return (await resolveLateRule(employeeId, dateISO)).cutoff;
 }
 
 // The cutoff, plus where it came from — which decides how a tap is compared
@@ -53,7 +69,7 @@ async function resolveLateAfter(employeeId) {
 //   company-wide to people who have no shift to be measured against.
 //
 // Only the first of those wraps.
-async function resolveLateRule(employeeId) {
+async function resolveLateRule(employeeId, dateISO) {
   var empRes = await pool.query(
     'SELECT e.shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
     [employeeId]
@@ -61,11 +77,12 @@ async function resolveLateRule(employeeId) {
   var row = empRes.rows[0];
   var shiftStart = row && (row.shift_tpl_start || row.shift_start) ? String(row.shift_tpl_start || row.shift_start).slice(0, 5) : null;
   if (shiftStart) {
-    return { cutoff: addMinutesToHM(shiftStart, LATE_GRACE_MINUTES), shiftStart: shiftStart };
+    var grace = graceOn(await graceSchedule(), dateISO || todayISO());
+    return { cutoff: addMinutesToHM(shiftStart, grace), shiftStart: shiftStart };
   }
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
   return {
-    cutoff: settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:20',
+    cutoff: settingsRes.rows[0] ? settingsRes.rows[0].late_after.slice(0, 5) : '07:10',
     shiftStart: null
   };
 }
@@ -95,11 +112,13 @@ function judgeLateness(rule, tapHM) {
       minutesLate: late ? Math.max(0, hmToMinutes(tapHM) - hmToMinutes(rule.cutoff)) : 0
     };
   }
+  // The grace is the gap between the shift start and its cutoff.
+  var grace = ((hmToMinutes(rule.cutoff) - hmToMinutes(rule.shiftStart)) % 1440 + 1440) % 1440;
   var offset = hmToMinutes(tapHM) - hmToMinutes(rule.shiftStart);
   if (offset >= 720) offset -= 1440;
   if (offset < -720) offset += 1440;
-  if (offset <= LATE_GRACE_MINUTES) return { status: 'present', minutesLate: 0 };
-  return { status: 'late', minutesLate: offset - LATE_GRACE_MINUTES };
+  if (offset <= grace) return { status: 'present', minutesLate: 0 };
+  return { status: 'late', minutesLate: offset - grace };
 }
 
 // The kiosk's offline queue (see KioskPage.jsx) replays a tap after
@@ -160,7 +179,7 @@ async function clockInEmployee(employeeId, source, occurredAt, location) {
   // settings.late_after fallback. Not persisted (attendance has no column
   // for it) — computed fresh for the kiosk's own result screen, which is
   // the only thing that currently reads it.
-  var judged = judgeLateness(await resolveLateRule(employeeId), resolved.time);
+  var judged = judgeLateness(await resolveLateRule(employeeId, resolved.date), resolved.time);
   var status = judged.status;
   var minutesLate = judged.minutesLate;
 
@@ -533,7 +552,7 @@ async function unassignedShifts(ctx, filters) {
   if (!ctx.can('attendance.read.all')) fail('forbidden', 'Your role does not allow this action (attendance.read.all).');
   var employees = await scopedEmployees(ctx, filters);
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
-  var fallback = settingsRes.rows[0] ? String(settingsRes.rows[0].late_after).slice(0, 5) : '07:20';
+  var fallback = settingsRes.rows[0] ? String(settingsRes.rows[0].late_after).slice(0, 5) : '07:10';
 
   var out = [];
   for (var i = 0; i < employees.length; i++) {
@@ -595,7 +614,8 @@ async function latenessReport(ctx, from, to, filters) {
     [ids, start, end]);
 
   var settingsRes = await pool.query('SELECT late_after FROM settings WHERE id = 1');
-  var fallback = settingsRes.rows[0] ? String(settingsRes.rows[0].late_after).slice(0, 5) : '07:20';
+  var fallback = settingsRes.rows[0] ? String(settingsRes.rows[0].late_after).slice(0, 5) : '07:10';
+  var schedule = await graceSchedule();
 
   var byEmp = {};
   employees.forEach(function (e) {
@@ -615,7 +635,7 @@ async function latenessReport(ctx, from, to, filters) {
     // Recomputed from the shift rather than read off status, so a row stored
     // before the midnight-wrap fix is scored the same way as a new one.
     var rule = r.shift_start
-      ? { cutoff: addMinutesToHM(String(r.shift_start).slice(0, 5), LATE_GRACE_MINUTES), shiftStart: String(r.shift_start).slice(0, 5) }
+      ? { cutoff: addMinutesToHM(String(r.shift_start).slice(0, 5), graceOn(schedule, String(r.date).slice(0, 10))), shiftStart: String(r.shift_start).slice(0, 5) }
       : { cutoff: fallback, shiftStart: null };
     var judged = judgeLateness(rule, String(r.clock_in).slice(0, 5));
     if (judged.status === 'late') {
@@ -728,6 +748,7 @@ module.exports = {
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
   resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,
+  graceSchedule: graceSchedule, graceOn: graceOn,
   unassignedShifts: unassignedShifts, latenessReport: latenessReport,
   report: report
 };

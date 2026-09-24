@@ -37,7 +37,11 @@ function rowToSettings(r) {
 async function get(ctx) {
   if (!ctx.can('employee.read')) fail('forbidden', 'Your role does not allow this action (employee.read).');
   var res = await pool.query('SELECT * FROM settings WHERE id = 1');
-  return rowToSettings(res.rows[0]);
+  var out = rowToSettings(res.rows[0]);
+  // The grace in force today (attendance.service.js, migration 0074).
+  var grace = await pool.query('SELECT minutes FROM late_grace WHERE effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1');
+  out.lateGraceMinutes = grace.rows[0] ? Number(grace.rows[0].minutes) : 10;
+  return out;
 }
 
 var TEXT_FIELDS = { companyName: 'company_name', shortName: 'short_name', country: 'country', currency: 'currency', timezone: 'timezone', workWeek: 'work_week', lateAfter: 'late_after' };
@@ -54,6 +58,21 @@ async function save(ctx, p) {
       sets.push(TEXT_FIELDS[k] + ' = $' + values.length);
     }
   });
+  // Minutes after a shift start that still count as on time. Takes effect
+  // from today; days before keep the grace they were judged by.
+  if (p.lateGraceMinutes !== undefined && p.lateGraceMinutes !== null && p.lateGraceMinutes !== '') {
+    var minutes = Number(p.lateGraceMinutes);
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 240) fail('invalid', 'Minutes before someone is late must be a whole number from 0 to 240.');
+    var current = await pool.query('SELECT minutes FROM late_grace WHERE effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1');
+    if (!current.rows[0] || Number(current.rows[0].minutes) !== minutes) {
+      await pool.query(
+        'INSERT INTO late_grace (effective_from, minutes, set_by) VALUES (CURRENT_DATE, $1, $2) ' +
+        'ON CONFLICT (effective_from) DO UPDATE SET minutes = EXCLUDED.minutes, set_by = EXCLUDED.set_by, set_at = now()',
+        [minutes, ctx.employee ? ctx.employee.id : null]
+      );
+      await audit(pool, ctx, 'settings.lateGrace', 'settings', 'company', 'Late after ' + minutes + ' minutes past the shift start, from today.');
+    }
+  }
   if (p.standardHours !== undefined) {
     values.push(Math.max(1, Math.min(12, Number(p.standardHours) || 8)));
     sets.push('standard_hours = $' + values.length);

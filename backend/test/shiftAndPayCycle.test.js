@@ -99,7 +99,7 @@ test('attendance lateness: an employee with a personal shift is judged against t
   var lateClock = await (await fetch(base + '/api/kiosk/clock', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '6602' })
   })).json();
-  assert.equal(lateClock.status, 'late', 'clocking in 25 minutes after a personal shift start is past the 20-minute grace window');
+  assert.equal(lateClock.status, 'late', 'clocking in 25 minutes after a personal shift start is past the 10-minute grace window');
 });
 
 test('pay cycle: daily is accepted on employee update and usable in a pay run', async function () {

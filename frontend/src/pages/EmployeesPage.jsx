@@ -725,7 +725,7 @@ export default function EmployeesPage() {
               <input id="emp-shift-end" className="input" type="time" value={form.shiftEnd} onChange={(e) => setForm({ ...form, shiftEnd: e.target.value })} />
             </div>
             <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
-              {tr('These are a manual override only — leave blank if the shift picked above already covers it. Attendance uses (in order) the assigned shift\'s start time, then this manual override, then the company default, always with a 20-minute grace period, to decide who\'s marked late.')}
+              {tr('These are a manual override only — leave blank if the shift picked above already covers it. Attendance uses (in order) the assigned shift\'s start time, then this manual override, then the company default, with the grace period set in Company settings, to decide who\'s marked late.')}
             </p>
             {editId && (
               <div className="field"><label htmlFor="emp-status">{tr('Status')}</label>

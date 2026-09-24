@@ -611,6 +611,11 @@ async function run() {
       [s.companyName, s.shortName, s.country, s.currency, s.timezone, s.fiscalYearStart, s.workWeek, s.standardHours, s.lateAfter, s.plants, s.leaveApprovalChain, JSON.stringify(s.integrations), JSON.stringify(s.commercial), JSON.stringify(s.payroll), JSON.stringify(s.balanceSheet)]
     );
 
+    // The late grace (migration 0074) lives in a table this script has just
+    // truncated: put back what the migration wrote — 20 minutes before
+    // today, 10 from today.
+    await client.query("INSERT INTO late_grace (effective_from, minutes) VALUES ('2000-01-01', 20), (CURRENT_DATE, 10)");
+
     console.log('Writing seed audit log entry...');
     await client.query(
       "INSERT INTO audit_logs (id, actor_user_id, actor_name, action, entity, entity_id, summary) VALUES ($1, NULL, 'System', 'system.seed', 'database', '-', 'Database initialised and seeded.')",

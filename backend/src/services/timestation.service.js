@@ -364,11 +364,11 @@ async function previewAttendance(ctx, startDate, endDate) {
 
     // The rule, not just the cutoff — a night shift's cutoff cannot be
     // compared against a clock-in time with a plain string comparison, see
-    // judgeLateness.
-    var lateRule = await attendanceService.resolveLateRule(emp.id);
+    // judgeLateness. Per day, since the grace depends on the date.
     var dates = Object.keys(byDate).sort();
     for (var d = 0; d < dates.length; d++) {
       var g = byDate[dates[d]];
+      var lateRule = await attendanceService.resolveLateRule(emp.id, g.date);
       var status = attendanceService.judgeLateness(lateRule, g.clockIn).status;
       var existingRes = await pool.query('SELECT status, clock_in, clock_out, source FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, g.date]);
       var existing = existingRes.rows[0];

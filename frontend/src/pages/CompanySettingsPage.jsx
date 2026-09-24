@@ -56,6 +56,7 @@ export default function CompanySettingsPage() {
       setSettings(s);
       const f = {};
       FIELDS.forEach((k) => { f[k] = s[k] || ''; });
+      f.lateGraceMinutes = s.lateGraceMinutes === undefined || s.lateGraceMinutes === null ? '' : String(s.lateGraceMinutes);
       setForm(f);
     } catch (err) {
       setError(err.message);
@@ -158,8 +159,14 @@ export default function CompanySettingsPage() {
           <input id="cs-ww" className="input" value={form.workWeek} disabled={locked} onChange={(e) => setForm({ ...form, workWeek: e.target.value })} />
         </div>
         <div className="field">
+          <label htmlFor="cs-lg">{tr('Late after (minutes past the shift start)')}</label>
+          <input id="cs-lg" className="input" type="number" min="0" max="240" step="1" value={form.lateGraceMinutes} disabled={locked} onChange={(e) => setForm({ ...form, lateGraceMinutes: e.target.value })} placeholder="10" />
+          <span className="field-hint">{tr('Everyone is judged against their own shift: with 10, a 07:00 shift is late from 07:11 and an 18:00 shift from 18:11. A change applies from today — earlier days keep the rule they had.')}</span>
+        </div>
+        <div className="field">
           <label htmlFor="cs-la">{tr('Counted late after')}</label>
-          <input id="cs-la" className="input" value={form.lateAfter} disabled={locked} onChange={(e) => setForm({ ...form, lateAfter: e.target.value })} placeholder="07:20" />
+          <input id="cs-la" className="input" value={form.lateAfter} disabled={locked} onChange={(e) => setForm({ ...form, lateAfter: e.target.value })} placeholder="07:10" />
+          <span className="field-hint">{tr('Only for staff with no shift assigned: a fixed time of day.')}</span>
         </div>
         <div className="cs-form-footer">
           <button className="btn btn-primary" type="submit" disabled={locked || saving}>{tr('Save settings')}</button>
