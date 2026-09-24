@@ -1,22 +1,311 @@
-.twostep { font-size: 13px; max-width: 920px; display: flex; flex-direction: column; gap: 10px; }
-.twostep p { margin: 0; }
-.twostep-muted { color: var(--color-text-muted); }
-.twostep-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-.twostep-on { margin-right: 4px; }
-.twostep-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 12px; }
-.twostep-qr { margin: 8px 0; }
-.twostep-qr img { display: block; background: #fff; padding: 8px; border: var(--divider-width) solid var(--color-divider); }
-.twostep-key { font-size: 13px; background: var(--color-bg-subtle); padding: 2px 6px; overflow-wrap: anywhere; }
-.twostep-steps label { display: block; }
-.twostep-code-input { max-width: 180px; font-size: 20px; letter-spacing: 0.25em; text-align: center; margin-top: 6px; }
-.twostep-password { display: flex; flex-direction: column; gap: 6px; max-width: 360px; }
-.twostep-codes { border: var(--divider-width) solid var(--color-warning); background: var(--color-warning-100); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
-.twostep-code-list { margin: 0; padding-left: 22px; columns: 2; column-gap: 24px; font-size: 14px; }
-.twostep-code-list code { letter-spacing: 0.05em; }
-.twostep-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-.twostep-method { border: var(--divider-width) solid var(--color-divider); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.twostep-method-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.twostep-setup { display: flex; flex-direction: column; gap: 8px; }
-.twostep-setup > label { display: block; }
-.twostep-phone-input { max-width: 240px; }
-.twostep-notice { padding: 8px 10px; border-left: 3px solid var(--color-accent); background: var(--color-bg-subtle); }
+/* Two-step sign-in (TwoStepSettings.jsx). Built on the theme tokens, so it
+   follows the light theme (flat, square) and the dark one (rounded, glowing
+   accent) without its own colours. --tss-r is the corner radius: 0 in the
+   light theme, a little under the dark theme's cards. */
+.tss {
+  --tss-r: calc(var(--radius, 0px) * 0.75);
+  font-size: 13px;
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tss p { margin: 0; }
+.tss-muted { color: var(--color-text-muted); }
+
+/* ── status banner ─────────────────────────────────────────────────── */
+.tss-hero {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: var(--tss-r);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
+  position: relative;
+  overflow: hidden;
+}
+.tss-hero.is-on {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent 60%),
+    var(--color-bg-subtle);
+}
+.tss-hero.is-off {
+  border-color: color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--color-warning) 16%, transparent), transparent 60%),
+    var(--color-bg-subtle);
+}
+.tss-hero-badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-accent);
+  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--color-accent) 40%, transparent), color-mix(in srgb, var(--color-accent) 10%, transparent) 72%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent), 0 6px 22px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.tss-hero.is-off .tss-hero-badge {
+  color: var(--color-warning);
+  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--color-warning) 36%, transparent), color-mix(in srgb, var(--color-warning) 8%, transparent) 72%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 35%, transparent);
+}
+.tss-hero-title { font-family: var(--font-heading); font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+.tss-hero-sub { color: var(--color-text-muted); margin-top: 2px; max-width: 60ch; }
+.tss-meter { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.tss-meter-bars { display: flex; gap: 4px; }
+.tss-meter-bars span {
+  width: 22px;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+.tss-meter-bars span.is-lit { background: var(--color-accent); box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 55%, transparent); }
+.tss-meter-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); white-space: nowrap; }
+
+.tss-notice {
+  padding: 10px 12px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-accent-100);
+  border-radius: var(--tss-r);
+}
+
+/* ── the three ways ────────────────────────────────────────────────── */
+.tss-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--tss-r);
+  overflow: hidden;
+}
+.tss-row + .tss-row { border-top: 1px solid var(--color-divider); }
+.tss-row { transition: background-color 0.15s ease; }
+.tss-row.is-open { background: color-mix(in srgb, var(--color-accent) 5%, transparent); }
+.tss-row-main {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+}
+.tss-row-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: calc(var(--tss-r) * 0.8);
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+}
+.tss-row.is-on .tss-row-icon {
+  color: var(--color-accent);
+  background: var(--color-accent-100);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+.tss-row.is-unavailable .tss-row-icon,
+.tss-row.is-unavailable .tss-row-title { opacity: 0.6; }
+.tss-row-text { min-width: 0; }
+.tss-row-title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tss-row-sub { color: var(--color-text-muted); margin-top: 2px; overflow-wrap: anywhere; }
+.tss-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+}
+.tss-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.tss-state-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.6; }
+.tss-state-on { color: var(--color-accent); background: var(--color-accent-100); }
+.tss-state-on .tss-state-dot { opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 25%, transparent); }
+.tss-row-action { display: flex; justify-content: flex-end; min-width: 96px; }
+.tss-row-action:empty { min-width: 0; }
+.tss-row-panel { padding: 4px 16px 18px 72px; }
+
+/* ── set-up steps ──────────────────────────────────────────────────── */
+.tss-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.tss-step { display: grid; grid-template-columns: 28px 1fr; gap: 12px; position: relative; }
+.tss-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 30px;
+  bottom: -12px;
+  width: 2px;
+  background: var(--color-divider);
+}
+.tss-step-n {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--color-accent);
+  border: 2px solid var(--color-accent);
+  background: var(--color-bg);
+}
+.tss-step.is-done .tss-step-n { color: var(--color-bg); background: var(--color-accent); }
+.tss-step-body { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; min-width: 0; }
+.tss-step-title { font-weight: 600; }
+.tss-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tss-code {
+  width: 11ch;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding-left: 0.3em;
+}
+.tss-code::placeholder { letter-spacing: 0.3em; }
+.tss-phone { width: 220px; max-width: 100%; }
+.tss-qr-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.tss-qr {
+  display: block;
+  background: #fff;
+  padding: 10px;
+  border-radius: var(--tss-r);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+.tss-qr-key { display: flex; flex-direction: column; gap: 6px; max-width: 34ch; }
+.tss-key {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  background: var(--color-bg-subtle);
+  border: 1px dashed var(--color-border);
+  padding: 6px 10px;
+  border-radius: calc(var(--tss-r) * 0.6);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* ── password prompts ──────────────────────────────────────────────── */
+.tss-password { display: flex; flex-direction: column; gap: 8px; }
+.tss-password label { font-weight: 600; }
+.tss-password .input { width: 240px; max-width: 100%; }
+.tss-danger-btn { background: var(--color-danger); border-color: var(--color-danger); color: #fff; }
+.tss-danger-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 85%, #000); border-color: color-mix(in srgb, var(--color-danger) 85%, #000); }
+
+/* ── backup codes and turning it off ───────────────────────────────── */
+.tss-footer { display: flex; flex-direction: column; gap: 10px; }
+.tss-backup {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--tss-r);
+}
+.tss-backup-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
+}
+.tss-backup.is-low { border-color: var(--color-warning); background: var(--color-warning-100); }
+.tss-backup.is-low .tss-backup-icon { color: var(--color-warning); }
+.tss-footer-panel { padding: 12px 16px; border: 1px solid var(--color-border); border-radius: var(--tss-r); }
+.tss-off-link {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-danger);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+.tss-off-link:hover { text-decoration-color: var(--color-danger); }
+
+/* ── the backup codes, shown once ──────────────────────────────────── */
+.tss-codes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--tss-r);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--color-warning) 16%, transparent), transparent 60%),
+    var(--color-bg-subtle);
+}
+.tss-codes-head { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; }
+.tss-codes-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-warning);
+  background: var(--color-warning-100);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+.tss-codes-title { font-size: 16px; margin-bottom: 4px; }
+.tss-code-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.tss-code-grid li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--tss-r) * 0.6);
+}
+.tss-code-n { font-size: 11px; font-weight: 700; color: var(--color-text-faint); min-width: 1.5em; }
+.tss-code-grid code { font-size: 15px; font-weight: 700; letter-spacing: 0.08em; }
+.tss-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tss-push { margin-left: auto; }
+.tss-icon-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── phones ────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .tss-hero { grid-template-columns: auto 1fr; padding: 16px; }
+  .tss-meter { grid-column: 1 / -1; align-items: flex-start; }
+  .tss-row-main { grid-template-columns: auto 1fr auto; gap: 12px; padding: 12px; }
+  .tss-row-action { grid-column: 1 / -1; justify-content: stretch; min-width: 0; }
+  .tss-row-action .btn { width: 100%; }
+  .tss-row-panel { padding: 4px 12px 16px; }
+  .tss-backup { grid-template-columns: auto 1fr; }
+  .tss-backup .btn { grid-column: 1 / -1; }
+  .tss-push { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tss-row { transition: none; }
+}
