@@ -215,9 +215,28 @@ async function ensureAdminUser(client, deptId, roleIds) {
     throw new Error('ADMIN_PASSWORD must be at least 8 characters.');
   }
 
-  var existing = await client.query('SELECT id FROM users WHERE email = $1', [email]);
+  var existing = await client.query('SELECT id FROM users WHERE lower(email) = $1', [email]);
   if (existing.rows[0]) {
     console.log('A user with email ' + email + ' already exists — skipping admin creation.');
+    return;
+  }
+
+  // Someone already in the Employee directory with this email (a real staff
+  // member whose sign-in account uses another address, or who has none yet).
+  // Creating a second employee would collide on employees_email_key and fail
+  // the whole Render build, so leave them as they are and say what to do —
+  // bootstrap never turns an existing person into an administrator.
+  var sameEmployee = await client.query(
+    'SELECT e.code, u.email AS user_email FROM employees e LEFT JOIN users u ON u.employee_id = e.id WHERE lower(e.email) = $1 LIMIT 1',
+    [email]
+  );
+  if (sameEmployee.rows[0]) {
+    var emp = sameEmployee.rows[0];
+    console.log(
+      'ADMIN_EMAIL ' + email + ' belongs to employee ' + emp.code +
+      (emp.user_email ? ', who signs in as ' + emp.user_email : ', who has no sign-in account yet') +
+      ' — skipping admin creation. Manage their access from User accounts, or set ADMIN_EMAIL to the address of an existing administrator.'
+    );
     return;
   }
 
