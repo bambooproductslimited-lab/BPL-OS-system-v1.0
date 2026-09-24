@@ -22,13 +22,25 @@ router.get('/marketing/companies', async function (req, res, next) {
 });
 
 // kernel.js: handlers['finance.dashboard'] -> GET /api/reports/finance
+// ?company=<code>&periodType=months|years&periodCount=1-12 (Bamboo Products when left out).
 router.get('/finance', async function (req, res, next) {
   try { res.json(await reportsService.financeDashboard(req.ctx, req.query)); } catch (e) { next(e); }
 });
 
+// The companies with a finance dashboard, for its company switcher.
+router.get('/finance/companies', async function (req, res, next) {
+  try { res.json(await reportsService.financeCompanies(req.ctx)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['commercial.dashboard'] -> GET /api/reports/commercial
+// ?company=<code> (Bamboo Products when left out).
 router.get('/commercial', async function (req, res, next) {
-  try { res.json(await reportsService.commercialDashboard(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await reportsService.commercialDashboard(req.ctx, req.query.company)); } catch (e) { next(e); }
+});
+
+// The companies with a quotations & invoicing overview, for its switcher.
+router.get('/commercial/companies', async function (req, res, next) {
+  try { res.json(await reportsService.commercialCompanies(req.ctx)); } catch (e) { next(e); }
 });
 
 // ── Financial Reports ──

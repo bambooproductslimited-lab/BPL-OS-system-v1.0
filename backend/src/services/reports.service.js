@@ -212,160 +212,347 @@ async function restaurantMarketing(co) {
   };
 }
 
-// kernel.js: handlers['finance.dashboard']
-async function financeDashboard(ctx, params) {
-  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
-  var t = todayISO();
-  var periodType = (params && params.periodType === 'years') ? 'years' : 'months';
-  var periodCount = Math.max(1, Math.min(12, Number(params && params.periodCount) || 6));
-  var base = await baseCurrency();
-
-  var overdueRes = await pool.query(
-    "SELECT i.invoice_no, i.grand_total, i.currency, i.due_date, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id " +
-    "WHERE i.status != 'paid' AND i.due_date < $1 ORDER BY i.due_date",
-    [t]
-  );
-  var overdue = overdueRes.rows.map(function (r) {
-    return { invoiceNo: r.invoice_no, customerName: r.customer_name, currency: r.currency, amount: Number(r.grand_total), daysOverdue: Math.round((new Date(t) - new Date(r.due_date)) / 86400000) };
-  }).sort(function (a, b) { return b.daysOverdue - a.daysOverdue; });
-
-  var unpaidRes = await pool.query("SELECT currency, sum(grand_total) AS s, count(*)::int AS n FROM invoices WHERE status != 'paid' GROUP BY currency");
-  var paidThisMonthRes = await pool.query("SELECT currency, sum(grand_total) AS s FROM invoices WHERE status = 'paid' AND paid_at IS NOT NULL AND to_char(paid_at,'YYYY-MM') = $1 GROUP BY currency", [t.slice(0, 7)]);
-
-  var pendingExpensesRes = await pool.query(
-    "SELECT e.category, e.amount, e.date, emp.first_name, emp.last_name, d.name AS dept_name FROM expenses e " +
-    "JOIN employees emp ON emp.id = e.requester_id JOIN departments d ON d.id = e.department_id WHERE e.status = 'pending'"
-  );
-  var approvedExpensesThisMonthRes = await pool.query(
-    "SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid') AND to_char(date,'YYYY-MM') = $1", [t.slice(0, 7)]
-  );
-
-  // A trend line is inherently one number per month — mixing currencies on
-  // it would be meaningless, and true FX conversion is out of scope (see
-  // documents.js's resolveCurrency() doc comment). Restricted to the
-  // company's base currency; baseCurrency is returned below so the frontend
-  // can label the chart accordingly.
-  var months = [];
-  if (periodType === 'years') {
-    for (var y = periodCount - 1; y >= 0; y--) {
-      var yr = new Date().getFullYear() - y;
-      var revRes = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status = 'paid' AND currency = $1 AND to_char(paid_at,'YYYY') = $2", [base, String(yr)]);
-      var expRes = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid') AND to_char(date::date,'YYYY') = $1", [String(yr)]);
-      months.push({ month: String(yr), revenue: Number(revRes.rows[0].s), expense: Number(expRes.rows[0].s) });
-    }
-  } else {
-    for (var m = periodCount - 1; m >= 0; m--) {
-      var dt = new Date(); dt.setMonth(dt.getMonth() - m);
-      var key = dt.toISOString().slice(0, 7);
-      var label = dt.toLocaleDateString('en-GB', { month: 'short', year: periodCount > 12 ? '2-digit' : undefined });
-      var revRes2 = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status = 'paid' AND currency = $1 AND to_char(paid_at,'YYYY-MM') = $2", [base, key]);
-      var expRes2 = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid') AND to_char(date::date,'YYYY-MM') = $1", [key]);
-      months.push({ month: label, revenue: Number(revRes2.rows[0].s), expense: Number(expRes2.rows[0].s) });
+// ── finance and quotations & invoicing, one company at a time ──────────
+// Same companies as the marketing dashboard's switcher. A document
+// (quotation, invoice, and a payment through its invoice) belongs to the
+// company set on it or, failing that, on its customer; with neither it is
+// Bamboo Products' (everything made before companies existed). An expense
+// belongs to its department's company, Bamboo Products' without one.
+function docCompany(docAlias, custAlias) { return 'coalesce(' + docAlias + '.company_id, ' + custAlias + '.company_id)'; }
+// ALL_COMPANIES (id null) counts every company together — used by the AI
+// assistant's company overview, which has always been group-wide.
+var ALL_COMPANIES = { id: null, code: '*', name: 'All companies', kind: 'trade' };
+function docScope(co, docAlias, custAlias) {
+  var c = docCompany(docAlias, custAlias);
+  if (co.id === null) return '$1::uuid IS NULL';
+  return co.code === 'BPL' ? '(' + c + ' IS NULL OR ' + c + ' = $1)' : c + ' = $1';
+}
+function expenseScope(co) {
+  if (co.id === null) return '$1::uuid IS NULL';
+  return co.code === 'BPL' ? '(d.company_id = $1 OR e.department_id IS NULL)' : 'd.company_id = $1';
+}
+async function resolveDashboardCompany(ctx, code, onlyTrade) {
+  var c = String(code || 'BPL').trim().toUpperCase();
+  var list = await marketingCompanyList(ctx);
+  if (onlyTrade) list = list.filter(function (x) { return x.kind === 'trade'; });
+  var co = list.filter(function (x) { return x.code.toUpperCase() === c; })[0];
+  if (!co) fail('invalid', 'There is no dashboard for "' + c + '".');
+  return co;
+}
+function dayStr(d) { return d ? (d.toISOString ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null; }
+function daysBetweenIso(a, b) { return Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 86400000); }
+// The periods the trend chart covers: [{ key: 'YYYY-MM' | 'YYYY', label }].
+function trendPeriods(periodType, periodCount) {
+  var out = [];
+  for (var i = periodCount - 1; i >= 0; i--) {
+    if (periodType === 'years') {
+      var yr = String(new Date().getFullYear() - i);
+      out.push({ key: yr, label: yr, fmt: 'YYYY' });
+    } else {
+      var dt = new Date(); dt.setDate(1); dt.setMonth(dt.getMonth() - i);
+      out.push({ key: dt.toISOString().slice(0, 7), label: dt.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }), fmt: 'YYYY-MM' });
     }
   }
+  return out;
+}
+// Month so far, and the same days of last month, as [from, to] dates.
+function monthToDate(t) {
+  var from = t.slice(0, 8) + '01';
+  var d = new Date(t + 'T00:00'); var day = d.getDate();
+  var prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  var prevLastDay = new Date(d.getFullYear(), d.getMonth(), 0).getDate();
+  function iso(x) { return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+  return { from: from, to: t, prevFrom: iso(prev), prevTo: iso(new Date(prev.getFullYear(), prev.getMonth(), Math.min(day, prevLastDay))) };
+}
 
-  var recentPaymentsRes = await pool.query(
-    'SELECT pm.*, c.name AS customer_name, i.invoice_no FROM payments pm JOIN customers c ON c.id = pm.customer_id JOIN invoices i ON i.id = pm.invoice_id ORDER BY pm.date DESC LIMIT 6'
+async function financeCompanies(ctx) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  return (await marketingCompanyList(ctx)).map(function (c) { return { code: c.code, name: c.name, kind: c.kind }; });
+}
+async function commercialCompanies(ctx) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  return (await marketingCompanyList(ctx)).filter(function (c) { return c.kind === 'trade'; })
+    .map(function (c) { return { code: c.code, name: c.name, kind: c.kind }; });
+}
+
+// Expense figures shared by both kinds of company.
+async function expenseFigures(co, t, mtd) {
+  var scope = expenseScope(co);
+  var pendingRes = await pool.query(
+    "SELECT e.category, e.amount, e.date, e.created_at, emp.first_name, emp.last_name, d.name AS dept_name FROM expenses e " +
+    "JOIN employees emp ON emp.id = e.requester_id LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'pending' AND " + scope +
+    ' ORDER BY e.created_at', [co.id]
   );
-
-  var cashCollectedByCurrency = byCurrencyArr(paidThisMonthRes.rows, 's');
-  var outstandingByCurrency = byCurrencyArr(unpaidRes.rows, 's');
-  var unpaidCount = unpaidRes.rows.reduce(function (s, r) { return s + r.n; }, 0);
-  // Net position nets cash collected against expenses (GHS-only, no
-  // per-currency data) into one number — restricted to the base currency
-  // for the same reason the monthly trend above is, above's comment.
-  var paidThisMonthBase = (paidThisMonthRes.rows.find(function (r) { return r.currency === base; }) || { s: 0 }).s;
-  var approvedExpensesThisMonth = Number(approvedExpensesThisMonthRes.rows[0].s);
-
+  var sumsRes = await pool.query(
+    "SELECT coalesce(sum(e.amount) FILTER (WHERE e.date BETWEEN $2 AND $3), 0) AS this_month, " +
+    "coalesce(sum(e.amount) FILTER (WHERE e.date BETWEEN $4 AND $5), 0) AS last_month_same_days " +
+    "FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND " + scope,
+    [co.id, mtd.from, mtd.to, mtd.prevFrom, mtd.prevTo]
+  );
+  var byCatRes = await pool.query(
+    "SELECT e.category, sum(e.amount) AS amount FROM expenses e LEFT JOIN departments d ON d.id = e.department_id " +
+    "WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + scope + ' GROUP BY e.category ORDER BY amount DESC LIMIT 8',
+    [co.id, mtd.from, mtd.to]
+  );
   return {
-    baseCurrency: base,
-    cashCollectedThisMonthByCurrency: cashCollectedByCurrency,
-    outstandingByCurrency: outstandingByCurrency, unpaidCount: unpaidCount,
-    overdueInvoices: overdue, overdueTotalByCurrency: byCurrencyArr(
-      Object.values(overdue.reduce(function (acc, i) { acc[i.currency] = acc[i.currency] || { currency: i.currency, s: 0 }; acc[i.currency].s += i.amount; return acc; }, {})), 's'
-    ),
-    pendingExpenses: pendingExpensesRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount), requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name, date: r.date }; }),
-    pendingExpensesTotal: pendingExpensesRes.rows.reduce(function (s, r) { return s + Number(r.amount); }, 0),
-    approvedExpensesThisMonth: approvedExpensesThisMonth,
-    netPositionThisMonth: Number(paidThisMonthBase) - approvedExpensesThisMonth,
-    monthlyTrend: months,
-    recentPayments: recentPaymentsRes.rows.map(function (r) { return { customerName: r.customer_name, invoiceNo: r.invoice_no, amount: Number(r.amount), currency: r.currency, date: r.date, method: r.method }; })
+    pendingExpenses: pendingRes.rows.map(function (r) {
+      return {
+        category: r.category, amount: Number(r.amount), requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name || '—',
+        date: dayStr(r.date), daysWaiting: Math.max(0, daysBetweenIso(dayStr(r.created_at), t))
+      };
+    }),
+    pendingExpensesTotal: pendingRes.rows.reduce(function (s, r) { return s + Number(r.amount); }, 0),
+    approvedExpensesThisMonth: Number(sumsRes.rows[0].this_month),
+    approvedExpensesLastMonthSameDays: Number(sumsRes.rows[0].last_month_same_days),
+    expenseByCategoryThisMonth: byCatRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; })
+  };
+}
+async function expenseTrend(co, periods) {
+  var out = [];
+  for (var i = 0; i < periods.length; i++) {
+    var p = periods[i];
+    var r = await pool.query(
+      "SELECT coalesce(sum(e.amount),0) AS s FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND to_char(e.date::date, '" + p.fmt + "') = $2 AND " + expenseScope(co),
+      [co.id, p.key]
+    );
+    out.push(Number(r.rows[0].s));
+  }
+  return out;
+}
+
+// kernel.js: handlers['finance.dashboard'] -> GET /api/reports/finance?company=&periodType=&periodCount=
+async function financeDashboard(ctx, params) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  params = params || {};
+  var co = await resolveDashboardCompany(ctx, params.company, false);
+  var periodType = params.periodType === 'years' ? 'years' : 'months';
+  var periodCount = Math.max(1, Math.min(12, Number(params.periodCount) || 6));
+  var t = todayISO();
+  var base = await baseCurrency();
+  var mtd = monthToDate(t);
+  var periods = trendPeriods(periodType, periodCount);
+  var company = { code: co.code, name: co.name, kind: co.kind };
+  var head = { company: company, kind: co.kind, baseCurrency: base, today: t, periodType: periodType, periodCount: periodCount };
+  var exp = await expenseFigures(co, t, mtd);
+  var expTrend = await expenseTrend(co, periods);
+  if (co.kind === 'restaurant') return Object.assign(head, exp, await restaurantFinance(ctx, co, t, mtd, periods, expTrend, exp));
+  return Object.assign(head, exp, await tradeFinance(co, t, base, mtd, periods, expTrend, exp));
+}
+
+async function tradeFinance(co, t, base, mtd, periods, expTrend, exp) {
+  var inv = docScope(co, 'i', 'c');
+  var open = "i.status NOT IN ('paid','void') AND i.balance_due > 0";
+  var collectedRes = await pool.query(
+    'SELECT pm.currency, coalesce(sum(pm.amount) FILTER (WHERE pm.date BETWEEN $2 AND $3), 0) AS this_month, ' +
+    'coalesce(sum(pm.amount) FILTER (WHERE pm.date BETWEEN $4 AND $5), 0) AS last_month ' +
+    'FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id WHERE ' + inv + ' GROUP BY pm.currency',
+    [co.id, mtd.from, mtd.to, mtd.prevFrom, mtd.prevTo]
+  );
+  var outstandingRes = await pool.query(
+    'SELECT i.currency, sum(i.balance_due) AS s, count(*)::int AS n, ' +
+    'sum(i.balance_due) FILTER (WHERE i.due_date < $2) AS overdue, count(*) FILTER (WHERE i.due_date < $2)::int AS overdue_n ' +
+    'FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE ' + open + ' AND ' + inv + ' GROUP BY i.currency', [co.id, t]
+  );
+  var overdueRes = await pool.query(
+    'SELECT i.invoice_no, i.balance_due, i.currency, i.due_date, c.name AS customer_name, c.phone FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    'WHERE ' + open + ' AND i.due_date < $2 AND ' + inv + ' ORDER BY i.due_date LIMIT 25', [co.id, t]
+  );
+  var dueSoonRes = await pool.query(
+    'SELECT i.invoice_no, i.balance_due, i.currency, i.due_date, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    "WHERE " + open + " AND i.due_date BETWEEN $2 AND ($2::date + 14) AND " + inv + ' ORDER BY i.due_date LIMIT 10', [co.id, t]
+  );
+  // How late the money owed is, in the base currency.
+  var agingRes = await pool.query(
+    'SELECT coalesce(sum(i.balance_due) FILTER (WHERE i.due_date IS NULL OR i.due_date >= $2), 0) AS current, ' +
+    "coalesce(sum(i.balance_due) FILTER (WHERE i.due_date < $2 AND i.due_date >= $2::date - 30), 0) AS d1, " +
+    "coalesce(sum(i.balance_due) FILTER (WHERE i.due_date < $2::date - 30 AND i.due_date >= $2::date - 60), 0) AS d31, " +
+    "coalesce(sum(i.balance_due) FILTER (WHERE i.due_date < $2::date - 60 AND i.due_date >= $2::date - 90), 0) AS d61, " +
+    "coalesce(sum(i.balance_due) FILTER (WHERE i.due_date < $2::date - 90), 0) AS d90 " +
+    'FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE ' + open + ' AND i.currency = $3 AND ' + inv, [co.id, t, base]
+  );
+  var debtorsRes = await pool.query(
+    'SELECT c.name, c.phone, sum(i.balance_due) AS owed, count(*)::int AS invoices, min(i.due_date) AS oldest_due FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    'WHERE ' + open + ' AND i.currency = $2 AND ' + inv + ' GROUP BY c.id, c.name, c.phone ORDER BY owed DESC LIMIT 5', [co.id, base]
+  );
+  var recentRes = await pool.query(
+    'SELECT pm.amount, pm.currency, pm.date, pm.method, c.name AS customer_name, i.invoice_no FROM payments pm JOIN invoices i ON i.id = pm.invoice_id ' +
+    'JOIN customers c ON c.id = i.customer_id WHERE ' + inv + ' ORDER BY pm.date DESC, pm.id LIMIT 8', [co.id]
+  );
+  var trend = [];
+  for (var k = 0; k < periods.length; k++) {
+    var p = periods[k];
+    var rev = await pool.query(
+      "SELECT coalesce(sum(pm.amount),0) AS s FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id " +
+      "WHERE pm.currency = $2 AND to_char(pm.date, '" + p.fmt + "') = $3 AND " + inv, [co.id, base, p.key]
+    );
+    trend.push({ month: p.label, key: p.key, revenue: Number(rev.rows[0].s), expense: expTrend[k] });
+  }
+  var baseRow = collectedRes.rows.filter(function (r) { return r.currency === base; })[0] || { this_month: 0, last_month: 0 };
+  var a = agingRes.rows[0];
+  var overdueList = overdueRes.rows.map(function (r) {
+    var due = dayStr(r.due_date);
+    return { invoiceNo: r.invoice_no, customerName: r.customer_name, phone: r.phone || '', currency: r.currency, amount: Number(r.balance_due), dueDate: due, daysOverdue: daysBetweenIso(due, t) };
+  }).sort(function (x, y) { return y.daysOverdue - x.daysOverdue; });
+  return {
+    cashCollectedThisMonthByCurrency: collectedRes.rows.filter(function (r) { return Number(r.this_month); }).map(function (r) { return { currency: r.currency, amount: Number(r.this_month) }; }),
+    cashCollectedThisMonth: Number(baseRow.this_month), cashCollectedLastMonthSameDays: Number(baseRow.last_month),
+    outstandingByCurrency: outstandingRes.rows.map(function (r) { return { currency: r.currency, amount: Number(r.s) }; }),
+    unpaidCount: outstandingRes.rows.reduce(function (s, r) { return s + r.n; }, 0),
+    overdueCount: outstandingRes.rows.reduce(function (s, r) { return s + r.overdue_n; }, 0),
+    overdueTotalByCurrency: outstandingRes.rows.filter(function (r) { return r.overdue != null && Number(r.overdue); }).map(function (r) { return { currency: r.currency, amount: Number(r.overdue) }; }),
+    overdueInvoices: overdueList,
+    dueSoon: dueSoonRes.rows.map(function (r) { var due = dayStr(r.due_date); return { invoiceNo: r.invoice_no, customerName: r.customer_name, currency: r.currency, amount: Number(r.balance_due), dueDate: due, daysLeft: daysBetweenIso(t, due) }; }),
+    aging: { current: Number(a.current), d1to30: Number(a.d1), d31to60: Number(a.d31), d61to90: Number(a.d61), d90plus: Number(a.d90) },
+    topDebtors: debtorsRes.rows.map(function (r) { return { name: r.name, phone: r.phone || '', owed: Number(r.owed), invoices: r.invoices, oldestDue: dayStr(r.oldest_due) }; }),
+    netPositionThisMonth: Number(baseRow.this_month) - exp.approvedExpensesThisMonth,
+    monthlyTrend: trend,
+    recentPayments: recentRes.rows.map(function (r) { return { customerName: r.customer_name, invoiceNo: r.invoice_no, amount: Number(r.amount), currency: r.currency, date: dayStr(r.date), method: r.method }; })
   };
 }
 
-// kernel.js: handlers['commercial.dashboard']
-async function commercialDashboard(ctx) {
+// A restaurant's money: what the till took, what was spent, whether the
+// cash drawers balanced, and voided orders. Voided orders never count as
+// sales.
+async function restaurantFinance(ctx, co, t, mtd, periods, expTrend, exp) {
+  var salesRes = await pool.query(
+    "SELECT coalesce(sum(total) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $2 AND $3), 0) AS this_month, " +
+    "count(*) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $2 AND $3)::int AS orders, " +
+    "coalesce(sum(total) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $4 AND $5), 0) AS last_month, " +
+    "count(*) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $4 AND $5)::int AS last_orders, " +
+    "count(*) FILTER (WHERE status = 'voided' AND created_at::date BETWEEN $2 AND $3)::int AS voided, " +
+    "coalesce(sum(total) FILTER (WHERE status = 'voided' AND created_at::date BETWEEN $2 AND $3), 0) AS voided_amount " +
+    'FROM restaurant_orders WHERE company_id = $1', [co.id, mtd.from, mtd.to, mtd.prevFrom, mtd.prevTo]
+  );
+  var methodRes = await pool.query(
+    "SELECT payment_method AS method, sum(total) AS amount, count(*)::int AS orders FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' " +
+    'AND created_at::date BETWEEN $2 AND $3 GROUP BY payment_method ORDER BY amount DESC', [co.id, mtd.from, mtd.to]
+  );
+  var dailyRes = await pool.query(
+    "SELECT d::date AS day, coalesce(sum(o.total), 0) AS sales, count(o.id)::int AS orders FROM generate_series($2::date - 13, $2::date, interval '1 day') d " +
+    "LEFT JOIN restaurant_orders o ON o.company_id = $1 AND o.status = 'completed' AND o.created_at::date = d::date GROUP BY d ORDER BY d", [co.id, t]
+  );
+  var trend = [];
+  for (var k = 0; k < periods.length; k++) {
+    var p = periods[k];
+    var r = await pool.query(
+      "SELECT coalesce(sum(total),0) AS s FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' AND to_char(created_at, '" + p.fmt + "') = $2", [co.id, p.key]
+    );
+    trend.push({ month: p.label, key: p.key, revenue: Number(r.rows[0].s), expense: expTrend[k] });
+  }
+  // Cash drawers closed in the last 30 days: did the count match what the
+  // till expected?
+  var from30 = new Date(new Date(t + 'T00:00').getTime() - 30 * 86400000).toISOString().slice(0, 10);
+  var drawers = await require('./restaurantPos.service').listDrawerSessions(ctx, co.id, { from: from30, limit: 200 });
+  var closed = drawers.sessions.filter(function (s) { return s.difference !== null; });
+  var off = closed.filter(function (s) { return Math.abs(s.difference) >= 0.01; });
+  var s = salesRes.rows[0];
+  var sales = Number(s.this_month);
+  return {
+    salesThisMonth: sales, ordersThisMonth: s.orders, salesLastMonthSameDays: Number(s.last_month), ordersLastMonthSameDays: s.last_orders,
+    avgOrderThisMonth: s.orders ? Math.round((sales / s.orders) * 100) / 100 : 0,
+    voidedThisMonth: s.voided, voidedAmountThisMonth: Number(s.voided_amount),
+    byMethod: methodRes.rows.map(function (r) { return { method: r.method, amount: Number(r.amount), orders: r.orders }; }),
+    daily: dailyRes.rows.map(function (r) { return { date: dayStr(r.day), sales: Number(r.sales), orders: r.orders }; }),
+    netPositionThisMonth: sales - exp.approvedExpensesThisMonth,
+    monthlyTrend: trend,
+    drawers: {
+      closed: closed.length, open: drawers.sessions.filter(function (x) { return x.difference === null; }).length,
+      balanced: closed.length - off.length,
+      short: off.filter(function (x) { return x.difference < 0; }).reduce(function (a, x) { return a + x.difference; }, 0),
+      over: off.filter(function (x) { return x.difference > 0; }).reduce(function (a, x) { return a + x.difference; }, 0),
+      mismatches: off.slice(0, 10).map(function (x) {
+        return { cashierName: x.cashierName, date: dayStr(x.session.closedAt || x.session.openedAt), expected: x.expected, actual: x.actual, difference: x.difference, note: x.session.closingNote || '' };
+      })
+    }
+  };
+}
+
+// kernel.js: handlers['commercial.dashboard'] -> GET /api/reports/commercial?company=
+async function commercialDashboard(ctx, companyCode, opts) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  var co = opts && opts.allCompanies ? ALL_COMPANIES : await resolveDashboardCompany(ctx, companyCode, true);
   var t = todayISO();
   var base = await baseCurrency();
   await quotationsService.list(ctx).catch(function () {}); // triggers autoExpireQuotations as a side effect, same as kernel
+  var qs = docScope(co, 'q', 'c');
+  var is = docScope(co, 'i', 'c');
 
   var qCountsRes = await pool.query(
-    "SELECT count(*)::int AS total, count(*) FILTER (WHERE status IN ('sent','viewed'))::int AS awaiting, " +
-    "count(*) FILTER (WHERE status = 'accepted')::int AS accepted, count(*) FILTER (WHERE status = 'rejected')::int AS rejected, " +
-    "count(*) FILTER (WHERE status = 'expired')::int AS expired, count(*) FILTER (WHERE status != 'draft')::int AS sent " +
-    'FROM quotations'
+    "SELECT count(*)::int AS total, count(*) FILTER (WHERE q.status IN ('sent','viewed'))::int AS awaiting, " +
+    "count(*) FILTER (WHERE q.status = 'accepted')::int AS accepted, count(*) FILTER (WHERE q.status = 'rejected')::int AS rejected, " +
+    "count(*) FILTER (WHERE q.status = 'expired')::int AS expired, count(*) FILTER (WHERE q.status != 'draft')::int AS sent, " +
+    "count(*) FILTER (WHERE q.status = 'draft')::int AS drafts " +
+    'FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE ' + qs, [co.id]
   );
   var q = qCountsRes.rows[0];
-  var qValueRes = await pool.query('SELECT currency, sum(grand_total) AS s FROM quotations GROUP BY currency');
-
+  var qValueRes = await pool.query(
+    "SELECT q.currency, sum(q.grand_total) AS s, sum(q.grand_total) FILTER (WHERE q.status IN ('sent','viewed')) AS awaiting, " +
+    "sum(q.grand_total) FILTER (WHERE q.status = 'accepted') AS accepted FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE " + qs + ' GROUP BY q.currency', [co.id]
+  );
   var invCountsRes = await pool.query(
-    "SELECT count(*)::int AS total, count(*) FILTER (WHERE balance_due > 0 AND due_date < $1)::int AS overdue_count FROM invoices",
-    [t]
+    "SELECT count(*) FILTER (WHERE i.status != 'void')::int AS total, count(*) FILTER (WHERE i.status NOT IN ('paid','void') AND i.balance_due > 0 AND i.due_date < $2)::int AS overdue_count, " +
+    "count(*) FILTER (WHERE i.status = 'paid')::int AS paid_count FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE " + is, [co.id, t]
   );
   var inv = invCountsRes.rows[0];
   var invValueRes = await pool.query(
-    "SELECT currency, sum(grand_total) AS invoiced, sum(amount_paid) AS paid, sum(balance_due) AS outstanding, " +
-    "sum(balance_due) FILTER (WHERE balance_due > 0 AND due_date < $1) AS overdue_amount, " +
-    "sum(grand_total) FILTER (WHERE to_char(issued_at,'YYYY-MM') = $2) AS revenue_month, " +
-    "sum(grand_total) FILTER (WHERE to_char(issued_at,'YYYY') = $3) AS revenue_year " +
-    'FROM invoices GROUP BY currency',
-    [t, t.slice(0, 7), t.slice(0, 4)]
+    "SELECT i.currency, sum(i.grand_total) AS invoiced, sum(i.amount_paid) AS paid, sum(i.balance_due) FILTER (WHERE i.status != 'paid') AS outstanding, " +
+    "sum(i.balance_due) FILTER (WHERE i.status != 'paid' AND i.balance_due > 0 AND i.due_date < $2) AS overdue_amount, " +
+    "sum(i.grand_total) FILTER (WHERE to_char(i.issued_at,'YYYY-MM') = $3) AS revenue_month, " +
+    "sum(i.grand_total) FILTER (WHERE to_char(i.issued_at,'YYYY') = $4) AS revenue_year " +
+    "FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND " + is + ' GROUP BY i.currency',
+    [co.id, t, t.slice(0, 7), t.slice(0, 4)]
+  );
+  // How long customers take to pay, over the last 180 days of payments.
+  var daysToPayRes = await pool.query(
+    'SELECT round(avg(pm.date - i.issued_at))::int AS days FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id ' +
+    "WHERE pm.date >= $2::date - 180 AND " + is, [co.id, t]
   );
 
-  // Trend line, one number per month — restricted to the base currency for
-  // the same reason financeDashboard's monthlyTrend above is.
   var months = [];
   for (var m = 5; m >= 0; m--) {
-    var dt = new Date(); dt.setMonth(dt.getMonth() - m);
+    var dt = new Date(); dt.setDate(1); dt.setMonth(dt.getMonth() - m);
     var key = dt.toISOString().slice(0, 7);
-    var invoicedRes = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE currency = $1 AND to_char(issued_at,'YYYY-MM') = $2", [base, key]);
-    var paidRes = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM payments WHERE currency = $1 AND to_char(date::date,'YYYY-MM') = $2", [base, key]);
-    months.push({ month: dt.toLocaleDateString('en-GB', { month: 'short' }), invoiced: Number(invoicedRes.rows[0].s), paid: Number(paidRes.rows[0].s) });
+    var invoicedRes = await pool.query("SELECT coalesce(sum(i.grand_total),0) AS s FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $2 AND to_char(i.issued_at,'YYYY-MM') = $3 AND " + is, [co.id, base, key]);
+    var paidRes = await pool.query("SELECT coalesce(sum(pm.amount),0) AS s FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id WHERE pm.currency = $2 AND to_char(pm.date::date,'YYYY-MM') = $3 AND " + is, [co.id, base, key]);
+    months.push({ month: dt.toLocaleDateString('en-GB', { month: 'short' }), key: key, invoiced: Number(invoicedRes.rows[0].s), paid: Number(paidRes.rows[0].s) });
   }
 
-  var upcomingRes = await pool.query(
-    "SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.balance_due > 0 AND i.due_date >= $1 ORDER BY i.due_date LIMIT 5",
-    [t]
-  );
-  var overdueListRes = await pool.query(
-    "SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.balance_due > 0 AND i.due_date < $1 ORDER BY i.due_date",
-    [t]
-  );
-  var recentQuotesRes = await pool.query('SELECT q.*, c.name AS customer_name FROM quotations q JOIN customers c ON c.id = q.customer_id ORDER BY q.created_at DESC LIMIT 5');
-  var recentInvoicesRes = await pool.query('SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ORDER BY i.issued_at DESC LIMIT 5');
+  var open = "i.status NOT IN ('paid','void') AND i.balance_due > 0";
+  var upcomingRes = await pool.query("SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE " + open + ' AND i.due_date >= $2 AND ' + is + ' ORDER BY i.due_date LIMIT 6', [co.id, t]);
+  var overdueListRes = await pool.query("SELECT i.*, c.name AS customer_name, c.phone FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE " + open + ' AND i.due_date < $2 AND ' + is + ' ORDER BY i.due_date', [co.id, t]);
+  var recentQuotesRes = await pool.query('SELECT q.*, c.name AS customer_name FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE ' + qs + ' ORDER BY q.created_at DESC LIMIT 5', [co.id]);
+  var recentInvoicesRes = await pool.query('SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE ' + is + ' ORDER BY i.issued_at DESC, i.invoice_no DESC LIMIT 5', [co.id]);
   var recentPaymentsRes = await pool.query(
-    'SELECT pm.*, c.name AS customer_name, i.invoice_no FROM payments pm JOIN customers c ON c.id = pm.customer_id JOIN invoices i ON i.id = pm.invoice_id ORDER BY pm.date DESC LIMIT 5'
+    'SELECT pm.*, c.name AS customer_name, i.invoice_no FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id WHERE ' + is + ' ORDER BY pm.date DESC LIMIT 5', [co.id]
   );
 
-  function invRow(r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, currency: r.currency, balanceDue: Number(r.balance_due), dueDate: r.due_date }; }
-  function recentInvoiceRow(r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, currency: r.currency, grandTotal: Number(r.grand_total), status: r.status }; }
-  function quoteRow(r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, grandTotal: Number(r.grand_total), status: r.status }; }
+  function invRow(r) {
+    var due = dayStr(r.due_date);
+    return { invoiceNo: r.invoice_no, customerName: r.customer_name, phone: r.phone || '', currency: r.currency, balanceDue: Number(r.balance_due), dueDate: due, days: due ? daysBetweenIso(t, due) : null };
+  }
+  function recentInvoiceRow(r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, currency: r.currency, grandTotal: Number(r.grand_total), balanceDue: Number(r.balance_due), status: r.status, issuedAt: dayStr(r.issued_at), dueDate: dayStr(r.due_date) }; }
+  function quoteRow(r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, grandTotal: Number(r.grand_total), status: r.status, createdAt: dayStr(r.created_at), validUntil: dayStr(r.valid_until) }; }
+  var baseInv = invValueRes.rows.filter(function (r) { return r.currency === base; })[0];
 
   return {
-    baseCurrency: base,
-    totalQuotations: q.total, awaitingResponse: q.awaiting, acceptedQuotations: q.accepted, rejectedQuotations: q.rejected, expiredQuotations: q.expired,
-    totalQuotationValueByCurrency: byCurrencyArr(qValueRes.rows, 's'), conversionRate: q.sent ? Math.round((q.accepted / q.sent) * 100) : 0,
-    totalInvoices: inv.total,
+    company: { code: co.code, name: co.name, kind: co.kind }, baseCurrency: base, today: t,
+    totalQuotations: q.total, draftQuotations: q.drafts, sentQuotations: q.sent, awaitingResponse: q.awaiting, acceptedQuotations: q.accepted, rejectedQuotations: q.rejected, expiredQuotations: q.expired,
+    totalQuotationValueByCurrency: byCurrencyArr(qValueRes.rows, 's'),
+    awaitingValueByCurrency: byCurrencyArr(qValueRes.rows.filter(function (r) { return r.awaiting != null; }), 'awaiting'),
+    acceptedValueByCurrency: byCurrencyArr(qValueRes.rows.filter(function (r) { return r.accepted != null; }), 'accepted'),
+    conversionRate: q.sent ? Math.round((q.accepted / q.sent) * 100) : 0,
+    totalInvoices: inv.total, paidInvoices: inv.paid_count,
     totalInvoicedByCurrency: byCurrencyArr(invValueRes.rows, 'invoiced'),
     totalPaidByCurrency: byCurrencyArr(invValueRes.rows, 'paid'),
-    outstandingByCurrency: byCurrencyArr(invValueRes.rows, 'outstanding'),
+    outstandingByCurrency: byCurrencyArr(invValueRes.rows.filter(function (r) { return r.outstanding != null; }), 'outstanding'),
+    collectionRate: baseInv && Number(baseInv.invoiced) ? Math.round((Number(baseInv.paid) / Number(baseInv.invoiced)) * 100) : null,
+    averageDaysToPay: daysToPayRes.rows[0].days,
     overdueCount: inv.overdue_count, overdueAmountByCurrency: byCurrencyArr(invValueRes.rows.filter(function (r) { return r.overdue_amount != null; }), 'overdue_amount'),
     revenueThisMonthByCurrency: byCurrencyArr(invValueRes.rows.filter(function (r) { return r.revenue_month != null; }), 'revenue_month'),
     revenueThisYearByCurrency: byCurrencyArr(invValueRes.rows.filter(function (r) { return r.revenue_year != null; }), 'revenue_year'),
     monthly: months, upcomingDue: upcomingRes.rows.map(invRow), overdueInvoices: overdueListRes.rows.map(invRow),
     recentQuotes: recentQuotesRes.rows.map(quoteRow), recentInvoices: recentInvoicesRes.rows.map(recentInvoiceRow),
-    recentPayments: recentPaymentsRes.rows.map(function (r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, amount: Number(r.amount), currency: r.currency, date: r.date, method: r.method }; })
+    recentPayments: recentPaymentsRes.rows.map(function (r) { return { invoiceNo: r.invoice_no, customerName: r.customer_name, amount: Number(r.amount), currency: r.currency, date: dayStr(r.date), method: r.method }; })
   };
 }
 
@@ -650,7 +837,7 @@ async function taxSummary(ctx, params) {
 }
 
 module.exports = {
-  summary: summary, marketingDashboard: marketingDashboard, marketingCompanies: marketingCompanies, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
+  summary: summary, marketingDashboard: marketingDashboard, marketingCompanies: marketingCompanies, financeCompanies: financeCompanies, commercialCompanies: commercialCompanies, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
   profitAndLoss: profitAndLoss, cashFlow: cashFlow, balanceSheet: balanceSheet, arAging: arAging, expenseDetail: expenseDetail,
   getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs, taxSummary: taxSummary
 };

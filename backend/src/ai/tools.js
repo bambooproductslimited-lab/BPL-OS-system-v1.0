@@ -119,7 +119,7 @@ var TOOLS = [
         outstandingInvoices: d.outstandingInvoices, pendingExpenseClaims: d.pendingExpenses
       };
       if (ctx.can('report.read')) {
-        var c = await reportsService.commercialDashboard(ctx);
+        var c = await reportsService.commercialDashboard(ctx, null, { allCompanies: true });
         out.revenueThisMonth = money(c.revenueThisMonthByCurrency);
         out.revenueThisYear = money(c.revenueThisYearByCurrency);
         out.outstandingBalance = money(c.outstandingByCurrency);
