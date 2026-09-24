@@ -1,0 +1,13 @@
+DROP TABLE message_attachments;
+DELETE FROM messages WHERE to_id IS NULL OR kind = 'system';
+DROP INDEX idx_messages_conversation_at;
+ALTER TABLE messages DROP COLUMN meta;
+ALTER TABLE messages DROP COLUMN kind;
+ALTER TABLE messages ALTER COLUMN body DROP DEFAULT;
+ALTER TABLE messages ALTER COLUMN to_id SET NOT NULL;
+ALTER TABLE messages DROP COLUMN conversation_id;
+DROP TABLE conversation_members;
+DROP TABLE conversations;
+ALTER TABLE employees DROP COLUMN photo_updated_at;
+ALTER TABLE employees DROP COLUMN photo_key;
+DROP TABLE stored_files;

@@ -126,6 +126,21 @@ var ALLOWED = {
   'GET /api/messages/directory': 'staff directory: colleagues to message. Names and job titles only',
   'GET /api/messages/:peerId': 'own conversation with one colleague',
   'POST /api/messages/:peerId': 'internal messaging — staff may message each other by design',
+  'POST /api/messages/groups': 'internal messaging — anyone may start a group chat with colleagues',
+  'GET /api/messages/conversations/:id': 'a chat the caller is a member of; anyone else gets 404 (messagesGroups.test.js)',
+  'POST /api/messages/conversations/:id': 'sending to a chat the caller is a member of; members only (messagesGroups.test.js)',
+  'PATCH /api/messages/conversations/:id': "renaming a group — the group's own admins only (messagesGroups.test.js)",
+  'POST /api/messages/conversations/:id/members': "adding people to a group — the group's own admins only (messagesGroups.test.js)",
+  'DELETE /api/messages/conversations/:id/members/:employeeId': "removing people from a group — the group's own admins only (messagesGroups.test.js)",
+  'POST /api/messages/conversations/:id/leave': 'leaving a group the caller is in',
+  'POST /api/messages/conversations/:id/admins/:employeeId': "making someone a group admin — the group's own admins only (messagesGroups.test.js)",
+  'GET /api/messages/conversations/:id/photo': 'group photo, members only',
+  'POST /api/messages/conversations/:id/photo': "group photo — the group's own admins only (messagesGroups.test.js)",
+  'DELETE /api/messages/conversations/:id/photo': "group photo — the group's own admins only (messagesGroups.test.js)",
+  'GET /api/messages/files/:id': 'a file sent in a chat — members of that chat only (messagesGroups.test.js)',
+  'GET /api/messages/people/:id/photo': "a colleague's profile photo, like their name in the directory",
+  'POST /api/messages/people/:id/photo': 'your own profile photo; anyone else\'s needs employee.write (messagesGroups.test.js)',
+  'DELETE /api/messages/people/:id/photo': 'your own profile photo; anyone else\'s needs employee.write (messagesGroups.test.js)',
   'POST /oauth/login': "the Claude connector's sign-in form — public like the login screen; issues nothing without a signed /authorize request and the person's own email and password (claudeConnector.test.js)",
   'POST /api/ai/chat': "assistant; each of Claude's tools runs with the caller's own permissions, asserted below",
   'POST /api/ai/actions/:id/confirm': "confirms a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)",
@@ -281,6 +296,7 @@ test.before(async function () {
 test.after(async function () {
   if (server) server.close();
   await pool.query('DELETE FROM messages WHERE from_id = $1 OR to_id = $1', [nobody.employeeId]);
+  await pool.query("DELETE FROM conversations WHERE direct_key LIKE '%' || $1::text || '%' OR created_by = $1::uuid", [nobody.employeeId]);
   await pool.query('DELETE FROM task_comments WHERE task_id = $1', [fixtures.task.id]).catch(function () {});
   await pool.query("DELETE FROM tasks WHERE title LIKE '" + FIXTURE_MARK + "%'");
   await pool.query("DELETE FROM expenses WHERE description LIKE '" + FIXTURE_MARK + "%'");
