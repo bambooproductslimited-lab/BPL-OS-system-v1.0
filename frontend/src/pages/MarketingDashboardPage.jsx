@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { money } from '../lib/currency';
@@ -8,6 +8,7 @@ import MarketingRecommendations from '../components/MarketingRecommendations';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import './MarketingDashboardPage.css';
 import { codeLabel } from '../lib/codeLabels.js';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
 
 // Ported from Bamboo OS.dc.html's marketing screen, backed by
 // GET /api/reports/marketing (reportsService.marketingDashboard, requires
@@ -19,6 +20,12 @@ import { codeLabel } from '../lib/codeLabels.js';
 // quotation funnel as bars plus the quotations still waiting for an
 // answer (soonest to expire first), top customers, and the leads and
 // prospects to follow up as cards with a way to reach each one.
+//
+// One company at a time, like the social tracker: the switcher at the top
+// picks it (?company=SB, remembered on this device). Bamboo Products (and
+// Poki, with its own customers) get the customer & quotation view above;
+// the restaurants get RestaurantView — built from the till and the guest
+// list, since a restaurant has diners, not quotations.
 
 const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
 function initials(name) {
@@ -50,7 +57,13 @@ function Icon({ name }) {
     phone: <path d="M6.5 4h3l1.5 4-2 1.2a10 10 0 0 0 5.8 5.8L16 13l4 1.5v3a2 2 0 0 1-2.2 2A15.5 15.5 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" />,
     user: <><circle cx="12" cy="8.5" r="3.5" /><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" /></>,
     social: <path d="M4.5 18.5 5.6 15A7 7 0 1 1 8.9 17.6z" />,
-    check: <path d="m5 12.5 4.5 4.5L19 7.5" />
+    check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+    cash: <><rect x="3" y="6.5" width="18" height="11" rx="1.5" /><circle cx="12" cy="12" r="2.5" /><path d="M6.5 9.5v.1M17.5 14.5v.1" /></>,
+    bag: <><path d="M5.5 8h13l-1 12h-11z" /><path d="M9 8V6.5a3 3 0 0 1 6 0V8" /></>,
+    repeat: <path d="M17 3.5 20 6.5l-3 3M20 6.5H8a4 4 0 0 0-4 4v1M7 20.5l-3-3 3-3M4 17.5h12a4 4 0 0 0 4-4v-1" />,
+    dish: <><path d="M3.5 16.5h17M5 16.5a7 7 0 0 1 14 0M12 7.5V6M10.5 6h3" /><path d="M4 19.5h16" /></>,
+    calendar: <><rect x="4" y="5.5" width="16" height="14.5" rx="2" /><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" /></>,
+    down: <path d="M12 5v14M6 13l6 6 6-6" />
   };
   return (
     <svg className="md-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -103,42 +116,16 @@ function quoteTone(status) {
   return 'is-info';
 }
 
-export default function MarketingDashboardPage() {
-  const navigate = useNavigate();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [recommendation, setRecommendation] = useState(null);
-  const [leadFilter, setLeadFilter] = useState('all');
-  const printRef = useRef(null);
+const COMPANY_KEY = 'bos.marketingCompany';
+function initialCompany() {
+  const q = new URLSearchParams(window.location.search).get('company');
+  if (q) return q.toUpperCase();
+  try { return localStorage.getItem(COMPANY_KEY) || 'BPL'; } catch { return 'BPL'; }
+}
 
-  useEffect(() => {
-    (async () => {
-      try {
-        setData(await api.get('/reports/marketing'));
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  async function downloadPdf() {
-    setExporting(true);
-    try {
-      await shareOrDownloadPdf(printRef.current, 'marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.pdf', tr('Marketing dashboard'), tr('Marketing dashboard'));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  function downloadCsvReport() {
-    const rows = [
-      [tr('Marketing Dashboard'), new Date().toISOString().slice(0, 10)],
+function tradeCsvRows(data) {
+  return [
+      [tr('Marketing Dashboard'), data.company ? data.company.name : '', new Date().toISOString().slice(0, 10)],
       [],
       [tr('Customer pipeline')],
       [tr('Category'), tr('Customers')],
@@ -163,21 +150,147 @@ export default function MarketingDashboardPage() {
       [tr('Leads & prospects to follow up')],
       [tr('Customer'), tr('Contact'), tr('Email'), tr('Phone'), tr('Category'), tr('Account manager'), tr('Open quotations')],
       ...data.leads.map((l) => [l.name, l.contactPerson, l.email, l.phone, l.category, l.managerName, l.openQuotes || 0])
-    ];
+  ];
+}
+
+function restaurantCsvRows(data) {
+  const s = data.sales;
+  return [
+    [tr('Marketing Dashboard'), data.company.name, new Date().toISOString().slice(0, 10)],
+    [],
+    [tr('Last {n} days', { n: data.days })],
+    [tr('Sales'), s.revenue, data.currency], [tr('Orders'), s.orders], [tr('Average spend per order'), s.avgOrder, data.currency],
+    [tr('The {n} days before', { n: data.days })],
+    [tr('Sales'), s.prevRevenue, data.currency], [tr('Orders'), s.prevOrders],
+    [],
+    [tr('Guests')],
+    [tr('In the guest list'), data.guests.total], [tr('New this month'), data.guests.newGuests], [tr('Came back (2+ visits)'), data.guests.returning], [tr('Visited in the last 30 days'), data.guests.active],
+    [],
+    [tr('Regulars to win back')],
+    [tr('Guest'), tr('Phone'), tr('Visits'), tr('Spent'), tr('Last visit')],
+    ...data.lapsed.map((g) => [g.name, g.phone, g.orders, g.total, g.lastVisit || '']),
+    [],
+    [tr('Top guests')],
+    [tr('Guest'), tr('Phone'), tr('Visits'), tr('Spent'), tr('Last visit')],
+    ...data.topGuests.map((g) => [g.name, g.phone, g.orders, g.total, g.lastVisit || '']),
+    [],
+    [tr('Best sellers (last 30 days)')],
+    [tr('Dish or drink'), tr('Sold'), tr('Sales')],
+    ...data.bestSellers.map((b) => [b.name, b.qty, b.revenue]),
+    [],
+    [tr('Busiest days (last 90 days)')],
+    [tr('Day'), tr('Orders'), tr('Sales')],
+    ...data.weekdays.map((w) => [weekdayName(w.dow), w.orders, w.revenue])
+  ];
+}
+
+// 1 = Monday … 7 = Sunday (ISO), in the reader's language.
+function weekdayName(dow, style) {
+  return new Date(Date.UTC(2024, 0, dow)).toLocaleDateString(activeIntlLocale(), { weekday: style || 'long', timeZone: 'UTC' });
+}
+
+export default function MarketingDashboardPage() {
+  const [company, setCompany] = useState(initialCompany);
+  const [companies, setCompanies] = useState([]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [recommendation, setRecommendation] = useState(null);
+  const printRef = useRef(null);
+
+  useEffect(() => {
+    api.get('/reports/marketing/companies').then(setCompanies).catch(() => setCompanies([]));
+  }, []);
+  // A remembered company that no longer has a dashboard falls back to the first.
+  useEffect(() => {
+    if (companies.length && !companies.some((c) => c.code === company)) setCompany(companies[0].code);
+  }, [companies, company]);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setData(await api.get('/reports/marketing?company=' + encodeURIComponent(company)));
+    } catch (err) {
+      setError(err.message);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [company]);
+  useEffect(() => { load(); }, [load]);
+
+  function switchCompany(code) {
+    if (code === company) return;
+    setCompany(code);
+    setLoading(true);
+    setRecommendation(null);
+    try { localStorage.setItem(COMPANY_KEY, code); } catch { /* remembered for this visit only */ }
+    window.history.replaceState({}, '', window.location.pathname + (code !== 'BPL' ? '?company=' + code : ''));
+  }
+
+  async function downloadPdf() {
+    setExporting(true);
+    try {
+      const name = data && data.company ? data.company.name : '';
+      await shareOrDownloadPdf(printRef.current, 'marketing-dashboard-' + company.toLowerCase() + '-' + new Date().toISOString().slice(0, 10) + '.pdf', tr('Marketing dashboard') + (name ? ' — ' + name : ''), tr('Marketing dashboard'));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function downloadCsvReport() {
+    const rows = data.kind === 'restaurant' ? restaurantCsvRows(data) : tradeCsvRows(data);
     if (recommendation) {
       rows.push([], [tr('Content recommendations')], [recommendation.recommendation]);
     }
-    downloadCsv('marketing-dashboard-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
+    downloadCsv('marketing-dashboard-' + company.toLowerCase() + '-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
-  function jump(id) {
-    const el = document.getElementById(id);
-    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.focus({ preventScroll: true }); }
-  }
+  const switcher = companies.length > 1 && (
+    <div className="md-companies" role="radiogroup" aria-label={tr('Company')}>
+      {companies.map((co) => {
+        const logo = restaurantLogoUrl(co.code);
+        return (
+          <button key={co.code} type="button" role="radio" aria-checked={co.code === company}
+            className={'md-company' + (co.code === company ? ' is-current' : '')} onClick={() => switchCompany(co.code)}>
+            {logo
+              ? <img className="md-company-logo" src={logo} alt="" />
+              : <span className="md-company-mark" style={{ background: avatarColor(co.name) }} aria-hidden="true">{initials(co.name)}</span>}
+            <span className="md-company-text">
+              <span className="md-company-name">{co.name}</span>
+              <span className="md-company-sub">{co.kind === 'restaurant' ? tr('Restaurant: guests & sales') : tr('Customers & quotations')}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
-  if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
-  if (error && !data) return <div className="error-banner">{error}</div>;
-  if (!data) return null;
+  if (loading) return <div className="md">{switcher}<div className="eyebrow">{tr('Loading…')}</div></div>;
+  if (!data) return <div className="md">{switcher}<div className="error-banner">{error}</div></div>;
+
+  const shared = { data, exporting, onCsv: downloadCsvReport, onPdf: downloadPdf, printRef, onRecommendation: setRecommendation };
+  return (
+    <div className="md">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {switcher}
+      {data.kind === 'restaurant' ? <RestaurantView key={company} {...shared} /> : <TradeView key={company} {...shared} />}
+    </div>
+  );
+}
+
+function jump(id) {
+  const el = document.getElementById(id);
+  if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.focus({ preventScroll: true }); }
+}
+
+// Bamboo Products and any other company with its own customers.
+function TradeView({ data, exporting, onCsv, onPdf, printRef, onRecommendation }) {
+  const navigate = useNavigate();
+  const [leadFilter, setLeadFilter] = useState('all');
 
   const f = data.funnel;
   const waiting = data.waitingQuotes || [];
@@ -230,17 +343,15 @@ export default function MarketingDashboardPage() {
   const ring = 2 * Math.PI * 42;
 
   return (
-    <div className="md">
-      {error && <div className="error-banner" role="alert">{error}</div>}
-
+    <>
       <header className="md-hero">
         <div className="md-hero-text">
-          <p className="md-eyebrow">{tr('Marketing dashboard')}</p>
+          <p className="md-eyebrow">{data.company ? data.company.name : tr('Marketing dashboard')}</p>
           <h2 className="md-hero-title">{tr('From first contact to regular customer')}</h2>
           <p className="md-hero-sub">{tr('Where every customer is in the journey, how quotations turn into sales, and who to follow up next.')}</p>
           <div className="md-hero-actions no-print">
-            <button type="button" className="btn btn-secondary" onClick={downloadCsvReport}>{tr('Download CSV')}</button>
-            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadPdf}>
+            <button type="button" className="btn btn-secondary" onClick={onCsv}>{tr('Download CSV')}</button>
+            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={onPdf}>
               {exporting ? tr('Preparing…') : tr('Download PDF')}
             </button>
           </div>
@@ -493,16 +604,7 @@ export default function MarketingDashboardPage() {
           )}
         </section>
 
-        <MarketingRecommendations onGenerated={setRecommendation} />
-
-        <button type="button" className="md-social no-print" onClick={() => navigate('/socialtracker')}>
-          <span className="md-social-icon"><Icon name="social" /></span>
-          <span>
-            <strong>{tr('Social media and website')}</strong>
-            <span className="md-muted">{tr('Followers, reach and messages for each company are on the social & campaign tracker.')}</span>
-          </span>
-          <Icon name="arrow" />
-        </button>
+        <SocialLinks data={data} onRecommendation={onRecommendation} />
       </div>
 
       <details className="md-glossary">
@@ -514,6 +616,309 @@ export default function MarketingDashboardPage() {
           <div><dt>{tr('Account manager')}</dt><dd>{tr('The person responsible for a customer and their follow-up. Set it on the customer\'s record.')}</dd></div>
         </dl>
       </details>
-    </div>
+    </>
+  );
+}
+
+// The company's content recommendations and a way to its social tracker —
+// only for a company that has one.
+function SocialLinks({ data, onRecommendation }) {
+  const navigate = useNavigate();
+  const co = data.company || { code: 'BPL', hasSocialTracker: true };
+  if (!co.hasSocialTracker) return null;
+  return (
+    <>
+      <MarketingRecommendations key={co.code} company={co.code} onGenerated={onRecommendation} />
+      <button type="button" className="md-social no-print" onClick={() => navigate('/socialtracker' + (co.code !== 'BPL' ? '?company=' + co.code : ''))}>
+        <span className="md-social-icon"><Icon name="social" /></span>
+        <span>
+          <strong>{tr('Social media and website')}</strong>
+          <span className="md-muted">{tr('Followers, reach and messages for each company are on the social & campaign tracker.')}</span>
+        </span>
+        <Icon name="arrow" />
+      </button>
+    </>
+  );
+}
+
+function pctChange(now, before) {
+  if (!before) return null;
+  return Math.round(((now - before) / before) * 100);
+}
+function daysAgo(iso) {
+  const d = daysUntil(iso);
+  return d === null ? null : -d;
+}
+
+// A change against the 30 days before, as a small up/down line.
+function Change({ now, before, format }) {
+  const pct = pctChange(now, before);
+  if (pct === null) return <small>{before === 0 && now > 0 ? tr('new this period') : tr('nothing to compare yet')}</small>;
+  if (pct === 0) return <small>{tr('same as the 30 days before')}</small>;
+  return (
+    <small className={pct > 0 ? 'md-up' : 'md-down'}>
+      <Icon name={pct > 0 ? 'up' : 'down'} /> {(pct > 0 ? '+' : '−') + Math.abs(pct) + '%'} <span className="md-muted">{tr('vs {amount} before', { amount: format(before) })}</span>
+    </small>
+  );
+}
+
+// A restaurant's dashboard: diners, not quotations — the till's last 30
+// days against the 30 before, the guest list, regulars who stopped coming,
+// what sells and which days are busy.
+function RestaurantView({ data, exporting, onCsv, onPdf, printRef, onRecommendation }) {
+  const cur = data.currency;
+  const m = (n) => money(n, cur);
+  const s = data.sales;
+  const g = data.guests;
+  const guestShare = s.orders ? Math.round((s.withGuest / s.orders) * 100) : 0;
+  const maxDay = Math.max(1, ...data.weekdays.map((w) => w.orders));
+  const withOrders = data.weekdays.filter((w) => w.orders > 0);
+  const busiest = withOrders.length ? withOrders.reduce((a, b) => (b.orders > a.orders ? b : a)) : null;
+  const quietest = withOrders.length > 1 ? withOrders.reduce((a, b) => (b.orders < a.orders ? b : a)) : null;
+  const maxGuest = Math.max(1, ...data.topGuests.map((x) => x.total));
+  const maxDish = Math.max(1, ...data.bestSellers.map((x) => x.qty));
+
+  const insights = [];
+  if (!s.orders) {
+    insights.push({ tone: 'warn', icon: 'bag', text: s.lastOrderAt
+      ? tr('No sales were recorded at the till in the last {n} days (the last was on {date}).', { n: data.days, date: fmtDate(s.lastOrderAt) })
+      : tr('No sales have been recorded at the till yet, so there is nothing to show. Sales rung up on the till appear here.') });
+  } else {
+    const pct = pctChange(s.revenue, s.prevRevenue);
+    if (pct !== null && pct !== 0) {
+      insights.push({ tone: pct > 0 ? 'good' : 'warn', icon: pct > 0 ? 'up' : 'down', text: pct > 0
+        ? tr('Sales are up {pct}% on the {n} days before: {now} against {before}.', { pct, n: data.days, now: m(s.revenue), before: m(s.prevRevenue) })
+        : tr('Sales are down {pct}% on the {n} days before: {now} against {before}.', { pct: -pct, n: data.days, now: m(s.revenue), before: m(s.prevRevenue) }) });
+    }
+    insights.push({ tone: 'info', icon: 'cash', text: tr('The average order is {amount}.', { amount: m(s.avgOrder) }) });
+  }
+  if (data.bestSellers[0]) {
+    insights.push({ tone: 'good', icon: 'dish', text: tr('{name} is the best seller: {qty} sold in the last {n} days.', { name: data.bestSellers[0].name, qty: data.bestSellers[0].qty, n: data.days }) });
+  }
+  if (busiest && quietest && busiest.dow !== quietest.dow) {
+    insights.push({ tone: 'info', icon: 'calendar', text: tr('{busy} is the busiest day and {quiet} the quietest: a good day for an offer.', { busy: weekdayName(busiest.dow), quiet: weekdayName(quietest.dow) }) });
+  }
+  if (data.lapsed.length) {
+    insights.push({ tone: 'warn', icon: 'repeat', text: data.lapsed.length === 1 ? tr('1 regular has not been back for over a month.') : tr('{n} regulars have not been back for over a month.', { n: data.lapsed.length }), action: { label: tr('See them'), run: () => jump('md-lapsed') } });
+  }
+  if (s.orders && guestShare < 30) {
+    insights.push({ tone: 'info', icon: 'user', text: tr('Only {pct}% of orders have a guest attached. Adding the guest at the till builds the list of regulars.', { pct: guestShare }) });
+  }
+  if (g.newGuests) {
+    insights.push({ tone: 'good', icon: 'people', text: g.newGuests === 1 ? tr('1 new guest was added in the last 30 days.') : tr('{n} new guests were added in the last 30 days.', { n: g.newGuests }) });
+  }
+
+  const guestCards = [
+    { key: 'total', label: tr('In the guest list'), value: g.total, help: tr('Everyone saved at the till with a name.') },
+    { key: 'new', label: tr('New this month'), value: g.newGuests, help: tr('Added in the last 30 days.') },
+    { key: 'returning', label: tr('Came back'), value: g.returning, help: tr('Guests with two visits or more: your regulars.') },
+    { key: 'active', label: tr('Visited recently'), value: g.active, help: tr('Guests who came in the last 30 days.') }
+  ];
+
+  return (
+    <>
+      <header className="md-hero">
+        <div className="md-hero-text">
+          <p className="md-eyebrow">{data.company.name}</p>
+          <h2 className="md-hero-title">{tr('Bringing diners back')}</h2>
+          <p className="md-hero-sub">{tr('Who eats here, who comes back, what they order and when: from the till and the guest list, the last {n} days against the {n} before.', { n: data.days })}</p>
+          <div className="md-hero-actions no-print">
+            <button type="button" className="btn btn-secondary" onClick={onCsv}>{tr('Download CSV')}</button>
+            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={onPdf}>
+              {exporting ? tr('Preparing…') : tr('Download PDF')}
+            </button>
+          </div>
+        </div>
+        <div className="md-hero-stats">
+          <div className="md-hero-stat is-static">
+            <span className="md-hero-stat-icon"><Icon name="cash" /></span>
+            <strong>{m(s.revenue)}</strong>
+            <span>{tr('sales, last {n} days', { n: data.days })}</span>
+            <Change now={s.revenue} before={s.prevRevenue} format={m} />
+          </div>
+          <div className="md-hero-stat is-static">
+            <span className="md-hero-stat-icon"><Icon name="bag" /></span>
+            <strong>{s.orders}</strong>
+            <span>{tr('orders')}</span>
+            <Change now={s.orders} before={s.prevOrders} format={(n) => String(n)} />
+          </div>
+          <div className="md-hero-stat is-static">
+            <span className="md-hero-stat-icon"><Icon name="dish" /></span>
+            <strong>{m(s.avgOrder)}</strong>
+            <span>{tr('average order')}</span>
+            <Change now={s.avgOrder} before={s.prevAvgOrder} format={m} />
+          </div>
+          <button type="button" className="md-hero-stat" onClick={() => jump('md-guests')}>
+            <span className="md-hero-stat-icon"><Icon name="repeat" /></span>
+            <strong>{g.returning}</strong>
+            <span>{tr('regulars')}</span>
+            <small>{tr('of {n} guests came back', { n: g.total })}</small>
+          </button>
+        </div>
+      </header>
+
+      <div ref={printRef} className="md-body">
+        {insights.length > 0 && (
+          <section className="md-insights" aria-label={tr('What stands out')}>
+            <h3 className="md-h3"><Icon name="spark" /> {tr('What stands out')}</h3>
+            <ul>
+              {insights.map((it, i) => (
+                <li key={i} className={'md-insight is-' + it.tone}>
+                  <span className="md-insight-icon"><Icon name={it.icon} /></span>
+                  <span className="md-insight-text">{it.text}</span>
+                  {it.action && <button type="button" className="md-link no-print" onClick={it.action.run}>{it.action.label} <Icon name="arrow" /></button>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section id="md-guests" tabIndex={-1} className="md-section">
+          <div className="md-section-head">
+            <div>
+              <h3 className="md-h3">{tr('Guests')}</h3>
+              <p className="md-muted">{tr('The guest list grows when the till records who ordered. Regulars are the guests worth looking after.')}</p>
+            </div>
+          </div>
+          <div className="md-guest-stats">
+            {guestCards.map((c) => (
+              <div key={c.key} className={'md-guest-stat is-' + c.key}>
+                <div className="md-guest-n">{c.value}</div>
+                <div className="md-guest-label">{c.label}</div>
+                <p className="md-muted">{c.help}</p>
+              </div>
+            ))}
+          </div>
+          <div className="md-capture">
+            <div className="md-capture-row">
+              <span>{tr('Orders with a guest attached')}</span>
+              <strong>{guestShare}%</strong>
+            </div>
+            <div className="md-funnel-track" aria-hidden="true"><span style={{ width: guestShare + '%' }} /></div>
+            <p className="md-muted">{tr('{with} of {orders} orders in the last {n} days. The higher this is, the better you know your diners.', { with: s.withGuest, orders: s.orders, n: data.days })}</p>
+          </div>
+        </section>
+
+        <div className="md-two">
+          <section id="md-lapsed" tabIndex={-1} className="md-section md-card">
+            <div className="md-section-head">
+              <div>
+                <h3 className="md-h3">{tr('Regulars to win back')}</h3>
+                <p className="md-muted">{tr('Came at least twice, but not in the last month. A call or a message with an offer can bring them back.')}</p>
+              </div>
+            </div>
+            {data.lapsed.length ? (
+              <ul className="md-quote-list">
+                {data.lapsed.map((x, i) => (
+                  <li key={i} className="md-quote">
+                    <span className="md-avatar" style={{ background: avatarColor(x.name) }} aria-hidden="true">{initials(x.name)}</span>
+                    <div className="md-quote-main">
+                      <div className="md-quote-title">{x.name}</div>
+                      <div className="md-muted md-quote-meta">
+                        {x.orders === 1 ? tr('1 visit') : tr('{n} visits', { n: x.orders })} · {m(x.total)}
+                      </div>
+                      {x.phone && <a className="md-tel" href={'tel:' + x.phone.replace(/\s+/g, '')}><Icon name="phone" /> {x.phone}</a>}
+                    </div>
+                    <div className="md-quote-side">
+                      <div className="md-expiry is-late">{tr('Last came {n} days ago', { n: daysAgo(x.lastVisit) })}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="md-empty"><Icon name="check" /><p>{tr('No regular has been away for more than a month.')}</p></div>
+            )}
+          </section>
+
+          <section className="md-section md-card">
+            <div className="md-section-head">
+              <div>
+                <h3 className="md-h3">{tr('Top guests')}</h3>
+                <p className="md-muted">{tr('Who has spent the most, all time.')}</p>
+              </div>
+            </div>
+            {data.topGuests.length ? (
+              <ol className="md-top">
+                {data.topGuests.map((x, i) => (
+                  <li key={i}>
+                    <span className={'md-rank' + (i === 0 ? ' is-first' : '')}>{i + 1}</span>
+                    <div className="md-top-main">
+                      <div className="md-top-row">
+                        <span className="md-top-name">{x.name}</span>
+                        <span className="md-top-amount">{m(x.total)}</span>
+                      </div>
+                      <div className="md-top-track" aria-hidden="true"><span style={{ width: Math.round((x.total / maxGuest) * 100) + '%' }} /></div>
+                      <div className="md-muted md-top-meta">
+                        {x.orders === 1 ? tr('1 visit') : tr('{n} visits', { n: x.orders })}{x.lastVisit ? ' · ' + tr('last on {date}', { date: fmtDate(x.lastVisit) }) : ''}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : <div className="md-empty"><Icon name="people" /><p>{tr('No orders with a guest attached yet.')}</p></div>}
+          </section>
+        </div>
+
+        <div className="md-two">
+          <section className="md-section md-card">
+            <div className="md-section-head">
+              <div>
+                <h3 className="md-h3">{tr('Best sellers')}</h3>
+                <p className="md-muted">{tr('What sold most in the last {n} days: worth featuring in posts and offers.', { n: data.days })}</p>
+              </div>
+            </div>
+            {data.bestSellers.length ? (
+              <ol className="md-top">
+                {data.bestSellers.map((b, i) => (
+                  <li key={b.name}>
+                    <span className={'md-rank' + (i === 0 ? ' is-first' : '')}>{i + 1}</span>
+                    <div className="md-top-main">
+                      <div className="md-top-row">
+                        <span className="md-top-name">{b.name}</span>
+                        <span className="md-top-amount">{tr('{n} sold', { n: b.qty })}</span>
+                      </div>
+                      <div className="md-top-track is-dish" aria-hidden="true"><span style={{ width: Math.round((b.qty / maxDish) * 100) + '%' }} /></div>
+                      <div className="md-muted md-top-meta">{m(b.revenue)}</div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : <div className="md-empty"><Icon name="dish" /><p>{tr('Nothing sold in the last {n} days.', { n: data.days })}</p></div>}
+          </section>
+
+          <section className="md-section md-card">
+            <div className="md-section-head">
+              <div>
+                <h3 className="md-h3">{tr('Busiest days')}</h3>
+                <p className="md-muted">{tr('Orders by day of the week over the last 90 days. Quiet days are the ones to promote.')}</p>
+              </div>
+            </div>
+            <div className="md-week" role="img" aria-label={data.weekdays.map((w) => weekdayName(w.dow) + ': ' + w.orders).join(', ')}>
+              {data.weekdays.map((w) => (
+                <div key={w.dow} className={'md-week-day' + (busiest && w.dow === busiest.dow ? ' is-top' : '') + (quietest && w.dow === quietest.dow ? ' is-low' : '')}>
+                  <span className="md-week-n">{w.orders}</span>
+                  <div className="md-week-bar"><span style={{ height: Math.max(2, Math.round((w.orders / maxDay) * 100)) + '%' }} /></div>
+                  <span className="md-week-label">{weekdayName(w.dow, 'short')}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <SocialLinks data={data} onRecommendation={onRecommendation} />
+      </div>
+
+      <details className="md-glossary">
+        <summary><Icon name="info" /> {tr('What do these words mean?')}</summary>
+        <dl>
+          <div><dt>{tr('Sales')}</dt><dd>{tr('The total of completed orders rung up on the till. Voided orders never count.')}</dd></div>
+          <div><dt>{tr('Average order')}</dt><dd>{tr('Sales divided by the number of orders: what a table spends on average.')}</dd></div>
+          <div><dt>{tr('Guest')}</dt><dd>{tr('A diner saved at the till with a name (and a phone number, ideally), so their visits can be counted.')}</dd></div>
+          <div><dt>{tr('Regular')}</dt><dd>{tr('A guest who has come at least twice.')}</dd></div>
+          <div><dt>{tr('Regular to win back')}</dt><dd>{tr('A regular whose last visit was more than 30 days ago.')}</dd></div>
+          <div><dt>{tr('The arrows')}</dt><dd>{tr('Each number is compared with the 30 days just before.')}</dd></div>
+        </dl>
+      </details>
+    </>
   );
 }

@@ -44,18 +44,69 @@ async function summary(ctx) {
   };
 }
 
-// kernel.js: handlers['marketing.dashboard']
-async function marketingDashboard(ctx) {
+// ── marketing dashboard, one company at a time ────────────────────────
+// Bamboo Products (and any company with its own customers, like Poki) is a
+// trade business: customers moving from lead to VIP, quotations, sales
+// orders. Its customers and quotations are the ones with no company set
+// (everything made before companies existed) or its own. Star Bar and
+// Bamboo Garden are restaurants: no quotations, but a till and a guest
+// list, so theirs is built from those (restaurant.read to see it).
+
+// The companies with a dashboard, for the switcher: [{ id, code, name, kind }]
+// in the social tracker's order (Bamboo Products, the restaurants), then
+// the rest by name.
+async function marketingCompanyList(ctx) {
+  var rows = (await pool.query(
+    "SELECT co.id, co.code, co.name, " +
+    "(co.code = 'BPL' OR EXISTS (SELECT 1 FROM customers c WHERE c.company_id = co.id)) AS trade, " +
+    '(EXISTS (SELECT 1 FROM restaurant_orders o WHERE o.company_id = co.id) OR EXISTS (SELECT 1 FROM restaurant_menu_items m WHERE m.company_id = co.id) ' +
+    ' OR EXISTS (SELECT 1 FROM restaurant_guests g WHERE g.company_id = co.id)) AS restaurant, ' +
+    'EXISTS (SELECT 1 FROM marketing_channels ch WHERE ch.company_id = co.id) AS social ' +
+    "FROM companies co WHERE co.status = 'active' ORDER BY co.name"
+  )).rows;
+  // Star Bar and Bamboo Garden count as restaurants even before their
+  // first sale (found by code or name, as in the social tracker).
+  var mc = require('./marketingChannels');
+  mc.trackedCompanies(rows).forEach(function (t) {
+    if (t.channels === mc.RESTAURANT_CHANNELS) rows.forEach(function (r) { if (r.id === t.id) r.restaurant = true; });
+  });
+  var list = rows
+    .filter(function (r) { return r.restaurant ? ctx.can('restaurant.read') : r.trade; })
+    .map(function (r) { return { id: r.id, code: r.code, name: r.name, kind: r.restaurant ? 'restaurant' : 'trade', hasSocialTracker: r.social }; });
+  var order = mc.trackedCompanies(list).map(function (t) { return t.id; });
+  function rank(r) { var i = order.indexOf(r.id); return i < 0 ? order.length : i; }
+  return list.slice().sort(function (x, y) { return rank(x) - rank(y); });
+}
+
+async function marketingCompanies(ctx) {
   if (!ctx.can('customer.read')) fail('forbidden', 'Your role does not allow this action (customer.read).');
+  return (await marketingCompanyList(ctx)).map(function (c) { return { code: c.code, name: c.name, kind: c.kind }; });
+}
+
+// kernel.js: handlers['marketing.dashboard'] -> GET /api/reports/marketing?company=
+async function marketingDashboard(ctx, companyCode) {
+  if (!ctx.can('customer.read')) fail('forbidden', 'Your role does not allow this action (customer.read).');
+  var code = String(companyCode || 'BPL').trim().toUpperCase();
+  var co = (await marketingCompanyList(ctx)).filter(function (c) { return c.code.toUpperCase() === code; })[0];
+  if (!co) fail('invalid', 'There is no marketing dashboard for "' + code + '".');
+  var company = { code: co.code, name: co.name, kind: co.kind, hasSocialTracker: co.hasSocialTracker };
+  var result = co.kind === 'restaurant' ? await restaurantMarketing(co) : await tradeMarketing(co);
+  return Object.assign({ company: company, kind: co.kind }, result);
+}
+
+async function tradeMarketing(co) {
+  // Which customers are this company's (c. is the customers alias).
+  var mine = co.code === 'BPL' ? '(c.company_id IS NULL OR c.company_id = $1)' : 'c.company_id = $1';
   var cats = ['lead', 'prospect', 'active', 'vip', 'inactive'];
-  var pipelineRes = await pool.query('SELECT category, count(*)::int AS n FROM customers GROUP BY category');
+  var pipelineRes = await pool.query('SELECT c.category, count(*)::int AS n FROM customers c WHERE ' + mine + ' GROUP BY c.category', [co.id]);
   var pipelineByCat = {}; pipelineRes.rows.forEach(function (r) { pipelineByCat[r.category] = r.n; });
   var pipeline = cats.map(function (c) { return { category: c, count: pipelineByCat[c] || 0 }; });
 
-  var totalCustomers = await pool.query('SELECT count(*)::int AS n FROM customers');
+  var totalCustomers = await pool.query('SELECT count(*)::int AS n FROM customers c WHERE ' + mine, [co.id]);
   var funnelRes = await pool.query(
-    "SELECT count(*) FILTER (WHERE status != 'draft')::int AS sent, count(*) FILTER (WHERE status = 'accepted')::int AS accepted, " +
-    "count(*) FILTER (WHERE status IN ('rejected','expired'))::int AS rejected FROM quotations"
+    "SELECT count(*) FILTER (WHERE q.status != 'draft')::int AS sent, count(*) FILTER (WHERE q.status = 'accepted')::int AS accepted, " +
+    "count(*) FILTER (WHERE q.status IN ('rejected','expired'))::int AS rejected, count(*) FILTER (WHERE q.status IN ('sent','viewed'))::int AS waiting " +
+    'FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE ' + mine, [co.id]
   );
   var f = funnelRes.rows[0];
 
@@ -63,29 +114,29 @@ async function marketingDashboard(ctx) {
   // soonest to expire first.
   var waitingRes = await pool.query(
     "SELECT q.quote_no, q.grand_total, q.currency, q.status, q.created_at, q.valid_until, c.name AS customer_name " +
-    "FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE q.status IN ('sent','viewed') " +
-    'ORDER BY q.valid_until NULLS LAST, q.created_at LIMIT 20'
+    "FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE q.status IN ('sent','viewed') AND " + mine +
+    ' ORDER BY q.valid_until NULLS LAST, q.created_at LIMIT 20', [co.id]
   );
-  var waitingCount = await pool.query("SELECT count(*)::int AS n FROM quotations WHERE status IN ('sent','viewed')");
-
   var topCustomersRes = await pool.query(
-    'SELECT c.name, o.currency, sum(o.total) AS total, count(*)::int AS orders FROM sales_orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.name, o.currency ORDER BY total DESC LIMIT 5'
+    'SELECT c.name, o.currency, sum(o.total) AS total, count(*)::int AS orders FROM sales_orders o JOIN customers c ON c.id = o.customer_id WHERE ' + mine +
+    ' GROUP BY c.name, o.currency ORDER BY total DESC LIMIT 5', [co.id]
   );
   var leadsRes = await pool.query(
     "SELECT c.*, m.first_name, m.last_name, " +
     "(SELECT count(*)::int FROM quotations q WHERE q.customer_id = c.id AND q.status IN ('sent','viewed')) AS open_quotes, " +
     '(SELECT max(q.created_at) FROM quotations q WHERE q.customer_id = c.id) AS last_quote_at ' +
-    "FROM customers c LEFT JOIN employees m ON m.id = c.account_manager_id WHERE c.category IN ('lead','prospect') ORDER BY c.category DESC, c.name"
+    "FROM customers c LEFT JOIN employees m ON m.id = c.account_manager_id WHERE c.category IN ('lead','prospect') AND " + mine + ' ORDER BY c.category DESC, c.name', [co.id]
   );
   var recentQuotesRes = await pool.query(
-    'SELECT q.quote_no, q.grand_total, q.currency, q.status, q.created_at, q.valid_until, c.name AS customer_name FROM quotations q JOIN customers c ON c.id = q.customer_id ORDER BY q.created_at DESC LIMIT 5'
+    'SELECT q.quote_no, q.grand_total, q.currency, q.status, q.created_at, q.valid_until, c.name AS customer_name FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE ' + mine +
+    ' ORDER BY q.created_at DESC LIMIT 5', [co.id]
   );
   function day(d) { return d ? (d.toISOString ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null; }
 
   return {
     pipeline: pipeline, totalCustomers: totalCustomers.rows[0].n,
     funnel: {
-      sent: f.sent, accepted: f.accepted, rejected: f.rejected, waiting: waitingCount.rows[0].n,
+      sent: f.sent, accepted: f.accepted, rejected: f.rejected, waiting: f.waiting,
       conversionRate: f.sent ? Math.round((f.accepted / f.sent) * 100) : 0
     },
     topCustomers: topCustomersRes.rows.map(function (r) { return { name: r.name, currency: r.currency, total: Number(r.total), orders: r.orders }; }),
@@ -98,6 +149,66 @@ async function marketingDashboard(ctx) {
     }),
     recentQuotes: recentQuotesRes.rows.map(function (r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, total: Number(r.grand_total), status: r.status, createdAt: day(r.created_at), validUntil: day(r.valid_until) }; }),
     waitingQuotes: waitingRes.rows.map(function (r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, total: Number(r.grand_total), status: r.status, createdAt: day(r.created_at), validUntil: day(r.valid_until) }; })
+  };
+}
+
+// A restaurant's: the last 30 days against the 30 before, its guests
+// (who comes back, who stopped coming), best sellers and busiest days.
+// Voided orders never count.
+async function restaurantMarketing(co) {
+  var currency = await baseCurrency();
+  var DAYS = 30;
+  var salesRes = await pool.query(
+    "SELECT count(*) FILTER (WHERE created_at >= now() - interval '30 days')::int AS orders, " +
+    "coalesce(sum(total) FILTER (WHERE created_at >= now() - interval '30 days'), 0) AS revenue, " +
+    "count(*) FILTER (WHERE created_at >= now() - interval '30 days' AND guest_id IS NOT NULL)::int AS with_guest, " +
+    "count(*) FILTER (WHERE created_at >= now() - interval '60 days' AND created_at < now() - interval '30 days')::int AS prev_orders, " +
+    "coalesce(sum(total) FILTER (WHERE created_at >= now() - interval '60 days' AND created_at < now() - interval '30 days'), 0) AS prev_revenue, " +
+    'max(created_at) AS last_order_at ' +
+    "FROM restaurant_orders WHERE company_id = $1 AND status = 'completed'", [co.id]
+  );
+  var s = salesRes.rows[0];
+  var guestRes = await pool.query(
+    'SELECT count(*)::int AS total, ' +
+    "count(*) FILTER (WHERE g.created_at >= now() - interval '30 days')::int AS new_guests, " +
+    'count(*) FILTER (WHERE v.orders >= 2)::int AS returning, ' +
+    "count(*) FILTER (WHERE v.last_visit >= now() - interval '30 days')::int AS active " +
+    'FROM restaurant_guests g LEFT JOIN (' +
+    "  SELECT guest_id, count(*) AS orders, max(created_at) AS last_visit FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' AND guest_id IS NOT NULL GROUP BY guest_id" +
+    ') v ON v.guest_id = g.id WHERE g.company_id = $1', [co.id]
+  );
+  var perGuest =
+    'SELECT g.name, g.phone, count(o.id)::int AS orders, coalesce(sum(o.total), 0) AS total, max(o.created_at) AS last_visit ' +
+    "FROM restaurant_guests g JOIN restaurant_orders o ON o.guest_id = g.id AND o.status = 'completed' WHERE g.company_id = $1 GROUP BY g.id, g.name, g.phone ";
+  var topGuestsRes = await pool.query(perGuest + 'ORDER BY total DESC LIMIT 8', [co.id]);
+  var lapsedRes = await pool.query(perGuest + "HAVING count(o.id) >= 2 AND max(o.created_at) < now() - interval '30 days' ORDER BY total DESC LIMIT 10", [co.id]);
+  var bestRes = await pool.query(
+    'SELECT i.name, sum(i.qty) AS qty, sum(i.line_total) AS revenue FROM restaurant_order_items i JOIN restaurant_orders o ON o.id = i.order_id ' +
+    "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at >= now() - interval '30 days' GROUP BY i.name ORDER BY qty DESC, revenue DESC LIMIT 8", [co.id]
+  );
+  var weekRes = await pool.query(
+    "SELECT extract(isodow FROM created_at)::int AS dow, count(*)::int AS orders, coalesce(sum(total), 0) AS revenue FROM restaurant_orders " +
+    "WHERE company_id = $1 AND status = 'completed' AND created_at >= now() - interval '90 days' GROUP BY dow", [co.id]
+  );
+  var byDow = {}; weekRes.rows.forEach(function (r) { byDow[r.dow] = r; });
+  function guestRow(r) {
+    return { name: r.name, phone: r.phone, orders: r.orders, total: Number(r.total), lastVisit: r.last_visit ? r.last_visit.toISOString().slice(0, 10) : null };
+  }
+  var g = guestRes.rows[0];
+  var orders = s.orders, revenue = Number(s.revenue);
+  return {
+    currency: currency, days: DAYS,
+    sales: {
+      orders: orders, revenue: revenue, avgOrder: orders ? Math.round((revenue / orders) * 100) / 100 : 0,
+      prevOrders: s.prev_orders, prevRevenue: Number(s.prev_revenue),
+      prevAvgOrder: s.prev_orders ? Math.round((Number(s.prev_revenue) / s.prev_orders) * 100) / 100 : 0,
+      withGuest: s.with_guest, lastOrderAt: s.last_order_at ? s.last_order_at.toISOString().slice(0, 10) : null
+    },
+    guests: { total: g.total, newGuests: g.new_guests, returning: g.returning, active: g.active },
+    topGuests: topGuestsRes.rows.map(guestRow),
+    lapsed: lapsedRes.rows.map(guestRow),
+    bestSellers: bestRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), revenue: Number(r.revenue) }; }),
+    weekdays: [1, 2, 3, 4, 5, 6, 7].map(function (d) { var r = byDow[d]; return { dow: d, orders: r ? r.orders : 0, revenue: r ? Number(r.revenue) : 0 }; })
   };
 }
 
@@ -539,7 +650,7 @@ async function taxSummary(ctx, params) {
 }
 
 module.exports = {
-  summary: summary, marketingDashboard: marketingDashboard, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
+  summary: summary, marketingDashboard: marketingDashboard, marketingCompanies: marketingCompanies, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
   profitAndLoss: profitAndLoss, cashFlow: cashFlow, balanceSheet: balanceSheet, arAging: arAging, expenseDetail: expenseDetail,
   getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs, taxSummary: taxSummary
 };

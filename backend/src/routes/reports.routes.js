@@ -11,8 +11,14 @@ router.get('/summary', async function (req, res, next) {
 });
 
 // kernel.js: handlers['marketing.dashboard'] -> GET /api/reports/marketing
+// ?company=<code> (Bamboo Products when left out).
 router.get('/marketing', async function (req, res, next) {
-  try { res.json(await reportsService.marketingDashboard(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await reportsService.marketingDashboard(req.ctx, req.query.company)); } catch (e) { next(e); }
+});
+
+// The companies with a marketing dashboard, for its company switcher.
+router.get('/marketing/companies', async function (req, res, next) {
+  try { res.json(await reportsService.marketingCompanies(req.ctx)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['finance.dashboard'] -> GET /api/reports/finance
