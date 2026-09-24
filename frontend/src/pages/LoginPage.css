@@ -206,3 +206,9 @@
 .login-demo-text { display: flex; flex-direction: column; min-width: 0; }
 .login-demo-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .login-demo-role { font-size: 10.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Two-step sign-in: the code step. */
+.login-code-input { font-size: 22px; letter-spacing: 0.3em; text-align: center; font-variant-numeric: tabular-nums; }
+.login-remember { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 4px 0 10px; }
+.login-code-help { font-size: 12px; color: var(--color-text-muted); margin: 0 0 12px; }
+.login-back { margin-top: 8px; }

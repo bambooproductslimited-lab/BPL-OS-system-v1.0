@@ -40,3 +40,5 @@
 }
 
 .users-dialog-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+
+.users-twostep { margin-left: 8px; font-size: 10px; padding: 1px 6px; }

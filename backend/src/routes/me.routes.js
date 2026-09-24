@@ -51,6 +51,24 @@ router.post('/locale', requireAuth, async function (req, res, next) {
 });
 
 // kernel.js: handlers['me.summary'] -> GET /api/me/summary
+// Two-step sign-in, for the signed-in person's own account (twoStep.service.js).
+var twoStep = require('../services/twoStep.service');
+router.get('/two-step', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.status(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/two-step/setup', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.startSetup(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/two-step/enable', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.enable(req.ctx, req.body.code)); } catch (e) { next(e); }
+});
+router.post('/two-step/disable', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.disable(req.ctx, req.body.password)); } catch (e) { next(e); }
+});
+router.post('/two-step/backup-codes', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.newBackupCodes(req.ctx, req.body.password)); } catch (e) { next(e); }
+});
+
 router.get('/summary', requireAuth, async function (req, res, next) {
   try {
     var ctx = req.ctx;

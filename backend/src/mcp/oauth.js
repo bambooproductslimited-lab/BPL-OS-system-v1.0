@@ -103,6 +103,23 @@ function page(opts) {
     '</style></head><body><main><p class="brand">Bamboo OS</p><h1>' + escapeHtml(opts.title || 'Connect Claude') + '</h1>' + body + '</main></body></html>';
 }
 
+// The second step, for accounts with two-step sign-in on: the code from the
+// authenticator app (or a backup code), before Claude is allowed in.
+function codePage(opts) {
+  return page({
+    title: 'Enter your code',
+    body: '<p class="lead">Two-step sign-in is on for this account. Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>' +
+      (opts.error ? '<p class="error" role="alert">' + escapeHtml(opts.error) + '</p>' : '') +
+      '<form method="post" action="/oauth/login">' +
+      '<input type="hidden" name="request" value="' + escapeHtml(opts.request) + '">' +
+      '<input type="hidden" name="challenge" value="' + escapeHtml(opts.challenge) + '">' +
+      '<label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></label>' +
+      '<div class="buttons"><button name="decision" value="allow" class="primary">Allow</button>' +
+      '<button name="decision" value="deny" formnovalidate>Cancel</button></div>' +
+      '</form>'
+  });
+}
+
 function redirectWith(redirectUri, params) {
   var url = new URL(redirectUri);
   Object.keys(params).forEach(function (k) { if (params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]); });
@@ -235,10 +252,18 @@ router.post('/oauth/login', loginLimiter, express.urlencoded({ extended: false, 
 
     var result;
     try {
-      result = await authService.login(req.body.email, req.body.password);
+      result = req.body.challenge
+        ? await authService.verifyLogin(req.body.challenge, req.body.code, false)
+        : await authService.login(req.body.email, req.body.password);
     } catch (err) {
-      if (err instanceof AppError) return again(err.message);
-      throw err;
+      if (!(err instanceof AppError)) throw err;
+      if (req.body.challenge && /code is not right/.test(err.message)) {
+        return res.status(200).type('html').send(codePage({ request: req.body.request, challenge: req.body.challenge, error: err.message }));
+      }
+      return again(err.message);
+    }
+    if (result.twoStepRequired) {
+      return res.status(200).type('html').send(codePage({ request: req.body.request, challenge: result.challenge }));
     }
     if (result.ctx.user.mustChangePassword) {
       return again('Sign in to Bamboo OS in your browser and set your own password first, then connect Claude.');

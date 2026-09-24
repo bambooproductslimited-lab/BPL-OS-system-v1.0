@@ -1,0 +1,15 @@
+.twostep { font-size: 13px; max-width: 640px; display: flex; flex-direction: column; gap: 10px; }
+.twostep p { margin: 0; }
+.twostep-muted { color: var(--color-text-muted); }
+.twostep-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.twostep-on { margin-right: 4px; }
+.twostep-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 12px; }
+.twostep-qr { margin: 8px 0; }
+.twostep-qr img { display: block; background: #fff; padding: 8px; border: var(--divider-width) solid var(--color-divider); }
+.twostep-key { font-size: 13px; background: var(--color-bg-subtle); padding: 2px 6px; overflow-wrap: anywhere; }
+.twostep-steps label { display: block; }
+.twostep-code-input { max-width: 180px; font-size: 20px; letter-spacing: 0.25em; text-align: center; margin-top: 6px; }
+.twostep-password { display: flex; flex-direction: column; gap: 6px; max-width: 360px; }
+.twostep-codes { border: var(--divider-width) solid var(--color-warning); background: var(--color-warning-100); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.twostep-code-list { margin: 0; padding-left: 22px; columns: 2; column-gap: 24px; font-size: 14px; }
+.twostep-code-list code { letter-spacing: 0.05em; }

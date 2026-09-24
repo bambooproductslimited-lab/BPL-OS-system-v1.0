@@ -5,6 +5,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var { buildContext } = require('./context.service');
+var twoStep = require('./twoStep.service');
 
 var MAX_FAILED_ATTEMPTS = 5;
 var LOCKOUT_MINUTES = 15;
@@ -20,10 +21,13 @@ function verifyToken(token) {
 // Ported from kernel.js's handlers['auth.login'] — real bcrypt verification,
 // a signed JWT instead of Crypto.id('tok'), and a failed-attempt lockout
 // that the prototype (deliberately) had no equivalent for.
-async function login(email, password) {
+// With two-step sign-in on (twoStep.service.js) and this browser not
+// remembered, a right password doesn't sign in yet: it returns
+// { twoStepRequired, challenge }, and verifyLogin() finishes with the code.
+async function login(email, password, opts) {
   email = String(email || '').trim().toLowerCase();
   var res = await pool.query(
-    'SELECT u.id, u.email, u.password_hash, u.status, u.failed_login_attempts, u.locked_until, ' +
+    'SELECT u.id, u.email, u.password_hash, u.status, u.failed_login_attempts, u.locked_until, u.totp_enabled_at, u.mfa_valid_after, ' +
     'e.first_name, e.last_name ' +
     'FROM users u JOIN employees e ON e.id = u.employee_id WHERE u.email = $1',
     [email]
@@ -47,15 +51,30 @@ async function login(email, password) {
 
   if (user.status !== 'active') fail('auth', 'This account is disabled. Contact HR.');
 
+  // The failed-attempt count is only cleared once the code is right too, so
+  // a known password doesn't reset the lockout on guessing codes.
+  if (twoStep.required(user) && !twoStep.trustsDevice(user, opts && opts.deviceToken)) {
+    return { twoStepRequired: true, challenge: twoStep.challengeFor(user.id) };
+  }
+  return finishLogin(user.id);
+}
+
+// The second step: the code from the authenticator app (or a backup code).
+async function verifyLogin(challenge, code, rememberDevice) {
+  var userId = await twoStep.checkLoginCode(challenge, code, MAX_FAILED_ATTEMPTS, LOCKOUT_MINUTES);
+  var result = await finishLogin(userId, 'Signed in with two-step sign-in.');
+  if (rememberDevice) result.deviceToken = twoStep.deviceTokenFor(userId);
+  return result;
+}
+
+async function finishLogin(userId, auditText) {
   await pool.query(
     'UPDATE users SET last_login_at = now(), failed_login_attempts = 0, locked_until = NULL WHERE id = $1',
-    [user.id]
+    [userId]
   );
-
-  var ctx = await buildContext(user.id);
-  await audit(pool, ctx, 'auth.login', 'user', user.id, 'Signed in.');
-
-  return { token: signToken(user.id), ctx: ctx };
+  var ctx = await buildContext(userId);
+  await audit(pool, ctx, 'auth.login', 'user', userId, auditText || 'Signed in.');
+  return { token: signToken(userId), ctx: ctx };
 }
 
 // Self-service password change — distinct from users.service.js's
@@ -94,4 +113,4 @@ async function logout(ctx) {
   return true;
 }
 
-module.exports = { login: login, logout: logout, signToken: signToken, verifyToken: verifyToken, changeOwnPassword: changeOwnPassword };
+module.exports = { login: login, verifyLogin: verifyLogin, logout: logout, signToken: signToken, verifyToken: verifyToken, changeOwnPassword: changeOwnPassword };

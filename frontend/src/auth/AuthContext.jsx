@@ -1,5 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getMe, getToken, login as apiLogin, logout as apiLogout, setToken } from '../api/client';
+import { getMe, getToken, login as apiLogin, verifyLogin as apiVerifyLogin, logout as apiLogout, setToken } from '../api/client';
+
+// "Don't ask again on this device" for two-step sign-in: a token per email,
+// kept in this browser only. Storage can be unavailable (private windows);
+// then the code is simply asked for each time.
+const DEVICE_KEY = 'bos.twoStepDevice.';
+function readDeviceToken(email) {
+  try { return localStorage.getItem(DEVICE_KEY + String(email || '').trim().toLowerCase()) || null; } catch { return null; }
+}
+function writeDeviceToken(email, token) {
+  try { localStorage.setItem(DEVICE_KEY + String(email || '').trim().toLowerCase(), token); } catch { /* not remembered — fine */ }
+}
 import { adoptLocale } from '../lib/i18n.jsx';
 
 const AuthContext = createContext(null);
@@ -34,13 +45,26 @@ export function AuthProvider({ children }) {
     return () => { cancelled = true; };
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const result = await apiLogin(email, password);
+  const startSession = useCallback((result) => {
     setToken(result.token);
     adoptLocale(result.session.locale); // same reasoning as the rehydrate above
     setSession(result.session);
     return result.session;
   }, []);
+
+  // Returns the session, or { twoStepRequired, challenge } for an account
+  // with two-step sign-in on — then verifyCode() finishes signing in.
+  const login = useCallback(async (email, password) => {
+    const result = await apiLogin(email, password, readDeviceToken(email));
+    if (result.twoStepRequired) return result;
+    return startSession(result);
+  }, [startSession]);
+
+  const verifyCode = useCallback(async (email, challenge, code, rememberDevice) => {
+    const result = await apiVerifyLogin(challenge, code, rememberDevice);
+    if (result.deviceToken) writeDeviceToken(email, result.deviceToken);
+    return startSession(result);
+  }, [startSession]);
 
   const logout = useCallback(async () => {
     try { await apiLogout(); } catch { /* token may already be invalid — clear locally regardless */ }
@@ -62,8 +86,8 @@ export function AuthProvider({ children }) {
   }, [session]);
 
   const value = useMemo(
-    () => ({ session, loading, login, logout, can, refreshSession }),
-    [session, loading, login, logout, can, refreshSession]
+    () => ({ session, loading, login, verifyCode, logout, can, refreshSession }),
+    [session, loading, login, verifyCode, logout, can, refreshSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

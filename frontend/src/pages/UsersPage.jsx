@@ -125,6 +125,23 @@ export default function UsersPage() {
     }
   }
 
+  // For someone who lost their phone and their backup codes: they can then
+  // sign in with their password alone and set two-step up again.
+  async function resetTwoStep(user) {
+    if (!window.confirm(tr('Turn off two-step sign-in for {name}? They will sign in with just their password until they turn it on again.', { name: user.name }))) return;
+    setBusyId(user.id);
+    setError(null);
+    try {
+      await api.post('/users/' + user.id + '/two-step/reset', {});
+      setToast(tr("Two-step sign-in turned off for {name}.", { name: user.name }));
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function toggleStatus(user) {
     setBusyId(user.id);
     setError(null);
@@ -248,6 +265,7 @@ export default function UsersPage() {
                   <div className="users-name-cell">
                     <span className="users-avatar" style={{ background: avatarColor(u.name) }}>{initials(u.name)}</span>
                     <span style={{ fontWeight: 600 }}>{u.name}</span>
+                    {u.twoStepOn && <span className="tag tag-neutral users-twostep" title={tr('Two-step sign-in is on')}>{tr('2-step')}</span>}
                   </div>
                 </td>
                 <td className="users-email">{u.email}</td>
@@ -268,6 +286,7 @@ export default function UsersPage() {
                     { label: u.status === 'active' ? tr('Disable') : tr('Enable'), onClick: () => toggleStatus(u), disabled: busyId === u.id, hidden: !(!isSelf) },
                     { label: tr('Change email'), onClick: () => openEmail(u), hidden: !(canCreate) },
                     { label: tr('Reset password'), onClick: () => openReset(u), hidden: !(canCreate) },
+                    { label: tr('Turn off two-step sign-in'), onClick: () => resetTwoStep(u), disabled: busyId === u.id, hidden: !(canCreate && u.twoStepOn) },
                   ]} />
                 </td>
               </tr>

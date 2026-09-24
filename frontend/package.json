@@ -13,6 +13,7 @@
     "face-api.js": "^0.22.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"

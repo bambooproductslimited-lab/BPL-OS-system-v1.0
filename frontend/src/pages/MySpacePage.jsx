@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import TwoStepSettings from '../components/TwoStepSettings';
 import './MySpacePage.css';
 import RowMenu from '../components/RowMenu';
 
@@ -244,6 +245,11 @@ export default function MySpacePage() {
             <button type="button" className="btn btn-secondary" onClick={() => navigate('/leave')}>{tr('Go to Leave')}</button>
           </div>
         )}
+      </section>
+
+      <section>
+        <h2 className="myspace-section-title">{tr('Two-step sign-in')}</h2>
+        <TwoStepSettings />
       </section>
 
       {autoClosed && (

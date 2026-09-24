@@ -19,8 +19,25 @@ var loginLimiter = rateLimit({
 // kernel.js: handlers['auth.login'] -> POST /api/auth/login
 router.post('/login', loginLimiter, async function (req, res, next) {
   try {
-    var result = await authService.login(req.body.email, req.body.password);
+    var result = await authService.login(req.body.email, req.body.password, { deviceToken: req.body.deviceToken });
+    if (result.twoStepRequired) return res.json({ twoStepRequired: true, challenge: result.challenge });
     res.json({ token: result.token, session: serializeCtx(result.ctx) });
+  } catch (e) { next(e); }
+});
+
+// The second step of signing in, for accounts with two-step sign-in on. Its
+// own per-IP limit; the per-account lockout covers password and code alike.
+var verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: 'rate_limited', message: 'Too many attempts. Try again later.' } }
+});
+router.post('/login/verify', verifyLimiter, async function (req, res, next) {
+  try {
+    var result = await authService.verifyLogin(req.body.challenge, req.body.code, !!req.body.rememberDevice);
+    res.json({ token: result.token, session: serializeCtx(result.ctx), deviceToken: result.deviceToken || null });
   } catch (e) { next(e); }
 });
 

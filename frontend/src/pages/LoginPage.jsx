@@ -53,7 +53,7 @@ function BambooDecoration() {
 }
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, verifyCode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -62,6 +62,10 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
+  // Two-step sign-in: after a right password, the code from the app.
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState('');
+  const [rememberDevice, setRememberDevice] = useState(false);
 
   const redirectTo = location.state && location.state.from ? location.state.from : '/dashboard';
 
@@ -70,9 +74,21 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      if (challenge) {
+        await verifyCode(email, challenge, code, rememberDevice);
+        navigate(redirectTo, { replace: true });
+        return;
+      }
+      const result = await login(email, password);
+      if (result && result.twoStepRequired) {
+        setChallenge(result.challenge);
+        setCode('');
+        return;
+      }
       navigate(redirectTo, { replace: true });
     } catch (err) {
+      // The code step expires after a few minutes: start over from the password.
+      if (challenge && /too long|Sign in again/i.test(err.message || '')) setChallenge(null);
       setError(err.message || tr('Something went wrong.'));
     } finally {
       setSubmitting(false);
@@ -107,6 +123,40 @@ export default function LoginPage() {
 
       <div className="login-form-wrap">
         <form className="login-form" onSubmit={handleSubmit}>
+          {challenge ? (
+            <>
+              <h1 className="login-form-title">{tr('Two-step sign-in')}</h1>
+              <p className="login-form-sub">{tr('Enter the 6-digit code from your authenticator app.')}</p>
+              <div className="field">
+                <label htmlFor="bpl-code">{tr('Code')}</label>
+                <input
+                  id="bpl-code"
+                  className="input login-code-input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                />
+              </div>
+              <label className="login-remember">
+                <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)} />
+                {tr('Don\'t ask again on this device for 30 days')}
+              </label>
+              <p className="login-code-help">
+                {tr('Lost your phone? Type one of your backup codes instead, or ask an administrator to turn two-step sign-in off for you.')}
+              </p>
+              {error && <div className="error-banner">{error}</div>}
+              <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
+                {submitting ? tr('Checking…') : tr('Verify')}
+              </button>
+              <button type="button" className="btn btn-secondary btn-block login-back" onClick={() => { setChallenge(null); setError(null); }}>
+                {tr('Back')}
+              </button>
+            </>
+          ) : (
+          <>
           <h1 className="login-form-title">{tr('Sign in')}</h1>
           <p className="login-form-sub">{tr('Use your company email address.')}</p>
 
@@ -202,6 +252,8 @@ export default function LoginPage() {
                 ))}
               </div>
             </div>
+          )}
+          </>
           )}
         </form>
       </div>

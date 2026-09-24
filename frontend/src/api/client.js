@@ -85,8 +85,15 @@ export const api = {
 };
 
 // kernel.js: handlers['auth.login']
-export function login(email, password) {
-  return request('POST', '/auth/login', { email: email, password: password });
+// deviceToken: this browser's "don't ask again" token for two-step sign-in,
+// if it has one for this email. The answer is either a session, or
+// { twoStepRequired, challenge } — then verifyLogin() with the code.
+export function login(email, password, deviceToken) {
+  return request('POST', '/auth/login', { email: email, password: password, deviceToken: deviceToken || undefined });
+}
+
+export function verifyLogin(challenge, code, rememberDevice) {
+  return request('POST', '/auth/login/verify', { challenge: challenge, code: code, rememberDevice: !!rememberDevice });
 }
 
 // kernel.js: handlers['auth.logout']

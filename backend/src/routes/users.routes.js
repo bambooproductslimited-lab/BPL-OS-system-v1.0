@@ -20,6 +20,12 @@ router.post('/', async function (req, res, next) {
   try { res.json(await usersService.create(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
+// Turns off someone's two-step sign-in when they've lost their phone and
+// backup codes (user.create, like a password reset).
+router.post('/:id/two-step/reset', async function (req, res, next) {
+  try { res.json(await require('../services/twoStep.service').adminReset(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['users.setPassword'] -> POST /api/users/:id/password
 router.post('/:id/password', async function (req, res, next) {
   try { res.json(await usersService.setPassword(req.ctx, req.params.id, req.body.password)); } catch (e) { next(e); }
