@@ -256,7 +256,15 @@ module.exports = {
       propertyId: propertyId,
       serviceAccountEmail: serviceAccountEmail,
       privateKey: privateKey,
-      configured: !!(propertyId && serviceAccountEmail && privateKey)
+      configured: !!(propertyId && serviceAccountEmail && privateKey),
+      // Each company's own website (social tracker, per company): Bamboo
+      // Products' is GA4_PROPERTY_ID; Star Bar's GA4_PROPERTY_ID_SBR,
+      // Bamboo Garden's GA4_PROPERTY_ID_BGN — read with the same service
+      // account, which needs Viewer access on each property.
+      forCompanyCode: function (code) {
+        var id = code === 'BPL' ? this.propertyId : (process.env['GA4_PROPERTY_ID_' + code] || '').trim();
+        return { propertyId: id, configured: !!(id && this.serviceAccountEmail && this.privateKey) };
+      }
     };
   }()),
   // Square (POS/payments platform) — a one-time historical data import only

@@ -21,6 +21,14 @@ import { codeLabel } from '../lib/codeLabels.js';
 // platform's API is a separate backend build per platform once real
 // developer app approval exists for it.
 //
+// One tracker per company (backend marketingChannels.js): Bamboo Products,
+// Star Bar Restaurant and Bamboo Garden each have their own channels,
+// campaigns, posts, follower history and inbox. The switcher at the top
+// picks the company (?company=SBR, remembered on this device); every list
+// and total below is that company's. A channel that can be connected to an
+// account (Facebook, Instagram, TikTok, YouTube) connects from its row on
+// the Channels tab, to that company's own account.
+//
 // Redesigned around the icon language established elsewhere, scoped to
 // the highest-value, lowest-risk spots given this page's size (five
 // tabs, seven dialogs, six per-platform sync flows, a Facebook Page
@@ -104,6 +112,25 @@ function statusTagClass(status) {
   return 'tag-outline';
 }
 
+// The endpoint each connected platform syncs through (with the channel's
+// key, so each company's own account is read).
+const SYNC_PATH = { tiktok: 'tiktok', facebook: 'facebook', instagram: 'instagram', youtube: 'youtube', twitch: 'twitch', website: 'website' };
+// Platforms that connect by signing in to the platform.
+const OAUTH_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'youtube', 'twitch'];
+const COMPANY_KEY = 'bos.socialCompany';
+
+function initialCompany() {
+  const q = new URLSearchParams(window.location.search).get('company');
+  if (q) return q.toUpperCase();
+  try { return localStorage.getItem(COMPANY_KEY) || 'BPL'; } catch { return 'BPL'; }
+}
+
+// The address bar after handling a platform's redirect: the flags it sent
+// back are dropped, the company stays.
+function cleanUrl(company) {
+  window.history.replaceState({}, '', window.location.pathname + (company && company !== 'BPL' ? '?company=' + company : ''));
+}
+
 function blankPostForm() {
   return {
     channelId: '', campaignId: '', title: '', caption: '', mediaUrl: '', status: 'planned',
@@ -122,6 +149,10 @@ export default function SocialTrackerPage() {
   const canManage = can('marketing.manage');
 
   const [tab, setTab] = useState('overview');
+  const [company, setCompany] = useState(initialCompany);
+  const [companies, setCompanies] = useState([]);
+  const companyName = (companies.find((c) => c.code === company) || {}).name || '';
+  const cq = 'company=' + encodeURIComponent(company);
   const [dash, setDash] = useState(null);
   const [posts, setPosts] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -158,12 +189,7 @@ export default function SocialTrackerPage() {
   const [replyDrafts, setReplyDrafts] = useState({});
   const [busyInboxId, setBusyInboxId] = useState(null);
   const [allPosts, setAllPosts] = useState([]);
-  const [syncingTikTok, setSyncingTikTok] = useState(false);
-  const [syncingFacebook, setSyncingFacebook] = useState(false);
-  const [syncingInstagram, setSyncingInstagram] = useState(false);
-  const [syncingYouTube, setSyncingYouTube] = useState(false);
-  const [syncingTwitch, setSyncingTwitch] = useState(false);
-  const [syncingWebsite, setSyncingWebsite] = useState(false);
+  const [syncingKey, setSyncingKey] = useState(null); // channel key being synced, connected or disconnected
 
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [pagePickerPending, setPagePickerPending] = useState(null);
@@ -184,22 +210,22 @@ export default function SocialTrackerPage() {
   const loadAll = useCallback(async () => {
     setError(null);
     try {
-      const query = new URLSearchParams();
+      const query = new URLSearchParams({ company });
       if (calendarFilter.channelId) query.set('channelId', calendarFilter.channelId);
       if (calendarFilter.campaignId) query.set('campaignId', calendarFilter.campaignId);
       if (calendarFilter.status) query.set('status', calendarFilter.status);
       const qs = query.toString();
-      const inboxQuery = new URLSearchParams();
+      const inboxQuery = new URLSearchParams({ company });
       if (inboxFilter.channelId) inboxQuery.set('channelId', inboxFilter.channelId);
       if (inboxFilter.status) inboxQuery.set('status', inboxFilter.status);
       if (inboxFilter.kind) inboxQuery.set('kind', inboxFilter.kind);
       const inboxQs = inboxQuery.toString();
       const [d, p, c, camp, inbox] = await Promise.all([
-        api.get('/marketing/dashboard'),
-        api.get('/marketing/posts' + (qs ? '?' + qs : '')),
-        api.get('/marketing/channels'),
-        api.get('/marketing/campaigns'),
-        api.get('/marketing/inbox' + (inboxQs ? '?' + inboxQs : ''))
+        api.get('/marketing/dashboard?' + cq),
+        api.get('/marketing/posts?' + qs),
+        api.get('/marketing/channels?' + cq),
+        api.get('/marketing/campaigns?' + cq),
+        api.get('/marketing/inbox?' + inboxQs)
       ]);
       setDash(d);
       setPosts(p);
@@ -211,18 +237,41 @@ export default function SocialTrackerPage() {
     } finally {
       setLoading(false);
     }
-  }, [calendarFilter.channelId, calendarFilter.campaignId, calendarFilter.status, inboxFilter.channelId, inboxFilter.status, inboxFilter.kind]);
+  }, [company, cq, calendarFilter.channelId, calendarFilter.campaignId, calendarFilter.status, inboxFilter.channelId, inboxFilter.status, inboxFilter.kind]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    api.get('/marketing/companies').then(setCompanies).catch(() => setCompanies([]));
+  }, []);
+  // A remembered company that no longer has a tracker falls back to Bamboo Products.
+  useEffect(() => {
+    if (companies.length && !companies.some((c) => c.code === company)) setCompany('BPL');
+  }, [companies, company]);
+
+  function switchCompany(code) {
+    if (code === company) return;
+    setCompany(code);
+    try { localStorage.setItem(COMPANY_KEY, code); } catch { /* remembered for this visit only */ }
+    setCalendarFilter({ channelId: '', campaignId: '', status: '' });
+    setInboxFilter({ channelId: '', status: '', kind: '' });
+    setChannelDrafts({});
+    setStatDrafts({});
+    setStatHistory({});
+    setRecommendation(null);
+    cleanUrl(code);
+  }
 
   // Overview tab's Metricool-style metric sections — re-fetched whenever
   // the date range changes, scoped to that range on the backend.
   useEffect(() => {
     setMetricsError(null);
-    api.get('/marketing/dashboard/metrics?from=' + dateRange.from + '&to=' + dateRange.to)
+    api.get('/marketing/dashboard/metrics?from=' + dateRange.from + '&to=' + dateRange.to + '&' + cq)
       .then(setMetrics)
       .catch((err) => setMetricsError(err.message));
-  }, [dateRange.from, dateRange.to]);
+    // dash: fetched again whenever the tracker's data is (a post or a
+    // follower count just logged shows in the charts straight away).
+  }, [dateRange.from, dateRange.to, cq, dash]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -242,7 +291,8 @@ export default function SocialTrackerPage() {
     } else if (tiktok === 'error') {
       setError(params.get('message') || tr('TikTok connection failed.'));
     }
-    window.history.replaceState({}, '', window.location.pathname);
+    cleanUrl(company);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Landing back here after the Meta OAuth redirect. A connected Page (not
@@ -259,7 +309,7 @@ export default function SocialTrackerPage() {
     } else if (meta === 'error') {
       setError(params.get('message') || tr('Facebook/Instagram connection failed.'));
     }
-    window.history.replaceState({}, '', window.location.pathname);
+    cleanUrl(company);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -279,114 +329,85 @@ export default function SocialTrackerPage() {
         setError(params.get('message') || (tr('{label} connection failed.', { label })));
       }
     });
-    if (changed) window.history.replaceState({}, '', window.location.pathname);
+    if (changed) cleanUrl(company);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function syncTikTok() {
-    setSyncingTikTok(true);
-    setError(null);
-    try {
-      const r = await api.post('/marketing/tiktok/sync', {});
-      if (r.videoError) {
-        setToast(tr('Synced followers ({n}), but video sync failed: {videoError}', { n: num(r.followers), videoError: r.videoError }));
-      } else {
-        setToast(r.followers !== null && r.followers !== undefined
+  // What a finished sync says, per platform.
+  function syncMessage(c, r) {
+    switch (c.platform) {
+      case 'tiktok':
+        if (r.videoError) return tr('Synced followers ({n}), but video sync failed: {videoError}', { n: num(r.followers), videoError: r.videoError });
+        return r.followers !== null && r.followers !== undefined
           ? tr('Synced {n} TikTok video(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
-          : tr('Synced {n} TikTok video(s).', { n: r.synced }));
-      }
-      await loadAll();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSyncingTikTok(false);
-    }
-  }
-
-  async function syncFacebook() {
-    setSyncingFacebook(true);
-    setError(null);
-    try {
-      const r = await api.post('/marketing/facebook/sync', {});
-      if (r.syncError) {
-        setToast(tr('Facebook: partially synced ({synced} post(s)) — {syncError}', { synced: r.synced, syncError: r.syncError }));
-      } else {
-        setToast(r.followers !== null && r.followers !== undefined
+          : tr('Synced {n} TikTok video(s).', { n: r.synced });
+      case 'facebook':
+        if (r.syncError) return tr('Facebook: partially synced ({synced} post(s)) — {syncError}', { synced: r.synced, syncError: r.syncError });
+        return r.followers !== null && r.followers !== undefined
           ? tr('Synced {n} Facebook post(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
-          : tr('Synced {n} Facebook post(s).', { n: r.synced }));
-      }
-      await loadAll();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSyncingFacebook(false);
-    }
-  }
-
-  async function syncInstagram() {
-    setSyncingInstagram(true);
-    setError(null);
-    try {
-      const r = await api.post('/marketing/instagram/sync', {});
-      if (r.syncError) {
-        setToast(tr('Instagram: partially synced ({synced} post(s)) — {syncError}', { synced: r.synced, syncError: r.syncError }));
-      } else {
-        setToast(r.followers !== null && r.followers !== undefined
+          : tr('Synced {n} Facebook post(s).', { n: r.synced });
+      case 'instagram':
+        if (r.syncError) return tr('Instagram: partially synced ({synced} post(s)) — {syncError}', { synced: r.synced, syncError: r.syncError });
+        return r.followers !== null && r.followers !== undefined
           ? tr('Synced {n} Instagram post(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
-          : tr('Synced {n} Instagram post(s).', { n: r.synced }));
-      }
-      await loadAll();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSyncingInstagram(false);
-    }
-  }
-
-  async function syncYouTube() {
-    setSyncingYouTube(true);
-    setError(null);
-    try {
-      const r = await api.post('/marketing/youtube/sync', {});
-      setToast(r.followers !== null && r.followers !== undefined
+          : tr('Synced {n} Instagram post(s).', { n: r.synced });
+      case 'youtube':
+        return r.followers !== null && r.followers !== undefined
           ? tr('Synced {n} YouTube video(s), {followers} subscribers.', { n: r.synced, followers: num(r.followers) })
-          : tr('Synced {n} YouTube video(s).', { n: r.synced }));
-      await loadAll();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSyncingYouTube(false);
-    }
-  }
-
-  async function syncTwitch() {
-    setSyncingTwitch(true);
-    setError(null);
-    try {
-      const r = await api.post('/marketing/twitch/sync', {});
-      setToast(r.followers !== null && r.followers !== undefined
+          : tr('Synced {n} YouTube video(s).', { n: r.synced });
+      case 'twitch':
+        return r.followers !== null && r.followers !== undefined
           ? tr('Synced {n} Twitch video(s), {followers} followers.', { n: r.synced, followers: num(r.followers) })
-          : tr('Synced {n} Twitch video(s).', { n: r.synced }));
-      await loadAll();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSyncingTwitch(false);
+          : tr('Synced {n} Twitch video(s).', { n: r.synced });
+      default:
+        return r.followers !== null && r.followers !== undefined
+          ? tr('Synced {n} website page(s), {followers} active users (30d).', { n: r.synced, followers: num(r.followers) })
+          : tr('Synced {n} website page(s).', { n: r.synced });
     }
   }
 
-  async function syncWebsite() {
-    setSyncingWebsite(true);
+  async function syncChannel(c) {
+    setSyncingKey(c.key);
     setError(null);
     try {
-      const r = await api.post('/marketing/website/sync', {});
-      setToast(r.followers !== null && r.followers !== undefined
-          ? tr('Synced {n} website page(s), {followers} active users (30d).', { n: r.synced, followers: num(r.followers) })
-          : tr('Synced {n} website page(s).', { n: r.synced }));
+      const r = await api.post('/marketing/' + SYNC_PATH[c.platform] + '/sync', { channel: c.key });
+      setToast(syncMessage(c, r));
       await loadAll();
     } catch (err) {
       setError(err.message);
     } finally {
-      setSyncingWebsite(false);
+      setSyncingKey(null);
+    }
+  }
+
+  // Sends the browser to the platform to sign in with this company's
+  // account; it comes back to this page (oauth.routes.js).
+  async function connectChannel(c) {
+    setSyncingKey(c.key);
+    setError(null);
+    try {
+      const { url } = c.platform === 'facebook' || c.platform === 'instagram'
+        ? await api.post('/marketing/oauth/meta/start', { company })
+        : await api.post('/marketing/oauth/' + c.platform + '/start', { channel: c.key });
+      window.location.href = url;
+    } catch (err) {
+      setError(err.message);
+      setSyncingKey(null);
+    }
+  }
+
+  async function disconnectChannel(c) {
+    if (!window.confirm(tr('Disconnect {name}? Its numbers stop syncing; what is already here stays.', { name: c.name }))) return;
+    setSyncingKey(c.key);
+    setError(null);
+    try {
+      await api.post('/marketing/channels/' + c.id + '/disconnect', {});
+      setToast(tr('{name} disconnected.', { name: c.name }));
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncingKey(null);
     }
   }
 
@@ -492,7 +513,7 @@ export default function SocialTrackerPage() {
     setSavingCampaign(true);
     setCampaignError(null);
     try {
-      const body = { ...campaignForm, startDate: campaignForm.startDate || null, endDate: campaignForm.endDate || null };
+      const body = { ...campaignForm, company, startDate: campaignForm.startDate || null, endDate: campaignForm.endDate || null };
       if (editingCampaignId) {
         await api.patch('/marketing/campaigns/' + editingCampaignId, body);
         setToast(tr('Campaign updated.'));
@@ -559,7 +580,7 @@ export default function SocialTrackerPage() {
     setInboxForm({ ...blankInboxForm(), channelId: (channels[0] && channels[0].id) || '' });
     setInboxDialogOpen(true);
     try {
-      setAllPosts(await api.get('/marketing/posts'));
+      setAllPosts(await api.get('/marketing/posts?' + cq));
     } catch (err) {
       setInboxError(err.message);
     }
@@ -625,7 +646,7 @@ export default function SocialTrackerPage() {
   async function downloadOverviewPdf() {
     setExporting(true);
     try {
-      await shareOrDownloadPdf(overviewRef.current, 'social-tracker-' + new Date().toISOString().slice(0, 10) + '.pdf', tr('Social & campaign tracker'), tr('Social & campaign tracker'));
+      await shareOrDownloadPdf(overviewRef.current, 'social-tracker-' + company.toLowerCase() + '-' + new Date().toISOString().slice(0, 10) + '.pdf', tr('Social & campaign tracker') + (companyName ? ' — ' + companyName : ''), tr('Social & campaign tracker'));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -636,7 +657,7 @@ export default function SocialTrackerPage() {
   function downloadOverviewCsv() {
     if (!dash) return;
     const rows = [
-      [tr('Social & Campaign Tracker — Overview'), new Date().toISOString().slice(0, 10)],
+      [tr('Social & Campaign Tracker — Overview'), companyName, new Date().toISOString().slice(0, 10)],
       [],
       [tr('Channels')],
       [tr('Channel'), tr('Handle'), tr('Connected'), tr('Followers'), tr('Follower change'), tr('Posts'), tr('Likes'), tr('Reach'), tr('Clicks'), tr('Leads')],
@@ -647,7 +668,7 @@ export default function SocialTrackerPage() {
       ...dash.campaigns.map((c) => [c.name, c.status, c.startDate || '', c.endDate || '', c.totals.posts, c.totals.likes, c.totals.reach, c.totals.clicks, c.totals.leads])
     ];
     if (recommendation) rows.push([], [tr('Content recommendations')], [recommendation.recommendation]);
-    downloadCsv('social-tracker-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
+    downloadCsv('social-tracker-' + company.toLowerCase() + '-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
@@ -656,8 +677,20 @@ export default function SocialTrackerPage() {
     <div className="soctrack">
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
+      {companies.length > 1 && (
+        <div className="soctrack-companies" role="tablist" aria-label={tr('Company')}>
+          {companies.map((co) => (
+            <button key={co.code} type="button" role="tab" aria-selected={co.code === company}
+              className={'soctrack-company' + (co.code === company ? ' is-current' : '')} onClick={() => switchCompany(co.code)}>
+              <span className="soctrack-company-mark" style={{ background: avatarColor(co.name) }} aria-hidden="true">{initials(co.name)}</span>
+              <span className="soctrack-company-name">{co.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <p className="soctrack-intro">
-        {tr('A Metricool-style tracker for social & marketing performance. Post metrics, follower counts and campaign figures are logged here manually — a channel shows "Connected" once an API key for it is stored on the Integrations screen, but pulling live numbers from each platform is a separate build per platform once you have real developer app access there.')}
+        {tr('One tracker per company: each has its own channels, campaigns, posts and inbox. Numbers are logged here by hand, or synced automatically once a channel is connected to that company\'s own account on the Channels tab.')}
       </p>
 
       <div className="soctrack-tabs">
@@ -754,7 +787,7 @@ export default function SocialTrackerPage() {
             </div>
           )}
 
-          <MarketingRecommendations onGenerated={setRecommendation} />
+          <MarketingRecommendations key={company} company={company} onGenerated={setRecommendation} />
           </div>
         </div>
       )}
@@ -929,35 +962,30 @@ export default function SocialTrackerPage() {
                   <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? tr('Connected') : tr('Not connected')}</span>
                 </div>
 
-                {c.key === 'tiktok' && c.connected && canManage && (
-                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTikTok} onClick={syncTikTok}>
-                    {syncingTikTok ? tr('Syncing…') : tr('Sync now')}
-                  </button>
-                )}
-                {c.key === 'facebook' && c.connected && canManage && (
-                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingFacebook} onClick={syncFacebook}>
-                    {syncingFacebook ? tr('Syncing…') : tr('Sync now')}
-                  </button>
-                )}
-                {c.key === 'instagram' && c.connected && canManage && (
-                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingInstagram} onClick={syncInstagram}>
-                    {syncingInstagram ? tr('Syncing…') : tr('Sync now')}
-                  </button>
-                )}
-                {c.key === 'youtube' && c.connected && canManage && (
-                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingYouTube} onClick={syncYouTube}>
-                    {syncingYouTube ? tr('Syncing…') : tr('Sync now')}
-                  </button>
-                )}
-                {c.key === 'twitch' && c.connected && canManage && (
-                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingTwitch} onClick={syncTwitch}>
-                    {syncingTwitch ? tr('Syncing…') : tr('Sync now')}
-                  </button>
-                )}
-                {c.key === 'website' && c.connected && canManage && (
-                  <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={syncingWebsite} onClick={syncWebsite}>
-                    {syncingWebsite ? tr('Syncing…') : tr('Sync now')}
-                  </button>
+                {canManage && (SYNC_PATH[c.platform] || OAUTH_PLATFORMS.includes(c.platform)) && (
+                  <div className="soctrack-connect-row">
+                    {c.connected && SYNC_PATH[c.platform] && (
+                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!syncingKey} onClick={() => syncChannel(c)}>
+                        {syncingKey === c.key ? tr('Syncing…') : tr('Sync now')}
+                      </button>
+                    )}
+                    {!c.connected && OAUTH_PLATFORMS.includes(c.platform) && (
+                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!syncingKey} onClick={() => connectChannel(c)}>
+                        {syncingKey === c.key ? tr('Opening…') : tr('Connect {name}', { name: c.name })}
+                      </button>
+                    )}
+                    {c.connected && OAUTH_PLATFORMS.includes(c.platform) && (
+                      <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={!!syncingKey} onClick={() => disconnectChannel(c)}>{tr('Disconnect')}</button>
+                    )}
+                    {!c.connected && c.platform === 'website' && (
+                      <span className="soctrack-connect-hint">
+                        {tr('Connects to Google Analytics when {setting} is set on the server.', { setting: company === 'BPL' ? 'GA4_PROPERTY_ID' : 'GA4_PROPERTY_ID_' + company })}
+                      </span>
+                    )}
+                    {(c.platform === 'facebook' || c.platform === 'instagram') && !c.connected && (
+                      <span className="soctrack-connect-hint">{tr('Facebook and Instagram connect together: sign in, then pick this company\'s Page.')}</span>
+                    )}
+                  </div>
                 )}
 
                 {canManage ? (
@@ -1159,7 +1187,7 @@ export default function SocialTrackerPage() {
           <div className="dialog soctrack-page-dialog" onClick={(e) => e.stopPropagation()}>
             <h2 className="soctrack-dialog-title">{tr('Choose a Facebook Page to connect')}</h2>
             <p className="soctrack-dialog-note">
-              {tr('This account manages more than one Page — pick the one for Bamboo Products Limited. Its linked Instagram account (if any) connects automatically at the same time.')}
+              {tr('Pick the Page for {company}. Its linked Instagram account (if any) connects automatically at the same time.', { company: companyName || 'Bamboo Products Limited' })}
             </p>
             {pagePickerError && <div className="error-banner">{pagePickerError}</div>}
             {pagePickerLoading ? (

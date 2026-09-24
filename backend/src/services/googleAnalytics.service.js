@@ -3,6 +3,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var config = require('../config');
+var marketingChannels = require('./marketingChannels');
 
 // Real Google Analytics (GA4 Data API) sync for the social tracker's
 // Website channel. Unlike every OAuth-based platform in this app, there's
@@ -50,8 +51,8 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-async function runReport(accessToken, body) {
-  var res = await fetch('https://analyticsdata.googleapis.com/v1beta/properties/' + config.website.propertyId + ':runReport', {
+async function runReport(accessToken, body, propertyId) {
+  var res = await fetch('https://analyticsdata.googleapis.com/v1beta/properties/' + (propertyId || config.website.propertyId) + ':runReport', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
     body: JSON.stringify(body)
@@ -71,18 +72,25 @@ function requireManage(ctx) {
 // path, so a repeat sync updates the same rows instead of duplicating
 // them) — mirroring how the seed data already models a landing page as a
 // Website channel post.
-async function sync(ctx) {
+// channelKey: which company's website ('website' for Bamboo Products,
+// 'sbr-website' …); each has its own GA4 property (config.js).
+async function sync(ctx, channelKey) {
   requireManage(ctx);
-  if (!config.website.configured) fail('invalid', 'Website analytics is not configured on the server yet — set GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL and GA4_SERVICE_ACCOUNT_PRIVATE_KEY on Render.');
-
-  var chanRes = await pool.query("SELECT id FROM marketing_channels WHERE key = 'website'");
-  if (!chanRes.rows[0]) fail('notfound', 'Website channel not found.');
-  var channelId = chanRes.rows[0].id;
+  var chan = await marketingChannels.channelFor(channelKey, 'website');
+  var property = config.website.forCompanyCode(chan.company_code);
+  if (!property.configured) {
+    fail('invalid', 'Website analytics is not configured for ' + chan.company_name + ' yet — set ' +
+      (chan.company_code === 'BPL' ? 'GA4_PROPERTY_ID' : 'GA4_PROPERTY_ID_' + chan.company_code) +
+      ', GA4_SERVICE_ACCOUNT_EMAIL and GA4_SERVICE_ACCOUNT_PRIVATE_KEY on Render.');
+  }
+  var channelId = chan.id;
+  var siteBase = chan.company_code === 'BPL' && !chan.handle ? 'https://www.bplghana.com'
+    : chan.handle ? 'https://' + String(chan.handle).replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
 
   var accessToken = await getAccessToken();
   var dateRange = { startDate: '30daysAgo', endDate: 'today' };
 
-  var totals = await runReport(accessToken, { dateRanges: [dateRange], metrics: [{ name: 'activeUsers' }] });
+  var totals = await runReport(accessToken, { dateRanges: [dateRange], metrics: [{ name: 'activeUsers' }] }, property.propertyId);
   var activeUsers = totals.rows && totals.rows[0] ? Number(totals.rows[0].metricValues[0].value) : 0;
   var today = new Date().toISOString().slice(0, 10);
   await pool.query(
@@ -97,7 +105,7 @@ async function sync(ctx) {
     metrics: [{ name: 'screenPageViews' }, { name: 'activeUsers' }],
     orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
     limit: 10
-  });
+  }, property.propertyId);
   var rows = pages.rows || [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
@@ -109,7 +117,7 @@ async function sync(ctx) {
       'INSERT INTO marketing_posts (channel_id, external_id, title, caption, media_url, status, clicks, reach, source, created_by) ' +
       "VALUES ($1,$2,$3,$4,$5,'published',$6,$7,'synced',$8) " +
       'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET title = $3, caption = $4, media_url = $5, clicks = $6, reach = $7, updated_at = now()',
-      [channelId, pagePath, pageTitle.slice(0, 160), pagePath.slice(0, 2000), 'https://www.bplghana.com' + pagePath, views, users, ctx.employee.id]
+      [channelId, pagePath, pageTitle.slice(0, 160), pagePath.slice(0, 2000), siteBase ? siteBase + pagePath : pagePath, views, users, ctx.employee.id]
     );
   }
 

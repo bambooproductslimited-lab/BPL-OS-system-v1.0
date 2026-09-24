@@ -6,6 +6,7 @@ var whatsappService = require('./whatsapp.service');
 var { withLiveConfigState } = require('./envConfiguredIntegrations');
 var config = require('../config');
 var claude = require('../ai/claude');
+var marketingChannels = require('./marketingChannels');
 
 // Social & campaign tracker (Metricool-style): channels, campaigns, a
 // content calendar of posts with their engagement numbers, and periodic
@@ -17,6 +18,12 @@ var claude = require('../ai/claude');
 // numbers from Meta/TikTok/etc.'s APIs is a separate backend build per
 // platform once real developer app approval exists for it, exactly like
 // this app's other integrations (Square, Slack, QuickBooks) work today.
+//
+// One tracker per company (migration 0079, marketingChannels.js): Bamboo
+// Products Limited, Star Bar Restaurant and Bamboo Garden each have their
+// own channels, campaigns, posts, follower history and inbox. Everything
+// that lists or totals takes the company's code; it defaults to BPL, which
+// is what the tracker showed before there was more than one.
 
 function requireRead(ctx) {
   if (!ctx.can('marketing.read')) fail('forbidden', 'Your role does not allow this action (marketing.read).');
@@ -25,13 +32,53 @@ function requireManage(ctx) {
   if (!ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (marketing.manage).');
 }
 
-function rowToChannel(r, integrationsById) {
+// The tracked company a request is about: its id, code and name. Unknown or
+// untracked codes are refused rather than silently showing Bamboo Products.
+async function resolveCompany(code) {
+  var c = String(code || 'BPL').trim().toUpperCase();
+  var tracked = marketingChannels.TRACKED.some(function (t) { return t.code === c; });
+  var row = tracked ? (await pool.query('SELECT id, code, name FROM companies WHERE code = $1', [c])).rows[0] : null;
+  if (!row) fail('invalid', 'There is no social tracker for "' + c + '".');
+  return row;
+}
+
+// marketing.companies — the companies with a tracker, for the switcher.
+async function listCompanies(ctx) {
+  requireRead(ctx);
+  var codes = marketingChannels.TRACKED.map(function (t) { return t.code; });
+  var rows = (await pool.query(
+    'SELECT co.code, co.name, count(ch.id)::int AS channels FROM companies co JOIN marketing_channels ch ON ch.company_id = co.id ' +
+    'WHERE co.code = ANY($1) GROUP BY co.code, co.name', [codes]
+  )).rows;
+  return codes.map(function (code) { return rows.filter(function (r) { return r.code === code; })[0]; }).filter(Boolean);
+}
+
+// A company's website counts as connected when there is a Google Analytics
+// property for it: GA4_PROPERTY_ID for Bamboo Products, GA4_PROPERTY_ID_<CODE>
+// for the others, read with the same service account.
+function websiteConfigured(code) {
+  return !!(config.website.forCompanyCode && config.website.forCompanyCode(code).configured);
+}
+
+function rowToChannel(r, integrationsById, tokenKeys, companyCode) {
   var integration = r.integration_key ? integrationsById[r.integration_key] : null;
+  var connected = !!tokenKeys[r.key] ||
+    (r.platform === 'website' ? websiteConfigured(companyCode) : false) ||
+    (companyCode === 'BPL' && !!(integration && integration.connected));
   return {
     id: r.id, key: r.key, name: r.name, kind: r.kind, handle: r.handle, notes: r.notes,
+    platform: r.platform || r.key, companyCode: companyCode,
     integrationKey: r.integration_key,
-    connected: !!(integration && integration.connected)
+    connected: connected,
+    // Can be connected to an account for live numbers (per company).
+    connectable: marketingChannels.CONNECTABLE.indexOf(r.platform || r.key) >= 0
   };
+}
+
+async function tokenKeySet() {
+  var keys = {};
+  (await pool.query('SELECT channel_key FROM marketing_oauth_tokens')).rows.forEach(function (r) { keys[r.channel_key] = true; });
+  return keys;
 }
 
 async function integrationsById() {
@@ -42,12 +89,23 @@ async function integrationsById() {
   return byId;
 }
 
-// kernel.js-style handler: marketing.channels.list
-async function listChannels(ctx) {
+// kernel.js-style handler: marketing.channels.list — one company's.
+async function listChannels(ctx, opts) {
   requireRead(ctx);
-  var res = await pool.query('SELECT * FROM marketing_channels ORDER BY name');
+  var company = await resolveCompany(opts && opts.company);
+  var res = await pool.query('SELECT * FROM marketing_channels WHERE company_id = $1 ORDER BY name', [company.id]);
   var byId = await integrationsById();
-  return res.rows.map(function (r) { return rowToChannel(r, byId); });
+  var tokens = await tokenKeySet();
+  return res.rows.map(function (r) { return rowToChannel(r, byId, tokens, company.code); });
+}
+
+// The company a channel belongs to (for anything addressed by channel id).
+async function channelCompany(channelId) {
+  var r = (await pool.query(
+    'SELECT ch.id, ch.name, ch.key, ch.platform, co.id AS company_id, co.code AS company_code, co.name AS company_name ' +
+    'FROM marketing_channels ch LEFT JOIN companies co ON co.id = ch.company_id WHERE ch.id = $1', [channelId]
+  )).rows[0];
+  return r || null;
 }
 
 // marketing.channels.update — handle/notes only; the fixed channel set
@@ -60,8 +118,32 @@ async function updateChannel(ctx, id, p) {
   );
   if (!res.rows[0]) fail('notfound', 'Channel not found.');
   var byId = await integrationsById();
-  await audit(pool, ctx, 'marketing.channel.update', 'marketing_channel', id, 'Updated ' + res.rows[0].name + '.');
-  return rowToChannel(res.rows[0], byId);
+  var owner = await channelCompany(id);
+  await audit(pool, ctx, 'marketing.channel.update', 'marketing_channel', id, 'Updated ' + res.rows[0].name + (owner && owner.company_code ? ' (' + owner.company_code + ')' : '') + '.');
+  return rowToChannel(res.rows[0], byId, await tokenKeySet(), owner ? owner.company_code : 'BPL');
+}
+
+// marketing.channels.disconnect — forgets a channel's stored connection
+// (its tokens); its logged and synced history stays. For Bamboo Products'
+// channels the Integrations screen's flag goes off too.
+async function disconnectChannel(ctx, id) {
+  requireManage(ctx);
+  var chan = await channelCompany(id);
+  if (!chan) fail('notfound', 'Channel not found.');
+  var removed = await pool.query('DELETE FROM marketing_oauth_tokens WHERE channel_key = $1', [chan.key]);
+  if ((chan.company_code || 'BPL') === 'BPL') {
+    var row = (await pool.query('SELECT integrations FROM settings WHERE id = 1')).rows[0];
+    var list = (row && row.integrations) || [];
+    var integrationKey = (await pool.query('SELECT integration_key FROM marketing_channels WHERE id = $1', [id])).rows[0].integration_key;
+    var idx = integrationKey ? list.findIndex(function (x) { return x.id === integrationKey; }) : -1;
+    if (idx >= 0 && list[idx].connected) {
+      list[idx].connected = false;
+      list[idx].apiKey = '';
+      await pool.query('UPDATE settings SET integrations = $1, updated_at = now() WHERE id = 1', [JSON.stringify(list)]);
+    }
+  }
+  await audit(pool, ctx, 'marketing.channel.disconnect', 'marketing_channel', id, 'Disconnected ' + chan.name + (chan.company_code ? ' (' + chan.company_code + ')' : '') + '.');
+  return { disconnected: removed.rowCount > 0 };
 }
 
 function rowToChannelStat(r) {
@@ -104,11 +186,20 @@ function rowToCampaign(r) {
   };
 }
 
-// kernel.js-style handler: marketing.campaigns.list
-async function listCampaigns(ctx) {
+// kernel.js-style handler: marketing.campaigns.list — one company's.
+async function listCampaigns(ctx, company) {
   requireRead(ctx);
-  var res = await pool.query('SELECT * FROM marketing_campaigns ORDER BY created_at DESC');
+  var co = await resolveCompany(company);
+  var res = await pool.query('SELECT * FROM marketing_campaigns WHERE company_id = $1 ORDER BY created_at DESC', [co.id]);
   return res.rows.map(rowToCampaign);
+}
+
+// A campaign used on a post must be the same company's as the post's channel.
+async function checkCampaign(campaignId, companyId) {
+  if (!campaignId) return;
+  var campRes = await pool.query('SELECT id, company_id FROM marketing_campaigns WHERE id = $1', [campaignId]);
+  if (!campRes.rows[0]) fail('invalid', 'Unknown campaign.');
+  if (campRes.rows[0].company_id && companyId && campRes.rows[0].company_id !== companyId) fail('invalid', 'That campaign belongs to another company.');
 }
 
 // marketing.campaigns.create
@@ -116,9 +207,10 @@ async function createCampaign(ctx, p) {
   requireManage(ctx);
   var name = V.text(p.name, 'Campaign name', 120);
   var status = V.oneOf(p.status || 'planned', ['planned', 'active', 'completed'], 'Status');
+  var co = await resolveCompany(p.company);
   var res = await pool.query(
-    "INSERT INTO marketing_campaigns (name, description, start_date, end_date, status, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
-    [name, (p.description || '').trim().slice(0, 500), p.startDate || null, p.endDate || null, status, ctx.employee.id]
+    "INSERT INTO marketing_campaigns (name, description, start_date, end_date, status, created_by, company_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+    [name, (p.description || '').trim().slice(0, 500), p.startDate || null, p.endDate || null, status, ctx.employee.id, co.id]
   );
   await audit(pool, ctx, 'marketing.campaign.create', 'marketing_campaign', res.rows[0].id, 'Created campaign ' + name + '.');
   return rowToCampaign(res.rows[0]);
@@ -155,13 +247,15 @@ var POST_SELECT =
   'FROM marketing_posts p JOIN marketing_channels c ON c.id = p.channel_id ' +
   'LEFT JOIN marketing_campaigns camp ON camp.id = p.campaign_id ';
 
-// kernel.js-style handler: marketing.posts.list — optional channelId/
-// campaignId/status filters for the content-calendar and campaign views.
+// kernel.js-style handler: marketing.posts.list — one company's, with
+// optional channelId/campaignId/status filters for the content-calendar and
+// campaign views.
 async function listPosts(ctx, filters) {
   requireRead(ctx);
   filters = filters || {};
-  var clauses = [];
-  var params = [];
+  var co = await resolveCompany(filters.company);
+  var clauses = ['c.company_id = $1'];
+  var params = [co.id];
   if (filters.channelId) { params.push(filters.channelId); clauses.push('p.channel_id = $' + params.length); }
   if (filters.campaignId) { params.push(filters.campaignId); clauses.push('p.campaign_id = $' + params.length); }
   if (filters.status) { params.push(filters.status); clauses.push('p.status = $' + params.length); }
@@ -189,12 +283,9 @@ async function createPost(ctx, p) {
   requireManage(ctx);
   var title = V.text(p.title, 'Title', 160);
   var status = V.oneOf(p.status || 'planned', POST_STATUSES, 'Status');
-  var chanRes = await pool.query('SELECT id FROM marketing_channels WHERE id = $1', [p.channelId]);
-  if (!chanRes.rows[0]) fail('invalid', 'Choose a channel.');
-  if (p.campaignId) {
-    var campRes = await pool.query('SELECT id FROM marketing_campaigns WHERE id = $1', [p.campaignId]);
-    if (!campRes.rows[0]) fail('invalid', 'Unknown campaign.');
-  }
+  var chan = p.channelId ? await channelCompany(p.channelId) : null;
+  if (!chan) fail('invalid', 'Choose a channel.');
+  await checkCampaign(p.campaignId, chan.company_id);
   var m = metricFields(p);
 
   var newId = await withTransaction(async function (client) {
@@ -220,10 +311,10 @@ async function updatePost(ctx, id, p) {
   requireManage(ctx);
   var title = V.text(p.title, 'Title', 160);
   var status = V.oneOf(p.status || 'planned', POST_STATUSES, 'Status');
-  if (p.campaignId) {
-    var campRes = await pool.query('SELECT id FROM marketing_campaigns WHERE id = $1', [p.campaignId]);
-    if (!campRes.rows[0]) fail('invalid', 'Unknown campaign.');
-  }
+  var existing = (await pool.query('SELECT channel_id FROM marketing_posts WHERE id = $1', [id])).rows[0];
+  if (!existing) fail('notfound', 'Post not found.');
+  var chan = await channelCompany(existing.channel_id);
+  await checkCampaign(p.campaignId, chan && chan.company_id);
   var m = metricFields(p);
 
   var res = await pool.query(
@@ -270,13 +361,14 @@ var INBOX_SELECT =
 var INBOX_KINDS = ['comment', 'message'];
 var INBOX_STATUSES = ['open', 'replied', 'archived'];
 
-// kernel.js-style handler: marketing.inbox.list — optional channelId/
-// postId/status/kind filters for the tracker's Inbox tab.
+// kernel.js-style handler: marketing.inbox.list — one company's, with
+// optional channelId/postId/status/kind filters for the tracker's Inbox tab.
 async function listInboxItems(ctx, filters) {
   requireRead(ctx);
   filters = filters || {};
-  var clauses = [];
-  var params = [];
+  var co = await resolveCompany(filters.company);
+  var clauses = ['c.company_id = $1'];
+  var params = [co.id];
   if (filters.channelId) { params.push(filters.channelId); clauses.push('i.channel_id = $' + params.length); }
   if (filters.postId) { params.push(filters.postId); clauses.push('i.post_id = $' + params.length); }
   if (filters.status) { params.push(filters.status); clauses.push('i.status = $' + params.length); }
@@ -358,14 +450,16 @@ async function setInboxStatus(ctx, id, status) {
 // marketing.dashboard — per-channel totals (posts, engagement, latest
 // follower count + change since the previous snapshot) and campaign
 // rollups, for the tracker's Overview tab.
-async function dashboard(ctx) {
+async function dashboard(ctx, company) {
   requireRead(ctx);
-  var channels = await listChannels(ctx);
+  var co = await resolveCompany(company);
+  var channels = await listChannels(ctx, { company: co.code });
 
   var totalsRes = await pool.query(
     'SELECT channel_id, count(*) AS posts, sum(likes) AS likes, sum(comments) AS comments, sum(shares) AS shares, ' +
     'sum(reach) AS reach, sum(clicks) AS clicks, sum(leads) AS leads ' +
-    "FROM marketing_posts WHERE status = 'published' GROUP BY channel_id"
+    "FROM marketing_posts WHERE status = 'published' AND channel_id IN (SELECT id FROM marketing_channels WHERE company_id = $1) GROUP BY channel_id",
+    [co.id]
   );
   var totalsByChannel = {};
   totalsRes.rows.forEach(function (r) {
@@ -378,7 +472,8 @@ async function dashboard(ctx) {
   var statsRes = await pool.query(
     'SELECT channel_id, captured_on, followers, ' +
     'ROW_NUMBER() OVER (PARTITION BY channel_id ORDER BY captured_on DESC) AS rn ' +
-    'FROM marketing_channel_stats'
+    'FROM marketing_channel_stats WHERE channel_id IN (SELECT id FROM marketing_channels WHERE company_id = $1)',
+    [co.id]
   );
   var latestByChannel = {};
   var prevByChannel = {};
@@ -388,7 +483,8 @@ async function dashboard(ctx) {
   });
 
   var openInboxRes = await pool.query(
-    "SELECT channel_id, count(*) AS n FROM marketing_inbox_items WHERE status = 'open' GROUP BY channel_id"
+    "SELECT channel_id, count(*) AS n FROM marketing_inbox_items WHERE status = 'open' AND channel_id IN (SELECT id FROM marketing_channels WHERE company_id = $1) GROUP BY channel_id",
+    [co.id]
   );
   var openInboxByChannel = {};
   openInboxRes.rows.forEach(function (r) { openInboxByChannel[r.channel_id] = Number(r.n); });
@@ -405,11 +501,12 @@ async function dashboard(ctx) {
     });
   });
 
-  var campaigns = await listCampaigns(ctx);
+  var campaigns = await listCampaigns(ctx, co.code);
   var campaignTotalsRes = await pool.query(
     'SELECT campaign_id, count(*) AS posts, sum(likes) AS likes, sum(comments) AS comments, sum(shares) AS shares, ' +
     'sum(reach) AS reach, sum(clicks) AS clicks, sum(leads) AS leads ' +
-    "FROM marketing_posts WHERE campaign_id IS NOT NULL AND status = 'published' GROUP BY campaign_id"
+    "FROM marketing_posts WHERE campaign_id IN (SELECT id FROM marketing_campaigns WHERE company_id = $1) AND status = 'published' GROUP BY campaign_id",
+    [co.id]
   );
   var campaignTotalsById = {};
   campaignTotalsRes.rows.forEach(function (r) {
@@ -422,7 +519,7 @@ async function dashboard(ctx) {
     return Object.assign({}, c, { totals: campaignTotalsById[c.id] || { posts: 0, likes: 0, comments: 0, shares: 0, reach: 0, clicks: 0, leads: 0 } });
   });
 
-  return { channels: channelSummaries, campaigns: campaignSummaries };
+  return { company: { code: co.code, name: co.name }, channels: channelSummaries, campaigns: campaignSummaries };
 }
 
 // marketing.dashboardMetrics — the Overview tab's date-range-scoped,
@@ -438,14 +535,18 @@ async function dashboard(ctx) {
 // each post's own published_at date instead: "what was published, and its
 // reach, on each day" is real data; a fabricated daily *account* trend
 // would not be.
-async function dashboardMetrics(ctx, from, to) {
+async function dashboardMetrics(ctx, from, to, company) {
   requireRead(ctx);
+  var co = await resolveCompany(company);
   from = V.date(from, 'From date');
   to = V.date(to, 'To date');
   if (to < from) fail('invalid', 'To date must be on or after From date.');
 
-  var channels = await listChannels(ctx);
-  var connected = channels.filter(function (c) { return c.connected; });
+  // Every channel of the company with anything to show — connected ones
+  // and ones whose numbers are logged by hand alike (a channel with no
+  // figures in either period drops out below).
+  var channels = await listChannels(ctx, { company: co.code });
+  var connected = channels;
   var channelInfoById = {};
   channels.forEach(function (c) { channelInfoById[c.id] = c; });
 
@@ -456,7 +557,8 @@ async function dashboardMetrics(ctx, from, to) {
 
   // ── Followers ──────────────────────────────────────────────────────
   var statsRes = await pool.query(
-    'SELECT channel_id, captured_on, followers FROM marketing_channel_stats WHERE captured_on <= $1 ORDER BY channel_id, captured_on', [to]
+    'SELECT channel_id, captured_on, followers FROM marketing_channel_stats WHERE captured_on <= $1 ' +
+    'AND channel_id IN (SELECT id FROM marketing_channels WHERE company_id = $2) ORDER BY channel_id, captured_on', [to, co.id]
   );
   var statsByChannel = {};
   statsRes.rows.forEach(function (r) {
@@ -546,8 +648,10 @@ async function dashboardMetrics(ctx, from, to) {
 // the same Claude client the AI Assistant uses (src/ai/claude.js) — the LLM's job here
 // is only to turn already-computed rankings into a short written brief, not
 // to invent numbers itself.
+// {company} and {about} are filled in per company — a restaurant's brief is
+// about diners and dishes, not bamboo products.
 var RECOMMENDATION_SYSTEM_PROMPT =
-  'You are a social media strategist for Bamboo Products Limited. You are given a JSON snapshot of this ' +
+  'You are a social media strategist for {company}{about}. You are given a JSON snapshot of this ' +
   "account's own real post and channel performance (top/bottom performing posts by engagement, channels " +
   'with no recent posts, follower trends). Using ONLY that data, write a short, concrete brief with two ' +
   'sections: "What to post" (2-3 bullet points on the type/topic of content that has performed best and ' +
@@ -557,29 +661,31 @@ var RECOMMENDATION_SYSTEM_PROMPT =
   'statistic that is not in the data. Keep the whole brief under 200 words, plain text with a blank line ' +
   'between the two sections, no markdown headers.';
 
-async function recommendations(ctx) {
+async function recommendations(ctx, company) {
   requireRead(ctx);
+  var co = await resolveCompany(company);
+  var restaurant = co.code !== 'BPL';
 
   var sinceRes = await pool.query("SELECT (now() - interval '90 days')::date AS since");
   var since = sinceRes.rows[0].since;
 
   var topPostsRes = await pool.query(
-    POST_SELECT + " WHERE p.status = 'published' AND p.published_at >= $1 " +
+    POST_SELECT + " WHERE p.status = 'published' AND p.published_at >= $1 AND c.company_id = $2 " +
     'ORDER BY (p.likes + p.comments + p.shares) DESC LIMIT 8',
-    [since]
+    [since, co.id]
   );
   var bottomPostsRes = await pool.query(
-    POST_SELECT + " WHERE p.status = 'published' AND p.published_at >= $1 " +
+    POST_SELECT + " WHERE p.status = 'published' AND p.published_at >= $1 AND c.company_id = $2 " +
     'ORDER BY (p.likes + p.comments + p.shares) ASC LIMIT 5',
-    [since]
+    [since, co.id]
   );
   var channelActivityRes = await pool.query(
     'SELECT c.id, c.name, c.key, ' +
     '(SELECT s.followers FROM marketing_channel_stats s WHERE s.channel_id = c.id ORDER BY s.captured_on DESC LIMIT 1) AS followers, ' +
     'coalesce((SELECT count(*)::int FROM marketing_posts p WHERE p.channel_id = c.id AND p.status = \'published\' AND p.published_at >= $1), 0) AS recent_post_count, ' +
     '(SELECT sum(likes + comments + shares) FROM marketing_posts p WHERE p.channel_id = c.id AND p.status = \'published\' AND p.published_at >= $1) AS recent_engagement ' +
-    'FROM marketing_channels c ORDER BY c.name',
-    [since]
+    'FROM marketing_channels c WHERE c.company_id = $2 ORDER BY c.name',
+    [since, co.id]
   );
 
   function postSummary(r) {
@@ -589,6 +695,7 @@ async function recommendations(ctx) {
     };
   }
   var snapshot = {
+    company: co.name,
     periodDays: 90,
     topPerformingPosts: topPostsRes.rows.map(postSummary),
     lowestPerformingPosts: bottomPostsRes.rows.map(postSummary),
@@ -614,8 +721,11 @@ async function recommendations(ctx) {
   }
 
   try {
+    var prompt = RECOMMENDATION_SYSTEM_PROMPT
+      .replace('{company}', co.name)
+      .replace('{about}', restaurant ? ', a restaurant in Ghana (think dishes, drinks, events, atmosphere and bringing diners in)' : ', a bamboo products manufacturer in Ghana');
     var text = await claude.complete(
-      RECOMMENDATION_SYSTEM_PROMPT + '\n\nSNAPSHOT:\n' + JSON.stringify(snapshot),
+      prompt + '\n\nSNAPSHOT:\n' + JSON.stringify(snapshot),
       [{ role: 'user', content: 'Write the brief.' }]
     );
     return { generatedAt: new Date().toISOString(), basedOn: snapshot, recommendation: text || 'Could not generate a recommendation.' };
@@ -625,7 +735,8 @@ async function recommendations(ctx) {
 }
 
 module.exports = {
-  listChannels: listChannels, updateChannel: updateChannel,
+  resolveCompany: resolveCompany, listCompanies: listCompanies, channelCompany: channelCompany,
+  listChannels: listChannels, updateChannel: updateChannel, disconnectChannel: disconnectChannel,
   listChannelStats: listChannelStats, logChannelStat: logChannelStat,
   listCampaigns: listCampaigns, createCampaign: createCampaign, updateCampaign: updateCampaign,
   listPosts: listPosts, createPost: createPost, updatePost: updatePost, deletePost: deletePost,

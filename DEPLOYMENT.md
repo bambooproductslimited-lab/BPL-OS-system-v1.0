@@ -69,6 +69,14 @@ that they live on the same host.
      here. Then share the Finish Inventory sheets (or their folder) with the
      service account's email as Viewer. The OS can only read what is shared
      with it.
+   - `GA4_PROPERTY_ID_SBR` and `GA4_PROPERTY_ID_BGN` — optional. The social
+     & campaign tracker's Website channel for Star Bar Restaurant and
+     Bamboo Garden, each its own Google Analytics property (Bamboo Products'
+     is `GA4_PROPERTY_ID`), read with the same GA4 service account — give it
+     Viewer access on each property. Facebook/Instagram, TikTok and YouTube
+     need nothing new here: each company connects its own account from the
+     tracker's Channels tab, through the same platform apps and redirect
+     addresses.
 3. Click **Apply**. Render provisions the database, then builds and starts
    the backend (`npm install && npm run migrate && npm run bootstrap`,
    then `npm start`). First deploy takes a few minutes.

@@ -3,6 +3,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var config = require('../config');
+var marketingChannels = require('./marketingChannels');
 
 // Real Meta (Facebook + Instagram) OAuth for the social tracker — one
 // Facebook Login flow covers both, since an Instagram professional account
@@ -15,6 +16,11 @@ var config = require('../config');
 //
 // appId is not secret and is embedded directly in the authorize URL handed
 // to the frontend; appSecret never leaves this file.
+//
+// Per company (marketingChannels.js): the connection remembers which
+// company it is for (company_code on the state and pending rows), and the
+// chosen Page and its Instagram are stored under that company's channel
+// keys ('facebook'/'instagram' for Bamboo Products, 'sbr-facebook' …).
 
 var GRAPH = 'https://graph.facebook.com/v21.0';
 var AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth';
@@ -47,11 +53,13 @@ async function graphGet(pathOrUrl, accessToken) {
 
 // metaOAuth.startAuth — issues a one-time state token and returns the URL
 // to send the browser to.
-async function startAuth(ctx) {
+async function startAuth(ctx, companyCode) {
   requireManage(ctx);
   if (!config.meta.configured) fail('invalid', 'Facebook/Instagram is not configured on the server yet — set META_APP_ID and META_APP_SECRET on Render.');
+  var code = String(companyCode || 'BPL').toUpperCase();
+  await marketingChannels.channelFor(marketingChannels.channelKey(code, 'facebook'), 'facebook');
   var state = crypto.randomBytes(24).toString('hex');
-  await pool.query('INSERT INTO marketing_oauth_states (state, channel_key) VALUES ($1, $2)', [state, 'meta']);
+  await pool.query('INSERT INTO marketing_oauth_states (state, channel_key, company_code) VALUES ($1, $2, $3)', [state, 'meta', code]);
   var url = AUTHORIZE_URL + '?client_id=' + encodeURIComponent(config.meta.appId) +
     '&redirect_uri=' + encodeURIComponent(config.meta.redirectUri) +
     '&state=' + state +
@@ -68,7 +76,7 @@ async function startAuth(ctx) {
 // tiktokOAuth's handleCallback.
 async function handleCallback(code, state) {
   if (!code || !state) fail('invalid', 'Missing code or state.');
-  var stateRes = await pool.query('DELETE FROM marketing_oauth_states WHERE state = $1 AND channel_key = $2 RETURNING state', [state, 'meta']);
+  var stateRes = await pool.query('DELETE FROM marketing_oauth_states WHERE state = $1 AND channel_key = $2 RETURNING state, company_code', [state, 'meta']);
   if (!stateRes.rows[0]) fail('invalid', 'This authorization link has expired or was already used — try connecting again.');
 
   var shortLived = await graphGet(
@@ -88,8 +96,9 @@ async function handleCallback(code, state) {
   );
 
   var pendingToken = crypto.randomBytes(24).toString('hex');
-  await pool.query('INSERT INTO marketing_oauth_pending (token, channel_key, user_access_token) VALUES ($1, $2, $3)', [pendingToken, 'meta', longLived.access_token]);
-  return { pendingToken: pendingToken };
+  var companyCode = stateRes.rows[0].company_code || 'BPL';
+  await pool.query('INSERT INTO marketing_oauth_pending (token, channel_key, user_access_token, company_code) VALUES ($1, $2, $3, $4)', [pendingToken, 'meta', longLived.access_token, companyCode]);
+  return { pendingToken: pendingToken, companyCode: companyCode };
 }
 
 async function loadPending(pendingToken) {
@@ -134,28 +143,29 @@ async function connectPage(ctx, pendingToken, pageId) {
   // soft marker, not because Meta issues a real expiry here.
   var expiresAt = new Date(Date.now() + 365 * 86400000);
 
-  var chanRes = await pool.query("SELECT id, key FROM marketing_channels WHERE key IN ('facebook','instagram')");
-  var channelIdByKey = {};
-  chanRes.rows.forEach(function (r) { channelIdByKey[r.key] = r.id; });
+  var companyCode = pending.company_code || 'BPL';
+  var fbChan = await marketingChannels.channelFor(marketingChannels.channelKey(companyCode, 'facebook'), 'facebook');
+  var igKey = marketingChannels.channelKey(companyCode, 'instagram');
 
   await pool.query(
     'INSERT INTO marketing_oauth_tokens (channel_key, access_token, refresh_token, open_id, scope, expires_at) VALUES ($1,$2,$3,$4,$5,$6) ' +
     'ON CONFLICT (channel_key) DO UPDATE SET access_token = $2, open_id = $4, scope = $5, expires_at = $6, updated_at = now()',
-    ['facebook', page.access_token, '', page.id, SCOPES, expiresAt]
+    [fbChan.key, page.access_token, '', page.id, SCOPES, expiresAt]
   );
   var instagramConnected = false;
   if (page.instagram_business_account) {
     await pool.query(
       'INSERT INTO marketing_oauth_tokens (channel_key, access_token, refresh_token, open_id, scope, expires_at) VALUES ($1,$2,$3,$4,$5,$6) ' +
       'ON CONFLICT (channel_key) DO UPDATE SET access_token = $2, open_id = $4, scope = $5, expires_at = $6, updated_at = now()',
-      ['instagram', page.access_token, '', page.instagram_business_account.id, SCOPES, expiresAt]
+      [igKey, page.access_token, '', page.instagram_business_account.id, SCOPES, expiresAt]
     );
     instagramConnected = true;
   }
 
+  // Bamboo Products' Facebook/Instagram are also shown on the Integrations screen.
   var settingsRes = await pool.query('SELECT integrations FROM settings WHERE id = 1');
   var list = settingsRes.rows[0].integrations || [];
-  ['facebook', 'instagram'].forEach(function (id) {
+  (companyCode === 'BPL' ? ['facebook', 'instagram'] : []).forEach(function (id) {
     if (id === 'instagram' && !instagramConnected) return;
     var idx = list.findIndex(function (x) { return x.id === id; });
     if (idx >= 0) {
@@ -166,14 +176,14 @@ async function connectPage(ctx, pendingToken, pageId) {
   await pool.query('UPDATE settings SET integrations = $1, updated_at = now() WHERE id = 1', [JSON.stringify(list)]);
 
   await pool.query('DELETE FROM marketing_oauth_pending WHERE token = $1', [pendingToken]);
-  await audit(pool, ctx, 'marketing.meta.connect', 'marketing_channel', page.id, 'Connected Facebook Page "' + page.name + '"' + (instagramConnected ? ' and its linked Instagram account' : '') + ' via Meta login.');
+  await audit(pool, ctx, 'marketing.meta.connect', 'marketing_channel', page.id, 'Connected Facebook Page "' + page.name + '"' + (instagramConnected ? ' and its linked Instagram account' : '') + ' for ' + fbChan.company_name + ' via Meta login.');
 
-  return { pageName: page.name, facebookConnected: true, instagramConnected: instagramConnected };
+  return { pageName: page.name, facebookConnected: true, instagramConnected: instagramConnected, companyCode: companyCode };
 }
 
 async function getToken(channelKey) {
   var res = await pool.query('SELECT * FROM marketing_oauth_tokens WHERE channel_key = $1', [channelKey]);
-  if (!res.rows[0]) fail('invalid', (channelKey === 'facebook' ? 'Facebook' : 'Instagram') + ' is not connected yet — connect it from Integrations first.');
+  if (!res.rows[0]) fail('invalid', (/facebook$/.test(channelKey) ? 'Facebook' : 'Instagram') + ' is not connected yet — connect it from the tracker\'s Channels tab first.');
   return res.rows[0];
 }
 
@@ -196,13 +206,11 @@ async function followPaging(firstUrl, accessToken, maxPages) {
 // and its recent posts (with current like/comment counts) into the content
 // calendar. Posts are matched by Facebook's own post id, so a repeat sync
 // updates the same rows rather than duplicating them.
-async function syncFacebook(ctx) {
+async function syncFacebook(ctx, channelKey) {
   requireManage(ctx);
-  var token = await getToken('facebook');
-
-  var chanRes = await pool.query("SELECT id FROM marketing_channels WHERE key = 'facebook'");
-  if (!chanRes.rows[0]) fail('notfound', 'Facebook channel not found.');
-  var channelId = chanRes.rows[0].id;
+  var chan = await marketingChannels.channelFor(channelKey, 'facebook');
+  var token = await getToken(chan.key);
+  var channelId = chan.id;
 
   var pageError = null, followerCount = null, postCount = 0;
   try {
@@ -254,13 +262,11 @@ async function syncFacebook(ctx) {
 
 // metaOAuth.syncInstagram — same idea as syncFacebook, for the linked
 // Instagram Business account's follower count and recent media.
-async function syncInstagram(ctx) {
+async function syncInstagram(ctx, channelKey) {
   requireManage(ctx);
-  var token = await getToken('instagram');
-
-  var chanRes = await pool.query("SELECT id FROM marketing_channels WHERE key = 'instagram'");
-  if (!chanRes.rows[0]) fail('notfound', 'Instagram channel not found.');
-  var channelId = chanRes.rows[0].id;
+  var chan = await marketingChannels.channelFor(channelKey, 'instagram');
+  var token = await getToken(chan.key);
+  var channelId = chan.id;
 
   var igError = null, followerCount = null, mediaCount = 0;
   try {

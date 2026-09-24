@@ -3,6 +3,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var config = require('../config');
+var marketingChannels = require('./marketingChannels');
 
 // Real YouTube (Google) OAuth for the social tracker's "Connect with
 // YouTube" button. Single-account flow like TikTok's — a Google account
@@ -14,6 +15,10 @@ var config = require('../config');
 // clientId is not secret and is embedded directly in the authorize URL
 // handed to the frontend; clientSecret never leaves this file — used only
 // in the code/refresh-token exchanges below.
+//
+// Per company (marketingChannels.js): each company's YouTube channel
+// ('youtube', 'sbr-youtube' …) connects to its own Google account, and its
+// tokens are stored under that channel's key.
 
 var AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 var TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -30,11 +35,12 @@ function requireManage(ctx) {
 // URL to send the browser to. access_type=offline + prompt=consent force
 // Google to hand back a refresh_token (it otherwise only does this on a
 // user's very first consent for the app).
-async function startAuth(ctx) {
+async function startAuth(ctx, channelKey) {
   requireManage(ctx);
   if (!config.youtube.configured) fail('invalid', 'YouTube is not configured on the server yet — set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET on Render.');
   var state = crypto.randomBytes(24).toString('hex');
-  await pool.query('INSERT INTO marketing_oauth_states (state, channel_key) VALUES ($1, $2)', [state, 'youtube']);
+  var chan = await marketingChannels.channelFor(channelKey, 'youtube');
+  await pool.query('INSERT INTO marketing_oauth_states (state, channel_key, company_code) VALUES ($1, $2, $3)', [state, chan.key, chan.company_code]);
   var url = AUTHORIZE_URL + '?client_id=' + encodeURIComponent(config.youtube.clientId) +
     '&redirect_uri=' + encodeURIComponent(config.youtube.redirectUri) +
     '&response_type=code' +
@@ -50,8 +56,10 @@ async function startAuth(ctx) {
 // tiktokOAuth's handleCallback.
 async function handleCallback(code, state) {
   if (!code || !state) fail('invalid', 'Missing code or state.');
-  var stateRes = await pool.query('DELETE FROM marketing_oauth_states WHERE state = $1 AND channel_key = $2 RETURNING state', [state, 'youtube']);
+  var stateRes = await pool.query(
+    "DELETE FROM marketing_oauth_states WHERE state = $1 AND channel_key IN (SELECT key FROM marketing_channels WHERE coalesce(platform, key) = 'youtube') RETURNING channel_key", [state]);
   if (!stateRes.rows[0]) fail('invalid', 'This authorization link has expired or was already used — try connecting again.');
+  var chan = await marketingChannels.channelFor(stateRes.rows[0].channel_key, 'youtube');
 
   var body = new URLSearchParams({
     code: code,
@@ -74,18 +82,19 @@ async function handleCallback(code, state) {
   await pool.query(
     'INSERT INTO marketing_oauth_tokens (channel_key, access_token, refresh_token, open_id, scope, expires_at) VALUES ($1,$2,$3,$4,$5,$6) ' +
     'ON CONFLICT (channel_key) DO UPDATE SET access_token = $2, refresh_token = $3, open_id = $4, scope = $5, expires_at = $6, updated_at = now()',
-    ['youtube', tokenData.access_token, tokenData.refresh_token, channel.id, tokenData.scope || SCOPES, expiresAt]
+    [chan.key, tokenData.access_token, tokenData.refresh_token, channel.id, tokenData.scope || SCOPES, expiresAt]
   );
 
   var settingsRes = await pool.query('SELECT integrations FROM settings WHERE id = 1');
   var list = settingsRes.rows[0].integrations || [];
-  var idx = list.findIndex(function (x) { return x.id === 'youtube'; });
+  var idx = chan.key === 'youtube' ? list.findIndex(function (x) { return x.id === 'youtube'; }) : -1;
   if (idx >= 0) {
     list[idx].connected = true;
     list[idx].apiKey = 'Connected via Google login (' + channel.snippet.title + ')';
     await pool.query('UPDATE settings SET integrations = $1, updated_at = now() WHERE id = 1', [JSON.stringify(list)]);
   }
-  await audit(pool, null, 'marketing.youtube.connect', 'marketing_channel', 'youtube', 'Connected YouTube channel "' + channel.snippet.title + '" via Google login.');
+  await audit(pool, null, 'marketing.youtube.connect', 'marketing_channel', chan.key, 'Connected ' + chan.company_name + '\'s YouTube channel "' + channel.snippet.title + '" via Google login.');
+  return { channelKey: chan.key, companyCode: chan.company_code };
 }
 
 // Refreshes the stored access token if it's expired (or about to be),
@@ -93,7 +102,7 @@ async function handleCallback(code, state) {
 async function getValidAccessToken(channelKey) {
   var res = await pool.query('SELECT * FROM marketing_oauth_tokens WHERE channel_key = $1', [channelKey]);
   var row = res.rows[0];
-  if (!row) fail('invalid', 'YouTube is not connected yet — connect it from Integrations first.');
+  if (!row) fail('invalid', 'YouTube is not connected yet — connect it from the tracker\'s Channels tab first.');
   if (new Date(row.expires_at).getTime() > Date.now() + 60000) return row.access_token;
 
   var body = new URLSearchParams({
@@ -104,7 +113,7 @@ async function getValidAccessToken(channelKey) {
   });
   var refreshRes = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
   var data = await refreshRes.json();
-  if (!refreshRes.ok || data.error) fail('invalid', 'Your YouTube session expired and could not be refreshed — reconnect it from Integrations.');
+  if (!refreshRes.ok || data.error) fail('invalid', 'Your YouTube session expired and could not be refreshed — connect it again from the tracker\'s Channels tab.');
   var expiresAt = new Date(Date.now() + (data.expires_in || 0) * 1000);
   await pool.query(
     'UPDATE marketing_oauth_tokens SET access_token = $1, expires_at = $2, updated_at = now() WHERE channel_key = $3',
@@ -118,14 +127,12 @@ async function getValidAccessToken(channelKey) {
 // (with current view/like/comment counts) into the content calendar.
 // Videos are matched by YouTube's own video id, so a repeat sync updates
 // the same rows instead of duplicating them.
-async function sync(ctx) {
+async function sync(ctx, channelKey) {
   requireManage(ctx);
-  var accessToken = await getValidAccessToken('youtube');
+  var chan = await marketingChannels.channelFor(channelKey, 'youtube');
+  var accessToken = await getValidAccessToken(chan.key);
   var authHeader = { Authorization: 'Bearer ' + accessToken };
-
-  var chanRes = await pool.query("SELECT id FROM marketing_channels WHERE key = 'youtube'");
-  if (!chanRes.rows[0]) fail('notfound', 'YouTube channel not found.');
-  var channelId = chanRes.rows[0].id;
+  var channelId = chan.id;
 
   var ytRes = await fetch(CHANNELS_URL + '?part=statistics,contentDetails&mine=true', { headers: authHeader });
   var ytData = await ytRes.json();

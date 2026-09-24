@@ -10,8 +10,12 @@ var googleAnalyticsService = require('../services/googleAnalytics.service');
 var router = express.Router();
 router.use(requireAuth);
 
+// Syncs take the channel's key in the body ({ channel: 'sbr-tiktok' }); left
+// out, Bamboo Products' channel.
+function channelOf(req) { return (req.body || {}).channel || null; }
+
 router.post('/tiktok/sync', async function (req, res, next) {
-  try { res.json(await tiktokOAuthService.sync(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await tiktokOAuthService.sync(req.ctx, channelOf(req))); } catch (e) { next(e); }
 });
 
 router.get('/meta/pages', async function (req, res, next) {
@@ -21,36 +25,44 @@ router.post('/meta/pages/:pageId/connect', async function (req, res, next) {
   try { res.json(await metaOAuthService.connectPage(req.ctx, req.body.pending, req.params.pageId)); } catch (e) { next(e); }
 });
 router.post('/facebook/sync', async function (req, res, next) {
-  try { res.json(await metaOAuthService.syncFacebook(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await metaOAuthService.syncFacebook(req.ctx, channelOf(req))); } catch (e) { next(e); }
 });
 router.post('/instagram/sync', async function (req, res, next) {
-  try { res.json(await metaOAuthService.syncInstagram(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await metaOAuthService.syncInstagram(req.ctx, channelOf(req))); } catch (e) { next(e); }
 });
 router.post('/youtube/sync', async function (req, res, next) {
-  try { res.json(await youtubeOAuthService.sync(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await youtubeOAuthService.sync(req.ctx, channelOf(req))); } catch (e) { next(e); }
 });
 router.post('/twitch/sync', async function (req, res, next) {
   try { res.json(await twitchOAuthService.sync(req.ctx)); } catch (e) { next(e); }
 });
 router.post('/website/sync', async function (req, res, next) {
-  try { res.json(await googleAnalyticsService.sync(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await googleAnalyticsService.sync(req.ctx, channelOf(req))); } catch (e) { next(e); }
 });
 
+// Every list and total is one company's: ?company=BPL|SBR|BGN (BPL when left
+// out). See marketing.service.js.
+router.get('/companies', async function (req, res, next) {
+  try { res.json(await marketingService.listCompanies(req.ctx)); } catch (e) { next(e); }
+});
 router.get('/dashboard', async function (req, res, next) {
-  try { res.json(await marketingService.dashboard(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await marketingService.dashboard(req.ctx, req.query.company)); } catch (e) { next(e); }
 });
 router.get('/dashboard/metrics', async function (req, res, next) {
-  try { res.json(await marketingService.dashboardMetrics(req.ctx, req.query.from, req.query.to)); } catch (e) { next(e); }
+  try { res.json(await marketingService.dashboardMetrics(req.ctx, req.query.from, req.query.to, req.query.company)); } catch (e) { next(e); }
 });
 router.get('/recommendations', async function (req, res, next) {
-  try { res.json(await marketingService.recommendations(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await marketingService.recommendations(req.ctx, req.query.company)); } catch (e) { next(e); }
 });
 
 router.get('/channels', async function (req, res, next) {
-  try { res.json(await marketingService.listChannels(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await marketingService.listChannels(req.ctx, { company: req.query.company })); } catch (e) { next(e); }
 });
 router.patch('/channels/:id', async function (req, res, next) {
   try { res.json(await marketingService.updateChannel(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/channels/:id/disconnect', async function (req, res, next) {
+  try { res.json(await marketingService.disconnectChannel(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 router.get('/channels/:id/stats', async function (req, res, next) {
   try { res.json(await marketingService.listChannelStats(req.ctx, req.params.id)); } catch (e) { next(e); }
@@ -60,7 +72,7 @@ router.post('/channels/:id/stats', async function (req, res, next) {
 });
 
 router.get('/campaigns', async function (req, res, next) {
-  try { res.json(await marketingService.listCampaigns(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await marketingService.listCampaigns(req.ctx, req.query.company)); } catch (e) { next(e); }
 });
 router.post('/campaigns', async function (req, res, next) {
   try { res.status(201).json(await marketingService.createCampaign(req.ctx, req.body)); } catch (e) { next(e); }

@@ -18,6 +18,7 @@
 var bcrypt = require('bcrypt');
 var crypto = require('crypto');
 var config = require('../config');
+var marketingChannels = require('../services/marketingChannels');
 var { pool, withTransaction } = require('./pool');
 var { PERMISSIONS, ROLE_DEFS, defaultSettingsRow } = require('./referenceData');
 
@@ -161,31 +162,10 @@ async function ensureLeaveTypes(client) {
   }
 }
 
-var MARKETING_CHANNEL_DEFS = [
-  { key: 'facebook', name: 'Facebook', kind: 'social', integrationKey: 'facebook' },
-  { key: 'instagram', name: 'Instagram', kind: 'social', integrationKey: 'instagram' },
-  { key: 'tiktok', name: 'TikTok', kind: 'social', integrationKey: 'tiktok' },
-  { key: 'whatsapp', name: 'WhatsApp Business', kind: 'social', integrationKey: 'whatsappbusiness' },
-  { key: 'youtube', name: 'YouTube', kind: 'social', integrationKey: 'youtube' },
-  { key: 'twitch', name: 'Twitch', kind: 'social', integrationKey: 'twitch' },
-  { key: 'linkedin', name: 'LinkedIn Page', kind: 'social', integrationKey: 'linkedin' },
-  { key: 'website', name: 'Website', kind: 'web', integrationKey: 'googleanalytics' },
-  // ThomasNet is a B2B directory listing, not a platform with a public
-  // analytics API — no integration_key to connect; inquiries/leads from it
-  // are logged manually like everything else here until that changes.
-  { key: 'thomasnet', name: 'ThomasNet', kind: 'directory', integrationKey: null }
-];
-
+// Every tracked company's social channels (Bamboo Products, Star Bar,
+// Bamboo Garden) — see services/marketingChannels.js.
 async function ensureMarketingChannels(client) {
-  var existing = await client.query('SELECT key FROM marketing_channels');
-  var known = {};
-  existing.rows.forEach(function (r) { known[r.key] = true; });
-  for (var i = 0; i < MARKETING_CHANNEL_DEFS.length; i++) {
-    var c = MARKETING_CHANNEL_DEFS[i];
-    if (known[c.key]) continue;
-    console.log('Adding marketing channel: ' + c.name);
-    await client.query('INSERT INTO marketing_channels (key, name, kind, integration_key) VALUES ($1, $2, $3, $4)', [c.key, c.name, c.kind, c.integrationKey]);
-  }
+  await marketingChannels.ensureChannels(client, { log: function (m) { console.log(m); } });
 }
 
 // departments.company_id has been NOT NULL since migration 0032 (every

@@ -10,6 +10,7 @@
 var bcrypt = require('bcrypt');
 var crypto = require('crypto');
 var config = require('../config');
+var marketingChannels = require('../services/marketingChannels');
 var { pool, withTransaction } = require('./pool');
 var { PERMISSIONS, ROLE_DEFS, defaultSettingsRow } = require('./referenceData');
 
@@ -532,15 +533,17 @@ async function run() {
       var mcd = mktChannelDefs[i];
       mktChannelIds[mcd.key] = uuid();
       await client.query(
-        'INSERT INTO marketing_channels (id, key, name, kind, integration_key, handle) VALUES ($1,$2,$3,$4,$5,$6)',
-        [mktChannelIds[mcd.key], mcd.key, mcd.name, mcd.kind, mcd.integrationKey, mcd.handle]
+        'INSERT INTO marketing_channels (id, key, name, kind, integration_key, handle, platform, company_id) VALUES ($1,$2,$3,$4,$5,$6,$2,$7)',
+        [mktChannelIds[mcd.key], mcd.key, mcd.name, mcd.kind, mcd.integrationKey, mcd.handle, COMPANY_DEFS[0].id]
       );
     }
+    // Star Bar Restaurant's and Bamboo Garden's own trackers, empty.
+    await marketingChannels.ensureChannels(client);
 
     var mktCampaignId = uuid();
     await client.query(
-      "INSERT INTO marketing_campaigns (id, name, description, start_date, end_date, status, created_by) VALUES ($1,$2,$3,$4,$5,'active',$6)",
-      [mktCampaignId, 'Bamboo Furniture Launch', 'Push for the new bamboo furniture line across social and the website.', relDate(-14), relDate(14), empIds.e_008]
+      "INSERT INTO marketing_campaigns (id, name, description, start_date, end_date, status, created_by, company_id) VALUES ($1,$2,$3,$4,$5,'active',$6,$7)",
+      [mktCampaignId, 'Bamboo Furniture Launch', 'Push for the new bamboo furniture line across social and the website.', relDate(-14), relDate(14), empIds.e_008, COMPANY_DEFS[0].id]
     );
 
     var mktPostDefs = [

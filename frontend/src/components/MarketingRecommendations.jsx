@@ -12,7 +12,8 @@ import './MarketingRecommendations.css';
 // it's an LLM call, not a free query — and its result (recommendation +
 // basedOn) is handed back to the parent page via onGenerated so it can be
 // folded into that page's CSV/PDF export.
-export default function MarketingRecommendations({ onGenerated }) {
+// company: which company's tracker ('BPL' when left out).
+export default function MarketingRecommendations({ onGenerated, company }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -21,7 +22,7 @@ export default function MarketingRecommendations({ onGenerated }) {
     setLoading(true);
     setError(null);
     try {
-      const r = await api.get('/marketing/recommendations');
+      const r = await api.get('/marketing/recommendations' + (company ? '?company=' + encodeURIComponent(company) : ''));
       setResult(r);
       if (onGenerated) onGenerated(r);
     } catch (err) {

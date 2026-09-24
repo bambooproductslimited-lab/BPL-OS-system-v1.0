@@ -20,23 +20,30 @@ var config = require('../config');
 
 var router = express.Router();
 
+// Back to the tracker, on the company whose account was just connected.
+function back(target, companyCode, query) {
+  var q = new URLSearchParams(query);
+  if (companyCode && companyCode !== 'BPL') q.set('company', companyCode);
+  return target + '/socialtracker?' + q.toString();
+}
+
 router.post('/tiktok/start', requireAuth, async function (req, res, next) {
-  try { res.json(await tiktokOAuthService.startAuth(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await tiktokOAuthService.startAuth(req.ctx, (req.body || {}).channel)); } catch (e) { next(e); }
 });
 
 router.get('/tiktok/callback', async function (req, res) {
   var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
-    await tiktokOAuthService.handleCallback(req.query.code, req.query.state);
-    res.redirect(target + '/socialtracker?tiktok=connected');
+    var done = await tiktokOAuthService.handleCallback(req.query.code, req.query.state);
+    res.redirect(back(target, done.companyCode, { tiktok: 'connected' }));
   } catch (e) {
     res.redirect(target + '/socialtracker?tiktok=error&message=' + encodeURIComponent(e.message || 'Connection failed.'));
   }
 });
 
 router.post('/meta/start', requireAuth, async function (req, res, next) {
-  try { res.json(await metaOAuthService.startAuth(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await metaOAuthService.startAuth(req.ctx, (req.body || {}).company)); } catch (e) { next(e); }
 });
 
 // Meta's callback can't finish the connection by itself (the user may
@@ -47,22 +54,22 @@ router.get('/meta/callback', async function (req, res) {
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
     var result = await metaOAuthService.handleCallback(req.query.code, req.query.state);
-    res.redirect(target + '/socialtracker?meta=choose-page&pending=' + encodeURIComponent(result.pendingToken));
+    res.redirect(back(target, result.companyCode, { meta: 'choose-page', pending: result.pendingToken }));
   } catch (e) {
     res.redirect(target + '/socialtracker?meta=error&message=' + encodeURIComponent(e.message || 'Connection failed.'));
   }
 });
 
 router.post('/youtube/start', requireAuth, async function (req, res, next) {
-  try { res.json(await youtubeOAuthService.startAuth(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await youtubeOAuthService.startAuth(req.ctx, (req.body || {}).channel)); } catch (e) { next(e); }
 });
 
 router.get('/youtube/callback', async function (req, res) {
   var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
-    await youtubeOAuthService.handleCallback(req.query.code, req.query.state);
-    res.redirect(target + '/socialtracker?youtube=connected');
+    var done = await youtubeOAuthService.handleCallback(req.query.code, req.query.state);
+    res.redirect(back(target, done.companyCode, { youtube: 'connected' }));
   } catch (e) {
     res.redirect(target + '/socialtracker?youtube=error&message=' + encodeURIComponent(e.message || 'Connection failed.'));
   }
