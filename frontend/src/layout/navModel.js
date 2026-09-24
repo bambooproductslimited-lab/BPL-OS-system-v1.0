@@ -69,6 +69,7 @@ export const NAV_GROUPS = [
     { key: 'financedash', label: msg('Finance dashboard'), perm: 'report.read', icon: 'chart' },
     { key: 'payroll', label: msg('Payroll'), perm: 'payroll.read', icon: 'cash' },
     { key: 'expenses', label: msg('Expenses'), perm: 'expense.request', icon: 'receipt' },
+    { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },
     { key: 'reports', label: msg('Reports'), perm: 'report.read', icon: 'chart' },
     { key: 'financialreports', label: msg('Financial reports'), perm: 'report.read', icon: 'chart' }
   ] },

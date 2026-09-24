@@ -1,4 +1,5 @@
 var crypto = require('crypto');
+var config = require('../config');
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 
@@ -121,8 +122,15 @@ async function shareViaWhatsApp(ctx, documentType, documentId, url) {
   var digits = String(cust.phone).replace(/\D/g, '');
   if (digits.length === 10 && digits.charAt(0) === '0') digits = '233' + digits.slice(1);
 
+  var text = 'Hi ' + cust.name + ', here is your document from Bamboo Products Limited: ' + url;
+  // Without the WhatsApp Business API set up, the OS can't send by itself:
+  // hand back a WhatsApp link with the message filled in, for the person to
+  // open and send from their own WhatsApp.
+  if (!config.whatsapp.configured) {
+    return { sent: false, whatsappUrl: 'https://wa.me/' + digits + '?text=' + encodeURIComponent(text) };
+  }
   var whatsapp = require('./whatsapp.service');
-  await whatsapp.sendMessage(digits, 'Hi ' + cust.name + ', here is your document from Bamboo Products Limited: ' + url);
+  await whatsapp.sendMessage(digits, text);
   return { sent: true };
 }
 

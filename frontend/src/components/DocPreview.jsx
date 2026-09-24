@@ -90,6 +90,11 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
   async function sendWhatsApp() {
     setWaResult(null);
     setWaSending(true);
+    // Without the WhatsApp Business API the server hands back a WhatsApp
+    // link with the message typed, to send from this person's own WhatsApp.
+    // The window is opened now, while this still counts as their click —
+    // opened after the server answers, it would be blocked as a pop-up.
+    const win = window.open('', '_blank');
     try {
       let url = shareUrl;
       if (!url) {
@@ -98,9 +103,17 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
         setShareExpiresAt(res.expiresAt || null);
         setShareUrl(url);
       }
-      await share.whatsapp(url);
-      setWaResult({ ok: true, message: tr('Sent via WhatsApp.') });
+      const res = await share.whatsapp(url);
+      if (res && res.whatsappUrl) {
+        if (win) win.location.href = res.whatsappUrl;
+        else window.location.href = res.whatsappUrl;
+        setWaResult({ ok: true, message: tr('WhatsApp opened with the message ready — press send there.') });
+      } else {
+        if (win) win.close();
+        setWaResult({ ok: true, message: tr('Sent via WhatsApp.') });
+      }
     } catch (err) {
+      if (win) win.close();
       setWaResult({ ok: false, message: err.message });
     } finally {
       setWaSending(false);

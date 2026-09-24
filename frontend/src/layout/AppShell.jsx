@@ -93,7 +93,7 @@ export default function AppShell() {
 
         <nav className="shell-nav">
           {NAV_GROUPS.map((group) => {
-            const visibleItems = group.items.filter((item) => !item.perm || can(item.perm));
+            const visibleItems = group.items.filter((item) => !item.perm || (Array.isArray(item.perm) ? item.perm.some(can) : can(item.perm)));
             if (!visibleItems.length) return null;
             return (
               <div className="shell-nav-group" key={group.label}>

@@ -20,6 +20,7 @@ import SuppliersPage from './pages/SuppliersPage';
 import InventoryPage from './pages/InventoryPage';
 import StockSheetPage from './pages/StockSheetPage';
 import StockSummaryPage from './pages/StockSummaryPage';
+import RemindersPage from './pages/RemindersPage';
 import AssetsPage from './pages/AssetsPage';
 import WaybillsPage from './pages/WaybillsPage';
 import ToolRoomPage from './pages/ToolRoomPage';
@@ -70,7 +71,7 @@ import FaceEnrollPage from './pages/FaceEnrollPage';
 const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: TasksPage, projects: ProjectsPage, announcements: AnnouncementsPage,
-  documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage,
+  documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
   assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
