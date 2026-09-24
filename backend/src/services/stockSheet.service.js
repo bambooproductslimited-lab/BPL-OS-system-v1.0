@@ -255,4 +255,41 @@ async function month(ctx, monthArg) {
   };
 }
 
-module.exports = { getDay: getDay, saveLine: saveLine, saveDay: saveDay, month: month, computed: computed };
+// Every month from the first one with anything on the daily stock sheet (or
+// six months back, whichever is earlier) up to this one, with how many of its days are filled in — the strip of months
+// across the top of the summary, so earlier months are one click away and a
+// month with gaps (a workbook not yet imported) shows as such.
+async function months(ctx) {
+  if (!ctx.can('inventory.read')) fail('forbidden', 'Your role does not allow this action (inventory.read).');
+  var filled = (await pool.query(
+    "SELECT to_char(date, 'YYYY-MM') AS month, count(DISTINCT date)::int AS days FROM stock_sheet_lines GROUP BY 1 ORDER BY 1"
+  )).rows;
+  var byMonth = {};
+  filled.forEach(function (r) { byMonth[r.month] = r.days; });
+  var today = todayISO();
+  var current = today.slice(0, 7);
+  // At least the last six months, so earlier months that were never
+  // imported still show — empty — rather than not at all.
+  var cy = Number(current.slice(0, 4)), cm = Number(current.slice(5, 7)) - 5;
+  while (cm < 1) { cm += 12; cy--; }
+  var sixBack = cy + '-' + String(cm).padStart(2, '0');
+  var start = filled.length && filled[0].month < sixBack ? filled[0].month : sixBack;
+  var out = [];
+  var y = Number(start.slice(0, 4)), m = Number(start.slice(5, 7));
+  while (true) {
+    var key = y + '-' + String(m).padStart(2, '0');
+    var total = daysIn(key).length;
+    out.push({
+      month: key, daysFilled: byMonth[key] || 0,
+      // Days that have happened so far: all of them for a past month.
+      daysSoFar: key === current ? Number(today.slice(8, 10)) : total,
+      daysInMonth: total
+    });
+    if (key >= current) break;
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+module.exports = { getDay: getDay, saveLine: saveLine, saveDay: saveDay, month: month, months: months, computed: computed };

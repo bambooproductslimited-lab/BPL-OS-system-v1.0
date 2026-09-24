@@ -132,6 +132,20 @@ test('the monthly summary is each day\'s closing, with the month\'s movements', 
   await assert.rejects(svc.month(admin, '2026-13'), /Month/);
 });
 
+test('the strip of months: every month from the first filled-in one to now, with its days filled', async function () {
+  var list = await svc.months(viewer);
+  var now = new Date().toISOString().slice(0, 7);
+  assert.equal(list[list.length - 1].month, now, 'ends at this month');
+  var aug = list.filter(function (x) { return x.month === '2026-08'; })[0];
+  assert.ok(aug, 'August is there');
+  assert.ok(aug.daysFilled >= 2);
+  assert.equal(aug.daysInMonth, 31);
+  assert.equal(aug.daysSoFar, now > '2026-08' ? 31 : Number(new Date().toISOString().slice(8, 10)));
+  for (var i = 1; i < list.length; i++) assert.ok(list[i].month > list[i - 1].month, 'in order, no gaps skipped');
+  assert.ok(list.length >= 6, 'at least the last six months, filled in or not');
+  await assert.rejects(svc.months(nobody), /inventory\.read/);
+});
+
 test('importing a day tab fills in that day of the sheet, column for column', async function () {
   var HEADER = ',Category,Variation,UOM,Opening Stock,Received,total stock,transfered,Breakage,Sold (Square),Expected Closing,Physical Count,Variance';
   var file = Buffer.from([HEADER,

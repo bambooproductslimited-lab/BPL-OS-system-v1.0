@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -174,6 +175,19 @@ export default function InventoryPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // /inventory?import=workbook (from the stock summary's "Import a month's
+  // workbook") opens the import straight away.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    if (params.get('import') && can('inventory.manage')) {
+      setImportFile(null);
+      setImportPreview(null);
+      setImportError(null);
+      setImportOpen(true);
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams, can]);
 
   useEffect(() => {
     if (!toast) return undefined;

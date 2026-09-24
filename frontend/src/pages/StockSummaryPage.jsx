@@ -11,6 +11,10 @@ import './StockSummaryPage.css';
 // month()). Each product's closing figure on every day that was filled in,
 // then the month's received, transferred, breakage and sold. A marked cell
 // is a day where the physical count differed from the expected figure.
+//
+// Across the top, every month since the first one on record, with how many
+// of its days are in the OS — so earlier months are one click away, and a
+// month with gaps says so and offers the whole-workbook import to fill them.
 
 function thisMonth() { return new Date().toISOString().slice(0, 7); }
 function shiftMonth(m, by) {
@@ -23,6 +27,9 @@ function fmt(n) {
 function monthLabel(m) {
   return new Date(m + '-01T00:00:00').toLocaleDateString(activeIntlLocale(), { month: 'long', year: 'numeric' });
 }
+function monthShort(m) {
+  return new Date(m + '-01T00:00:00').toLocaleDateString(activeIntlLocale(), { month: 'short' });
+}
 
 export default function StockSummaryPage() {
   const [params, setParams] = useSearchParams();
@@ -33,6 +40,13 @@ export default function StockSummaryPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [allDays, setAllDays] = useState(false);
+  const [months, setMonths] = useState([]);
+
+  useEffect(() => {
+    api.get('/stock-sheet/months').then(setMonths).catch(() => setMonths([]));
+  }, []);
+  const monthInfo = months.find((x) => x.month === month);
+  const missing = monthInfo ? Math.max(0, monthInfo.daysSoFar - monthInfo.daysFilled) : 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,7 +102,40 @@ export default function StockSummaryPage() {
         <button type="button" className="btn btn-secondary" onClick={exportCsv} disabled={!data || !rows.length}>{tr('Export CSV')}</button>
       </div>
 
+      {months.length > 0 && (
+        <nav className="stocksummary-months" aria-label={tr('Months')}>
+          {months.map((mo) => {
+            const full = mo.daysFilled >= mo.daysSoFar;
+            const pct = mo.daysSoFar ? Math.min(100, Math.round((mo.daysFilled / mo.daysSoFar) * 100)) : 0;
+            return (
+              <button
+                type="button"
+                key={mo.month}
+                className={'stocksummary-month' + (mo.month === month ? ' is-current' : '') + (mo.daysFilled === 0 ? ' is-empty' : full ? ' is-full' : '')}
+                onClick={() => goTo(mo.month)}
+                aria-current={mo.month === month ? 'true' : undefined}
+                title={tr('{n} of {total} days filled in', { n: mo.daysFilled, total: mo.daysSoFar })}
+              >
+                <span className="stocksummary-month-name">{monthShort(mo.month)} {mo.month.slice(2, 4)}</span>
+                <span className="stocksummary-month-days">{mo.daysFilled}/{mo.daysSoFar}</span>
+                <span className="stocksummary-month-bar" aria-hidden="true"><span style={{ width: pct + '%' }} /></span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
       {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {missing > 0 && (
+        <div className="stocksummary-gap">
+          <div>
+            <strong>{tr('{n} of {total} days of {month} are in the OS.', { n: monthInfo.daysFilled, total: monthInfo.daysSoFar, month: monthLabel(month) })}</strong>{' '}
+            {tr('To fill in the rest, import that month\'s Finish Inventory workbook (the .xlsx with the day tabs 1, 2, 3 …) — every day comes in at once. Do the oldest month first.')}
+          </div>
+          <Link className="btn btn-primary" to="/inventory?import=workbook">{tr('Import a month\'s workbook')}</Link>
+        </div>
+      )}
 
       {data && (
         <div className="stocksummary-status">
