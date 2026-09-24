@@ -32,25 +32,32 @@ function requireManage(ctx) {
   if (!ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (marketing.manage).');
 }
 
-// The tracked company a request is about: its id, code and name. Unknown or
+// The tracked company a request is about: its id, code and name. A company
+// has a tracker when it has channels (bootstrap.js adds them for Bamboo
+// Products and the restaurants, whatever their codes are). Unknown or
 // untracked codes are refused rather than silently showing Bamboo Products.
 async function resolveCompany(code) {
   var c = String(code || 'BPL').trim().toUpperCase();
-  var tracked = marketingChannels.TRACKED.some(function (t) { return t.code === c; });
-  var row = tracked ? (await pool.query('SELECT id, code, name FROM companies WHERE code = $1', [c])).rows[0] : null;
+  var row = (await pool.query(
+    'SELECT co.id, co.code, co.name FROM companies co WHERE upper(co.code) = $1 ' +
+    'AND EXISTS (SELECT 1 FROM marketing_channels ch WHERE ch.company_id = co.id)', [c]
+  )).rows[0];
   if (!row) fail('invalid', 'There is no social tracker for "' + c + '".');
   return row;
 }
 
-// marketing.companies — the companies with a tracker, for the switcher.
+// marketing.companies — the companies with a tracker, for the switcher:
+// Bamboo Products, then the restaurants, then anyone else with channels.
 async function listCompanies(ctx) {
   requireRead(ctx);
-  var codes = marketingChannels.TRACKED.map(function (t) { return t.code; });
   var rows = (await pool.query(
-    'SELECT co.code, co.name, count(ch.id)::int AS channels FROM companies co JOIN marketing_channels ch ON ch.company_id = co.id ' +
-    'WHERE co.code = ANY($1) GROUP BY co.code, co.name', [codes]
+    'SELECT co.id, co.code, co.name, count(ch.id)::int AS channels FROM companies co JOIN marketing_channels ch ON ch.company_id = co.id ' +
+    'GROUP BY co.id, co.code, co.name ORDER BY co.name'
   )).rows;
-  return codes.map(function (code) { return rows.filter(function (r) { return r.code === code; })[0]; }).filter(Boolean);
+  var order = marketingChannels.trackedCompanies(rows).map(function (t) { return t.id; });
+  function rank(r) { var i = order.indexOf(r.id); return i < 0 ? order.length : i; }
+  return rows.slice().sort(function (x, y) { return rank(x) - rank(y); })
+    .map(function (r) { return { code: r.code, name: r.name, channels: r.channels }; });
 }
 
 // A company's website counts as connected when there is a Google Analytics

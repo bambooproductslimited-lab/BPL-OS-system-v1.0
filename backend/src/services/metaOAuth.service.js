@@ -57,7 +57,7 @@ async function startAuth(ctx, companyCode) {
   requireManage(ctx);
   if (!config.meta.configured) fail('invalid', 'Facebook/Instagram is not configured on the server yet — set META_APP_ID and META_APP_SECRET on Render.');
   var code = String(companyCode || 'BPL').toUpperCase();
-  await marketingChannels.channelFor(marketingChannels.channelKey(code, 'facebook'), 'facebook');
+  code = (await marketingChannels.channelForCompany(code, 'facebook')).company_code;
   var state = crypto.randomBytes(24).toString('hex');
   await pool.query('INSERT INTO marketing_oauth_states (state, channel_key, company_code) VALUES ($1, $2, $3)', [state, 'meta', code]);
   var url = AUTHORIZE_URL + '?client_id=' + encodeURIComponent(config.meta.appId) +
@@ -144,8 +144,8 @@ async function connectPage(ctx, pendingToken, pageId) {
   var expiresAt = new Date(Date.now() + 365 * 86400000);
 
   var companyCode = pending.company_code || 'BPL';
-  var fbChan = await marketingChannels.channelFor(marketingChannels.channelKey(companyCode, 'facebook'), 'facebook');
-  var igKey = marketingChannels.channelKey(companyCode, 'instagram');
+  var fbChan = await marketingChannels.channelForCompany(companyCode, 'facebook');
+  var igKey = (await marketingChannels.channelForCompany(companyCode, 'instagram')).key;
 
   await pool.query(
     'INSERT INTO marketing_oauth_tokens (channel_key, access_token, refresh_token, open_id, scope, expires_at) VALUES ($1,$2,$3,$4,$5,$6) ' +

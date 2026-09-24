@@ -38,51 +38,74 @@ var RESTAURANT_CHANNELS = [
   { platform: 'tripadvisor', name: 'TripAdvisor', kind: 'directory' }
 ];
 
-// In the order the tracker's company switcher shows them.
+// In the order the tracker's company switcher shows them. A company is
+// found by its code or, failing that, its name: company codes are set by
+// hand in Companies & departments (Star Bar Restaurant is 'SB' on the live
+// system, 'SBR' in the demo data), so neither can be assumed.
 var TRACKED = [
-  { code: 'BPL', channels: BPL_CHANNELS },
-  { code: 'SBR', channels: RESTAURANT_CHANNELS },
-  { code: 'BGN', channels: RESTAURANT_CHANNELS }
+  { code: 'BPL', codes: ['BPL'], channels: BPL_CHANNELS },
+  { code: 'SBR', codes: ['SBR', 'SB'], name: /star\s*bar/i, channels: RESTAURANT_CHANNELS },
+  { code: 'BGN', codes: ['BGN', 'BG1', 'BG'], name: /bamboo\s*garden/i, channels: RESTAURANT_CHANNELS }
 ];
 
 // Platforms that connect to an account for live numbers, per company.
 var CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'website'];
 
+// Bamboo Products' channels keep their plain keys; everyone else's are
+// '<their company code>-<platform>' ('sb-facebook').
 function channelKey(code, platform) {
-  return code === 'BPL' ? platform : code.toLowerCase() + '-' + platform;
+  return code === 'BPL' ? platform : String(code).toLowerCase() + '-' + platform;
+}
+
+// The existing companies with a tracker, in switcher order, each with the
+// channel set it gets: [{ id, code, name, channels }].
+function trackedCompanies(companies) {
+  var found = [];
+  TRACKED.forEach(function (t) {
+    var co = companies.filter(function (c) { return t.codes.indexOf(String(c.code).toUpperCase()) >= 0; })[0] ||
+      (t.name && companies.filter(function (c) { return t.name.test(c.name || ''); })[0]);
+    if (co && !found.some(function (f) { return f.id === co.id; })) {
+      found.push({ id: co.id, code: co.code, name: co.name, channels: t.channels });
+    }
+  });
+  return found;
 }
 
 // Adds any tracked company's missing channels (for companies that exist),
 // and fills in company/platform on channels made before migration 0079.
-// Never removes or renames anything.
+// A company counts as having a platform's channel whatever its key, so a
+// company code changed later doesn't bring a second set. Never removes or
+// renames anything.
 async function ensureChannels(client, opts) {
   var log = opts && opts.log;
-  var companies = (await client.query('SELECT id, code FROM companies')).rows;
-  var idByCode = {};
-  companies.forEach(function (c) { idByCode[c.code] = c.id; });
+  var companies = (await client.query('SELECT id, code, name FROM companies')).rows;
+  var bpl = companies.filter(function (c) { return c.code === 'BPL'; })[0];
+  if (bpl) {
+    await client.query('UPDATE marketing_channels SET company_id = $1 WHERE company_id IS NULL', [bpl.id]);
+    await client.query('UPDATE marketing_campaigns SET company_id = $1 WHERE company_id IS NULL', [bpl.id]);
+  }
+  await client.query('UPDATE marketing_channels SET platform = key WHERE platform IS NULL');
   var existing = {};
-  (await client.query('SELECT key FROM marketing_channels')).rows.forEach(function (r) { existing[r.key] = true; });
+  (await client.query('SELECT key, company_id, platform FROM marketing_channels')).rows.forEach(function (r) {
+    existing[r.key] = true;
+    existing[r.company_id + '|' + r.platform] = true;
+  });
   var added = 0;
-  for (var i = 0; i < TRACKED.length; i++) {
-    var t = TRACKED[i];
-    if (!idByCode[t.code]) continue;
+  var tracked = trackedCompanies(companies);
+  for (var i = 0; i < tracked.length; i++) {
+    var t = tracked[i];
     for (var j = 0; j < t.channels.length; j++) {
       var c = t.channels[j];
       var key = channelKey(t.code, c.platform);
-      if (existing[key]) continue;
+      if (existing[key] || existing[t.id + '|' + c.platform]) continue;
       if (log) log('Adding marketing channel: ' + t.code + ' ' + c.name);
       await client.query(
         'INSERT INTO marketing_channels (key, name, kind, integration_key, platform, company_id) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (key) DO NOTHING',
-        [key, c.name, c.kind, c.integrationKey || null, c.platform, idByCode[t.code]]
+        [key, c.name, c.kind, c.integrationKey || null, c.platform, t.id]
       );
       added++;
     }
   }
-  if (idByCode.BPL) {
-    await client.query('UPDATE marketing_channels SET company_id = $1 WHERE company_id IS NULL', [idByCode.BPL]);
-    await client.query('UPDATE marketing_campaigns SET company_id = $1 WHERE company_id IS NULL', [idByCode.BPL]);
-  }
-  await client.query('UPDATE marketing_channels SET platform = key WHERE platform IS NULL');
   return added;
 }
 
@@ -103,8 +126,21 @@ async function channelFor(key, platform) {
   return r;
 }
 
+// A company's channel on a platform, whatever its key (Meta connects a
+// company's Facebook Page and its Instagram together).
+async function channelForCompany(code, platform) {
+  var { pool } = require('../db/pool');
+  var { fail } = require('../utils/errors');
+  var r = (await pool.query(
+    'SELECT ch.key FROM marketing_channels ch JOIN companies co ON co.id = ch.company_id WHERE upper(co.code) = upper($1) AND ch.platform = $2 ORDER BY ch.created_at LIMIT 1',
+    [String(code || 'BPL'), platform]
+  )).rows[0];
+  if (!r) fail('notfound', 'That ' + platform + ' channel was not found.');
+  return channelFor(r.key, platform);
+}
+
 module.exports = {
-  channelFor: channelFor,
+  channelFor: channelFor, channelForCompany: channelForCompany, trackedCompanies: trackedCompanies,
   BPL_CHANNELS: BPL_CHANNELS, RESTAURANT_CHANNELS: RESTAURANT_CHANNELS, TRACKED: TRACKED, CONNECTABLE: CONNECTABLE,
   channelKey: channelKey, ensureChannels: ensureChannels
 };

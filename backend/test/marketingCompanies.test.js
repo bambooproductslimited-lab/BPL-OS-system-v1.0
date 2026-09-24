@@ -226,3 +226,18 @@ test('recommendations: about the chosen company only', async function () {
     assert.ok(r.basedOn.topPerformingPosts.every(function (p) { return p.channel !== 'LinkedIn Page'; }));
   } finally { config.ai.apiKey = key; }
 });
+
+test('restaurants are found by whatever code they were given, or by name', function () {
+  var channels = require('../src/services/marketingChannels');
+  var found = channels.trackedCompanies([
+    { id: 'a', code: 'PKI', name: 'Poki' },
+    { id: 'b', code: 'BG1', name: 'Bamboo Garden' },
+    { id: 'c', code: 'SB', name: 'Star Bar Restaurant' },
+    { id: 'd', code: 'BPL', name: 'Bamboo Products Limited' }
+  ]);
+  assert.deepEqual(found.map(function (f) { return f.code; }), ['BPL', 'SB', 'BG1']);
+  var byName = channels.trackedCompanies([{ id: 'e', code: 'STAR', name: 'Star Bar' }]);
+  assert.equal(byName[0].code, 'STAR');
+  assert.equal(channels.channelKey('SB', 'facebook'), 'sb-facebook');
+  assert.equal(channels.channelKey('BPL', 'facebook'), 'facebook');
+});

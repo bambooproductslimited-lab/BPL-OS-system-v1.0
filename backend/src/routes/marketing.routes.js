@@ -40,7 +40,7 @@ router.post('/website/sync', async function (req, res, next) {
   try { res.json(await googleAnalyticsService.sync(req.ctx, channelOf(req))); } catch (e) { next(e); }
 });
 
-// Every list and total is one company's: ?company=BPL|SBR|BGN (BPL when left
+// Every list and total is one company's: ?company=<company code> (BPL when left
 // out). See marketing.service.js.
 router.get('/companies', async function (req, res, next) {
   try { res.json(await marketingService.listCompanies(req.ctx)); } catch (e) { next(e); }

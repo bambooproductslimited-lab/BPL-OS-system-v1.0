@@ -24,7 +24,7 @@ import { codeLabel } from '../lib/codeLabels.js';
 // One tracker per company (backend marketingChannels.js): Bamboo Products,
 // Star Bar Restaurant and Bamboo Garden each have their own channels,
 // campaigns, posts, follower history and inbox. The switcher at the top
-// picks the company (?company=SBR, remembered on this device); every list
+// picks the company (?company=SB, remembered on this device); every list
 // and total below is that company's. A channel that can be connected to an
 // account (Facebook, Instagram, TikTok, YouTube) connects from its row on
 // the Channels tab, to that company's own account.

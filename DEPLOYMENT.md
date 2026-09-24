@@ -69,9 +69,10 @@ that they live on the same host.
      here. Then share the Finish Inventory sheets (or their folder) with the
      service account's email as Viewer. The OS can only read what is shared
      with it.
-   - `GA4_PROPERTY_ID_SBR` and `GA4_PROPERTY_ID_BGN` — optional. The social
-     & campaign tracker's Website channel for Star Bar Restaurant and
-     Bamboo Garden, each its own Google Analytics property (Bamboo Products'
+   - `GA4_PROPERTY_ID_<company code>` — optional, e.g. `GA4_PROPERTY_ID_SB`
+     for Star Bar Restaurant and `GA4_PROPERTY_ID_BG1` for Bamboo Garden
+     (their codes in Companies & departments). The social & campaign
+     tracker's Website channel for each, its own Google Analytics property (Bamboo Products'
      is `GA4_PROPERTY_ID`), read with the same GA4 service account — give it
      Viewer access on each property. Facebook/Instagram, TikTok and YouTube
      need nothing new here: each company connects its own account from the

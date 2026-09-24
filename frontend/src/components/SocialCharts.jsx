@@ -22,7 +22,12 @@ export const CHANNEL_COLORS = {
   website: '#4a3aa7'
 };
 const MUTED_COLOR = '#898781';
-export function channelColor(key) { return CHANNEL_COLORS[key] || MUTED_COLOR; }
+// Other companies' channels are keyed '<company code>-<platform>'
+// ('sb-facebook') and take their platform's color.
+export function channelColor(key) {
+  var k = String(key || '');
+  return CHANNEL_COLORS[k] || CHANNEL_COLORS[k.slice(k.indexOf('-') + 1)] || MUTED_COLOR;
+}
 
 // Relative luminance -> pick white or ink text so a value stays legible
 // set inside a solid-colored card, per the dataviz skill's one exception

@@ -258,9 +258,9 @@ module.exports = {
       privateKey: privateKey,
       configured: !!(propertyId && serviceAccountEmail && privateKey),
       // Each company's own website (social tracker, per company): Bamboo
-      // Products' is GA4_PROPERTY_ID; Star Bar's GA4_PROPERTY_ID_SBR,
-      // Bamboo Garden's GA4_PROPERTY_ID_BGN — read with the same service
-      // account, which needs Viewer access on each property.
+      // Products' is GA4_PROPERTY_ID; any other company's is
+      // GA4_PROPERTY_ID_<its company code> (GA4_PROPERTY_ID_SB …) — read
+      // with the same service account, which needs Viewer access on each.
       forCompanyCode: function (code) {
         var id = code === 'BPL' ? this.propertyId : (process.env['GA4_PROPERTY_ID_' + code] || '').trim();
         return { propertyId: id, configured: !!(id && this.serviceAccountEmail && this.privateKey) };
