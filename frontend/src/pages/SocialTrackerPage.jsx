@@ -8,6 +8,8 @@ import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import './SocialTrackerPage.css';
 import RowMenu from '../components/RowMenu';
+import PlatformIcon from '../components/PlatformIcon';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
 
 import { activeIntlLocale, msg, tr, trNodes } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -29,13 +31,12 @@ import { codeLabel } from '../lib/codeLabels.js';
 // account (Facebook, Instagram, TikTok, YouTube) connects from its row on
 // the Channels tab, to that company's own account.
 //
-// Redesigned around the icon language established elsewhere, scoped to
-// the highest-value, lowest-risk spots given this page's size (five
-// tabs, seven dialogs, six per-platform sync flows, a Facebook Page
-// picker): an author avatar per inbox item (a real commenter/DM sender,
-// a person), a status-toned document badge per campaign row, icon'd
-// empty states. Every dialog, sync button, and the page picker are
-// completely untouched.
+// Laid out to explain itself: a company header with where things stand,
+// tabs with counts, and an Overview that leads with plain totals, a short
+// "what stands out" list written from the numbers, and what each number
+// means. Channels, posts and campaigns are cards with each platform's icon;
+// every dialog, sync and connect flow and the Facebook Page picker work as
+// before.
 
 const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
 function initials(name) {
@@ -49,26 +50,134 @@ function hashStr(s) {
 }
 function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
 
-function DocIcon() {
+function Icon({ name }) {
+  const paths = {
+    overview: <path d="M4 19V5M4 19h16M8 15l3.5-4 3 2.5L19 8" />,
+    calendar: <><rect x="4" y="5.5" width="16" height="14.5" rx="2" /><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" /></>,
+    campaigns: <path d="M5 21V4.5M5 5h11.5l-2 3.5 2 3.5H5" />,
+    inbox: <><path d="M3.5 12.5V6.5A1.5 1.5 0 0 1 5 5h14a1.5 1.5 0 0 1 1.5 1.5v6" /><path d="M3.5 12.5h5l1.3 2.5h4.4l1.3-2.5h5V18a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18z" /></>,
+    channels: <path d="M9 7.5 6.5 10a3.5 3.5 0 0 0 5 5L14 12.5M15 16.5l2.5-2.5a3.5 3.5 0 0 0-5-5L10 11.5M9.5 14.5l5-5" />,
+    people: <><circle cx="9" cy="8.5" r="3" /><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8M15.5 5.8a3 3 0 0 1 0 5.4M17.5 14.6c1.6.7 2.6 2.2 3 4.4" /></>,
+    eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>,
+    heart: <path d="M12 19.5s-7.5-4.4-7.5-9.7A4.2 4.2 0 0 1 12 7.3a4.2 4.2 0 0 1 7.5 2.5c0 5.3-7.5 9.7-7.5 9.7z" />,
+    post: <><rect x="4.5" y="4" width="15" height="16" rx="2" /><path d="M8 9h8M8 12.5h8M8 16h5" /></>,
+    chat: <path d="M4.5 18.5 5.6 15A7 7 0 1 1 8.9 17.6z" />,
+    info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8v.1" /></>,
+    spark: <path d="M12 3.5 13.8 9l5.7 1.5-5.7 1.6L12 17.5l-1.8-5.4-5.7-1.6L10.2 9zM18.5 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z" />,
+    check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+    arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
+    up: <path d="M12 19V5M6 11l6-6 6 6" />,
+    down: <path d="M12 5v14M6 13l6 6 6-6" />,
+    warn: <><path d="M12 4 21 19.5H3z" /><path d="M12 10v4.5M12 17v.1" /></>,
+    sync: <path d="M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4" />
+  };
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <svg className="st-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[name]}
     </svg>
   );
 }
-function InboxIcon() {
+
+// A metric row's totals across channels: { value, delta, pct } (delta and
+// pct null when there is nothing to compare with).
+function sumMetric(metric) {
+  const rows = (metric && metric.byChannel) || [];
+  const value = rows.reduce((n, r) => n + Number(r.value || 0), 0);
+  const withDelta = rows.filter((r) => r.delta !== null && r.delta !== undefined);
+  const delta = withDelta.length ? withDelta.reduce((n, r) => n + Number(r.delta), 0) : null;
+  const prev = delta === null ? null : value - delta;
+  const pct = prev ? Math.round((delta / prev) * 100) : null;
+  return { value, delta, pct, channels: rows.length };
+}
+
+function daysBetween(a, b) {
+  return Math.round((new Date(b + 'T00:00').getTime() - new Date(a + 'T00:00').getTime()) / 86400000);
+}
+function todayIso() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Where a campaign is in its dates: { pct, label } or null without dates.
+function campaignTimeline(c) {
+  if (!c.startDate || !c.endDate) return null;
+  const today = todayIso();
+  const total = Math.max(1, daysBetween(c.startDate, c.endDate) + 1);
+  if (today < c.startDate) {
+    const n = daysBetween(today, c.startDate);
+    return { pct: 0, label: n === 1 ? tr('Starts tomorrow') : tr('Starts in {n} days', { n }) };
+  }
+  if (today > c.endDate) return { pct: 100, label: tr('Ended {date}', { date: fmtDate(c.endDate) }) };
+  const day = daysBetween(c.startDate, today) + 1;
+  return { pct: Math.round((day / total) * 100), label: tr('Day {day} of {total}', { day, total }) };
+}
+
+function monthKey(iso) { return iso ? iso.slice(0, 7) : ''; }
+function monthLabel(key) {
+  if (!key) return tr('No date yet');
+  return new Date(key + '-01T00:00').toLocaleDateString(activeIntlLocale(), { month: 'long', year: 'numeric' });
+}
+
+
+// A total's change against the same number of days just before.
+function Delta({ value, pct, days }) {
+  if (value === null || value === undefined) return <span className="st-delta is-flat">{tr('Nothing to compare yet')}</span>;
+  if (value === 0) return <span className="st-delta is-flat">{tr('Same as the {n} days before', { n: days })}</span>;
+  const up = value > 0;
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M3 12.5V6a1.5 1.5 0 0 1 1.5-1.5h15A1.5 1.5 0 0 1 21 6v6.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M3 12.5h5.2l1.3 2.5h4.9l1.3-2.5H21V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18v-5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-    </svg>
+    <span className={'st-delta ' + (up ? 'is-up' : 'is-down')}>
+      <Icon name={up ? 'up' : 'down'} />
+      <span>{(up ? '+' : '−') + num(Math.abs(value))}{pct !== null && pct !== undefined ? ' (' + (up ? '+' : '−') + Math.abs(pct) + '%)' : ''}</span>
+      <span className="st-delta-vs">{tr('vs the {n} days before', { n: days })}</span>
+    </span>
   );
 }
-function statusTone(status) {
-  if (status === 'published' || status === 'active' || status === 'completed' || status === 'replied') return 'people';
-  if (status === 'failed') return 'danger';
-  return 'warning';
+
+function EmptyState({ icon, title, body, action }) {
+  return (
+    <div className="st-empty">
+      <span className="st-empty-icon"><Icon name={icon} /></span>
+      <p className="st-empty-title">{title}</p>
+      {body && <p className="st-empty-body">{body}</p>}
+      {action && <button type="button" className="btn btn-primary" onClick={action.run}>{action.label}</button>}
+    </div>
+  );
+}
+
+// A campaign with where it is in its dates and, when known, its results.
+function CampaignCard({ c, totals, onEdit }) {
+  const tl = campaignTimeline(c);
+  return (
+    <article className="st-card st-campaign">
+      <div className="st-campaign-top">
+        <span className={'st-campaign-flag is-' + c.status}><Icon name="campaigns" /></span>
+        <div className="st-card-id">
+          <div className="st-card-name">{c.name}</div>
+          <div className="st-card-sub">{c.startDate || c.endDate ? fmtDate(c.startDate) + ' – ' + fmtDate(c.endDate) : tr('No dates set')}</div>
+        </div>
+        <span className={'st-status is-' + c.status}>{codeLabel(c.status)}</span>
+      </div>
+      {c.description && <p className="st-campaign-desc">{c.description}</p>}
+      {tl && (
+        <div className="st-timeline">
+          <div className="st-timeline-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={tl.pct} aria-label={tl.label}>
+            <span style={{ width: tl.pct + '%' }} />
+          </div>
+          <span className="st-timeline-label">{tl.label}</span>
+        </div>
+      )}
+      {totals && (
+        <dl className="st-mini-stats">
+          <div><dt>{tr('Posts')}</dt><dd>{num(totals.posts)}</dd></div>
+          <div><dt>{tr('Reach')}</dt><dd>{num(totals.reach)}</dd></div>
+          <div><dt>{tr('Likes')}</dt><dd>{num(totals.likes)}</dd></div>
+          <div><dt>{tr('Clicks')}</dt><dd>{num(totals.clicks)}</dd></div>
+          <div><dt>{tr('Leads')}</dt><dd>{num(totals.leads)}</dd></div>
+        </dl>
+      )}
+      {onEdit && <div className="st-card-foot"><button type="button" className="st-link" onClick={onEdit}>{tr('Edit')} <Icon name="arrow" /></button></div>}
+    </article>
+  );
 }
 
 const TABS = [
@@ -94,11 +203,6 @@ const INBOX_KINDS = [
   { value: 'comment', label: msg('Comment') },
   { value: 'message', label: msg('Message / DM') }
 ];
-const INBOX_STATUSES = [
-  { value: 'open', label: msg('Open') },
-  { value: 'replied', label: msg('Replied') },
-  { value: 'archived', label: msg('Archived') }
-];
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -106,11 +210,6 @@ function fmtDate(iso) {
 }
 function num(n) { return Number(n || 0).toLocaleString(); }
 
-function statusTagClass(status) {
-  if (status === 'published' || status === 'active' || status === 'completed' || status === 'replied') return 'tag-neutral';
-  if (status === 'failed') return 'tag-accent';
-  return 'tag-outline';
-}
 
 // The endpoint each connected platform syncs through (with the channel's
 // key, so each company's own account is read).
@@ -671,41 +770,172 @@ export default function SocialTrackerPage() {
     downloadCsv('social-tracker-' + company.toLowerCase() + '-' + new Date().toISOString().slice(0, 10) + '.csv', rowsToCsv(rows));
   }
 
+  // ── what the page says about itself ────────────────────────────────
+  const connectedCount = channels.filter((c) => c.connected).length;
+  const openInbox = dash ? dash.channels.reduce((n, c) => n + (c.openInboxCount || 0), 0) : 0;
+  const activeCampaigns = campaigns.filter((c) => c.status === 'active').length;
+  const rangeDays = daysBetween(dateRange.from, dateRange.to) + 1;
+  const kpi = metrics ? {
+    followers: sumMetric(metrics.metrics.followers),
+    reach: sumMetric(metrics.metrics.reach),
+    interactions: sumMetric(metrics.metrics.interactions),
+    posts: sumMetric(metrics.metrics.posts)
+  } : null;
+  const hasPosts = dash ? dash.channels.some((c) => c.totals.posts > 0) || posts.length > 0 : false;
+  const hasFollowers = dash ? dash.channels.some((c) => c.followers !== null) : false;
+  const setupSteps = [
+    { done: connectedCount > 0, title: tr('Connect a channel'), body: tr('Sign in to Facebook, Instagram, TikTok or YouTube once, and their numbers come in by themselves.'), action: () => setTab('channels'), actionLabel: tr('Go to Channels') },
+    { done: hasPosts, title: tr('Log or sync your posts'), body: tr('Every post with its likes, comments, reach and clicks — planned ones too, so the calendar shows what is coming.'), action: () => setTab('calendar'), actionLabel: tr('Open the calendar') },
+    { done: hasFollowers, title: tr('Record follower counts'), body: tr('A count now and then (or a daily sync) draws the growth line for each channel.'), action: () => setTab('channels'), actionLabel: tr('Log followers') }
+  ];
+  const setupLeft = setupSteps.filter((st) => !st.done).length;
+
+  // A few plain sentences about the chosen period, written from the numbers.
+  const insights = [];
+  if (dash && metrics) {
+    const reachRows = (metrics.metrics.reach.byChannel || []).slice().sort((a, b) => b.value - a.value);
+    if (reachRows[0] && reachRows[0].value > 0) {
+      insights.push({ tone: 'good', icon: 'eye', text: tr('{channel} reached the most people: {n} in this period.', { channel: reachRows[0].name, n: num(reachRows[0].value) }) });
+    }
+    const growth = (metrics.metrics.followers.byChannel || []).filter((r) => r.delta !== null && r.delta !== 0).sort((a, b) => b.delta - a.delta);
+    if (growth[0] && growth[0].delta > 0) {
+      insights.push({ tone: 'good', icon: 'up', text: tr('{channel} gained {n} followers — the fastest growth.', { channel: growth[0].name, n: num(growth[0].delta) }) });
+    }
+    const lost = growth.filter((r) => r.delta < 0);
+    if (lost.length) {
+      const worst = lost[lost.length - 1];
+      insights.push({ tone: 'warn', icon: 'down', text: tr('{channel} lost {n} followers. Worth a look at what was posted.', { channel: worst.name, n: num(-worst.delta) }) });
+    }
+    if (kpi && kpi.posts.value === 0) {
+      insights.push({ tone: 'warn', icon: 'post', text: tr('Nothing was published in this period.'), action: canManage ? { label: tr('Plan a post'), run: () => { setTab('calendar'); openNewPost(); } } : null });
+    } else if (kpi && kpi.interactions.value > 0 && kpi.posts.value > 0) {
+      insights.push({ tone: 'info', icon: 'heart', text: tr('Each post drew {n} likes, comments and shares on average.', { n: num(Math.round(kpi.interactions.value / kpi.posts.value)) }) });
+    }
+    if (openInbox > 0) {
+      insights.push({ tone: 'warn', icon: 'chat', text: openInbox === 1 ? tr('1 comment or message is waiting for a reply.') : tr('{n} comments and messages are waiting for a reply.', { n: openInbox }), action: { label: tr('Open the inbox'), run: () => { setInboxFilter({ channelId: '', status: 'open', kind: '' }); setTab('inbox'); } } });
+    }
+    if (connectedCount === 0 && channels.some((c) => c.connectable)) {
+      insights.push({ tone: 'info', icon: 'channels', text: tr('No channel is connected yet, so every number here was logged by hand.'), action: canManage ? { label: tr('Connect one'), run: () => setTab('channels') } : null });
+    }
+    const ending = dash.campaigns.filter((c) => c.status === 'active' && c.endDate && c.endDate >= todayIso() && daysBetween(todayIso(), c.endDate) <= 7);
+    if (ending[0]) {
+      insights.push({ tone: 'info', icon: 'campaigns', text: tr('Campaign "{name}" ends {date}.', { name: ending[0].name, date: fmtDate(ending[0].endDate) }) });
+    }
+  }
+
+  function selectTab(key) { setTab(key); }
+  function onTabKey(e) {
+    const i = TABS.findIndex((t) => t.key === tab);
+    let next = null;
+    if (e.key === 'ArrowRight') next = TABS[(i + 1) % TABS.length];
+    if (e.key === 'ArrowLeft') next = TABS[(i - 1 + TABS.length) % TABS.length];
+    if (e.key === 'Home') next = TABS[0];
+    if (e.key === 'End') next = TABS[TABS.length - 1];
+    if (!next) return;
+    e.preventDefault();
+    setTab(next.key);
+    const el = document.getElementById('st-tab-' + next.key);
+    if (el) el.focus();
+  }
+  function showChannel(c) {
+    setTab('channels');
+    setTimeout(() => {
+      const el = document.getElementById('st-ch-' + c.id);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.focus({ preventScroll: true }); }
+    }, 60);
+  }
+  const tabCount = {
+    calendar: posts.length || null,
+    campaigns: campaigns.length || null,
+    inbox: openInbox || null,
+    channels: channels.length ? connectedCount + '/' + channels.length : null
+  };
+
+  function channelStatus(c) {
+    if (c.connected) return { cls: 'is-live', label: tr('Syncs automatically') };
+    if (c.connectable || OAUTH_PLATFORMS.includes(c.platform)) return { cls: 'is-ready', label: tr('Ready to connect') };
+    return { cls: 'is-manual', label: tr('Logged by hand') };
+  }
+
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
+
+  const current = companies.find((c) => c.code === company);
+  const logo = restaurantLogoUrl(company);
 
   return (
     <div className="soctrack">
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
       {companies.length > 1 && (
-        <div className="soctrack-companies" role="tablist" aria-label={tr('Company')}>
-          {companies.map((co) => (
-            <button key={co.code} type="button" role="tab" aria-selected={co.code === company}
-              className={'soctrack-company' + (co.code === company ? ' is-current' : '')} onClick={() => switchCompany(co.code)}>
-              <span className="soctrack-company-mark" style={{ background: avatarColor(co.name) }} aria-hidden="true">{initials(co.name)}</span>
-              <span className="soctrack-company-name">{co.name}</span>
-            </button>
-          ))}
+        <div className="st-companies" role="radiogroup" aria-label={tr('Company')}>
+          {companies.map((co) => {
+            const coLogo = restaurantLogoUrl(co.code);
+            return (
+              <button key={co.code} type="button" role="radio" aria-checked={co.code === company}
+                className={'st-company' + (co.code === company ? ' is-current' : '')} onClick={() => switchCompany(co.code)}>
+                {coLogo
+                  ? <img className="st-company-logo" src={coLogo} alt="" />
+                  : <span className="st-company-mark" style={{ background: avatarColor(co.name) }} aria-hidden="true">{initials(co.name)}</span>}
+                <span className="st-company-text">
+                  <span className="st-company-name">{co.name}</span>
+                  <span className="st-company-sub">{tr('{n} channels', { n: co.channels })}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
-      <p className="soctrack-intro">
-        {tr('One tracker per company: each has its own channels, campaigns, posts and inbox. Numbers are logged here by hand, or synced automatically once a channel is connected to that company\'s own account on the Channels tab.')}
-      </p>
+      <header className="st-hero">
+        <div className="st-hero-id">
+          {logo
+            ? <img className="st-hero-logo" src={logo} alt="" />
+            : <span className="st-hero-mark" style={{ background: avatarColor(companyName || company) }} aria-hidden="true">{initials(companyName || company)}</span>}
+          <div>
+            <p className="st-eyebrow">{tr('Social & campaign tracker')}</p>
+            <h2 className="st-hero-title">{companyName || (current && current.name) || company}</h2>
+            <p className="st-hero-sub">{tr('How this company is doing on social media and its website: who follows it, who sees its posts, and who is waiting for an answer.')}</p>
+          </div>
+        </div>
+        <div className="st-hero-stats">
+          <button type="button" className="st-hero-stat" onClick={() => setTab('channels')}>
+            <strong>{connectedCount}<span>/{channels.length}</span></strong>
+            <span>{tr('channels syncing automatically')}</span>
+          </button>
+          <button type="button" className={'st-hero-stat' + (openInbox ? ' is-alert' : '')} onClick={() => { setInboxFilter({ channelId: '', status: 'open', kind: '' }); setTab('inbox'); }}>
+            <strong>{openInbox}</strong>
+            <span>{openInbox === 1 ? tr('message waiting for a reply') : tr('messages waiting for a reply')}</span>
+          </button>
+          <button type="button" className="st-hero-stat" onClick={() => setTab('campaigns')}>
+            <strong>{activeCampaigns}</strong>
+            <span>{activeCampaigns === 1 ? tr('campaign running') : tr('campaigns running')}</span>
+          </button>
+        </div>
+      </header>
 
-      <div className="soctrack-tabs">
+      <div className="st-tabs" role="tablist" aria-label={tr('Social & campaign tracker')} onKeyDown={onTabKey}>
         {TABS.map((t) => (
-          <button key={t.key} type="button" className={'soctrack-tab' + (tab === t.key ? ' soctrack-tab-active' : '')} onClick={() => setTab(t.key)}>
-            {tr(t.label)}
+          <button key={t.key} id={'st-tab-' + t.key} type="button" role="tab" aria-selected={tab === t.key} aria-controls="st-panel"
+            tabIndex={tab === t.key ? 0 : -1} className={'st-tab' + (tab === t.key ? ' is-active' : '')} onClick={() => selectTab(t.key)}>
+            <Icon name={t.key} />
+            <span>{tr(t.label)}</span>
+            {tabCount[t.key] !== null && tabCount[t.key] !== undefined && (
+              <span className={'st-tab-count' + (t.key === 'inbox' ? ' is-alert' : '')}>{tabCount[t.key]}</span>
+            )}
           </button>
         ))}
       </div>
 
+      <div id="st-panel" role="tabpanel" aria-labelledby={'st-tab-' + tab} className="st-panel">
+
       {tab === 'overview' && dash && (
-        <div className="soctrack-overview">
-          <div className="soctrack-overview-header">
-            <h2 className="soctrack-section-title" style={{ margin: 0 }}>{tr('Performance')}</h2>
-            <div className="soctrack-overview-actions">
+        <div className="st-overview">
+          <div className="st-toolbar">
+            <div>
+              <h3 className="st-h3">{tr('Performance')}</h3>
+              <p className="st-muted">{tr('Totals for the dates you pick, compared with the same number of days just before.')}</p>
+            </div>
+            <div className="st-toolbar-actions">
               <DateRangePicker value={dateRange} onChange={setDateRange} />
               <button type="button" className="btn btn-secondary" onClick={downloadOverviewCsv}>{tr('Download CSV')}</button>
               <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadOverviewPdf}>
@@ -713,326 +943,496 @@ export default function SocialTrackerPage() {
               </button>
             </div>
           </div>
-          <div ref={overviewRef}>
-          {metricsError && <div className="error-banner" style={{ marginBottom: 12 }}>{metricsError}</div>}
-          {metrics && (
-            <div className="soc-metrics-stack">
-              <MetricSection title={tr('Followers')} metric={metrics.metrics.followers} />
-              <MetricSection title={tr('Reach (by post publish date)')} metric={metrics.metrics.reach} />
-              <MetricSection title={tr('Interactions — likes, comments & shares (by post publish date)')} metric={metrics.metrics.interactions} />
-              <MetricSection title={tr('Number of posts (by publish date)')} metric={metrics.metrics.posts} />
-            </div>
-          )}
 
-          <h2 className="soctrack-section-title">{tr('Channels')}</h2>
-          <div className="soctrack-channel-grid">
-            {dash.channels.map((c) => (
-              <div key={c.id} className="soctrack-channel-card">
-                <div className="soctrack-channel-card-top">
-                  <div>
-                    <div className="soctrack-channel-name">{c.name}</div>
-                    <div className="soctrack-channel-handle">{c.handle || '—'}</div>
-                  </div>
-                  <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? tr('Connected') : tr('Not connected')}</span>
-                </div>
-                {c.openInboxCount > 0 && (
-                  <button type="button" className="soctrack-inbox-badge" onClick={() => { setInboxFilter({ channelId: c.id, status: 'open', kind: '' }); setTab('inbox'); }}>
-                    {tr('{openInboxCount} awaiting reply', { openInboxCount: c.openInboxCount })}
-                  </button>
-                )}
-                {c.followers !== null && (
-                  <div className="soctrack-followers">
-                    {tr('{n} followers', { n: num(c.followers) })}
-                    {c.followerChange !== null && (
-                      <span className={c.followerChange >= 0 ? 'soctrack-delta-up' : 'soctrack-delta-down'}>
-                        {' '}{c.followerChange >= 0 ? '+' : ''}{num(c.followerChange)}
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div className="soctrack-metric-row">
-                  <div><div className="soctrack-metric-value">{c.totals.posts}</div><div className="soctrack-metric-label">{tr('Posts')}</div></div>
-                  <div><div className="soctrack-metric-value">{num(c.totals.likes)}</div><div className="soctrack-metric-label">{tr('Likes')}</div></div>
-                  <div><div className="soctrack-metric-value">{num(c.totals.reach)}</div><div className="soctrack-metric-label">{tr('Reach')}</div></div>
-                  <div><div className="soctrack-metric-value">{num(c.totals.clicks)}</div><div className="soctrack-metric-label">{tr('Clicks')}</div></div>
-                  {c.totals.leads > 0 && <div><div className="soctrack-metric-value">{num(c.totals.leads)}</div><div className="soctrack-metric-label">{tr('Leads')}</div></div>}
+          {setupLeft > 0 && (
+            <section className="st-setup" aria-label={tr('Getting started')}>
+              <div className="st-setup-head">
+                <Icon name="spark" />
+                <div>
+                  <strong>{tr('Getting started')}</strong>
+                  <span className="st-muted"> · {tr('{done} of {total} done', { done: setupSteps.length - setupLeft, total: setupSteps.length })}</span>
                 </div>
               </div>
-            ))}
-          </div>
-
-          <h2 className="soctrack-section-title">{tr('Campaigns')}</h2>
-          <table className="table">
-            <thead><tr><th>{tr('Campaign')}</th><th>{tr('Status')}</th><th>{tr('Dates')}</th><th>{tr('Posts')}</th><th>{tr('Likes')}</th><th>{tr('Reach')}</th><th>{tr('Clicks')}</th><th>{tr('Leads')}</th></tr></thead>
-            <tbody>
-              {dash.campaigns.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <div className="soctrack-name-cell">
-                      <span className={'soctrack-badge soctrack-badge-' + statusTone(c.status)}><DocIcon /></span>
-                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+              <ol className="st-setup-steps">
+                {setupSteps.map((st, i) => (
+                  <li key={i} className={st.done ? 'is-done' : ''}>
+                    <span className="st-setup-n" aria-hidden="true">{st.done ? <Icon name="check" /> : i + 1}</span>
+                    <div>
+                      <strong>{st.title}</strong>{st.done && <span className="st-sr"> — {tr('done')}</span>}
+                      <p>{st.body}</p>
+                      {!st.done && canManage && <button type="button" className="st-link" onClick={st.action}>{st.actionLabel} <Icon name="arrow" /></button>}
                     </div>
-                  </td>
-                  <td><span className={'tag ' + statusTagClass(c.status)}>{codeLabel(c.status)}</span></td>
-                  <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
-                  <td>{c.totals.posts}</td><td>{num(c.totals.likes)}</td><td>{num(c.totals.reach)}</td><td>{num(c.totals.clicks)}</td><td>{num(c.totals.leads)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!dash.campaigns.length && (
-            <div className="soctrack-empty-state">
-              <span className="soctrack-empty-icon"><DocIcon /></span>
-              <p className="soctrack-empty-title">{tr('No campaigns yet')}</p>
-            </div>
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
 
-          <MarketingRecommendations key={company} company={company} onGenerated={setRecommendation} />
+          <div ref={overviewRef} className="st-overview-body">
+            {metricsError && <div className="error-banner">{metricsError}</div>}
+            {kpi && (
+              <div className="st-kpis">
+                {[
+                  { key: 'followers', icon: 'people', label: tr('Followers'), help: tr('People following these channels, from the latest count.'), m: kpi.followers },
+                  { key: 'reach', icon: 'eye', label: tr('Reach'), help: tr('How many times posts published in this period were seen.'), m: kpi.reach },
+                  { key: 'interactions', icon: 'heart', label: tr('Interactions'), help: tr('Likes, comments and shares on those posts.'), m: kpi.interactions },
+                  { key: 'posts', icon: 'post', label: tr('Posts published'), help: tr('Posts that went out in this period.'), m: kpi.posts }
+                ].map((k) => (
+                  <div key={k.key} className={'st-kpi st-kpi-' + k.key}>
+                    <div className="st-kpi-top">
+                      <span className="st-kpi-icon"><Icon name={k.icon} /></span>
+                      <span className="st-kpi-label">{k.label}</span>
+                    </div>
+                    <div className="st-kpi-value">{num(k.m.value)}</div>
+                    <Delta value={k.m.delta} pct={k.m.pct} days={rangeDays} />
+                    <p className="st-kpi-help">{k.help}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {insights.length > 0 && (
+              <section className="st-insights" aria-label={tr('What stands out')}>
+                <h3 className="st-h3"><Icon name="spark" /> {tr('What stands out')}</h3>
+                <ul>
+                  {insights.slice(0, 6).map((it, i) => (
+                    <li key={i} className={'st-insight is-' + it.tone}>
+                      <span className="st-insight-icon"><Icon name={it.icon} /></span>
+                      <span className="st-insight-text">{it.text}</span>
+                      {it.action && <button type="button" className="st-link" onClick={it.action.run}>{it.action.label} <Icon name="arrow" /></button>}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {metrics && (
+              <div className="soc-metrics-stack">
+                <MetricSection title={tr('Followers')} hint={tr('The follower count of each channel over time. A line going up means the audience is growing.')} metric={metrics.metrics.followers} />
+                <MetricSection title={tr('Reach')} hint={tr('How often posts were seen, by the day they were published: views on TikTok and YouTube, page views on the website.')} metric={metrics.metrics.reach} />
+                <MetricSection title={tr('Interactions')} hint={tr('Likes, comments and shares together, by the day the post was published. This shows what people actually responded to.')} metric={metrics.metrics.interactions} />
+                <MetricSection title={tr('Posts published')} hint={tr('How many posts went out each day. Steady posting usually brings steady growth.')} metric={metrics.metrics.posts} />
+              </div>
+            )}
+
+            <div className="st-section-head">
+              <h3 className="st-h3">{tr('Channels')}</h3>
+              <p className="st-muted">{tr('All-time totals of published posts on each channel.')}</p>
+            </div>
+            <div className="st-channel-grid">
+              {dash.channels.map((c) => {
+                const status = channelStatus(c);
+                return (
+                  <article key={c.id} className="st-card st-channel-card">
+                    <div className="st-card-top">
+                      <PlatformIcon platform={c.platform} size={40} />
+                      <div className="st-card-id">
+                        <div className="st-card-name">{c.name}</div>
+                        <div className="st-card-sub">{c.handle || tr('No handle added')}</div>
+                      </div>
+                      <span className={'st-status ' + status.cls}>{status.label}</span>
+                    </div>
+                    <div className="st-followers">
+                      {c.followers !== null ? (
+                        <>
+                          <span className="st-followers-n">{num(c.followers)}</span>
+                          <span className="st-followers-label">{c.platform === 'website' ? tr('active users') : tr('followers')}</span>
+                          {c.followerChange !== null && c.followerChange !== 0 && (
+                            <span className={'st-chip ' + (c.followerChange > 0 ? 'is-up' : 'is-down')}>{(c.followerChange > 0 ? '+' : '−') + num(Math.abs(c.followerChange))}</span>
+                          )}
+                          {c.followersAsOf && <span className="st-followers-asof">{tr('as of {date}', { date: fmtDate(c.followersAsOf) })}</span>}
+                        </>
+                      ) : <span className="st-muted">{tr('No follower count yet')}</span>}
+                    </div>
+                    <dl className="st-mini-stats">
+                      <div><dt>{tr('Posts')}</dt><dd>{num(c.totals.posts)}</dd></div>
+                      <div><dt>{tr('Likes')}</dt><dd>{num(c.totals.likes)}</dd></div>
+                      <div><dt>{tr('Reach')}</dt><dd>{num(c.totals.reach)}</dd></div>
+                      <div><dt>{tr('Clicks')}</dt><dd>{num(c.totals.clicks)}</dd></div>
+                      {c.totals.leads > 0 && <div><dt>{tr('Leads')}</dt><dd>{num(c.totals.leads)}</dd></div>}
+                    </dl>
+                    <div className="st-card-foot">
+                      {c.openInboxCount > 0 && (
+                        <button type="button" className="st-pill-alert" onClick={() => { setInboxFilter({ channelId: c.id, status: 'open', kind: '' }); setTab('inbox'); }}>
+                          <Icon name="chat" /> {tr('{openInboxCount} awaiting reply', { openInboxCount: c.openInboxCount })}
+                        </button>
+                      )}
+                      <button type="button" className="st-link" onClick={() => showChannel(c)}>{tr('Manage')} <Icon name="arrow" /></button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="st-section-head">
+              <h3 className="st-h3">{tr('Campaigns')}</h3>
+              <p className="st-muted">{tr('Results of the published posts tagged with each campaign.')}</p>
+            </div>
+            {dash.campaigns.length ? (
+              <div className="st-campaign-grid">
+                {dash.campaigns.map((c) => <CampaignCard key={c.id} c={c} totals={c.totals} />)}
+              </div>
+            ) : (
+              <EmptyState icon="campaigns" title={tr('No campaigns yet')} body={tr('A campaign groups posts with one goal, like a new menu or a promotion, so you can see how it did as a whole.')} />
+            )}
+
+            <MarketingRecommendations key={company} company={company} onGenerated={setRecommendation} />
           </div>
+
+          <details className="st-glossary">
+            <summary><Icon name="info" /> {tr('What do these numbers mean?')}</summary>
+            <dl>
+              <div><dt>{tr('Followers')}</dt><dd>{tr('People who follow the channel. It comes from the latest count, synced or logged by hand; on the website it is the active users of the last 30 days.')}</dd></div>
+              <div><dt>{tr('Reach')}</dt><dd>{tr('How many times posts were seen: views on TikTok and YouTube, page views on the website, reach on Facebook and Instagram.')}</dd></div>
+              <div><dt>{tr('Interactions')}</dt><dd>{tr('Likes, comments and shares added together: how much people engaged, not just scrolled past.')}</dd></div>
+              <div><dt>{tr('Clicks')}</dt><dd>{tr('Taps on a link in a post, for example to the website, menu or booking page.')}</dd></div>
+              <div><dt>{tr('Leads')}</dt><dd>{tr('Enquiries, orders or bookings that came from a post, logged on the post.')}</dd></div>
+              <div><dt>{tr('Syncs automatically')}</dt><dd>{tr('The channel is signed in to the company\'s own account; Sync now fetches the latest posts and follower count.')}</dd></div>
+              <div><dt>{tr('Logged by hand')}</dt><dd>{tr('No automatic connection: posts and follower counts are typed in on the Content calendar and Channels tabs.')}</dd></div>
+              <div><dt>{tr('The arrows')}</dt><dd>{tr('Each total is compared with the same number of days just before the dates you picked.')}</dd></div>
+            </dl>
+          </details>
         </div>
       )}
 
       {tab === 'calendar' && (
-        <div>
-          <div className="soctrack-filters">
-            <select className="input" value={calendarFilter.channelId} onChange={(e) => setCalendarFilter({ ...calendarFilter, channelId: e.target.value })}>
-              <option value="">{tr('All channels')}</option>
-              {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select className="input" value={calendarFilter.campaignId} onChange={(e) => setCalendarFilter({ ...calendarFilter, campaignId: e.target.value })}>
-              <option value="">{tr('All campaigns')}</option>
-              {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select className="input" value={calendarFilter.status} onChange={(e) => setCalendarFilter({ ...calendarFilter, status: e.target.value })}>
-              <option value="">{tr('All statuses')}</option>
-              {POST_STATUSES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
-            </select>
-            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewPost}>{tr('New post')}</button>}
+        <div className="st-stack">
+          <div className="st-toolbar">
+            <div>
+              <h3 className="st-h3">{tr('Content calendar')}</h3>
+              <p className="st-muted">{tr('Every post: planned, scheduled and published, newest first, with how each one did.')}</p>
+            </div>
+            {canManage && <button type="button" className="btn btn-primary" onClick={openNewPost}>{tr('New post')}</button>}
+          </div>
+          <div className="st-filters">
+            <label className="st-filter">
+              <span>{tr('Channel')}</span>
+              <select className="input" value={calendarFilter.channelId} onChange={(e) => setCalendarFilter({ ...calendarFilter, channelId: e.target.value })}>
+                <option value="">{tr('All channels')}</option>
+                {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label className="st-filter">
+              <span>{tr('Campaign')}</span>
+              <select className="input" value={calendarFilter.campaignId} onChange={(e) => setCalendarFilter({ ...calendarFilter, campaignId: e.target.value })}>
+                <option value="">{tr('All campaigns')}</option>
+                {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <div className="st-segment" role="group" aria-label={tr('Status')}>
+              {[{ value: '', label: msg('All') }, ...POST_STATUSES].map((st) => (
+                <button key={st.value || 'all'} type="button" aria-pressed={calendarFilter.status === st.value}
+                  className={calendarFilter.status === st.value ? 'is-on' : ''} onClick={() => setCalendarFilter({ ...calendarFilter, status: st.value })}>
+                  {tr(st.label)}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <table className="table">
-            <thead><tr><th>{tr('Date')}</th><th>{tr('Channel')}</th><th>{tr('Campaign')}</th><th>{tr('Title')}</th><th>{tr('Status')}</th><th>{tr('Likes')}</th><th>{tr('Comments')}</th><th>{tr('Shares')}</th><th>{tr('Reach')}</th><th>{tr('Clicks')}</th><th>{tr('Leads')}</th><th /></tr></thead>
-            <tbody>
-              {posts.map((p) => (
-                <tr key={p.id}>
-                  <td>{fmtDate(p.publishedAt || p.scheduledAt)}</td>
-                  <td>{p.channelName}</td>
-                  <td>{p.campaignName || '—'}</td>
-                  <td style={{ fontWeight: 600 }}>{p.title}</td>
-                  <td><span className={'tag ' + statusTagClass(p.status)}>{codeLabel(p.status)}</span></td>
-                  <td>{num(p.likes)}</td><td>{num(p.comments)}</td><td>{num(p.shares)}</td><td>{num(p.reach)}</td><td>{num(p.clicks)}</td><td>{num(p.leads)}</td>
-                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                    <RowMenu actions={[
-                      { label: tr('Edit'), onClick: () => openEditPost(p), hidden: !(canManage) },
-                      { label: tr('Delete'), onClick: () => removePost(p), danger: true, hidden: !(canManage) },
-                    ]} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!posts.length && (
-            <div className="soctrack-empty-state">
-              <span className="soctrack-empty-icon"><DocIcon /></span>
-              <p className="soctrack-empty-title">{tr('No posts logged yet')}</p>
-            </div>
+          {posts.length ? (
+            (() => {
+              const groups = [];
+              posts.forEach((p) => {
+                const k = monthKey(p.publishedAt || p.scheduledAt);
+                let g = groups.find((x) => x.key === k);
+                if (!g) { g = { key: k, items: [] }; groups.push(g); }
+                g.items.push(p);
+              });
+              return groups.map((g) => (
+                <section key={g.key || 'none'} className="st-month">
+                  <h4 className="st-month-title">{monthLabel(g.key)} <span className="st-muted">· {g.items.length === 1 ? tr('1 post') : tr('{n} posts', { n: g.items.length })}</span></h4>
+                  <ul className="st-post-list">
+                    {g.items.map((p) => {
+                      const when = p.publishedAt || p.scheduledAt;
+                      const ch = channels.find((c) => c.id === p.channelId);
+                      return (
+                        <li key={p.id} className="st-post">
+                          <div className="st-post-date" aria-hidden="true">
+                            {when ? (
+                              <>
+                                <span className="st-post-day">{new Date(when.length > 10 ? when : when + 'T00:00').getDate()}</span>
+                                <span className="st-post-mon">{new Date(when.length > 10 ? when : when + 'T00:00').toLocaleDateString(activeIntlLocale(), { month: 'short' })}</span>
+                              </>
+                            ) : <span className="st-post-mon">—</span>}
+                          </div>
+                          <PlatformIcon platform={ch ? ch.platform : 'website'} size={34} />
+                          <div className="st-post-main">
+                            <div className="st-post-title">{p.title}</div>
+                            <div className="st-post-meta">
+                              {p.channelName}{p.campaignName ? ' · ' + p.campaignName : ''}{when ? ' · ' + fmtDate(when) : ''}
+                            </div>
+                            {p.status === 'published' ? (
+                              <dl className="st-post-stats">
+                                <div><dt>{tr('Likes')}</dt><dd>{num(p.likes)}</dd></div>
+                                <div><dt>{tr('Comments')}</dt><dd>{num(p.comments)}</dd></div>
+                                <div><dt>{tr('Shares')}</dt><dd>{num(p.shares)}</dd></div>
+                                <div><dt>{tr('Reach')}</dt><dd>{num(p.reach)}</dd></div>
+                                <div><dt>{tr('Clicks')}</dt><dd>{num(p.clicks)}</dd></div>
+                                {p.leads > 0 && <div><dt>{tr('Leads')}</dt><dd>{num(p.leads)}</dd></div>}
+                              </dl>
+                            ) : (
+                              <p className="st-post-note">{p.status === 'failed' ? tr('Did not go out. Edit it to try again or mark it published.') : tr('Not published yet: numbers appear once it is.')}</p>
+                            )}
+                          </div>
+                          <span className={'st-status is-' + p.status}>{codeLabel(p.status)}</span>
+                          <div className="st-post-menu" onClick={(e) => e.stopPropagation()}>
+                            <RowMenu actions={[
+                              { label: tr('Edit'), onClick: () => openEditPost(p), hidden: !(canManage) },
+                              { label: tr('Delete'), onClick: () => removePost(p), danger: true, hidden: !(canManage) },
+                            ]} />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ));
+            })()
+          ) : (
+            <EmptyState icon="calendar" title={tr('No posts logged yet')}
+              body={calendarFilter.channelId || calendarFilter.campaignId || calendarFilter.status ? tr('Nothing matches these filters.') : tr('Add the posts you plan and publish, or connect a channel on the Channels tab to bring them in.')}
+              action={canManage ? { label: tr('New post'), run: openNewPost } : null} />
           )}
         </div>
       )}
 
       {tab === 'campaigns' && (
-        <div>
-          {canManage && (
-            <div className="soctrack-toolbar">
-              <button type="button" className="btn btn-primary" onClick={openNewCampaign}>{tr('New campaign')}</button>
+        <div className="st-stack">
+          <div className="st-toolbar">
+            <div>
+              <h3 className="st-h3">{tr('Campaigns')}</h3>
+              <p className="st-muted">{tr('Group posts under one goal and dates. Tag a post with its campaign when you log it.')}</p>
             </div>
-          )}
-          <table className="table">
-            <thead><tr><th>{tr('Campaign')}</th><th>{tr('Description')}</th><th>{tr('Dates')}</th><th>{tr('Status')}</th><th /></tr></thead>
-            <tbody>
-              {campaigns.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <div className="soctrack-name-cell">
-                      <span className={'soctrack-badge soctrack-badge-' + statusTone(c.status)}><DocIcon /></span>
-                      <span style={{ fontWeight: 600 }}>{c.name}</span>
-                    </div>
-                  </td>
-                  <td className="soctrack-desc-cell">{c.description || '—'}</td>
-                  <td>{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</td>
-                  <td><span className={'tag ' + statusTagClass(c.status)}>{codeLabel(c.status)}</span></td>
-                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                    <RowMenu actions={[
-                      { label: tr('Edit'), onClick: () => openEditCampaign(c), hidden: !(canManage) },
-                    ]} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!campaigns.length && (
-            <div className="soctrack-empty-state">
-              <span className="soctrack-empty-icon"><DocIcon /></span>
-              <p className="soctrack-empty-title">{tr('No campaigns yet')}</p>
+            {canManage && <button type="button" className="btn btn-primary" onClick={openNewCampaign}>{tr('New campaign')}</button>}
+          </div>
+          {campaigns.length ? (
+            <div className="st-campaign-grid">
+              {campaigns.map((c) => {
+                const withTotals = dash && dash.campaigns.find((x) => x.id === c.id);
+                return <CampaignCard key={c.id} c={c} totals={withTotals ? withTotals.totals : null} onEdit={canManage ? () => openEditCampaign(c) : null} />;
+              })}
             </div>
+          ) : (
+            <EmptyState icon="campaigns" title={tr('No campaigns yet')} body={tr('A campaign groups posts with one goal, like a new menu or a promotion, so you can see how it did as a whole.')}
+              action={canManage ? { label: tr('New campaign'), run: openNewCampaign } : null} />
           )}
         </div>
       )}
 
       {tab === 'inbox' && (
-        <div>
-          <p className="soctrack-inbox-note">
-            {tr('Comments and messages logged here are tracked in Bamboo OS — a reply you send below is recorded as the reply, but doesn\'t post back to Facebook/Instagram/TikTok/WhatsApp itself yet (that needs the channel\'s live API connected first). Until then, send your reply on the actual platform and record it here.')}
-          </p>
-          <div className="soctrack-filters">
-            <select className="input" value={inboxFilter.channelId} onChange={(e) => setInboxFilter({ ...inboxFilter, channelId: e.target.value })}>
-              <option value="">{tr('All channels')}</option>
-              {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select className="input" value={inboxFilter.kind} onChange={(e) => setInboxFilter({ ...inboxFilter, kind: e.target.value })}>
-              <option value="">{tr('Comments & messages')}</option>
-              {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{tr(k.label)}</option>)}
-            </select>
-            <select className="input" value={inboxFilter.status} onChange={(e) => setInboxFilter({ ...inboxFilter, status: e.target.value })}>
-              <option value="">{tr('All statuses')}</option>
-              {INBOX_STATUSES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
-            </select>
-            {canManage && <button type="button" className="btn btn-primary soctrack-new-btn" onClick={openNewInboxItem}>{tr('Log incoming')}</button>}
-          </div>
-
-          <div className="soctrack-inbox-list">
-            {inboxItems.map((item) => (
-              <div key={item.id} className="soctrack-inbox-item">
-                <div className="soctrack-inbox-item-top">
-                  <div className="soctrack-inbox-author-row">
-                    <span className="soctrack-inbox-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }}>{initials(item.authorName || tr('Unknown'))}</span>
-                    <div>
-                      {trNodes('{kind} on {channel}', {
-                        kind: <span className="soctrack-inbox-kind">{item.kind === 'comment' ? tr('Comment') : tr('Message')}</span>,
-                        channel: <strong>{item.channelName}</strong>
-                      })}
-                      {item.postTitle && <span> · {item.postTitle}</span>}
-                      <div className="soctrack-inbox-author">{item.authorName || tr('Unknown')} {item.authorHandle && <span className="soctrack-channel-handle">({item.authorHandle})</span>} · {fmtDate(item.receivedAt)}</div>
-                    </div>
-                  </div>
-                  <span className={'tag ' + statusTagClass(item.status)}>{codeLabel(item.status)}</span>
-                </div>
-                <p className="soctrack-inbox-body">{item.body}</p>
-
-                {item.status === 'replied' ? (
-                  <div className="soctrack-inbox-reply">
-                    <div className="soctrack-inbox-reply-label">{tr('Reply ·')} {item.repliedByName} · {fmtDate(item.repliedAt)}</div>
-                    <p className="soctrack-inbox-reply-body">{item.replyBody}</p>
-                    {canManage && <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => reopenInboxItem(item)}>{tr('Reopen')}</button>}
-                  </div>
-                ) : item.status === 'open' && canManage ? (
-                  <div className="soctrack-inbox-reply-form">
-                    <textarea className="input" placeholder={tr('Write a reply…')} value={replyDrafts[item.id] || ''} onChange={(e) => setReplyDrafts({ ...replyDrafts, [item.id]: e.target.value })} />
-                    <div className="soctrack-inbox-reply-actions">
-                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => sendReply(item)}>{tr('Reply')}</button>
-                      <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={busyInboxId === item.id} onClick={() => archiveInboxItem(item)}>{tr('Archive')}</button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-          {!inboxItems.length && (
-            <div className="soctrack-empty-state">
-              <span className="soctrack-empty-icon"><InboxIcon /></span>
-              <p className="soctrack-empty-title">{tr('Nothing logged yet')}</p>
+        <div className="st-stack">
+          <div className="st-toolbar">
+            <div>
+              <h3 className="st-h3">{tr('Inbox')}</h3>
+              <p className="st-muted">{tr('Comments and messages people sent, so nobody is left without an answer.')}</p>
             </div>
+            {canManage && <button type="button" className="btn btn-primary" onClick={openNewInboxItem}>{tr('Log incoming')}</button>}
+          </div>
+          <div className="st-callout">
+            <Icon name="info" />
+            <p>{tr('Comments and messages logged here are tracked in Bamboo OS — a reply you send below is recorded as the reply, but doesn\'t post back to Facebook/Instagram/TikTok/WhatsApp itself yet (that needs the channel\'s live API connected first). Until then, send your reply on the actual platform and record it here.')}</p>
+          </div>
+          <div className="st-filters">
+            <div className="st-segment" role="group" aria-label={tr('Status')}>
+              {[{ value: 'open', label: msg('Waiting') }, { value: 'replied', label: msg('Replied') }, { value: 'archived', label: msg('Archived') }, { value: '', label: msg('All') }].map((st) => (
+                <button key={st.value || 'all'} type="button" aria-pressed={inboxFilter.status === st.value}
+                  className={inboxFilter.status === st.value ? 'is-on' : ''} onClick={() => setInboxFilter({ ...inboxFilter, status: st.value })}>
+                  {tr(st.label)}{st.value === 'open' && openInbox > 0 ? ' (' + openInbox + ')' : ''}
+                </button>
+              ))}
+            </div>
+            <label className="st-filter">
+              <span>{tr('Channel')}</span>
+              <select className="input" value={inboxFilter.channelId} onChange={(e) => setInboxFilter({ ...inboxFilter, channelId: e.target.value })}>
+                <option value="">{tr('All channels')}</option>
+                {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label className="st-filter">
+              <span>{tr('Type')}</span>
+              <select className="input" value={inboxFilter.kind} onChange={(e) => setInboxFilter({ ...inboxFilter, kind: e.target.value })}>
+                <option value="">{tr('Comments & messages')}</option>
+                {INBOX_KINDS.map((k) => <option key={k.value} value={k.value}>{tr(k.label)}</option>)}
+              </select>
+            </label>
+          </div>
+
+          {inboxItems.length ? (
+            <ul className="st-inbox-list">
+              {inboxItems.map((item) => {
+                const ch = channels.find((c) => c.id === item.channelId);
+                return (
+                  <li key={item.id} className={'st-card st-inbox-item is-' + item.status}>
+                    <div className="st-inbox-top">
+                      <span className="st-avatar" style={{ background: avatarColor(item.authorName || 'Unknown') }} aria-hidden="true">{initials(item.authorName || tr('Unknown'))}</span>
+                      <div className="st-inbox-who">
+                        <div className="st-inbox-name">
+                          {item.authorName || tr('Unknown')} {item.authorHandle && <span className="st-muted">{item.authorHandle}</span>}
+                        </div>
+                        <div className="st-inbox-meta">
+                          {ch && <PlatformIcon platform={ch.platform} size={18} className="is-inline" />}
+                          {trNodes('{kind} on {channel}', {
+                            kind: <span>{item.kind === 'comment' ? tr('Comment') : tr('Message')}</span>,
+                            channel: <strong>{item.channelName}</strong>
+                          })}
+                          {item.postTitle && <span> · {item.postTitle}</span>}
+                          <span> · {fmtDate(item.receivedAt)}</span>
+                        </div>
+                      </div>
+                      <span className={'st-status is-' + item.status}>{item.status === 'open' ? tr('Waiting') : codeLabel(item.status)}</span>
+                    </div>
+                    <p className="st-inbox-body">{item.body}</p>
+
+                    {item.status === 'replied' ? (
+                      <div className="st-inbox-reply">
+                        <div className="st-inbox-reply-label">{tr('Reply ·')} {item.repliedByName} · {fmtDate(item.repliedAt)}</div>
+                        <p>{item.replyBody}</p>
+                        {canManage && <button type="button" className="btn btn-secondary st-btn-sm" disabled={busyInboxId === item.id} onClick={() => reopenInboxItem(item)}>{tr('Reopen')}</button>}
+                      </div>
+                    ) : item.status === 'open' && canManage ? (
+                      <div className="st-inbox-form">
+                        <label className="st-sr" htmlFor={'reply-' + item.id}>{tr('Write a reply…')}</label>
+                        <textarea id={'reply-' + item.id} className="input" placeholder={tr('Write a reply…')} value={replyDrafts[item.id] || ''} onChange={(e) => setReplyDrafts({ ...replyDrafts, [item.id]: e.target.value })} />
+                        <div className="st-inbox-actions">
+                          <button type="button" className="btn btn-primary st-btn-sm" disabled={busyInboxId === item.id} onClick={() => sendReply(item)}>{tr('Reply')}</button>
+                          <button type="button" className="btn btn-secondary st-btn-sm" disabled={busyInboxId === item.id} onClick={() => archiveInboxItem(item)}>{tr('Archive')}</button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <EmptyState icon="inbox" title={inboxFilter.status === 'open' ? tr('All caught up') : tr('Nothing logged yet')}
+              body={inboxFilter.status === 'open' ? tr('No comment or message is waiting for a reply.') : tr('Log a comment or message here when one comes in, then record your reply.')} />
           )}
         </div>
       )}
 
       {tab === 'channels' && (
-        <div className="soctrack-channels-list">
-          {channels.map((c) => {
-            const draft = channelDraft(c);
-            const statDraft = statDrafts[c.id] || { capturedOn: '', followers: '' };
-            const history = statHistory[c.id];
-            return (
-              <div key={c.id} className="soctrack-channel-row">
-                <div className="soctrack-channel-row-top">
-                  <div>
-                    <div className="soctrack-channel-name">{c.name}</div>
-                    <div className="soctrack-channel-handle">{codeLabel(c.kind)}</div>
-                  </div>
-                  <span className={'tag ' + (c.connected ? 'tag-neutral' : 'tag-outline')}>{c.connected ? tr('Connected') : tr('Not connected')}</span>
-                </div>
-
-                {canManage && (SYNC_PATH[c.platform] || OAUTH_PLATFORMS.includes(c.platform)) && (
-                  <div className="soctrack-connect-row">
-                    {c.connected && SYNC_PATH[c.platform] && (
-                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!syncingKey} onClick={() => syncChannel(c)}>
-                        {syncingKey === c.key ? tr('Syncing…') : tr('Sync now')}
-                      </button>
-                    )}
-                    {!c.connected && OAUTH_PLATFORMS.includes(c.platform) && (
-                      <button type="button" className="btn btn-primary soctrack-row-btn" disabled={!!syncingKey} onClick={() => connectChannel(c)}>
-                        {syncingKey === c.key ? tr('Opening…') : tr('Connect {name}', { name: c.name })}
-                      </button>
-                    )}
-                    {c.connected && OAUTH_PLATFORMS.includes(c.platform) && (
-                      <button type="button" className="btn btn-secondary soctrack-row-btn" disabled={!!syncingKey} onClick={() => disconnectChannel(c)}>{tr('Disconnect')}</button>
-                    )}
-                    {!c.connected && c.platform === 'website' && (
-                      <span className="soctrack-connect-hint">
-                        {tr('Connects to Google Analytics when {setting} is set on the server.', { setting: company === 'BPL' ? 'GA4_PROPERTY_ID' : 'GA4_PROPERTY_ID_' + company })}
-                      </span>
-                    )}
-                    {(c.platform === 'facebook' || c.platform === 'instagram') && !c.connected && (
-                      <span className="soctrack-connect-hint">{tr('Facebook and Instagram connect together: sign in, then pick this company\'s Page.')}</span>
-                    )}
-                  </div>
-                )}
-
-                {canManage ? (
-                  <div className="soctrack-channel-fields">
-                    <div className="field">
-                      <label>{tr('Handle / URL')}</label>
-                      <input className="input" value={draft.handle} onChange={(e) => setChannelDrafts({ ...channelDrafts, [c.id]: { ...draft, handle: e.target.value } })} />
+        <div className="st-stack">
+          <div className="st-toolbar">
+            <div>
+              <h3 className="st-h3">{tr('Channels')}</h3>
+              <p className="st-muted">{tr('Where {company} is online. Connect a channel to sync its numbers, or log them by hand.', { company: companyName || company })}</p>
+            </div>
+          </div>
+          <div className="st-legend" aria-label={tr('What the labels mean')}>
+            <span><span className="st-status is-live">{tr('Syncs automatically')}</span> {tr('numbers come in from the platform')}</span>
+            <span><span className="st-status is-ready">{tr('Ready to connect')}</span> {tr('can sync once someone signs in')}</span>
+            <span><span className="st-status is-manual">{tr('Logged by hand')}</span> {tr('no automatic connection')}</span>
+          </div>
+          <div className="st-channel-list">
+            {channels.map((c) => {
+              const draft = channelDraft(c);
+              const statDraft = statDrafts[c.id] || { capturedOn: '', followers: '' };
+              const history = statHistory[c.id];
+              const status = channelStatus(c);
+              const summary = dash && dash.channels.find((x) => x.id === c.id);
+              return (
+                <article key={c.id} id={'st-ch-' + c.id} tabIndex={-1} className="st-card st-channel-row">
+                  <div className="st-card-top">
+                    <PlatformIcon platform={c.platform} size={44} />
+                    <div className="st-card-id">
+                      <div className="st-card-name">{c.name}</div>
+                      <div className="st-card-sub">{c.handle || codeLabel(c.kind)}</div>
                     </div>
-                    <div className="field">
-                      <label>{tr('Notes')}</label>
-                      <input className="input" value={draft.notes} onChange={(e) => setChannelDrafts({ ...channelDrafts, [c.id]: { ...draft, notes: e.target.value } })} />
-                    </div>
-                    <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => saveChannel(c)}>{tr('Save')}</button>
+                    <span className={'st-status ' + status.cls}>{status.label}</span>
                   </div>
-                ) : (
-                  <div className="soctrack-channel-fields">
-                    <div>{c.handle || '—'}</div>
-                    {c.notes && <div className="soctrack-channel-handle">{c.notes}</div>}
-                  </div>
-                )}
 
-                <div className="soctrack-stat-log">
-                  <div className="soctrack-stat-log-title">{tr('Follower / traffic log')}</div>
-                  {canManage && (
-                    <div className="soctrack-stat-log-form">
-                      <input className="input" type="date" value={statDraft.capturedOn} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, capturedOn: e.target.value } })} />
-                      <input className="input" type="number" min="0" placeholder={tr('Follower count')} value={statDraft.followers} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, followers: e.target.value } })} />
-                      <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => logStat(c)}>{tr('Log')}</button>
+                  <p className="st-channel-explain">
+                    {c.connected
+                      ? tr('Numbers come from {name} itself. Press Sync now any time for the latest posts and follower count.', { name: c.name })
+                      : c.connectable
+                        ? (c.platform === 'website'
+                          ? tr('Connects to Google Analytics when {setting} is set on the server.', { setting: company === 'BPL' ? 'GA4_PROPERTY_ID' : 'GA4_PROPERTY_ID_' + company })
+                          : (c.platform === 'facebook' || c.platform === 'instagram')
+                            ? tr('Facebook and Instagram connect together: sign in, then pick this company\'s Page.')
+                            : tr('Sign in to {name} once and its numbers sync automatically. Until then, log them by hand below.', { name: c.name }))
+                        : tr('{name} has no automatic connection. Log its posts on the Content calendar and its follower count below.', { name: c.name })}
+                  </p>
+
+                  {summary && (
+                    <dl className="st-mini-stats">
+                      <div><dt>{c.platform === 'website' ? tr('Active users') : tr('Followers')}</dt><dd>{summary.followers !== null ? num(summary.followers) : '—'}</dd></div>
+                      <div><dt>{tr('Posts')}</dt><dd>{num(summary.totals.posts)}</dd></div>
+                      <div><dt>{tr('Reach')}</dt><dd>{num(summary.totals.reach)}</dd></div>
+                      <div><dt>{tr('Waiting')}</dt><dd>{num(summary.openInboxCount)}</dd></div>
+                    </dl>
+                  )}
+
+                  {canManage && (SYNC_PATH[c.platform] || OAUTH_PLATFORMS.includes(c.platform)) && (c.connected || OAUTH_PLATFORMS.includes(c.platform)) && (
+                    <div className="st-channel-actions">
+                      {c.connected && SYNC_PATH[c.platform] && (
+                        <button type="button" className="btn btn-primary st-btn-sm" disabled={!!syncingKey} onClick={() => syncChannel(c)}>
+                          <Icon name="sync" /> {syncingKey === c.key ? tr('Syncing…') : tr('Sync now')}
+                        </button>
+                      )}
+                      {!c.connected && OAUTH_PLATFORMS.includes(c.platform) && (
+                        <button type="button" className="btn btn-primary st-btn-sm" disabled={!!syncingKey} onClick={() => connectChannel(c)}>
+                          {syncingKey === c.key ? tr('Opening…') : tr('Connect {name}', { name: c.name })}
+                        </button>
+                      )}
+                      {c.connected && OAUTH_PLATFORMS.includes(c.platform) && (
+                        <button type="button" className="btn btn-secondary st-btn-sm" disabled={!!syncingKey} onClick={() => disconnectChannel(c)}>{tr('Disconnect')}</button>
+                      )}
                     </div>
                   )}
-                  {!history && <button type="button" className="btn btn-secondary soctrack-row-btn" onClick={() => loadStatHistory(c)}>{tr('Show history')}</button>}
-                  {history && (
-                    history.length ? (
-                      <table className="table soctrack-stat-table">
+
+                  <details className="st-disclosure">
+                    <summary>{tr('Handle and notes')}</summary>
+                    {canManage ? (
+                      <div className="st-channel-fields">
+                        <div className="field">
+                          <label htmlFor={'ch-handle-' + c.id}>{tr('Handle / URL')}</label>
+                          <input id={'ch-handle-' + c.id} className="input" value={draft.handle} onChange={(e) => setChannelDrafts({ ...channelDrafts, [c.id]: { ...draft, handle: e.target.value } })} />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={'ch-notes-' + c.id}>{tr('Notes')}</label>
+                          <input id={'ch-notes-' + c.id} className="input" value={draft.notes} onChange={(e) => setChannelDrafts({ ...channelDrafts, [c.id]: { ...draft, notes: e.target.value } })} />
+                        </div>
+                        <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => saveChannel(c)}>{tr('Save')}</button>
+                      </div>
+                    ) : (
+                      <div className="st-channel-readonly">
+                        <div>{c.handle || '—'}</div>
+                        {c.notes && <div className="st-muted">{c.notes}</div>}
+                      </div>
+                    )}
+                  </details>
+
+                  <details className="st-disclosure" onToggle={(e) => { if (e.currentTarget.open && !history) loadStatHistory(c); }}>
+                    <summary>{c.platform === 'website' ? tr('Visitor log') : tr('Follower log')}</summary>
+                    {canManage && (
+                      <div className="st-stat-form">
+                        <label className="st-filter">
+                          <span>{tr('Date')}</span>
+                          <input className="input" type="date" value={statDraft.capturedOn} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, capturedOn: e.target.value } })} />
+                        </label>
+                        <label className="st-filter">
+                          <span>{tr('Follower count')}</span>
+                          <input className="input" type="number" min="0" value={statDraft.followers} onChange={(e) => setStatDrafts({ ...statDrafts, [c.id]: { ...statDraft, followers: e.target.value } })} />
+                        </label>
+                        <button type="button" className="btn btn-secondary" disabled={busyChannelId === c.id} onClick={() => logStat(c)}>{tr('Log')}</button>
+                      </div>
+                    )}
+                    {!history ? <p className="st-muted">{tr('Loading…')}</p> : history.length ? (
+                      <table className="table st-stat-table">
                         <thead><tr><th>{tr('Date')}</th><th>{tr('Followers')}</th></tr></thead>
                         <tbody>
                           {history.slice().reverse().map((h) => <tr key={h.id}><td>{fmtDate(h.capturedOn)}</td><td>{num(h.followers)}</td></tr>)}
                         </tbody>
                       </table>
-                    ) : <p className="table-empty">{tr('No entries logged yet.')}</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                    ) : <p className="st-muted">{tr('No entries logged yet.')}</p>}
+                  </details>
+                </article>
+              );
+            })}
+          </div>
         </div>
       )}
+      </div>
 
       {postDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setPostDialogOpen(false)}>

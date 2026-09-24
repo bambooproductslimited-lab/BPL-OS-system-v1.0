@@ -196,13 +196,15 @@ function LineChart({ series }) {
 // MetricSection — one Metricool-style block: a row of solid per-channel
 // stat cards (value + trend arrow) and a trend chart underneath.
 // metric: { byChannel: [{channelKey,name,value,delta}], series: [{channelKey,name,points}] }
-export function MetricSection({ title, metric }) {
+// hint: one plain sentence under the title saying what the number is.
+export function MetricSection({ title, hint, metric }) {
   var byChannel = metric.byChannel || [];
   var series = (metric.series || []).map((s) => ({ key: s.channelKey, name: s.name, color: channelColor(s.channelKey), points: s.points }));
 
   return (
     <div className="soc-chart-card">
       <div className="soc-chart-title">{title}</div>
+      {hint && <p className="soc-chart-hint">{hint}</p>}
       {!byChannel.length ? (
         <p className="soc-chart-empty">{tr('No data for this period yet.')}</p>
       ) : (
