@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { tr } from '../lib/i18n.jsx';
 import SmsSettings from '../components/SmsSettings';
+import EmailSettings from '../components/EmailSettings';
 import './CompanySettingsPage.css';
 
 // Ported from Bamboo OS.dc.html's settings screen (screens.settings block).
@@ -211,6 +212,14 @@ export default function CompanySettingsPage() {
             {tr('Sign-in codes, payment reminders and booking notices by text, through the company\'s mNotify account.')}
           </p>
           <SmsSettings />
+
+          <div className="cs-header" style={{ marginTop: 32 }}>
+            <h2 className="cs-header-title">{tr('Email')}</h2>
+          </div>
+          <p className="field-hint" style={{ marginBottom: 12 }}>
+            {tr('Two-step sign-in codes by email, sent from one of the company\'s own mailboxes.')}
+          </p>
+          <EmailSettings />
         </>
       )}
 

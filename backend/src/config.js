@@ -195,6 +195,27 @@ module.exports = {
       get configured() { return !!(this.apiKey && this.senderId); }
     };
   }()),
+  // Outgoing email over SMTP (services/mail.service.js) — two-step sign-in
+  // codes by email. Any mailbox the company already has works: Hostinger
+  // email (smtp.hostinger.com, port 465), Google Workspace or Gmail with an
+  // app password (smtp.gmail.com, 465), and so on. MAIL_FROM is the address
+  // the codes come from; it defaults to SMTP_USER.
+  mail: (function () {
+    var host = (process.env.SMTP_HOST || '').trim();
+    var user = (process.env.SMTP_USER || '').trim();
+    var pass = process.env.SMTP_PASS || '';
+    var port = Number(process.env.SMTP_PORT || 465);
+    return {
+      host: host,
+      port: port,
+      // 465 is TLS from the first byte; 587 upgrades with STARTTLS.
+      secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : port === 465,
+      user: user,
+      pass: pass,
+      from: (process.env.MAIL_FROM || '').trim() || (user ? 'Bamboo OS <' + user + '>' : ''),
+      get configured() { return !!(this.host && this.user && this.pass); }
+    };
+  }()),
   // Website analytics (GA4 Data API) — a service account granted Viewer
   // access on the GA4 property, authenticated server-to-server via a
   // signed JWT (see services/googleAnalytics.service.js), not a per-user

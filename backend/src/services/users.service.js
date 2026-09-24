@@ -10,7 +10,7 @@ var { audit } = require('../utils/audit');
 async function list(ctx) {
   if (!ctx.can('user.manage')) fail('forbidden', 'Your role does not allow this action (user.manage).');
   var res = await pool.query(
-    'SELECT u.id, u.email, u.status, u.last_login_at, u.totp_enabled_at, u.sms_two_step_at, e.first_name, e.last_name, ' +
+    'SELECT u.id, u.email, u.status, u.last_login_at, u.totp_enabled_at, u.sms_two_step_at, u.email_two_step_at, e.first_name, e.last_name, ' +
     "array_agg(r.name) FILTER (WHERE r.name IS NOT NULL) AS role_names, array_agg(r.id) FILTER (WHERE r.id IS NOT NULL) AS role_ids " +
     'FROM users u JOIN employees e ON e.id = u.employee_id ' +
     'LEFT JOIN user_roles ur ON ur.user_id = u.id LEFT JOIN roles r ON r.id = ur.role_id ' +
@@ -18,7 +18,7 @@ async function list(ctx) {
   );
   return res.rows.map(function (u) {
     return {
-      id: u.id, email: u.email, status: u.status, lastLoginAt: u.last_login_at, twoStepOn: !!(u.totp_enabled_at || u.sms_two_step_at),
+      id: u.id, email: u.email, status: u.status, lastLoginAt: u.last_login_at, twoStepOn: !!(u.totp_enabled_at || u.sms_two_step_at || u.email_two_step_at),
       name: u.first_name + ' ' + u.last_name, roleNames: u.role_names || [], roleIds: u.role_ids || []
     };
   });

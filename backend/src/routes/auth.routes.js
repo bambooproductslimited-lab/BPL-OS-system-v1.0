@@ -23,8 +23,8 @@ router.post('/login', loginLimiter, async function (req, res, next) {
     var result = await authService.login(req.body.email, req.body.password, { deviceToken: req.body.deviceToken });
     if (result.twoStepRequired) {
       return res.json({
-        twoStepRequired: true, challenge: result.challenge, methods: result.methods, smsTo: result.smsTo,
-        codeSent: !!result.codeSent, codeError: result.codeError || null
+        twoStepRequired: true, challenge: result.challenge, methods: result.methods, smsTo: result.smsTo, emailTo: result.emailTo,
+        codeSent: !!result.codeSent, codeSentVia: result.codeSentVia || null, codeError: result.codeError || null
       });
     }
     res.json({ token: result.token, session: serializeCtx(result.ctx) });
@@ -47,10 +47,14 @@ router.post('/login/verify', verifyLimiter, async function (req, res, next) {
   } catch (e) { next(e); }
 });
 
-// "Text me a code" during the second step. Limited per IP here, and per
-// account (one a minute, five per half hour) in twoStep.service.js.
+// "Text me a code" / "Email me a code" during the second step
+// ({ channel: 'sms' | 'email' }). Limited per IP here, and per account (one
+// a minute, five per half hour) in twoStep.service.js.
 router.post('/login/send-code', verifyLimiter, async function (req, res, next) {
-  try { res.json(await twoStep.sendLoginCode(req.body.challenge)); } catch (e) { next(e); }
+  try {
+    var channel = req.body.channel === 'email' || req.body.channel === 'sms' ? req.body.channel : null;
+    res.json(await twoStep.sendLoginCode(req.body.challenge, channel));
+  } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['auth.logout'] -> POST /api/auth/logout

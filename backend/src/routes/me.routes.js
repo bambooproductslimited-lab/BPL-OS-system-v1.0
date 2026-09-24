@@ -68,6 +68,12 @@ router.post('/two-step/sms/setup', requireAuth, async function (req, res, next) 
 router.post('/two-step/sms/enable', requireAuth, async function (req, res, next) {
   try { res.json(await twoStep.enableSms(req.ctx, req.body.code)); } catch (e) { next(e); }
 });
+router.post('/two-step/email/setup', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.startEmailSetup(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/two-step/email/enable', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.enableEmail(req.ctx, req.body.code)); } catch (e) { next(e); }
+});
 router.post('/two-step/disable', requireAuth, async function (req, res, next) {
   try { res.json(await twoStep.disable(req.ctx, req.body.password, req.body.method)); } catch (e) { next(e); }
 });

@@ -87,6 +87,20 @@ services:
         sync: false
       - key: MNOTIFY_SENDER_ID
         sync: false
+      # Optional — outgoing email for two-step sign-in codes, through a
+      # mailbox the company already has. Hostinger email: smtp.hostinger.com
+      # port 465; Google Workspace/Gmail: smtp.gmail.com 465 with an app
+      # password. MAIL_FROM is optional (defaults to SMTP_USER).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
       # Optional — leave unset and Documents uploads are refused with a
       # clear error (everything else still works). Create a free R2 bucket
       # + API token at https://dash.cloudflare.com/ (R2 > Manage API tokens)

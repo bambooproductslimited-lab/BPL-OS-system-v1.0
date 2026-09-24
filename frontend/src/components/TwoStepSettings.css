@@ -1,4 +1,4 @@
-.twostep { font-size: 13px; max-width: 640px; display: flex; flex-direction: column; gap: 10px; }
+.twostep { font-size: 13px; max-width: 920px; display: flex; flex-direction: column; gap: 10px; }
 .twostep p { margin: 0; }
 .twostep-muted { color: var(--color-text-muted); }
 .twostep-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
@@ -13,7 +13,7 @@
 .twostep-codes { border: var(--divider-width) solid var(--color-warning); background: var(--color-warning-100); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .twostep-code-list { margin: 0; padding-left: 22px; columns: 2; column-gap: 24px; font-size: 14px; }
 .twostep-code-list code { letter-spacing: 0.05em; }
-.twostep-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.twostep-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .twostep-method { border: var(--divider-width) solid var(--color-divider); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .twostep-method-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .twostep-setup { display: flex; flex-direction: column; gap: 8px; }

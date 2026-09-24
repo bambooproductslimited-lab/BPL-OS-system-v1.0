@@ -46,15 +46,15 @@ function codeIn(message) { return (/(\d{6})/.exec(message) || [])[1]; }
 async function reset() {
   await pool.query(
     'UPDATE users SET totp_secret_enc = NULL, totp_pending_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL, ' +
-    'two_step_phone = NULL, sms_two_step_at = NULL, failed_login_attempts = 0, locked_until = NULL WHERE email = $1', [EMAIL]);
+    'two_step_phone = NULL, sms_two_step_at = NULL, email_two_step_at = NULL, failed_login_attempts = 0, locked_until = NULL WHERE email = $1', [EMAIL]);
   await pool.query('DELETE FROM user_backup_codes WHERE user_id = (SELECT id FROM users WHERE email = $1)', [EMAIL]);
-  await pool.query('DELETE FROM two_step_sms_codes WHERE user_id = (SELECT id FROM users WHERE email = $1)', [EMAIL]);
+  await pool.query('DELETE FROM two_step_codes WHERE user_id = (SELECT id FROM users WHERE email = $1)', [EMAIL]);
   await pool.query("DELETE FROM sms_messages WHERE purpose IN ('test', 'two_step')");
 }
 // The per-account limits count texts in the last half hour; tests that send
 // several age the earlier ones instead of waiting.
 async function ageCodes() {
-  await pool.query("UPDATE two_step_sms_codes SET created_at = created_at - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE email = $1)", [EMAIL]);
+  await pool.query("UPDATE two_step_codes SET created_at = created_at - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE email = $1)", [EMAIL]);
 }
 
 test.before(async function () {

@@ -105,6 +105,8 @@ var ALLOWED = {
   'POST /api/me/two-step/enable': "turns on the caller's own two-step sign-in; needs a code from their app",
   'POST /api/me/two-step/sms/setup': "texts a code to confirm a phone for the caller's own two-step sign-in; rate limited per account",
   'POST /api/me/two-step/sms/enable': "turns on codes by text for the caller's own account; needs the texted code",
+  'POST /api/me/two-step/email/setup': "emails a code to the caller's own sign-in address to confirm codes by email; rate limited per account",
+  'POST /api/me/two-step/email/enable': "turns on codes by email for the caller's own account; needs the emailed code",
   'POST /api/me/two-step/disable': "turns off the caller's own two-step sign-in; needs their password",
   'POST /api/me/two-step/backup-codes': "new backup codes for the caller's own account; needs their password",
   'POST /api/me/locale': "sets the caller's own interface language; writes nothing but their own users.locale",

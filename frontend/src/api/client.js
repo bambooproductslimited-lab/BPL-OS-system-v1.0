@@ -92,9 +92,10 @@ export function login(email, password, deviceToken) {
   return request('POST', '/auth/login', { email: email, password: password, deviceToken: deviceToken || undefined });
 }
 
-// "Text me a code" during the two-step sign-in -> { sentTo: '•••• 3456' }
-export function sendLoginCode(challenge) {
-  return request('POST', '/auth/login/send-code', { challenge: challenge });
+// "Text me a code" / "Email me a code" during the two-step sign-in
+// (channel 'sms' | 'email') -> { sentTo: '•••• 3456', channel }
+export function sendLoginCode(challenge, channel) {
+  return request('POST', '/auth/login/send-code', { challenge: challenge, channel: channel });
 }
 
 export function verifyLogin(challenge, code, rememberDevice) {

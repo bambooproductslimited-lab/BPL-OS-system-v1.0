@@ -57,6 +57,12 @@ that they live on the same host.
      the mNotify dashboard under API; the sender ID (up to 11 characters)
      must be approved by mNotify before texts from it go through. Company
      settings → Text messages shows the credit balance and sends a test.
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` (and optionally
+     `MAIL_FROM`) — optional. Outgoing email for two-step sign-in codes,
+     through one of the company's own mailboxes: Hostinger email is
+     `smtp.hostinger.com` port `465`; Google Workspace or Gmail is
+     `smtp.gmail.com` port `465` with an app password. `SMTP_USER` is the
+     full address. Company settings → Email sends a test.
 3. Click **Apply**. Render provisions the database, then builds and starts
    the backend (`npm install && npm run migrate && npm run bootstrap`,
    then `npm start`). First deploy takes a few minutes.

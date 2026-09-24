@@ -7,12 +7,14 @@ import './TwoStepSettings.css';
 
 // Two-step sign-in, in My space (backend twoStep.service.js). Optional: once
 // on, signing in needs the password and a six-digit code, which comes one of
-// two ways — the person picks either or both:
+// three ways — the person picks any of them:
 //   - an authenticator app (any: Google or Microsoft Authenticator, Authy,
 //     2FAS, Aegis, Bitwarden, 1Password …): scan a QR code, type the code it
 //     shows to prove it worked;
 //   - a text message to their phone (mNotify, on the company's SMS credit):
-//     type the number, then the code texted to it.
+//     type the number, then the code texted to it;
+//   - an email to the address they sign in with (the company's mailbox):
+//     type back the code emailed to it.
 // The first way turned on shows backup codes once, for a lost phone.
 
 function groupKey(secret) { return String(secret || '').replace(/(.{4})/g, '$1 ').trim(); }
@@ -25,6 +27,7 @@ export default function TwoStepSettings() {
   const [setup, setSetup] = useState(null); // app: { secret, otpauthUri, qr }
   const [smsSetup, setSmsSetup] = useState(null); // text: { phone, sentTo }
   const [phone, setPhone] = useState('');
+  const [emailSetup, setEmailSetup] = useState(null); // email: { sentTo }
   const [code, setCode] = useState('');
   const [backupCodes, setBackupCodes] = useState(null);
   const [asking, setAsking] = useState(null); // { action: 'disable', method } | { action: 'codes' } — waiting for the password
@@ -90,6 +93,25 @@ export default function TwoStepSettings() {
     });
   };
 
+  const startEmail = () => run(async () => {
+    setSetup(null);
+    setSmsSetup(null);
+    const r = await api.post('/me/two-step/email/setup', {});
+    setEmailSetup({ sentTo: r.sentTo });
+    setCode('');
+  });
+
+  const confirmEmail = (e) => {
+    e.preventDefault();
+    run(async () => {
+      const r = await api.post('/me/two-step/email/enable', { code });
+      if (r.backupCodes) setBackupCodes(r.backupCodes);
+      else setNotice(tr('Codes by email turned on. Your backup codes still work.'));
+      setEmailSetup(null);
+      await load();
+    });
+  };
+
   const withPassword = (e) => {
     e.preventDefault();
     run(async () => {
@@ -133,6 +155,7 @@ export default function TwoStepSettings() {
         {asking.action === 'codes' ? tr('Enter your password to make new backup codes (the old ones stop working):')
           : asking.method === 'app' ? tr('Enter your password to remove the authenticator app:')
             : asking.method === 'sms' ? tr('Enter your password to stop codes by text:')
+              : asking.method === 'email' ? tr('Enter your password to stop codes by email:')
               : tr('Enter your password to turn two-step sign-in off:')}
       </label>
       <input id="twostep-pw" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
@@ -172,7 +195,7 @@ export default function TwoStepSettings() {
       <p className={status.enabled ? undefined : 'twostep-muted'}>
         {status.enabled
           ? <><span className="tag tag-neutral twostep-on">{tr('On')}</span>{' '}{tr('Since {date}. Signing in needs your password and a 6-digit code. Backup codes left: {n}.', { date: formatDate(status.enabledAt), n: status.backupCodesLeft })}</>
-          : tr('Off. Turn it on and signing in will also need a 6-digit code — from an app on your phone, or a text message — so someone who learns your password still can\'t get in. Choose one way or both:')}
+          : tr('Off. Turn it on and signing in will also need a 6-digit code — from an app on your phone, a text message or an email — so someone who learns your password still can\'t get in. Choose one way or more:')}
       </p>
 
       <div className="twostep-methods">
@@ -209,7 +232,7 @@ export default function TwoStepSettings() {
             <div className="twostep-actions">
               {status.app.on
                 ? <button type="button" className="btn btn-secondary" onClick={() => setAsking({ action: 'disable', method: 'app' })}>{tr('Remove')}</button>
-                : <button type="button" className="btn btn-primary" disabled={busy || !!smsSetup} onClick={startApp}>{tr('Set up the app')}</button>}
+                : <button type="button" className="btn btn-primary" disabled={busy || !!smsSetup || !!emailSetup} onClick={startApp}>{tr('Set up the app')}</button>}
             </div>
           )}
         </section>
@@ -254,7 +277,40 @@ export default function TwoStepSettings() {
             <div className="twostep-actions">
               {status.sms.on
                 ? <button type="button" className="btn btn-secondary" onClick={() => setAsking({ action: 'disable', method: 'sms' })}>{tr('Remove')}</button>
-                : <button type="button" className="btn btn-primary" disabled={busy || !!setup} onClick={startSms}>{tr('Set up text messages')}</button>}
+                : <button type="button" className="btn btn-primary" disabled={busy || !!setup || !!emailSetup} onClick={startSms}>{tr('Set up text messages')}</button>}
+            </div>
+          )}
+        </section>
+
+        {/* ---- email ---- */}
+        <section className="twostep-method">
+          <div className="twostep-method-head">
+            <strong>{tr('Email')}</strong>
+            {status.email.on && <span className="tag tag-neutral">{tr('On')}</span>}
+          </div>
+          <p className="twostep-muted">
+            {status.email.on
+              ? tr('Codes are emailed to {email} when you sign in.', { email: status.email.address })
+              : tr('A code is emailed to {email} each time you sign in. Free; only as safe as that mailbox, so keep its password to yourself.', { email: status.email.address })}
+          </p>
+          {!status.email.on && !status.emailAvailable ? (
+            <p className="twostep-muted"><em>{tr('Not available yet — email isn\'t set up on the server. Ask an administrator (Company settings → Email).')}</em></p>
+          ) : emailSetup ? (
+            <form className="twostep-setup" onSubmit={confirmEmail}>
+              <label htmlFor="twostep-email-code">{tr('Type the 6-digit code we emailed to {email}:', { email: emailSetup.sentTo })}</label>
+              <input id="twostep-email-code" className="input twostep-code-input" inputMode="numeric" autoComplete="one-time-code"
+                value={code} onChange={(e) => setCode(e.target.value)} required autoFocus />
+              <div className="twostep-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setEmailSetup(null)}>{tr('Cancel')}</button>
+                <button type="button" className="btn btn-secondary" disabled={busy} onClick={startEmail}>{tr('Send a new code')}</button>
+                <button type="submit" className="btn btn-primary" disabled={busy}>{tr('Turn on')}</button>
+              </div>
+            </form>
+          ) : asking && asking.method === 'email' ? passwordPrompt : (
+            <div className="twostep-actions">
+              {status.email.on
+                ? <button type="button" className="btn btn-secondary" onClick={() => setAsking({ action: 'disable', method: 'email' })}>{tr('Remove')}</button>
+                : <button type="button" className="btn btn-primary" disabled={busy || !!setup || !!smsSetup} onClick={startEmail}>{tr('Email me a code')}</button>}
             </div>
           )}
         </section>

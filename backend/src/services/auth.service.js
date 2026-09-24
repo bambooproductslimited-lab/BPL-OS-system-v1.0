@@ -27,7 +27,7 @@ function verifyToken(token) {
 async function login(email, password, opts) {
   email = String(email || '').trim().toLowerCase();
   var res = await pool.query(
-    'SELECT u.id, u.email, u.password_hash, u.status, u.failed_login_attempts, u.locked_until, u.totp_enabled_at, u.mfa_valid_after, u.sms_two_step_at, u.two_step_phone, ' +
+    'SELECT u.id, u.email, u.password_hash, u.status, u.failed_login_attempts, u.locked_until, u.totp_enabled_at, u.mfa_valid_after, u.sms_two_step_at, u.two_step_phone, u.email_two_step_at, ' +
     'e.first_name, e.last_name ' +
     'FROM users u JOIN employees e ON e.id = u.employee_id WHERE u.email = $1',
     [email]
@@ -55,11 +55,16 @@ async function login(email, password, opts) {
   // a known password doesn't reset the lockout on guessing codes.
   if (twoStep.required(user) && !twoStep.trustsDevice(user, opts && opts.deviceToken)) {
     var out = Object.assign({ twoStepRequired: true, challenge: twoStep.challengeFor(user.id) }, twoStep.loginOptions(user));
-    // Someone whose only way is a text gets the code straight away. If it
-    // can't be sent (no credit, provider down) they're told, and can still
-    // use a backup code.
-    if (out.methods.length === 1 && out.methods[0] === 'sms') {
-      try { await twoStep.sendLoginCode(out.challenge); out.codeSent = true; } catch (e) { out.codeError = e.message; }
+    // Someone without the authenticator app gets a code straight away —
+    // by email if that's on (it's free), otherwise by text. If it can't be
+    // sent (no credit, mail server down) they're told, and can still ask
+    // for it the other way or use a backup code.
+    if (out.methods.indexOf('app') < 0) {
+      try {
+        var sent = await twoStep.sendLoginCode(out.challenge);
+        out.codeSent = true;
+        out.codeSentVia = sent.channel;
+      } catch (e) { out.codeError = e.message; }
     }
     return out;
   }

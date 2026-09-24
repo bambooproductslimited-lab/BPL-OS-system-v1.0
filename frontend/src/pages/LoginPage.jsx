@@ -63,13 +63,15 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
-  // Two-step sign-in: after a right password, the code from the app or a
-  // text message. methods says which this person has; smsTo is where a
-  // texted code goes ("•••• 3456").
+  // Two-step sign-in: after a right password, the code from the app, a text
+  // or an email. methods says which this person has; smsTo / emailTo are
+  // where a sent code goes ("•••• 3456", "ly•••@bplghana.com"); lastSent is
+  // the way the latest code went.
   const [challenge, setChallenge] = useState(null);
   const [methods, setMethods] = useState([]);
   const [smsTo, setSmsTo] = useState(null);
-  const [texted, setTexted] = useState(false);
+  const [emailTo, setEmailTo] = useState(null);
+  const [lastSent, setLastSent] = useState(null);
   const [notice, setNotice] = useState(null);
   const [sendingCode, setSendingCode] = useState(false);
   const [code, setCode] = useState('');
@@ -77,15 +79,16 @@ export default function LoginPage() {
 
   const hasApp = methods.includes('app');
   const hasSms = methods.includes('sms');
+  const hasEmail = methods.includes('email');
 
-  async function textMeACode() {
-    setSendingCode(true);
+  async function sendMeACode(channel) {
+    setSendingCode(channel);
     setError(null);
     setNotice(null);
     try {
-      const r = await sendLoginCode(challenge);
-      setTexted(true);
-      setNotice(tr('Code sent to {phone}.', { phone: r.sentTo }));
+      const r = await sendLoginCode(challenge, channel);
+      setLastSent(r.channel);
+      setNotice(r.channel === 'email' ? tr('Code sent to {email}.', { email: r.sentTo }) : tr('Code sent to {phone}.', { phone: r.sentTo }));
     } catch (err) {
       if (/too long|Sign in again/i.test(err.message || '')) setChallenge(null);
       setError(err.message);
@@ -111,8 +114,11 @@ export default function LoginPage() {
         setChallenge(result.challenge);
         setMethods(result.methods || ['app']);
         setSmsTo(result.smsTo || null);
-        setTexted(!!result.codeSent);
-        setNotice(result.codeSent ? tr('Code sent to {phone}.', { phone: result.smsTo }) : null);
+        setEmailTo(result.emailTo || null);
+        setLastSent(result.codeSent ? result.codeSentVia : null);
+        setNotice(!result.codeSent ? null
+          : result.codeSentVia === 'email' ? tr('Code sent to {email}.', { email: result.emailTo })
+            : tr('Code sent to {phone}.', { phone: result.smsTo }));
         if (result.codeError) setError(result.codeError);
         setCode('');
         return;
@@ -159,9 +165,11 @@ export default function LoginPage() {
             <>
               <h1 className="login-form-title">{tr('Two-step sign-in')}</h1>
               <p className="login-form-sub">
-                {hasApp && texted ? tr('Enter the 6-digit code from your authenticator app or the text message.')
+                {hasApp && lastSent ? tr('Enter the 6-digit code from your authenticator app, or the one we just sent you.')
                   : hasApp ? tr('Enter the 6-digit code from your authenticator app.')
-                    : tr('Enter the 6-digit code we texted to {phone}.', { phone: smsTo })}
+                    : lastSent === 'sms' ? tr('Enter the 6-digit code we texted to {phone}.', { phone: smsTo })
+                      : lastSent === 'email' ? tr('Enter the 6-digit code we emailed to {email}.', { email: emailTo })
+                        : tr('Choose where to send your 6-digit code.')}
               </p>
               {notice && <div className="login-code-notice" role="status">{notice}</div>}
               <div className="field">
@@ -182,8 +190,13 @@ export default function LoginPage() {
                 {tr('Don\'t ask again on this device for 30 days')}
               </label>
               {hasSms && (
-                <button type="button" className="login-text-code" onClick={textMeACode} disabled={sendingCode}>
-                  {sendingCode ? tr('Sending…') : hasApp && !texted ? tr('Text me a code instead ({phone})', { phone: smsTo }) : tr('Send a new code')}
+                <button type="button" className="login-text-code" onClick={() => sendMeACode('sms')} disabled={!!sendingCode}>
+                  {sendingCode === 'sms' ? tr('Sending…') : lastSent === 'sms' ? tr('Send a new code by text') : tr('Text me a code ({phone})', { phone: smsTo })}
+                </button>
+              )}
+              {hasEmail && (
+                <button type="button" className="login-text-code" onClick={() => sendMeACode('email')} disabled={!!sendingCode}>
+                  {sendingCode === 'email' ? tr('Sending…') : lastSent === 'email' ? tr('Send a new code by email') : tr('Email me a code ({email})', { email: emailTo })}
                 </button>
               )}
               <p className="login-code-help">

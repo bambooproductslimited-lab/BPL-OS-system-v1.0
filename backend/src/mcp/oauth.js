@@ -105,26 +105,37 @@ function page(opts) {
 }
 
 // The second step, for accounts with two-step sign-in on: the code from the
-// authenticator app or a text message (or a backup code), before Claude is
-// allowed in. smsTo (masked) is only for what the page says; sending a code
-// is checked against the account itself.
+// authenticator app, a text or an email (or a backup code), before Claude is
+// allowed in. smsTo / emailTo (masked) are only for what the page says;
+// sending a code is checked against the account itself. sentVia is the way
+// a code has already gone, so its button offers a new one.
 function codePage(opts) {
-  var hasApp = (opts.methods || []).indexOf('app') >= 0;
-  var where = hasApp && opts.smsTo ? 'your authenticator app, or texted to ' + opts.smsTo + ','
-    : opts.smsTo ? 'the text message sent to ' + opts.smsTo + ',' : 'your authenticator app,';
+  var methods = opts.methods || [];
+  var from = [];
+  if (methods.indexOf('app') >= 0) from.push('your authenticator app');
+  if (opts.smsTo) from.push('texted to ' + opts.smsTo);
+  if (opts.emailTo) from.push('emailed to ' + opts.emailTo);
+  var where = from.length > 1 ? from.slice(0, -1).join(', ') + ' or ' + from[from.length - 1] : (from[0] || 'your authenticator app');
+  var button = function (channel, to, fresh, first) {
+    if (!to) return '';
+    return '<button name="decision" value="' + channel + '" formnovalidate>' + (opts.sentVia === channel ? fresh : first) + '</button>';
+  };
   return page({
     title: 'Enter your code',
-    body: '<p class="lead">Two-step sign-in is on for this account. Enter the 6-digit code from ' + escapeHtml(where) + ' or one of your backup codes.</p>' +
+    body: '<p class="lead">Two-step sign-in is on for this account. Enter the 6-digit code ' + (methods.indexOf('app') >= 0 ? 'from ' : '') + escapeHtml(where) + ', or one of your backup codes.</p>' +
       (opts.notice ? '<p class="lead" role="status">' + escapeHtml(opts.notice) + '</p>' : '') +
       (opts.error ? '<p class="error" role="alert">' + escapeHtml(opts.error) + '</p>' : '') +
       '<form method="post" action="/oauth/login">' +
       '<input type="hidden" name="request" value="' + escapeHtml(opts.request) + '">' +
       '<input type="hidden" name="challenge" value="' + escapeHtml(opts.challenge) + '">' +
-      '<input type="hidden" name="methods" value="' + escapeHtml((opts.methods || []).join(',')) + '">' +
+      '<input type="hidden" name="methods" value="' + escapeHtml(methods.join(',')) + '">' +
       '<input type="hidden" name="smsTo" value="' + escapeHtml(opts.smsTo || '') + '">' +
+      '<input type="hidden" name="emailTo" value="' + escapeHtml(opts.emailTo || '') + '">' +
+      '<input type="hidden" name="sentVia" value="' + escapeHtml(opts.sentVia || '') + '">' +
       '<label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></label>' +
       '<div class="buttons"><button name="decision" value="allow" class="primary">Allow</button>' +
-      (opts.smsTo ? '<button name="decision" value="sms" formnovalidate>' + (hasApp ? 'Text me a code' : 'Send a new code') + '</button>' : '') +
+      button('sms', opts.smsTo, 'Send a new code by text', 'Text me a code') +
+      button('email', opts.emailTo, 'Send a new code by email', 'Email me a code') +
       '<button name="decision" value="deny" formnovalidate>Cancel</button></div>' +
       '</form>'
   });
@@ -258,12 +269,13 @@ router.post('/oauth/login', loginLimiter, express.urlencoded({ extended: false, 
 
     var codeOpts = {
       request: req.body.request, challenge: req.body.challenge,
-      methods: String(req.body.methods || '').split(',').filter(Boolean), smsTo: req.body.smsTo || null
+      methods: String(req.body.methods || '').split(',').filter(Boolean), smsTo: req.body.smsTo || null,
+      emailTo: req.body.emailTo || null, sentVia: req.body.sentVia || null
     };
-    if (req.body.decision === 'sms' && req.body.challenge) {
+    if ((req.body.decision === 'sms' || req.body.decision === 'email') && req.body.challenge) {
       try {
-        var sent = await twoStep.sendLoginCode(req.body.challenge);
-        return res.status(200).type('html').send(codePage(Object.assign(codeOpts, { notice: 'Code sent to ' + sent.sentTo + '.' })));
+        var sent = await twoStep.sendLoginCode(req.body.challenge, req.body.decision);
+        return res.status(200).type('html').send(codePage(Object.assign(codeOpts, { sentVia: sent.channel, notice: 'Code sent to ' + sent.sentTo + '.' })));
       } catch (err) {
         if (!(err instanceof AppError)) throw err;
         return res.status(200).type('html').send(codePage(Object.assign(codeOpts, { error: err.message })));
@@ -288,8 +300,10 @@ router.post('/oauth/login', loginLimiter, express.urlencoded({ extended: false, 
     }
     if (result.twoStepRequired) {
       return res.status(200).type('html').send(codePage({
-        request: req.body.request, challenge: result.challenge, methods: result.methods, smsTo: result.smsTo,
-        notice: result.codeSent ? 'Code sent to ' + result.smsTo + '.' : null, error: result.codeError || null
+        request: req.body.request, challenge: result.challenge, methods: result.methods, smsTo: result.smsTo, emailTo: result.emailTo,
+        sentVia: result.codeSentVia || null,
+        notice: result.codeSent ? 'Code sent to ' + (result.codeSentVia === 'email' ? result.emailTo : result.smsTo) + '.' : null,
+        error: result.codeError || null
       }));
     }
     if (result.ctx.user.mustChangePassword) {
