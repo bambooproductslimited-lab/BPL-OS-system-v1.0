@@ -7,14 +7,14 @@ var { audit } = require('../utils/audit');
 async function list(ctx) {
   if (!ctx.can('employee.read')) fail('forbidden', 'Your role does not allow this action (employee.read).');
   var res = await pool.query(
-    'SELECT d.id, d.code, d.name, d.status, d.company_id, c.name AS company_name, m.first_name AS mgr_first, m.last_name AS mgr_last, ' +
+    'SELECT d.id, d.code, d.name, d.status, d.company_id, c.name AS company_name, c.code AS company_code, m.first_name AS mgr_first, m.last_name AS mgr_last, ' +
     '(SELECT count(*)::int FROM employees e WHERE e.department_id = d.id AND e.status = \'active\') AS headcount ' +
     'FROM departments d JOIN companies c ON c.id = d.company_id LEFT JOIN employees m ON m.id = d.manager_id ORDER BY d.name'
   );
   return res.rows.map(function (d) {
     return {
       id: d.id, code: d.code, name: d.name, status: d.status,
-      companyId: d.company_id, companyName: d.company_name,
+      companyId: d.company_id, companyName: d.company_name, companyCode: d.company_code,
       managerName: d.mgr_first ? d.mgr_first + ' ' + d.mgr_last : '—',
       headcount: d.headcount
     };

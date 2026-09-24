@@ -10,12 +10,22 @@ import RowMenu from '../components/RowMenu';
 
 import { activeIntlLocale, tr, trNodes } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
+import {
+  CompanySwitcher, Glossary, Hero, Insights, Section, jump
+} from '../components/DashKit';
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
 // block + the attendance/attSummary computed values around its render()).
 // Clock in/out lives on the "My space" screen, not here — this screen is
 // the manager/HR roster view for a given day.
 //
-// Redesigned around the roster/summary/toolbar view — icon summary tiles
+// Laid out like the other dashboards: a company switcher (All companies,
+// then each company, remembered on this device), a header with the day's
+// or period's key numbers (press one to filter the roster to it), a "what
+// stands out" list written from the figures, attendance by group, then the
+// roster itself. A day on approved leave shows as leave, and a late
+// arrival says how many minutes after the shift start.
+//
+// Earlier: redesigned around the roster/summary/toolbar view — icon summary tiles
 // (matching Dashboard's KPI tiles), initials avatars on each row (matching
 // Messages/Login/Employees), and an icon'd empty state. The TimeStation
 // sync and report dialogs are left functionally and visually as-is: this
@@ -209,6 +219,11 @@ export default function AttendancePage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [departments, setDepartments] = useState([]);
   const [companyFilter, setCompanyFilter] = useState('');
+  const [companyCode, setCompanyCode] = useState(() => {
+    const q = new URLSearchParams(window.location.search).get('company');
+    if (q) return q.toUpperCase();
+    try { return localStorage.getItem('bos.attendanceCompany') || 'ALL'; } catch { return 'ALL'; }
+  });
   const [deptFilter, setDeptFilter] = useState('');
 
   // Departments already carry companyId/companyName (departments.service.js#list)
@@ -216,9 +231,25 @@ export default function AttendancePage() {
   // one fetch, same pattern as EmployeesPage.jsx.
   const companies = useMemo(() => {
     const seen = new Map();
-    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
-    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName, code: d.companyCode || d.companyId }); });
+    // Bamboo Products first, then the rest by name, as on the other dashboards.
+    return Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
   }, [departments]);
+
+  // The switcher works in company codes (?company=SB); the API in ids.
+  useEffect(() => {
+    if (!companies.length) return;
+    const co = companies.find((c) => c.code === companyCode);
+    const id = co ? co.id : '';
+    if (!co && companyCode !== 'ALL') setCompanyCode('ALL');
+    if (id !== companyFilter) { setCompanyFilter(id); setDeptFilter(''); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies, companyCode]);
+  function pickCompany(code) {
+    setCompanyCode(code);
+    try { localStorage.setItem('bos.attendanceCompany', code); } catch { /* remembered for this visit only */ }
+    window.history.replaceState({}, '', window.location.pathname + (code !== 'ALL' ? '?company=' + code : ''));
+  }
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncRange, setSyncRange] = useState({ startDate: daysAgoISO(7), endDate: todayISO() });
@@ -298,13 +329,6 @@ export default function AttendancePage() {
   const visibleRows = rows
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || r.status === statusFilter);
-  const summary = [
-    { label: tr('In scope'), value: rows.length, icon: 'users', tone: 'people', filterKey: null },
-    { label: tr('Present'), value: rows.filter((r) => r.status === 'present').length, icon: 'checkCircle', tone: 'people', filterKey: 'present' },
-    { label: tr('Late'), value: rows.filter((r) => r.status === 'late').length, icon: 'clock', tone: 'warning', filterKey: 'late' },
-    { label: tr('No record'), value: rows.filter((r) => r.status === 'absent').length, icon: 'xCircle', tone: 'danger', filterKey: 'absent' },
-    { label: tr('Off (rest day)'), value: rows.filter((r) => r.status === 'off').length, icon: 'calendar', tone: 'people', filterKey: 'off' }
-  ];
 
   // periodStatusMatches lets the "Absent/leave/off days" tile below filter
   // on all three at once — the one summary bucket with no single matching
@@ -316,12 +340,6 @@ export default function AttendancePage() {
   const visiblePeriodRows = periodRows
     .filter((r) => matchesQuery(search, r.name, r.code, r.department, r.company))
     .filter((r) => !statusFilter || periodStatusMatches(r, statusFilter));
-  const periodSummary = [
-    { label: tr('Employees'), value: periodRows.length, icon: 'users', tone: 'people', filterKey: null },
-    { label: tr('Present days'), value: periodRows.reduce((sum, r) => sum + r.present, 0), icon: 'checkCircle', tone: 'people', filterKey: 'present' },
-    { label: tr('Late days'), value: periodRows.reduce((sum, r) => sum + r.late, 0), icon: 'clock', tone: 'warning', filterKey: 'late' },
-    { label: tr('Absent/leave/off days'), value: periodRows.reduce((sum, r) => sum + r.absent + r.leave + r.off, 0), icon: 'xCircle', tone: 'danger', filterKey: 'absentLeaveOff' }
-  ];
 
   function openCorrection(row) {
     setDialogError(null);
@@ -528,53 +546,172 @@ export default function AttendancePage() {
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+  // ── what the page says about itself ──────────────────────────────────
+  const isToday = isSingleDay && dateRange.from === todayISO();
+  const scopeName = companyFilter ? (companies.find((c) => c.id === companyFilter) || {}).name : tr('all companies');
+  const dayCounts = {
+    in: rows.filter((r) => r.status === 'present' || r.status === 'late').length,
+    late: rows.filter((r) => r.status === 'late').length,
+    absent: rows.filter((r) => r.status === 'absent').length,
+    leave: rows.filter((r) => r.status === 'leave').length,
+    off: rows.filter((r) => r.status === 'off').length,
+    auto: rows.filter((r) => r.autoClockedOut).length
+  };
+  const dayExpected = rows.length - dayCounts.off - dayCounts.leave;
+  const dayRate = dayExpected ? Math.round((dayCounts.in / dayExpected) * 100) : 0;
+  const periodTotals = periodRows.reduce((t, r) => ({
+    present: t.present + r.present, late: t.late + r.late, absent: t.absent + r.absent, leave: t.leave + r.leave, off: t.off + r.off
+  }), { present: 0, late: 0, absent: 0, leave: 0, off: 0 });
+  const periodWorked = periodTotals.present + periodTotals.late;
+  const periodExpected = periodWorked + periodTotals.absent;
+  const periodRate = periodExpected ? Math.round((periodWorked / periodExpected) * 100) : 0;
 
-      <div className="attendance-toolbar">
-        <div className="field attendance-date">
-          <label>{tr('Period')}</label>
+  // Attendance by group: who came in out of who was expected (leave and
+  // rest days are not expected).
+  const groups = (() => {
+    const by = {};
+    if (isSingleDay) {
+      rows.forEach((r) => {
+        const k = r.company + '|' + r.department;
+        const g = by[k] || (by[k] = { key: k, name: r.department, company: r.company, total: 0, came: 0, late: 0, missing: 0, away: 0 });
+        g.total++;
+        if (r.status === 'present' || r.status === 'late') g.came++;
+        if (r.status === 'late') g.late++;
+        if (r.status === 'absent') g.missing++;
+        if (r.status === 'leave' || r.status === 'off') g.away++;
+      });
+    } else {
+      periodRows.forEach((r) => {
+        const k = r.company + '|' + r.department;
+        const g = by[k] || (by[k] = { key: k, name: r.department, company: r.company, total: 0, came: 0, late: 0, missing: 0, away: 0 });
+        g.total++;
+        g.came += r.present + r.late;
+        g.late += r.late;
+        g.missing += r.absent;
+        g.away += r.leave + r.off;
+      });
+    }
+    return Object.values(by).map((g) => {
+      const expected = g.came + g.missing;
+      return { ...g, rate: expected ? Math.round((g.came / expected) * 100) : null };
+    }).sort((a, b) => (a.rate === null ? 101 : a.rate) - (b.rate === null ? 101 : b.rate));
+  })();
+  const showCompany = !companyFilter && companies.length > 1;
+
+  const insights = [];
+  if (isSingleDay) {
+    if (dayExpected > 0) {
+      insights.push({ tone: dayRate >= 90 ? 'good' : dayRate < 70 ? 'warn' : 'info', icon: 'people', text: tr('{came} of {expected} people expected have clocked in ({rate}%).', { came: dayCounts.in, expected: dayExpected, rate: dayRate }) });
+    }
+    const lates = rows.filter((r) => r.status === 'late' && r.minutesLate != null);
+    if (dayCounts.late) {
+      const worst = lates.slice().sort((a, b) => b.minutesLate - a.minutesLate)[0];
+      const avg = lates.length ? Math.round(lates.reduce((s, r) => s + r.minutesLate, 0) / lates.length) : null;
+      insights.push({ tone: 'warn', icon: 'clock', text: avg !== null
+        ? tr('{n} came in late, {avg} minutes on average. {name} was the latest, {worst} minutes after their shift start.', { n: dayCounts.late, avg, name: worst.name, worst: worst.minutesLate })
+        : tr('{n} came in late.', { n: dayCounts.late }),
+        action: { label: tr('Show them'), run: () => { setStatusFilter('late'); jump('att-roster'); } } });
+    }
+    if (dayCounts.absent) {
+      insights.push({ tone: isToday ? 'info' : 'bad', icon: 'warn', text: isToday
+        ? tr('{n} people have not clocked in yet. Some may start later in the day.', { n: dayCounts.absent })
+        : tr('{n} people have no record for this day: not clocked in and not on leave.', { n: dayCounts.absent }),
+        action: { label: tr('Show them'), run: () => { setStatusFilter('absent'); jump('att-roster'); } } });
+    }
+    if (dayCounts.leave) insights.push({ tone: 'info', icon: 'calendar', text: dayCounts.leave === 1 ? tr('1 person is on approved leave.') : tr('{n} people are on approved leave.', { n: dayCounts.leave }) });
+    if (dayCounts.auto) {
+      insights.push({ tone: 'warn', icon: 'clock', text: dayCounts.auto === 1 ? tr('1 person forgot to clock out and was clocked out by the system. Correct it if you know the real time.') : tr('{n} people forgot to clock out and were clocked out by the system. Correct them if you know the real times.', { n: dayCounts.auto }) });
+    }
+  } else if (periodRows.length) {
+    if (periodExpected) {
+      insights.push({ tone: periodRate >= 90 ? 'good' : periodRate < 75 ? 'warn' : 'info', icon: 'people', text: tr('People came to work on {rate}% of the days they were expected ({worked} of {expected} days).', { rate: periodRate, worked: periodWorked, expected: periodExpected }) });
+    }
+    const mostAbsent = periodRows.slice().sort((a, b) => b.absent - a.absent)[0];
+    if (mostAbsent && mostAbsent.absent >= 2) {
+      insights.push({ tone: 'bad', icon: 'warn', text: tr('{name} missed the most days: {n} without a record or leave.', { name: mostAbsent.name, n: mostAbsent.absent }), action: { label: tr('Show them'), run: () => { setStatusFilter('absent'); jump('att-roster'); } } });
+    }
+    const mostLate = periodRows.slice().sort((a, b) => b.late - a.late)[0];
+    if (mostLate && mostLate.late >= 2) {
+      insights.push({ tone: 'warn', icon: 'clock', text: tr('{name} was late most often: {n} days.', { name: mostLate.name, n: mostLate.late }), action: { label: tr('Lateness report'), run: openLateness } });
+    }
+    const perfect = periodRows.filter((r) => r.absent === 0 && r.late === 0 && r.present > 0).length;
+    if (perfect) insights.push({ tone: 'good', icon: 'check', text: perfect === 1 ? tr('1 person came in on time every day they were expected.') : tr('{n} people came in on time every day they were expected.', { n: perfect }) });
+    if (periodTotals.leave) insights.push({ tone: 'info', icon: 'calendar', text: tr('{n} days were taken as approved leave.', { n: periodTotals.leave }) });
+  }
+  const lowGroup = groups.find((g) => g.rate !== null && g.total >= 3);
+  if (lowGroup && groups.length > 1 && lowGroup.rate < 80) {
+    insights.push({ tone: 'warn', icon: 'people', text: tr('{group} has the lowest attendance: {rate}%.', { group: lowGroup.name + (showCompany ? ' (' + lowGroup.company + ')' : ''), rate: lowGroup.rate }) });
+  }
+
+  function statTile(key) { return () => { setStatusFilter(statusFilter === key ? '' : key); jump('att-roster'); }; }
+  const stats = isSingleDay ? [
+    { icon: 'people', value: dayCounts.in + '/' + dayExpected, label: isToday ? tr('in today') : tr('came in'), note: dayExpected ? tr('{rate}% of those expected', { rate: dayRate }) : tr('nobody expected'), onClick: statTile('') },
+    { icon: 'clock', value: String(dayCounts.late), label: tr('late'), note: tr('after their start time'), tone: dayCounts.late ? 'alert' : '', onClick: statTile('late') },
+    { icon: 'warn', value: String(dayCounts.absent), label: isToday ? tr('not in yet') : tr('no record'), note: tr('not clocked in, not on leave'), tone: dayCounts.absent && !isToday ? 'bad' : '', onClick: statTile('absent') },
+    { icon: 'calendar', value: String(dayCounts.leave + dayCounts.off), label: tr('away'), note: tr('{l} on leave · {o} rest day', { l: dayCounts.leave, o: dayCounts.off }), onClick: statTile(dayCounts.leave ? 'leave' : 'off') }
+  ] : [
+    { icon: 'people', value: periodRate + '%', label: tr('attendance'), note: tr('{worked} of {expected} expected days worked', { worked: periodWorked, expected: periodExpected }), onClick: statTile('') },
+    { icon: 'clock', value: String(periodTotals.late), label: tr('late days'), note: tr('across {n} people', { n: periodRows.filter((r) => r.late).length }), tone: periodTotals.late ? 'alert' : '', onClick: statTile('late') },
+    { icon: 'warn', value: String(periodTotals.absent), label: tr('missed days'), note: tr('no record and no leave'), tone: periodTotals.absent ? 'bad' : '', onClick: statTile('absent') },
+    { icon: 'calendar', value: String(periodTotals.leave), label: tr('leave days'), note: tr('{n} rest days besides', { n: periodTotals.off }), onClick: statTile('leave') }
+  ];
+
+  return (
+    <>
+    <div className="dk att">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      {companies.length > 1 && (
+        <CompanySwitcher companies={[{ code: 'ALL', name: tr('All companies') }, ...companies]} company={companyFilter ? (companies.find((c) => c.id === companyFilter) || {}).code : 'ALL'}
+          onPick={pickCompany} describe={(co) => (co.code === 'ALL' ? tr('Everyone together') : tr('{n} groups', { n: departments.filter((d) => d.companyId === co.id).length }))} />
+      )}
+
+      <Hero
+        eyebrow={isSingleDay ? fmtDate(dateRange.from) : fmtDate(dateRange.from) + ' – ' + fmtDate(dateRange.to)}
+        title={isToday ? tr('Today\'s attendance') : isSingleDay ? tr('Attendance on this day') : tr('Attendance over the period')}
+        sub={isSingleDay
+          ? tr('Who came in, who was late and by how much, and who is away, for {scope}. Press a number to show only those people below.', { scope: scopeName })
+          : tr('Days worked, late and missed per person for {scope}. Pick a single day to see and correct individual records.', { scope: scopeName })}
+        actions={<>
           <DateRangePicker value={dateRange} onChange={setDateRange} />
-        </div>
-        <div className="attendance-toolbar-actions">
           {canAdjust && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
           <button type="button" className="btn btn-secondary" onClick={openReport}>{tr('Download report')}</button>
           <button type="button" className="btn btn-secondary" onClick={openLateness}>{tr('Lateness')}</button>
-        </div>
-      </div>
+        </>}
+        stats={stats} />
 
-      <div className="attendance-summary">
-        {(isSingleDay ? summary : periodSummary).map((s) => {
-          const active = s.filterKey ? statusFilter === s.filterKey : !statusFilter;
-          return (
-            <button
-              type="button"
-              key={s.label}
-              className={'attendance-summary-tile attendance-summary-tile-' + s.tone + (active ? ' attendance-summary-tile-active' : '')}
-              aria-pressed={active}
-              title={s.filterKey ? tr('Show only {label}', { label: s.label.toLowerCase() }) : tr('Clear the status filter')}
-              onClick={() => setStatusFilter(s.filterKey && statusFilter !== s.filterKey ? s.filterKey : '')}
-            >
-              <span className="attendance-summary-icon glow-badge"><Icon name={s.icon} /></span>
-              <div>
-                <div className="attendance-summary-value">{s.value}</div>
-                <div className="attendance-summary-label">{s.label}</div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      <Insights items={insights.slice(0, 7)} />
 
+      {groups.length > 1 && (
+        <Section title={tr('By group')} sub={isSingleDay ? tr('Who came in out of who was expected. People on leave or on a rest day are not expected.') : tr('Days worked out of days expected, per group.')}>
+          <div className="att-groups">
+            {groups.map((g) => (
+              <button key={g.key} type="button" className="att-group" onClick={() => {
+                const dep = departments.find((d) => d.name === g.name && d.companyName === g.company);
+                if (dep) { setDeptFilter(dep.id); jump('att-roster'); }
+              }}>
+                <span className="att-group-top">
+                  <span className="att-group-name">{g.name}{showCompany && <span className="att-group-co">{g.company}</span>}</span>
+                  <strong className={'att-group-rate' + (g.rate === null ? '' : g.rate < 70 ? ' is-low' : g.rate < 90 ? ' is-mid' : '')}>{g.rate === null ? '—' : g.rate + '%'}</strong>
+                </span>
+                <span className="dk-track" aria-hidden="true"><span className={g.rate < 70 ? 'is-low' : g.rate < 90 ? 'is-mid' : ''} style={{ width: (g.rate || 0) + '%' }} /></span>
+                <span className="dk-muted att-group-meta">
+                  {isSingleDay ? tr('{came} of {expected} in', { came: g.came, expected: g.came + g.missing }) : tr('{came} of {expected} days', { came: g.came, expected: g.came + g.missing })}
+                  {g.late ? ' · ' + tr('{n} late', { n: g.late }) : ''}
+                  {g.away ? ' · ' + tr('{n} away', { n: g.away }) : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section id="att-roster" title={isSingleDay ? tr('Everyone') : tr('Per person')}
+        sub={isSingleDay
+          ? (canAdjust ? tr('One row per person. Use the menu on a row to correct a record; every correction is written to the audit log.') : tr('One row per person.'))
+          : tr('Total is days actually worked (present + late). Off is a rest day (e.g. Sundays for most Bamboo Products staff), so Absent only counts real missed workdays.')}>
       <div className="attendance-filters">
         <SearchInput value={search} onChange={setSearch} placeholder={tr('Search name, code, department…')} />
-        <select
-          className="input attendance-status-filter" value={companyFilter} aria-label={tr('Filter by company')}
-          onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
-        >
-          <option value="">{tr('All companies')}</option>
-          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
         <select
           className="input attendance-status-filter" value={deptFilter} aria-label={tr('Filter by department')}
           onChange={(e) => setDeptFilter(e.target.value)}
@@ -593,17 +730,14 @@ export default function AttendancePage() {
           <option value="off">{tr('Off')}</option>
           {!isSingleDay && <option value="absentLeaveOff">{tr('Absent/leave/off')}</option>}
         </select>
+        {(statusFilter || deptFilter || search) && (
+          <button type="button" className="btn btn-secondary" onClick={() => { setStatusFilter(''); setDeptFilter(''); setSearch(''); }}>{tr('Clear filters')}</button>
+        )}
       </div>
-
-      {!isSingleDay && (
-        <p className="eyebrow" style={{ marginTop: 12 }}>
-          {tr('{date} – {date2}, per-employee totals. Total is days actually worked (present + late) — Off already excludes rest days (e.g. Sundays for most Bamboo Products Limited staff) from Absent, so Absent only counts real missed workdays. Pick a single day above to see and correct individual records.', { date: fmtDate(dateRange.from), date2: fmtDate(dateRange.to) })}
-        </p>
-      )}
 
       {isSingleDay ? (
         <>
-          <table className="table" style={{ marginTop: 16 }}>
+          <div className="table-scroll"><table className="table">
             <thead>
               <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Clock in')}</th><th>{tr('Clock out')}</th><th>{tr('Status')}</th><th>{tr('Note')}</th><th /></tr>
             </thead>
@@ -619,14 +753,17 @@ export default function AttendancePage() {
                   </td>
                   <td>{r.company}</td>
                   <td>{r.department}</td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn || '—'} <LocationLink loc={r.clockInLocation} /></td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn ? String(r.clockIn).slice(0, 5) : '—'} <LocationLink loc={r.clockInLocation} /></td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {r.clockOut || '—'} <LocationLink loc={r.clockOutLocation} />
+                    {r.clockOut ? String(r.clockOut).slice(0, 5) : '—'} <LocationLink loc={r.clockOutLocation} />
                     {r.autoClockedOut && (
                       <span className="tag tag-warning attendance-auto-tag" title={tr('Nobody clocked out, so the system did after the shift ran its limit. Correct it if you know the real time.')}>{tr('Auto')}</span>
                     )}
                   </td>
-                  <td><span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span></td>
+                  <td>
+                    <span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span>
+                    {r.status === 'late' && r.minutesLate != null && <span className="attendance-late-by">{tr('{n} min', { n: r.minutesLate })}</span>}
+                  </td>
                   <td className="attendance-note">{r.note || '—'}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
@@ -637,7 +774,7 @@ export default function AttendancePage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           {!rows.length && <EmptyState title={tr('No employees in scope for this date')} />}
           {!!rows.length && !visibleRows.length && (
             <p className="table-empty">
@@ -647,7 +784,7 @@ export default function AttendancePage() {
         </>
       ) : (
         <>
-          <table className="table" style={{ marginTop: 16 }}>
+          <div className="table-scroll"><table className="table">
             <thead>
               <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Present')}</th><th>{tr('Late')}</th><th>{tr('Absent')}</th><th>{tr('Leave')}</th><th>{tr('Off')}</th><th title={tr('Days they actually came to work (present + late)')}>{tr('Total')}</th></tr>
             </thead>
@@ -672,7 +809,7 @@ export default function AttendancePage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           {!periodRows.length && <EmptyState title={tr('No employees in scope for this filter')} />}
           {!!periodRows.length && !visiblePeriodRows.length && (
             <p className="table-empty">
@@ -681,6 +818,18 @@ export default function AttendancePage() {
           )}
         </>
       )}
+      </Section>
+
+      <Glossary items={[
+        [tr('Present'), tr('Clocked in on time.')],
+        [tr('Late'), tr('Clocked in after their shift start plus the grace period, or after the company cutoff if they have no shift.')],
+        [tr('No record'), tr('Expected at work but no clock-in and no approved leave. Today, it can simply mean they have not arrived yet.')],
+        [tr('Leave'), tr('On approved leave that day.')],
+        [tr('Off'), tr('A rest day, such as Sunday for most Bamboo Products staff.')],
+        [tr('Auto'), tr('Nobody clocked out, so the system did after the shift ran its limit.')],
+        [tr('Attendance rate'), tr('Days people came in out of the days they were expected. Leave and rest days are not expected.')]
+      ]} />
+    </div>
 
       {correction && (
         <div className="dialog-backdrop" onClick={() => setCorrection(null)}>
@@ -1062,6 +1211,6 @@ export default function AttendancePage() {
       })()}
 
       {toast && <div className="toast">{toast}</div>}
-    </div>
+    </>
   );
 }

@@ -430,8 +430,9 @@ async function scopedEmployees(ctx, filters) {
   var canAll = ctx.can('attendance.read.all');
   var baseQuery =
     'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, e.position_title, e.hourly_rate, ' +
-    'd.name AS department_name, d.company_id, c.name AS company_name ' +
-    'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id ' +
+    'd.name AS department_name, d.company_id, c.name AS company_name, c.code AS company_code, ' +
+    'coalesce(s.start_time, e.shift_start) AS shift_start_time ' +
+    'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id LEFT JOIN shifts s ON s.id = e.shift_id ' +
     "WHERE e.status != 'terminated'";
   if (!canAll) {
     var selfRes = await pool.query(baseQuery + ' AND e.id = $1', [ctx.employee.id]);
@@ -456,22 +457,47 @@ async function list(ctx, params) {
   var attRes = await pool.query('SELECT * FROM attendance WHERE date = $1', [date]);
   var byEmp = {};
   attRes.rows.forEach(function (r) { byEmp[r.employee_id] = r; });
+  var onLeave = await approvedLeaveDays(scopeEmployees.map(function (e) { return e.id; }), date, date);
 
   return {
     date: date,
     scopeSize: scopeEmployees.length,
     rows: scopeEmployees.map(function (e) {
       var r = byEmp[e.id];
+      var shiftStart = e.shift_start_time ? String(e.shift_start_time).slice(0, 5) : null;
+      var clockIn = r && r.clock_in ? String(r.clock_in).slice(0, 5) : null;
       return {
+        companyCode: e.company_code, shiftStart: shiftStart,
+        // How far after their shift start a late arrival was (overnight
+        // shifts wrap), when there is a shift to measure against.
+        minutesLate: r && r.status === 'late' && shiftStart && clockIn ? ((hmToMinutes(clockIn) - hmToMinutes(shiftStart)) % 1440 + 1440) % 1440 : null,
         id: r ? r.id : null, employeeId: e.id, name: e.first_name + ' ' + e.last_name, code: e.code,
         department: e.department_name || '—', company: e.company_name || '—',
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         autoClockedOut: !!(r && r.auto_clocked_out),
-        status: r ? r.status : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), note: r ? r.note : ''
+        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), note: r ? r.note : ''
       };
     })
   };
+}
+
+// { '<employeeId>|<date>': true } for every day in [from, to] covered by
+// approved leave — a day on leave with no clock-in is leave, not absence.
+async function approvedLeaveDays(ids, from, to) {
+  var out = {};
+  if (!ids.length) return out;
+  var res = await pool.query(
+    "SELECT employee_id, greatest(start_date, $2::date) AS s, least(end_date, $3::date) AS e FROM leave_requests " +
+    "WHERE status = 'approved' AND employee_id = ANY($1) AND start_date <= $3 AND end_date >= $2",
+    [ids, from, to]
+  );
+  res.rows.forEach(function (l) {
+    for (var d = new Date(l.s); d <= new Date(l.e); d = new Date(d.getTime() + 86400000)) {
+      out[l.employee_id + '|' + d.toISOString().slice(0, 10)] = true;
+    }
+  });
+  return out;
 }
 
 var MAX_REPORT_RANGE_DAYS = 5 * 365; // sanity bound (catches a typo'd year), not a real operational limit
@@ -506,6 +532,7 @@ async function report(ctx, from, to, filters) {
   );
   var recordByEmpDate = {};
   attRes.rows.forEach(function (r) { recordByEmpDate[r.employee_id + '|' + r.date] = r; });
+  var onLeave = await approvedLeaveDays(ids, from, to);
 
   var dates = [];
   for (var d = new Date(from + 'T00:00'); d <= new Date(to + 'T00:00'); d.setDate(d.getDate() + 1)) {
@@ -527,7 +554,7 @@ async function report(ctx, from, to, filters) {
         date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         autoClockedOut: !!(r && r.auto_clocked_out),
-        status: r ? r.status : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
+        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
       rows.push(row);
