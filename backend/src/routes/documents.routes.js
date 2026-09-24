@@ -32,6 +32,11 @@ router.get('/:id/download', async function (req, res, next) {
   try { res.json(await documentsService.getDownloadUrl(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
+// PATCH /api/documents/:id { expiresOn } — set or clear the expiry date
+router.patch('/:id', async function (req, res, next) {
+  try { res.json(await documentsService.setExpiry(req.ctx, req.params.id, (req.body || {}).expiresOn)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['documents.delete'] -> DELETE /api/documents/:id
 router.delete('/:id', async function (req, res, next) {
   try { res.json(await documentsService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }

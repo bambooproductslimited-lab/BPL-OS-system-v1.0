@@ -8,7 +8,9 @@ import './EmployeeIdDocsDialog.css';
 // ID, back of ID, passport scan. Opened from a row action on the Employee
 // directory. Same real-upload/signed-preview pattern as the Documents
 // module (backend/src/services/employeeDocuments.service.js) — files open
-// in a new tab to view, never as a download.
+// in a new tab to view, never as a download. The ID card (on its front) and
+// the passport can carry the date they expire: HR and the employee are
+// warned 60, 30, 14 and 7 days before (backend jobs/dailyAlerts.js).
 
 const SLOT_LABELS = { id_front: msg('ID — front'), id_back: msg('ID — back'), passport: msg('Passport') };
 
@@ -23,6 +25,7 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
   const [error, setError] = useState(null);
   const [uploadingKind, setUploadingKind] = useState(null);
   const [previewingKind, setPreviewingKind] = useState(null);
+  const [savedKind, setSavedKind] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -49,6 +52,17 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
       setError(err.message);
     } finally {
       setUploadingKind(null);
+    }
+  }
+
+  async function saveExpiry(kind, value) {
+    setError(null);
+    setSavedKind(null);
+    try {
+      setSlots(await api.patch('/employees/' + employee.id + '/id-documents/' + kind, { expiresOn: value }));
+      setSavedKind(kind);
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -83,6 +97,13 @@ export default function EmployeeIdDocsDialog({ employee, onClose }) {
                     <div className="id-docs-row-file">{s.fileName} <span className="id-docs-row-date">{tr('uploaded {date}', { date: fmtDate(s.uploadedAt) })}</span></div>
                   ) : (
                     <div className="id-docs-row-empty">{tr('Not uploaded')}</div>
+                  )}
+                  {s.fileName && s.canExpire && (
+                    <label className="id-docs-expiry">
+                      {tr('Expires on')}
+                      <input type="date" className="input" value={s.expiresOn || ''} onChange={(e) => saveExpiry(s.kind, e.target.value)} />
+                      {savedKind === s.kind && <span className="id-docs-row-date">{tr('Saved')}</span>}
+                    </label>
                   )}
                 </div>
                 <div className="id-docs-row-actions">

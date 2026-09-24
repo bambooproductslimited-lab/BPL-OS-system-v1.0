@@ -21,3 +21,5 @@
 .reminders-action { text-align: right; white-space: nowrap; }
 .reminders-wa { background: #25d366; border-color: #25d366; color: #0b3d1e; }
 .reminders-wa:hover:not(:disabled) { background: #1ebe5b; border-color: #1ebe5b; }
+.reminders-tabs { margin-bottom: 12px; }
+.reminders-buttons { display: inline-flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }

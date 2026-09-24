@@ -121,7 +121,7 @@ test('the morning alert tells each person what they can act on, once a day, not 
   var d = await digest.digestFor(admin);
   assert.equal(d.title, 'Payments to chase today');
   assert.match(d.body, /bills? overdue \(GHS [\d,.]+\)/);
-  assert.equal(d.link, '/reminders');
+  assert.equal(d.link, 'reminders', 'a route name, as the bell expects');
   assert.equal(await digest.digestFor(ctxWith([])), null, 'nothing for someone who can see none of it');
 
   var early = new Date(); early.setUTCHours(6, 30, 0, 0);

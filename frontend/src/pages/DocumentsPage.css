@@ -73,3 +73,7 @@
   cursor: pointer;
 }
 .link-button:disabled { color: var(--color-text-muted); cursor: default; text-decoration: none; }
+.documents-muted { color: var(--color-text-muted); }
+.documents-expiring { margin-bottom: 12px; padding: 10px 12px; font-size: 13px; border-left: 3px solid var(--color-warning); background: var(--color-warning-100); }
+.documents-expiring.is-expired { border-left-color: var(--color-danger); background: var(--color-danger-100); }
+.documents-soon { background: var(--color-warning-100); border-color: var(--color-warning); color: var(--color-text); }

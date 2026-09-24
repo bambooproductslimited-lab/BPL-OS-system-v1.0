@@ -13,3 +13,10 @@
 .twostep-codes { border: var(--divider-width) solid var(--color-warning); background: var(--color-warning-100); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .twostep-code-list { margin: 0; padding-left: 22px; columns: 2; column-gap: 24px; font-size: 14px; }
 .twostep-code-list code { letter-spacing: 0.05em; }
+.twostep-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.twostep-method { border: var(--divider-width) solid var(--color-divider); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.twostep-method-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.twostep-setup { display: flex; flex-direction: column; gap: 8px; }
+.twostep-setup > label { display: block; }
+.twostep-phone-input { max-width: 240px; }
+.twostep-notice { padding: 8px 10px; border-left: 3px solid var(--color-accent); background: var(--color-bg-subtle); }

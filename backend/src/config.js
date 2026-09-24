@@ -180,6 +180,21 @@ module.exports = {
       configured: !!(phoneNumberId && accessToken && verifyToken)
     };
   }()),
+  // Text messages through mNotify (services/sms.service.js), paid for with
+  // the company's mNotify SMS credit. The API key is from the mNotify
+  // dashboard (API → API keys); the sender ID is the name texts come from,
+  // up to 11 characters, and must already be approved by mNotify.
+  sms: (function () {
+    var apiKey = (process.env.MNOTIFY_API_KEY || '').trim();
+    var senderId = (process.env.MNOTIFY_SENDER_ID || '').trim();
+    return {
+      provider: 'mnotify',
+      apiKey: apiKey,
+      senderId: senderId,
+      baseUrl: (process.env.MNOTIFY_BASE_URL || 'https://api.mnotify.com').replace(/\/+$/, ''),
+      get configured() { return !!(this.apiKey && this.senderId); }
+    };
+  }()),
   // Website analytics (GA4 Data API) — a service account granted Viewer
   // access on the GA4 property, authenticated server-to-server via a
   // signed JWT (see services/googleAnalytics.service.js), not a per-user

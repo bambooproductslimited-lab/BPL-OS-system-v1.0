@@ -60,7 +60,32 @@ function fileKind(fileName) {
   return EXT_KIND[ext] || { icon: 'doc', tone: 'muted' };
 }
 
-const EMPTY_FORM = { title: '', category: '', visibility: 'all' };
+const EMPTY_FORM = { title: '', category: '', visibility: 'all', expiresOn: '' };
+
+// Days from today to a YYYY-MM-DD date (negative once it has passed).
+function daysUntil(iso) {
+  const today = new Date();
+  const t = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const [y, m, d] = iso.split('-').map(Number);
+  return Math.round((Date.UTC(y, m - 1, d) - t) / 86400000);
+}
+
+// Licences, permits, insurance and the like can carry the date they run
+// out; the OS warns whoever looks after them 60, 30, 14 and 7 days before
+// (backend jobs/dailyAlerts.js). This shows how close each one is.
+function ExpiryCell({ iso }) {
+  if (!iso) return <span className="documents-muted">—</span>;
+  const days = daysUntil(iso);
+  return (
+    <div>
+      <div>{fmtDate(iso)}</div>
+      {days < 0 ? <span className="tag tag-accent">{tr('Expired')}</span>
+        : days === 0 ? <span className="tag tag-accent">{tr('Expires today')}</span>
+          : days <= 60 ? <span className={'tag ' + (days <= 14 ? 'tag-accent' : 'documents-soon')}>{tr('In {n} days', { n: days })}</span>
+            : null}
+    </div>
+  );
+}
 
 export default function DocumentsPage() {
   const { can } = useAuth();
@@ -78,6 +103,8 @@ export default function DocumentsPage() {
   const [dialogError, setDialogError] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  const [expiryTarget, setExpiryTarget] = useState(null); // { doc, value }
+  const [savingExpiry, setSavingExpiry] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
@@ -132,6 +159,7 @@ export default function DocumentsPage() {
       body.append('title', form.title);
       body.append('category', form.category);
       body.append('visibility', form.visibility);
+      if (form.expiresOn) body.append('expiresOn', form.expiresOn);
       body.append('file', file);
       await api.upload('/documents', body);
       setToast(tr('Document added.'));
@@ -157,6 +185,21 @@ export default function DocumentsPage() {
     }
   }
 
+  async function saveExpiry(e, clear) {
+    if (e) e.preventDefault();
+    setSavingExpiry(true);
+    try {
+      await api.patch('/documents/' + expiryTarget.doc.id, { expiresOn: clear ? '' : expiryTarget.value });
+      setToast(clear ? tr('Expiry date cleared.') : tr('Expiry date saved.'));
+      setExpiryTarget(null);
+      await load();
+    } catch (err) {
+      setExpiryTarget({ ...expiryTarget, error: err.message });
+    } finally {
+      setSavingExpiry(false);
+    }
+  }
+
   async function confirmDelete() {
     setDeleting(true);
     try {
@@ -174,10 +217,20 @@ export default function DocumentsPage() {
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const visibleDocuments = documents.filter((dc) => matchesQuery(search, dc.title, dc.category, dc.fileName, dc.uploaderName));
+  const expiring = documents.filter((dc) => dc.expiresOn && daysUntil(dc.expiresOn) <= 60);
+  const expired = expiring.filter((dc) => daysUntil(dc.expiresOn) < 0);
 
   return (
     <div>
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {expiring.length > 0 && (
+        <div className={'documents-expiring' + (expired.length ? ' is-expired' : '')}>
+          {expired.length
+            ? tr('{n} expired and {m} expiring within 60 days. Renew them and upload the new copies.', { n: expired.length, m: expiring.length - expired.length })
+            : tr('{n} expiring within 60 days. Renew them and upload the new copies.', { n: expiring.length })}
+        </div>
+      )}
 
       <div className="documents-toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder={tr('Search documents…')} />
@@ -186,7 +239,7 @@ export default function DocumentsPage() {
 
       <table className="table">
         <thead>
-          <tr><th>{tr('Title')}</th><th>{tr('Category')}</th><th>{tr('File')}</th><th>{tr('Visibility')}</th><th>{tr('Uploaded')}</th><th>{tr('By')}</th><th /></tr>
+          <tr><th>{tr('Title')}</th><th>{tr('Category')}</th><th>{tr('File')}</th><th>{tr('Visibility')}</th><th>{tr('Expires')}</th><th>{tr('Uploaded')}</th><th>{tr('By')}</th><th /></tr>
         </thead>
         <tbody>
           {visibleDocuments.map((dc) => {
@@ -208,6 +261,7 @@ export default function DocumentsPage() {
                   </div>
                 </td>
                 <td><span className="tag tag-neutral">{visLabel(dc)}</span></td>
+                <td><ExpiryCell iso={dc.expiresOn} /></td>
                 <td>{fmtDate((dc.uploadedAt || '').slice(0, 10))}</td>
                 <td>
                   <div className="documents-uploader-cell">
@@ -217,6 +271,7 @@ export default function DocumentsPage() {
                 </td>
                 <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                   <RowMenu actions={[
+                    { label: dc.expiresOn ? tr('Change expiry date') : tr('Set expiry date'), onClick: () => setExpiryTarget({ doc: dc, value: dc.expiresOn || '' }), hidden: !canManage },
                     { label: tr('Remove'), onClick: () => setDeleteTarget(dc), danger: true, hidden: !(canManage) },
                   ]} />
                 </td>
@@ -263,9 +318,34 @@ export default function DocumentsPage() {
                 <option value="managers">{tr('Managers only')}</option>
               </select>
             </div>
+            <div className="field">
+              <label htmlFor="doc-expires">{tr('Expires on (optional)')}</label>
+              <input id="doc-expires" className="input" type="date" value={form.expiresOn} onChange={(e) => setForm({ ...form, expiresOn: e.target.value })} />
+              <span className="field-hint">{tr('For licences, permits, insurance, certificates — the OS warns you 60, 30, 14 and 7 days before.')}</span>
+            </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
               <button type="submit" className="btn btn-primary" disabled={uploading}>{uploading ? tr('Adding…') : tr('Add document')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {expiryTarget && (
+        <div className="dialog-backdrop" onClick={() => setExpiryTarget(null)}>
+          <form className="dialog documents-dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => saveExpiry(e, false)}>
+            <h2>{tr('Expiry date')}</h2>
+            <p className="dialog-body"><strong>{expiryTarget.doc.title}</strong></p>
+            {expiryTarget.error && <div className="error-banner">{expiryTarget.error}</div>}
+            <div className="field">
+              <label htmlFor="doc-expiry-edit">{tr('Expires on')}</label>
+              <input id="doc-expiry-edit" className="input" type="date" value={expiryTarget.value} onChange={(e) => setExpiryTarget({ ...expiryTarget, value: e.target.value })} required />
+              <span className="field-hint">{tr('Renewed it? Put the new date here — the warnings start again for the new date.')}</span>
+            </div>
+            <div className="dialog-actions">
+              {expiryTarget.doc.expiresOn && <button type="button" className="btn btn-secondary" disabled={savingExpiry} onClick={() => saveExpiry(null, true)}>{tr('No expiry date')}</button>}
+              <button type="button" className="btn btn-secondary" onClick={() => setExpiryTarget(null)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingExpiry}>{tr('Save')}</button>
             </div>
           </form>
         </div>

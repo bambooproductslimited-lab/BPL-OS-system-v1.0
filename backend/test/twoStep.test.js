@@ -31,7 +31,7 @@ async function tokenOf(email) { return (await login(email)).body.token; }
 // A code for the next unused step, so each sign-in in the test is a new code.
 
 async function reset() {
-  await pool.query('UPDATE users SET totp_secret_enc = NULL, totp_pending_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL, failed_login_attempts = 0, locked_until = NULL WHERE email = $1', [EMAIL]);
+  await pool.query('UPDATE users SET totp_secret_enc = NULL, totp_pending_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL, two_step_phone = NULL, sms_two_step_at = NULL, failed_login_attempts = 0, locked_until = NULL WHERE email = $1', [EMAIL]);
   await pool.query('DELETE FROM user_backup_codes WHERE user_id = (SELECT id FROM users WHERE email = $1)', [EMAIL]);
 }
 test.before(async function () {
@@ -54,7 +54,11 @@ test('codes match the RFC 6238 test values, so any authenticator app agrees with
 
 test('turning it on: a code from the app proves it was scanned, then backup codes are shown once', async function () {
   var t = await tokenOf(EMAIL);
-  assert.deepEqual((await call('GET', '/api/me/two-step', null, t)).body, { enabled: false, enabledAt: null, backupCodesLeft: 0 });
+  var before = (await call('GET', '/api/me/two-step', null, t)).body;
+  assert.equal(before.enabled, false);
+  assert.equal(before.backupCodesLeft, 0);
+  assert.equal(before.app.on, false);
+  assert.equal(before.sms.on, false);
   var setup = (await call('POST', '/api/me/two-step/setup', {}, t)).body;
   secret = setup.secret;
   assert.match(setup.otpauthUri, /^otpauth:\/\/totp\/Bamboo%20OS:lydia\.auma%40bplghana\.com\?secret=[A-Z2-7]+&issuer=Bamboo%20OS/);

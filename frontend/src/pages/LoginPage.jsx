@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { sendLoginCode } from '../api/client';
 import { tr } from '../lib/i18n.jsx';
 import './LoginPage.css';
 
@@ -62,10 +63,36 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
-  // Two-step sign-in: after a right password, the code from the app.
+  // Two-step sign-in: after a right password, the code from the app or a
+  // text message. methods says which this person has; smsTo is where a
+  // texted code goes ("•••• 3456").
   const [challenge, setChallenge] = useState(null);
+  const [methods, setMethods] = useState([]);
+  const [smsTo, setSmsTo] = useState(null);
+  const [texted, setTexted] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [sendingCode, setSendingCode] = useState(false);
   const [code, setCode] = useState('');
   const [rememberDevice, setRememberDevice] = useState(false);
+
+  const hasApp = methods.includes('app');
+  const hasSms = methods.includes('sms');
+
+  async function textMeACode() {
+    setSendingCode(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await sendLoginCode(challenge);
+      setTexted(true);
+      setNotice(tr('Code sent to {phone}.', { phone: r.sentTo }));
+    } catch (err) {
+      if (/too long|Sign in again/i.test(err.message || '')) setChallenge(null);
+      setError(err.message);
+    } finally {
+      setSendingCode(false);
+    }
+  }
 
   const redirectTo = location.state && location.state.from ? location.state.from : '/dashboard';
 
@@ -82,6 +109,11 @@ export default function LoginPage() {
       const result = await login(email, password);
       if (result && result.twoStepRequired) {
         setChallenge(result.challenge);
+        setMethods(result.methods || ['app']);
+        setSmsTo(result.smsTo || null);
+        setTexted(!!result.codeSent);
+        setNotice(result.codeSent ? tr('Code sent to {phone}.', { phone: result.smsTo }) : null);
+        if (result.codeError) setError(result.codeError);
         setCode('');
         return;
       }
@@ -126,7 +158,12 @@ export default function LoginPage() {
           {challenge ? (
             <>
               <h1 className="login-form-title">{tr('Two-step sign-in')}</h1>
-              <p className="login-form-sub">{tr('Enter the 6-digit code from your authenticator app.')}</p>
+              <p className="login-form-sub">
+                {hasApp && texted ? tr('Enter the 6-digit code from your authenticator app or the text message.')
+                  : hasApp ? tr('Enter the 6-digit code from your authenticator app.')
+                    : tr('Enter the 6-digit code we texted to {phone}.', { phone: smsTo })}
+              </p>
+              {notice && <div className="login-code-notice" role="status">{notice}</div>}
               <div className="field">
                 <label htmlFor="bpl-code">{tr('Code')}</label>
                 <input
@@ -144,6 +181,11 @@ export default function LoginPage() {
                 <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)} />
                 {tr('Don\'t ask again on this device for 30 days')}
               </label>
+              {hasSms && (
+                <button type="button" className="login-text-code" onClick={textMeACode} disabled={sendingCode}>
+                  {sendingCode ? tr('Sending…') : hasApp && !texted ? tr('Text me a code instead ({phone})', { phone: smsTo }) : tr('Send a new code')}
+                </button>
+              )}
               <p className="login-code-help">
                 {tr('Lost your phone? Type one of your backup codes instead, or ask an administrator to turn two-step sign-in off for you.')}
               </p>
@@ -151,7 +193,7 @@ export default function LoginPage() {
               <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
                 {submitting ? tr('Checking…') : tr('Verify')}
               </button>
-              <button type="button" className="btn btn-secondary btn-block login-back" onClick={() => { setChallenge(null); setError(null); }}>
+              <button type="button" className="btn btn-secondary btn-block login-back" onClick={() => { setChallenge(null); setError(null); setNotice(null); }}>
                 {tr('Back')}
               </button>
             </>

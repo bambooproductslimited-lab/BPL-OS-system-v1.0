@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { tr } from '../lib/i18n.jsx';
+import SmsSettings from '../components/SmsSettings';
 import './CompanySettingsPage.css';
 
 // Ported from Bamboo OS.dc.html's settings screen (screens.settings block).
@@ -199,6 +200,18 @@ export default function CompanySettingsPage() {
           />
           <button type="submit" className="btn btn-secondary" disabled={currencySaving || !currencyDraft.trim()}>{tr('+ Add currency')}</button>
         </form>
+      )}
+
+      {!locked && (
+        <>
+          <div className="cs-header" style={{ marginTop: 32 }}>
+            <h2 className="cs-header-title">{tr('Text messages (SMS)')}</h2>
+          </div>
+          <p className="field-hint" style={{ marginBottom: 12 }}>
+            {tr('Sign-in codes, payment reminders and booking notices by text, through the company\'s mNotify account.')}
+          </p>
+          <SmsSettings />
+        </>
       )}
 
       <div className="cs-meta">{tr('Leave approval chain:')} {(settings.leaveApprovalChain || []).join(' → ')}</div>

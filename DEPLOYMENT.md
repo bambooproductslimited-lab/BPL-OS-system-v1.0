@@ -51,6 +51,12 @@ that they live on the same host.
    - `ANTHROPIC_MODEL` — optional, default `claude-opus-5`. Set
      `claude-sonnet-5` for a cheaper, faster assistant. `ANTHROPIC_EFFORT`
      — optional, default `medium`.
+   - `MNOTIFY_API_KEY` and `MNOTIFY_SENDER_ID` — optional. Text messages
+     through mNotify: two-step sign-in codes by text, payment reminders and
+     booking notices by text, and (if turned on) staff alerts. The key is in
+     the mNotify dashboard under API; the sender ID (up to 11 characters)
+     must be approved by mNotify before texts from it go through. Company
+     settings → Text messages shows the credit balance and sends a test.
 3. Click **Apply**. Render provisions the database, then builds and starts
    the backend (`npm install && npm run migrate && npm run bootstrap`,
    then `npm start`). First deploy takes a few minutes.

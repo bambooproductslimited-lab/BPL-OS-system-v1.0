@@ -62,8 +62,14 @@ router.post('/two-step/setup', requireAuth, async function (req, res, next) {
 router.post('/two-step/enable', requireAuth, async function (req, res, next) {
   try { res.json(await twoStep.enable(req.ctx, req.body.code)); } catch (e) { next(e); }
 });
+router.post('/two-step/sms/setup', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.startSmsSetup(req.ctx, req.body.phone)); } catch (e) { next(e); }
+});
+router.post('/two-step/sms/enable', requireAuth, async function (req, res, next) {
+  try { res.json(await twoStep.enableSms(req.ctx, req.body.code)); } catch (e) { next(e); }
+});
 router.post('/two-step/disable', requireAuth, async function (req, res, next) {
-  try { res.json(await twoStep.disable(req.ctx, req.body.password)); } catch (e) { next(e); }
+  try { res.json(await twoStep.disable(req.ctx, req.body.password, req.body.method)); } catch (e) { next(e); }
 });
 router.post('/two-step/backup-codes', requireAuth, async function (req, res, next) {
   try { res.json(await twoStep.newBackupCodes(req.ctx, req.body.password)); } catch (e) { next(e); }

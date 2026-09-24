@@ -83,6 +83,11 @@ router.post('/:id/id-documents/:kind', upload.single('file'), async function (re
   try { res.status(201).json(await employeeDocumentsService.upload(req.ctx, req.params.id, req.params.kind, req.file)); } catch (e) { next(e); }
 });
 
+// PATCH { expiresOn } — when the ID card (front) or passport runs out
+router.patch('/:id/id-documents/:kind', async function (req, res, next) {
+  try { res.json(await employeeDocumentsService.setExpiry(req.ctx, req.params.id, req.params.kind, (req.body || {}).expiresOn)); } catch (e) { next(e); }
+});
+
 router.get('/:id/id-documents/:kind/download', async function (req, res, next) {
   try { res.json(await employeeDocumentsService.getDownloadUrl(req.ctx, req.params.id, req.params.kind)); } catch (e) { next(e); }
 });

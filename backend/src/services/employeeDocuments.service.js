@@ -10,6 +10,8 @@ var storage = require('../lib/storage');
 // documents. Uses the same R2 storage as the Documents module.
 
 var KINDS = ['id_front', 'id_back', 'passport'];
+// The ID card's expiry is kept on its front; the back has none of its own.
+var EXPIRING_KINDS = ['id_front', 'passport'];
 var MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB — these are photos/scans, not large files
 
 // No visibleEmployee() check on the target employeeId here — list()/
@@ -37,12 +39,15 @@ async function requireEmployee(employeeId) {
 async function list(ctx, employeeId) {
   requireManage(ctx);
   await requireEmployee(employeeId);
-  var res = await pool.query('SELECT kind, file_name, uploaded_at FROM employee_documents WHERE employee_id = $1', [employeeId]);
+  var res = await pool.query('SELECT kind, file_name, uploaded_at, expires_on FROM employee_documents WHERE employee_id = $1', [employeeId]);
   var byKind = {};
-  res.rows.forEach(function (r) { byKind[r.kind] = { fileName: r.file_name, uploadedAt: r.uploaded_at }; });
+  res.rows.forEach(function (r) { byKind[r.kind] = { fileName: r.file_name, uploadedAt: r.uploaded_at, expiresOn: r.expires_on ? String(r.expires_on).slice(0, 10) : null }; });
   return KINDS.map(function (kind) {
     var found = byKind[kind];
-    return { kind: kind, fileName: found ? found.fileName : null, uploadedAt: found ? found.uploadedAt : null };
+    return {
+      kind: kind, fileName: found ? found.fileName : null, uploadedAt: found ? found.uploadedAt : null,
+      expiresOn: found ? found.expiresOn : null, canExpire: EXPIRING_KINDS.indexOf(kind) >= 0
+    };
   });
 }
 
@@ -85,4 +90,19 @@ async function getDownloadUrl(ctx, employeeId, kind) {
   return { url: url };
 }
 
-module.exports = { list: list, upload: upload, getDownloadUrl: getDownloadUrl };
+// When the ID card or passport runs out (blank clears it); the daily alerts
+// (jobs/dailyAlerts.js) warn HR and the employee before it does.
+async function setExpiry(ctx, employeeId, kind, expiresOn) {
+  requireManage(ctx);
+  if (EXPIRING_KINDS.indexOf(kind) < 0) fail('invalid', 'Only the ID card (front) and the passport have an expiry date.');
+  var emp = await requireEmployee(employeeId);
+  var d = require('./documents.service').expiryDate(expiresOn);
+  var res = await pool.query('UPDATE employee_documents SET expires_on = $1 WHERE employee_id = $2 AND kind = $3 RETURNING id', [d, employeeId, kind]);
+  if (!res.rowCount) fail('notfound', 'Upload the document first, then add when it expires.');
+  var what = kind === 'passport' ? 'passport' : 'ID card';
+  await audit(pool, ctx, 'employee.document.expiry', 'employee', employeeId,
+    d ? emp.first_name + ' ' + emp.last_name + '\'s ' + what + ' expires on ' + d + '.' : 'Cleared the ' + what + ' expiry date for ' + emp.first_name + ' ' + emp.last_name + '.');
+  return list(ctx, employeeId);
+}
+
+module.exports = { list: list, upload: upload, setExpiry: setExpiry, getDownloadUrl: getDownloadUrl, EXPIRING_KINDS: EXPIRING_KINDS };

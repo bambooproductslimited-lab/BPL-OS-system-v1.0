@@ -1,0 +1,14 @@
+DROP TABLE expiry_alerts;
+ALTER TABLE employee_documents DROP COLUMN expires_on;
+ALTER TABLE documents DROP COLUMN expires_on;
+DROP TABLE two_step_sms_codes;
+ALTER TABLE users DROP COLUMN sms_two_step_at;
+ALTER TABLE users DROP COLUMN two_step_phone;
+DROP TABLE auto_texts;
+DROP TABLE booking_notices;
+ALTER TABLE payment_reminders DROP COLUMN automatic;
+DELETE FROM payment_reminders WHERE channel <> 'whatsapp';
+ALTER TABLE payment_reminders DROP CONSTRAINT payment_reminders_channel_check;
+ALTER TABLE payment_reminders ADD CONSTRAINT payment_reminders_channel_check CHECK (channel IN ('whatsapp'));
+ALTER TABLE settings DROP COLUMN messaging;
+DROP TABLE sms_messages;

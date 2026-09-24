@@ -17,8 +17,18 @@ function documentVisible(ctx, doc) {
 function rowToDocument(r, extra) {
   return Object.assign({
     id: r.id, title: r.title, category: r.category, departmentId: r.department_id, visibility: r.visibility,
-    uploadedBy: r.uploaded_by, uploadedAt: r.uploaded_at, fileName: r.file_name, hasFile: !!r.object_key
+    uploadedBy: r.uploaded_by, uploadedAt: r.uploaded_at, fileName: r.file_name, hasFile: !!r.object_key,
+    expiresOn: r.expires_on ? String(r.expires_on).slice(0, 10) : null
   }, extra || {});
+}
+
+// The date a licence, permit, certificate or policy runs out, or none.
+// Blank clears it. The daily alerts (jobs/dailyAlerts.js) warn before it.
+function expiryDate(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  var d = V.date(String(v).trim(), 'Expiry date');
+  if (isNaN(new Date(d + 'T00:00:00Z').getTime())) fail('invalid', 'Expiry date must be a valid date.');
+  return d;
 }
 
 // kernel.js: handlers['documents.list']
@@ -45,11 +55,12 @@ async function upload(ctx, p) {
   var visibility = V.oneOf(p.visibility || 'all', ['all', 'department', 'managers'], 'Visibility');
   var departmentId = visibility === 'department' ? ctx.employee.department_id : null;
 
+  var expiresOn = expiryDate(p.expiresOn);
   var objectKey = await storage.uploadFile(p.file.originalname, p.file.buffer, p.file.mimetype);
 
   var res = await pool.query(
-    'INSERT INTO documents (title, category, department_id, visibility, uploaded_by, file_name, object_key) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [title, category, departmentId, visibility, ctx.employee.id, p.file.originalname, objectKey]
+    'INSERT INTO documents (title, category, department_id, visibility, uploaded_by, file_name, object_key, expires_on) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+    [title, category, departmentId, visibility, ctx.employee.id, p.file.originalname, objectKey, expiresOn]
   );
   var doc = res.rows[0];
   await audit(pool, ctx, 'document.upload', 'document', doc.id, 'Uploaded "' + doc.title + '".');
@@ -71,6 +82,19 @@ async function getDownloadUrl(ctx, id) {
   return { url: url };
 }
 
+// Sets or clears when a document expires — e.g. after renewing a licence
+// and uploading nothing new, just the new date.
+async function setExpiry(ctx, id, expiresOn) {
+  if (!ctx.can('document.manage')) fail('forbidden', 'Your role does not allow this action (document.manage).');
+  var res = await pool.query('SELECT * FROM documents WHERE id = $1', [id]);
+  if (!res.rows[0]) fail('notfound', 'Document not found.');
+  if (!documentVisible(ctx, res.rows[0])) fail('forbidden', 'You do not have access to this document.');
+  var d = expiryDate(expiresOn);
+  var updated = (await pool.query('UPDATE documents SET expires_on = $1 WHERE id = $2 RETURNING *', [d, id])).rows[0];
+  await audit(pool, ctx, 'document.expiry', 'document', id, d ? '"' + updated.title + '" expires on ' + d + '.' : 'Cleared the expiry date of "' + updated.title + '".');
+  return rowToDocument(updated);
+}
+
 // kernel.js: handlers['documents.delete']
 async function remove(ctx, id) {
   if (!ctx.can('document.manage')) fail('forbidden', 'Your role does not allow this action (document.manage).');
@@ -85,4 +109,4 @@ async function remove(ctx, id) {
   return true;
 }
 
-module.exports = { list: list, upload: upload, remove: remove, getDownloadUrl: getDownloadUrl, documentVisible: documentVisible };
+module.exports = { list: list, upload: upload, setExpiry: setExpiry, expiryDate: expiryDate, remove: remove, getDownloadUrl: getDownloadUrl, documentVisible: documentVisible };

@@ -7,6 +7,7 @@ var { pool } = require('../db/pool');
 var { AppError } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var authService = require('../services/auth.service');
+var twoStep = require('../services/twoStep.service');
 var { buildContext } = require('../services/context.service');
 var { InvalidGrantError, InvalidTokenError, InvalidRequestError } = require('@modelcontextprotocol/sdk/server/auth/errors.js');
 
@@ -104,17 +105,26 @@ function page(opts) {
 }
 
 // The second step, for accounts with two-step sign-in on: the code from the
-// authenticator app (or a backup code), before Claude is allowed in.
+// authenticator app or a text message (or a backup code), before Claude is
+// allowed in. smsTo (masked) is only for what the page says; sending a code
+// is checked against the account itself.
 function codePage(opts) {
+  var hasApp = (opts.methods || []).indexOf('app') >= 0;
+  var where = hasApp && opts.smsTo ? 'your authenticator app, or texted to ' + opts.smsTo + ','
+    : opts.smsTo ? 'the text message sent to ' + opts.smsTo + ',' : 'your authenticator app,';
   return page({
     title: 'Enter your code',
-    body: '<p class="lead">Two-step sign-in is on for this account. Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>' +
+    body: '<p class="lead">Two-step sign-in is on for this account. Enter the 6-digit code from ' + escapeHtml(where) + ' or one of your backup codes.</p>' +
+      (opts.notice ? '<p class="lead" role="status">' + escapeHtml(opts.notice) + '</p>' : '') +
       (opts.error ? '<p class="error" role="alert">' + escapeHtml(opts.error) + '</p>' : '') +
       '<form method="post" action="/oauth/login">' +
       '<input type="hidden" name="request" value="' + escapeHtml(opts.request) + '">' +
       '<input type="hidden" name="challenge" value="' + escapeHtml(opts.challenge) + '">' +
+      '<input type="hidden" name="methods" value="' + escapeHtml((opts.methods || []).join(',')) + '">' +
+      '<input type="hidden" name="smsTo" value="' + escapeHtml(opts.smsTo || '') + '">' +
       '<label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></label>' +
       '<div class="buttons"><button name="decision" value="allow" class="primary">Allow</button>' +
+      (opts.smsTo ? '<button name="decision" value="sms" formnovalidate>' + (hasApp ? 'Text me a code' : 'Send a new code') + '</button>' : '') +
       '<button name="decision" value="deny" formnovalidate>Cancel</button></div>' +
       '</form>'
   });
@@ -246,6 +256,20 @@ router.post('/oauth/login', loginLimiter, express.urlencoded({ extended: false, 
       return res.status(200).type('html').send(page({ clientName: client.client_name || 'Claude', request: req.body.request, email: req.body.email, error: message }));
     };
 
+    var codeOpts = {
+      request: req.body.request, challenge: req.body.challenge,
+      methods: String(req.body.methods || '').split(',').filter(Boolean), smsTo: req.body.smsTo || null
+    };
+    if (req.body.decision === 'sms' && req.body.challenge) {
+      try {
+        var sent = await twoStep.sendLoginCode(req.body.challenge);
+        return res.status(200).type('html').send(codePage(Object.assign(codeOpts, { notice: 'Code sent to ' + sent.sentTo + '.' })));
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        return res.status(200).type('html').send(codePage(Object.assign(codeOpts, { error: err.message })));
+      }
+    }
+
     if (req.body.decision !== 'allow') {
       return res.redirect(302, redirectWith(r.r, { error: 'access_denied', error_description: 'The person cancelled.', state: r.s }));
     }
@@ -258,12 +282,15 @@ router.post('/oauth/login', loginLimiter, express.urlencoded({ extended: false, 
     } catch (err) {
       if (!(err instanceof AppError)) throw err;
       if (req.body.challenge && /code is not right/.test(err.message)) {
-        return res.status(200).type('html').send(codePage({ request: req.body.request, challenge: req.body.challenge, error: err.message }));
+        return res.status(200).type('html').send(codePage(Object.assign(codeOpts, { error: err.message })));
       }
       return again(err.message);
     }
     if (result.twoStepRequired) {
-      return res.status(200).type('html').send(codePage({ request: req.body.request, challenge: result.challenge }));
+      return res.status(200).type('html').send(codePage({
+        request: req.body.request, challenge: result.challenge, methods: result.methods, smsTo: result.smsTo,
+        notice: result.codeSent ? 'Code sent to ' + result.smsTo + '.' : null, error: result.codeError || null
+      }));
     }
     if (result.ctx.user.mustChangePassword) {
       return again('Sign in to Bamboo OS in your browser and set your own password first, then connect Claude.');

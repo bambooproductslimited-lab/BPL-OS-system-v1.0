@@ -11,6 +11,7 @@ var STATUS_BY_CODE = {
   notfound: 404,
   conflict: 409,
   ratelimited: 429,
+  unavailable: 502, // an outside service (e.g. the SMS provider) said no or didn't answer
   error: 500
 };
 

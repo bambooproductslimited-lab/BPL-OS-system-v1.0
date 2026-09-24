@@ -27,7 +27,7 @@ function verifyToken(token) {
 async function login(email, password, opts) {
   email = String(email || '').trim().toLowerCase();
   var res = await pool.query(
-    'SELECT u.id, u.email, u.password_hash, u.status, u.failed_login_attempts, u.locked_until, u.totp_enabled_at, u.mfa_valid_after, ' +
+    'SELECT u.id, u.email, u.password_hash, u.status, u.failed_login_attempts, u.locked_until, u.totp_enabled_at, u.mfa_valid_after, u.sms_two_step_at, u.two_step_phone, ' +
     'e.first_name, e.last_name ' +
     'FROM users u JOIN employees e ON e.id = u.employee_id WHERE u.email = $1',
     [email]
@@ -54,12 +54,20 @@ async function login(email, password, opts) {
   // The failed-attempt count is only cleared once the code is right too, so
   // a known password doesn't reset the lockout on guessing codes.
   if (twoStep.required(user) && !twoStep.trustsDevice(user, opts && opts.deviceToken)) {
-    return { twoStepRequired: true, challenge: twoStep.challengeFor(user.id) };
+    var out = Object.assign({ twoStepRequired: true, challenge: twoStep.challengeFor(user.id) }, twoStep.loginOptions(user));
+    // Someone whose only way is a text gets the code straight away. If it
+    // can't be sent (no credit, provider down) they're told, and can still
+    // use a backup code.
+    if (out.methods.length === 1 && out.methods[0] === 'sms') {
+      try { await twoStep.sendLoginCode(out.challenge); out.codeSent = true; } catch (e) { out.codeError = e.message; }
+    }
+    return out;
   }
   return finishLogin(user.id);
 }
 
-// The second step: the code from the authenticator app (or a backup code).
+// The second step: the code from the authenticator app or a text (or a
+// backup code).
 async function verifyLogin(challenge, code, rememberDevice) {
   var userId = await twoStep.checkLoginCode(challenge, code, MAX_FAILED_ATTEMPTS, LOCKOUT_MINUTES);
   var result = await finishLogin(userId, 'Signed in with two-step sign-in.');

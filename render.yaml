@@ -79,6 +79,14 @@ services:
       # faster. See backend/src/ai/claude.js.
       - key: ANTHROPIC_MODEL
         value: claude-opus-5
+      # Optional — text messages through mNotify (sign-in codes, payment
+      # reminders, booking notices). The API key is in the mNotify dashboard
+      # under API; the sender ID (up to 11 characters) must be approved by
+      # mNotify first. Leave unset and the OS simply doesn't send texts.
+      - key: MNOTIFY_API_KEY
+        sync: false
+      - key: MNOTIFY_SENDER_ID
+        sync: false
       # Optional — leave unset and Documents uploads are refused with a
       # clear error (everything else still works). Create a free R2 bucket
       # + API token at https://dash.cloudflare.com/ (R2 > Manage API tokens)

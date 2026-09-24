@@ -1,5 +1,6 @@
 var { pool } = require('../db/pool');
-var { notify } = require('../utils/notify');
+var staffAlerts = require('../services/staffAlerts.service');
+var sms = require('../services/sms.service');
 var { buildContext } = require('../services/context.service');
 var remindersService = require('../services/reminders.service');
 
@@ -8,7 +9,8 @@ var remindersService = require('../services/reminders.service');
 // overdue and due in the next three days (Bamboo Products invoices and/or
 // Poki rent and utilities), and products at or below their reorder level.
 // It lands in the notification bell and, for anyone who has turned on phone
-// pop-ups, on their phone. Nothing is sent to someone with nothing to act on.
+// pop-ups, on their phone — and as a text, if "Text staff their alerts" is on
+// (staffAlerts.service.js). Nothing is sent to someone with nothing to act on.
 //
 // staff_digests (migration 0076) makes it once per person per day however
 // often this runs or restarts.
@@ -49,7 +51,7 @@ async function digestFor(ctx) {
   return {
     title: paymentsFirst ? 'Payments to chase today' : 'Stock to reorder',
     body: parts.join(' · ') + '.',
-    link: paymentsFirst ? '/reminders' : '/inventory'
+    link: paymentsFirst ? 'reminders' : 'inventory' // route names, as the bell expects
   };
 }
 
@@ -59,6 +61,7 @@ async function runOnce(now) {
   var date = at.toISOString().slice(0, 10);
   var sent = 0;
   try {
+    var settings = await sms.messaging();
     var users = (await pool.query(
       "SELECT DISTINCT u.id, u.employee_id FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN role_permissions rp ON rp.role_id = ur.role_id " +
       "WHERE u.status = 'active' AND rp.permission_key IN ('invoice.read', 'poki.read', 'poki.manage', 'inventory.read') " +
@@ -75,7 +78,7 @@ async function runOnce(now) {
         [users[i].employee_id, date]
       );
       if (!claimed.rowCount || !d) continue;
-      await notify(pool, users[i].employee_id, d.title, d.body, d.link);
+      await staffAlerts.alert(users[i].employee_id, d.title, d.body, d.link, settings);
       sent++;
     }
     if (sent) console.log('Morning digest: sent to ' + sent + ' person(s).');
