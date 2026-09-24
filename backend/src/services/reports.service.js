@@ -59,22 +59,45 @@ async function marketingDashboard(ctx) {
   );
   var f = funnelRes.rows[0];
 
+  // Quotations sent (or opened) and not yet answered — the ones to chase,
+  // soonest to expire first.
+  var waitingRes = await pool.query(
+    "SELECT q.quote_no, q.grand_total, q.currency, q.status, q.created_at, q.valid_until, c.name AS customer_name " +
+    "FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE q.status IN ('sent','viewed') " +
+    'ORDER BY q.valid_until NULLS LAST, q.created_at LIMIT 20'
+  );
+  var waitingCount = await pool.query("SELECT count(*)::int AS n FROM quotations WHERE status IN ('sent','viewed')");
+
   var topCustomersRes = await pool.query(
-    'SELECT c.name, o.currency, sum(o.total) AS total FROM sales_orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.name, o.currency ORDER BY total DESC LIMIT 5'
+    'SELECT c.name, o.currency, sum(o.total) AS total, count(*)::int AS orders FROM sales_orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.name, o.currency ORDER BY total DESC LIMIT 5'
   );
   var leadsRes = await pool.query(
-    "SELECT c.*, m.first_name, m.last_name FROM customers c LEFT JOIN employees m ON m.id = c.account_manager_id WHERE c.category IN ('lead','prospect')"
+    "SELECT c.*, m.first_name, m.last_name, " +
+    "(SELECT count(*)::int FROM quotations q WHERE q.customer_id = c.id AND q.status IN ('sent','viewed')) AS open_quotes, " +
+    '(SELECT max(q.created_at) FROM quotations q WHERE q.customer_id = c.id) AS last_quote_at ' +
+    "FROM customers c LEFT JOIN employees m ON m.id = c.account_manager_id WHERE c.category IN ('lead','prospect') ORDER BY c.category DESC, c.name"
   );
   var recentQuotesRes = await pool.query(
-    'SELECT q.quote_no, q.grand_total, q.currency, q.status, c.name AS customer_name FROM quotations q JOIN customers c ON c.id = q.customer_id ORDER BY q.created_at DESC LIMIT 5'
+    'SELECT q.quote_no, q.grand_total, q.currency, q.status, q.created_at, q.valid_until, c.name AS customer_name FROM quotations q JOIN customers c ON c.id = q.customer_id ORDER BY q.created_at DESC LIMIT 5'
   );
+  function day(d) { return d ? (d.toISOString ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null; }
 
   return {
     pipeline: pipeline, totalCustomers: totalCustomers.rows[0].n,
-    funnel: { sent: f.sent, accepted: f.accepted, rejected: f.rejected, conversionRate: f.sent ? Math.round((f.accepted / f.sent) * 100) : 0 },
-    topCustomers: topCustomersRes.rows.map(function (r) { return { name: r.name, currency: r.currency, total: Number(r.total) }; }),
-    leads: leadsRes.rows.map(function (r) { return { name: r.name, contactPerson: r.contact_person, email: r.email, phone: r.phone, category: r.category, managerName: r.first_name ? r.first_name + ' ' + r.last_name : '—' }; }),
-    recentQuotes: recentQuotesRes.rows.map(function (r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, total: Number(r.grand_total), status: r.status }; })
+    funnel: {
+      sent: f.sent, accepted: f.accepted, rejected: f.rejected, waiting: waitingCount.rows[0].n,
+      conversionRate: f.sent ? Math.round((f.accepted / f.sent) * 100) : 0
+    },
+    topCustomers: topCustomersRes.rows.map(function (r) { return { name: r.name, currency: r.currency, total: Number(r.total), orders: r.orders }; }),
+    leads: leadsRes.rows.map(function (r) {
+      return {
+        id: r.id, name: r.name, contactPerson: r.contact_person, email: r.email, phone: r.phone, category: r.category,
+        managerName: r.first_name ? r.first_name + ' ' + r.last_name : '—', hasManager: !!r.first_name,
+        openQuotes: r.open_quotes, lastQuoteAt: day(r.last_quote_at)
+      };
+    }),
+    recentQuotes: recentQuotesRes.rows.map(function (r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, total: Number(r.grand_total), status: r.status, createdAt: day(r.created_at), validUntil: day(r.valid_until) }; }),
+    waitingQuotes: waitingRes.rows.map(function (r) { return { quoteNo: r.quote_no, customerName: r.customer_name, currency: r.currency, total: Number(r.grand_total), status: r.status, createdAt: day(r.created_at), validUntil: day(r.valid_until) }; })
   };
 }
 
