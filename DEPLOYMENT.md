@@ -63,6 +63,12 @@ that they live on the same host.
      `smtp.hostinger.com` port `465`; Google Workspace or Gmail is
      `smtp.gmail.com` port `465` with an app password. `SMTP_USER` is the
      full address. Company settings → Email sends a test.
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` — optional. "Import from Google Drive" on
+     Products & inventory. In Google Cloud: turn on the Google Drive API,
+     create a service account, add a JSON key, and paste the whole key file
+     here. Then share the Finish Inventory sheets (or their folder) with the
+     service account's email as Viewer. The OS can only read what is shared
+     with it.
 3. Click **Apply**. Render provisions the database, then builds and starts
    the backend (`npm install && npm run migrate && npm run bootstrap`,
    then `npm start`). First deploy takes a few minutes.

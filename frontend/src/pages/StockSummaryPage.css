@@ -99,3 +99,4 @@
 }
 .stocksummary-gap > div { flex: 1 1 360px; }
 @media (prefers-reduced-motion: reduce) { .stocksummary-month { transition: none; } }
+.stocksummary-gap-actions { display: flex; flex-wrap: wrap; gap: 8px; }

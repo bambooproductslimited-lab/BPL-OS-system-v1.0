@@ -6,7 +6,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import './InventoryPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { tr, trNodes } from '../lib/i18n.jsx';
+import { tr, trNodes, activeIntlLocale } from '../lib/i18n.jsx';
+import { SetupSteps } from '../components/SmsSettings';
 import { formatDate } from '../lib/dates';
 // Ported from Bamboo OS.dc.html's inventory screen (screens.inventory
 // block + the products computed values, and the shared "product"
@@ -133,6 +134,173 @@ function WorkbookPreview({ preview, month, onMonth, mappings, onMap }) {
   );
 }
 
+function monthName(m) {
+  return m ? new Date(m + '-01T00:00:00').toLocaleDateString(activeIntlLocale(), { month: 'long', year: 'numeric' }) : '';
+}
+
+// Import from Google Drive (backend googleDrive.service.js): the Finish
+// Inventory sheets shared with the OS's Google service account, newest
+// first, each with how much of its month is already in the OS. Picking one
+// fetches it from Drive and shows the same preview as an uploaded workbook;
+// after importing, the list comes back so the next month is one click away.
+function DriveImportDialog({ onClose, onImported }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [all, setAll] = useState(false);
+  const [file, setFile] = useState(null); // { id, name }
+  const [preview, setPreview] = useState(null);
+  const [month, setMonth] = useState('');
+  const [mappings, setMappings] = useState({});
+  const [busy, setBusy] = useState(null); // file id being previewed, or 'commit'
+  const [done, setDone] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try { setData(await api.get('/products/import/drive' + (all ? '?all=1' : ''))); } catch (err) { setError(err.message); setData({ configured: true, files: [] }); }
+  }, [all]);
+  useEffect(() => { load(); }, [load]);
+
+  async function openPreview(f, m) {
+    setBusy(f.id);
+    setError(null);
+    setDone(null);
+    try {
+      const p = await api.post('/products/import/drive/' + f.id + '/preview', { month: m || undefined });
+      setFile(f);
+      setPreview(p);
+      setMonth(p.month || m || '');
+      if (!m) setMappings({});
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function commit() {
+    setBusy('commit');
+    setError(null);
+    try {
+      const r = await api.post('/products/import/drive/' + file.id + '/commit', { month, mappings });
+      setDone(tr('Imported {month}: {days} days, {created} products added.', { month: monthName(month), days: r.days, created: r.created }));
+      setPreview(null);
+      setFile(null);
+      onImported();
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyEmail() {
+    try { await navigator.clipboard.writeText(data.serviceAccountEmail); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* the address is on screen to copy by hand */ }
+  }
+
+  const days = preview && preview.month ? (preview.days || []).length : 0;
+
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog inventory-import-dialog inventory-drive-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="inventory-drive-head">
+          <span className="inventory-drive-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d="M8.5 3.5h7l6 10.5-3.5 6H6L2.5 14l6-10.5Z" /><path d="M8.5 3.5 15 14.5M15.5 3.5 9 14.5M2.5 14h19" /></svg>
+          </span>
+          <div>
+            <h2>{preview ? file.name : tr('Import from Google Drive')}</h2>
+            <p className="inventory-import-meta">{preview ? tr('From Google Drive') : tr('The Finish Inventory sheets, read straight from Drive — no downloading.')}</p>
+          </div>
+        </div>
+
+        {error && <div className="error-banner">{error}</div>}
+        {done && <div className="inventory-drive-done" role="status">{done}</div>}
+
+        {!data ? (
+          <p className="inventory-import-meta">{tr('Loading…')}</p>
+        ) : !data.configured ? (
+          <>
+            {data.jsonInvalid && <div className="error-banner">{tr('GOOGLE_SERVICE_ACCOUNT_JSON on the server isn\'t valid JSON. Paste the whole key file again, from { to }.')}</div>}
+            <p className="dialog-body">{tr('Google Drive isn\'t connected yet. An administrator does this once:')}</p>
+            <SetupSteps
+              steps={[
+                tr('In Google Cloud (console.cloud.google.com), choose or create a project, then APIs & Services → Library → Google Drive API → Enable.'),
+                tr('IAM & Admin → Service accounts → Create service account (e.g. "bamboo-os"). Open it → Keys → Add key → Create new key → JSON. A .json file downloads.'),
+                tr('In Render, open the backend service → Environment, add GOOGLE_SERVICE_ACCOUNT_JSON and paste the whole contents of that file. Save — the server restarts by itself.'),
+                tr('In Google Drive, share the Finish Inventory sheets — or better, the folder they are kept in — with the service account\'s email (it ends in iam.gserviceaccount.com), as Viewer.')
+              ]}
+              footnote={tr('Keep the key file private — never send it in a chat or email. The OS can only read what is shared with that email, and can\'t change anything in Drive.')}
+            />
+            <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button></div>
+          </>
+        ) : preview ? (
+          <>
+            <WorkbookPreview
+              preview={preview}
+              month={month}
+              onMonth={(m) => { setMonth(m); if (m) openPreview(file, m); }}
+              mappings={mappings}
+              onMap={(sku, value) => setMappings((prev) => ({ ...prev, [sku]: value }))}
+            />
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { setPreview(null); setFile(null); }}>{tr('Back')}</button>
+              <button type="button" className="btn btn-primary" disabled={!!busy || !days} onClick={commit}>
+                {busy === 'commit' ? tr('Importing…') : tr('Import {n} days', { n: days })}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="inventory-drive-share">
+              <span>{tr('The OS sees what is shared with')} <code>{data.serviceAccountEmail}</code></span>
+              <button type="button" className="btn btn-secondary inventory-drive-copy" onClick={copyEmail}>{copied ? tr('Copied!') : tr('Copy')}</button>
+            </div>
+            <label className="inventory-drive-all">
+              <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> {tr('Show every spreadsheet, not just Finish Inventory')}
+            </label>
+            {!data.files.length ? (
+              <div className="inventory-drive-empty">
+                <p><strong>{tr('Nothing shared with the OS yet.')}</strong></p>
+                <p className="inventory-import-meta">{tr('In Google Drive, share the Finish Inventory sheets (or their folder) with the address above as Viewer, then open this again.')}</p>
+              </div>
+            ) : (
+              <ul className="inventory-drive-list">
+                {data.files.map((f) => (
+                  <li key={f.id} className="inventory-drive-row">
+                    <span className="inventory-drive-file" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
+                    </span>
+                    <div className="inventory-drive-text">
+                      <div className="inventory-drive-name">{f.name}</div>
+                      <div className="inventory-import-meta">
+                        {tr('Updated {date}', { date: formatDate(String(f.modifiedTime).slice(0, 10)) })}{f.owner ? ' · ' + f.owner : ''}
+                      </div>
+                    </div>
+                    <div className="inventory-drive-status">
+                      {f.month ? <span className="inventory-drive-month">{monthName(f.month)}</span> : null}
+                      {f.month && (f.daysInOs
+                        ? <span className="inventory-drive-pill is-in">{tr('{n} days in the OS', { n: f.daysInOs })}</span>
+                        : <span className="inventory-drive-pill">{tr('Not in the OS yet')}</span>)}
+                    </div>
+                    <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => openPreview(f)}>
+                      {busy === f.id ? tr('Reading…') : tr('Preview')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={load}>{tr('Refresh')}</button>
+              <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const IMPORT_ORDER = { create: 1, update: 1, unchanged: 2, kept: 2, skip: 3 };
 
 const EMPTY_FORM = { sku: '', name: '', category: '', unit: '', costPrice: '', sellingPrice: '', currentStock: '', reorderLevel: '' };
@@ -154,6 +322,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('');
 
   const [importOpen, setImportOpen] = useState(false);
+  const [driveOpen, setDriveOpen] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
   const [countDate, setCountDate] = useState('');
@@ -181,10 +350,14 @@ export default function InventoryPage() {
   const [params, setParams] = useSearchParams();
   useEffect(() => {
     if (params.get('import') && can('inventory.manage')) {
-      setImportFile(null);
-      setImportPreview(null);
-      setImportError(null);
-      setImportOpen(true);
+      if (params.get('import') === 'drive') {
+        setDriveOpen(true);
+      } else {
+        setImportFile(null);
+        setImportPreview(null);
+        setImportError(null);
+        setImportOpen(true);
+      }
       setParams({}, { replace: true });
     }
   }, [params, setParams, can]);
@@ -313,6 +486,7 @@ export default function InventoryPage() {
         <SearchInput value={search} onChange={setSearch} placeholder={tr('Search products…')} />
         {canManage && (
           <div className="inventory-toolbar-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => setDriveOpen(true)}>{tr('Import from Google Drive')}</button>
             <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import count sheet')}</button>
             <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add product')}</button>
           </div>
@@ -406,6 +580,13 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {driveOpen && (
+        <DriveImportDialog
+          onClose={() => setDriveOpen(false)}
+          onImported={() => { setToast(tr('Workbook imported from Google Drive.')); load(); }}
+        />
+      )}
+
       {importOpen && (
         <div className="dialog-backdrop" onClick={() => setImportOpen(false)}>
           <div className="dialog inventory-import-dialog" onClick={(e) => e.stopPropagation()}>
@@ -420,6 +601,12 @@ export default function InventoryPage() {
               {tr('Or bring in a whole month at once: File → Download → Microsoft Excel (.xlsx), and upload that. Every day tab goes onto the daily stock sheet, oldest first.')}
             </p>
             {importError && <div className="error-banner">{importError}</div>}
+
+            {!importPreview && (
+              <button type="button" className="inventory-drive-switch" onClick={() => { setImportOpen(false); setDriveOpen(true); }}>
+                {tr('Or pick the workbook straight from Google Drive →')}
+              </button>
+            )}
 
             {!importPreview && (
               <>

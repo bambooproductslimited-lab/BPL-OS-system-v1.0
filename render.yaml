@@ -101,6 +101,12 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
+      # Optional — "Import from Google Drive" on Products & inventory. Paste
+      # the whole JSON key file of a Google Cloud service account (with the
+      # Google Drive API turned on), then share the Finish Inventory sheets
+      # or their folder with the service account's email as Viewer.
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
       # Optional — leave unset and Documents uploads are refused with a
       # clear error (everything else still works). Create a free R2 bucket
       # + API token at https://dash.cloudflare.com/ (R2 > Manage API tokens)

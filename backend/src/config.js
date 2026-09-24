@@ -216,6 +216,31 @@ module.exports = {
       get configured() { return !!(this.host && this.user && this.pass); }
     };
   }()),
+  // Google Drive (services/googleDrive.service.js) — "Import from Google
+  // Drive" on Products & inventory reads the Finish Inventory sheets
+  // straight from Drive. Server to server with a Google Cloud service
+  // account, like the Website analytics below: the sheets (or their folder)
+  // are shared with the service account's email as Viewer. Easiest is
+  // GOOGLE_SERVICE_ACCOUNT_JSON — the whole JSON key file pasted in; the
+  // email and key can also be given separately, and the Website analytics
+  // service account is used if neither is set.
+  googleDrive: (function () {
+    var fromJson = {};
+    var raw = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim();
+    if (raw) {
+      try { fromJson = JSON.parse(raw); } catch (e) { fromJson = { invalid: true }; }
+    }
+    var email = (fromJson.client_email || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GA4_SERVICE_ACCOUNT_EMAIL || '').trim();
+    var key = (fromJson.private_key || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GA4_SERVICE_ACCOUNT_PRIVATE_KEY || '').trim().replace(/\\n/g, '\n');
+    return {
+      serviceAccountEmail: email,
+      privateKey: key,
+      jsonInvalid: !!fromJson.invalid,
+      tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
+      apiBase: (process.env.GOOGLE_DRIVE_API_BASE || 'https://www.googleapis.com').replace(/\/+$/, ''),
+      get configured() { return !!(this.serviceAccountEmail && this.privateKey); }
+    };
+  }()),
   // Website analytics (GA4 Data API) — a service account granted Viewer
   // access on the GA4 property, authenticated server-to-server via a
   // signed JWT (see services/googleAnalytics.service.js), not a per-user

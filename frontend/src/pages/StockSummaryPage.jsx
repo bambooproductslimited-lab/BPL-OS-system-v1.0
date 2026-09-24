@@ -133,7 +133,10 @@ export default function StockSummaryPage() {
             <strong>{tr('{n} of {total} days of {month} are in the OS.', { n: monthInfo.daysFilled, total: monthInfo.daysSoFar, month: monthLabel(month) })}</strong>{' '}
             {tr('To fill in the rest, import that month\'s Finish Inventory workbook (the .xlsx with the day tabs 1, 2, 3 …) — every day comes in at once. Do the oldest month first.')}
           </div>
-          <Link className="btn btn-primary" to="/inventory?import=workbook">{tr('Import a month\'s workbook')}</Link>
+          <div className="stocksummary-gap-actions">
+            <Link className="btn btn-primary" to="/inventory?import=drive">{tr('Import from Google Drive')}</Link>
+            <Link className="btn btn-secondary" to="/inventory?import=workbook">{tr('Upload a workbook')}</Link>
+          </div>
         </div>
       )}
 

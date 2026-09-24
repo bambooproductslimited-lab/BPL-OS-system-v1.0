@@ -3,6 +3,7 @@ var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var productsService = require('../services/products.service');
 var productImportService = require('../services/productImport.service');
+var googleDriveService = require('../services/googleDrive.service');
 var { allowlistFilter } = require('../lib/uploadFilters');
 
 var upload = multer({
@@ -44,6 +45,16 @@ router.post('/import/workbook/commit', workbookUpload.single('file'), async func
   try {
     res.json(await productImportService.commitWorkbook(req.ctx, req.file ? req.file.buffer : null, req.file ? req.file.originalname : '', req.body.month, req.body.mappings));
   } catch (e) { next(e); }
+});
+// Import from Google Drive — see googleDrive.service.js.
+router.get('/import/drive', async function (req, res, next) {
+  try { res.json(await googleDriveService.list(req.ctx, { all: req.query.all === '1' })); } catch (e) { next(e); }
+});
+router.post('/import/drive/:fileId/preview', async function (req, res, next) {
+  try { res.json(await googleDriveService.preview(req.ctx, req.params.fileId, (req.body || {}).month)); } catch (e) { next(e); }
+});
+router.post('/import/drive/:fileId/commit', async function (req, res, next) {
+  try { res.json(await googleDriveService.commit(req.ctx, req.params.fileId, (req.body || {}).month, (req.body || {}).mappings)); } catch (e) { next(e); }
 });
 router.post('/import/commit', async function (req, res, next) {
   try { res.json(await productImportService.commit(req.ctx, req.body.lines, req.body.countDate, req.body.source)); } catch (e) { next(e); }
