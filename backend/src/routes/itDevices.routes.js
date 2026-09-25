@@ -27,6 +27,22 @@ router.put('/:id', async function (req, res, next) {
   try { res.json(await itDevicesService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
+router.get('/:id/history', async function (req, res, next) {
+  try { res.json(await itDevicesService.history(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+router.post('/:id/assign', async function (req, res, next) {
+  try { res.json(await itDevicesService.assign(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/status', async function (req, res, next) {
+  try { res.json(await itDevicesService.setStatus(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/check', async function (req, res, next) {
+  try { res.json(await itDevicesService.markChecked(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
 router.post('/import/preview', upload.single('file'), async function (req, res, next) {
   try {
     if (!req.file) fail('invalid', 'No file uploaded.');
