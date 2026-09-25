@@ -149,7 +149,8 @@ async function load(ctx, companyCode) {
   if (ctx.can('asset.read')) {
     var ar = await pool.query(
       'SELECT count(*)::int AS n FROM assets a LEFT JOIN employees e ON e.id = a.assigned_employee_id LEFT JOIN departments d ON d.id = e.department_id ' +
-      'WHERE a.next_service_date IS NOT NULL AND a.next_service_date <= $1 AND ($2::uuid IS NULL OR d.company_id = $2 OR (d.company_id IS NULL AND $3))',
+      "WHERE a.status <> 'retired' AND a.next_service_date IS NOT NULL AND a.next_service_date <= $1 " +
+      'AND ($2::uuid IS NULL OR coalesce(a.company_id, d.company_id) = $2 OR (coalesce(a.company_id, d.company_id) IS NULL AND $3))',
       [isoPlus(t, 7), scopeId, isBpl]
     );
     assetsDueService = ar.rows[0].n;

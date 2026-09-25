@@ -12,4 +12,9 @@ router.post('/', async function (req, res, next) {
   try { res.status(201).json(await assetsService.create(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
+// PUT /api/assets/:id — change any detail (only the fields sent change)
+router.put('/:id', async function (req, res, next) {
+  try { res.json(await assetsService.update(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+
 module.exports = router;
