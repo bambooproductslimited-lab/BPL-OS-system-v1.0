@@ -11,6 +11,9 @@ router.get('/', async function (req, res, next) {
 router.post('/', async function (req, res, next) {
   try { res.status(201).json(await quotationsService.create(req.ctx, req.body)); } catch (e) { next(e); }
 });
+router.put('/:id', async function (req, res, next) {
+  try { res.json(await quotationsService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
 router.post('/:id/status', async function (req, res, next) {
   try { res.json(await quotationsService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
 });

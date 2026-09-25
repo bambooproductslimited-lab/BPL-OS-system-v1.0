@@ -114,7 +114,8 @@ async function createFromQuotation(ctx, quotationId, poReference) {
   var q = qRes.rows[0];
   if (!q) fail('notfound', 'Quotation not found.');
   if (q.status !== 'accepted') fail('conflict', 'Only an accepted quotation can be invoiced.');
-  var existing = await pool.query('SELECT id FROM invoices WHERE quotation_id = $1', [quotationId]);
+  // A voided invoice doesn't count: the quotation can be invoiced again.
+  var existing = await pool.query("SELECT id FROM invoices WHERE quotation_id = $1 AND status <> 'void'", [quotationId]);
   if (existing.rows[0]) fail('conflict', 'An invoice already exists for this quotation.');
 
   var items = await loadLineItems(pool, 'quotation', q.id);
