@@ -183,5 +183,5 @@ test('"Text staff their alerts": the alert goes by text too, to the phone on the
 
 test('the round runs only what is due for the hour', async function () {
   var early = new Date(); early.setUTCHours(5, 0, 0, 0);
-  assert.deepEqual(await job.runOnce(early), { expiry: 0, bookings: 0, texts: 0 });
+  assert.deepEqual(await job.runOnce(early), { expiry: 0, bookings: 0, texts: 0, recurring: 0 });
 });

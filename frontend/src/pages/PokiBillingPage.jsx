@@ -66,6 +66,9 @@ export default function PokiBillingPage() {
   const [invoices, setInvoices] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [charges, setCharges] = useState([]);
+  const [chargeForm, setChargeForm] = useState(null); // new or edit, open when set
+  const [chargeError, setChargeError] = useState(null);
 
   const [dialog, setDialog] = useState(null);
   const [form, setForm] = useState({});
@@ -92,6 +95,7 @@ export default function PokiBillingPage() {
       setTenants(tn);
       setBookings(ls);
       setProperties(await api.get('/poki/properties'));
+      api.get('/poki/recurring-charges').then(setCharges).catch(() => {});
       api.get('/poki/overview').then(setOverview).catch(() => {});
     } catch (err) {
       setError(err.message);
@@ -250,6 +254,39 @@ export default function PokiBillingPage() {
     }
   }
 
+  // ── recurring charges (CAM, flat utility fees) ─────────────────────
+  const KIND_TEXT = { cam: tr('Service charge (CAM)'), utility: tr('Utilities (flat fee)'), other: tr('Recurring charge') };
+  const FREQ_TEXT = { monthly: tr('every month'), quarterly: tr('every 3 months'), yearly: tr('every year') };
+  function openCharge(c, bookingId) {
+    setChargeError(null);
+    setChargeForm(c
+      ? { id: c.id, bookingId: c.bookingId, kind: c.kind, description: c.description, amount: String(c.amount), frequency: c.frequency, startDate: c.startDate, nextDate: c.nextDate, endDate: c.endDate || '', netDays: String(c.netDays) }
+      : { bookingId: bookingId || '', kind: 'cam', description: '', amount: '', frequency: 'monthly', startDate: '', endDate: '', netDays: '14' });
+  }
+  async function saveCharge(e) {
+    e.preventDefault();
+    setBusy(true);
+    setChargeError(null);
+    try {
+      const f = chargeForm;
+      if (f.id) await api.put('/poki/recurring-charges/' + f.id, { description: f.description, amount: f.amount, frequency: f.frequency, nextDate: f.nextDate, endDate: f.endDate, netDays: f.netDays });
+      else await api.post('/poki/recurring-charges', { bookingId: f.bookingId, kind: f.kind, description: f.description, amount: f.amount, frequency: f.frequency, startDate: f.startDate || undefined, endDate: f.endDate || undefined, netDays: f.netDays });
+      setToast(f.id ? tr('Recurring charge updated.') : tr('Recurring charge set up. It is invoiced automatically on its date.'));
+      setChargeForm(null);
+      setCharges(await api.get('/poki/recurring-charges'));
+    } catch (err) { setChargeError(err.message); } finally { setBusy(false); }
+  }
+  async function chargeAction(fn, done) {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fn();
+      setToast(done(r));
+      await load();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  const billedText = (r) => (r.invoices.length ? (r.invoices.length === 1 ? tr('Invoice {no} raised.', { no: r.invoices[0].invoiceNo }) : tr('{n} invoices raised.', { n: r.invoices.length })) : tr('Nothing was due.'));
+
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -289,18 +326,25 @@ export default function PokiBillingPage() {
   if (masterOpen.length) insights.push({ tone: 'warn', icon: 'doc', text: masterOpen.length === 1 ? tr('The {utility} bill for {property} has not been charged to the tenants.', { utility: codeLabel(masterOpen[0].utilityType).toLowerCase(), property: masterOpen[0].propertyName }) : tr('{n} shared bills have not been charged to the tenants.', { n: masterOpen.length }), action: { label: tr('Review & bill'), run: () => showSplit(masterOpen[0]) } });
   if (noMeter.length) insights.push({ tone: 'info', icon: 'warn', text: noMeter.length === 1 ? tr('{unit} is set to sub-metered utilities but has no meter, so its usage can\'t be billed.', { unit: noMeter[0].code }) : tr('{n} sub-metered units have no meter, so their usage can\'t be billed.', { n: noMeter.length }), action: canManage ? { label: tr('Add meter'), run: () => { setForm({ unitId: noMeter[0].id, utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); } } : null });
   if (unread.length) insights.push({ tone: 'info', icon: 'calendar', text: unread.length === 1 ? tr('The meter on {unit} has not been read for over a month.', { unit: unread[0].unitCode }) : tr('{n} meters on let units have not been read for over a month.', { n: unread.length }), action: canManage ? { label: tr('Record reading'), run: () => { setForm({ meterId: unread[0].id, periodStart: unread[0].lastReadOn ? String(unread[0].lastReadOn).slice(0, 10) : '', periodEnd: new Date().toISOString().slice(0, 10), currentReading: '' }); setDialogError(null); setDialog('reading'); } } : null });
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const activeCharges = charges.filter((c) => c.status === 'active');
+  const dueCharges = activeCharges.filter((c) => c.nextDate <= todayIso);
+  const withCam = new Set(charges.filter((c) => c.kind === 'cam' && c.status !== 'ended').map((c) => c.bookingId));
+  const noCam = bookings.filter((b) => b.status === 'active' && !withCam.has(b.id));
+  if (dueCharges.length) insights.push({ tone: 'info', icon: 'calendar', text: dueCharges.length === 1 ? tr('{what} for {name} is due to be invoiced today. It goes out with the morning run, or bill it now.', { what: dueCharges[0].description, name: dueCharges[0].tenantName }) : tr('{n} recurring charges are due to be invoiced today. They go out with the morning run, or bill them now.', { n: dueCharges.length }), action: canManage ? { label: tr('Bill now'), run: () => chargeAction(() => api.post('/poki/recurring-charges/run'), billedText) } : null });
+  if (canManage && noCam.length && charges.length) insights.push({ tone: 'info', icon: 'doc', text: noCam.length === 1 ? tr('{name}\'s booking {no} has no service charge (CAM) set up.', { name: noCam[0].tenantName, no: noCam[0].bookingNo }) : tr('{n} active bookings have no service charge (CAM) set up.', { n: noCam.length }), action: { label: tr('Set it up'), run: () => { setView('recurring'); openCharge(null, noCam[0].id); } } });
   if (!insights.length && invoices.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything billed is paid or in date, and every reading has been billed.') });
 
   const chipTest = {
     unpaid: (i) => unpaid.includes(i), overdue: (i) => overdue.includes(i), paid: (i) => i.status === 'paid',
-    rent: (i) => i.docKind === 'rent', utility: (i) => i.docKind === 'utility', other: (i) => i.docKind !== 'rent' && i.docKind !== 'utility' && i.status !== 'void',
+    rent: (i) => i.docKind === 'rent', utility: (i) => i.docKind === 'utility', cam: (i) => i.docKind === 'cam', other: (i) => !['rent', 'utility', 'cam'].includes(i.docKind) && i.status !== 'void',
     void: (i) => i.status === 'void', all: () => true
   };
   const visible = invoices.filter(chipTest[chip] || chipTest.unpaid)
     .filter((i) => matchesQuery(search, i.invoiceNo, i.customerName, i.unitCode, i.propertyName, i.bookingNo));
   const chips = [
     ['unpaid', tr('Unpaid'), unpaid.length], ['overdue', tr('Overdue'), overdue.length], ['paid', tr('Paid'), live.filter(chipTest.paid).length],
-    ['rent', tr('Rent'), live.filter(chipTest.rent).length], ['utility', tr('Utilities'), live.filter(chipTest.utility).length], ['other', tr('Other charges'), invoices.filter(chipTest.other).length],
+    ['rent', tr('Rent'), live.filter(chipTest.rent).length], ['utility', tr('Utilities'), live.filter(chipTest.utility).length], ['cam', tr('Service charge (CAM)'), live.filter(chipTest.cam).length], ['other', tr('Other charges'), invoices.filter(chipTest.other).length],
     ['void', tr('Void'), invoices.filter(chipTest.void).length], ['all', tr('All'), invoices.length]
   ].filter(([k, , c]) => c > 0 || k === 'unpaid' || k === chip);
   function invState(i) {
@@ -331,7 +375,7 @@ export default function PokiBillingPage() {
       <Insights items={insights.slice(0, 5)} />
 
       <div id="pk-desk" className="rs-views" role="tablist" aria-label={tr('Show')}>
-        {[['invoices', tr('Invoices'), unpaid.length], ['utilities', tr('Utilities'), unbilled.length + masterOpen.length]].map(([k, label, n]) => (
+        {[['invoices', tr('Invoices'), unpaid.length], ['utilities', tr('Utilities'), unbilled.length + masterOpen.length], ['recurring', tr('Recurring charges'), dueCharges.length]].map(([k, label, n]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} className={'rs-view' + (view === k ? ' is-on' : '')} onClick={() => setView(k)}>
             {label}{n ? <span className="ppl-chip-n">{n}</span> : null}
           </button>
@@ -375,6 +419,54 @@ export default function PokiBillingPage() {
                         { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) }
                       ]} />
                     </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Section>
+      )}
+
+      {view === 'recurring' && (
+        <Section id="pk-recurring" title={tr('Recurring charges')} sub={tr('Service charge (CAM) and flat utility fees billed automatically every month, quarter or year for as long as the booking runs. Each is invoiced in advance on its date, and charges due the same day go on one invoice.')}
+          action={canManage && (
+            <div className="pk-actions">
+              <button type="button" className="btn btn-secondary" disabled={busy || !dueCharges.length} onClick={() => chargeAction(() => api.post('/poki/recurring-charges/run'), billedText)}>{tr('Bill what is due')}</button>
+              <button type="button" className="btn btn-primary" onClick={() => openCharge(null)}>{tr('New recurring charge')}</button>
+            </div>
+          )}>
+          {!charges.length ? (
+            <div className="dk-empty tl-empty"><p>{tr('No recurring charges yet. Set up the service charge (CAM) or a flat utility fee for a booking, and it is invoiced automatically.')}</p></div>
+          ) : (
+            <ul className="pk-rc-list">
+              {charges.map((c) => {
+                const due = c.status === 'active' && c.nextDate <= todayIso;
+                return (
+                  <li key={c.id} className={'pk-rc is-' + c.status}>
+                    <div className="pk-rc-main">
+                      <strong>{c.description} · {money(c.amount, c.currency)} {FREQ_TEXT[c.frequency]}</strong>
+                      <span className="dk-muted tl-small">{c.tenantName} · {c.unitCode} · {c.propertyName} · {tr('booking {no}', { no: c.bookingNo })}</span>
+                      <span className="dk-muted tl-small">
+                        {c.periodsBilled ? tr('{n} periods billed, {amount} in all', { n: c.periodsBilled, amount: money(c.billedTotal, c.currency) }) : tr('Not billed yet')}
+                        {c.lastInvoice ? ' · ' + tr('last: {no} ({status})', { no: c.lastInvoice.invoiceNo, status: codeLabel(c.lastInvoice.status) }) : ''}
+                        {' · ' + tr('pay within {n} days', { n: c.netDays })}
+                        {c.endDate ? ' · ' + tr('until {date}', { date: fmtDate(c.endDate) }) : ' · ' + tr('until the booking ends ({date})', { date: fmtDate(c.bookingEnd) })}
+                      </span>
+                    </div>
+                    <div className="pk-rc-side">
+                      <Status tone={c.status === 'ended' ? 'muted' : c.status === 'paused' ? 'warn' : due ? 'info' : 'good'}>
+                        {c.status === 'ended' ? tr('Ended') : c.status === 'paused' ? tr('Paused') : due ? tr('Due today') : tr('Next {date}', { date: fmtDate(c.nextDate) })}
+                      </Status>
+                      {canManage && c.status !== 'ended' && (
+                        <RowMenu actions={[
+                          { label: tr('Edit'), onClick: () => openCharge(c) },
+                          { label: tr('Bill the next period now'), onClick: () => chargeAction(() => api.post('/poki/recurring-charges/' + c.id + '/bill-now'), billedText), hidden: c.status !== 'active' },
+                          { label: c.status === 'paused' ? tr('Resume') : tr('Pause'), onClick: () => chargeAction(() => api.post('/poki/recurring-charges/' + c.id + '/status', { status: c.status === 'paused' ? 'active' : 'paused' }), () => (c.status === 'paused' ? tr('Resumed.') : tr('Paused. Nothing is billed until you resume it.'))) },
+                          { label: tr('End'), onClick: () => chargeAction(() => api.post('/poki/recurring-charges/' + c.id + '/status', { status: 'ended' }), () => tr('Ended. Invoices already raised stay as they are.')), danger: true },
+                          { label: tr('Delete'), onClick: () => chargeAction(() => api.del('/poki/recurring-charges/' + c.id), () => tr('Deleted.')), danger: true, hidden: c.periodsBilled > 0 }
+                        ]} />
+                      )}
+                    </div>
                   </li>
                 );
               })}
@@ -485,6 +577,74 @@ export default function PokiBillingPage() {
       ]} />
 
       {!invoices.length && !meters.length && <p className="dk-muted tl-small">{tr('Nothing billed yet.')} <Link to="/pokibookings">{tr('Bookings')}</Link></p>}
+
+      {chargeForm && (
+        <div className="dialog-backdrop" onClick={() => setChargeForm(null)}>
+          <form className="dialog poki-dialog" onClick={(e) => e.stopPropagation()} onSubmit={saveCharge}>
+            <h2 className="poki-dialog-title">{chargeForm.id ? tr('Edit recurring charge') : tr('New recurring charge')}</h2>
+            {chargeError && <div className="error-banner poki-dialog-span">{chargeError}</div>}
+            <div className="field poki-dialog-span">
+              <label htmlFor="rc-booking">{tr('Booking')}</label>
+              <select id="rc-booking" className="input" required disabled={!!chargeForm.id} value={chargeForm.bookingId} onChange={(e) => setChargeForm({ ...chargeForm, bookingId: e.target.value })}>
+                <option value="">{tr('Choose a booking…')}</option>
+                {bookings.filter((b) => b.status === 'active' || b.status === 'draft' || b.id === chargeForm.bookingId).map((b) => (
+                  <option key={b.id} value={b.id}>{b.bookingNo} — {b.tenantName} — {b.unitCode} ({fmtDate(b.startDate)} → {fmtDate(b.endDate)})</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="rc-kind">{tr('What for')}</label>
+              <select id="rc-kind" className="input" disabled={!!chargeForm.id} value={chargeForm.kind} onChange={(e) => setChargeForm({ ...chargeForm, kind: e.target.value })}>
+                <option value="cam">{KIND_TEXT.cam}</option>
+                <option value="utility">{KIND_TEXT.utility}</option>
+                <option value="other">{tr('Something else')}</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="rc-desc">{tr('Line on the invoice')}</label>
+              <input id="rc-desc" className="input" maxLength={120} value={chargeForm.description} placeholder={KIND_TEXT[chargeForm.kind]} onChange={(e) => setChargeForm({ ...chargeForm, description: e.target.value })} />
+            </div>
+            {chargeForm.kind === 'utility' && !chargeForm.id && <p className="dk-muted tl-small poki-dialog-span">{tr('If the unit\'s fixed utility fee was already included in the booking price, don\'t add it again here.')}</p>}
+            <div className="field">
+              <label htmlFor="rc-amount">{tr('Amount each time')}</label>
+              <input id="rc-amount" className="input" type="number" min="0.01" step="0.01" required value={chargeForm.amount} onChange={(e) => setChargeForm({ ...chargeForm, amount: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="rc-freq">{tr('How often')}</label>
+              <select id="rc-freq" className="input" value={chargeForm.frequency} onChange={(e) => setChargeForm({ ...chargeForm, frequency: e.target.value })}>
+                <option value="monthly">{tr('Monthly')}</option>
+                <option value="quarterly">{tr('Every 3 months')}</option>
+                <option value="yearly">{tr('Yearly')}</option>
+              </select>
+            </div>
+            {chargeForm.id ? (
+              <div className="field">
+                <label htmlFor="rc-next">{tr('Next invoice date')}</label>
+                <input id="rc-next" className="input" type="date" required value={chargeForm.nextDate} onChange={(e) => setChargeForm({ ...chargeForm, nextDate: e.target.value })} />
+              </div>
+            ) : (
+              <div className="field">
+                <label htmlFor="rc-start">{tr('First invoice date')}</label>
+                <input id="rc-start" className="input" type="date" value={chargeForm.startDate} onChange={(e) => setChargeForm({ ...chargeForm, startDate: e.target.value })} />
+                <span className="dk-muted tl-small">{tr('Leave empty to start today (or when the booking starts). Each invoice covers the period that starts on its date.')}</span>
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="rc-end">{tr('Last date (optional)')}</label>
+              <input id="rc-end" className="input" type="date" value={chargeForm.endDate} onChange={(e) => setChargeForm({ ...chargeForm, endDate: e.target.value })} />
+              <span className="dk-muted tl-small">{tr('Empty: until the booking ends. A last part period is charged by the day.')}</span>
+            </div>
+            <div className="field">
+              <label htmlFor="rc-net">{tr('Days to pay')}</label>
+              <input id="rc-net" className="input" type="number" min="0" max="90" step="1" value={chargeForm.netDays} onChange={(e) => setChargeForm({ ...chargeForm, netDays: e.target.value })} />
+            </div>
+            <div className="dialog-actions poki-dialog-span">
+              <button type="button" className="btn btn-secondary" onClick={() => setChargeForm(null)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? tr('Saving…') : chargeForm.id ? tr('Save') : tr('Set up charge')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {(dialog === 'meter' || dialog === 'reading' || dialog === 'master') && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>

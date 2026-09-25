@@ -48,7 +48,7 @@ const LABELS = {
   individual: msg('Individual'), company: msg('Company'),
   electricity: msg('Electricity'), water: msg('Water'), gas: msg('Gas'),
   share: msg('By share'), equal: msg('Equal split'), sqm: msg('By floor area'),
-  sale: msg('Sale'), rent: msg('Rent'), utility: msg('Utility'), deposit: msg('Deposit'),
+  sale: msg('Sale'), rent: msg('Rent'), utility: msg('Utility'), deposit: msg('Deposit'), cam: msg('Service charge (CAM)'),
   // Priority
   low: msg('Low'), medium: msg('Medium'), normal: msg('Normal'), high: msg('High'), urgent: msg('Urgent'),
   // Payment methods

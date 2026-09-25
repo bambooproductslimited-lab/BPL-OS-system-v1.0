@@ -125,6 +125,7 @@ function composeMessage(b, link) {
   var what;
   if (b.kind === 'rent') what = 'your rent' + place + period;
   else if (b.kind === 'utility') what = 'your utility bill' + place + period;
+  else if (b.kind === 'cam') what = 'your service charge' + place + period;
   else if (b.kind === 'deposit') what = 'your security deposit' + place;
   else if (b.kind === 'maintenance') what = 'the maintenance charge' + place;
   else what = 'invoice ' + b.invoiceNo;

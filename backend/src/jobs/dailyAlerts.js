@@ -137,15 +137,17 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bookings: 0, texts: 0 };
+  var out = { expiry: 0, bookings: 0, texts: 0, recurring: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
       try { out.expiry = await expiryAlerts(todayISO(), settings); } catch (e) { console.error('Expiry alerts failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
+      // Recurring Poki charges (CAM, flat utilities) that have come due.
+      try { out.recurring = (await require('../services/pokiRecurring.service').run(null, {})).invoices.length; } catch (e) { console.error('Recurring charges failed:', e.message); }
     }
     if (hour >= TEXTS_FROM_HOUR && hour < TEXTS_UNTIL_HOUR) out.texts = await reminders.autoTexts();
-    if (out.expiry || out.bookings || out.texts) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bookings || out.texts || out.recurring) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }

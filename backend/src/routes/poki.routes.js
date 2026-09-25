@@ -5,6 +5,7 @@ var billing = require('../services/pokiBilling.service');
 var estimates = require('../services/pokiEstimates.service');
 var reminders = require('../services/pokiReminders.service');
 var pokiInvoices = require('../services/pokiInvoices.service');
+var recurring = require('../services/pokiRecurring.service');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
 // requireAuth; the poki.read / poki.manage gates live in the services so
@@ -174,6 +175,30 @@ router.post('/master-bills/:id/bill', async function (req, res, next) {
 });
 
 // ── invoices (Poki's side of the shared invoices table) ────────────────
+// Recurring charges (CAM, flat utility fees): set up, change, pause, end,
+// and bill what is due (pokiRecurring.service.js).
+router.get('/recurring-charges', async function (req, res, next) {
+  try { res.json(await recurring.list(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/recurring-charges', async function (req, res, next) {
+  try { res.status(201).json(await recurring.create(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.post('/recurring-charges/run', async function (req, res, next) {
+  try { res.json(await recurring.run(req.ctx, {})); } catch (e) { next(e); }
+});
+router.put('/recurring-charges/:id', async function (req, res, next) {
+  try { res.json(await recurring.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/recurring-charges/:id/status', async function (req, res, next) {
+  try { res.json(await recurring.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
+});
+router.post('/recurring-charges/:id/bill-now', async function (req, res, next) {
+  try { res.json(await recurring.run(req.ctx, { chargeId: req.params.id })); } catch (e) { next(e); }
+});
+router.delete('/recurring-charges/:id', async function (req, res, next) {
+  try { res.json(await recurring.remove(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
 router.get('/invoices', async function (req, res, next) {
   try { res.json(await billing.listInvoices(req.ctx, { docKind: req.query.docKind, bookingId: req.query.bookingId })); } catch (e) { next(e); }
 });
