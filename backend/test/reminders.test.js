@@ -67,7 +67,11 @@ test('Ghana phone numbers are turned into WhatsApp numbers', function () {
 });
 
 test('the list: unpaid bills overdue or due within the window, most overdue first', async function () {
-  var rows = ours(await svc.due(admin, {}));
+  var all = await svc.due(admin, {});
+  // whether the OS also texts on its own is reported with the list
+  assert.equal(typeof all.auto.payments, 'boolean');
+  assert.equal(typeof all.auto.bookings, 'boolean');
+  var rows = ours(all);
   assert.deepEqual(rows.map(function (r) { return [r.invoiceNo, r.daysOverdue]; }), [
     ['Z6R-OVERDUE', 3], ['Z6R-NOPHONE', 1], ['Z6R-RENT', 1], ['Z6R-SOON', -2]
   ], 'not the one due in 20 days, not the paid one');

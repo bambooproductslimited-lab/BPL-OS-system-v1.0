@@ -1,25 +1,19 @@
-.reminders-intro { margin: 0 0 16px; font-size: 13px; max-width: 80ch; color: var(--color-text-muted); }
-.reminders-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-.reminders-select { width: auto; min-width: 180px; }
-.reminders-summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
-.reminders-stat {
-  display: flex; align-items: baseline; gap: 8px; font-size: 13px;
-  border: var(--divider-width) solid var(--color-divider); padding: 10px 14px;
-}
-.reminders-stat-n { font-size: 22px; font-weight: 700; }
-.reminders-stat-overdue { border-color: var(--color-danger); }
-.reminders-stat-overdue .reminders-stat-n { color: var(--color-danger); }
-.reminders-note { font-size: 13px; color: var(--color-text-muted); }
-.reminders-scroll { overflow-x: auto; max-width: 100%; }
-.reminders-table { min-width: 760px; }
-.reminders-table td { vertical-align: middle; }
-.reminders-name { font-weight: 600; }
-.reminders-meta { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
-.reminders-missing { color: var(--color-danger); }
-.reminders-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.reminders-overdue { color: var(--color-danger); font-weight: 600; }
-.reminders-action { text-align: right; white-space: nowrap; }
-.reminders-wa { background: #25d366; border-color: #25d366; color: #0b3d1e; }
-.reminders-wa:hover:not(:disabled) { background: #1ebe5b; border-color: #1ebe5b; }
-.reminders-tabs { margin-bottom: 12px; }
-.reminders-buttons { display: inline-flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+/* Payment reminders: send buttons on cards and rows, reminder history */
+.rm-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.rm-btn { padding: 7px 12px; font-size: 12.5px; }
+.rm-wa { background: #1f9d55; border-color: #1f9d55; }
+.rm-wa:hover:not(:disabled) { background: #188146; border-color: #188146; }
+.rm-last { margin: 0; }
+.rm .tl-card .rm-foot { flex-wrap: wrap; row-gap: 8px; }
+.rm-static { cursor: default; }
+.rm-static:hover { background: none; }
+.rm-tools { display: flex; gap: 10px; flex-wrap: wrap; }
+.rm-tools .tl-search { flex: 1 1 240px; }
+.rm-select { width: auto; max-width: 100%; }
+.rm-head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.rm-auto { display: inline-flex; align-items: center; }
+.rm-history { max-height: 360px; overflow-y: auto; }
+.rm-hist { cursor: default; }
+.rm-hist:hover { background: none; }
+.rm-msg { white-space: pre-line; }
+.rm .tl-actions .rm-buttons { display: inline-flex; }

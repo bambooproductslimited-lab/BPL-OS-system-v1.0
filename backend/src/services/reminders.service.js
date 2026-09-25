@@ -82,10 +82,14 @@ async function due(ctx, opts) {
     params
   )).rows;
 
+  // Whether the OS also texts on its own (Company settings → Messaging),
+  // so the page can say so rather than leave people chasing by hand.
+  var m = await sms.messaging();
   return {
     today: today,
     windowDays: windowDays,
     smsAvailable: sms.configured(),
+    auto: { payments: !!m.autoPaymentReminders, bookings: !!m.autoBookingNotices },
     rows: rows.map(function (r) {
       var isPoki = s.pokiId && r.company_id === s.pokiId;
       return {
