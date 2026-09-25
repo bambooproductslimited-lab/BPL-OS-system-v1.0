@@ -672,10 +672,75 @@ async function cancel(ctx, requestId) {
   });
 }
 
+// kernel.js: handlers['leave.overview'] — the HR screen's picture of one
+// year for everyone at once: every active leave type, every active
+// employee's balance per type (a stored row if one was granted, else a
+// preview of what would be granted: their own figure or the type's
+// default, nothing used), their agreed total against what is split across
+// types, how many own figures they have, and every company's public
+// holidays that year. Read-only; employee.write, like the per-employee
+// balance screens above (see getEntitlements()'s comment on scoping).
+async function overview(ctx, year) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  year = year ? Number(year) : new Date().getFullYear();
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('invalid', 'Invalid year.');
+
+  var typesRes = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active ORDER BY name');
+  var empRes = await pool.query(
+    'SELECT e.id, e.code, e.first_name, e.last_name, e.department_id, e.photo_key, e.photo_updated_at, e.leave_days_total, ' +
+    'd.name AS department_name, d.company_id, c.name AS company_name, c.code AS company_code ' +
+    "FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id WHERE e.status = 'active' " +
+    'ORDER BY e.first_name, e.last_name'
+  );
+  var balRes = await pool.query('SELECT employee_id, leave_type_id, entitled, used FROM leave_balances WHERE year = $1', [year]);
+  var balByKey = {};
+  balRes.rows.forEach(function (b) { balByKey[b.employee_id + ':' + b.leave_type_id] = b; });
+  var ovRes = await pool.query('SELECT employee_id, leave_type_id, days_per_year FROM employee_leave_entitlements');
+  var ovByKey = {};
+  ovRes.rows.forEach(function (r) { ovByKey[r.employee_id + ':' + r.leave_type_id] = r.days_per_year; });
+  var holRes = await pool.query(
+    'SELECT * FROM holidays WHERE date BETWEEN $1 AND $2 ORDER BY date',
+    [String(year) + '-01-01', String(year) + '-12-31']
+  );
+
+  var types = typesRes.rows;
+  var employees = empRes.rows.map(function (e) {
+    var allocated = 0, customCount = 0, granted = false;
+    var balances = types.map(function (t) {
+      var key = e.id + ':' + t.id;
+      var own = ovByKey[key];
+      var daysPerYear = own !== undefined ? own : t.days_per_year;
+      allocated += daysPerYear;
+      if (own !== undefined) customCount += 1;
+      var b = balByKey[key];
+      if (b) granted = true;
+      return {
+        leaveTypeId: t.id, daysPerYear: daysPerYear, custom: own !== undefined, hasRow: !!b,
+        entitled: b ? b.entitled : daysPerYear, used: b ? b.used : 0
+      };
+    });
+    return {
+      id: e.id, code: e.code, name: e.first_name + ' ' + e.last_name,
+      departmentId: e.department_id, department: e.department_name,
+      companyId: e.company_id, companyName: e.company_name, companyCode: e.company_code,
+      photo: e.photo_key && e.photo_updated_at ? new Date(e.photo_updated_at).getTime() : null,
+      leaveDaysTotal: e.leave_days_total, allocated: allocated, customCount: customCount, granted: granted,
+      balances: balances
+    };
+  });
+  return {
+    year: year,
+    types: types.map(function (t) { return { id: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid }; }),
+    employees: employees,
+    holidays: holRes.rows.map(rowToHoliday)
+  };
+}
+
 module.exports = {
   listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest,
   listAllTypes: listAllTypes, createType: createType, updateType: updateType,
   getBalances: getBalances, setBalance: setBalance, rollover: rollover, recalculateBalances: recalculateBalances,
   listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday,
-  getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement, setLeaveDaysTotal: setLeaveDaysTotal
+  getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement, setLeaveDaysTotal: setLeaveDaysTotal,
+  overview: overview
 };

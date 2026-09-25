@@ -28,6 +28,12 @@ router.patch('/types/:id', async function (req, res, next) {
   try { res.json(await leaveService.updateType(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
+// kernel.js: handlers['leave.overview'] -> GET /api/leave/overview?year= —
+// everyone's balances for a year, for the HR screen.
+router.get('/overview', async function (req, res, next) {
+  try { res.json(await leaveService.overview(req.ctx, req.query.year)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['leave.balances'] -> GET /api/leave/balances/:employeeId?year=
 router.get('/balances/:employeeId', async function (req, res, next) {
   try { res.json(await leaveService.getBalances(req.ctx, req.params.employeeId, req.query.year)); } catch (e) { next(e); }
