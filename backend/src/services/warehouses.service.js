@@ -10,10 +10,21 @@ function rowToWarehouse(r, extra) {
 // kernel.js: handlers['warehouses.list']
 async function list(ctx) {
   if (!ctx.can('inventory.read')) fail('forbidden', 'Your role does not allow this action (inventory.read).');
+  // rawByUnit: what is held per unit (kg, poles…), since adding kg to poles
+  // means nothing; batchCount: raw batches with something left.
   var res = await pool.query(
-    'SELECT w.*, coalesce((SELECT sum(quantity) FROM raw_batches r WHERE r.warehouse_id = w.id), 0) AS raw_qty FROM warehouses w ORDER BY w.name'
+    'SELECT w.*, coalesce((SELECT sum(quantity) FROM raw_batches r WHERE r.warehouse_id = w.id), 0) AS raw_qty, ' +
+    "(SELECT count(*)::int FROM raw_batches r WHERE r.warehouse_id = w.id AND r.quantity > 0) AS batch_count, " +
+    "(SELECT coalesce(json_agg(json_build_object('unit', t.unit, 'qty', t.qty) ORDER BY t.qty DESC), '[]') FROM " +
+    '(SELECT unit, sum(quantity) AS qty FROM raw_batches r WHERE r.warehouse_id = w.id AND r.quantity > 0 GROUP BY unit) t) AS raw_by_unit ' +
+    'FROM warehouses w ORDER BY w.name'
   );
-  return res.rows.map(function (r) { return rowToWarehouse(r, { rawQty: Number(r.raw_qty) }); });
+  return res.rows.map(function (r) {
+    return rowToWarehouse(r, {
+      rawQty: Number(r.raw_qty), batchCount: r.batch_count,
+      rawByUnit: (r.raw_by_unit || []).map(function (u) { return { unit: u.unit, qty: Number(u.qty) }; })
+    });
+  });
 }
 
 // kernel.js: handlers['warehouses.create']

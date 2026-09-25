@@ -15,4 +15,9 @@ router.put('/:id', async function (req, res, next) {
   try { res.json(await rawBatchesService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
+// POST /api/raw-batches/:id/write-off { qty?, reason } — rotten, split or lost
+router.post('/:id/write-off', async function (req, res, next) {
+  try { res.json(await rawBatchesService.writeOff(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+
 module.exports = router;

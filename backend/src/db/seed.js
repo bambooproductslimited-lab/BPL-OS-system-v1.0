@@ -497,7 +497,7 @@ async function run() {
     for (i = 0; i < rawBatchDefs.length; i++) {
       var rbd = rawBatchDefs[i];
       await client.query(
-        "INSERT INTO raw_batches (batch_no, species, supplier_id, date_received, quantity, unit, quality_grade, cost, warehouse_id, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'in_stock')",
+        "INSERT INTO raw_batches (batch_no, species, supplier_id, date_received, quantity, received_qty, unit, quality_grade, cost, warehouse_id, status) VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'in_stock')",
         [rbd.batchNo, rbd.species, supIds[rbd.supplierKey], rbd.dateReceived, rbd.quantity, rbd.unit, rbd.qualityGrade, rbd.cost, whIds[rbd.warehouseKey]]
       );
     }

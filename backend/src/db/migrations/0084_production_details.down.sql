@@ -1,0 +1,10 @@
+ALTER TABLE production_batches
+  DROP COLUMN created_at,
+  DROP COLUMN cancel_reason,
+  DROP COLUMN cancelled_by,
+  DROP COLUMN cancelled_at;
+ALTER TABLE raw_batches
+  DROP COLUMN created_by,
+  DROP COLUMN notes,
+  DROP COLUMN disposed_qty,
+  DROP COLUMN received_qty;
