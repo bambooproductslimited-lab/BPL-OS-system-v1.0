@@ -14,7 +14,7 @@ router.post('/', async function (req, res, next) {
 });
 
 router.post('/:id/status', async function (req, res, next) {
-  try { res.json(await waybillsService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
+  try { res.json(await waybillsService.setStatus(req.ctx, req.params.id, req.body.status, req.body)); } catch (e) { next(e); }
 });
 
 module.exports = router;

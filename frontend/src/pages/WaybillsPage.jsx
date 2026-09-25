@@ -2,52 +2,47 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import WaybillPreview from '../components/WaybillPreview';
-import SearchInput, { matchesQuery } from '../components/SearchInput';
 import CatalogPicker from '../components/CatalogPicker';
-import './WaybillsPage.css';
+import ContactButtons from '../components/ContactButtons';
+import Photo from '../components/Photo';
 import RowMenu from '../components/RowMenu';
-import RecordDialog from '../components/RecordDialog';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { Glossary, Hero, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
+import './EmployeesPage.css';
+import './WaybillsPage.css';
 
-import { tr, activeIntlLocale } from '../lib/i18n.jsx';
-import { codeLabel } from '../lib/codeLabels.js';
 // Waybills document goods leaving the factory or showroom — a delivery
 // note, not a sales document (no pricing on the line items). The printed
 // document (WaybillPreview.jsx) carries the full company letterhead, a
 // "shipped to" contact block, and three sign-off lines.
 //
-// Redesigned around the icon language established elsewhere: an
-// origin-colored truck badge per waybill, a driver avatar, icon'd
-// empty states. The new-waybill dialog and printed preview are untouched.
+// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
+// the key numbers (on the road, delivered and dispatched this month, items
+// sent), what stands out (deliveries not confirmed after a few days, no
+// driver or vehicle recorded), where goods went this month, then the
+// waybills with their route, and a window for each. Marking one delivered
+// records who signed for it and anything short or damaged
+// (waybills.service.js setStatus).
 
-const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/);
-  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
-}
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
-function badgeColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
+const ORIGINS = { factory: msg('Factory'), showroom: msg('Showroom') };
+const STATUS_TEXT = { dispatched: msg('On the road'), delivered: msg('Delivered'), cancelled: msg('Cancelled') };
+const LATE_DAYS = 3;
 
-function TruckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M3 6.5h10v9H3v-9Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M13 10h3.5L20 13v2.5h-7v-5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <circle cx="7" cy="17" r="1.6" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="17" cy="17" r="1.6" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
+function daysSince(iso) { return iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null; }
+function n(v) { return Number(v || 0).toLocaleString(activeIntlLocale(), { maximumFractionDigits: 2 }); }
+function itemCount(wb) { return (wb.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0); }
+function itemsLine(wb) {
+  const items = wb.items || [];
+  if (!items.length) return tr('no items listed');
+  const first = items[0].qty + ' ' + (items[0].unit || '') + ' ' + items[0].description;
+  return items.length === 1 ? first : tr('{first} and {n} more', { first, n: items.length - 1 });
 }
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+function statusTone(s, late) { return s === 'delivered' ? 'good' : s === 'cancelled' ? 'muted' : late ? 'bad' : 'info'; }
 
 function blankItem() { return { itemNo: '', description: '', qty: 1, unit: 'each' }; }
 const EMPTY_FORM = {
@@ -55,12 +50,6 @@ const EMPTY_FORM = {
   shippedToName: '', shippedToAddress: '', shippedToPhone: '', shippedToEmail: '', shippingDate: todayISO(),
   salesRepId: '', packagedBy: '', approvedBy: '', notes: '', items: [blankItem()]
 };
-
-function tagClass(status) {
-  if (status === 'delivered') return 'tag-neutral';
-  if (status === 'cancelled') return 'tag-accent';
-  return 'tag-outline';
-}
 
 export default function WaybillsPage() {
   const { can } = useAuth();
@@ -73,24 +62,26 @@ export default function WaybillsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
-  const [busyId, setBusyId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [previewWb, setPreviewWb] = useState(null);
+  const [chip, setChip] = useState('road');
+  const [origin, setOrigin] = useState('');
+  const [search, setSearch] = useState('');
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState('');
+  const [marking, setMarking] = useState(null); // { wb, status, receivedBy, deliveredOn, note }
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const [wbs, custs, emps, cat] = await Promise.all([
         api.get('/waybills'),
-        can('customer.read') ? api.get('/customers') : Promise.resolve([]),
-        can('employee.read') ? api.get('/employees') : Promise.resolve([]),
-        can('catalog.read') ? api.get('/catalog') : Promise.resolve([])
+        can('customer.read') ? api.get('/customers').catch(() => []) : Promise.resolve([]),
+        can('employee.read') ? api.get('/employees').catch(() => []) : Promise.resolve([]),
+        can('catalog.read') ? api.get('/catalog').catch(() => []) : Promise.resolve([])
       ]);
       setWaybills(wbs);
       setCustomers(custs);
@@ -102,7 +93,6 @@ export default function WaybillsPage() {
       setLoading(false);
     }
   }, [can]);
-
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -113,10 +103,9 @@ export default function WaybillsPage() {
 
   function openNew() {
     setDialogError(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, shippingDate: todayISO(), items: [blankItem()] });
     setDialogOpen(true);
   }
-
   function pickCustomer(customerId) {
     const c = customers.find((x) => x.id === customerId);
     const autoFill = c && !form.shippedToName && !form.shippedToAddress && !form.shippedToPhone && !form.shippedToEmail;
@@ -125,25 +114,18 @@ export default function WaybillsPage() {
       ...(autoFill ? { shippedToName: c.name, shippedToAddress: c.address || '', shippedToPhone: c.phone || '', shippedToEmail: c.email || '' } : {})
     });
   }
-
   function setItem(idx, key, value) {
     setForm({ ...form, items: form.items.map((it, i) => (i === idx ? { ...it, [key]: value } : it)) });
   }
   function pickCatalogItem(idx, c) {
     if (!c) return;
-    setForm({
-      ...form,
-      items: form.items.map((it, i) => (i === idx ? { ...it, itemNo: c.code || it.itemNo, description: c.name, unit: c.unit } : it))
-    });
+    setForm({ ...form, items: form.items.map((it, i) => (i === idx ? { ...it, itemNo: c.code || it.itemNo, description: c.name, unit: c.unit } : it)) });
   }
-  function addItem() {
-    setForm({ ...form, items: form.items.concat([blankItem()]) });
-  }
+  function addItem() { setForm({ ...form, items: form.items.concat([blankItem()]) }); }
   function removeItem(idx) {
     if (form.items.length <= 1) return;
     setForm({ ...form, items: form.items.filter((_, i) => i !== idx) });
   }
-
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
@@ -153,6 +135,7 @@ export default function WaybillsPage() {
       const created = await api.post('/waybills', body);
       setToast(tr('{waybillNo} dispatched.', { waybillNo: created.waybillNo }));
       setDialogOpen(false);
+      setChip('road');
       await load();
     } catch (err) {
       setDialogError(err.message);
@@ -160,92 +143,168 @@ export default function WaybillsPage() {
       setSaving(false);
     }
   }
-
-  async function setStatus(wb, status) {
-    setBusyId(wb.id);
+  function openMark(wb, status) {
+    setDialogError(null);
+    setDetail(null);
+    setMarking({ wb, status, receivedBy: wb.receivedBy || '', deliveredOn: todayISO(), note: '' });
+  }
+  async function saveMark(e) {
+    e.preventDefault();
+    setSaving(true);
+    setDialogError(null);
     try {
-      await api.post('/waybills/' + wb.id + '/status', { status });
-      setToast(tr('{waybillNo} marked {status}.', { waybillNo: wb.waybillNo, status: codeLabel(status) }));
+      const { wb, status } = marking;
+      await api.post('/waybills/' + wb.id + '/status', { status, receivedBy: marking.receivedBy, deliveredOn: marking.deliveredOn, note: marking.note });
+      setToast(status === 'delivered' ? tr('{waybillNo} delivered.', { waybillNo: wb.waybillNo }) : status === 'cancelled' ? tr('{waybillNo} cancelled.', { waybillNo: wb.waybillNo }) : tr('{waybillNo} is back on the road.', { waybillNo: wb.waybillNo }));
+      setMarking(null);
       await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusyId(null);
-    }
+    } catch (err) { setDialogError(err.message); } finally { setSaving(false); }
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  const visibleWaybills = waybills.filter((wb) => matchesQuery(search, wb.waybillNo, wb.destination, wb.customerName, wb.driverName, wb.vehicleNo));
+  // ── what the page shows ────────────────────────────────────────────
+  const monthKey = todayISO().slice(0, 7);
+  const road = waybills.filter((w) => w.status === 'dispatched');
+  // Days on the road count from the shipping date.
+  const late = road.filter((w) => daysSince(w.shippingDate || w.createdAt) >= LATE_DAYS);
+  const month = waybills.filter((w) => String(w.shippingDate || w.createdAt).slice(0, 7) === monthKey && w.status !== 'cancelled');
+  const deliveredMonth = waybills.filter((w) => w.status === 'delivered' && String(w.deliveredAt).slice(0, 7) === monthKey);
+  const today = waybills.filter((w) => String(w.shippingDate || w.createdAt).slice(0, 10) === todayISO() && w.status !== 'cancelled');
+  const noDriver = road.filter((w) => !w.driverName && !w.vehicleNo);
+  const shortNotes = waybills.filter((w) => /Delivery:/.test(w.notes || '') && String(w.deliveredAt).slice(0, 7) === monthKey);
+  const byPlace = Array.from(month.reduce((m, w) => {
+    const key = w.customerName || w.shippedToName || w.destination;
+    const cur = m.get(key) || { key, name: key, value: 0, trips: 0, dest: w.destination };
+    cur.value += itemCount(w); cur.trips += 1;
+    return m.set(key, cur);
+  }, new Map()).values()).sort((a, b) => b.trips - a.trips || b.value - a.value).slice(0, 6)
+    .map((r) => ({ ...r, amount: r.trips === 1 ? tr('1 waybill') : tr('{n} waybills', { n: r.trips }), meta: tr('{n} items · {place}', { n: n(r.value), place: r.dest }) }));
 
-  // One list, shared by the row menu and the record panel.
+  function showOnly(key) { setChip(chip === key ? 'all' : key); jump('wb-list'); }
+  const stats = [
+    { icon: 'send', value: String(road.length), label: tr('on the road'), note: late.length ? tr('{n} not confirmed after {d} days', { n: late.length, d: LATE_DAYS }) : tr('waiting to be delivered'), tone: late.length ? 'alert' : '', onClick: () => showOnly('road') },
+    { icon: 'check', value: String(deliveredMonth.length), label: tr('delivered this month'), note: shortNotes.length ? tr('{n} with a note on the delivery', { n: shortNotes.length }) : tr('signed for'), tone: deliveredMonth.length ? 'good' : '', onClick: () => showOnly('delivered') },
+    { icon: 'doc', value: String(month.length), label: tr('dispatched this month'), note: today.length ? tr('{n} today', { n: today.length }) : tr('none today'), onClick: () => showOnly('month') },
+    { icon: 'bag', value: n(month.reduce((s, w) => s + itemCount(w), 0)), label: tr('items sent this month'), note: tr('from the factory and showroom'), onClick: () => jump('wb-where') }
+  ];
+
+  const insights = [];
+  if (late.length) insights.push({ tone: 'warn', icon: 'clock', text: late.length === 1 ? tr('{no} to {place} left {d} days ago and is not confirmed delivered.', { no: late[0].waybillNo, place: late[0].destination, d: daysSince(late[0].shippingDate || late[0].createdAt) }) : tr('{n} waybills left more than {d} days ago and are not confirmed delivered.', { n: late.length, d: LATE_DAYS }), action: canManage && late.length === 1 ? { label: tr('Mark delivered'), run: () => openMark(late[0], 'delivered') } : { label: tr('Show them'), run: () => showOnly('late') } });
+  if (noDriver.length) insights.push({ tone: 'info', icon: 'people', text: noDriver.length === 1 ? tr('{no} has no driver or vehicle recorded.', { no: noDriver[0].waybillNo }) : tr('{n} waybills on the road have no driver or vehicle recorded.', { n: noDriver.length }), action: { label: tr('Show them'), run: () => showOnly('road') } });
+  if (shortNotes.length) insights.push({ tone: 'warn', icon: 'warn', text: shortNotes.length === 1 ? tr('The delivery of {no} has a note: {note}', { no: shortNotes[0].waybillNo, note: (shortNotes[0].notes.split('Delivery: ').pop() || '').split('\n')[0] }) : tr('{n} deliveries this month have a note about something short or damaged.', { n: shortNotes.length }), action: { label: tr('Open it'), run: () => setDetail(shortNotes[0]) } });
+  if (byPlace.length) insights.push({ tone: 'info', icon: 'up', text: tr('Most sent this month: {name}, {trips}.', { name: byPlace[0].name, trips: byPlace[0].amount }) });
+  if (!late.length && road.length === 0 && waybills.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything sent has been delivered.') });
+
+  const chipTest = {
+    road: (w) => w.status === 'dispatched',
+    late: (w) => late.includes(w),
+    delivered: (w) => w.status === 'delivered',
+    month: (w) => month.includes(w),
+    cancelled: (w) => w.status === 'cancelled',
+    all: () => true
+  };
+  const visible = waybills.filter(chipTest[chip] || chipTest.all)
+    .filter((w) => !origin || w.origin === origin)
+    .filter((w) => matchesQuery(search, w.waybillNo, w.destination, w.customerName, w.shippedToName, w.driverName, w.vehicleNo, w.receivedBy, ...(w.items || []).map((it) => it.description)));
+  const chips = [
+    ['road', tr('On the road'), road.length],
+    ['late', tr('Not confirmed after {d} days', { d: LATE_DAYS }), late.length],
+    ['delivered', tr('Delivered'), waybills.filter(chipTest.delivered).length],
+    ['month', tr('This month'), month.length],
+    ['cancelled', tr('Cancelled'), waybills.filter(chipTest.cancelled).length],
+    ['all', tr('All'), waybills.length]
+  ].filter(([k, , c]) => c > 0 || k === 'all' || k === chip);
+
   function waybillActions(wb) {
     return [
-      { label: tr('Preview'), onClick: () => setPreviewWb(wb) },
-      { label: tr('Mark delivered'), onClick: () => setStatus(wb, 'delivered'), disabled: busyId === wb.id, hidden: !(canManage && wb.status === 'dispatched') },
-      { label: tr('Cancel'), onClick: () => setStatus(wb, 'cancelled'), disabled: busyId === wb.id, danger: true, hidden: !(canManage && wb.status === 'dispatched') },
-    ];
+      { label: tr('Open'), onClick: () => setDetail(wb) },
+      { label: tr('Preview and print'), onClick: () => setPreviewWb(wb) },
+      canManage && wb.status === 'dispatched' && { label: tr('Mark delivered'), onClick: () => openMark(wb, 'delivered') },
+      canManage && wb.status === 'dispatched' && { label: tr('Cancel'), onClick: () => openMark(wb, 'cancelled'), danger: true },
+      canManage && wb.status !== 'dispatched' && { label: tr('Put back on the road'), onClick: () => openMark(wb, 'dispatched') }
+    ].filter(Boolean);
   }
 
   return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+    <div className="dk wb">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <div className="waybills-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search waybills…')} />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New waybill')}</button>}
-      </div>
+      <Hero
+        eyebrow={new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        title={tr('Waybills')}
+        sub={tr('Delivery notes for goods leaving the factory or showroom: what went, where, with which driver, and who signed for it. Press a number to show only those.')}
+        actions={canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New waybill')}</button>}
+        stats={stats} />
 
-      <table className="table table-clickable">
-        <thead>
-          <tr><th>{tr('Waybill')}</th><th>{tr('Origin')}</th><th>{tr('Destination')}</th><th>{tr('Driver')}</th><th>{tr('Vehicle')}</th><th>{tr('Date')}</th><th>{tr('Status')}</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleWaybills.map((wb) => (
-            <tr
-              key={wb.id}
-              tabIndex={0}
-              onClick={() => setDetail(wb)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(wb); } }}
-            >
-              <td>
-                <div className="waybills-no-cell">
-                  <span className="waybills-badge" style={{ background: badgeColor(wb.origin) }}><TruckIcon /></span>
-                  <span style={{ fontWeight: 600 }}>{wb.waybillNo}</span>
-                </div>
-              </td>
-              <td style={{ textTransform: 'capitalize' }}>{wb.origin}</td>
-              <td>{wb.destination}{wb.customerName ? ' (' + wb.customerName + ')' : ''}</td>
-              <td>
-                {wb.driverName ? (
-                  <div className="waybills-driver-cell">
-                    <span className="waybills-avatar" style={{ background: avatarColor(wb.driverName) }}>{initials(wb.driverName)}</span>
-                    {wb.driverName}
-                  </div>
-                ) : '—'}
-              </td>
-              <td>{wb.vehicleNo || '—'}</td>
-              <td>{fmtDate(wb.createdAt)}</td>
-              <td><span className={'tag ' + tagClass(wb.status)}>{codeLabel(wb.status)}</span></td>
-              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                <RowMenu actions={waybillActions(wb)} />
-              </td>
-            </tr>
+      <Insights items={insights.slice(0, 5)} />
+
+      <Section id="wb-list" title={tr('Waybills')} sub={tr('Newest first. Press one for its items and delivery.')}>
+        <div className="wb-tools">
+          <div className="wb-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search waybill, place, customer, driver, item…')} /></div>
+          <select className="input wb-select" value={origin} onChange={(e) => setOrigin(e.target.value)} aria-label={tr('Origin')}>
+            <option value="">{tr('Factory and showroom')}</option>
+            <option value="factory">{tr('From the factory')}</option>
+            <option value="showroom">{tr('From the showroom')}</option>
+          </select>
+        </div>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, c]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+              {label} <span className="ppl-chip-n">{c}</span>
+            </button>
           ))}
-        </tbody>
-      </table>
-      {!waybills.length && (
-        <div className="waybills-empty-state">
-          <span className="waybills-empty-icon"><TruckIcon /></span>
-          <p className="waybills-empty-title">{tr('No waybills yet')}</p>
         </div>
+        {visible.length ? (
+          <ul className="wb-list">
+            {visible.map((wb) => {
+              const isLate = late.includes(wb);
+              const since = daysSince(wb.shippingDate || wb.createdAt);
+              return (
+                <li key={wb.id} className={'wb-row is-' + wb.status + (isLate ? ' is-late' : '')}>
+                  <button type="button" className="wb-open" onClick={() => setDetail(wb)}>
+                    <span className={'wb-origin is-' + wb.origin} aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"><path d="M3 6.5h10v9H3zM13 10h3.5L20 13v2.5h-7z" /><circle cx="7" cy="17" r="1.6" /><circle cx="17" cy="17" r="1.6" /></svg>
+                    </span>
+                    <span className="wb-main">
+                      <span className="wb-title">{wb.waybillNo} <span className="wb-route">{tr(ORIGINS[wb.origin])} → {wb.destination}</span></span>
+                      <span className="dk-muted wb-sub">{wb.customerName || wb.shippedToName} · {itemsLine(wb)}</span>
+                    </span>
+                  </button>
+                  <span className="wb-driver">
+                    {wb.driverName || wb.vehicleNo ? <><strong>{wb.driverName || '—'}</strong><span className="dk-muted">{wb.vehicleNo}</span></> : <span className="dk-muted">{tr('No driver recorded')}</span>}
+                  </span>
+                  <span className="wb-when">
+                    <span>{fmtDate(String(wb.shippingDate || wb.createdAt).slice(0, 10))}</span>
+                    <Status tone={statusTone(wb.status, isLate)}>{wb.status === 'dispatched' && since > 0 ? (since === 1 ? tr('On the road, 1 day') : tr('On the road, {n} days', { n: since })) : tr(STATUS_TEXT[wb.status])}</Status>
+                  </span>
+                  <span className="wb-acts">
+                    {canManage && wb.status === 'dispatched' && <button type="button" className="btn btn-secondary wb-btn" onClick={() => openMark(wb, 'delivered')}>{tr('Delivered')}</button>}
+                    <RowMenu actions={waybillActions(wb)} />
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="dk-empty wb-empty">
+            <p>{waybills.length ? tr('Nothing here. Try another filter.') : tr('No waybills yet')}</p>
+            {canManage && !waybills.length && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New waybill')}</button>}
+          </div>
+        )}
+      </Section>
+
+      {byPlace.length > 0 && (
+        <Section id="wb-where" title={tr('Where goods went this month')} sub={tr('Customers and places by number of waybills.')} card>
+          <RankList rows={byPlace} />
+        </Section>
       )}
-      {!!waybills.length && !visibleWaybills.length && (
-        <div className="waybills-empty-state">
-          <span className="waybills-empty-icon"><TruckIcon /></span>
-          <p className="waybills-empty-title">{tr('No waybills match "{search}"', { search })}</p>
-        </div>
-      )}
+
+      <Glossary items={[
+        [tr('On the road'), tr('Dispatched and not yet confirmed delivered.')],
+        [tr('Delivered'), tr('Signed for at the other end. Record who signed and anything short or damaged.')],
+        [tr('Waybill'), tr('The delivery note that travels with the goods. Press "Preview and print" for the printed copy with the signature lines.')]
+      ]} />
 
       {dialogOpen && (
         <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
@@ -368,44 +427,87 @@ export default function WaybillsPage() {
         </div>
       )}
 
+      {marking && (
+        <div className="dialog-backdrop" onClick={() => !saving && setMarking(null)}>
+          <form className="dialog wb-dialog" onClick={(e) => e.stopPropagation()} onSubmit={saveMark}>
+            <h2>{marking.status === 'delivered' ? tr('{waybillNo} delivered', { waybillNo: marking.wb.waybillNo }) : marking.status === 'cancelled' ? tr('Cancel {waybillNo}?', { waybillNo: marking.wb.waybillNo }) : tr('Put {waybillNo} back on the road?', { waybillNo: marking.wb.waybillNo })}</h2>
+            <p className="dk-muted wb-small">{tr(ORIGINS[marking.wb.origin])} → {marking.wb.destination} · {itemsLine(marking.wb)}</p>
+            {marking.status === 'delivered' && (
+              <div className="wb-form">
+                <div className="field">
+                  <label htmlFor="wb-rcv">{tr('Signed for by')}</label>
+                  <input id="wb-rcv" className="input" maxLength={120} value={marking.receivedBy} onChange={(e) => setMarking({ ...marking, receivedBy: e.target.value })} placeholder={tr('Name, and their role')} autoFocus />
+                </div>
+                <div className="field">
+                  <label htmlFor="wb-on">{tr('Delivered on')}</label>
+                  <input id="wb-on" className="input" type="date" max={todayISO()} value={marking.deliveredOn} onChange={(e) => setMarking({ ...marking, deliveredOn: e.target.value })} />
+                </div>
+              </div>
+            )}
+            {marking.status !== 'dispatched' && (
+              <div className="field">
+                <label htmlFor="wb-note">{marking.status === 'delivered' ? tr('Anything short or damaged? (optional)') : tr('Why? (optional)')}</label>
+                <input id="wb-note" className="input" maxLength={500} value={marking.note} onChange={(e) => setMarking({ ...marking, note: e.target.value })} />
+              </div>
+            )}
+            {dialogError && <div className="error-banner">{dialogError}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setMarking(null)} disabled={saving}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : marking.status === 'delivered' ? tr('Mark delivered') : marking.status === 'cancelled' ? tr('Cancel the waybill') : tr('Put back on the road')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {detail && (
+        <div className="dialog-backdrop" onClick={() => setDetail(null)}>
+          <div className="dialog wb-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="wb-detail-head">
+              <div>
+                <span className="dk-muted wb-small">{tr(ORIGINS[detail.origin])} → {detail.destination}</span>
+                <h2>{detail.waybillNo}</h2>
+                <Status tone={statusTone(detail.status, late.includes(detail))}>{tr(STATUS_TEXT[detail.status])}</Status>
+              </div>
+              <button type="button" className="wb-close" onClick={() => setDetail(null)} aria-label={tr('Close')}>×</button>
+            </div>
+            <div className="wb-to">
+              <div>
+                <strong>{detail.shippedToName}</strong>
+                <span className="dk-muted">{[detail.customerName && detail.customerName !== detail.shippedToName ? detail.customerName : null, detail.shippedToAddress, detail.shippedToPhone].filter(Boolean).join(' · ')}</span>
+              </div>
+              <ContactButtons name={detail.shippedToName} phone={detail.shippedToPhone || detail.customerPhone} email={detail.shippedToEmail} />
+            </div>
+            <table className="wb-items">
+              <thead><tr><th>{tr('S/N')}</th><th>{tr('Description')}</th><th className="is-num">{tr('Qty')}</th></tr></thead>
+              <tbody>
+                {(detail.items || []).map((it, i) => (
+                  <tr key={i}><td>{it.itemNo || i + 1}</td><td>{it.description}</td><td className="is-num">{n(it.qty)} {it.unit}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            <ol className="wb-timeline">
+              <li>
+                <Photo id={detail.dispatchedBy} name={detail.dispatchedByName} photo={detail.dispatchedByPhoto} size={28} />
+                <div><strong>{tr('Dispatched by {name}', { name: detail.dispatchedByName })}</strong><span className="dk-muted">{fmtDate(String(detail.shippingDate || detail.createdAt).slice(0, 10))}{detail.driverName ? ' · ' + tr('driver {name}', { name: detail.driverName }) : ''}{detail.vehicleNo ? ' · ' + detail.vehicleNo : ''}{detail.salesRepName ? ' · ' + tr('sales rep {name}', { name: detail.salesRepName }) : ''}</span></div>
+              </li>
+              {detail.status === 'delivered' && (
+                <li className="is-good"><span className="wb-dot" aria-hidden="true" /><div><strong>{tr('Delivered')}{detail.receivedBy ? ' · ' + tr('signed for by {name}', { name: detail.receivedBy }) : ''}</strong><span className="dk-muted">{fmtDate(String(detail.deliveredAt).slice(0, 10))}</span></div></li>
+              )}
+              {detail.status === 'cancelled' && <li className="is-muted"><span className="wb-dot" aria-hidden="true" /><div><strong>{tr('Cancelled')}</strong></div></li>}
+            </ol>
+            {detail.notes && <p className="wb-notes">{detail.notes}</p>}
+            <div className="dialog-actions wb-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { setPreviewWb(detail); }}>{tr('Preview and print')}</button>
+              {canManage && detail.status === 'dispatched' && <button type="button" className="btn btn-primary" onClick={() => openMark(detail, 'delivered')}>{tr('Mark delivered')}</button>}
+              {!(canManage && detail.status === 'dispatched') && <button type="button" className="btn btn-primary" onClick={() => setDetail(null)}>{tr('Close')}</button>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {previewWb && <WaybillPreview waybill={previewWb} onClose={() => setPreviewWb(null)} />}
 
       {toast && <div className="toast">{toast}</div>}
-      {detail && (
-        <RecordDialog
-          title={detail.waybillNo}
-          subtitle={detail.destination + (detail.customerName ? ' · ' + detail.customerName : '')}
-          actions={waybillActions(detail)}
-          onClose={() => setDetail(null)}
-          fields={[
-            { label: tr('Origin'), value: detail.origin },
-            { label: tr('Destination'), value: detail.destination },
-            { label: tr('Customer'), value: detail.customerName },
-            { label: tr('Driver'), value: detail.driverName },
-            { label: tr('Vehicle'), value: detail.vehicleNo },
-            { label: tr('Dispatched'), value: fmtDate(detail.createdAt) },
-            { label: tr('Shipping date'), value: detail.shippingDate ? fmtDate(detail.shippingDate) : null },
-            { label: tr('Shipped to'), value: detail.shippedToName },
-            { label: tr('Address'), value: detail.shippedToAddress, wide: true },
-            { label: tr('Received by'), value: detail.receivedBy },
-            { label: tr('Status'), value: codeLabel(detail.status) },
-            { label: tr('Delivered'), value: detail.deliveredAt ? fmtDate(detail.deliveredAt) : null },
-            { label: tr('Notes'), value: detail.notes, wide: true },
-            {
-              label: tr('Items'),
-              wide: true,
-              value: (detail.items || []).length ? (
-                <ul className="record-dialog-list">
-                  {detail.items.map((it, i) => (
-                    <li key={i}>{it.qty} {it.unit || ''} — {it.description}{it.itemNo ? ' (' + it.itemNo + ')' : ''}</li>
-                  ))}
-                </ul>
-              ) : null,
-            },
-          ]}
-        />
-      )}
-
     </div>
   );
 }

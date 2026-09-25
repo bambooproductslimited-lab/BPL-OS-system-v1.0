@@ -30,7 +30,7 @@ async function rowToWaybill(db, r, extra) {
 async function list(ctx) {
   if (!ctx.can('waybill.read')) fail('forbidden', 'Your role does not allow this action (waybill.read).');
   var res = await pool.query(
-    'SELECT w.*, e.first_name, e.last_name, c.name AS customer_name, ' +
+    'SELECT w.*, e.first_name, e.last_name, e.photo_key, e.photo_updated_at, c.name AS customer_name, c.phone AS customer_phone, ' +
     'sr.first_name AS sr_first_name, sr.last_name AS sr_last_name ' +
     'FROM waybills w JOIN employees e ON e.id = w.dispatched_by LEFT JOIN customers c ON c.id = w.customer_id ' +
     'LEFT JOIN employees sr ON sr.id = w.sales_rep_id ' +
@@ -40,7 +40,8 @@ async function list(ctx) {
   for (var i = 0; i < res.rows.length; i++) {
     var r = res.rows[i];
     out.push(await rowToWaybill(pool, r, {
-      dispatchedByName: r.first_name + ' ' + r.last_name, customerName: r.customer_name || '',
+      dispatchedByName: r.first_name + ' ' + r.last_name, customerName: r.customer_name || '', customerPhone: r.customer_phone || '',
+      dispatchedByPhoto: r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null,
       salesRepName: r.sr_first_name ? r.sr_first_name + ' ' + r.sr_last_name : ''
     }));
   }
@@ -88,15 +89,23 @@ async function create(ctx, p) {
   return rowToWaybill(pool, final.rows[0]);
 }
 
-// waybills.setStatus
-async function setStatus(ctx, id, status) {
+// waybills.setStatus — a waybill on the road is delivered (with who signed
+// for it, and a note on anything short or damaged) or cancelled; a delivered
+// or cancelled one can be put back on the road if it was marked by mistake.
+async function setStatus(ctx, id, status, p) {
   if (!ctx.can('waybill.manage')) fail('forbidden', 'Your role does not allow this action (waybill.manage).');
   status = V.oneOf(status, ['dispatched', 'delivered', 'cancelled'], 'Status');
-  var deliveredAt = status === 'delivered' ? new Date() : null;
-  var res = await pool.query('UPDATE waybills SET status = $1, delivered_at = $2 WHERE id = $3 RETURNING *', [status, deliveredAt, id]);
-  if (!res.rows[0]) fail('notfound', 'Waybill not found.');
+  p = p || {};
+  var cur = (await pool.query('SELECT * FROM waybills WHERE id = $1', [id])).rows[0];
+  if (!cur) fail('notfound', 'Waybill not found.');
+  if (status !== 'dispatched' && cur.status !== 'dispatched') fail('conflict', cur.waybill_no + ' is already ' + cur.status + '.');
+  var deliveredAt = status === 'delivered' ? (p.deliveredOn ? new Date(V.date(p.deliveredOn, 'Delivery date') + 'T12:00:00Z') : new Date()) : null;
+  var receivedBy = status === 'delivered' && p.receivedBy !== undefined ? String(p.receivedBy || '').trim().slice(0, 120) : cur.received_by;
+  var note = p.note ? String(p.note).trim().slice(0, 500) : '';
+  var notes = note ? (cur.notes ? cur.notes + '\n' : '') + (status === 'delivered' ? 'Delivery: ' : status === 'cancelled' ? 'Cancelled: ' : '') + note : cur.notes;
+  var res = await pool.query('UPDATE waybills SET status = $1, delivered_at = $2, received_by = $3, notes = $4 WHERE id = $5 RETURNING *', [status, deliveredAt, receivedBy, notes, id]);
   var w = res.rows[0];
-  await audit(pool, ctx, 'waybill.status', 'waybill', w.id, 'Set ' + w.waybill_no + ' to ' + status + '.');
+  await audit(pool, ctx, 'waybill.status', 'waybill', w.id, 'Set ' + w.waybill_no + ' to ' + status + (note ? ': ' + note : '') + '.');
   return rowToWaybill(pool, w);
 }
 
