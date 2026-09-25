@@ -18,10 +18,25 @@ async function rowToEstimate(db, r, extra) {
 // kernel.js: handlers['estimates.list']
 async function list(ctx) {
   if (!ctx.can('quotation.read')) fail('forbidden', 'Your role does not allow this action (quotation.read).');
-  var res = await pool.query('SELECT es.*, c.name AS customer_name FROM estimates es JOIN customers c ON c.id = es.customer_id ' +
+  // Alongside each estimate: who it is for and how to reach them, who made
+  // it, and the quotation made from it (the latest, if it was made twice).
+  var res = await pool.query(
+    'SELECT es.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email, c.category AS customer_category, ' +
+    "  e.first_name || ' ' || e.last_name AS created_by_name, " +
+    '  q.id AS quote_id, q.quote_no, q.status AS quote_status ' +
+    'FROM estimates es JOIN customers c ON c.id = es.customer_id ' +
+    'LEFT JOIN employees e ON e.id = es.created_by ' +
+    'LEFT JOIN LATERAL (SELECT id, quote_no, status FROM quotations WHERE from_estimate_id = es.id ORDER BY created_at DESC LIMIT 1) q ON true ' +
     'WHERE ' + bplScopeClause('es') + ' ORDER BY es.created_at DESC');
   var out = [];
-  for (var i = 0; i < res.rows.length; i++) out.push(await rowToEstimate(pool, res.rows[i], { customerName: res.rows[i].customer_name }));
+  for (var i = 0; i < res.rows.length; i++) {
+    var r = res.rows[i];
+    out.push(await rowToEstimate(pool, r, {
+      customerName: r.customer_name, customerPhone: r.customer_phone || '', customerEmail: r.customer_email || '', customerCategory: r.customer_category,
+      createdByName: r.created_by_name || '',
+      quotation: r.quote_id ? { id: r.quote_id, quoteNo: r.quote_no, status: r.quote_status } : null
+    }));
+  }
   return out;
 }
 
@@ -64,9 +79,13 @@ async function create(ctx, p) {
 // kernel.js: handlers['estimates.setStatus']
 async function setStatus(ctx, id, status) {
   if (!ctx.can('quotation.manage')) fail('forbidden', 'Your role does not allow this action (quotation.manage).');
-  status = V.oneOf(status, ['draft', 'finalized', 'converted', 'archived'], 'Status');
+  // "converted" is only ever set by making a quotation from the estimate,
+  // and an estimate already turned into a quotation stays that way.
+  status = V.oneOf(status, ['draft', 'finalized', 'archived'], 'Status');
+  var cur = await pool.query('SELECT status FROM estimates WHERE id = $1', [id]);
+  if (!cur.rows[0]) fail('notfound', 'Estimate not found.');
+  if (cur.rows[0].status === 'converted') fail('conflict', 'This estimate has already been made into a quotation.');
   var res = await pool.query('UPDATE estimates SET status = $1 WHERE id = $2 RETURNING *', [status, id]);
-  if (!res.rows[0]) fail('notfound', 'Estimate not found.');
   var es = res.rows[0];
   await audit(pool, ctx, 'estimate.status', 'estimate', es.id, 'Set ' + es.estimate_no + ' to ' + status + '.');
   return rowToEstimate(pool, es);
@@ -126,6 +145,7 @@ async function convertToQuotation(ctx, id) {
   var es = res.rows[0];
   if (!es) fail('notfound', 'Estimate not found.');
   if (es.status === 'converted') fail('conflict', 'This estimate has already been converted.');
+  if (es.status === 'archived') fail('conflict', 'Bring this estimate back before making a quotation from it.');
 
   var custRes = await pool.query('SELECT name FROM customers WHERE id = $1', [es.customer_id]);
   var items = await loadLineItems(pool, 'estimate', es.id);
