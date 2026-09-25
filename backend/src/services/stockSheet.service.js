@@ -72,7 +72,7 @@ async function getDay(ctx, dateArg) {
     'SELECT p.id, p.sku, p.name, p.category, p.unit, p.current_stock, l.opening, l.received, l.transferred, l.breakage, l.sold, ' +
     'l.physical, l.note, l.updated_at, e.first_name AS upd_first, e.last_name AS upd_last ' +
     'FROM products p LEFT JOIN stock_sheet_lines l ON l.product_id = p.id AND l.date = $1 ' +
-    'LEFT JOIN employees e ON e.id = l.updated_by ORDER BY p.sheet_order NULLS LAST, p.sku',
+    'LEFT JOIN employees e ON e.id = l.updated_by WHERE p.active OR l.product_id IS NOT NULL ORDER BY p.sheet_order NULLS LAST, p.sku',
     [date]
   )).rows;
   var prev = {};
@@ -213,7 +213,12 @@ async function month(ctx, monthArg) {
   var days = daysIn(monthStr);
   var first = days[0], last = days[days.length - 1];
 
-  var products = (await pool.query('SELECT id, sku, name, category, unit, current_stock FROM products ORDER BY sheet_order NULLS LAST, sku')).rows;
+  // An archived product (products.service.js) shows only in the months it has lines.
+  var products = (await pool.query(
+    'SELECT id, sku, name, category, unit, current_stock FROM products p WHERE p.active OR EXISTS ' +
+    '(SELECT 1 FROM stock_sheet_lines l WHERE l.product_id = p.id AND l.date BETWEEN $1 AND $2) ORDER BY sheet_order NULLS LAST, sku',
+    [first, last]
+  )).rows;
   var lines = (await pool.query(
     'SELECT product_id, date::text AS date, opening, received, transferred, breakage, sold, physical FROM stock_sheet_lines ' +
     'WHERE date BETWEEN $1 AND $2 ORDER BY date',

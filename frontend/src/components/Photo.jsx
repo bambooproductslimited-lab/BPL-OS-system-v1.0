@@ -50,16 +50,23 @@ export function colorFor(name) {
   return COLORS[Math.abs(h) % COLORS.length];
 }
 
-// A round photo, or initials (a person) / a people glyph (a group) when
-// there is none. photo is the version from the API (null = no photo); for
-// "me" pass photo="probe" to try loading it anyway.
+// A round photo, or initials (a person) / a people glyph (a group) / a box
+// (a product, drawn with rounded corners) when there is none. photo is the
+// version from the API (null = no photo); for "me" pass photo="probe" to try
+// loading it anyway.
 export default function Photo({ kind = 'person', id, name, photo, size = 40, className = '' }) {
-  const path = photo && id ? (kind === 'group' ? '/messages/conversations/' + id + '/photo' : '/messages/people/' + id + '/photo') : null;
+  const path = photo && id
+    ? (kind === 'group' ? '/messages/conversations/' + id + '/photo' : kind === 'product' ? '/products/' + id + '/photo' : '/messages/people/' + id + '/photo')
+    : null;
   const url = useBlobUrl(path, photo);
   const style = { width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.36)), background: url ? undefined : colorFor(name) };
   return (
     <span className={'photo photo-' + kind + ' ' + className} style={style} aria-hidden="true">
-      {url ? <img src={url} alt="" /> : kind === 'group' ? (
+      {url ? <img src={url} alt="" /> : kind === 'product' ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+          <path d="M12 3.5 20 8 12 12.5 4 8 12 3.5Z" /><path d="M4 8v8l8 4.5 8-4.5V8M12 12.5V21" />
+        </svg>
+      ) : kind === 'group' ? (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="9" cy="8.5" r="3" /><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8M15.5 5.8a3 3 0 0 1 0 5.4M17.5 14.6c1.6.7 2.6 2.2 3 4.4" />
         </svg>

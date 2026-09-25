@@ -5,8 +5,8 @@ import { squarePhoto, uploadWithProgress } from '../lib/chatMedia';
 import { tr } from '../lib/i18n.jsx';
 import './PhotoDialog.css';
 
-// Choose / remove a square photo for a person or a group.
-export default function PhotoDialog({ title, kind, id, name, photo, uploadPath, onDone, onClose }) {
+// Choose / remove a square photo for a person, a group or a product.
+export default function PhotoDialog({ title, kind, id, name, photo, uploadPath, note, onDone, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
@@ -33,7 +33,7 @@ export default function PhotoDialog({ title, kind, id, name, photo, uploadPath, 
         <h2>{title}</h2>
         <div className="photo-dialog-preview"><Photo kind={kind} id={id} name={name} photo={photo} size={140} /></div>
         {error && <div className="error-banner">{error}</div>}
-        <p className="photo-dialog-note">{tr('The photo is cropped to a square. Everyone in the OS can see profile photos; a group photo is seen by its members.')}</p>
+        <p className="photo-dialog-note">{note || tr('The photo is cropped to a square. Everyone in the OS can see profile photos; a group photo is seen by its members.')}</p>
         <input ref={inputRef} type="file" accept="image/*" hidden onChange={choose} />
         <div className="dialog-actions">
           {photo && <button type="button" className="btn btn-secondary" disabled={busy} onClick={remove}>{tr('Remove photo')}</button>}

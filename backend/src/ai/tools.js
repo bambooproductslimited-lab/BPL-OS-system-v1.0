@@ -1,7 +1,6 @@
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
-var { audit } = require('../utils/audit');
 
 var dashboardService = require('../services/dashboard.service');
 var reportsService = require('../services/reports.service');
@@ -561,18 +560,9 @@ var TOOLS = [
     execute: async function (ctx, payload) {
       var cur = (await pool.query('SELECT * FROM products WHERE id = $1', [payload.productId])).rows[0];
       if (!cur) fail('notfound', 'That product no longer exists.');
-      await productsService.update(ctx, cur.id, {
-        sku: cur.sku, name: cur.name, category: cur.category, unit: cur.unit, costPrice: cur.cost_price,
-        sellingPrice: cur.selling_price, currentStock: payload.newStock, reorderLevel: cur.reorder_level
-      });
-      var diff = payload.newStock - Number(cur.current_stock);
-      if (diff) {
-        await pool.query(
-          "INSERT INTO inventory_tx (item_type, item_id, type, qty, date, user_id, reference, notes) VALUES ('product',$1,'adjustment',$2,$3,$4,'Claude',$5)",
-          [cur.id, diff, todayISO(), ctx.employee.id, payload.reason]
-        );
-      }
-      await audit(pool, ctx, 'product.stockAdjust', 'product', cur.id, 'Stock of ' + cur.sku + ' set to ' + payload.newStock + ' via Claude: ' + payload.reason);
+      // Recorded as a count on today's line of the daily stock sheet, with
+      // the change in the stock history (products.service.js).
+      await productsService.adjustStock(ctx, cur.id, { mode: 'count', qty: payload.newStock, reason: payload.reason, reference: 'Claude' });
       return { message: 'Stock of ' + cur.name + ' is now ' + payload.newStock + '.' };
     }
   }

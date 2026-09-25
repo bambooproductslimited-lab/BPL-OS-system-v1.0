@@ -43,7 +43,7 @@ async function digestFor(ctx) {
   }
   var lowStock = 0;
   if (ctx.can('inventory.read')) {
-    lowStock = (await pool.query('SELECT count(*)::int AS n FROM products WHERE reorder_level > 0 AND current_stock <= reorder_level')).rows[0].n;
+    lowStock = (await pool.query('SELECT count(*)::int AS n FROM products WHERE active AND reorder_level > 0 AND current_stock <= reorder_level')).rows[0].n;
     if (lowStock) parts.push(lowStock + ' product' + (lowStock === 1 ? '' : 's') + ' at or below reorder level');
   }
   if (!parts.length) return null;

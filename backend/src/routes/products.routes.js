@@ -5,6 +5,7 @@ var productsService = require('../services/products.service');
 var productImportService = require('../services/productImport.service');
 var googleDriveService = require('../services/googleDrive.service');
 var { allowlistFilter } = require('../lib/uploadFilters');
+var fileStore = require('../lib/fileStore');
 
 var upload = multer({
   storage: multer.memoryStorage(),
@@ -17,6 +18,12 @@ var workbookUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: allowlistFilter(['xlsx'], 'Download the workbook as Microsoft Excel (.xlsx) before uploading.')
+});
+
+var photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: allowlistFilter(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'], 'That isn’t a photo.')
 });
 
 var router = express.Router();
@@ -61,6 +68,30 @@ router.post('/import/commit', async function (req, res, next) {
 });
 router.put('/:id', async function (req, res, next) {
   try { res.json(await productsService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+// POST /api/products/:id/stock { mode: count|received|breakage|sold, qty, reason }
+// — recorded on today's line of the daily stock sheet
+router.post('/:id/stock', async function (req, res, next) {
+  try { res.json(await productsService.adjustStock(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+// GET /api/products/:id/history — the last 60 days on the stock sheet and production
+router.get('/:id/history', async function (req, res, next) {
+  try { res.json(await productsService.history(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+// POST /api/products/:id/archive { archived: true|false }
+router.post('/:id/archive', async function (req, res, next) {
+  try { res.json(await productsService.setActive(req.ctx, req.params.id, !(req.body && req.body.archived))); } catch (e) { next(e); }
+});
+// The product's photo (GET), change it (POST multipart "photo"), remove it (DELETE)
+router.get('/:id/photo', async function (req, res, next) {
+  try { await fileStore.send(res, await productsService.photoFor(req.ctx, req.params.id), 'product.jpg', true); } catch (e) { next(e); }
+});
+router.post('/:id/photo', photoUpload.single('photo'), async function (req, res, next) {
+  try { res.json(await productsService.setPhoto(req.ctx, req.params.id, req.file || undefined)); } catch (e) { next(e); }
+});
+router.delete('/:id/photo', async function (req, res, next) {
+  try { res.json(await productsService.setPhoto(req.ctx, req.params.id, null)); } catch (e) { next(e); }
 });
 
 module.exports = router;

@@ -135,7 +135,7 @@ async function load(ctx, companyCode) {
   // Bamboo Products' finished-goods stock.
   var lowStockCount = null;
   if (ctx.can('inventory.read') && isBpl) {
-    lowStockCount = (await pool.query('SELECT count(*)::int AS n FROM products WHERE current_stock <= reorder_level')).rows[0].n;
+    lowStockCount = (await pool.query('SELECT count(*)::int AS n FROM products WHERE active AND current_stock <= reorder_level')).rows[0].n;
   }
   var pendingProcurement = null;
   if (ctx.can('procurement.read.all')) {

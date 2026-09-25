@@ -937,10 +937,12 @@ export default function ProductionPage() {
                 <label htmlFor="prprod-price">{tr('Selling price')}</label>
                 <input id="prprod-price" className="input" type="number" value={prodForm.sellingPrice} onChange={(e) => setProdForm({ ...prodForm, sellingPrice: e.target.value })} />
               </div>
-              <div className="field">
-                <label htmlFor="prprod-stock">{tr('Opening stock')}</label>
-                <input id="prprod-stock" className="input" type="number" value={prodForm.currentStock} onChange={(e) => setProdForm({ ...prodForm, currentStock: e.target.value })} />
-              </div>
+              {!prodDialog.id && (
+                <div className="field">
+                  <label htmlFor="prprod-stock">{tr('Opening stock')}</label>
+                  <input id="prprod-stock" className="input" type="number" value={prodForm.currentStock} onChange={(e) => setProdForm({ ...prodForm, currentStock: e.target.value })} />
+                </div>
+              )}
               <div className="field">
                 <label htmlFor="prprod-reorder">{tr('Reorder level')}</label>
                 <input id="prprod-reorder" className="input" type="number" value={prodForm.reorderLevel} onChange={(e) => setProdForm({ ...prodForm, reorderLevel: e.target.value })} />
