@@ -685,6 +685,7 @@ export default function PokiBillingPage() {
                 <option value="cash">{tr('Cash')}</option>
                 <option value="cheque">{tr('Cheque')}</option>
                 <option value="card">{tr('Card')}</option>
+                <option value="other">{tr('Other')}</option>
               </select>
             </div>
             <div className="field poki-dialog-span">
