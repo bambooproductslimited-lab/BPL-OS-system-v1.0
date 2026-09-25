@@ -17,30 +17,76 @@ function byCurrencyArr(rows, amountKey) {
   return rows.map(function (r) { return { currency: r.currency, amount: Number(r[amountKey]) }; });
 }
 
-// kernel.js: handlers['reports.summary']
-async function summary(ctx) {
+// kernel.js: handlers['reports.summary'] — the Reports page: one trade
+// company (Bamboo Products when left out) over a chosen period.
+//   - sales: invoiced (voided invoices left out), collected (payments by
+//     the day the money came in, part-payments included), owed now and
+//     overdue now, each per currency — never blended;
+//   - spending: approved and paid expense claims by category, claims still
+//     waiting, and payroll (approved and paid runs by pay date, for that
+//     company's staff): take-home, PAYE and SSNIT, and the cost in all;
+//   - quotations sent, accepted and turned down in the period, orders, and
+//     the clients invoiced most;
+//   - twelve months ending with the period, in the base currency, for the
+//     trend chart.
+function monthStart(iso) { return iso.slice(0, 7) + '-01'; }
+function addMonths(iso, n) { var d = new Date(iso.slice(0, 7) + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); }
+function monthEnd(iso) { var d = new Date(addMonths(iso, 1) + 'T00:00:00Z'); d.setUTCDate(0); return d.toISOString().slice(0, 10); }
+async function summary(ctx, params) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  params = params || {};
+  var co = await resolveDashboardCompany(ctx, params.company, true);
+  var t = todayISO();
+  var from = /^\d{4}-\d{2}-\d{2}$/.test(params.from || '') ? params.from : monthStart(t);
+  var to = /^\d{4}-\d{2}-\d{2}$/.test(params.to || '') ? params.to : t;
+  if (to < from) fail('invalid', 'The end of the period is before its start.');
+  var base = await baseCurrency();
+  var inv = docScope(co, 'i', 'c'), q = docScope(co, 'q', 'c'), exp = expenseScope(co);
+  var payScope = co.id === null ? '$1::uuid IS NULL' : 'd.company_id = $1';
+  var P = [co.id, from, to];
 
-  var invTotals = await pool.query("SELECT currency, sum(grand_total) AS invoiced, sum(grand_total) FILTER (WHERE status = 'paid') AS paid FROM invoices GROUP BY currency");
-  var byCat = await pool.query("SELECT category, sum(amount) AS amount FROM expenses WHERE status != 'rejected' GROUP BY category ORDER BY amount DESC");
-  var byCustomer = await pool.query(
-    'SELECT c.name, o.currency, sum(o.total) AS amount FROM sales_orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.name, o.currency ORDER BY amount DESC'
-  );
-  var quotationsSent = await pool.query("SELECT count(*)::int AS n FROM quotations WHERE status != 'draft'");
-  var quotationsAccepted = await pool.query("SELECT count(*)::int AS n FROM quotations WHERE status = 'accepted'");
-  var ordersCount = await pool.query('SELECT count(*)::int AS n FROM sales_orders');
-  var approvedExpenses = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid')");
+  var invoiced = await pool.query("SELECT i.currency, sum(i.grand_total) AS amount, count(*)::int AS n FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status <> 'void' AND i.issued_at BETWEEN $2 AND $3 AND " + inv + ' GROUP BY i.currency ORDER BY i.currency', P);
+  var collected = await pool.query('SELECT p.currency, sum(p.amount) AS amount, count(*)::int AS n FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.date BETWEEN $2 AND $3 AND ' + inv + ' GROUP BY p.currency ORDER BY p.currency', P);
+  var owed = await pool.query("SELECT i.currency, sum(i.balance_due) AS amount, sum(i.balance_due) FILTER (WHERE i.due_date < $2) AS overdue, count(*)::int AS n FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status IN ('unpaid','partially_paid') AND " + inv + ' GROUP BY i.currency ORDER BY i.currency', [co.id, t]);
+  var byCat = await pool.query("SELECT e.category, sum(e.amount) AS amount, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + exp + ' GROUP BY e.category ORDER BY amount DESC', P);
+  var pendingExp = await pool.query("SELECT coalesce(sum(e.amount),0) AS amount, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'pending' AND " + exp, [co.id]);
+  var payroll = await pool.query(
+    'SELECT coalesce(sum(s.net_pay),0) AS net, coalesce(sum(s.gross_pay),0) AS gross, coalesce(sum(s.ssnit_employee),0) AS ssnit_ee, coalesce(sum(s.ssnit_employer),0) AS ssnit_er, coalesce(sum(s.paye_tax),0) AS paye, count(DISTINCT pr.id)::int AS runs ' +
+    "FROM payslips s JOIN pay_runs pr ON pr.id = s.pay_run_id JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.department_id WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + payScope, P);
+  var quotes = await pool.query(
+    "SELECT count(*) FILTER (WHERE q.sent_at::date BETWEEN $2 AND $3)::int AS sent, count(*) FILTER (WHERE q.status = 'accepted' AND q.answered_at::date BETWEEN $2 AND $3)::int AS accepted, " +
+    "count(*) FILTER (WHERE q.status = 'rejected' AND q.answered_at::date BETWEEN $2 AND $3)::int AS rejected, count(*) FILTER (WHERE q.sent_at IS NOT NULL AND q.status IN ('sent','viewed','expired') AND q.valid_until BETWEEN $2 AND $3 AND q.valid_until < CURRENT_DATE)::int AS expired " +
+    'FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE ' + q, P);
+  var orders = await pool.query('SELECT count(*)::int AS n FROM sales_orders o JOIN customers c ON c.id = o.customer_id WHERE o.created_at::date BETWEEN $2 AND $3 AND ' + (co.id === null ? '$1::uuid IS NULL' : co.code === 'BPL' ? '(c.company_id IS NULL OR c.company_id = $1)' : 'c.company_id = $1'), P);
+  var byCustomer = await pool.query("SELECT c.id, c.name, i.currency, sum(i.grand_total) AS amount, count(*)::int AS n FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status <> 'void' AND i.issued_at BETWEEN $2 AND $3 AND " + inv + ' GROUP BY c.id, c.name, i.currency ORDER BY amount DESC LIMIT 10', P);
 
-  var invoicedByCurrency = invTotals.rows.map(function (r) { return { currency: r.currency, amount: Number(r.invoiced) }; });
-  var paidByCurrency = invTotals.rows.map(function (r) { return { currency: r.currency, amount: Number(r.paid || 0) }; });
-  var outstandingByCurrency = invTotals.rows.map(function (r) { return { currency: r.currency, amount: Number(r.invoiced) - Number(r.paid || 0) }; });
+  // twelve months ending with the period's last month, base currency
+  var first = addMonths(to, -11);
+  var S = [co.id, monthStart(first), monthEnd(to), base];
+  var mInv = await pool.query("SELECT to_char(i.issued_at, 'YYYY-MM') AS m, sum(i.grand_total) AS a FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status <> 'void' AND i.currency = $4 AND i.issued_at BETWEEN $2 AND $3 AND " + inv + ' GROUP BY 1', S);
+  var mCol = await pool.query("SELECT to_char(p.date, 'YYYY-MM') AS m, sum(p.amount) AS a FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.currency = $4 AND p.date BETWEEN $2 AND $3 AND " + inv + ' GROUP BY 1', S);
+  var mExp = await pool.query("SELECT to_char(e.date, 'YYYY-MM') AS m, sum(e.amount) AS a FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + exp + ' GROUP BY 1', S.slice(0, 3));
+  var mPay = await pool.query("SELECT to_char(pr.pay_date, 'YYYY-MM') AS m, sum(s.gross_pay + s.ssnit_employer) AS a FROM payslips s JOIN pay_runs pr ON pr.id = s.pay_run_id JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.department_id WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + payScope + ' GROUP BY 1', S.slice(0, 3));
+  function mapOf(rows) { var m = {}; rows.forEach(function (r) { m[r.m] = Number(r.a); }); return m; }
+  var mi = mapOf(mInv.rows), mc = mapOf(mCol.rows), me = mapOf(mExp.rows), mp = mapOf(mPay.rows);
+  var months = [];
+  for (var k = 0; k < 12; k++) {
+    var key = addMonths(first, k).slice(0, 7);
+    months.push({ month: key, invoiced: mi[key] || 0, collected: mc[key] || 0, expenses: me[key] || 0, payroll: mp[key] || 0 });
+  }
 
+  var pr = payroll.rows[0];
+  var r2 = function (n) { return Math.round(Number(n) * 100) / 100; };
   return {
-    invoicedByCurrency: invoicedByCurrency, paidByCurrency: paidByCurrency, outstandingByCurrency: outstandingByCurrency,
-    quotationsSent: quotationsSent.rows[0].n, quotationsAccepted: quotationsAccepted.rows[0].n, ordersCount: ordersCount.rows[0].n,
-    expenseByCategory: byCat.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; }),
-    salesByCustomer: byCustomer.rows.map(function (r) { return { customer: r.name, currency: r.currency, amount: Number(r.amount) }; }),
-    totalExpensesApproved: Number(approvedExpenses.rows[0].s)
+    company: { code: co.code, name: co.name }, from: from, to: to, today: t, baseCurrency: base,
+    invoiced: invoiced.rows.map(function (r) { return { currency: r.currency, amount: r2(r.amount), count: r.n }; }),
+    collected: collected.rows.map(function (r) { return { currency: r.currency, amount: r2(r.amount), count: r.n }; }),
+    owed: owed.rows.map(function (r) { return { currency: r.currency, amount: r2(r.amount), overdue: r2(r.overdue || 0), count: r.n }; }),
+    expenses: { byCategory: byCat.rows.map(function (r) { return { category: r.category, amount: r2(r.amount), count: r.n }; }), total: r2(byCat.rows.reduce(function (a, r) { return a + Number(r.amount); }, 0)), pending: r2(pendingExp.rows[0].amount), pendingCount: pendingExp.rows[0].n },
+    payroll: { runs: pr.runs, net: r2(pr.net), gross: r2(pr.gross), paye: r2(pr.paye), ssnitEmployee: r2(pr.ssnit_ee), ssnitEmployer: r2(pr.ssnit_er), cost: r2(Number(pr.gross) + Number(pr.ssnit_er)) },
+    quotations: quotes.rows[0], orders: orders.rows[0].n,
+    topCustomers: byCustomer.rows.map(function (r) { return { id: r.id, name: r.name, currency: r.currency, amount: r2(r.amount), invoices: r.n }; }),
+    months: months
   };
 }
 
