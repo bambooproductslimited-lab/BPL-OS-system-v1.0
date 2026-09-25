@@ -25,6 +25,9 @@ router.put('/runs/:id/payslips/:employeeId', async function (req, res, next) {
   try { res.json(await payrollService.editSlip(req.ctx, req.params.id, req.params.employeeId, req.body.daysWorked)); } catch (e) { next(e); }
 });
 
+router.delete('/runs/:id', async function (req, res, next) {
+  try { res.json(await payrollService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
 router.post('/runs/:id/approve', async function (req, res, next) {
   try { res.json(await payrollService.approve(req.ctx, req.params.id)); } catch (e) { next(e); }
 });

@@ -93,21 +93,40 @@ async function payslipHistory(ctx, employeeId, from, to) {
 // excluded — an "All companies" run is never hidden by this filter.
 async function list(ctx, params) {
   if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
+  // With each run: its totals (what staff take home, what the company
+  // pays in all — gross plus the employer's SSNIT — and the SSNIT and PAYE
+  // owed to the authorities), who approved it, and how many payslips have
+  // no days worked.
   var res = await pool.query(
-    'SELECT pr.*, e.first_name, e.last_name, c.name AS company_name, ' +
-    '(SELECT count(*)::int FROM payslips p WHERE p.pay_run_id = pr.id) AS employee_count, ' +
-    '(SELECT coalesce(sum(net_pay),0) FROM payslips p WHERE p.pay_run_id = pr.id) AS total_net ' +
-    'FROM pay_runs pr JOIN employees e ON e.id = pr.created_by LEFT JOIN companies c ON c.id = pr.company_id ' +
-    'ORDER BY pr.created_at DESC'
+    'SELECT pr.*, e.first_name, e.last_name, a.first_name AS a_first, a.last_name AS a_last, c.name AS company_name, t.* ' +
+    'FROM pay_runs pr JOIN employees e ON e.id = pr.created_by LEFT JOIN employees a ON a.id = pr.approved_by LEFT JOIN companies c ON c.id = pr.company_id ' +
+    'LEFT JOIN LATERAL (SELECT count(*)::int AS employee_count, coalesce(sum(net_pay),0) AS total_net, coalesce(sum(gross_pay),0) AS total_gross, ' +
+    '  coalesce(sum(ssnit_employee),0) AS total_ssnit_ee, coalesce(sum(ssnit_employer),0) AS total_ssnit_er, coalesce(sum(paye_tax),0) AS total_paye, ' +
+    '  count(*) FILTER (WHERE days_worked = 0)::int AS zero_days FROM payslips p WHERE p.pay_run_id = pr.id) t ON true ' +
+    'ORDER BY pr.period_end DESC, pr.created_at DESC'
   );
   return res.rows
     .filter(function (r) { return !(params && params.companyId) || !r.company_id || r.company_id === params.companyId; })
     .map(function (r) {
       return rowToPayRun(r, {
-        createdByName: r.first_name + ' ' + r.last_name, companyName: r.company_name || 'All companies',
-        employeeCount: r.employee_count, totalNet: Number(r.total_net)
+        createdByName: r.first_name + ' ' + r.last_name, approvedByName: r.a_first ? r.a_first + ' ' + r.a_last : null,
+        companyName: r.company_name || 'All companies',
+        employeeCount: r.employee_count, totalNet: Number(r.total_net), totals: totalsOf(r), zeroDays: r.zero_days
       });
     });
+}
+
+function totalsOf(r) {
+  var gross = Number(r.total_gross), er = Number(r.total_ssnit_er);
+  return {
+    gross: gross, net: Number(r.total_net), ssnitEmployee: Number(r.total_ssnit_ee), ssnitEmployer: er,
+    paye: Number(r.total_paye), cost: Math.round((gross + er) * 100) / 100
+  };
+}
+
+// Days in a pay period, both ends counted.
+function periodDays(start, end) {
+  return Math.round((new Date(String(end).slice(0, 10) + 'T00:00:00Z') - new Date(String(start).slice(0, 10) + 'T00:00:00Z')) / 86400000) + 1;
 }
 
 // payroll.getRun — payslips are joined out to their employee's department
@@ -119,7 +138,8 @@ async function list(ctx, params) {
 async function get(ctx, id) {
   if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
   var runRes = await pool.query(
-    'SELECT pr.*, c.name AS company_name FROM pay_runs pr LEFT JOIN companies c ON c.id = pr.company_id WHERE pr.id = $1',
+    'SELECT pr.*, c.name AS company_name, cb.first_name AS c_first, cb.last_name AS c_last, ab.first_name AS a_first, ab.last_name AS a_last ' +
+    'FROM pay_runs pr LEFT JOIN companies c ON c.id = pr.company_id LEFT JOIN employees cb ON cb.id = pr.created_by LEFT JOIN employees ab ON ab.id = pr.approved_by WHERE pr.id = $1',
     [id]
   );
   var run = runRes.rows[0];
@@ -137,7 +157,13 @@ async function get(ctx, id) {
       departmentId: r.department_id, departmentName: r.department_name, companyId: r.company_id, companyName: r.company_name
     });
   });
-  return Object.assign(rowToPayRun(run), { companyName: run.company_name || 'All companies', payslips: slips });
+  var sum = function (k) { return Math.round(slips.reduce(function (a, x) { return a + x[k]; }, 0) * 100) / 100; };
+  var totals = { gross: sum('grossPay'), net: sum('netPay'), ssnitEmployee: sum('ssnitEmployee'), ssnitEmployer: sum('ssnitEmployer'), paye: sum('payeTax') };
+  totals.cost = Math.round((totals.gross + totals.ssnitEmployer) * 100) / 100;
+  return Object.assign(rowToPayRun(run), {
+    companyName: run.company_name || 'All companies', payslips: slips, totals: totals, periodDays: periodDays(run.period_start, run.period_end),
+    createdByName: run.c_first ? run.c_first + ' ' + run.c_last : null, approvedByName: run.a_first ? run.a_first + ' ' + run.a_last : null
+  });
 }
 
 // payroll.createRun — one payslip per active employee on the chosen cycle,
@@ -160,6 +186,18 @@ async function create(ctx, p) {
     if (!companyRes.rows[0]) fail('invalid', 'Company is not a valid option.');
     companyId = companyRes.rows[0].id;
     companyName = companyRes.rows[0].name;
+  }
+
+  // Two runs on the same cycle over overlapping days would pay the same
+  // people twice: refused when either run covers every company, or both
+  // cover this one.
+  var clash = await pool.query(
+    'SELECT run_no, period_start, period_end FROM pay_runs WHERE cycle = $1 AND period_start <= $3 AND period_end >= $2 ' +
+    'AND ($4::uuid IS NULL OR company_id IS NULL OR company_id = $4) LIMIT 1',
+    [cycle, periodStart, periodEnd, companyId]);
+  if (clash.rows[0]) {
+    var c0 = clash.rows[0];
+    fail('conflict', c0.run_no + ' already pays the ' + cycle + ' staff for ' + String(c0.period_start).slice(0, 10) + ' to ' + String(c0.period_end).slice(0, 10) + '. Pick days it doesn\'t cover, or delete it if it is still a draft.');
   }
 
   var employeesRes = companyId
@@ -226,6 +264,8 @@ async function editSlip(ctx, payRunId, employeeId, daysWorked) {
 
   var days = Number(daysWorked);
   if (!(days >= 0)) fail('invalid', 'Days worked must be a non-negative number.');
+  var maxDays = periodDays(run.period_start, run.period_end);
+  if (days > maxDays) fail('invalid', 'This pay period only has ' + maxDays + ' days.');
 
   var periodScale = periodScaleFor(run.period_start, run.period_end);
   var computed = await computeSlipFields(pool, Number(slip.daily_rate), days, periodScale);
@@ -262,4 +302,19 @@ async function markPaid(ctx, id) {
   return get(ctx, id);
 }
 
-module.exports = { list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, payslipHistory: payslipHistory };
+// payroll.deleteRun — a draft made by mistake (wrong dates, wrong cycle)
+// can be thrown away; approved and paid runs are the record and stay.
+async function remove(ctx, id) {
+  if (!ctx.can('payroll.manage')) fail('forbidden', 'Your role does not allow this action (payroll.manage).');
+  var run = (await pool.query('SELECT * FROM pay_runs WHERE id = $1', [id])).rows[0];
+  if (!run) fail('notfound', 'Pay run not found.');
+  if (run.status !== 'draft') fail('invalid', 'Only a draft pay run can be deleted.');
+  await withTransaction(async function (client) {
+    await client.query('DELETE FROM payslips WHERE pay_run_id = $1', [id]);
+    await client.query('DELETE FROM pay_runs WHERE id = $1', [id]);
+    await audit(client, ctx, 'payroll.delete', 'pay_run', id, 'Deleted draft pay run ' + run.run_no + '.');
+  });
+  return true;
+}
+
+module.exports = { list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, remove: remove, payslipHistory: payslipHistory };
