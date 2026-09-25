@@ -1,87 +1,83 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { blankDocItem } from '../components/DocItemsEditor';
 import DocWizard from '../components/DocWizard';
 import CustomerPicker from '../components/CustomerPicker';
 import DocPreview from '../components/DocPreview';
+import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
-import RecordDialog from '../components/RecordDialog';
-import { itemsForDialog, totalsForDialog, adjustmentRows, paymentsForDocument } from '../lib/docItems';
-import { money } from '../lib/currency';
+import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
+import { adjustmentRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
+import { money, moneyBreakdown } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
-import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr, msg, docTr } from '../lib/i18n.jsx';
 import { formatDocDate } from '../lib/dates';
-import './InvoicesPage.css';
 import { codeLabel } from '../lib/codeLabels.js';
+import './EmployeesPage.css';
+import './ToolRoomPage.css';
+import './RestaurantsPage.css';
+import './PokiRentals.css';
+import './CustomersPage.css';
+import './EstimatesPage.css';
+import './InvoicesPage.css';
 
-// Ported from Bamboo OS.dc.html's invoices screen (screens.invoices block,
-// dialog.invoiceManual / dialog.invoiceEdit / dialog.payment /
-// dialog.invoicePreview, and the invoices computed values).
+// Invoices — what clients have been billed and what they still owe. Same
+// "explains itself" layout as the dashboards (components/DashKit.jsx): what
+// is owed and how much of it is overdue, what came in over the last 30 days
+// and what falls due this week, what stands out (overdue with no reminder,
+// the longest overdue, part-paid), how late the money is, and the invoices
+// as cards or a list with a window for each one — its lines, the payments
+// that brought the balance down, reminders sent and a WhatsApp reminder
+// button (invoices.service.js list: overdue counts part-paid invoices too,
+// with contact details, the quotation or order it came from and reminders).
 //
-// Deviations, same shape as CatalogPage's tax-rate gap and EstimatesPage's
-// customer.read gap: this app's seed has invoice.manage roles
-// (finance_manager, finance_hr_manager) that lack customer.read and
-// sales.read, unlike quotation.manage roles which always carry
-// customer.read. So, unlike Estimates/Quotations:
-//  - "New manual invoice" needs its own customer.read gate (canOpenManual)
-//    rather than being safe to assume from invoice.manage alone.
-//  - The "issue invoice for a sales order" form is additionally gated on
-//    sales.read, since its dropdown is populated from GET /sales-orders.
-// Both degrade to the button/form simply not rendering for a role that
-// can't populate the picker it needs, rather than showing a dead control.
-//
-// Redesigned around the icon language established elsewhere: a
-// status-toned document badge per row (mirrors Documents' file-type
-// tone-mix treatment), an icon'd empty state. All dialogs and the
-// printed preview are untouched.
+// invoice.manage roles in this app's seed may lack customer.read and
+// sales.read, so "New invoice" also needs customer.read and "From a sales
+// order" also needs sales.read: a control that can't fill its picker is
+// not shown. /invoices?open=<id> opens that invoice's window.
 
-function DocIcon() {
+const AGES = [
+  { key: 'notdue', label: msg('Not yet due'), test: (d) => d <= 0 },
+  { key: 'a30', label: msg('1–30 days late'), test: (d) => d >= 1 && d <= 30 },
+  { key: 'a60', label: msg('31–60 days late'), test: (d) => d >= 31 && d <= 60 },
+  { key: 'a90', label: msg('61–90 days late'), test: (d) => d >= 61 && d <= 90 },
+  { key: 'a90p', label: msg('Over 90 days late'), test: (d) => d > 90 }
+];
+const WEEK = 7;
+const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '', notes: '' };
+const EMPTY_EDIT = { dueDate: '', poReference: '' };
+const METHODS = [['cash', msg('Cash')], ['bank_transfer', msg('Bank transfer')], ['mobile_money', msg('Mobile Money')], ['card', msg('Card')], ['cheque', msg('Cheque')], ['other', msg('Other')]];
+
+function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
+function todayIso() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function dayNum(iso) { return Math.floor(new Date(String(iso).slice(0, 10) + 'T00:00:00Z').getTime() / 86400000); }
+function daysLate(inv) { return inv.dueDate ? dayNum(todayIso()) - dayNum(inv.dueDate) : 0; }
+function isOwing(inv) { return inv.status === 'unpaid' || inv.status === 'partially_paid'; }
+function sumOf(list, key) {
+  const m = {};
+  list.forEach((x) => { m[x.currency] = (m[x.currency] || 0) + Number(x[key] || 0); });
+  return Object.entries(m).filter(([, a]) => a > 0.005).map(([currency, amount]) => ({ currency, amount }));
+}
+function itemsLine(inv) { return (inv.items || []).map((i) => i.description).filter(Boolean).join(', '); }
+function paidShare(inv) { return inv.grandTotal > 0 ? Math.min(100, Math.round((inv.amountPaid / inv.grandTotal) * 100)) : 0; }
+
+function Mark({ inv, size = 44 }) {
+  return <span className="pk-avatar cu-mark" style={{ width: size, height: size, background: avatarColor(inv.customerName), fontSize: Math.round(size * 0.34) }} aria-hidden="true">{initials(inv.customerName)}</span>;
+}
+function PaidBar({ inv }) {
+  if (inv.status === 'void') return null;
+  const pct = paidShare(inv);
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
+    <span className={'iv-bar' + (inv.overdue ? ' is-late' : '')} role="img" aria-label={tr('{pct}% paid', { pct })}>
+      <span style={{ width: pct + '%' }} />
+    </span>
   );
 }
-function statusTone(bucket) {
-  if (bucket === 'approved') return 'people';
-  if (bucket === 'rejected') return 'danger';
-  return 'warning';
-}
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function docTagClass(bucket) {
-  if (bucket === 'approved') return 'tag-neutral';
-  if (bucket === 'rejected') return 'tag-accent';
-  return 'tag-outline';
-}
-
-function invoiceBucket(inv) {
-  return inv.status === 'paid' ? 'approved' : (inv.overdue || inv.status === 'void') ? 'rejected' : 'pending';
-}
-function invoiceTagClass(inv) { return docTagClass(invoiceBucket(inv)); }
-
-// 'overdue' isn't a stored status (it's the unpaid/overdue flag computed by
-// invoices.service.js's list()) — treated as one here anyway so the status
-// filter's options line up 1:1 with what the Status column actually shows.
-const INVOICE_STATUS_OPTIONS = ['unpaid', 'partially_paid', 'paid', 'overdue', 'void'];
-function invoiceDisplayStatus(inv) { return inv.overdue ? 'overdue' : inv.status; }
-function invoiceStatusLabel(s) {
-  return codeLabel(s);
-}
-
-const EMPTY_FORM = { customerId: '', dueDate: '', poReference: '', currency: '', notes: '' };
-const EMPTY_PAY = { amount: '', method: 'cash', date: new Date().toISOString().slice(0, 10), reference: '', notes: '' };
-const EMPTY_EDIT = { dueDate: '', poReference: '' };
 
 export default function InvoicesPage() {
   const { can } = useAuth();
@@ -90,6 +86,7 @@ export default function InvoicesPage() {
   const canSeeCatalog = can('catalog.read');
   const canSeeSalesOrders = can('sales.read');
   const canOpenManual = canManage && canSeeCustomers;
+  const [params, setParams] = useSearchParams();
 
   const [invoices, setInvoices] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -109,14 +106,14 @@ export default function InvoicesPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(() => params.get('open'));
 
-  const [detail, setDetail] = useState(null);
-
+  const [orderOpen, setOrderOpen] = useState(false);
   const [orderId, setOrderId] = useState('');
   const [orderBusy, setOrderBusy] = useState(false);
 
   const [payTarget, setPayTarget] = useState(null);
-  const [payForm, setPayForm] = useState(EMPTY_PAY);
+  const [payForm, setPayForm] = useState(null);
   const [payError, setPayError] = useState(null);
   const [paying, setPaying] = useState(false);
 
@@ -129,7 +126,9 @@ export default function InvoicesPage() {
   const [deleting, setDeleting] = useState(false);
   const [previewInv, setPreviewInv] = useState(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [chip, setChip] = useState('owing');
+  const [age, setAge] = useState('');
+  const [view, setView] = useState(() => readPref('bos.invoicesView', 'cards'));
 
   const load = useCallback(async () => {
     setError(null);
@@ -152,16 +151,19 @@ export default function InvoicesPage() {
     try {
       const settings = await api.get('/settings');
       if (settings.commercial && settings.commercial.currencies) setCurrencies(settings.commercial.currencies);
-    } catch (err) { /* ignore — falls back to GHS only, see QuotationsPage's identical comment */ }
+    } catch { /* falls back to GHS only, see QuotationsPage's identical comment */ }
   }, [canSeeCustomers, canSeeCatalog, canSeeSalesOrders]);
 
   useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+  function closeDetail() {
+    setDetail(null);
+    if (params.get('open')) { params.delete('open'); setParams(params, { replace: true }); }
+  }
 
   function openNew() {
     setDialogError(null);
@@ -172,7 +174,6 @@ export default function InvoicesPage() {
     setPaymentSchedule([]);
     setDialogOpen(true);
   }
-
   async function handleSubmit() {
     setSaving(true);
     setDialogError(null);
@@ -200,9 +201,11 @@ export default function InvoicesPage() {
       const inv = await api.post('/invoices/from-order', { salesOrderId: orderId });
       setToast(tr('{invoiceNo} issued for the order.', { invoiceNo: inv.invoiceNo }));
       setOrderId('');
+      setOrderOpen(false);
       await load();
     } catch (err) {
       setError(err.message);
+      setOrderOpen(false);
     } finally {
       setOrderBusy(false);
     }
@@ -221,13 +224,13 @@ export default function InvoicesPage() {
       setBusyId(null);
     }
   }
-
   async function confirmDelete() {
     setDeleting(true);
     try {
       await api.del('/invoices/' + deleteTarget.id);
       setToast(tr('{invoiceNo} deleted.', { invoiceNo: deleteTarget.invoiceNo }));
       setDeleteTarget(null);
+      closeDetail();
       await load();
     } catch (err) {
       setError(err.message);
@@ -239,9 +242,8 @@ export default function InvoicesPage() {
   function openPay(inv) {
     setPayError(null);
     setPayTarget(inv);
-    setPayForm({ ...EMPTY_PAY, amount: inv.balanceDue });
+    setPayForm({ amount: inv.balanceDue, method: 'cash', date: todayIso(), reference: '', notes: '' });
   }
-
   async function submitPayment(e) {
     e.preventDefault();
     setPaying(true);
@@ -261,9 +263,8 @@ export default function InvoicesPage() {
   function openEdit(inv) {
     setEditError(null);
     setEditTarget(inv);
-    setEditForm({ dueDate: inv.dueDate, poReference: inv.poReference || '' });
+    setEditForm({ dueDate: inv.dueDate || '', poReference: inv.poReference || '' });
   }
-
   async function submitEdit(e) {
     e.preventDefault();
     setEditSaving(true);
@@ -280,106 +281,296 @@ export default function InvoicesPage() {
     }
   }
 
+  // Same as the Payment reminders page: the tab is opened on the click
+  // itself (a window opened after waiting for the server is blocked as a
+  // pop-up), then pointed at WhatsApp with the message the server wrote.
+  async function remind(inv) {
+    const win = window.open('', '_blank');
+    setBusyId(inv.id);
+    setError(null);
+    try {
+      const r = await api.post('/reminders/' + inv.id + '/whatsapp', { origin: window.location.origin });
+      if (win) win.location.href = r.whatsappUrl;
+      else window.location.href = r.whatsappUrl;
+      setToast(tr('WhatsApp opened for {name} — press send there.', { name: inv.customerName }));
+      await load();
+    } catch (err) {
+      if (win) win.close();
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function openPreview(inv) {
     const cust = customers.find((c) => c.id === inv.customerId) || {};
-    setPreviewInv({ ...inv, customerName: cust.name || inv.customerName, customerEmail: cust.email || '' });
+    setPreviewInv({ ...inv, customerName: cust.name || inv.customerName, customerEmail: cust.email || inv.customerEmail || '' });
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  const visibleInvoices = invoices.filter((inv) =>
-    matchesQuery(search, inv.invoiceNo, inv.customerName) && (!statusFilter || invoiceDisplayStatus(inv) === statusFilter)
-  );
+  // ── what the page shows ────────────────────────────────────────────
+  const owing = invoices.filter(isOwing);
+  const overdue = owing.filter((inv) => inv.overdue).sort((a, b) => b.daysOverdue - a.daysOverdue);
+  const partPaid = owing.filter((inv) => inv.status === 'partially_paid');
+  const dueSoon = owing.filter((inv) => !inv.overdue && inv.dueDate && daysLate(inv) > -WEEK - 1 && daysLate(inv) <= 0);
+  const unreminded = overdue.filter((inv) => !inv.reminders);
+  const since = dayNum(todayIso()) - 30;
+  const recentPays = [];
+  invoices.forEach((inv) => (inv.payments || []).forEach((p) => { if (dayNum(p.date) > since) recentPays.push({ currency: inv.currency, amount: p.amount }); }));
+  const collected = sumOf(recentPays, 'amount');
 
-  // What can be done to an invoice, in one place: the row's three-dot menu
-  // and the detail panel's menu are the same list, so they cannot drift.
-  // Entries are hidden rather than disabled where the permission or status
-  // rules out the action, which is how these read as separate buttons.
-  function rowActions(inv) {
-    const canRecordPayment = inv.status !== 'paid' && inv.status !== 'void';
+  function showOnly(key) { setAge(''); setChip(chip === key ? 'owing' : key); jump('iv-list'); }
+  const stats = [
+    { icon: 'owed', value: moneyBreakdown(sumOf(owing, 'balanceDue'), money(0)), label: tr('owed to us'), note: owing.length === 1 ? tr('on 1 invoice') : tr('on {n} invoices', { n: owing.length }), onClick: () => showOnly('owing') },
+    { icon: 'warn', value: moneyBreakdown(sumOf(overdue, 'balanceDue'), money(0)), label: tr('overdue'), note: overdue.length ? (overdue.length === 1 ? tr('1 invoice, {days} days late', { days: overdue[0].daysOverdue }) : tr('{n} invoices; the oldest {days} days late', { n: overdue.length, days: overdue[0].daysOverdue })) : tr('nothing past its due date'), tone: overdue.length ? 'bad' : 'good', onClick: () => showOnly('overdue') },
+    { icon: 'cash', value: moneyBreakdown(collected, money(0)), label: tr('collected in the last 30 days'), note: recentPays.length === 1 ? tr('1 payment') : tr('{n} payments', { n: recentPays.length }), tone: collected.length ? 'good' : '', onClick: () => showOnly('paid') },
+    { icon: 'calendar', value: moneyBreakdown(sumOf(dueSoon, 'balanceDue'), money(0)), label: tr('falls due this week'), note: dueSoon.length === 1 ? tr('1 invoice') : tr('{n} invoices', { n: dueSoon.length }), tone: dueSoon.length ? 'warn' : '', onClick: () => showOnly('soon') }
+  ];
+
+  const insights = [];
+  if (unreminded.length) insights.push({ tone: 'bad', icon: 'send', text: unreminded.length === 1 ? tr('{name} is {days} days overdue on {no} and hasn\'t been reminded.', { name: unreminded[0].customerName, days: unreminded[0].daysOverdue, no: unreminded[0].invoiceNo }) : tr('{n} overdue invoices have never had a reminder.', { n: unreminded.length }), action: { label: unreminded.length === 1 ? tr('Open') : tr('Show them'), run: () => (unreminded.length === 1 ? setDetail(unreminded[0].id) : showOnly('noremind')) } });
+  if (overdue.length && overdue[0].daysOverdue > 30) insights.push({ tone: 'bad', icon: 'clock', text: tr('{no} for {name} is {days} days overdue; {amount} still to pay.', { no: overdue[0].invoiceNo, name: overdue[0].customerName, days: overdue[0].daysOverdue, amount: money(overdue[0].balanceDue, overdue[0].currency) }), action: { label: tr('Open'), run: () => setDetail(overdue[0].id) } });
+  if (dueSoon.length) insights.push({ tone: 'warn', icon: 'calendar', text: dueSoon.length === 1 ? tr('{no} for {name} falls due on {date}.', { no: dueSoon[0].invoiceNo, name: dueSoon[0].customerName, date: fmtDate(dueSoon[0].dueDate) }) : tr('{n} invoices fall due in the next seven days.', { n: dueSoon.length }), action: { label: tr('Show them'), run: () => showOnly('soon') } });
+  if (partPaid.length) insights.push({ tone: 'info', icon: 'receipt', text: partPaid.length === 1 ? tr('{name} has paid part of {no}; {amount} still to come.', { name: partPaid[0].customerName, no: partPaid[0].invoiceNo, amount: money(partPaid[0].balanceDue, partPaid[0].currency) }) : tr('{n} invoices are part-paid; {amount} still to come.', { n: partPaid.length, amount: moneyBreakdown(sumOf(partPaid, 'balanceDue')) }), action: { label: tr('Show them'), run: () => showOnly('part') } });
+  if (!overdue.length && invoices.length) insights.push({ tone: 'good', icon: 'check', text: owing.length ? tr('Nothing is overdue. Everything owed is still within its due date.') : tr('Every invoice is paid.') });
+
+  const ageOf = (inv) => (AGES.find((a) => a.test(daysLate(inv))) || AGES[0]).key;
+  const chipTest = {
+    owing: isOwing, overdue: (inv) => overdue.includes(inv), soon: (inv) => dueSoon.includes(inv), part: (inv) => inv.status === 'partially_paid',
+    noremind: (inv) => unreminded.includes(inv), paid: (inv) => inv.status === 'paid', void: (inv) => inv.status === 'void', all: () => true
+  };
+  const visible = invoices.filter(chipTest[chip] || chipTest.owing)
+    .filter((inv) => !age || (isOwing(inv) && ageOf(inv) === age))
+    .filter((inv) => matchesQuery(search, inv.invoiceNo, inv.customerName, itemsLine(inv), inv.poReference, inv.quoteNo, inv.orderNo));
+  const chips = [
+    ['owing', tr('Owing'), owing.length], ['overdue', tr('Overdue'), overdue.length], ['soon', tr('Due this week'), dueSoon.length],
+    ['part', tr('Part-paid'), partPaid.length], ['noremind', tr('Not reminded'), unreminded.length], ['paid', tr('Paid'), invoices.filter(chipTest.paid).length],
+    ['void', tr('Voided'), invoices.filter(chipTest.void).length], ['all', tr('All'), invoices.length]
+  ].filter(([k, , c]) => c > 0 || k === 'owing' || k === chip);
+  const ageRows = AGES.map((a) => { const list = owing.filter((inv) => ageOf(inv) === a.key); return { ...a, n: list.length, sum: sumOf(list, 'balanceDue') }; });
+
+  function stateOf(inv) {
+    if (inv.status === 'void') return { tone: 'muted', text: tr('Voided') };
+    if (inv.status === 'paid') return { tone: 'good', text: inv.paidAt ? tr('Paid {date}', { date: fmtDate(inv.paidAt) }) : tr('Paid') };
+    if (inv.overdue) return { tone: 'bad', text: tr('{days} days overdue', { days: inv.daysOverdue }) };
+    const d = -daysLate(inv);
+    const due = !inv.dueDate ? tr('No due date') : d === 0 ? tr('Due today') : d <= WEEK ? tr('Due in {n} days', { n: d }) : tr('Due {date}', { date: fmtDate(inv.dueDate) });
+    return { tone: inv.status === 'partially_paid' ? 'warn' : d <= WEEK ? 'warn' : 'info', text: inv.status === 'partially_paid' ? tr('Part-paid') + ' · ' + due : due };
+  }
+  const canDelete = (inv) => canManage && inv.status === 'unpaid' && !(inv.amountPaid > 0);
+  // Shared by the row menu and the window so the two cannot drift.
+  function actionsFor(inv) {
     return [
+      { label: tr('Open'), onClick: () => setDetail(inv.id) },
       { label: tr('Preview'), onClick: () => openPreview(inv) },
-      { label: tr('Record payment'), onClick: () => openPay(inv), hidden: !(canRecordPayment && canManage) },
-      { label: tr('Edit'), onClick: () => openEdit(inv), hidden: !canManage },
-      { label: tr('Void'), onClick: () => voidInvoice(inv), hidden: !(inv.status === 'unpaid' && canManage) },
-      { label: tr('Delete'), onClick: () => setDeleteTarget(inv), danger: true, hidden: !(inv.status === 'unpaid' && canManage) },
-    ];
+      canManage && isOwing(inv) && { label: tr('Record payment'), onClick: () => openPay(inv) },
+      canManage && isOwing(inv) && inv.customerPhone && { label: tr('Remind on WhatsApp'), onClick: () => remind(inv) },
+      canManage && inv.status !== 'void' && { label: tr('Change due date or PO'), onClick: () => openEdit(inv) },
+      canManage && inv.status === 'unpaid' && { label: tr('Void'), onClick: () => voidInvoice(inv) },
+      canDelete(inv) && { label: tr('Delete'), onClick: () => setDeleteTarget(inv), danger: true }
+    ].filter(Boolean);
   }
 
+  const cur = detail ? invoices.find((inv) => inv.id === detail) : null;
+  const curTotals = cur ? totalsForDialog(cur, cur.currency).filter((r, i, all) => all.length > 2 || r.strong) : [];
+  const orderChoices = orders.filter((o) => !invoices.some((inv) => inv.salesOrderId === o.id && inv.status !== 'void'));
+
   return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+    <div className="dk tl pk cu iv">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <div className="invoices-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search invoices…')} />
-        <select className="input invoices-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
-          <option value="">{tr('All statuses')}</option>
-          {INVOICE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{invoiceStatusLabel(s)}</option>)}
-        </select>
-        {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New manual invoice')}</button>}
-      </div>
+      <Hero
+        eyebrow={tr('Quotations & Invoicing')}
+        title={tr('Invoices')}
+        sub={tr('What clients have been billed and what they still owe: what is overdue, what came in and what falls due next. Press a number to show only those.')}
+        actions={(
+          <>
+            {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New invoice')}</button>}
+            {canManage && canSeeSalesOrders && orderChoices.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => setOrderOpen(true)}>{tr('From a sales order')}</button>}
+            <Link className="btn btn-secondary" to="/reminders">{tr('Payment reminders')}</Link>
+          </>
+        )}
+        stats={stats} />
 
-      {canManage && canSeeSalesOrders && (
-        <form className="invoices-order-form" onSubmit={createFromOrder}>
-          <div className="field">
-            <label htmlFor="iv-order">{tr('Issue invoice for a sales order')}</label>
-            <select id="iv-order" className="input" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-              <option value="">{tr('Choose a sales order')}</option>
-              {orders.map((o) => <option key={o.id} value={o.id}>{o.orderNo} — {o.customerName}</option>)}
-            </select>
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={!orderId || orderBusy}>{tr('Issue invoice')}</button>
-        </form>
-      )}
+      <Insights items={insights.slice(0, 5)} />
 
-      <table className="table table-clickable">
-        <thead>
-          <tr><th>{tr('Invoice')}</th><th>{tr('Customer')}</th><th className="col-mid">{tr('Total')}</th><th>{tr('Balance')}</th><th className="col-wide">{tr('Due')}</th><th>{tr('Status')}</th><th></th></tr>
-        </thead>
-        <tbody>
-          {visibleInvoices.map((inv) => {
-            return (
-              <tr
-                key={inv.id}
-                tabIndex={0}
-                onClick={() => setDetail(inv)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(inv); } }}
-              >
-                <td>
-                  <div className="invoices-no-cell">
-                    <span className={'invoices-badge invoices-badge-' + statusTone(invoiceBucket(inv))}><DocIcon /></span>
-                    <span style={{ fontWeight: 600 }}>{inv.invoiceNo}</span>
-                  </div>
-                </td>
-                <td>{inv.customerName}</td>
-                <td className="col-mid">{money(inv.grandTotal, inv.currency)}</td>
-                <td style={{ fontWeight: 600 }}>{money(inv.balanceDue, inv.currency)}</td>
-                <td className="col-wide">{fmtDate(inv.dueDate)}</td>
-                <td><span className={'tag ' + invoiceTagClass(inv)}>{invoiceStatusLabel(invoiceDisplayStatus(inv))}</span></td>
-                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                  <RowMenu disabled={busyId === inv.id} actions={rowActions(inv)} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {!invoices.length && (
-        <div className="invoices-empty-state">
-          <span className="invoices-empty-icon"><DocIcon /></span>
-          <p className="invoices-empty-title">{tr('No invoices yet')}</p>
+      <Section id="iv-ages" title={tr('How late the money is')} sub={tr('What is still owed, by how far past the due date. Press one to show only those.')}>
+        <div className="cu-stages iv-ages" role="radiogroup" aria-label={tr('How late')}>
+          {ageRows.map((a) => (
+            <button key={a.key} type="button" role="radio" aria-checked={age === a.key} className={'cu-stage iv-age is-' + a.key + (age === a.key ? ' is-on' : '')}
+              onClick={() => { setChip('owing'); setAge(age === a.key ? '' : a.key); jump('iv-list'); }}>
+              <strong>{a.sum.length ? moneyBreakdown(a.sum) : '—'}</strong>
+              <span>{tr(a.label)} · {a.n}</span>
+            </button>
+          ))}
         </div>
-      )}
-      {!!invoices.length && !visibleInvoices.length && (
-        <div className="invoices-empty-state">
-          <span className="invoices-empty-icon"><DocIcon /></span>
-          <p className="invoices-empty-title">{search ? tr('No invoices match "{search}"', { search }) : tr('No invoices match this filter')}</p>
+      </Section>
+
+      <Section id="iv-list" title={tr('Invoices')} sub={tr('Press an invoice to see its lines, the payments made and to send a reminder.')}
+        action={(
+          <div className="ppl-view" role="radiogroup" aria-label={tr('View')}>
+            {[['cards', tr('Cards')], ['list', tr('List')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={view === k} className={view === k ? 'is-on' : ''} onClick={() => { setView(k); writePref('bos.invoicesView', k); }}>{label}</button>
+            ))}
+          </div>
+        )}>
+        <div className="tl-tools"><div className="tl-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search invoices…')} /></div></div>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, c]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => { setChip(key); setAge(''); }}>
+              {label} <span className="ppl-chip-n">{c}</span>
+            </button>
+          ))}
+          {age && <button type="button" className="ppl-chip is-on" onClick={() => setAge('')}>{tr(AGES.find((a) => a.key === age).label)} ×</button>}
+        </div>
+        {!visible.length ? (
+          <div className="dk-empty tl-empty">
+            <p>{invoices.length ? tr('Nothing matches. Try another search or filter.') : tr('No invoices yet')}</p>
+            {canOpenManual && !invoices.length && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New invoice')}</button>}
+          </div>
+        ) : view === 'cards' ? (
+          <div className="tl-grid">
+            {visible.map((inv) => {
+              const st = stateOf(inv);
+              return (
+                <article key={inv.id} className={'tl-card' + (inv.overdue ? ' st-late' : '') + (inv.status === 'void' ? ' st-retired' : '')}>
+                  <button type="button" className="tl-card-open" onClick={() => setDetail(inv.id)}>
+                    <Mark inv={inv} />
+                    <span className="tl-card-head">
+                      <span className="dk-muted tl-small">{inv.invoiceNo} · {fmtDate(inv.issuedAt)}</span>
+                      <span className="tl-name">{inv.customerName}</span>
+                    </span>
+                  </button>
+                  <span className="tl-menu"><RowMenu disabled={busyId === inv.id} actions={actionsFor(inv)} /></span>
+                  <p className="dk-muted tl-small es-items">{itemsLine(inv) || '—'}</p>
+                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status>{inv.reminders > 0 && isOwing(inv) && <Status tone="muted">{tr('Reminded {n}×', { n: inv.reminders })}</Status>}</div>
+                  <PaidBar inv={inv} />
+                  <div className="tl-foot">
+                    <span className="iv-owe">
+                      {isOwing(inv) ? <><span className="es-total">{money(inv.balanceDue, inv.currency)}</span><span className="dk-muted tl-small">{tr('of {amount}', { amount: money(inv.grandTotal, inv.currency) })}</span></> : <span className="es-total">{money(inv.grandTotal, inv.currency)}</span>}
+                    </span>
+                    <ContactButtons name={inv.customerName} phone={inv.customerPhone} email={inv.customerEmail} />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="tl-table-wrap">
+            <table className="tl-table">
+              <thead><tr><th>{tr('Invoice')}</th><th>{tr('What for')}</th><th className="is-num">{tr('Total')}</th><th className="is-num">{tr('Still to pay')}</th><th>{tr('Where it stands')}</th><th /></tr></thead>
+              <tbody>
+                {visible.map((inv) => {
+                  const st = stateOf(inv);
+                  return (
+                    <tr key={inv.id} className={inv.status === 'void' ? 'st-retired' : ''}>
+                      <td><button type="button" className="tl-row-open" onClick={() => setDetail(inv.id)}><Mark inv={inv} size={32} /><span><span className="tl-name">{inv.customerName}</span><span className="dk-muted tl-small">{inv.invoiceNo}</span></span></button></td>
+                      <td className="es-items-cell">{itemsLine(inv) || '—'}</td>
+                      <td className="is-num">{money(inv.grandTotal, inv.currency)}</td>
+                      <td className={'is-num' + (inv.overdue ? ' pk-owe' : '')}>{isOwing(inv) ? money(inv.balanceDue, inv.currency) : '—'}</td>
+                      <td><Status tone={st.tone}>{st.text}</Status></td>
+                      <td className="tl-menu-cell"><RowMenu disabled={busyId === inv.id} actions={actionsFor(inv)} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Glossary items={[
+        [tr('Owed'), tr('What is still to pay on invoices that are not paid or voided, added up in each currency.')],
+        [tr('Overdue'), tr('Still owed after the due date, including invoices that have been part-paid.')],
+        [tr('Part-paid'), tr('Some money has come in, but not all of it.')],
+        [tr('Collected'), tr('Payments recorded against invoices, by the date the money came in.')],
+        [tr('Reminder'), tr('A WhatsApp or text message asking the client to pay, sent from here or the Payment reminders page.')],
+        [tr('Voided'), tr('Cancelled and kept for the record. Only an invoice with no payments can be voided.')]
+      ]} />
+
+      {/* ── one invoice ── */}
+      {cur && (
+        <div className="dialog-backdrop" onClick={closeDetail}>
+          <div className="dialog tl-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="tl-detail-head">
+              <Mark inv={cur} size={56} />
+              <div>
+                <span className="dk-muted tl-small">{cur.invoiceNo} · {tr('Issued {date}', { date: fmtDate(cur.issuedAt) })}</span>
+                <h2>{cur.customerName}</h2>
+                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status></div>
+              </div>
+              <button type="button" className="tl-close" onClick={closeDetail} aria-label={tr('Close')}>×</button>
+            </div>
+            {cur.status !== 'void' && (
+              <div className="iv-paid">
+                <div className="iv-paid-nums">
+                  <span><strong>{money(cur.amountPaid, cur.currency)}</strong> <span className="dk-muted">{tr('paid')}</span></span>
+                  <span className={cur.overdue ? 'pk-owe' : ''}><strong>{money(cur.balanceDue, cur.currency)}</strong> <span className="dk-muted">{tr('still to pay')}</span></span>
+                </div>
+                <PaidBar inv={cur} />
+              </div>
+            )}
+            <ul className="rs-lines">
+              {cur.items.map((it, i) => <li key={i}><span className="rs-qty">{it.qty}×</span><span>{it.description}<span className="dk-muted tl-small"> · {money(it.unitPrice, cur.currency)}</span></span><strong>{money(lineAmount(it), cur.currency)}</strong></li>)}
+              {curTotals.map((r) => <li key={r.label} className={r.strong ? 'rs-total' : ''}><span /><span>{r.label}</span><strong>{r.value}</strong></li>)}
+            </ul>
+            <dl className="tl-facts">
+              <div><dt>{tr('Due')}</dt><dd className={cur.overdue ? 'pk-owe' : ''}>{cur.dueDate ? fmtDate(cur.dueDate) : '—'}</dd></div>
+              {cur.poReference && <div><dt>{tr('PO reference')}</dt><dd>{cur.poReference}</dd></div>}
+              {cur.quoteNo && <div><dt>{tr('From quotation')}</dt><dd><Link to={'/quotations?open=' + cur.quotationId}>{cur.quoteNo}</Link></dd></div>}
+              {cur.orderNo && <div><dt>{tr('From sales order')}</dt><dd>{cur.orderNo}</dd></div>}
+              <div><dt>{tr('Reminders')}</dt><dd>{cur.reminders ? tr('{n} sent, the last on {date}', { n: cur.reminders, date: fmtDate(cur.lastRemindedAt) }) : tr('none sent')}</dd></div>
+              <div><dt>{tr('Currency')}</dt><dd>{cur.currency}</dd></div>
+            </dl>
+            <h3 className="tl-h3">{tr('Payments received')}</h3>
+            {cur.payments && cur.payments.length ? (
+              <ul className="tl-log">
+                {cur.payments.map((p, i) => {
+                  const d = new Date(String(p.date).slice(0, 10) + 'T00:00');
+                  const shown = paymentsForDocument([p], cur.currency)[0];
+                  return (
+                    <li key={p.id || i} className="tl-log-row is-restock">
+                      <span className="tl-date" aria-hidden="true"><strong>{d.getDate()}</strong><span>{d.toLocaleDateString(activeIntlLocale(), { month: 'short' })}</span></span>
+                      <span className="tl-log-main">
+                        <span className="tl-log-title">{shown.amount} · {codeLabel(p.method)}</span>
+                        <span className="dk-muted tl-small">{[p.reference && tr('ref {reference}', { reference: p.reference }), p.receivedByName && tr('taken by {name}', { name: p.receivedByName })].filter(Boolean).join(' · ') || fmtDate(p.date)}</span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : <p className="dk-muted tl-small">{cur.status === 'void' ? tr('Voided before anything was paid.') : tr('Nothing paid yet.')}</p>}
+            {cur.paymentSchedule && cur.paymentSchedule.length > 0 && (
+              <>
+                <h3 className="tl-h3">{tr('Payment schedule')}</h3>
+                <ul className="rs-lines iv-schedule">
+                  {formatPaymentSchedule(cur.paymentSchedule, cur.currency).map((row) => <li key={row.label}><span /><span>{row.label}<span className="dk-muted tl-small"> · {row.dueDate}</span></span><strong>{row.amount}</strong></li>)}
+                </ul>
+              </>
+            )}
+            <div className="tl-holder is-inline">
+              <div className="tl-holder-head">
+                <span className="tl-holder-name"><strong>{cur.customerName}</strong><span className="dk-muted tl-small">{[cur.customerPhone, cur.customerEmail].filter(Boolean).join(' · ') || tr('no phone or email')}</span></span>
+                <ContactButtons name={cur.customerName} phone={cur.customerPhone} email={cur.customerEmail} />
+              </div>
+            </div>
+            {cur.notes && <><h3 className="tl-h3">{tr('Message to customer')}</h3><p className="tl-notes">{cur.notes}</p></>}
+            <div className="dialog-actions tl-actions">
+              {canDelete(cur) && <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(cur)}>{tr('Delete')}</button>}
+              {canManage && cur.status === 'unpaid' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => voidInvoice(cur)}>{tr('Void')}</button>}
+              {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Change due date or PO')}</button>}
+              <button type="button" className="btn btn-secondary" onClick={() => openPreview(cur)}>{tr('Preview')}</button>
+              {canManage && isOwing(cur) && cur.customerPhone && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => remind(cur)}>{tr('Remind on WhatsApp')}</button>}
+              {canManage && isOwing(cur) && <button type="button" className="btn btn-primary" onClick={() => openPay(cur)}>{tr('Record payment')}</button>}
+            </div>
+          </div>
         </div>
       )}
 
       {dialogOpen && (
         <DocWizard
-          title={tr('New manual invoice')} docKind="invoice"
+          title={tr('New invoice')} docKind="invoice"
           detailsSlot={
             <div className="invoices-dialog-fields">
               <div className="field">
@@ -411,63 +602,87 @@ export default function InvoicesPage() {
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
             { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
-            { label: tr('Due date'), value: fmtDate(form.dueDate) }
+            { label: tr('Due date'), value: form.dueDate ? fmtDate(form.dueDate) : '—' }
           ]}
           submitLabel={tr('Create invoice')} saving={saving} error={dialogError}
           onSubmit={handleSubmit} onClose={() => setDialogOpen(false)}
         />
       )}
 
-      {payTarget && (
-        <div className="dialog-backdrop" onClick={() => setPayTarget(null)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
-            <h2>{tr('Record payment')}</h2>
-            <p className="dialog-body">{tr('Outstanding balance:')} {money(payTarget.balanceDue, payTarget.currency)}</p>
-            {payError && <div className="error-banner">{payError}</div>}
+      {orderOpen && (
+        <div className="dialog-backdrop" onClick={() => !orderBusy && setOrderOpen(false)}>
+          <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={createFromOrder}>
+            <h2>{tr('Issue invoice for a sales order')}</h2>
+            <p className="dk-muted tl-small">{tr('Only orders without an invoice are listed. The invoice copies the order\'s lines.')}</p>
             <div className="field">
-              <label htmlFor="pay-amount">{tr('Amount (')}{payTarget.currency})</label>
-              <input id="pay-amount" className="input" type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
+              <label htmlFor="iv-order">{tr('Sales order')}</label>
+              <select id="iv-order" className="input" value={orderId} onChange={(e) => setOrderId(e.target.value)} required>
+                <option value="">{tr('Choose a sales order')}</option>
+                {orderChoices.map((o) => <option key={o.id} value={o.id}>{o.orderNo} — {o.customerName}</option>)}
+              </select>
             </div>
-            <div className="invoices-pay-grid">
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setOrderOpen(false)}>{tr('Cancel')}</button>
+              <button className="btn btn-primary" type="submit" disabled={!orderId || orderBusy}>{tr('Issue invoice')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {payTarget && (
+        <div className="dialog-backdrop" onClick={() => !paying && setPayTarget(null)}>
+          <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitPayment}>
+            <h2>{tr('Record payment')}</h2>
+            <p className="dk-muted tl-small">{payTarget.invoiceNo} · {payTarget.customerName} · {tr('Outstanding balance:')} <strong>{money(payTarget.balanceDue, payTarget.currency)}</strong></p>
+            {payError && <div className="error-banner">{payError}</div>}
+            <div className="tl-form">
               <div className="field">
-                <label htmlFor="pay-method">{tr('Method')}</label>
-                <select id="pay-method" className="input" value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
-                  <option value="cash">{tr('Cash')}</option><option value="bank_transfer">{tr('Bank transfer')}</option><option value="mobile_money">{tr('Mobile Money')}</option><option value="card">{tr('Card')}</option><option value="cheque">{tr('Cheque')}</option><option value="other">{tr('Other')}</option>
-                </select>
+                <label htmlFor="pay-amount">{tr('Amount ({currency})', { currency: payTarget.currency })}</label>
+                <input id="pay-amount" className="input" type="number" min="0.01" step="0.01" max={payTarget.balanceDue} value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} required />
               </div>
               <div className="field">
                 <label htmlFor="pay-date">{tr('Date')}</label>
-                <input id="pay-date" className="input" type="date" value={payForm.date} onChange={(e) => setPayForm({ ...payForm, date: e.target.value })} />
+                <input id="pay-date" className="input" type="date" max={todayIso()} value={payForm.date} onChange={(e) => setPayForm({ ...payForm, date: e.target.value })} />
+              </div>
+              <div className="field tl-span">
+                <span className="iv-label" id="pay-method-l">{tr('Method')}</span>
+                <div className="tl-seg" role="radiogroup" aria-labelledby="pay-method-l">
+                  {METHODS.map(([k, label]) => <button key={k} type="button" role="radio" aria-checked={payForm.method === k} className={'tl-seg-btn' + (payForm.method === k ? ' is-on' : '')} onClick={() => setPayForm({ ...payForm, method: k })}>{tr(label)}</button>)}
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="pay-ref">{tr('Transaction / reference')}</label>
+                <input id="pay-ref" className="input" value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="pay-notes">{tr('Notes')}</label>
+                <input id="pay-notes" className="input" value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} />
               </div>
             </div>
-            <div className="field">
-              <label htmlFor="pay-ref">{tr('Transaction / reference')}</label>
-              <input id="pay-ref" className="input" value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} />
-            </div>
-            <div className="field">
-              <label htmlFor="pay-notes">{tr('Notes')}</label>
-              <input id="pay-notes" className="input" value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} />
-            </div>
+            <p className="dk-muted tl-small">{tr('A receipt is made for every payment.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setPayTarget(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={paying}>{tr('Record payment')}</button>
+              <button type="submit" className="btn btn-primary" disabled={paying}>{paying ? tr('Saving…') : tr('Record payment')}</button>
             </div>
           </form>
         </div>
       )}
 
       {editTarget && (
-        <div className="dialog-backdrop" onClick={() => setEditTarget(null)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitEdit}>
-            <h2>{tr('Edit invoice')}</h2>
+        <div className="dialog-backdrop" onClick={() => !editSaving && setEditTarget(null)}>
+          <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitEdit}>
+            <h2>{tr('Change due date or PO')}</h2>
+            <p className="dk-muted tl-small">{editTarget.invoiceNo} · {editTarget.customerName}</p>
             {editError && <div className="error-banner">{editError}</div>}
-            <div className="field">
-              <label htmlFor="ivedit-due">{tr('Due date')}</label>
-              <input id="ivedit-due" className="input" type="date" value={editForm.dueDate} onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })} />
-            </div>
-            <div className="field">
-              <label htmlFor="ivedit-po">{tr('PO / reference')}</label>
-              <input id="ivedit-po" className="input" value={editForm.poReference} onChange={(e) => setEditForm({ ...editForm, poReference: e.target.value })} />
+            <div className="tl-form">
+              <div className="field">
+                <label htmlFor="ivedit-due">{tr('Due date')}</label>
+                <input id="ivedit-due" className="input" type="date" value={editForm.dueDate} onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="ivedit-po">{tr('PO / reference')}</label>
+                <input id="ivedit-po" className="input" value={editForm.poReference} onChange={(e) => setEditForm({ ...editForm, poReference: e.target.value })} />
+              </div>
             </div>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setEditTarget(null)}>{tr('Cancel')}</button>
@@ -475,57 +690,6 @@ export default function InvoicesPage() {
             </div>
           </form>
         </div>
-      )}
-
-      {detail && (
-        <RecordDialog
-          title={detail.invoiceNo}
-          subtitle={detail.customerName}
-          tag={<span className={'tag ' + invoiceTagClass(detail)}>{invoiceStatusLabel(invoiceDisplayStatus(detail))}</span>}
-          actions={rowActions(detail)}
-          onClose={() => setDetail(null)}
-          items={itemsForDialog(detail.items, detail.currency)}
-          totals={totalsForDialog(detail, detail.currency)}
-          fields={[
-            { label: tr('Paid'), value: money(detail.amountPaid, detail.currency) },
-            {
-              label: tr('Payments received'),
-              wide: true,
-              value: (detail.payments || []).length ? (
-                <ul className="record-dialog-list">
-                  {paymentsForDocument(detail.payments, detail.currency).map((pay, i) => (
-                    <li key={pay.id || i}>
-                      {pay.date} · {pay.amount}
-                      {pay.methodLabel ? ' · ' + pay.methodLabel : ''}
-                      {pay.reference ? tr(' · ref {reference}', { reference: pay.reference }) : ''}
-                    </li>
-                  ))}
-                </ul>
-              ) : null,
-            },
-            { label: tr('Balance due'), value: money(detail.balanceDue, detail.currency) },
-            { label: tr('Due'), value: fmtDate(detail.dueDate) },
-            { label: tr('Issued'), value: fmtDate(detail.issuedAt) },
-            { label: tr('Currency'), value: detail.currency },
-            { label: tr('PO reference'), value: detail.poReference },
-            {
-              label: tr('Payment schedule'),
-              wide: true,
-              // formatPaymentSchedule returns rows, not a string — handing the
-              // array straight to React renders nothing when it is empty and
-              // throws "Objects are not valid as a React child" when it is not.
-              value: detail.paymentSchedule && detail.paymentSchedule.length ? (
-                <ul className="record-dialog-list">
-                  {formatPaymentSchedule(detail.paymentSchedule, detail.currency).map((row) => (
-                    <li key={row.label}>{row.label} · {row.dueDate} · {row.amount}</li>
-                  ))}
-                </ul>
-              ) : null,
-            },
-            { label: tr('Notes'), value: detail.notes, wide: true },
-            { label: tr('Terms'), value: detail.terms, wide: true },
-          ]}
-        />
       )}
 
       {deleteTarget && (
@@ -570,7 +734,7 @@ export default function InvoicesPage() {
         />
       )}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }

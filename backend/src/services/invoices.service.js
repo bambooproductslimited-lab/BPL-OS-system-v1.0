@@ -42,8 +42,16 @@ async function rowToInvoice(db, r, extra) {
 async function list(ctx) {
   if (!ctx.can('invoice.read')) fail('forbidden', 'Your role does not allow this action (invoice.read).');
   var t = todayISO();
-  var res = await pool.query('SELECT i.*, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
-    'WHERE ' + bplScopeClause('i') + ' ORDER BY i.issued_at DESC');
+  // Alongside each invoice: how to reach the client, the quotation or order
+  // it came from, and how often and when the client was last reminded.
+  var res = await pool.query(
+    'SELECT i.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email, c.category AS customer_category, ' +
+    '  q.quote_no, so.order_no, rm.reminders, rm.last_reminded_at ' +
+    'FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    'LEFT JOIN quotations q ON q.id = i.quotation_id ' +
+    'LEFT JOIN sales_orders so ON so.id = i.sales_order_id ' +
+    'LEFT JOIN (SELECT invoice_id, count(*)::int AS reminders, max(sent_at) AS last_reminded_at FROM payment_reminders GROUP BY invoice_id) rm ON rm.invoice_id = i.id ' +
+    'WHERE ' + bplScopeClause('i') + ' ORDER BY i.issued_at DESC, i.invoice_no DESC');
   // One query for every payment on this page of invoices, grouped in memory,
   // rather than one query per invoice inside the loop below.
   var ids = res.rows.map(function (x) { return x.id; });
@@ -63,8 +71,14 @@ async function list(ctx) {
   var out = [];
   for (var idx = 0; idx < res.rows.length; idx++) {
     var r = res.rows[idx];
+    // Overdue: anything still owed past its due date, part-paid included.
+    var owing = r.status === 'unpaid' || r.status === 'partially_paid';
+    var overdue = owing && !!r.due_date && r.due_date < t;
     out.push(await rowToInvoice(pool, r, {
-      customerName: r.customer_name, overdue: r.status === 'unpaid' && r.due_date < t,
+      customerName: r.customer_name, customerPhone: r.customer_phone || '', customerEmail: r.customer_email || '', customerCategory: r.customer_category,
+      quoteNo: r.quote_no || null, orderNo: r.order_no || null,
+      reminders: r.reminders || 0, lastRemindedAt: r.last_reminded_at || null,
+      overdue: overdue, daysOverdue: overdue ? Math.round((new Date(t + 'T00:00:00Z') - new Date(r.due_date + 'T00:00:00Z')) / 86400000) : 0,
       payments: byInvoice[r.id] || [],
     }));
   }
@@ -238,6 +252,7 @@ async function update(ctx, id, p) {
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
   var existing = await pool.query('SELECT * FROM invoices WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Invoice not found.');
+  if (existing.rows[0].status === 'void') fail('conflict', 'This invoice has been voided.');
   var dueDate = p.dueDate ? V.date(p.dueDate, 'Due date') : existing.rows[0].due_date;
   var poReference = p.poReference !== undefined ? (p.poReference || '').trim() : existing.rows[0].po_reference;
   var notes = p.notes !== undefined ? (p.notes || '').trim() : existing.rows[0].notes;
@@ -268,6 +283,7 @@ async function voidInvoice(ctx, id) {
   var res = await pool.query('SELECT * FROM invoices WHERE id = $1', [id]);
   var i = res.rows[0];
   if (!i) fail('notfound', 'Invoice not found.');
+  if (i.status === 'void') fail('conflict', 'This invoice has already been voided.');
   if (Number(i.amount_paid) > 0) fail('conflict', 'Cannot void an invoice that already has payments recorded against it.');
   var updated = await pool.query("UPDATE invoices SET status = 'void' WHERE id = $1 RETURNING *", [id]);
   await audit(pool, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided.');

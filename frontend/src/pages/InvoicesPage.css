@@ -1,59 +1,31 @@
-.invoices-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.invoices-status-filter { min-width: 160px; }
+/* Invoices: the ageing tiles reuse the Clients stage tiles (CustomersPage.css);
+   cards, lines and totals reuse Estimates and Restaurants */
+.iv-ages .cu-stage strong { font-size: 17px; overflow-wrap: anywhere; }
+.iv-age.is-notdue { --c: #8a8580; }
+.iv-age.is-a30 { --c: #d4a017; }
+.iv-age.is-a60 { --c: #d9731f; }
+.iv-age.is-a90 { --c: #c8452b; }
+.iv-age.is-a90p { --c: var(--color-danger); }
 
-.invoices-no-cell { display: flex; align-items: center; gap: 10px; }
-.invoices-badge {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
-  color: var(--tile-tone);
-}
-.invoices-badge svg { width: 13px; height: 13px; }
-.invoices-badge-people { --tile-tone: var(--color-accent); }
-.invoices-badge-warning { --tile-tone: var(--color-warning); }
-.invoices-badge-danger { --tile-tone: var(--color-danger); }
+/* how much of an invoice is paid */
+.iv-bar { display: block; height: 6px; border-radius: 3px; background: var(--color-bg-subtle); overflow: hidden; box-shadow: inset 0 0 0 1px var(--color-divider); }
+.iv-bar > span { display: block; height: 100%; border-radius: 3px; background: var(--color-accent); }
+.iv-bar.is-late > span { background: var(--color-danger); }
+.tl-card .iv-bar { margin: 2px 0 0; }
+.iv-owe { display: flex; flex-direction: column; min-width: 0; }
+.iv-paid { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
+.iv-paid-nums { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13.5px; }
+.iv-paid-nums strong { font-variant-numeric: tabular-nums; }
+.iv-paid .iv-bar { height: 8px; }
+.iv-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.iv-schedule li { grid-template-columns: 0 minmax(0, 1fr) auto; }
 
-.invoices-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 4px;
-  padding: 32px;
-  border: var(--divider-width) solid var(--color-divider);
-  color: var(--color-text-muted);
+/* the new-invoice wizard's first step */
+.invoices-dialog-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) {
+  .iv-ages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .iv-age.is-a90p { grid-column: 1 / -1; }
+  .invoices-dialog-fields { grid-template-columns: 1fr; }
 }
-.invoices-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
-.invoices-empty-icon svg { width: 100%; height: 100%; }
-.invoices-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
-
-.invoices-order-form {
-  border: var(--divider-width) solid var(--color-divider);
-  padding: 16px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  align-items: end;
-  margin-bottom: 16px;
-}
-
-.invoices-dialog {
-  max-width: 900px;
-  gap: 14px;
-}
-.invoices-dialog-title { margin: 0; font-size: 20px; }
-.invoices-dialog-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 14px;
-}
-.invoices-pay-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
+.iv .tl-card .tl-foot { flex-wrap: wrap; row-gap: 8px; }
+.iv .tl-card .iv-owe { flex: 1 1 auto; }
