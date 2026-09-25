@@ -44,6 +44,19 @@ router.post('/:id/role', async function (req, res, next) {
   try { res.json(await usersService.setRole(req.ctx, req.params.id, req.body.roleId)); } catch (e) { next(e); }
 });
 
+// Several roles at once (replaces the account's roles).
+router.post('/:id/roles', async function (req, res, next) {
+  try { res.json(await usersService.setRoles(req.ctx, req.params.id, req.body.roleIds)); } catch (e) { next(e); }
+});
+// Clears a lock-out after too many wrong passwords.
+router.post('/:id/unlock', async function (req, res, next) {
+  try { res.json(await usersService.unlock(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+// Sign-ins and changes to this account, from the audit log.
+router.get('/:id/activity', async function (req, res, next) {
+  try { res.json(await usersService.activity(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['users.setStatus'] -> POST /api/users/:id/status
 router.post('/:id/status', async function (req, res, next) {
   try { res.json(await usersService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }

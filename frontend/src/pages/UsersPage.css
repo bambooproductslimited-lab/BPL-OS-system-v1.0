@@ -42,3 +42,18 @@
 .users-dialog-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 
 .users-twostep { margin-left: 8px; font-size: 10px; padding: 1px 6px; }
+
+/* ── redesigned page: cards, roles, window ── */
+.us-email { margin: 0; overflow-wrap: anywhere; }
+.us-roles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.us-roles-big { margin-bottom: 12px; }
+.us-role { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent-700, var(--color-accent)); }
+.us-link { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--color-accent-700, var(--color-accent)); text-decoration: underline; cursor: pointer; }
+.us-role-pick { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-height: 320px; overflow: auto; border: 1px solid var(--color-divider); padding: 8px 12px; }
+.us-role-opt { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; font-size: 13.5px; padding: 4px 0; cursor: pointer; }
+.us-role-opt input { accent-color: var(--color-accent); width: 16px; height: 16px; }
+.us-role-opt .tl-small { grid-column: 2; }
+.us-role-pick .dialog-actions { position: sticky; bottom: 0; background: var(--color-bg); padding-top: 6px; }
+.us-activity { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.us-activity li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; flex-wrap: wrap; border-bottom: 1px solid var(--color-divider); padding-bottom: 6px; }
+.us-activity li > :first-child { min-width: 0; overflow-wrap: anywhere; }
