@@ -1,63 +1,23 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
+import Photo from '../components/Photo';
+import { Glossary, Hero, Icon, Insights, Section, Status, avatarColor, initials, jump } from '../components/DashKit';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
+import './EmployeesPage.css';
 import './DepartmentsPage.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr } from '../lib/i18n.jsx';
-// Ported from Bamboo OS.dc.html's departments screen, then restructured
-// around a new Company tier sitting above Departments (see migration
-// 0032): Bamboo Products Limited, Star Bar Restaurant and Bamboo Garden
-// each hold their own departments, and each department holds its own
-// named shift templates. Reuses the same "expandable parent → children"
-// list shape CatalogPage.jsx built for items/variations — a company row
-// expands to reveal its departments, mirroring an item row expanding to
-// reveal its variations.
-//
-// Redesigned around the icon/avatar language established elsewhere:
-// manager avatar per department row, a building badge per company, an
-// icon'd empty state.
-
-const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/);
-  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
-}
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
-
-function PeopleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-function BuildingIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="3" width="11" height="18" rx="1" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M15 9h5v12h-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M7 7h1M11 7h1M7 11h1M11 11h1M7 15h1M11 15h1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-function ClockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 7.5V12l3 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+// Companies and their departments (and each department's shift times).
+// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
+// a header with the key numbers (press one to show only those
+// departments), what stands out, then a card per company listing its
+// departments with their manager, headcount and shift times. Adding and
+// editing companies, departments and shifts works as before, in the
+// dialogs below.
 
 const EMPTY_COMPANY_FORM = { name: '', code: '' };
 const EMPTY_DEPT_FORM = { code: '', name: '', companyId: '', managerId: '' };
@@ -66,13 +26,14 @@ const EMPTY_SHIFT_FORM = { name: '', startTime: '', endTime: '' };
 export default function DepartmentsPage() {
   const { can } = useAuth();
   const canManage = can('department.manage');
+  const navigate = useNavigate();
+  const [chip, setChip] = useState(''); // '' | 'nomanager' | 'noshifts' | 'empty'
 
   const [companies, setCompanies] = useState([]);
   const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
-  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState('');
 
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
@@ -99,13 +60,6 @@ export default function DepartmentsPage() {
   const [dialogError, setDialogError] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const visibleCompanies = useMemo(() => {
-    if (!search.trim()) return companies;
-    return companies.filter((c) => (
-      matchesQuery(search, c.code, c.name) ||
-      c.departments.some((d) => matchesQuery(search, d.code, d.name, d.managerName))
-    ));
-  }, [companies, search]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -131,9 +85,6 @@ export default function DepartmentsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function toggleExpanded(id) {
-    setExpanded({ ...expanded, [id]: !expanded[id] });
-  }
 
   // Company dialog
   function openNewCompany() {
@@ -292,103 +243,177 @@ export default function DepartmentsPage() {
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
-      <div className="departments-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search companies, departments, managers…')} />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNewCompany}>{tr('Add company')}</button>}
-      </div>
+  // ── what the page shows ────────────────────────────────────────────
+  const allDepts = companies.flatMap((c) => c.departments.map((d) => ({ ...d, company: c })));
+  const people = allDepts.reduce((n, d) => n + d.headcount, 0);
+  const shiftTotal = allDepts.reduce((n, d) => n + d.shiftCount, 0);
+  const hasManager = (d) => !!d.managerId;
+  const noManager = allDepts.filter((d) => !hasManager(d) && d.headcount > 0);
+  const noShifts = allDepts.filter((d) => !d.shiftCount && d.headcount > 0);
+  const empty = allDepts.filter((d) => d.headcount === 0);
+  const deptTest = {
+    nomanager: (d) => !hasManager(d) && d.headcount > 0,
+    noshifts: (d) => !d.shiftCount && d.headcount > 0,
+    empty: (d) => d.headcount === 0
+  };
+  const filtered = companies
+    .map((c) => {
+      const companyHit = matchesQuery(search, c.code, c.name);
+      const depts = c.departments
+        .filter((d) => !chip || deptTest[chip](d))
+        .filter((d) => companyHit || matchesQuery(search, d.code, d.name, d.managerName, ...d.shifts.map((s) => s.name)))
+        .sort((a, b) => b.headcount - a.headcount || a.name.localeCompare(b.name));
+      return { ...c, shown: depts, people: c.departments.reduce((n, d) => n + d.headcount, 0), shifts: c.departments.reduce((n, d) => n + d.shiftCount, 0) };
+    })
+    .filter((c) => (chip ? c.shown.length : (matchesQuery(search, c.code, c.name) || c.shown.length)))
+    .sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
 
-      <table className="table">
-        <thead>
-          <tr><th /><th>{tr('Company')}</th><th>{tr('Departments')}</th><th>{tr('Status')}</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleCompanies.map((c) => (
-            <Fragment key={c.id}>
-              <tr className="departments-company-row" onClick={() => toggleExpanded(c.id)}>
-                <td className="departments-chevron-cell">
-                  <span className={'departments-chevron ' + (expanded[c.id] ? 'departments-chevron-open' : '')}>›</span>
-                </td>
-                <td>
-                  <div className="departments-name-cell">
-                    <span className="departments-badge" style={{ background: avatarColor(c.name) }}><BuildingIcon /></span>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{c.name}</div>
-                      <div className="departments-description">{c.code}</div>
-                    </div>
-                  </div>
-                </td>
-                <td>{c.departments.length}</td>
-                <td><span className={'tag ' + (c.status === 'active' ? 'tag-neutral' : 'tag-accent')}>{c.status === 'active' ? tr('Active') : tr('Archived')}</span></td>
-                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+  function showOnly(key) { setChip(chip === key ? '' : key); jump('co-list'); }
+  const stats = [
+    { icon: 'drawer', value: String(companies.length), label: companies.length === 1 ? tr('company') : tr('companies'), note: tr('{n} departments', { n: allDepts.length }), onClick: () => { setChip(''); jump('co-list'); } },
+    { icon: 'people', value: String(people), label: tr('people'), note: tr('active staff in all companies'), onClick: () => navigate('/people') },
+    { icon: 'warn', value: String(noManager.length), label: tr('without a manager'), note: tr('departments with staff'), tone: noManager.length ? 'alert' : '', onClick: () => showOnly('nomanager') },
+    { icon: 'clock', value: String(shiftTotal), label: tr('shift times'), note: noShifts.length ? tr('{n} departments have none', { n: noShifts.length }) : tr('every department has one'), onClick: () => showOnly('noshifts') }
+  ];
+
+  const insights = [];
+  const names = (arr) => (arr.length <= 3 ? arr.map((d) => d.name).join(', ') : tr('{names} and {n} more', { names: arr.slice(0, 2).map((d) => d.name).join(', '), n: arr.length - 2 }));
+  if (noManager.length) insights.push({ tone: 'warn', icon: 'people', text: noManager.length === 1 ? tr('{name} has staff but no manager set.', { name: noManager[0].name + ' (' + noManager[0].company.code + ')' }) : tr('{n} departments have staff but no manager set: {names}.', { n: noManager.length, names: names(noManager) }), action: canManage ? { label: tr('Show them'), run: () => showOnly('nomanager') } : null });
+  if (noShifts.length) insights.push({ tone: 'info', icon: 'clock', text: tr('{names}: no shift times yet, so attendance uses each person\'s own start time or the company default to decide who is late.', { names: names(noShifts) }), action: { label: tr('Show them'), run: () => showOnly('noshifts') } });
+  if (empty.length) insights.push({ tone: 'info', icon: 'info', text: empty.length === 1 ? tr('{name} has nobody in it.', { name: empty[0].name + ' (' + empty[0].company.code + ')' }) : tr('{n} departments have nobody in them. Delete the ones you no longer need.', { n: empty.length }), action: { label: tr('Show them'), run: () => showOnly('empty') } });
+  const bigCo = companies.map((c) => ({ c, n: c.departments.reduce((s, d) => s + d.headcount, 0) })).sort((a, b) => b.n - a.n)[0];
+  if (bigCo && people && companies.length > 1) insights.push({ tone: 'info', icon: 'people', text: tr('{name} has the most people: {n} of {total}.', { name: bigCo.c.name, n: bigCo.n, total: people }) });
+  const bigDept = allDepts.slice().sort((a, b) => b.headcount - a.headcount)[0];
+  if (bigDept && bigDept.headcount && allDepts.length > 1) insights.push({ tone: 'info', icon: 'people', text: tr('The biggest department is {name} ({company}), with {n} people.', { name: bigDept.name, company: bigDept.company.code, n: bigDept.headcount }) });
+  const bare = companies.filter((c) => !c.departments.length);
+  if (bare.length) insights.push({ tone: 'warn', icon: 'drawer', text: tr('{names} has no departments yet, so nobody can be added to it.', { names: bare.map((c) => c.name).join(', ') }) });
+
+  const chips = [
+    ['', tr('All'), allDepts.length],
+    ['nomanager', tr('No manager'), noManager.length],
+    ['noshifts', tr('No shift times'), noShifts.length],
+    ['empty', tr('Empty'), empty.length]
+  ];
+
+  return (
+    <div className="dk co">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      <Hero
+        eyebrow={tr('Bamboo OS')}
+        title={tr('Companies & departments')}
+        sub={tr('The companies in the OS, their departments, who manages each one and the shift times people work. People, attendance and the dashboards are all organised by these. Press a number to show only those departments.')}
+        actions={canManage && <>
+          <button type="button" className="btn btn-primary" onClick={() => openNewDept('')}>{tr('Add department')}</button>
+          <button type="button" className="btn btn-secondary" onClick={openNewCompany}>{tr('Add company')}</button>
+        </>}
+        stats={stats} />
+
+      <Insights items={insights.slice(0, 6)} />
+
+      <Section id="co-list" title={tr('Companies')} sub={tr('Each company with its departments, biggest first.')}>
+        <div className="co-tools">
+          <div className="co-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search companies, departments, managers…')} /></div>
+          <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+            {chips.map(([key, label, n]) => (
+              <button key={key || 'all'} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+                {label} <span className="ppl-chip-n">{n}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {filtered.map((c) => {
+          const logo = restaurantLogoUrl(c.code);
+          const max = Math.max(1, ...c.departments.map((d) => d.headcount));
+          return (
+            <article key={c.id} className="co-card">
+              <header className="co-head">
+                {logo
+                  ? <img className="co-logo" src={logo} alt="" />
+                  : <span className="co-mark" style={{ background: avatarColor(c.name) }} aria-hidden="true">{initials(c.name)}</span>}
+                <div className="co-title">
+                  <h3>{c.name}</h3>
+                  <span className="dk-muted">{c.code}{c.status !== 'active' && <> · <Status tone="muted">{tr('Archived')}</Status></>}</span>
+                </div>
+                <dl className="co-nums">
+                  <div><dt>{tr('people')}</dt><dd>{c.people}</dd></div>
+                  <div><dt>{tr('departments')}</dt><dd>{c.departments.length}</dd></div>
+                  <div><dt>{tr('shift times')}</dt><dd>{c.shifts}</dd></div>
+                </dl>
+                <div className="co-head-actions">
+                  {canManage && <button type="button" className="btn btn-secondary co-small-btn" onClick={() => openNewDept(c.id)}>{tr('+ Department')}</button>}
                   <RowMenu actions={[
-                    { label: tr('Edit'), onClick: () => openEditCompany(c), hidden: !(canManage) },
-                    { label: tr('+ Department'), onClick: () => openNewDept(c.id), hidden: !(canManage) },
-                    { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteCompanyTarget(c); }, danger: true, hidden: !(canManage && c.departments.length === 0) },
+                    { label: tr('See people'), onClick: () => navigate('/people?company=' + encodeURIComponent(c.code)) },
+                    { label: tr('See attendance'), onClick: () => navigate('/attendance?company=' + encodeURIComponent(c.code)) },
+                    { label: tr('Edit company'), onClick: () => openEditCompany(c), hidden: !canManage },
+                    { label: tr('Delete company'), onClick: () => { setDialogError(null); setDeleteCompanyTarget(c); }, danger: true, hidden: !(canManage && c.departments.length === 0) }
                   ]} />
-                </td>
-              </tr>
-              {expanded[c.id] && (
-                <tr>
-                  <td />
-                  <td colSpan={4} className="departments-nested-cell">
-                    {!c.departments.length && <p className="departments-nested-empty">{tr('No departments yet.')}</p>}
-                    {!!c.departments.length && (
-                      <table className="table departments-nested-table">
-                        <thead>
-                          <tr><th>{tr('Code')}</th><th>{tr('Department')}</th><th>{tr('Manager')}</th><th>{tr('Headcount')}</th><th>{tr('Shifts')}</th><th /></tr>
-                        </thead>
-                        <tbody>
-                          {c.departments.map((d) => (
-                            <tr key={d.id}>
-                              <td>{d.code}</td>
-                              <td style={{ fontWeight: 600 }}>{d.name}</td>
-                              <td>
-                                {d.managerName && d.managerName !== '—' ? (
-                                  <div className="departments-manager-cell">
-                                    <span className="departments-avatar" style={{ background: avatarColor(d.managerName) }}>{initials(d.managerName)}</span>
-                                    {d.managerName}
-                                  </div>
-                                ) : '—'}
-                              </td>
-                              <td>{d.headcount}</td>
-                              <td>
-                                <button type="button" className="btn btn-secondary departments-row-btn departments-shifts-btn" onClick={() => openShifts(d)}>
-                                  <ClockIcon /> {d.shiftCount === 1 ? tr('1 shift') : tr('{n} shifts', { n: d.shiftCount })}
-                                </button>
-                              </td>
-                              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                                <RowMenu actions={[
-                                  { label: tr('Edit'), onClick: () => openEditDept(c.id, d), hidden: !(canManage) },
-                                  { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) },
-                                ]} />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </td>
-                </tr>
+                </div>
+              </header>
+
+              {!c.departments.length ? (
+                <div className="dk-empty"><p>{tr('No departments yet. Add one so people can be assigned to this company.')}</p></div>
+              ) : (
+                <ul className="co-depts">
+                  {c.shown.map((d) => (
+                    <li key={d.id} className="co-dept">
+                      <div className="co-dept-name">
+                        <strong>{d.name}</strong>
+                        <span className="dk-muted">{d.code}</span>
+                      </div>
+                      <div className="co-dept-mgr">
+                        {hasManager(d) ? (
+                          <><Photo id={d.managerId} name={d.managerName} photo={d.managerPhoto} size={28} /><span className="co-mgr-text"><span className="dk-muted co-label">{tr('Manager')}</span>{d.managerName}</span></>
+                        ) : (
+                          <Status tone={d.headcount ? 'warn' : 'muted'}>{tr('No manager')}</Status>
+                        )}
+                      </div>
+                      <button type="button" className="co-dept-count" onClick={() => navigate('/people?company=' + encodeURIComponent(c.code))} title={tr('See people')}>
+                        <span className="co-dept-count-row"><strong>{d.headcount}</strong> <span className="dk-muted">{d.headcount === 1 ? tr('person') : tr('people')}</span></span>
+                        <span className="dk-track" aria-hidden="true"><span style={{ width: Math.round((d.headcount / max) * 100) + '%' }} /></span>
+                      </button>
+                      <div className="co-dept-shifts">
+                        {d.shifts.length ? d.shifts.slice(0, 2).map((s) => (
+                          <span key={s.id} className="co-shift" title={tr('{n} people on this shift', { n: s.assignedCount })}>
+                            <Icon name="clock" /> {s.name} <span className="dk-muted">{s.startTime}–{s.endTime}</span>
+                          </span>
+                        )) : <span className="dk-muted">{tr('No shift times')}</span>}
+                        {d.shifts.length > 2 && <span className="dk-muted">{tr('+{n} more', { n: d.shifts.length - 2 })}</span>}
+                      </div>
+                      <div className="co-dept-actions">
+                        <RowMenu actions={[
+                          { label: canManage ? tr('Shift times') : tr('See shift times'), onClick: () => openShifts(d) },
+                          { label: tr('Edit'), onClick: () => openEditDept(c.id, d), hidden: !canManage },
+                          { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) }
+                        ]} />
+                      </div>
+                    </li>
+                  ))}
+                  {!c.shown.length && <li className="co-dept is-none dk-muted">{tr('No departments here match.')}</li>}
+                </ul>
               )}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
-      {!companies.length && (
-        <div className="departments-empty-state">
-          <span className="departments-empty-icon"><PeopleIcon /></span>
-          <p className="departments-empty-title">{tr('No companies yet')}</p>
-        </div>
-      )}
-      {!!companies.length && !visibleCompanies.length && (
-        <div className="departments-empty-state">
-          <span className="departments-empty-icon"><PeopleIcon /></span>
-          <p className="departments-empty-title">{tr('No companies match "{search}"', { search })}</p>
-        </div>
-      )}
+            </article>
+          );
+        })}
+
+        {!companies.length && <div className="dk-empty"><p>{tr('No companies yet')}</p></div>}
+        {!!companies.length && !filtered.length && (
+          <div className="dk-empty">
+            <p>{search ? tr('No companies match "{search}"', { search }) : tr('Nothing matches this filter.')}</p>
+            <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip(''); }}>{tr('Clear filters')}</button>
+          </div>
+        )}
+      </Section>
+
+      <Glossary items={[
+        [tr('Company'), tr('One of the businesses in the OS, such as Bamboo Products or a restaurant. Each has its own departments, people and figures.')],
+        [tr('Department'), tr('A team inside a company (other pages call it a group). Every person belongs to one.')],
+        [tr('Code'), tr('A short name used in reports and employee codes, such as BPL or PROD.')],
+        [tr('Manager'), tr('The person in charge of a department. Managers can see the people in their department.')],
+        [tr('Shift times'), tr('The start and end times people in a department work. Attendance uses the start time to decide who is late.')],
+        [tr('Empty'), tr('A department with nobody in it. Only empty departments and companies without departments can be deleted.')]
+      ]} />
 
       {companyDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setCompanyDialogOpen(false)}>

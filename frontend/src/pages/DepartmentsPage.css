@@ -1,73 +1,94 @@
-.departments-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
+/* Companies & departments (DepartmentsPage.jsx). Built from the shared
+   dashboard pieces (components/DashKit.css) plus the filter chips from
+   EmployeesPage.css; these are the company cards and department rows. The
+   dialogs at the bottom are unchanged. */
 
-.departments-manager-cell { display: flex; align-items: center; gap: 8px; }
-.departments-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  color: #fff;
-  font-weight: 700;
-  font-size: 9px;
-  display: flex;
+.co { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.co-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.co-search { flex: 1 1 260px; min-width: 0; }
+.co-search .search-input-wrap { max-width: 420px; }
+
+.co-card { border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg); min-width: 0; overflow: hidden; }
+.co-card + .co-card { margin-top: 4px; }
+.co-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-border);
 }
+.co-logo, .co-mark { width: 48px; height: 48px; border-radius: 50%; flex: none; }
+.co-logo { object-fit: contain; background: #fff; box-shadow: 0 0 0 1px var(--color-border); }
+.co-mark { display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 15px; }
+.co-title { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.co-title h3 { font-size: 18px; overflow-wrap: anywhere; }
+.co-nums { display: flex; gap: 18px; margin: 0; }
+.co-nums div { display: flex; flex-direction: column-reverse; align-items: flex-end; }
+.co-nums dt { font-size: 11.5px; color: var(--color-text-muted); }
+.co-nums dd { margin: 0; font-family: var(--font-heading); font-weight: 800; font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.co-head-actions { display: flex; align-items: center; gap: 6px; }
+.co-small-btn { font-size: 12.5px; padding: 6px 12px; }
 
-.departments-empty-state {
-  display: flex;
-  flex-direction: column;
+.co-depts { list-style: none; margin: 0; padding: 0; }
+.co-dept {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 1.5fr) auto;
   align-items: center;
-  text-align: center;
-  gap: 4px;
-  padding: 32px;
-  margin: 16px 0 20px;
-  border: var(--divider-width) solid var(--color-divider);
-  color: var(--color-text-muted);
+  gap: 14px;
+  padding: 10px 16px;
 }
-.departments-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
-.departments-empty-icon svg { width: 100%; height: 100%; }
-.departments-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }
+.co-dept + .co-dept { border-top: 1px solid var(--color-divider); }
+.co-dept:hover { background: var(--color-bg-subtle); }
+.co-dept.is-none { display: block; padding: 14px 16px; }
+.co-dept-name { display: flex; flex-direction: column; min-width: 0; }
+.co-dept-name strong { overflow-wrap: anywhere; }
+.co-dept-name .dk-muted { font-size: 12px; }
+.co-dept-mgr { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.co-mgr-text { display: flex; flex-direction: column; min-width: 0; }
+.co-mgr-text, .co-mgr-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-label { font-size: 11px; }
+.co-dept-count {
+  display: flex; flex-direction: column; gap: 5px; min-width: 0;
+  border: none; background: none; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.co-dept-count-row { font-size: 13px; }
+.co-dept-count-row strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.co-dept-count .dk-track { margin: 0; }
+.co-dept-shifts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
+.co-shift {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border: 1px solid var(--color-border); border-radius: 999px;
+  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.co-shift .dk-icon { width: 13px; height: 13px; color: var(--color-accent-700); }
+:root[data-theme='dark'] .co-shift .dk-icon { color: var(--color-accent); }
+.co-dept-actions { display: flex; justify-content: flex-end; }
+.co .dk-empty { justify-content: space-between; flex-wrap: wrap; margin: 12px 16px; }
+.co-card > .dk-empty { margin: 14px 16px; }
+.co .dk-empty p { margin: 0; }
 
-.departments-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+@media (max-width: 1000px) {
+  .co-head { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .co-nums { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+  .co-nums div { align-items: flex-start; }
+  .co-dept { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; row-gap: 8px; }
+  .co-dept-count { grid-column: 1; grid-row: 2; }
+  .co-dept-shifts { grid-column: 2; grid-row: 2; }
+  .co-dept-actions { grid-column: 3; grid-row: 1; }
+}
+@media (max-width: 600px) {
+  .co-head { grid-template-columns: auto minmax(0, 1fr); }
+  .co-head-actions { grid-column: 1 / -1; grid-row: 3; }
+  .co-dept { grid-template-columns: minmax(0, 1fr) auto; }
+  .co-dept-mgr { grid-column: 1 / -1; grid-row: 2; }
+  .co-dept-count { grid-column: 1 / -1; grid-row: 3; }
+  .co-dept-shifts { grid-column: 1 / -1; grid-row: 4; }
+  .co-dept-actions { grid-column: 2; grid-row: 1; }
 }
 
-.departments-description { font-size: 12px; color: var(--color-text-muted); }
-
-.departments-name-cell { display: flex; align-items: center; gap: 10px; }
-.departments-badge {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.departments-badge svg { width: 14px; height: 14px; }
-
-.departments-company-row { cursor: pointer; }
-.departments-chevron-cell { width: 24px; }
-.departments-chevron {
-  display: inline-block;
-  transition: transform 0.15s ease;
-  color: var(--color-text-muted);
-  font-size: 16px;
-}
-.departments-chevron-open { transform: rotate(90deg); }
-
-.departments-nested-cell { background: var(--color-bg-subtle); padding: 12px 12px 12px 32px; }
-.departments-nested-table { margin-bottom: 0; }
 .departments-nested-empty { font-size: 13px; color: var(--color-text-muted); margin: 4px 0; }
-
-.departments-shifts-btn { display: inline-flex; align-items: center; gap: 5px; }
-.departments-shifts-btn svg { width: 13px; height: 13px; }
 
 .departments-dialog {
   max-width: 480px;

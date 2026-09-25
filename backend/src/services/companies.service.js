@@ -14,18 +14,34 @@ async function list(ctx) {
   if (!ctx.can('employee.read')) fail('forbidden', 'Your role does not allow this action (employee.read).');
   var companiesRes = await pool.query('SELECT * FROM companies ORDER BY name');
   var deptsRes = await pool.query(
-    'SELECT d.id, d.company_id, d.code, d.name, d.status, m.first_name AS mgr_first, m.last_name AS mgr_last, ' +
+    'SELECT d.id, d.company_id, d.code, d.name, d.status, d.manager_id, m.first_name AS mgr_first, m.last_name AS mgr_last, ' +
+    'm.photo_key AS mgr_photo_key, m.photo_updated_at AS mgr_photo_at, ' +
     '(SELECT count(*)::int FROM employees e WHERE e.department_id = d.id AND e.status = \'active\') AS headcount, ' +
     '(SELECT count(*)::int FROM shifts s WHERE s.department_id = d.id AND s.status = \'active\') AS shift_count ' +
     'FROM departments d LEFT JOIN employees m ON m.id = d.manager_id ORDER BY d.name'
   );
+  // The shift times of each department, and how many people each is
+  // assigned to, so the page can show them without opening every one.
+  var shiftsRes = await pool.query(
+    "SELECT s.id, s.department_id, s.name, to_char(s.start_time, 'HH24:MI') AS start_time, to_char(s.end_time, 'HH24:MI') AS end_time, " +
+    "(SELECT count(*)::int FROM employees e WHERE e.shift_id = s.id AND e.status <> 'terminated') AS assigned " +
+    "FROM shifts s WHERE s.status = 'active' ORDER BY s.start_time, s.name"
+  );
+  var shiftsByDept = {};
+  shiftsRes.rows.forEach(function (s) {
+    if (!shiftsByDept[s.department_id]) shiftsByDept[s.department_id] = [];
+    shiftsByDept[s.department_id].push({ id: s.id, name: s.name, startTime: s.start_time, endTime: s.end_time, assignedCount: s.assigned });
+  });
   var deptsByCompany = {};
   deptsRes.rows.forEach(function (d) {
     if (!deptsByCompany[d.company_id]) deptsByCompany[d.company_id] = [];
     deptsByCompany[d.company_id].push({
       id: d.id, code: d.code, name: d.name, status: d.status,
+      managerId: d.manager_id,
       managerName: d.mgr_first ? d.mgr_first + ' ' + d.mgr_last : '—',
-      headcount: d.headcount, shiftCount: d.shift_count
+      managerPhoto: d.mgr_photo_key && d.mgr_photo_at ? new Date(d.mgr_photo_at).getTime() : null,
+      headcount: d.headcount, shiftCount: d.shift_count,
+      shifts: shiftsByDept[d.id] || []
     });
   });
   return companiesRes.rows.map(function (c) {
