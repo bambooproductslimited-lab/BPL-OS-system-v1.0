@@ -1,0 +1,20 @@
+/* Picking people (components/PeoplePicker.jsx). */
+.pp { display: flex; flex-direction: column; gap: 8px; position: relative; }
+.pp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 26px; }
+.pp-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px 2px 2px; border: none; border-radius: 999px;
+  background: var(--color-accent-100); color: var(--color-text);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.pp-chip:hover { background: var(--color-danger-100); }
+.pp-list { display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: var(--dk-r, 8px); overflow: hidden; }
+.pp-item {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  border: none; background: var(--color-bg); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.pp-item + .pp-item { border-top: 1px solid var(--color-divider); }
+.pp-item:hover { background: var(--color-bg-subtle); }
+.pp-item > span:last-child { display: flex; flex-direction: column; font-size: 13px; }
+.pp-item .dk-muted { font-size: 12px; }
+.pp-empty { font-size: 12px; color: var(--color-text-muted); }

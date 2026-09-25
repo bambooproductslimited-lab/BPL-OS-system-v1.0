@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
+import PeoplePicker from '../components/PeoplePicker';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
@@ -66,36 +67,6 @@ function PriorityMark({ priority }) {
   return <span className={'tk-prio is-' + priority} title={tr('{p} priority', { p: codeLabel(priority) })}>{codeLabel(priority)}</span>;
 }
 
-// Choosing people for a task: chips for who is picked, a search for more.
-function PeoplePicker({ employees, value, onChange }) {
-  const [q, setQ] = useState('');
-  const picked = value.map((id) => employees.find((e) => e.id === id)).filter(Boolean);
-  const matches = q ? employees.filter((e) => !value.includes(e.id) && matchesQuery(q, e.firstName + ' ' + e.lastName, e.positionTitle, e.code)).slice(0, 6) : [];
-  return (
-    <div className="tk-picker">
-      <div className="tk-chips">
-        {picked.map((e) => (
-          <button key={e.id} type="button" className="tk-chip" onClick={() => onChange(value.filter((x) => x !== e.id))} aria-label={tr('Remove {name}', { name: e.firstName + ' ' + e.lastName })}>
-            <Photo id={e.id} name={e.firstName + ' ' + e.lastName} photo={e.photo} size={22} /> {e.firstName} {e.lastName} <span aria-hidden="true">×</span>
-          </button>
-        ))}
-        {!picked.length && <span className="dk-muted tk-small">{tr('Nobody picked: the task is yours.')}</span>}
-      </div>
-      <input className="input" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={tr('Add people: type a name…')} aria-label={tr('Add people')} />
-      {matches.length > 0 && (
-        <div className="tk-picker-list">
-          {matches.map((e) => (
-            <button key={e.id} type="button" className="tk-picker-item" onClick={() => { onChange([...value, e.id]); setQ(''); }}>
-              <Photo id={e.id} name={e.firstName + ' ' + e.lastName} photo={e.photo} size={28} />
-              <span><strong>{e.firstName} {e.lastName}</strong><span className="dk-muted">{e.positionTitle}</span></span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function TaskForm({ form, setForm, projects, employees, showStarted }) {
   return (
     <>
@@ -109,7 +80,7 @@ function TaskForm({ form, setForm, projects, employees, showStarted }) {
       </div>
       <div className="field">
         <span className="tk-label">{tr('Who does it')}</span>
-        <PeoplePicker employees={employees} value={form.assigneeIds} onChange={(ids) => setForm({ ...form, assigneeIds: ids })} />
+        <PeoplePicker employees={employees} value={form.assigneeIds} onChange={(ids) => setForm({ ...form, assigneeIds: ids })} emptyText={tr('Nobody picked: the task is yours.')} />
       </div>
       <div className="tk-form-grid">
         <div className="field">
@@ -147,13 +118,16 @@ export default function TasksPage() {
   const canManage = can('task.manage');
   const myId = session && session.employee ? session.employee.id : null;
 
-  const [scope, setScope] = useState(() => readPref('bos.tasksScope', 'mine'));
+  // ?project=<id> (the Projects page's "See in Tasks") opens everything I
+  // can see, narrowed to that project.
+  const projectFromUrl = new URLSearchParams(window.location.search).get('project') || '';
+  const [scope, setScope] = useState(() => (projectFromUrl ? 'all' : readPref('bos.tasksScope', 'mine')));
   const [view, setView] = useState(() => readPref('bos.tasksView', 'board'));
   const [companyCode, setCompanyCode] = useState(() => readPref('bos.tasksCompany', 'ALL'));
   const [chip, setChip] = useState('active');
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState(projectFromUrl);
 
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
