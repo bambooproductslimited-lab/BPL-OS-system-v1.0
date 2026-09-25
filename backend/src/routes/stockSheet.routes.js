@@ -15,6 +15,10 @@ router.put('/day/:date/lines/:productId', async function (req, res, next) {
 router.put('/day/:date', async function (req, res, next) {
   try { res.json(await stockSheetService.saveDay(req.ctx, req.params.date, req.body.lines)); } catch (e) { next(e); }
 });
+// GET /api/stock-sheet/days?to=YYYY-MM-DD&n=14 — a few days at a glance
+router.get('/days', async function (req, res, next) {
+  try { res.json(await stockSheetService.days(req.ctx, req.query.to, req.query.n)); } catch (e) { next(e); }
+});
 router.get('/months', async function (req, res, next) {
   try { res.json(await stockSheetService.months(req.ctx)); } catch (e) { next(e); }
 });

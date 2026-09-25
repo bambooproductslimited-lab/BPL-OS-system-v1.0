@@ -69,7 +69,8 @@ async function getDay(ctx, dateArg) {
   var date = V.date(dateArg, 'Date');
 
   var products = (await pool.query(
-    'SELECT p.id, p.sku, p.name, p.category, p.unit, p.current_stock, l.opening, l.received, l.transferred, l.breakage, l.sold, ' +
+    'SELECT p.id, p.sku, p.name, p.category, p.unit, p.current_stock, p.selling_price, p.cost_price, p.reorder_level, p.photo_key, p.photo_updated_at, ' +
+    'l.opening, l.received, l.transferred, l.breakage, l.sold, ' +
     'l.physical, l.note, l.updated_at, e.first_name AS upd_first, e.last_name AS upd_last ' +
     'FROM products p LEFT JOIN stock_sheet_lines l ON l.product_id = p.id AND l.date = $1 ' +
     'LEFT JOIN employees e ON e.id = l.updated_by WHERE p.active OR l.product_id IS NOT NULL ORDER BY p.sheet_order NULLS LAST, p.sku',
@@ -99,6 +100,8 @@ async function getDay(ctx, dateArg) {
     })();
     return Object.assign({
       productId: p.id, sku: p.sku, name: p.name, category: p.category, unit: p.unit,
+      sellingPrice: Number(p.selling_price), costPrice: Number(p.cost_price), reorderLevel: Number(p.reorder_level),
+      photo: p.photo_key && p.photo_updated_at ? new Date(p.photo_updated_at).getTime() : null,
       saved: saved, note: p.note || '',
       previousDate: before ? before.date : null,
       previousClosing: before ? before.line.closing : null,
@@ -109,7 +112,10 @@ async function getDay(ctx, dateArg) {
   });
 
   var savedCount = lines.filter(function (l) { return l.saved; }).length;
-  return { date: date, isFuture: date > todayISO(), savedCount: savedCount, lines: lines };
+  // The last day before this one that anything was entered for, so the page
+  // can say when days were skipped.
+  var lastBefore = (await pool.query('SELECT max(date)::text AS d FROM stock_sheet_lines WHERE date < $1', [date])).rows[0].d;
+  return { date: date, isFuture: date > todayISO(), savedCount: savedCount, lastFilledBefore: lastBefore || null, lines: lines };
 }
 
 // One line's figures, checked. Blank movements are 0; a blank physical
@@ -297,4 +303,31 @@ async function months(ctx) {
   return out;
 }
 
-module.exports = { getDay: getDay, saveLine: saveLine, saveDay: saveDay, month: month, months: months, computed: computed };
+// A few days at a glance, ending on `to` (the strip of days at the top of
+// the sheet): for each day how many lines were entered, how many were
+// counted and did not match, and what was received and sold.
+async function days(ctx, toArg, countArg) {
+  if (!ctx.can('inventory.read')) fail('forbidden', 'Your role does not allow this action (inventory.read).');
+  var to = toArg ? V.date(String(toArg), 'Date') : todayISO();
+  var count = Math.min(62, Math.max(1, Number(countArg) || 14));
+  var rows = (await pool.query(
+    "SELECT d::date::text AS date, count(l.product_id)::int AS lines, " +
+    "count(l.physical)::int AS counted, " +
+    "count(*) FILTER (WHERE l.physical IS NOT NULL AND l.physical <> l.opening + l.received - l.transferred - l.breakage - l.sold)::int AS variances, " +
+    "coalesce(sum(l.received), 0)::float AS received, coalesce(sum(l.sold), 0)::float AS sold, " +
+    "coalesce(sum(l.sold * p.selling_price), 0)::float AS sold_value " +
+    "FROM generate_series($1::date - ($2::int - 1), $1::date, interval '1 day') d " +
+    'LEFT JOIN stock_sheet_lines l ON l.date = d::date LEFT JOIN products p ON p.id = l.product_id ' +
+    'GROUP BY d ORDER BY d',
+    [to, count]
+  )).rows;
+  var products = (await pool.query('SELECT count(*)::int AS n FROM products WHERE active')).rows[0].n;
+  return {
+    products: products,
+    days: rows.map(function (r) {
+      return { date: r.date, lines: r.lines, counted: r.counted, variances: r.variances, received: r.received, sold: r.sold, soldValue: r.sold_value };
+    })
+  };
+}
+
+module.exports = { getDay: getDay, saveLine: saveLine, saveDay: saveDay, month: month, months: months, days: days, computed: computed };

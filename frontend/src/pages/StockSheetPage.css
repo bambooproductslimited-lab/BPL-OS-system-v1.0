@@ -1,48 +1,117 @@
-.stocksheet-intro { margin: 0 0 16px; font-size: 13px; max-width: 80ch; color: var(--color-text-muted); }
+/* The daily stock sheet (StockSheetPage.jsx). Built from the shared
+   dashboard pieces (components/DashKit.css) and the filter chips in
+   EmployeesPage.css; these are the day picker, the strip of days, the grid
+   (a card per product on a phone) and the save bar. */
 
-.stocksheet-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-.stocksheet-daypicker { display: flex; gap: 6px; align-items: center; }
-.stocksheet-daypicker .input { width: auto; }
-.stocksheet-category { width: auto; min-width: 150px; }
+.ss { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.ss-daypicker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ss-daypicker .input { width: auto; }
 
-.stocksheet-status {
-  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
-  font-size: 13px; margin-bottom: 10px;
+/* the last two weeks */
+.ss-strip { display: grid; grid-template-columns: repeat(14, minmax(58px, 1fr)); gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.ss-day {
+  --d: var(--color-text-faint);
+  display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0;
+  padding: 8px 4px; border-radius: var(--dk-r); border: 1px solid var(--color-border); background: var(--color-bg);
+  color: var(--color-text); font: inherit; cursor: pointer;
 }
-.stocksheet-note { font-size: 13px; color: var(--color-text-muted); }
+.ss-day:hover:not(:disabled) { border-color: var(--color-accent); }
+.ss-day:disabled { opacity: 0.45; cursor: default; }
+.ss-day strong { font-family: var(--font-heading); font-size: 18px; line-height: 1; }
+.ss-day-wd { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); }
+.ss-day-bar { display: block; width: 80%; height: 5px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 10%, transparent); overflow: hidden; }
+.ss-day-bar > span { display: block; height: 100%; background: var(--dk-warn); }
+.ss-day.is-full .ss-day-bar > span { background: var(--color-accent); }
+.ss-day-note { font-size: 10.5px; color: var(--color-text-muted); white-space: nowrap; }
+.ss-day.is-empty:not(.is-future) .ss-day-note { color: var(--dk-warn); font-weight: 700; }
+.ss-day.has-variance { box-shadow: inset 0 -3px 0 var(--color-danger); }
+.ss-day.is-current { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg)); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.ss-day.is-current.has-variance { box-shadow: inset 0 0 0 1px var(--color-accent), inset 0 -3px 0 var(--color-danger); }
 
-/* Wide like the sheet: it scrolls sideways inside its box rather than
-   pushing the page wider, and the item column stays in view. */
-.stocksheet-scroll { overflow-x: auto; border: var(--divider-width) solid var(--color-divider); max-width: 100%; }
-.stocksheet-table { min-width: 960px; }
-.stocksheet-table th { padding-top: 10px; vertical-align: bottom; line-height: 1.3; }
-.stocksheet-table td { padding: 5px 6px; vertical-align: middle; }
-.stocksheet-table th { padding-left: 6px; padding-right: 6px; }
-.stocksheet-item {
+.ss-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ss-search { flex: 1 1 260px; min-width: 0; }
+.ss-search .search-input-wrap { max-width: none; }
+.ss-tools .ss-select { width: auto; min-width: 170px; flex: 0 1 auto; }
+
+/* the grid: wide like the sheet; it scrolls inside its box, with the item
+   column and the headings staying in view */
+.ss-scroll {
+  overflow: auto; max-height: calc(100vh - 150px); max-height: calc(100dvh - 150px);
+  border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg);
+}
+.ss-table { width: 100%; min-width: 1080px; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.ss-table th {
+  position: sticky; top: 0; z-index: 2;
+  padding: 9px 6px; text-align: right; vertical-align: bottom; line-height: 1.3;
+  font-size: 11.5px; font-weight: 700; color: var(--color-text-muted);
+  background: var(--color-bg); border-bottom: 1px solid var(--color-border);
+}
+.ss-table td { padding: 5px 6px; vertical-align: middle; border-top: 1px solid var(--color-divider); }
+.ss-table tbody tr:first-child td { border-top: none; }
+.ss-table th.ss-item { left: 0; z-index: 3; text-align: left; }
+.ss-item {
   position: sticky; left: 0; z-index: 1;
-  background: var(--color-bg);
-  min-width: 190px; max-width: 240px;
-  border-right: var(--divider-width) solid var(--color-divider);
+  background: var(--color-bg); min-width: 210px; max-width: 260px;
+  border-right: 1px solid var(--color-divider);
 }
-.stocksheet-name { font-weight: 600; font-size: 13px; }
-.stocksheet-meta { font-size: 11px; color: var(--color-text-faint); margin-top: 2px; }
-.stocksheet-ok { color: var(--color-accent); }
-.stocksheet-error { font-size: 11px; color: var(--color-danger); margin-top: 3px; }
-.stocksheet-hint { font-size: 11px; color: var(--color-warning); margin-top: 3px; }
-.stocksheet-link {
-  background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent);
-  text-decoration: underline; cursor: pointer;
+.ss-item-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ss-item-text { min-width: 0; }
+.ss-name { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.ss-meta { font-size: 11px; color: var(--color-text-faint); margin-top: 2px; }
+.ss-ok { color: var(--color-accent); }
+.ss-warn { color: var(--dk-warn); font-weight: 700; }
+.ss-error { font-size: 11px; color: var(--color-danger); margin-top: 3px; }
+.ss-hint { font-size: 11px; color: var(--dk-warn); margin-top: 3px; }
+.ss-hint.is-info { color: var(--color-text-muted); }
+.ss-link { background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent); text-decoration: underline; cursor: pointer; }
+
+.ss-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ss-input { width: 76px; text-align: right; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+.ss-input::placeholder { color: var(--color-text-faint); }
+.ss-note-col { text-align: left !important; }
+.ss-note { width: 140px; padding: 6px 8px; font-size: 12.5px; }
+.ss-calc { background: var(--color-bg-subtle); }
+th.ss-calc { background: var(--color-bg-subtle); }
+td.ss-calc { font-weight: 700; color: var(--color-text); }
+.ss-calc.is-negative, .ss-calc.has-variance { color: var(--color-danger); }
+
+.ss-row:not(.is-saved):not(.is-dirty) .ss-input { color: var(--color-text-muted); }
+.ss-row.is-saved .ss-item { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-accent) 55%, transparent); }
+.ss-row.is-dirty .ss-item { box-shadow: inset 3px 0 0 var(--dk-warn); }
+.ss-row.is-problem .ss-item { box-shadow: inset 3px 0 0 var(--color-danger); }
+.ss-row.has-error .ss-item { box-shadow: inset 3px 0 0 var(--color-danger); }
+.ss-row:focus-within td { background-color: color-mix(in srgb, var(--color-accent) 5%, var(--color-bg)); }
+.ss-row:focus-within td.ss-calc { background-color: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-subtle)); }
+.ss-empty { padding: 16px; margin: 0; }
+
+.ss-savebar {
+  position: sticky; bottom: 12px; z-index: 5; align-self: center;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center;
+  padding: 10px 12px 10px 18px; border-radius: 999px;
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--color-text) 18%, transparent);
+  font-size: 13px; font-weight: 700;
 }
 
-.stocksheet-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.stocksheet-input { width: 74px; text-align: right; padding: 6px 8px; font-variant-numeric: tabular-nums; }
-.stocksheet-input::placeholder { color: var(--color-text-faint); }
-.stocksheet-calc { background: var(--color-bg-subtle); color: var(--color-text-muted); }
-th.stocksheet-calc { background: var(--color-bg-subtle); }
-td.stocksheet-calc { font-weight: 600; color: var(--color-text); }
-.stocksheet-calc.is-negative { color: var(--color-danger); }
-.stocksheet-calc.has-variance { color: var(--color-danger); }
-
-.stocksheet-row:not(.is-saved):not(.is-dirty) .stocksheet-input { color: var(--color-text-muted); }
-.stocksheet-row.is-dirty .stocksheet-item { box-shadow: inset 3px 0 0 var(--color-warning); }
-.stocksheet-row.has-error .stocksheet-item { box-shadow: inset 3px 0 0 var(--color-danger); }
+/* a phone: one card per product, the figures in a grid of three */
+@media (max-width: 760px) {
+  .ss-scroll { max-height: none; overflow: visible; border: none; background: none; }
+  .ss-table { min-width: 0; display: block; }
+  .ss-table thead { display: none; }
+  .ss-table tbody { display: flex; flex-direction: column; gap: 10px; }
+  .ss-table tr {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+    padding: 12px; border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg);
+  }
+  .ss-table td { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 0; border: none; background: none !important; }
+  .ss-table td[data-label]::before { content: attr(data-label); font-size: 10.5px; font-weight: 700; color: var(--color-text-muted); text-align: left; white-space: normal; }
+  .ss-table td.ss-item { grid-column: 1 / -1; position: static; max-width: none; border: none; box-shadow: none !important; }
+  .ss-table td.ss-calc { justify-content: flex-start; text-align: left; padding: 6px 0 0; font-size: 15px; }
+  .ss-table td.ss-num { text-align: left; }
+  .ss-table td.ss-f-note { grid-column: 1 / -1; }
+  .ss-input, .ss-note { width: 100%; }
+  .ss-row.is-dirty { border-color: var(--dk-warn); }
+  .ss-row.is-problem, .ss-row.has-error { border-color: var(--color-danger); }
+  .ss-row.is-saved { border-left: 3px solid color-mix(in srgb, var(--color-accent) 55%, transparent); }
+  .ss-savebar { border-radius: var(--dk-r); width: 100%; }
+}
