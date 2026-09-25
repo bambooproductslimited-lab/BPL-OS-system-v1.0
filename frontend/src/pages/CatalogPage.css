@@ -67,3 +67,19 @@
 
 .catalog-stock-dialog { max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
 .catalog-stock-current { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+
+/* Products & Services redesign: item mark, category filter, variation rows */
+.ct-mark { display: grid; place-items: center; color: #fff; }
+.ct-mark svg { width: 52%; height: 52%; }
+.ct-cat { width: auto; max-width: 100%; }
+.ct .tl-tools { display: flex; gap: 10px; flex-wrap: wrap; }
+.ct .tl-tools .tl-search { flex: 1 1 260px; }
+.ct-vars .ct-var { cursor: default; }
+.ct-vars .ct-var:hover { background: none; }
+.ct-vars .rs-row-side { max-width: 45%; }
+.ct-vars .rs-amount { font-variant-numeric: tabular-nums; text-align: right; }
+.ct .tl-card .tl-foot { flex-wrap: wrap; row-gap: 6px; }
+@media (max-width: 560px) {
+  .ct-vars .ct-var { flex-direction: column; align-items: flex-start; }
+  .ct-vars .rs-row-side { max-width: none; align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+}

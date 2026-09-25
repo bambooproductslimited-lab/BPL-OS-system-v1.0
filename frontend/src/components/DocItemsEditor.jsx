@@ -66,7 +66,7 @@ function lineTotal(it) {
 export function applyCatalogItem(items, idx, item) {
   if (!item) return items;
   return items.map((it, i) => (i === idx ? {
-    ...it, description: item.name, unit: item.unit, unitPrice: item.unitPrice, qty: item.defaultQty || 1,
+    ...it, itemNo: item.code || '', description: item.name, unit: item.unit, unitPrice: item.unitPrice, qty: item.defaultQty || 1,
     // Only prefills notes from the catalogue item's own description when the
     // line's notes field is still empty — never clobbers something the user
     // already typed by hand.

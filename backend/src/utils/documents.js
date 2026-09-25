@@ -16,6 +16,9 @@ function buildLineItems(rawItems) {
   return arr.map(function (it) {
     var qty = Math.max(0.01, Number(it.qty) || 0), price = Math.max(0, Number(it.unitPrice) || 0);
     return {
+      // The catalogue code of the product picked for this line, if any, so
+      // what was sold can be traced back to Products & Services.
+      itemNo: String(it.itemNo || '').trim().slice(0, 40),
       description: V.text(it.description, 'Item description', 160), qty: qty, unit: it.unit || 'each', unitPrice: price,
       discount: Math.max(0, Number(it.discount) || 0), discountType: it.discountType === 'percent' ? 'percent' : 'fixed',
       taxRate: Math.max(0, Number(it.taxRate) || 0), notes: (it.notes || '').trim(),

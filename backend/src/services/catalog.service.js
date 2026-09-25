@@ -2,6 +2,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var { bplScopeClause } = require('../utils/documents');
 
 // Products & Services, restructured (migration 0027) to match Square's own
 // catalog shape: an Item (this business's real Square catalog uses this
@@ -47,13 +48,57 @@ async function listItems(ctx) {
     "coalesce((SELECT json_agg(v.* ORDER BY v.name) FROM catalog_item_variations v WHERE v.item_id = i.id), '[]') AS variations " +
     'FROM catalog_items i LEFT JOIN catalog_categories c ON c.id = i.category_id ORDER BY i.name'
   );
+  var sales = await salesByVariation(res.rows);
   return res.rows.map(function (r) {
     return {
       id: r.id, name: r.name, description: r.description, categoryId: r.category_id, categoryName: r.category_name || '—',
       taxRateId: r.tax_rate_id, active: r.active,
-      variations: r.variations.map(rowToVariation)
+      variations: r.variations.map(function (v) {
+        return Object.assign(rowToVariation(v), { sold: sales[v.id] || { qty: 0, amounts: [], invoices: 0, lastSoldOn: null } });
+      })
     };
   });
+}
+
+// What each variation sold on Bamboo Products' invoices (voided ones left
+// out) over the last twelve months: quantity, amount in each currency, on
+// how many invoices, and when last. A line counts for a variation when it
+// carries the variation's code (picked from the catalogue, or imported
+// from Square) or, for lines typed before codes were kept, when its
+// description is exactly the variation's name as the pickers show it.
+async function salesByVariation(itemRows) {
+  var byCode = {}, byName = {};
+  itemRows.forEach(function (it) {
+    (it.variations || []).forEach(function (v) {
+      if (v.code) byCode[String(v.code).toUpperCase()] = v.id;
+      byName[variationDisplayName(it.name, v.name).toLowerCase()] = v.id;
+    });
+  });
+  var lines = await pool.query(
+    'SELECT l.item_no, l.description, l.qty, l.unit_price, l.discount, l.discount_type, i.id AS invoice_id, i.currency, i.issued_at ' +
+    "FROM document_line_items l JOIN invoices i ON l.document_type = 'invoice' AND i.id = l.document_id " +
+    "WHERE i.status <> 'void' AND i.issued_at > CURRENT_DATE - 365 AND " + bplScopeClause('i'));
+  var out = {};
+  lines.rows.forEach(function (l) {
+    var id = (l.item_no && byCode[String(l.item_no).toUpperCase()]) || byName[String(l.description).toLowerCase()];
+    if (!id) return;
+    var gross = Number(l.qty) * Number(l.unit_price);
+    var net = Math.max(0, gross - (l.discount_type === 'percent' ? gross * Number(l.discount) / 100 : Number(l.discount)));
+    var s = out[id] = out[id] || { qty: 0, byCur: {}, inv: {}, lastSoldOn: null };
+    s.qty += Number(l.qty);
+    s.byCur[l.currency] = (s.byCur[l.currency] || 0) + net;
+    s.inv[l.invoice_id] = true;
+    if (!s.lastSoldOn || l.issued_at > s.lastSoldOn) s.lastSoldOn = l.issued_at;
+  });
+  Object.keys(out).forEach(function (id) {
+    var s = out[id];
+    out[id] = {
+      qty: Math.round(s.qty * 100) / 100,
+      amounts: Object.keys(s.byCur).map(function (c) { return { currency: c, amount: Math.round(s.byCur[c] * 100) / 100 }; }),
+      invoices: Object.keys(s.inv).length, lastSoldOn: s.lastSoldOn
+    };
+  });
+  return out;
 }
 
 async function listCategories(ctx) {

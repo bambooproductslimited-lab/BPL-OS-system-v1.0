@@ -62,7 +62,8 @@ export default function CatalogPicker({ value, onChange, onPickOption, options, 
   }, [open]);
 
   const q = normalize(value);
-  const list = options || [];
+  // Archived products (active === false) can't be picked for a new line.
+  const list = (options || []).filter((o) => o.active !== false);
   // An exact match (the field already holds a picked item's own display
   // name) has nothing useful left to suggest — only show the panel for
   // partial/prefix-style matches, so re-focusing an already-filled line
