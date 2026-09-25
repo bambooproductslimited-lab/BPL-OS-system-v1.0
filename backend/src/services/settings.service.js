@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { withLiveConfigState } = require('./envConfiguredIntegrations');
+var config = require('../config');
 
 // A stored integration secret must never travel back to a browser. It was
 // riding along on settings.get, which only needs employee.read — so every
@@ -157,11 +158,64 @@ async function save(ctx, p) {
   return get(ctx);
 }
 
+// How each integration is connected: 'oauth' (a Connect button that signs
+// in to the platform), 'server' (set up with keys in the server's
+// settings on Render, nothing to type here), or 'planned' (listed so it
+// can be asked for, but nothing in the OS uses it yet — a key pasted for
+// it would sit unused, so none is asked for).
+var HOW = {
+  facebook: 'oauth', instagram: 'oauth', tiktok: 'oauth', youtube: 'oauth', twitch: 'oauth',
+  whatsappbusiness: 'server', googleanalytics: 'server', squareup: 'server', timestation: 'server',
+  slack: 'planned', quickbooks: 'planned', linkedin: 'planned'
+};
+// Whether the platform's app keys are on the server, which a Connect
+// button needs before it can work.
+function oauthReady(id) {
+  if (id === 'facebook' || id === 'instagram') return config.meta.configured;
+  if (config[id] && typeof config[id].configured === 'boolean') return config[id].configured;
+  return true;
+}
+
 // kernel.js: handlers['integrations.list']
+// Each with how it connects, whether its Connect button can work, and the
+// latest connect / disconnect from the audit log.
 async function listIntegrations(ctx) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
   var res = await pool.query('SELECT integrations FROM settings WHERE id = 1');
-  return redactIntegrations(withLiveConfigState(res.rows[0].integrations || []));
+  var list = redactIntegrations(withLiveConfigState(res.rows[0].integrations || []));
+  var last = (await pool.query(
+    "SELECT DISTINCT ON (entity_id) entity_id, at, actor_name, action FROM audit_logs WHERE entity = 'integration' ORDER BY entity_id, at DESC")).rows;
+  return list.map(function (i) {
+    var l = last.find(function (x) { return x.entity_id === i.id; });
+    return Object.assign(i, {
+      how: HOW[i.id] || 'planned', ready: HOW[i.id] === 'oauth' ? oauthReady(i.id) : true,
+      lastChange: l ? { at: l.at, actorName: l.actor_name, action: l.action } : null
+    });
+  });
+}
+
+// The services the OS uses that are set up only in the server's settings
+// (Render → Environment): whether each is ready, what it powers and which
+// settings it needs. Only yes/no and the names of the settings — never a
+// value.
+function services(ctx) {
+  if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
+  var list = [
+    { id: 'ai', name: 'Claude (Anthropic)', powers: 'The AI Assistant and marketing suggestions.', ready: !!config.ai.apiKey, env: ['ANTHROPIC_API_KEY'], page: '/assistant', essential: false },
+    { id: 'sms', name: 'mNotify', powers: 'Text messages: payment reminders, booking notices, sign-in codes.', ready: !!config.sms.configured, env: ['MNOTIFY_API_KEY', 'MNOTIFY_SENDER_ID'], page: '/settings', essential: true },
+    { id: 'mail', name: 'Email (SMTP)', powers: 'Sign-in codes by email.', ready: !!config.mail.configured, env: ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM'], page: '/settings', essential: false },
+    { id: 'storage', name: 'Cloudflare R2', powers: 'File storage for documents, photos and receipts. Without it, files up to 15 MB are kept in the database.', ready: !!config.r2.configured, env: ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'], page: '/documents', essential: true },
+    { id: 'drive', name: 'Google Drive', powers: 'Importing documents from Google Drive.', ready: !!config.googleDrive.configured && !config.googleDrive.jsonInvalid, env: ['GOOGLE_SERVICE_ACCOUNT_JSON'], page: '/documents', essential: false },
+    { id: 'timestation', name: 'TimeStation', powers: 'Importing employees and clock-ins from TimeStation.', ready: !!config.timestation.configured, env: ['TIMESTATION_API_KEY'], page: '/attendance', essential: false },
+    { id: 'square', name: 'Square', powers: 'Importing customers, catalogue, invoices and payments from Square.', ready: !!config.square.configured, env: ['SQUARE_ACCESS_TOKEN'], page: '/integrations', essential: false },
+    { id: 'whatsapp', name: 'WhatsApp Business', powers: 'The WhatsApp channel on the Social & campaign tracker.', ready: !!config.whatsapp.configured, env: ['WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_BUSINESS_ACCOUNT_ID', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_VERIFY_TOKEN'], page: '/socialtracker', essential: false },
+    { id: 'ga4', name: 'Google Analytics', powers: 'Website visits on the Social & campaign tracker.', ready: !!config.website.configured, env: ['GA4_PROPERTY_ID', 'GA4_SERVICE_ACCOUNT_EMAIL', 'GA4_SERVICE_ACCOUNT_PRIVATE_KEY'], page: '/socialtracker', essential: false },
+    { id: 'meta', name: 'Meta app', powers: 'The Connect buttons for Facebook and Instagram.', ready: !!config.meta.configured, env: ['META_APP_ID', 'META_APP_SECRET'], page: '/integrations', essential: false },
+    { id: 'tiktok', name: 'TikTok app', powers: 'The Connect button for TikTok.', ready: !!config.tiktok.configured, env: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'], page: '/integrations', essential: false },
+    { id: 'youtube', name: 'YouTube app', powers: 'The Connect button for YouTube.', ready: !!config.youtube.configured, env: ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET'], page: '/integrations', essential: false },
+    { id: 'twitch', name: 'Twitch app', powers: 'The Connect button for Twitch.', ready: !!config.twitch.configured, env: ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET'], page: '/integrations', essential: false }
+  ];
+  return list;
 }
 
 async function findIntegration(id) {
@@ -203,4 +257,4 @@ async function disconnect(ctx, id) {
   return found.list[found.index];
 }
 
-module.exports = { get: get, save: save, changes: changes, listIntegrations: listIntegrations, connect: connect, disconnect: disconnect };
+module.exports = { get: get, save: save, changes: changes, services: services, listIntegrations: listIntegrations, connect: connect, disconnect: disconnect };

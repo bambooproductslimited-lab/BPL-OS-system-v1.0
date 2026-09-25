@@ -1,30 +1,51 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
-import { tr } from '../lib/i18n.jsx';
+import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { tr, msg } from '../lib/i18n.jsx';
+import './EmployeesPage.css';
+import './ToolRoomPage.css';
 import './IntegrationsPage.css';
 
-// Ported from Bamboo OS.dc.html's integrations screen (screens.integrations
-// block + the integrations computed value), backed by
-// GET/POST /api/settings/integrations. All three endpoints require
-// settings.manage, same as the nav gate, so there's no read-only viewer
-// case here to handle.
+// Integrations — the outside systems Bamboo OS connects to, in the same
+// "explains itself" layout as the dashboards (components/DashKit.jsx): how
+// many accounts are connected, which services set up on the server are
+// ready, what stands out (a service everything relies on missing, a
+// Connect button that can't work yet because the platform's app keys
+// aren't on the server), the accounts connected here as cards by kind, and
+// the services on the server with the names of the settings each needs
+// (settings.service.js: listIntegrations, services).
 //
-// Once connected, the API key field always shows a masked placeholder
-// rather than the real stored key — matching the prototype's own
-// keyValue: i.connected ? '••••••••••••' : draft, which never re-displays
-// a secret once it's been saved, even though the backend's response does
-// technically include the real value.
-//
-// Redesigned around the icon language established elsewhere: a
-// category-colored plug badge per integration card.
+// Three ways to connect (listIntegrations' `how`):
+//   oauth   — a Connect button that signs in to the platform;
+//   server  — keys set in the server's settings on Render, nothing typed
+//             here (WhatsApp, Google Analytics, Square, TimeStation);
+//   planned — listed but not built yet, so no key is asked for: a key
+//             pasted here would sit unused.
+// No key or secret is ever shown or typed on this page. Everything here
+// needs settings.manage, like the nav gate.
 
-const BADGE_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function badgeColor(name) { return BADGE_COLORS[hashStr(name || '') % BADGE_COLORS.length]; }
+const OAUTH_LABEL = { facebook: 'Facebook', instagram: 'Facebook', tiktok: 'TikTok', youtube: 'YouTube', twitch: 'Twitch' };
+const HOW = {
+  oauth: { label: msg('Sign in to connect'), tone: 'info' },
+  server: { label: msg('Set up on the server'), tone: 'muted' },
+  planned: { label: msg('Not available yet'), tone: 'muted' }
+};
+const SERVICE_TEXT = {
+  ai: msg('The AI Assistant and marketing suggestions.'),
+  sms: msg('Text messages: payment reminders, booking notices, sign-in codes.'),
+  mail: msg('Sign-in codes by email.'),
+  storage: msg('File storage for documents, photos and receipts. Without it, files up to 15 MB are kept in the database.'),
+  drive: msg('Importing documents from Google Drive.'),
+  timestation: msg('Importing employees and clock-ins from TimeStation.'),
+  square: msg('Importing customers, catalogue, invoices and payments from Square.'),
+  whatsapp: msg('The WhatsApp channel on the Social & campaign tracker.'),
+  ga4: msg('Website visits on the Social & campaign tracker.'),
+  meta: msg('The Connect buttons for Facebook and Instagram.'),
+  tiktok: msg('The Connect button for TikTok.'),
+  youtube: msg('The Connect button for YouTube.'),
+  twitch: msg('The Connect button for Twitch.')
+};
 
 function PlugIcon() {
   return (
@@ -35,46 +56,55 @@ function PlugIcon() {
   );
 }
 
-const MASK = '••••••••••••';
-
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState([]);
-  const [drafts, setDrafts] = useState({});
+  const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [chip, setChip] = useState('all');
+  const [squareBusy, setSquareBusy] = useState(false);
+  const [squareResult, setSquareResult] = useState(null);
+  const [squareError, setSquareError] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      setIntegrations(await api.get('/settings/integrations'));
+      const [list, sv] = await Promise.all([api.get('/settings/integrations'), api.get('/settings/services')]);
+      setIntegrations(list);
+      setServices(sv);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function connect(item) {
-    const key = (drafts[item.id] || '').trim();
-    if (!key) {
-      setToast(tr('Enter an API key first.'));
-      return;
-    }
-    setBusyId(item.id);
+  async function startOAuth(i) {
+    setBusyId(i.id);
     setError(null);
     try {
-      const updated = await api.post('/settings/integrations/' + item.id + '/connect', { apiKey: key });
-      setToast(tr('{name} connected.', { name: updated.name }));
+      const path = i.id === 'facebook' || i.id === 'instagram' ? '/marketing/oauth/meta/start' : '/marketing/oauth/' + i.id + '/start';
+      const { url } = await api.post(path, {});
+      window.location.href = url;
+    } catch (err) {
+      setError(err.message);
+      setBusyId(null);
+    }
+  }
+  async function disconnect(i) {
+    setBusyId(i.id);
+    setError(null);
+    try {
+      const updated = await api.post('/settings/integrations/' + i.id + '/disconnect', {});
+      setToast(tr('{name} disconnected.', { name: updated.name }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -82,27 +112,6 @@ export default function IntegrationsPage() {
       setBusyId(null);
     }
   }
-
-  // Single-step OAuth platforms (one account = one channel, no page-picker
-  // step like Meta's) — TikTok, YouTube and Twitch all follow this same
-  // "start -> redirect -> land back connected" shape.
-  const SINGLE_STEP_PLATFORMS = { tiktok: 'TikTok', youtube: 'YouTube', twitch: 'Twitch' };
-
-  // WhatsApp Business and Google Analytics have no OAuth redirect and no
-  // pasted API key at all — both are set up entirely as server env vars
-  // (see backend/src/config.js), so there's nothing to click here. Status
-  // is read straight off the live server config (see settings.service.js's
-  // withLiveConfigState) rather than a DB flag.
-  const ENV_CONFIGURED_PLATFORMS = {
-    whatsappbusiness: tr('Set {vars} on the server to enable.', { vars: 'WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN' }),
-    googleanalytics: tr('Set {vars} on the server to enable.', { vars: 'GA4_PROPERTY_ID, GA4_SERVICE_ACCOUNT_EMAIL, GA4_SERVICE_ACCOUNT_PRIVATE_KEY' }),
-    squareup: tr('Set {vars} on the server to enable.', { vars: 'SQUARE_ACCESS_TOKEN' })
-  };
-
-  const [squareBusy, setSquareBusy] = useState(false);
-  const [squareResult, setSquareResult] = useState(null);
-  const [squareError, setSquareError] = useState(null);
-
   async function runSquareImport() {
     setSquareBusy(true);
     setSquareError(null);
@@ -115,161 +124,136 @@ export default function IntegrationsPage() {
       setSquareBusy(false);
     }
   }
-  async function connectSingleStep(id) {
-    setBusyId(id);
-    setError(null);
-    try {
-      const { url } = await api.post('/marketing/oauth/' + id + '/start', {});
-      window.location.href = url;
-    } catch (err) {
-      setError(err.message);
-      setBusyId(null);
-    }
-  }
-
-  async function connectMeta(id) {
-    setBusyId(id);
-    setError(null);
-    try {
-      const { url } = await api.post('/marketing/oauth/meta/start', {});
-      window.location.href = url;
-    } catch (err) {
-      setError(err.message);
-      setBusyId(null);
-    }
-  }
-
-  async function disconnect(item) {
-    setBusyId(item.id);
-    setError(null);
-    try {
-      const updated = await api.post('/settings/integrations/' + item.id + '/disconnect', {});
-      setToast(tr('{name} disconnected.', { name: updated.name }));
-      setDrafts({ ...drafts, [item.id]: '' });
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusyId(null);
-    }
-  }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
+  // ── what the page shows ────────────────────────────────────────────
+  const usable = integrations.filter((i) => i.how !== 'planned');
+  const connected = integrations.filter((i) => i.connected);
+  const ready = services.filter((s) => s.ready);
+  const missingEssential = services.filter((s) => s.essential && !s.ready);
+  const cantConnect = integrations.filter((i) => i.how === 'oauth' && !i.connected && !i.ready);
+  const planned = integrations.filter((i) => i.how === 'planned');
+  const lastChange = integrations.filter((i) => i.lastChange).sort((a, b) => new Date(b.lastChange.at) - new Date(a.lastChange.at))[0];
+  const aiReady = services.find((s) => s.id === 'ai');
+
+  function showOnly(key) { setChip(chip === key ? 'all' : key); jump('in-list'); }
+  const stats = [
+    { icon: 'check', value: String(connected.length), label: tr('accounts connected'), note: tr('of {n} that can be connected', { n: usable.length }), tone: connected.length ? 'good' : '', onClick: () => showOnly('connected') },
+    { icon: 'warn', value: tr('{n} of {total}', { n: ready.length, total: services.length }), label: tr('server services ready'), note: missingEssential.length ? tr('{n} that much depends on still missing', { n: missingEssential.length }) : tr('the essential ones are ready'), tone: missingEssential.length ? 'bad' : 'good', onClick: () => jump('in-services') },
+    { icon: 'spark', value: aiReady && aiReady.ready ? tr('On') : tr('Off'), label: tr('AI Assistant'), note: aiReady && aiReady.ready ? tr('Claude answers questions in the OS') : tr('needs the Anthropic key on the server'), tone: aiReady && aiReady.ready ? 'good' : '', onClick: () => jump('in-services') },
+    { icon: 'calendar', value: lastChange ? fmtDate(lastChange.lastChange.at) : '—', label: tr('last connect or disconnect'), note: lastChange ? tr('{name} · {who}', { name: lastChange.name, who: lastChange.lastChange.actorName }) : tr('nothing changed yet') }
+  ];
+
+  const insights = [];
+  missingEssential.forEach((s) => insights.push({ tone: 'bad', icon: 'warn', text: tr('{name} isn\'t set up: {what} Add {vars} in Render → Environment.', { name: s.name, what: tr(SERVICE_TEXT[s.id]), vars: s.env.join(', ') }), action: { label: tr('Show'), run: () => jump('in-services') } }));
+  if (cantConnect.length) insights.push({ tone: 'warn', icon: 'warn', text: tr('The Connect button for {names} can\'t work until the platform\'s app keys are on the server.', { names: cantConnect.map((i) => i.name).join(', ') }), action: { label: tr('Show them'), run: () => showOnly('cant') } });
+  if (planned.length) insights.push({ tone: 'info', icon: 'info', text: tr('{names} are listed but not built yet, so there is nothing to connect. Ask for them if the company needs them.', { names: planned.map((i) => i.name).join(', ') }), action: null });
+  if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything the company relies on is connected.') });
+
+  const chipTest = { all: () => true, connected: (i) => i.connected, cant: (i) => i.how === 'oauth' && !i.connected && !i.ready, oauth: (i) => i.how === 'oauth', server: (i) => i.how === 'server', planned: (i) => i.how === 'planned' };
+  const visible = integrations.filter(chipTest[chip] || chipTest.all);
+  const chips = [['all', tr('All'), integrations.length], ['connected', tr('Connected'), connected.length], ['cant', tr('Can\'t connect yet'), cantConnect.length],
+    ['oauth', tr('Sign in to connect'), integrations.filter(chipTest.oauth).length], ['server', tr('Set up on the server'), integrations.filter(chipTest.server).length], ['planned', tr('Not available yet'), planned.length]]
+    .filter(([k, , c]) => c > 0 || k === 'all' || k === chip);
+
+  function stateOf(i) {
+    if (i.connected) return { tone: 'good', text: tr('Connected') };
+    if (i.how === 'planned') return { tone: 'muted', text: tr('Not available yet') };
+    if (i.how === 'oauth' && !i.ready) return { tone: 'warn', text: tr('App keys missing on the server') };
+    return { tone: 'muted', text: tr('Not connected') };
+  }
+
   return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
-      <p className="integrations-intro">
-        {tr('Store credentials for third-party systems here. This links them to Bamboo OS\'s data model (e.g. TimeStation clock events into Attendance, Square payments into Invoices) — going live with real syncing requires the backend integration itself, not just a connected key here.')}
-      </p>
+    <div className="dk tl in">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <div className="integrations-grid">
-        {integrations.map((i) => (
-          <div key={i.id} className="integrations-card">
-            <div className="integrations-card-top">
-              <div className="integrations-card-identity">
-                <span className="integrations-badge" style={{ background: badgeColor(i.category) }}><PlugIcon /></span>
-                <div>
-                  <div className="integrations-card-name">{i.name}</div>
-                  <div className="integrations-card-category">{tr(i.category)}</div>
-                </div>
-              </div>
-              <span className={'tag ' + (i.connected ? 'tag-neutral' : 'tag-outline')}>{i.connected ? tr('Connected') : tr('Not connected')}</span>
-            </div>
-            <p className="integrations-card-desc">{tr(i.description)}</p>
-            {i.id === 'squareup' ? (
-              <>
-                <p className="integrations-card-note">
-                  {i.connected ? tr('Token configured on the server. Safe to run more than once — already-imported records are matched and updated, not duplicated.') : ENV_CONFIGURED_PLATFORMS.squareup}
-                </p>
-                {i.connected && (
-                  <button type="button" className="btn btn-primary integrations-action" disabled={squareBusy} onClick={runSquareImport}>
-                    {squareBusy ? tr('Importing…') : tr('Run Square import')}
-                  </button>
-                )}
-                {squareError && <p className="integrations-card-note" style={{ color: 'var(--color-danger-700, #b42318)' }}>{squareError}</p>}
-                {squareResult && (
-                  <p className="integrations-card-note">
-                    {[
-                      tr('Customers {imported} imported ({skipped} skipped)', squareResult.customers),
-                      tr('Catalogue {imported} imported ({skipped} skipped)', squareResult.catalogItems),
-                      tr('Invoices {imported} imported ({skipped} skipped)', squareResult.invoices),
-                      tr('Payments {imported} imported ({skipped} skipped)', squareResult.payments)
-                    ].join(' · ')}
-                    {squareResult.errors.length > 0 && <>{' '}{tr('— {n} record(s) had errors; see server logs / audit trail.', { n: squareResult.errors.length })}</>}
-                  </p>
-                )}
-              </>
-            ) : ENV_CONFIGURED_PLATFORMS[i.id] ? (
-              <p className="integrations-card-note">
-                {i.connected ? tr('Configured on the server — live and syncing automatically.') : ENV_CONFIGURED_PLATFORMS[i.id]}
-              </p>
-            ) : SINGLE_STEP_PLATFORMS[i.id] ? (
-              <>
-                {i.connected && (
-                  <div className="field">
-                    <label htmlFor={'int-key-' + i.id}>{tr('Status')}</label>
-                    <input id={'int-key-' + i.id} className="input" value={i.apiKey || MASK} disabled />
-                  </div>
-                )}
-                {i.connected ? (
-                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
-                ) : (
-                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectSingleStep(i.id)}>
-                    {busyId === i.id ? tr('Redirecting…') : tr('Connect with {platform}', { platform: SINGLE_STEP_PLATFORMS[i.id] })}
-                  </button>
-                )}
-              </>
-            ) : (i.id === 'facebook' || i.id === 'instagram') ? (
-              <>
-                {i.connected && (
-                  <div className="field">
-                    <label htmlFor={'int-key-' + i.id}>{tr('Status')}</label>
-                    <input id={'int-key-' + i.id} className="input" value={i.apiKey || MASK} disabled />
-                  </div>
-                )}
-                {i.connected ? (
-                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
-                ) : (
-                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connectMeta(i.id)}>
-                    {busyId === i.id ? tr('Redirecting…') : tr('Connect with Facebook')}
-                  </button>
-                )}
-                {i.id === 'instagram' && !i.connected && (
-                  <p className="integrations-card-note">{tr('Connects via your Facebook Page login — you\'ll pick the Page, and its linked Instagram account (if any) connects automatically.')}</p>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="field">
-                  <label htmlFor={'int-key-' + i.id}>{tr('API key')}</label>
-                  <input
-                    id={'int-key-' + i.id}
-                    className="input"
-                    value={i.connected ? MASK : (drafts[i.id] || '')}
-                    disabled={i.connected}
-                    onChange={(e) => setDrafts({ ...drafts, [i.id]: e.target.value })}
-                    placeholder={tr('Paste API key')}
-                  />
-                </div>
-                {i.connected ? (
-                  <button type="button" className="btn btn-secondary integrations-action" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
-                ) : (
-                  <button type="button" className="btn btn-primary integrations-action" disabled={busyId === i.id} onClick={() => connect(i)}>{tr('Connect')}</button>
-                )}
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-      {!integrations.length && (
-        <div className="integrations-empty-state">
-          <span className="integrations-empty-icon"><PlugIcon /></span>
-          <p className="integrations-empty-title">{tr('No integrations configured')}</p>
+      <Hero
+        eyebrow={tr('Governance')}
+        title={tr('Integrations')}
+        sub={tr('The outside systems Bamboo OS works with: accounts connected here, and services set up in the server\'s settings. No key or password is ever shown or typed on this page.')}
+        stats={stats} />
+
+      <Insights items={insights.slice(0, 5)} />
+
+      <Section id="in-list" title={tr('Accounts')} sub={tr('Social media, payments and time clocks. Press Connect to sign in to the platform.')}>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, c]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+              {label} <span className="ppl-chip-n">{c}</span>
+            </button>
+          ))}
         </div>
-      )}
+        {!visible.length ? <div className="dk-empty tl-empty"><p>{integrations.length ? tr('Nothing matches. Try another filter.') : tr('No integrations configured')}</p></div> : (
+          <div className="tl-grid">
+            {visible.map((i) => {
+              const st = stateOf(i);
+              return (
+                <article key={i.id} className={'tl-card in-card is-' + i.how + (i.connected ? ' is-on' : '')}>
+                  <div className="in-head">
+                    <span className="in-badge"><PlugIcon /></span>
+                    <span className="tl-card-head">
+                      <span className="dk-muted tl-small">{tr(i.category)} · {tr(HOW[i.how].label)}</span>
+                      <span className="tl-name">{i.name}</span>
+                    </span>
+                  </div>
+                  <p className="dk-muted tl-small in-desc">{tr(i.description)}</p>
+                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status></div>
+                  {i.lastChange && <p className="dk-muted tl-small in-last">{i.lastChange.action === 'integration.connect' ? tr('Connected {date} by {name}', { date: fmtDate(i.lastChange.at), name: i.lastChange.actorName }) : tr('Disconnected {date} by {name}', { date: fmtDate(i.lastChange.at), name: i.lastChange.actorName })}</p>}
+                  <div className="in-actions">
+                    {i.how === 'oauth' && (i.connected
+                      ? <button type="button" className="btn btn-secondary" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Disconnect')}</button>
+                      : <button type="button" className="btn btn-primary" disabled={busyId === i.id || !i.ready} title={!i.ready ? tr('App keys missing on the server') : undefined} onClick={() => startOAuth(i)}>{busyId === i.id ? tr('Redirecting…') : tr('Connect with {platform}', { platform: OAUTH_LABEL[i.id] || i.name })}</button>)}
+                    {i.how === 'server' && !i.connected && <span className="dk-muted tl-small">{tr('Set up in the server\'s settings — see below.')}</span>}
+                    {i.how === 'server' && i.connected && i.id !== 'squareup' && <span className="dk-muted tl-small">{tr('Configured on the server — live and syncing automatically.')}</span>}
+                    {i.id === 'squareup' && i.connected && <button type="button" className="btn btn-primary" disabled={squareBusy} onClick={runSquareImport}>{squareBusy ? tr('Importing…') : tr('Run Square import')}</button>}
+                    {i.id === 'timestation' && i.connected && <Link className="btn btn-secondary" to="/attendance">{tr('Open Attendance')}</Link>}
+                    {i.how === 'planned' && i.connected && <button type="button" className="btn btn-secondary" disabled={busyId === i.id} onClick={() => disconnect(i)}>{tr('Remove the saved key')}</button>}
+                  </div>
+                  {i.id === 'instagram' && !i.connected && i.ready && <p className="dk-muted tl-small">{tr('Connects via your Facebook Page login — you\'ll pick the Page, and its linked Instagram account (if any) connects automatically.')}</p>}
+                  {i.id === 'squareup' && squareError && <p className="in-error">{squareError}</p>}
+                  {i.id === 'squareup' && squareResult && (
+                    <p className="dk-muted tl-small">
+                      {[
+                        tr('Customers {imported} imported ({skipped} skipped)', squareResult.customers),
+                        tr('Catalogue {imported} imported ({skipped} skipped)', squareResult.catalogItems),
+                        tr('Invoices {imported} imported ({skipped} skipped)', squareResult.invoices),
+                        tr('Payments {imported} imported ({skipped} skipped)', squareResult.payments)
+                      ].join(' · ')}
+                      {squareResult.errors.length > 0 && <>{' '}{tr('— {n} record(s) had errors; see server logs / audit trail.', { n: squareResult.errors.length })}</>}
+                    </p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </Section>
 
-      {toast && <div className="toast">{toast}</div>}
+      <Section id="in-services" title={tr('Services set up on the server')} sub={tr('These are switched on by adding settings in Render → bamboo-os-backend → Environment, then redeploying. Only whether each is ready is shown here, never the values.')}>
+        <ul className="in-services">
+          {services.map((s) => (
+            <li key={s.id} className={s.ready ? 'is-ready' : s.essential ? 'is-missing' : ''}>
+              <div className="in-sv-main">
+                <strong>{s.name}</strong>
+                <span className="dk-muted tl-small">{tr(SERVICE_TEXT[s.id])}</span>
+                {!s.ready && <span className="in-env">{s.env.map((v) => <code key={v}>{v}</code>)}</span>}
+              </div>
+              <Status tone={s.ready ? 'good' : s.essential ? 'bad' : 'muted'}>{s.ready ? tr('Ready') : tr('Not set up')}</Status>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      <Glossary items={[
+        [tr('Sign in to connect'), tr('Press Connect, sign in to the platform and allow Bamboo OS. Nothing is typed here; the platform hands the OS its own access.')],
+        [tr('Set up on the server'), tr('Keys added in Render → Environment by whoever looks after the server. They never pass through this page or chat.')],
+        [tr('App keys'), tr('The keys that identify Bamboo OS to a platform. Without them, that platform\'s Connect button can\'t work.')],
+        [tr('Not available yet'), tr('Listed so it can be asked for, but nothing in the OS uses it yet.')],
+        [tr('Disconnect'), tr('Stops the OS using that account straight away and forgets its access. Connecting again means signing in again.')]
+      ]} />
+
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }

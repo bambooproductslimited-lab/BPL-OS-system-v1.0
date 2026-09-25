@@ -20,6 +20,10 @@ router.patch('/', async function (req, res, next) {
 router.get('/changes', async function (req, res, next) {
   try { res.json(await settingsService.changes(req.ctx)); } catch (e) { next(e); }
 });
+// Services set up in the server's settings: ready or not, never their values.
+router.get('/services', async function (req, res, next) {
+  try { res.json(await settingsService.services(req.ctx)); } catch (e) { next(e); }
+});
 router.get('/integrations', async function (req, res, next) {
   try { res.json(await settingsService.listIntegrations(req.ctx)); } catch (e) { next(e); }
 });
