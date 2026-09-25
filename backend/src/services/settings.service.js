@@ -28,7 +28,7 @@ function rowToSettings(r) {
     companyName: r.company_name, shortName: r.short_name, country: r.country, currency: r.currency,
     timezone: r.timezone, fiscalYearStart: r.fiscal_year_start, workWeek: r.work_week,
     standardHours: r.standard_hours, lateAfter: r.late_after ? r.late_after.slice(0, 5) : null,
-    plants: r.plants, leaveApprovalChain: r.leave_approval_chain,
+    plants: r.plants, leaveApprovalChain: r.leave_approval_chain, updatedAt: r.updated_at,
     commercial: r.commercial, integrations: redactIntegrations(r.integrations)
   };
 }
@@ -41,23 +41,99 @@ async function get(ctx) {
   // The grace in force today (attendance.service.js, migration 0074).
   var grace = await pool.query('SELECT minutes FROM late_grace WHERE effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1');
   out.lateGraceMinutes = grace.rows[0] ? Number(grace.rows[0].minutes) : 10;
+  // How the grace has changed, newest first, and what the settings page
+  // links to elsewhere (counts only).
+  out.lateGraceHistory = (await pool.query(
+    "SELECT g.effective_from, g.minutes, e.first_name || ' ' || e.last_name AS set_by FROM late_grace g LEFT JOIN employees e ON e.id = g.set_by ORDER BY g.effective_from DESC LIMIT 6"
+  )).rows.map(function (r) { return { from: r.effective_from, minutes: Number(r.minutes), setBy: r.set_by || null }; });
+  out.structure = (await pool.query(
+    "SELECT (SELECT count(*) FROM companies)::int AS companies, (SELECT count(*) FROM departments)::int AS departments, " +
+    "(SELECT count(*) FROM leave_types WHERE active)::int AS leave_types, (SELECT count(*) FROM holidays WHERE date >= CURRENT_DATE)::int AS holidays_ahead, " +
+    "(SELECT count(*) FROM employees WHERE status <> 'terminated')::int AS employees"
+  )).rows[0];
+  var roles = (await pool.query('SELECT key, name FROM roles WHERE key = ANY($1::text[])', [out.leaveApprovalChain || []])).rows;
+  out.leaveApprovalNames = (out.leaveApprovalChain || []).map(function (k) { var r = roles.find(function (x) { return x.key === k; }); return r ? r.name : k; });
   return out;
+}
+
+// The latest changes to company settings, integrations, text messages and
+// email, from the audit log.
+async function changes(ctx) {
+  if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
+  var res = await pool.query(
+    "SELECT at, actor_name, action, summary FROM audit_logs WHERE split_part(action, '.', 1) IN ('settings', 'integration', 'sms', 'mail', 'commercial') " +
+    "AND action NOT IN ('sms.send', 'mail.send', 'sms.test', 'mail.test') ORDER BY at DESC LIMIT 20");
+  return res.rows.map(function (r) { return { at: r.at, actorName: r.actor_name, action: r.action, summary: r.summary }; });
 }
 
 var TEXT_FIELDS = { companyName: 'company_name', shortName: 'short_name', country: 'country', currency: 'currency', timezone: 'timezone', workWeek: 'work_week', lateAfter: 'late_after' };
 
+var LABELS = { companyName: 'company name', shortName: 'short name', country: 'country', currency: 'default currency', timezone: 'time zone', workWeek: 'work week', lateAfter: 'counted late after', fiscalYearStart: 'fiscal year start', standardHours: 'standard hours' };
+
 // kernel.js: handlers['settings.save']
+// Only what is sent changes; the audit log says what changed, from what to
+// what. The default currency must be one of the enabled ones, and can't be
+// taken off the list while it is the default.
 async function save(ctx, p) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
+  var row = (await pool.query('SELECT * FROM settings WHERE id = 1')).rows[0];
+  var before = rowToSettings(row);
 
-  var sets = [], values = [];
+  var sets = [], values = [], changed = [];
+  function set(col, v, key, shownBefore, shownAfter) {
+    values.push(v);
+    sets.push(col + ' = $' + values.length);
+    if (String(shownBefore === null || shownBefore === undefined ? '' : shownBefore) !== String(shownAfter)) changed.push(LABELS[key] + ' ' + (shownBefore || '—') + ' → ' + shownAfter);
+  }
   Object.keys(TEXT_FIELDS).forEach(function (k) {
-    if (p[k] !== undefined) {
-      var v = V.text(p[k], k, 60);
-      values.push(v);
-      sets.push(TEXT_FIELDS[k] + ' = $' + values.length);
+    if (p[k] === undefined) return;
+    var v = V.text(p[k], LABELS[k] || k, 60);
+    if (k === 'lateAfter') {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('invalid', 'Counted late after must be a time like 07:10.');
     }
+    if (k === 'currency') v = v.toUpperCase();
+    set(TEXT_FIELDS[k], v, k, before[k], v);
   });
+  if (p.fiscalYearStart !== undefined) {
+    var fy = String(p.fiscalYearStart || '').trim();
+    if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(fy)) fail('invalid', 'The fiscal year start must be a month and day like 01-01.');
+    set('fiscal_year_start', fy, 'fiscalYearStart', before.fiscalYearStart, fy);
+  }
+  if (p.standardHours !== undefined) {
+    var hours = Number(p.standardHours);
+    if (!Number.isFinite(hours) || hours < 1 || hours > 12) fail('invalid', 'Standard hours must be from 1 to 12.');
+    set('standard_hours', hours, 'standardHours', before.standardHours, hours);
+  }
+
+  // Multi-currency: the enabled-currency list every quotation/estimate/
+  // invoice currency picker (and documents.js's resolveCurrency()) draws
+  // from. It lives in the commercial jsonb blob, not a plain column.
+  var commercial = row.commercial || {};
+  var currencies = commercial.currencies || ['GHS'];
+  if (p.currencies !== undefined) {
+    var codes = (Array.isArray(p.currencies) ? p.currencies : []).map(function (c) { return String(c || '').trim().toUpperCase(); });
+    codes.forEach(function (c) { if (!/^[A-Z]{3}$/.test(c)) fail('invalid', 'A currency code is three letters, like GHS or USD.'); });
+    var unique = codes.filter(function (c, i) { return codes.indexOf(c) === i; });
+    if (!unique.length) fail('invalid', 'Keep at least one currency enabled.');
+    var added = unique.filter(function (c) { return currencies.indexOf(c) < 0; });
+    var removed = currencies.filter(function (c) { return unique.indexOf(c) < 0; });
+    if (added.length) changed.push('added currency ' + added.join(', '));
+    if (removed.length) changed.push('removed currency ' + removed.join(', '));
+    currencies = unique;
+  }
+  var defaultCurrency = p.currency !== undefined ? String(p.currency).trim().toUpperCase() : before.currency;
+  if (currencies.indexOf(defaultCurrency) < 0) {
+    fail('invalid', p.currencies !== undefined && p.currency === undefined
+      ? defaultCurrency + ' is the default currency. Choose another default before removing it.'
+      : 'The default currency must be one of the enabled currencies.');
+  }
+
+  if (sets.length) await pool.query('UPDATE settings SET ' + sets.join(', ') + ', updated_at = now() WHERE id = 1', values);
+  if (p.currencies !== undefined) {
+    commercial.currencies = currencies;
+    await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(commercial)]);
+  }
+
   // Minutes after a shift start that still count as on time. Takes effect
   // from today; days before keep the grace they were judged by.
   if (p.lateGraceMinutes !== undefined && p.lateGraceMinutes !== null && p.lateGraceMinutes !== '') {
@@ -73,29 +149,11 @@ async function save(ctx, p) {
       await audit(pool, ctx, 'settings.lateGrace', 'settings', 'company', 'Late after ' + minutes + ' minutes past the shift start, from today.');
     }
   }
-  if (p.standardHours !== undefined) {
-    values.push(Math.max(1, Math.min(12, Number(p.standardHours) || 8)));
-    sets.push('standard_hours = $' + values.length);
-  }
-  if (sets.length) {
-    await pool.query('UPDATE settings SET ' + sets.join(', ') + ', updated_at = now() WHERE id = 1', values);
-  }
 
-  // Multi-currency: the enabled-currency list every quotation/estimate/
-  // invoice currency picker (and documents.js's resolveCurrency()) draws
-  // from. Kept separate from the sets/values loop above since it lives in
-  // the commercial jsonb blob, not a plain column.
-  if (p.currencies !== undefined) {
-    var codes = (Array.isArray(p.currencies) ? p.currencies : []).map(function (c) { return V.text(c, 'Currency code', 6).toUpperCase(); });
-    var unique = codes.filter(function (c, i) { return codes.indexOf(c) === i; });
-    if (!unique.length) fail('invalid', 'Keep at least one currency enabled.');
-    var commercialRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
-    var commercial = commercialRes.rows[0].commercial;
-    commercial.currencies = unique;
-    await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(commercial)]);
+  if (changed.length) {
+    var said = changed.join('; ');
+    await audit(pool, ctx, 'settings.save', 'settings', 'company', said.charAt(0).toUpperCase() + said.slice(1) + '.');
   }
-
-  await audit(pool, ctx, 'settings.save', 'settings', 'company', 'Updated company settings.');
   return get(ctx);
 }
 
@@ -145,4 +203,4 @@ async function disconnect(ctx, id) {
   return found.list[found.index];
 }
 
-module.exports = { get: get, save: save, listIntegrations: listIntegrations, connect: connect, disconnect: disconnect };
+module.exports = { get: get, save: save, changes: changes, listIntegrations: listIntegrations, connect: connect, disconnect: disconnect };

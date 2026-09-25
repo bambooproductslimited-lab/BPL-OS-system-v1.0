@@ -16,6 +16,10 @@ router.patch('/', async function (req, res, next) {
 });
 
 // kernel.js: handlers['integrations.list'] -> GET /api/settings/integrations
+// The latest changes to settings, integrations, text messages and email.
+router.get('/changes', async function (req, res, next) {
+  try { res.json(await settingsService.changes(req.ctx)); } catch (e) { next(e); }
+});
 router.get('/integrations', async function (req, res, next) {
   try { res.json(await settingsService.listIntegrations(req.ctx)); } catch (e) { next(e); }
 });
