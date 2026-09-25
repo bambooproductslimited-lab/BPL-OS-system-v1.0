@@ -56,3 +56,5 @@
   font-size: 13px;
 }
 .receipt-preview-amount-received { font-size: 18px; }
+
+.receipts-method { text-transform: capitalize; }
