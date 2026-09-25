@@ -129,7 +129,9 @@ self.addEventListener('notificationclick', function (event) {
   var path = '/';
   if (link) {
     var parts = String(link).split(':');
-    path = parts[0] === 'message' ? '/messages?peer=' + parts[1] : '/' + parts[0];
+    path = parts[0] === 'message' ? '/messages?peer=' + parts[1]
+      : parts[0] === 'chat' ? '/messages?chat=' + parts[1]
+      : '/' + parts[0];
   }
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
