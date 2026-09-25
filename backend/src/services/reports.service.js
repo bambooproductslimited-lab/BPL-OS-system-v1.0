@@ -619,78 +619,155 @@ function defaultPeriod(params) {
   return { from: from, to: to };
 }
 
+// The company a statement is for: any company with a dashboard (trade or
+// restaurant), or every company together ('ALL', the default — how these
+// statements have always been). Each source is narrowed the same way the
+// dashboards narrow it: documents by their own company or their client's
+// (no company = Bamboo Products), expense claims, purchase requests and
+// payroll by the department's company, restaurant sales and supplies by
+// their restaurant, raw bamboo to Bamboo Products.
+async function statementCompany(ctx, code) {
+  var c = String(code || 'ALL').trim().toUpperCase();
+  if (c === 'ALL' || c === '*') return ALL_COMPANIES;
+  var co = (await marketingCompanyList(ctx)).filter(function (x) { return x.code.toUpperCase() === c; })[0];
+  if (!co) fail('invalid', 'There is no company "' + c + '".');
+  return co;
+}
+// The companies a statement can be for, for the page's switcher: every
+// company together first, then each company with a dashboard.
+async function statementCompanies(ctx) {
+  if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
+  return [{ code: 'ALL', name: 'All companies', kind: 'all' }].concat((await marketingCompanyList(ctx)).map(function (c) { return { code: c.code, name: c.name, kind: c.kind }; }));
+}
+function scopes(co) {
+  var all = co.id === null;
+  var bpl = co.code === 'BPL';
+  return {
+    inv: docScope(co, 'i', 'c'),
+    exp: expenseScope(co),
+    pay: all ? '$1::uuid IS NULL' : 'd.company_id = $1',
+    proc: all ? '$1::uuid IS NULL' : bpl ? '(d.company_id = $1 OR pr.department_id IS NULL)' : 'd.company_id = $1',
+    rest: all ? '$1::uuid IS NULL' : 'o.company_id = $1',
+    moves: all ? '$1::uuid IS NULL' : 'm.company_id = $1',
+    raw: all || bpl
+  };
+}
+function periodParams(params) {
+  var period = defaultPeriod(params);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(period.from) || !/^\d{4}-\d{2}-\d{2}$/.test(period.to)) fail('invalid', 'Dates must look like 2026-01-31.');
+  if (period.to < period.from) fail('invalid', 'The end of the period is before its start.');
+  return period;
+}
+
+// What was bought and received in a period: purchase requests at their real
+// cost (the estimate when none was entered) on the day they arrived, raw
+// bamboo batches on the day they came in, and restaurant supplies and
+// ingredients delivered. Supplier payments aren't recorded in the OS, so a
+// purchase counts as a cost — and, on the cash flow, as paid — when it is
+// received.
+async function purchasesIn(co, sc, from, to) {
+  var P = [co.id, from, to];
+  var procRes = await pool.query(
+    'SELECT coalesce(sum(coalesce(pr.actual_cost, pr.estimated_price)),0) AS s, count(*)::int AS n FROM procurement_requests pr LEFT JOIN departments d ON d.id = pr.department_id ' +
+    "WHERE pr.status = 'received' AND pr.received_at::date BETWEEN $2 AND $3 AND " + sc.proc, P);
+  var rawRes = sc.raw ? await pool.query('SELECT coalesce(sum(cost),0) AS s, count(*)::int AS n FROM raw_batches WHERE date_received BETWEEN $1 AND $2', [from, to]) : { rows: [{ s: 0, n: 0 }] };
+  var movesRes = await pool.query(
+    "SELECT coalesce(sum(m.delta * m.unit_cost),0) AS s, count(*)::int AS n FROM restaurant_stock_moves m WHERE m.kind = 'received' AND m.created_at::date BETWEEN $2 AND $3 AND " + sc.moves, P);
+  var out = {
+    procurement: Number(procRes.rows[0].s), procurementCount: procRes.rows[0].n,
+    rawBamboo: Number(rawRes.rows[0].s), rawBambooCount: rawRes.rows[0].n,
+    restaurantSupplies: Number(movesRes.rows[0].s), restaurantSuppliesCount: movesRes.rows[0].n
+  };
+  out.total = Math.round((out.procurement + out.rawBamboo + out.restaurantSupplies) * 100) / 100;
+  return out;
+}
+
 // kernel.js: handlers['reports.profitAndLoss']
-// Nets revenue against expenses/payroll into one number per line, which is
-// only meaningful within a single currency — expenses/payroll have no
-// per-currency data at all, and true FX conversion is out of scope (see
-// documents.js's resolveCurrency()). So this, like every report below it,
-// is restricted to invoices in the company's base currency (baseCurrency in
-// the response); a non-base-currency invoice still shows correctly on its
-// own document view and in the Invoices list, just not folded into these
-// blended statements.
+// Revenue less the cost of what was bought, then less expense claims and
+// payroll. Netting only makes sense in one currency — expenses and payroll
+// have none of their own, and FX conversion is out of scope (see
+// documents.js's resolveCurrency()) — so invoices count only in the base
+// currency (baseCurrency in the response); restaurant till sales are in it
+// already. An invoice in another currency still shows on its own record and
+// in the Invoices list, just not in these blended statements.
 async function profitAndLoss(ctx, params) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
-  var period = defaultPeriod(params);
+  var period = periodParams(params);
+  var co = await statementCompany(ctx, params && params.company);
+  var sc = scopes(co);
   var base = await baseCurrency();
+  var P = [co.id, period.from, period.to];
 
-  var revRes = await pool.query(
-    "SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'void' AND currency = $1 AND issued_at BETWEEN $2 AND $3",
-    [base, period.from, period.to]
-  );
+  var invRes = await pool.query("SELECT coalesce(sum(i.grand_total),0) AS s FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $4 AND i.issued_at BETWEEN $2 AND $3 AND " + sc.inv, P.concat([base]));
+  var restRes = await pool.query("SELECT coalesce(sum(o.total),0) AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest, P);
   var expByCatRes = await pool.query(
-    "SELECT category, sum(amount) AS amount FROM expenses WHERE status IN ('approved','paid') AND date BETWEEN $1 AND $2 GROUP BY category ORDER BY amount DESC",
-    [period.from, period.to]
-  );
+    "SELECT e.category, sum(e.amount) AS amount FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + sc.exp + ' GROUP BY e.category ORDER BY amount DESC', P);
   var payrollRes = await pool.query(
-    "SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id " +
-    "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $1 AND $2",
-    [period.from, period.to]
-  );
+    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
+    "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + sc.pay, P);
+  var purchases = await purchasesIn(co, sc, period.from, period.to);
 
-  var revenue = Number(revRes.rows[0].s);
+  var invoiced = Number(invRes.rows[0].s), restaurant = Number(restRes.rows[0].s);
+  var revenue = invoiced + restaurant;
   var expenseByCategory = expByCatRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; });
-  var totalExpenses = expenseByCategory.reduce(function (s, r) { return s + r.amount; }, 0);
+  var totalExpenses = expenseByCategory.reduce(function (sum, r) { return sum + r.amount; }, 0);
   var payrollCost = Number(payrollRes.rows[0].s);
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
 
   return {
-    from: period.from, to: period.to, baseCurrency: base,
-    revenue: revenue, expenseByCategory: expenseByCategory, totalExpenses: totalExpenses,
-    payrollCost: payrollCost, totalCosts: totalExpenses + payrollCost,
-    netProfit: revenue - totalExpenses - payrollCost
+    from: period.from, to: period.to, baseCurrency: base, company: { code: co.code === '*' ? 'ALL' : co.code, name: co.name },
+    revenue: r2(revenue), revenueLines: { invoiced: invoiced, restaurant: restaurant },
+    purchases: purchases, grossProfit: r2(revenue - purchases.total),
+    expenseByCategory: expenseByCategory, totalExpenses: r2(totalExpenses),
+    payrollCost: payrollCost, totalCosts: r2(purchases.total + totalExpenses + payrollCost),
+    netProfit: r2(revenue - purchases.total - totalExpenses - payrollCost)
   };
 }
 
-// kernel.js: handlers['reports.cashFlow'] — see profitAndLoss's comment above; restricted to baseCurrency for the same reason.
+// kernel.js: handlers['reports.cashFlow'] — base currency only, as the P&L.
+// Money counts on the day it moved: payments and restaurant takings in;
+// expense claims when paid out (the day they were claimed for older ones
+// with no pay-out date), pay runs when marked paid, purchases when received.
+// Claims approved but not paid out, and runs approved but not paid, are
+// still to go out and are listed separately rather than counted.
 async function cashFlow(ctx, params) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
-  var period = defaultPeriod(params);
+  var period = periodParams(params);
+  var co = await statementCompany(ctx, params && params.company);
+  var sc = scopes(co);
   var base = await baseCurrency();
+  var P = [co.id, period.from, period.to];
 
-  var cashInRes = await pool.query('SELECT coalesce(sum(amount),0) AS s FROM payments WHERE currency = $1 AND date BETWEEN $2 AND $3', [base, period.from, period.to]);
-  var expensesOutRes = await pool.query(
-    "SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid') AND date BETWEEN $1 AND $2",
-    [period.from, period.to]
-  );
-  var payrollOutRes = await pool.query(
-    "SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id " +
-    "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $1 AND $2",
-    [period.from, period.to]
-  );
-  var byMethodRes = await pool.query(
-    'SELECT method, sum(amount) AS s FROM payments WHERE currency = $1 AND date BETWEEN $2 AND $3 GROUP BY method ORDER BY s DESC',
-    [base, period.from, period.to]
-  );
+  var inRes = await pool.query('SELECT p.method, sum(p.amount) AS s FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.currency = $4 AND p.date BETWEEN $2 AND $3 AND ' + sc.inv + ' GROUP BY p.method', P.concat([base]));
+  var restRes = await pool.query("SELECT o.payment_method AS method, sum(o.total) AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest + ' GROUP BY o.payment_method', P);
+  var expRes = await pool.query(
+    "SELECT coalesce(sum(e.amount),0) AS s FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'paid' AND coalesce(e.paid_at::date, e.date) BETWEEN $2 AND $3 AND " + sc.exp, P);
+  var expDueRes = await pool.query(
+    "SELECT coalesce(sum(e.amount),0) AS s, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'approved' AND " + sc.exp, [co.id]);
+  var payRes = await pool.query(
+    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
+    "WHERE pr.status = 'paid' AND pr.pay_date BETWEEN $2 AND $3 AND " + sc.pay, P);
+  var payDueRes = await pool.query(
+    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s, count(DISTINCT pr.id)::int AS n FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
+    "WHERE pr.status = 'approved' AND " + sc.pay, [co.id]);
+  var purchases = await purchasesIn(co, sc, period.from, period.to);
 
-  var cashIn = Number(cashInRes.rows[0].s);
-  var expensesOut = Number(expensesOutRes.rows[0].s);
-  var payrollOut = Number(payrollOutRes.rows[0].s);
-  var cashOut = expensesOut + payrollOut;
+  var byMethod = {};
+  inRes.rows.concat(restRes.rows).forEach(function (r) { byMethod[r.method] = (byMethod[r.method] || 0) + Number(r.s); });
+  var fromInvoices = inRes.rows.reduce(function (sum, r) { return sum + Number(r.s); }, 0);
+  var fromRestaurants = restRes.rows.reduce(function (sum, r) { return sum + Number(r.s); }, 0);
+  var cashIn = fromInvoices + fromRestaurants;
+  var expensesOut = Number(expRes.rows[0].s), payrollOut = Number(payRes.rows[0].s);
+  var cashOut = expensesOut + payrollOut + purchases.total;
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
 
   return {
-    from: period.from, to: period.to, baseCurrency: base,
-    cashIn: cashIn, cashInByMethod: byMethodRes.rows.map(function (r) { return { method: r.method, amount: Number(r.s) }; }),
-    expensesOut: expensesOut, payrollOut: payrollOut, cashOut: cashOut,
-    netCashFlow: cashIn - cashOut
+    from: period.from, to: period.to, baseCurrency: base, company: { code: co.code === '*' ? 'ALL' : co.code, name: co.name },
+    cashIn: r2(cashIn), cashInFromInvoices: r2(fromInvoices), cashInFromRestaurants: r2(fromRestaurants),
+    cashInByMethod: Object.keys(byMethod).map(function (m) { return { method: m, amount: r2(byMethod[m]) }; }).sort(function (a, b) { return b.amount - a.amount; }),
+    expensesOut: expensesOut, payrollOut: payrollOut, purchasesOut: purchases.total, purchases: purchases, cashOut: r2(cashOut),
+    netCashFlow: r2(cashIn - cashOut),
+    stillToPay: { expenses: Number(expDueRes.rows[0].s), expenseCount: expDueRes.rows[0].n, payroll: Number(payDueRes.rows[0].s), payrollRuns: payDueRes.rows[0].n }
   };
 }
 
@@ -707,6 +784,8 @@ async function balanceSheet(ctx) {
   var revRes = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'void' AND currency = $1", [base]);
   var expRes = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid')");
   var payrollRes = await pool.query("SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id WHERE pr.status IN ('approved','paid')");
+  var restRes = await pool.query("SELECT coalesce(sum(total),0) AS s FROM restaurant_orders WHERE status = 'completed'");
+  var allPurchases = await purchasesIn(ALL_COMPANIES, scopes(ALL_COMPANIES), '1900-01-01', '2999-12-31');
 
   var cashAndBank = Number(manual.cashAndBank || 0);
   var accountsReceivable = Number(arRes.rows[0].s);
@@ -721,7 +800,7 @@ async function balanceSheet(ctx) {
 
   // Retained earnings = all-time net profit, the same recognition rules as
   // profitAndLoss() above but with no date bound (since inception).
-  var retainedEarnings = Number(revRes.rows[0].s) - Number(expRes.rows[0].s) - Number(payrollRes.rows[0].s);
+  var retainedEarnings = Number(revRes.rows[0].s) + Number(restRes.rows[0].s) - allPurchases.total - Number(expRes.rows[0].s) - Number(payrollRes.rows[0].s);
   var ownersEquity = Number(manual.ownersEquity || 0);
   var totalEquity = ownersEquity + retainedEarnings;
 
@@ -763,12 +842,13 @@ async function saveBalanceSheetInputs(ctx, p) {
 // blended statement, so unlike profitAndLoss/cashFlow/balanceSheet above,
 // every currency's invoices are included; the bucket totals and grand total
 // are grouped per currency instead of restricted to one.
-async function arAging(ctx) {
+async function arAging(ctx, params) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
   var t = todayISO();
+  var co = await statementCompany(ctx, params && params.company);
   var res = await pool.query(
-    "SELECT i.invoice_no, i.balance_due, i.currency, i.due_date, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id " +
-    "WHERE i.status != 'void' AND i.balance_due > 0 ORDER BY i.due_date NULLS LAST"
+    "SELECT i.id, i.invoice_no, i.balance_due, i.currency, i.due_date, c.name AS customer_name, c.phone FROM invoices i JOIN customers c ON c.id = i.customer_id " +
+    "WHERE i.status != 'void' AND i.balance_due > 0 AND " + scopes(co).inv + " ORDER BY i.due_date NULLS LAST", [co.id]
   );
   var bucketKeys = ['current', 'd1_30', 'd31_60', 'd61_90', 'd90_plus'];
   var buckets = {}; bucketKeys.forEach(function (k) { buckets[k] = {}; });
@@ -778,7 +858,7 @@ async function arAging(ctx) {
     var bucket = daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? 'd1_30' : daysOverdue <= 60 ? 'd31_60' : daysOverdue <= 90 ? 'd61_90' : 'd90_plus';
     buckets[bucket][r.currency] = (buckets[bucket][r.currency] || 0) + Number(r.balance_due);
     totals[r.currency] = (totals[r.currency] || 0) + Number(r.balance_due);
-    return { invoiceNo: r.invoice_no, customerName: r.customer_name, currency: r.currency, balanceDue: Number(r.balance_due), dueDate: r.due_date, daysOverdue: Math.max(0, daysOverdue), bucket: bucket };
+    return { invoiceId: r.id, invoiceNo: r.invoice_no, customerName: r.customer_name, phone: r.phone || '', currency: r.currency, balanceDue: Number(r.balance_due), dueDate: r.due_date, daysOverdue: Math.max(0, daysOverdue), bucket: bucket };
   });
   var toArr = function (obj) { return Object.keys(obj).map(function (c) { return { currency: c, amount: obj[c] }; }); };
   var bucketsArr = {}; bucketKeys.forEach(function (k) { bucketsArr[k] = toArr(buckets[k]); });
@@ -788,18 +868,19 @@ async function arAging(ctx) {
 // kernel.js: handlers['reports.expenseDetail']
 async function expenseDetail(ctx, params) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
-  var period = defaultPeriod(params);
+  var period = periodParams(params);
+  var co = await statementCompany(ctx, params && params.company);
   var res = await pool.query(
-    "SELECT e.category, e.amount, e.date, e.description, e.status, emp.first_name, emp.last_name, d.name AS dept_name " +
-    "FROM expenses e JOIN employees emp ON emp.id = e.requester_id JOIN departments d ON d.id = e.department_id " +
-    "WHERE e.status IN ('approved','paid') AND e.date BETWEEN $1 AND $2 ORDER BY e.date DESC",
-    [period.from, period.to]
+    "SELECT e.id, e.category, e.amount, e.date, e.description, e.status, emp.first_name, emp.last_name, d.name AS dept_name " +
+    "FROM expenses e JOIN employees emp ON emp.id = e.requester_id LEFT JOIN departments d ON d.id = e.department_id " +
+    "WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + scopes(co).exp + " ORDER BY e.date DESC",
+    [co.id, period.from, period.to]
   );
   var byCategory = {}, byDept = {};
   var rows = res.rows.map(function (r) {
     byCategory[r.category] = (byCategory[r.category] || 0) + Number(r.amount);
-    byDept[r.dept_name] = (byDept[r.dept_name] || 0) + Number(r.amount);
-    return { category: r.category, amount: Number(r.amount), date: r.date, description: r.description, requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name };
+    byDept[r.dept_name || '—'] = (byDept[r.dept_name || '—'] || 0) + Number(r.amount);
+    return { id: r.id, category: r.category, amount: Number(r.amount), date: r.date, description: r.description, status: r.status, requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name || '—' };
   });
   return {
     from: period.from, to: period.to, items: rows,
@@ -810,20 +891,20 @@ async function expenseDetail(ctx, params) {
 }
 
 // kernel.js: handlers['reports.taxSummary']
-// Tax is recorded per line item as a plain percentage (document_line_items.
-// tax_rate) — there's no link back to which named tax (VAT/NHIL/GETFund/
-// WHT) was intended, since the line-item editor is a free-form % field,
-// not a picker tied to commercial.taxRates. This groups by the exact rate
-// found in the data and labels it with whichever configured tax(es) share
-// that same percentage — ambiguous when two taxes have the same rate
-// (e.g. NHIL and GETFund both default to 2.5%), which is disclosed via the
-// label rather than guessed at. Also cross-checks the sum of line-item tax
-// against each invoice's own recorded tax_total, since a document-level
-// tax rate (a separate, currently-unused code path in invoices.service.js)
-// would show up as a gap here rather than being silently missed.
+// Tax is recorded as a plain percentage — on each line (document_line_items.
+// tax_rate) and, since the document editor gained one, on the whole
+// document (invoices.tax_rate, applied after discounts). Neither links back
+// to a named tax (VAT/NHIL/GETFund/WHT), so this groups by the exact rate
+// and labels it with whichever configured tax(es) share that percentage —
+// ambiguous when two share a rate (NHIL and GETFund both default to 2.5%),
+// which the label says rather than guessing. Whole-document tax is worked
+// out per invoice as what its recorded tax_total holds beyond its lines'
+// tax, so the two together reconcile to the invoices' own totals; any gap
+// left is shown as a difference to look into.
 async function taxSummary(ctx, params) {
   if (!ctx.can('report.read')) fail('forbidden', 'Your role does not allow this action (report.read).');
-  var period = defaultPeriod(params);
+  var period = periodParams(params);
+  var co = await statementCompany(ctx, params && params.company);
   var base = await baseCurrency();
 
   var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
@@ -834,14 +915,22 @@ async function taxSummary(ctx, params) {
     nameByRate[key] = nameByRate[key] ? nameByRate[key] + ' / ' + t.name : t.name;
   });
 
-  var linesRes = await pool.query(
-    "SELECT li.tax_rate, li.qty, li.unit_price, li.discount, li.discount_type, i.id AS invoice_id " +
-    "FROM document_line_items li JOIN invoices i ON i.id = li.document_id " +
-    "WHERE li.document_type = 'invoice' AND i.status != 'void' AND i.currency = $1 AND i.issued_at BETWEEN $2 AND $3",
-    [base, period.from, period.to]
-  );
+  var P = [co.id, base, period.from, period.to];
+  var invRes = await pool.query(
+    "SELECT i.id, i.tax_rate, i.tax_total FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $2 AND i.issued_at BETWEEN $3 AND $4 AND " + scopes(co).inv, P);
+  var ids = invRes.rows.map(function (r) { return r.id; });
+  var linesRes = ids.length ? await pool.query(
+    "SELECT li.tax_rate, li.qty, li.unit_price, li.discount, li.discount_type, li.document_id AS invoice_id FROM document_line_items li WHERE li.document_type = 'invoice' AND li.document_id = ANY($1::uuid[])", [ids]) : { rows: [] };
 
   var byRate = {};
+  function add(rate, baseAmt, tax, invoiceId, whole) {
+    var key = Number(rate).toFixed(3) + (whole ? 'd' : '');
+    if (!byRate[key]) byRate[key] = { rate: Number(rate), whole: !!whole, taxableBase: 0, taxCollected: 0, invoiceIds: {} };
+    byRate[key].taxableBase += baseAmt;
+    byRate[key].taxCollected += tax;
+    byRate[key].invoiceIds[invoiceId] = true;
+  }
+  var lineTaxByInvoice = {};
   var totalTaxFromLineItems = 0;
   linesRes.rows.forEach(function (r) {
     var line = Number(r.qty) * Number(r.unit_price);
@@ -849,41 +938,46 @@ async function taxSummary(ctx, params) {
     var afterDiscount = Math.max(0, line - lineDiscount);
     var rate = Number(r.tax_rate);
     var tax = (afterDiscount * rate) / 100;
-    var key = rate.toFixed(3);
-    if (!byRate[key]) byRate[key] = { rate: rate, taxableBase: 0, taxCollected: 0, invoiceIds: {} };
-    byRate[key].taxableBase += afterDiscount;
-    byRate[key].taxCollected += tax;
-    byRate[key].invoiceIds[r.invoice_id] = true;
+    add(rate, afterDiscount, tax, r.invoice_id, false);
+    lineTaxByInvoice[r.invoice_id] = (lineTaxByInvoice[r.invoice_id] || 0) + tax;
     totalTaxFromLineItems += tax;
   });
+  var recordedTaxTotal = 0, docTaxTotal = 0;
+  invRes.rows.forEach(function (r) {
+    var recorded = Number(r.tax_total);
+    recordedTaxTotal += recorded;
+    var rest = Math.round((recorded - (lineTaxByInvoice[r.id] || 0)) * 100) / 100;
+    var rate = Number(r.tax_rate) || 0;
+    if (rate > 0 && rest > 0.005) {
+      add(rate, (rest * 100) / rate, rest, r.id, true);
+      docTaxTotal += rest;
+    }
+  });
 
-  var recordedRes = await pool.query(
-    "SELECT coalesce(sum(tax_total),0) AS s FROM invoices WHERE status != 'void' AND currency = $1 AND issued_at BETWEEN $2 AND $3",
-    [base, period.from, period.to]
-  );
-  var recordedTaxTotal = Number(recordedRes.rows[0].s);
-
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
   var byRateArr = Object.keys(byRate)
-    .sort(function (a, b) { return Number(b) - Number(a); })
+    .sort(function (a, b) { return byRate[b].rate - byRate[a].rate || (byRate[a].whole ? 1 : -1); })
     .map(function (key) {
       var r = byRate[key];
+      var nameKey = r.rate.toFixed(3);
       return {
-        rate: r.rate, label: nameByRate[key] || (r.rate === 0 ? 'Zero-rated / no tax' : 'Custom (' + r.rate + '%)'),
-        taxableBase: Math.round(r.taxableBase * 100) / 100, taxCollected: Math.round(r.taxCollected * 100) / 100,
+        rate: r.rate, onWholeDocument: r.whole,
+        label: nameByRate[nameKey] || (r.rate === 0 ? 'Zero-rated / no tax' : 'Custom (' + r.rate + '%)'),
+        taxableBase: r2(r.taxableBase), taxCollected: r2(r.taxCollected),
         invoiceCount: Object.keys(r.invoiceIds).length
       };
     });
 
   return {
-    from: period.from, to: period.to, baseCurrency: base, byRate: byRateArr,
-    totalTaxFromLineItems: Math.round(totalTaxFromLineItems * 100) / 100,
-    recordedTaxTotal: recordedTaxTotal,
-    reconciliationDiff: Math.round((recordedTaxTotal - totalTaxFromLineItems) * 100) / 100
+    from: period.from, to: period.to, baseCurrency: base, company: { code: co.code === '*' ? 'ALL' : co.code, name: co.name }, byRate: byRateArr,
+    totalTaxFromLineItems: r2(totalTaxFromLineItems), totalTaxOnWholeDocuments: r2(docTaxTotal),
+    recordedTaxTotal: r2(recordedTaxTotal),
+    reconciliationDiff: r2(recordedTaxTotal - totalTaxFromLineItems - docTaxTotal)
   };
 }
 
 module.exports = {
   summary: summary, marketingDashboard: marketingDashboard, marketingCompanies: marketingCompanies, financeCompanies: financeCompanies, commercialCompanies: commercialCompanies, financeDashboard: financeDashboard, commercialDashboard: commercialDashboard,
   profitAndLoss: profitAndLoss, cashFlow: cashFlow, balanceSheet: balanceSheet, arAging: arAging, expenseDetail: expenseDetail,
-  getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs, taxSummary: taxSummary
+  getBalanceSheetInputs: getBalanceSheetInputs, saveBalanceSheetInputs: saveBalanceSheetInputs, taxSummary: taxSummary, statementCompanies: statementCompanies
 };

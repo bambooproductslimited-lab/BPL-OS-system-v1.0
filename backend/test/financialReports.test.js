@@ -71,12 +71,13 @@ test('P&L, cash flow, AR aging and expense detail return well-formed shapes for 
   var albert = await login('albert.awini@bplghana.com');
 
   var pnl = await (await fetch(base + '/api/reports/pnl', { headers: authed(albert) })).json();
-  assert.ok('revenue' in pnl && 'totalExpenses' in pnl && 'payrollCost' in pnl && 'netProfit' in pnl);
-  assert.equal(pnl.netProfit, pnl.revenue - pnl.totalExpenses - pnl.payrollCost);
+  assert.ok('revenue' in pnl && 'totalExpenses' in pnl && 'payrollCost' in pnl && 'netProfit' in pnl && 'purchases' in pnl);
+  // purchases received count as a cost alongside claims and payroll
+  assert.ok(Math.abs(pnl.netProfit - (pnl.revenue - pnl.purchases.total - pnl.totalExpenses - pnl.payrollCost)) < 0.01);
 
   var cf = await (await fetch(base + '/api/reports/cashflow', { headers: authed(albert) })).json();
-  assert.equal(cf.netCashFlow, cf.cashIn - cf.cashOut);
-  assert.equal(cf.cashOut, cf.expensesOut + cf.payrollOut);
+  assert.ok(Math.abs(cf.netCashFlow - (cf.cashIn - cf.cashOut)) < 0.01);
+  assert.ok(Math.abs(cf.cashOut - (cf.expensesOut + cf.payrollOut + cf.purchasesOut)) < 0.01);
 
   // AR aging is reported per currency, not as one scalar: each bucket holds
   // a [{ currency, amount }] list and the totals come back as
