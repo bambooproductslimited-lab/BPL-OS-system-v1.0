@@ -123,7 +123,9 @@ async function load(ctx, companyCode) {
     [ctx.employee.id, t]
   );
   var announcementRes = await pool.query(
-    "SELECT title, published_at FROM announcements WHERE audience_scope = 'all' OR department_id = $1 ORDER BY published_at DESC LIMIT 1",
+    "SELECT title, published_at FROM announcements WHERE (audience_scope = 'all' OR department_id = $1 " +
+    "OR (audience_scope = 'company' AND company_id = (SELECT company_id FROM departments WHERE id = $1))) " +
+    'AND (expires_on IS NULL OR expires_on >= CURRENT_DATE) ORDER BY published_at DESC LIMIT 1',
     [ctx.employee.department_id]
   );
 

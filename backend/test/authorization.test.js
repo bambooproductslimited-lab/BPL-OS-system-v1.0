@@ -119,6 +119,8 @@ var ALLOWED = {
   'GET /api/dashboard/': 'own KPI tiles — scoped, asserted below',
   'GET /api/tasks/': 'own tasks — scoped, asserted below',
   'GET /api/announcements/': 'company noticeboard; audience_scope decides who sees what',
+  'POST /api/announcements/read': 'marks announcements the caller may see as read by the caller (announcementsReads.test.js)',
+  'POST /api/announcements/:id/acknowledge': "the caller confirms an announcement they may see; anyone else's is 403 (announcementsReads.test.js)",
   'GET /api/procurement/': 'own requests — scoped, asserted below',
   'GET /api/expenses/': 'own claims — scoped, asserted below',
   'GET /api/messages/': 'own conversations',
