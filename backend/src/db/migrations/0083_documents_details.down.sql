@@ -1,0 +1,7 @@
+ALTER TABLE documents
+  DROP COLUMN IF EXISTS company_id,
+  DROP COLUMN IF EXISTS description,
+  DROP COLUMN IF EXISTS size,
+  DROP COLUMN IF EXISTS content_type,
+  DROP COLUMN IF EXISTS version,
+  DROP COLUMN IF EXISTS updated_at;

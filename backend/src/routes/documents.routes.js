@@ -3,8 +3,9 @@ var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var documentsService = require('../services/documents.service');
 var { allowlistFilter } = require('../lib/uploadFilters');
+var fileStore = require('../lib/fileStore');
 
-var DOC_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'jpg', 'jpeg', 'png', 'webp'];
+var DOC_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt', 'rtf', 'odt', 'ods', 'jpg', 'jpeg', 'png', 'webp', 'heic'];
 var upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
@@ -32,9 +33,24 @@ router.get('/:id/download', async function (req, res, next) {
   try { res.json(await documentsService.getDownloadUrl(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
-// PATCH /api/documents/:id { expiresOn } — set or clear the expiry date
+// GET /api/documents/:id/file — the file itself, for the viewer on the page
+// (?download=1 to save it instead of showing it).
+router.get('/:id/file', async function (req, res, next) {
+  try {
+    var f = await documentsService.fileFor(req.ctx, req.params.id);
+    await fileStore.send(res, f.key, f.fileName, req.query.download !== '1');
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/documents/:id { title?, category?, description?, visibility?,
+// departmentId?, companyId?, expiresOn? } — only the fields sent change
 router.patch('/:id', async function (req, res, next) {
-  try { res.json(await documentsService.setExpiry(req.ctx, req.params.id, (req.body || {}).expiresOn)); } catch (e) { next(e); }
+  try { res.json(await documentsService.update(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+
+// POST /api/documents/:id/replace (multipart: file, expiresOn?) — a new version
+router.post('/:id/replace', upload.single('file'), async function (req, res, next) {
+  try { res.json(await documentsService.replaceFile(req.ctx, req.params.id, Object.assign({}, req.body, { file: req.file }))); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['documents.delete'] -> DELETE /api/documents/:id

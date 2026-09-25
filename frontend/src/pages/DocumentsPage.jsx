@@ -1,66 +1,36 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { API_URL, api, getToken } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { toPreviewUrl } from '../lib/previewUrl';
-import './DocumentsPage.css';
+import Photo from '../components/Photo';
 import RowMenu from '../components/RowMenu';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { downloadProtected, extOf, fileBadge, fmtSize, uploadWithProgress } from '../lib/chatMedia';
+import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
+import './EmployeesPage.css';
+import './DocumentsPage.css';
 
-import { tr, activeIntlLocale } from '../lib/i18n.jsx';
-// Ported from Bamboo OS.dc.html's documents screen (screens.documents
-// block + the "Add document" dialog around its render()), extended with
-// real file upload/preview against Cloudflare R2 (see
-// backend/src/lib/storage.js) — the prototype's version recorded metadata
-// only. Files open in a new tab for viewing, never as a download (the
-// signed URL is served with Content-Disposition: inline). Documents
-// created before storage was wired up have no file
-// (hasFile: false) and show a plain, non-clickable filename.
-//
-// Redesigned around the icon/avatar language established elsewhere:
-// file-type icons color-coded by extension (a classic document-library
-// pattern — PDF/Word/Excel/image read differently at a glance), an
-// uploader avatar, and an icon'd empty state.
+// Company documents: policies, licences, permits, certificates, insurance,
+// forms. Same "explains itself" layout as the dashboards
+// (components/DashKit.jsx): a company switcher (a document with no company
+// belongs to the whole group and shows under every company), the key
+// numbers (press one to show only those), what stands out (what has run
+// out or is about to), folders by category, then the documents. A document
+// opens in a viewer on the page (PDFs and photos; anything else is
+// downloaded), and whoever looks after documents can change every detail
+// or upload a new version when a licence is renewed
+// (documents.service.js, migration 0083). The OS warns before an expiry
+// date (backend jobs/dailyAlerts.js).
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
-}
+const SOON_DAYS = 60;
+const CATEGORY_HINTS = [msg('Policy'), msg('Licence'), msg('Permit'), msg('Certificate'), msg('Insurance'), msg('Contract'), msg('Form'), msg('Report')];
+const EMPTY_FORM = { title: '', category: '', description: '', companyId: '', visibility: 'all', departmentId: '', expiresOn: '' };
+const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+const TEXT_EXT = ['txt', 'csv'];
 
-const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/);
-  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
-}
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
-
-const ICON_PATHS = {
-  doc: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  sheet: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M5 9.5h14M10.5 9.5v11" stroke="currentColor" strokeWidth="1.6" /></>,
-  image: <><rect x="4" y="4.5" width="16" height="15" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="9" cy="10" r="1.6" stroke="currentColor" strokeWidth="1.5" /><path d="M5 16.5l4-4 3 3 3.5-4L20 16" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></>,
-  folder: <><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
-};
-function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
-
-const EXT_KIND = {
-  pdf: { icon: 'doc', tone: 'danger' },
-  doc: { icon: 'doc', tone: 'ops' }, docx: { icon: 'doc', tone: 'ops' },
-  xls: { icon: 'sheet', tone: 'people' }, xlsx: { icon: 'sheet', tone: 'people' }, csv: { icon: 'sheet', tone: 'people' },
-  ppt: { icon: 'doc', tone: 'warning' }, pptx: { icon: 'doc', tone: 'warning' },
-  png: { icon: 'image', tone: 'finance' }, jpg: { icon: 'image', tone: 'finance' }, jpeg: { icon: 'image', tone: 'finance' }, gif: { icon: 'image', tone: 'finance' }, webp: { icon: 'image', tone: 'finance' }, svg: { icon: 'image', tone: 'finance' }
-};
-function fileKind(fileName) {
-  const ext = String(fileName || '').split('.').pop().toLowerCase();
-  return EXT_KIND[ext] || { icon: 'doc', tone: 'muted' };
-}
-
-const EMPTY_FORM = { title: '', category: '', visibility: 'all', expiresOn: '' };
+function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
+function isoDay(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
 // Days from today to a YYYY-MM-DD date (negative once it has passed).
 function daysUntil(iso) {
@@ -69,27 +39,175 @@ function daysUntil(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return Math.round((Date.UTC(y, m - 1, d) - t) / 86400000);
 }
+function expiryState(doc) {
+  if (!doc.expiresOn) return null;
+  const days = daysUntil(doc.expiresOn);
+  if (days < 0) return { key: 'expired', days, tone: 'bad', text: tr('Expired {date}', { date: fmtDate(doc.expiresOn) }) };
+  if (days === 0) return { key: 'soon', days, tone: 'bad', text: tr('Expires today') };
+  if (days === 1) return { key: 'soon', days, tone: 'bad', text: tr('Expires tomorrow') };
+  if (days <= SOON_DAYS) return { key: 'soon', days, tone: days <= 14 ? 'bad' : 'warn', text: tr('Expires in {n} days', { n: days }) };
+  return { key: 'ok', days, tone: 'muted', text: tr('Valid until {date}', { date: fmtDate(doc.expiresOn) }) };
+}
+function viewKind(doc) {
+  const ext = extOf(doc.fileName);
+  const type = String(doc.contentType || '');
+  if (ext === 'pdf' || type === 'application/pdf') return 'pdf';
+  if (IMAGE_EXT.includes(ext) || (type.startsWith('image/') && !/heic|heif|svg/.test(type))) return 'image';
+  if (TEXT_EXT.includes(ext) || type === 'text/plain' || type === 'text/csv') return 'text';
+  return 'other';
+}
+function titleFromFile(name) {
+  return String(name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^./, (c) => c.toUpperCase()).slice(0, 100);
+}
 
-// Licences, permits, insurance and the like can carry the date they run
-// out; the OS warns whoever looks after them 60, 30, 14 and 7 days before
-// (backend jobs/dailyAlerts.js). This shows how close each one is.
-function ExpiryCell({ iso }) {
-  if (!iso) return <span className="documents-muted">—</span>;
-  const days = daysUntil(iso);
+function FileBadge({ doc, big }) {
+  const b = fileBadge(doc.fileName || '', 'file');
+  return <span className={'doc-badge' + (big ? ' is-big' : '')} style={{ '--doc-c': doc.hasFile ? b.tone : '#8a8f94' }} aria-hidden="true">{doc.hasFile ? b.label : '—'}</span>;
+}
+
+// Drag a file on, or press to choose one.
+function DropZone({ file, onFile, hint }) {
+  const inputRef = useRef(null);
+  const [over, setOver] = useState(false);
   return (
-    <div>
-      <div>{fmtDate(iso)}</div>
-      {days < 0 ? <span className="tag tag-accent">{tr('Expired')}</span>
-        : days === 0 ? <span className="tag tag-accent">{tr('Expires today')}</span>
-          : days <= 60 ? <span className={'tag ' + (days <= 14 ? 'tag-accent' : 'documents-soon')}>{tr('In {n} days', { n: days })}</span>
-            : null}
+    <div
+      className={'doc-drop' + (over ? ' is-over' : '') + (file ? ' has-file' : '')}
+      role="button" tabIndex={0}
+      onClick={() => { if (inputRef.current) inputRef.current.click(); }}
+      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && inputRef.current) { e.preventDefault(); inputRef.current.click(); } }}
+      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); if (e.dataTransfer.files && e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]); }}>
+      <input ref={inputRef} type="file" hidden
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.rtf,.odt,.ods,.jpg,.jpeg,.png,.webp,.heic"
+        onChange={(e) => { if (e.target.files && e.target.files[0]) onFile(e.target.files[0]); e.target.value = ''; }} />
+      {file ? (
+        <>
+          <FileBadge doc={{ fileName: file.name, hasFile: true }} />
+          <span className="doc-drop-text"><strong>{file.name}</strong><span className="dk-muted">{fmtSize(file.size)} · {tr('press to choose another')}</span></span>
+        </>
+      ) : (
+        <span className="doc-drop-text">
+          <strong>{tr('Drop a file here or press to choose one')}</strong>
+          <span className="dk-muted">{hint || tr('PDF, Word, Excel, PowerPoint, text or a photo.')}</span>
+        </span>
+      )}
     </div>
   );
 }
 
+// The document itself, shown on the page. Files sit behind sign-in, so it
+// is fetched with the sign-in token and shown from a local copy.
+function Viewer({ doc, canManage, onClose, onEdit, onReplace }) {
+  const kind = viewKind(doc);
+  const [url, setUrl] = useState(null);
+  const [text, setText] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const exp = expiryState(doc);
+  // Phones (Chrome on Android, for one) cannot show a PDF inside the page;
+  // there the PDF opens in the phone's own viewer instead.
+  const canShowPdf = typeof navigator === 'undefined' || navigator.pdfViewerEnabled !== false;
+
+  useEffect(() => {
+    if (!doc.hasFile || kind === 'other') return undefined;
+    let alive = true;
+    let made = null;
+    fetch(API_URL + '/documents/' + doc.id + '/file', { headers: { Authorization: 'Bearer ' + (getToken() || '') } })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('file'))))
+      .then(async (b) => {
+        if (!alive) return;
+        if (kind === 'text') { setText((await b.text()).slice(0, 200000)); return; }
+        const typed = kind === 'pdf' && b.type !== 'application/pdf' ? new Blob([b], { type: 'application/pdf' }) : b;
+        made = URL.createObjectURL(typed);
+        setUrl(made);
+      })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [doc.id, doc.hasFile, doc.version, kind]);
+
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  async function download() {
+    setBusy(true);
+    try { await downloadProtected('/documents/' + doc.id + '/file?download=1', doc.fileName); } catch { setFailed(true); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog doc-viewer" role="dialog" aria-label={doc.title} onClick={(e) => e.stopPropagation()}>
+        <div className="doc-viewer-head">
+          <FileBadge doc={doc} big />
+          <div className="doc-viewer-title">
+            <h2>{doc.title}</h2>
+            <span className="dk-muted">
+              {doc.category}{doc.fileName ? ' · ' + doc.fileName : ''}{doc.size ? ' · ' + fmtSize(doc.size) : ''}{doc.version > 1 ? ' · ' + tr('version {n}', { n: doc.version }) : ''}
+            </span>
+          </div>
+          <button type="button" className="doc-close" onClick={onClose} aria-label={tr('Close')}>×</button>
+        </div>
+        <div className="doc-viewer-tags">
+          {exp && <Status tone={exp.tone === 'muted' ? 'good' : exp.tone}>{exp.text}</Status>}
+          <span className="doc-tag">{doc.companyName || tr('Whole group')}</span>
+          <span className="doc-tag">{visibilityText(doc)}</span>
+        </div>
+        {doc.description && <p className="doc-desc">{doc.description}</p>}
+
+        <div className={'doc-frame is-' + kind}>
+          {!doc.hasFile ? (
+            <p className="dk-muted">{tr('No file was kept for this document. Upload one with "Upload new version".')}</p>
+          ) : failed ? (
+            <p className="dk-muted">{tr('The file could not be opened. Try downloading it.')}</p>
+          ) : kind === 'other' ? (
+            <div className="doc-frame-other">
+              <FileBadge doc={doc} big />
+              <p className="dk-muted">{tr('This kind of file cannot be shown in the browser. Download it to open it on your device.')}</p>
+            </div>
+          ) : kind === 'text' ? (
+            text === null ? <p className="dk-muted">{tr('Loading…')}</p> : <pre className="doc-text">{text}</pre>
+          ) : !url ? (
+            <p className="dk-muted">{tr('Loading…')}</p>
+          ) : kind === 'pdf' && !canShowPdf ? (
+            <div className="doc-frame-other">
+              <FileBadge doc={doc} big />
+              <p className="dk-muted">{tr('This browser opens PDFs in its own viewer.')}</p>
+              <a className="btn btn-primary" href={url} target="_blank" rel="noopener noreferrer">{tr('Open the PDF')}</a>
+            </div>
+          ) : kind === 'pdf' ? (
+            <iframe title={doc.title} src={url + '#toolbar=1'} />
+          ) : (
+            <img src={url} alt={doc.title} />
+          )}
+        </div>
+
+        <p className="dk-muted doc-small">
+          {tr('Added by {name} on {date}', { name: doc.uploaderName, date: fmtDate(String(doc.uploadedAt).slice(0, 10)) })}
+          {doc.updatedAt ? ' · ' + tr('last changed {date}', { date: fmtDate(String(doc.updatedAt).slice(0, 10)) }) : ''}
+        </p>
+        <div className="dialog-actions doc-viewer-actions">
+          {canManage && <button type="button" className="btn btn-secondary" onClick={onEdit}>{tr('Edit details')}</button>}
+          {canManage && <button type="button" className="btn btn-secondary" onClick={onReplace}>{tr('Upload new version')}</button>}
+          {doc.hasFile && <button type="button" className="btn btn-primary" onClick={download} disabled={busy}>{busy ? tr('Downloading…') : tr('Download')}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function visibilityText(doc) {
+  if (doc.visibility === 'managers') return tr('Managers only');
+  if (doc.visibility === 'department') return tr('{name} only', { name: doc.departmentName || tr('One department') });
+  return tr('Everyone');
+}
+
 export default function DocumentsPage() {
-  const { can } = useAuth();
+  const { session, can } = useAuth();
   const canManage = can('document.manage');
+  const myId = session && session.employee ? session.employee.id : null;
 
   const [documents, setDocuments] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -97,18 +215,21 @@ export default function DocumentsPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [companyCode, setCompanyCode] = useState(() => readPref('bos.documentsCompany', 'ALL'));
+  const [chip, setChip] = useState('all');
+  const [category, setCategory] = useState('');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest');
+
+  const [viewing, setViewing] = useState(null);
+  const [dialog, setDialog] = useState(null); // { mode: 'new' | 'edit', doc }
   const [form, setForm] = useState(EMPTY_FORM);
   const [file, setFile] = useState(null);
-  const [dialogError, setDialogError] = useState(null);
-  const [uploading, setUploading] = useState(false);
-
-  const [expiryTarget, setExpiryTarget] = useState(null); // { doc, value }
-  const [savingExpiry, setSavingExpiry] = useState(false);
+  const [replacing, setReplacing] = useState(null); // { doc, file, expiresOn }
+  const [formError, setFormError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-  const [downloadingId, setDownloadingId] = useState(null);
-  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -116,13 +237,14 @@ export default function DocumentsPage() {
       const [rows, depts] = await Promise.all([api.get('/documents'), api.get('/departments')]);
       setDocuments(rows);
       setDepartments(depts);
+      return rows;
     } catch (err) {
       setError(err.message);
+      return null;
     } finally {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -131,221 +253,372 @@ export default function DocumentsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function deptName(id) {
-    const d = departments.find((x) => x.id === id);
-    return d ? d.name : '—';
-  }
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName, code: d.companyCode || d.companyId }); });
+    return Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
+  }, [departments]);
+  const currentCompany = companies.find((c) => c.code === companyCode) || null;
+  function pickCompany(code) { setCompanyCode(code); writePref('bos.documentsCompany', code); }
 
-  function visLabel(doc) {
-    if (doc.visibility === 'all') return tr('All staff');
-    if (doc.visibility === 'managers') return tr('Managers');
-    return deptName(doc.departmentId);
-  }
-
+  // ── actions ──────────────────────────────────────────────────────────
   function openNew() {
-    setDialogError(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, category: category || '', companyId: currentCompany ? currentCompany.id : '' });
     setFile(null);
-    setDialogOpen(true);
+    setFormError(null);
+    setProgress(0);
+    setDialog({ mode: 'new' });
   }
-
-  async function handleUpload(e) {
+  function openEdit(doc) {
+    setViewing(null);
+    setForm({
+      title: doc.title, category: doc.category, description: doc.description || '', companyId: doc.companyId || '',
+      visibility: doc.visibility, departmentId: doc.departmentId || '', expiresOn: doc.expiresOn || ''
+    });
+    setFormError(null);
+    setDialog({ mode: 'edit', doc });
+  }
+  function openReplace(doc) {
+    setViewing(null);
+    setFormError(null);
+    setProgress(0);
+    setReplacing({ doc, file: null, expiresOn: '' });
+  }
+  function pickFile(f) {
+    setFile(f);
+    if (!form.title.trim()) setForm((cur) => ({ ...cur, title: titleFromFile(f.name) }));
+  }
+  async function save(e) {
     e.preventDefault();
-    if (!file) { setDialogError(tr('Choose a file to upload.')); return; }
-    setUploading(true);
-    setDialogError(null);
+    setSaving(true);
+    setFormError(null);
     try {
-      const body = new FormData();
-      body.append('title', form.title);
-      body.append('category', form.category);
-      body.append('visibility', form.visibility);
-      if (form.expiresOn) body.append('expiresOn', form.expiresOn);
-      body.append('file', file);
-      await api.upload('/documents', body);
-      setToast(tr('Document added.'));
-      setDialogOpen(false);
+      if (dialog.mode === 'new') {
+        if (!file) throw new Error(tr('Choose a file to upload.'));
+        const fd = new FormData();
+        ['title', 'category', 'description', 'companyId', 'visibility', 'expiresOn'].forEach((k) => fd.append(k, form[k] || ''));
+        if (form.visibility === 'department' && form.departmentId) fd.append('departmentId', form.departmentId);
+        fd.append('file', file);
+        await uploadWithProgress('/documents', fd, setProgress);
+        setToast(tr('Document added.'));
+      } else {
+        await api.patch('/documents/' + dialog.doc.id, {
+          title: form.title, category: form.category, description: form.description, companyId: form.companyId || null,
+          visibility: form.visibility, departmentId: form.visibility === 'department' ? form.departmentId || undefined : undefined,
+          expiresOn: form.expiresOn || null
+        });
+        setToast(tr('Document updated.'));
+      }
+      setDialog(null);
       await load();
-    } catch (err) {
-      setDialogError(err.message);
-    } finally {
-      setUploading(false);
-    }
+    } catch (err) { setFormError(err.message); } finally { setSaving(false); }
   }
-
-  async function handlePreview(doc) {
-    setDownloadingId(doc.id);
-    setError(null);
+  async function saveReplace(e) {
+    e.preventDefault();
+    if (!replacing.file) { setFormError(tr('Choose a file to upload.')); return; }
+    setSaving(true);
+    setFormError(null);
     try {
-      const { url } = await api.get('/documents/' + doc.id + '/download');
-      window.open(toPreviewUrl(url, doc.fileName), '_blank', 'noopener');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDownloadingId(null);
-    }
-  }
-
-  async function saveExpiry(e, clear) {
-    if (e) e.preventDefault();
-    setSavingExpiry(true);
-    try {
-      await api.patch('/documents/' + expiryTarget.doc.id, { expiresOn: clear ? '' : expiryTarget.value });
-      setToast(clear ? tr('Expiry date cleared.') : tr('Expiry date saved.'));
-      setExpiryTarget(null);
+      const fd = new FormData();
+      if (replacing.expiresOn) fd.append('expiresOn', replacing.expiresOn);
+      fd.append('file', replacing.file);
+      const updated = await uploadWithProgress('/documents/' + replacing.doc.id + '/replace', fd, setProgress);
+      setToast(tr('Version {n} uploaded.', { n: updated.version }));
+      setReplacing(null);
       await load();
-    } catch (err) {
-      setExpiryTarget({ ...expiryTarget, error: err.message });
-    } finally {
-      setSavingExpiry(false);
-    }
+    } catch (err) { setFormError(err.message); } finally { setSaving(false); }
   }
-
   async function confirmDelete() {
-    setDeleting(true);
-    try {
-      await api.del('/documents/' + deleteTarget.id);
-      setToast(tr('Document removed.'));
-      setDeleteTarget(null);
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDeleting(false);
-    }
+    try { await api.del('/documents/' + deleteTarget.id); setDeleteTarget(null); setViewing(null); setToast(tr('Document removed.')); await load(); } catch (err) { setError(err.message); }
+  }
+  async function download(doc) {
+    try { await downloadProtected('/documents/' + doc.id + '/file?download=1', doc.fileName); } catch (err) { setError(err.message); }
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  const visibleDocuments = documents.filter((dc) => matchesQuery(search, dc.title, dc.category, dc.fileName, dc.uploaderName));
-  const expiring = documents.filter((dc) => dc.expiresOn && daysUntil(dc.expiresOn) <= 60);
-  const expired = expiring.filter((dc) => daysUntil(dc.expiresOn) < 0);
+  // ── what the page shows ────────────────────────────────────────────
+  const inCompany = documents.filter((d) => !currentCompany || !d.companyId || d.companyId === currentCompany.id);
+  const withState = inCompany.map((d) => ({ d, exp: expiryState(d) }));
+  const expired = withState.filter((x) => x.exp && x.exp.key === 'expired');
+  const soon = withState.filter((x) => x.exp && x.exp.key === 'soon').sort((a, b) => a.exp.days - b.exp.days);
+  const monthStart = isoDay(new Date()).slice(0, 7);
+  const thisMonth = inCompany.filter((d) => String(d.uploadedAt).slice(0, 7) === monthStart || (d.updatedAt && String(d.updatedAt).slice(0, 7) === monthStart && d.version > 1));
+  const noFile = inCompany.filter((d) => !d.hasFile);
+  const mine = inCompany.filter((d) => d.uploadedBy === myId);
+
+  const folders = Array.from(inCompany.reduce((m, d) => m.set(d.category, (m.get(d.category) || 0) + 1), new Map()).entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const categoryNames = Array.from(new Set([...documents.map((d) => d.category), ...CATEGORY_HINTS.map((c) => tr(c))])).sort((a, b) => a.localeCompare(b));
+
+  const chipTest = {
+    all: () => true,
+    soon: (x) => x.exp && x.exp.key === 'soon',
+    expired: (x) => x.exp && x.exp.key === 'expired',
+    dated: (x) => !!x.exp,
+    mine: (x) => x.d.uploadedBy === myId,
+    group: (x) => !x.d.companyId,
+    nofile: (x) => !x.d.hasFile
+  };
+  function showOnly(key) { setChip(chip === key ? 'all' : key); setCategory(''); jump('doc-list'); }
+  const sorters = {
+    newest: (a, b) => String(b.d.updatedAt || b.d.uploadedAt).localeCompare(String(a.d.updatedAt || a.d.uploadedAt)),
+    title: (a, b) => a.d.title.localeCompare(b.d.title),
+    expiry: (a, b) => (a.exp ? a.exp.days : 1e9) - (b.exp ? b.exp.days : 1e9)
+  };
+  const visible = withState
+    .filter(chipTest[chip] || chipTest.all)
+    .filter((x) => !category || x.d.category === category)
+    .filter((x) => matchesQuery(search, x.d.title, x.d.category, x.d.description, x.d.fileName, x.d.uploaderName, x.d.companyName))
+    .sort(sorters[sort] || sorters.newest);
+  const showCompany = !currentCompany && companies.length > 1;
+
+  const stats = [
+    { icon: 'doc', value: String(inCompany.length), label: tr('documents'), note: folders.length === 1 ? tr('in 1 folder') : tr('in {n} folders', { n: folders.length }), onClick: () => { setChip('all'); setCategory(''); jump('doc-list'); } },
+    { icon: 'warn', value: String(expired.length), label: tr('expired'), note: expired.length ? tr('need renewing') : tr('nothing has run out'), tone: expired.length ? 'bad' : 'good', onClick: () => showOnly('expired') },
+    { icon: 'clock', value: String(soon.length), label: tr('expiring soon'), note: tr('within {n} days', { n: SOON_DAYS }), tone: soon.length ? 'alert' : '', onClick: () => showOnly('soon') },
+    { icon: 'calendar', value: String(thisMonth.length), label: tr('added this month'), note: tr('new documents and new versions'), onClick: () => { setChip('all'); setSort('newest'); setCategory(''); jump('doc-list'); } }
+  ];
+
+  const insights = [];
+  if (expired.length) {
+    const worst = expired.slice().sort((a, b) => a.exp.days - b.exp.days)[0];
+    insights.push({
+      tone: 'bad', icon: 'warn',
+      text: expired.length === 1
+        ? tr('"{title}" ran out on {date}. Upload the renewed one as a new version.', { title: worst.d.title, date: fmtDate(worst.d.expiresOn) })
+        : tr('{n} documents have run out, the oldest "{title}" on {date}.', { n: expired.length, title: worst.d.title, date: fmtDate(worst.d.expiresOn) }),
+      action: { label: expired.length === 1 ? tr('Open it') : tr('Show them'), run: () => (expired.length === 1 ? setViewing(worst.d) : showOnly('expired')) }
+    });
+  }
+  if (soon.length) {
+    const next = soon[0];
+    insights.push({
+      tone: next.exp.days <= 14 ? 'bad' : 'warn', icon: 'clock',
+      text: soon.length === 1
+        ? tr('"{title}" expires in {n} days ({date}).', { title: next.d.title, n: next.exp.days, date: fmtDate(next.d.expiresOn) })
+        : tr('{count} documents expire in the next {days} days; first "{title}" on {date}.', { count: soon.length, days: SOON_DAYS, title: next.d.title, date: fmtDate(next.d.expiresOn) }),
+      action: { label: tr('Show them'), run: () => showOnly('soon') }
+    });
+  }
+  if (canManage && noFile.length) insights.push({ tone: 'info', icon: 'doc', text: noFile.length === 1 ? tr('"{title}" has no file kept. Upload one so people can open it.', { title: noFile[0].title }) : tr('{n} documents have no file kept. Upload one so people can open them.', { n: noFile.length }), action: { label: tr('Show them'), run: () => showOnly('nofile') } });
+  const undated = inCompany.filter((d) => !d.expiresOn && /licen|permit|certif|insur/i.test(d.category + ' ' + d.title));
+  if (canManage && undated.length) insights.push({ tone: 'info', icon: 'calendar', text: undated.length === 1 ? tr('"{title}" looks like it expires but has no date. Add one and the OS will warn before it runs out.', { title: undated[0].title }) : tr('{n} licences, permits or certificates have no expiry date. Add one and the OS will warn before they run out.', { n: undated.length }), action: { label: tr('Edit'), run: () => openEdit(undated[0]) } });
+  if (!expired.length && !soon.length && inCompany.some((d) => d.expiresOn)) insights.push({ tone: 'good', icon: 'check', text: tr('Everything with an expiry date is in date for at least {n} days.', { n: SOON_DAYS }) });
+  const newest = inCompany.slice().sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)))[0];
+  if (newest && (Date.now() - new Date(newest.uploadedAt).getTime()) < 7 * 86400000) insights.push({ tone: 'info', icon: 'spark', text: tr('Newest: "{title}", added by {name}.', { title: newest.title, name: newest.uploaderName }), action: { label: tr('Open it'), run: () => setViewing(newest) } });
+
+  const chips = [
+    ['all', tr('All'), inCompany.length],
+    ['soon', tr('Expiring soon'), soon.length],
+    ['expired', tr('Expired'), expired.length],
+    ['dated', tr('Has an expiry date'), withState.filter((x) => x.exp).length],
+    canManage && ['mine', tr('Added by me'), mine.length],
+    companies.length > 1 && ['group', tr('Whole group'), inCompany.filter((d) => !d.companyId).length],
+    canManage && ['nofile', tr('No file'), noFile.length]
+  ].filter(Boolean).filter(([k, , n]) => n > 0 || k === 'all' || k === chip);
+
+  const deptChoices = departments.filter((d) => !form.companyId || d.companyId === form.companyId);
 
   return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+    <div className="dk doc">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      {expiring.length > 0 && (
-        <div className={'documents-expiring' + (expired.length ? ' is-expired' : '')}>
-          {expired.length
-            ? tr('{n} expired and {m} expiring within 60 days. Renew them and upload the new copies.', { n: expired.length, m: expiring.length - expired.length })
-            : tr('{n} expiring within 60 days. Renew them and upload the new copies.', { n: expiring.length })}
-        </div>
+      {companies.length > 1 && (
+        <CompanySwitcher companies={[{ code: 'ALL', name: tr('All companies') }, ...companies]} company={currentCompany ? currentCompany.code : 'ALL'}
+          onPick={pickCompany}
+          describe={(co) => {
+            const n = documents.filter((d) => co.code === 'ALL' || !d.companyId || d.companyId === co.id).length;
+            return n === 1 ? tr('1 document') : tr('{n} documents', { n });
+          }} />
       )}
 
-      <div className="documents-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search documents…')} />
-        {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add document')}</button>}
-      </div>
+      <Hero
+        eyebrow={currentCompany ? currentCompany.name : new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        title={tr('Documents')}
+        sub={canManage
+          ? tr('Policies, licences, permits, certificates and forms in one place. Give a document an expiry date and the OS warns you before it runs out; when it is renewed, upload the new version. Press a number to show only those.')
+          : tr('Policies, licences, certificates and forms you may see. Press a document to open it here.')}
+        actions={canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add document')}</button>}
+        stats={stats} />
 
-      <table className="table">
-        <thead>
-          <tr><th>{tr('Title')}</th><th>{tr('Category')}</th><th>{tr('File')}</th><th>{tr('Visibility')}</th><th>{tr('Expires')}</th><th>{tr('Uploaded')}</th><th>{tr('By')}</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleDocuments.map((dc) => {
-            const kind = fileKind(dc.fileName);
-            return (
-              <tr key={dc.id}>
-                <td style={{ fontWeight: 600 }}>{dc.title}</td>
-                <td>{dc.category}</td>
-                <td className="documents-filename">
-                  <div className="documents-file-cell">
-                    <span className={'documents-file-icon documents-file-icon-' + kind.tone}><Icon name={kind.icon} /></span>
-                    {dc.hasFile ? (
-                      <button type="button" className="link-button" disabled={downloadingId === dc.id} onClick={() => handlePreview(dc)}>
-                        {downloadingId === dc.id ? tr('Preparing…') : dc.fileName}
-                      </button>
-                    ) : (
-                      <span title={tr('Uploaded before file storage was set up — no file on record.')}>{dc.fileName}</span>
-                    )}
-                  </div>
-                </td>
-                <td><span className="tag tag-neutral">{visLabel(dc)}</span></td>
-                <td><ExpiryCell iso={dc.expiresOn} /></td>
-                <td>{fmtDate((dc.uploadedAt || '').slice(0, 10))}</td>
-                <td>
-                  <div className="documents-uploader-cell">
-                    <span className="documents-uploader-avatar" style={{ background: avatarColor(dc.uploaderName) }}>{initials(dc.uploaderName)}</span>
-                    {dc.uploaderName}
-                  </div>
-                </td>
-                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+      <Insights items={insights.slice(0, 5)} />
+
+      {folders.length > 1 && (
+        <Section id="doc-folders" title={tr('Folders')} sub={tr('Documents by category. Press one to show only that folder.')}>
+          <div className="doc-folders">
+            {folders.map(([name, n]) => {
+              const warn = withState.filter((x) => x.d.category === name && x.exp && x.exp.key !== 'ok').length;
+              const bad = withState.some((x) => x.d.category === name && x.exp && x.exp.tone === 'bad');
+              return (
+                <button key={name} type="button" className={'doc-folder' + (category === name ? ' is-on' : '')} onClick={() => { setCategory(category === name ? '' : name); setChip('all'); jump('doc-list'); }}>
+                  <svg className="doc-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                  <span className="doc-folder-text">
+                    <strong>{name}</strong>
+                    <span className="dk-muted">{n === 1 ? tr('1 document') : tr('{n} documents', { n })}</span>
+                  </span>
+                  {warn > 0 && <span className={'doc-folder-warn' + (bad ? ' is-bad' : '')} title={tr('expired or expiring soon')}>{warn}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      <Section id="doc-list" title={category || tr('All documents')} sub={category ? tr('Only the {name} folder.', { name: category }) : tr('Press a document to open it.')}
+        action={category && <button type="button" className="dk-link" onClick={() => setCategory('')}>{tr('Show all folders')}</button>}>
+        <div className="doc-tools">
+          <div className="doc-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search documents…')} /></div>
+          <select className="input doc-select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label={tr('Sort')}>
+            <option value="newest">{tr('Newest first')}</option>
+            <option value="expiry">{tr('Expiring first')}</option>
+            <option value="title">{tr('Title A–Z')}</option>
+          </select>
+        </div>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, n]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+              {label} <span className="ppl-chip-n">{n}</span>
+            </button>
+          ))}
+        </div>
+
+        {visible.length ? (
+          <ul className="doc-list">
+            {visible.map(({ d, exp }) => (
+              <li key={d.id} className={'doc-row' + (exp && exp.key !== 'ok' ? ' is-' + exp.tone : '')}>
+                <button type="button" className="doc-open" onClick={() => setViewing(d)}>
+                  <FileBadge doc={d} />
+                  <span className="doc-main">
+                    <span className="doc-title">{d.title}</span>
+                    <span className="doc-sub dk-muted">
+                      {d.category}{d.hasFile ? ' · ' + d.fileName : ' · ' + tr('no file')}{d.size ? ' · ' + fmtSize(d.size) : ''}{d.version > 1 ? ' · v' + d.version : ''}
+                    </span>
+                  </span>
+                </button>
+                <span className="doc-tags">
+                  {exp && exp.key !== 'ok' && <Status tone={exp.tone}>{exp.text}</Status>}
+                  {exp && exp.key === 'ok' && <span className="doc-tag">{exp.text}</span>}
+                  {(showCompany || !d.companyId) && companies.length > 1 && <span className="doc-tag">{d.companyCode || tr('Whole group')}</span>}
+                  {d.visibility !== 'all' && <span className="doc-tag is-lock">{visibilityText(d)}</span>}
+                </span>
+                <span className="doc-who">
+                  <Photo id={d.uploadedBy} name={d.uploaderName} photo={d.uploaderPhoto} size={26} />
+                  <span className="dk-muted">{fmtDate(String(d.updatedAt || d.uploadedAt).slice(0, 10))}</span>
+                </span>
+                <span className="doc-menu">
                   <RowMenu actions={[
-                    { label: dc.expiresOn ? tr('Change expiry date') : tr('Set expiry date'), onClick: () => setExpiryTarget({ doc: dc, value: dc.expiresOn || '' }), hidden: !canManage },
-                    { label: tr('Remove'), onClick: () => setDeleteTarget(dc), danger: true, hidden: !(canManage) },
-                  ]} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {!documents.length && (
-        <div className="documents-empty-state">
-          <span className="documents-empty-icon"><Icon name="folder" /></span>
-          <p className="documents-empty-title">{tr('No documents visible to your role')}</p>
-        </div>
-      )}
-      {!!documents.length && !visibleDocuments.length && (
-        <div className="documents-empty-state">
-          <span className="documents-empty-icon"><Icon name="folder" /></span>
-          <p className="documents-empty-title">{tr('No documents match "{search}"', { search })}</p>
-        </div>
+                    { label: tr('Open'), onClick: () => setViewing(d) },
+                    d.hasFile && { label: tr('Download'), onClick: () => download(d) },
+                    canManage && { label: tr('Edit details'), onClick: () => openEdit(d) },
+                    canManage && { label: tr('Upload new version'), onClick: () => openReplace(d) },
+                    canManage && { label: tr('Remove'), onClick: () => setDeleteTarget(d), danger: true }
+                  ].filter(Boolean)} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="dk-empty doc-empty">
+            <p>{documents.length ? tr('Nothing matches. Try another search or filter.') : tr('No documents yet.')}</p>
+            {(search || category || chip !== 'all') && documents.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setCategory(''); setChip('all'); }}>{tr('Show all')}</button>}
+            {canManage && !documents.length && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add document')}</button>}
+          </div>
+        )}
+      </Section>
+
+      <Glossary items={[
+        [tr('Expiry date'), tr('When a licence, permit, certificate or insurance runs out. Whoever looks after documents is warned 60, 30, 14 and 7 days before.')],
+        [tr('Expiring soon'), tr('Runs out within {n} days.', { n: SOON_DAYS })],
+        [tr('New version'), tr('The renewed or updated file. It replaces the old one, keeps the same title and place, and can move the expiry date on.')],
+        [tr('Whole group'), tr('A document that is not for one company only. It shows under every company.')],
+        [tr('Who can see it'), tr('Everyone; one department only; or managers only (people who look after documents or all staff records).')]
+      ]} />
+
+      {viewing && (
+        <Viewer doc={viewing} canManage={canManage} onClose={() => setViewing(null)} onEdit={() => openEdit(viewing)} onReplace={() => openReplace(viewing)} />
       )}
 
-      {dialogOpen && (
-        <div className="dialog-backdrop" onClick={() => setDialogOpen(false)}>
-          <form className="dialog documents-dialog" onClick={(e) => e.stopPropagation()} onSubmit={handleUpload}>
-            <h2>{tr('Add document')}</h2>
-            {dialogError && <div className="error-banner">{dialogError}</div>}
+      {dialog && (
+        <div className="dialog-backdrop" onClick={() => !saving && setDialog(null)}>
+          <form className="dialog doc-dialog" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+            <h2>{dialog.mode === 'new' ? tr('Add document') : tr('Edit document')}</h2>
+            {dialog.mode === 'new' && <DropZone file={file} onFile={pickFile} />}
             <div className="field">
               <label htmlFor="doc-title">{tr('Title')}</label>
-              <input id="doc-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+              <input id="doc-title" className="input" value={form.title} maxLength={100} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+            </div>
+            <div className="doc-form-grid">
+              <div className="field">
+                <label htmlFor="doc-category">{tr('Category (folder)')}</label>
+                <input id="doc-category" className="input" list="doc-categories" value={form.category} maxLength={40} onChange={(e) => setForm({ ...form, category: e.target.value })} required placeholder={tr('e.g. Licence')} />
+                <datalist id="doc-categories">{categoryNames.map((c) => <option key={c} value={c} />)}</datalist>
+              </div>
+              <div className="field">
+                <label htmlFor="doc-expires">{tr('Expires on (optional)')}</label>
+                <input id="doc-expires" className="input" type="date" value={form.expiresOn} onChange={(e) => setForm({ ...form, expiresOn: e.target.value })} />
+              </div>
             </div>
             <div className="field">
-              <label htmlFor="doc-category">{tr('Category')}</label>
-              <input id="doc-category" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder={tr('Policy, Production, HR…')} required />
+              <label htmlFor="doc-desc">{tr('Notes (optional)')}</label>
+              <textarea id="doc-desc" className="input doc-textarea" value={form.description} maxLength={500} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={tr('What it covers, a reference number, who to call to renew it…')} />
             </div>
-            <div className="field">
-              <label htmlFor="doc-file">{tr('File')}</label>
-              <input id="doc-file" className="input" type="file" onChange={(e) => setFile(e.target.files[0] || null)} required />
+            <div className="doc-form-grid">
+              {companies.length > 1 && (
+                <div className="field">
+                  <label htmlFor="doc-company">{tr('Company')}</label>
+                  <select id="doc-company" className="input" value={form.companyId} onChange={(e) => setForm({ ...form, companyId: e.target.value, departmentId: '' })}>
+                    <option value="">{tr('Whole group')}</option>
+                    {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="doc-vis">{tr('Who can see it')}</label>
+                <select id="doc-vis" className="input" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
+                  <option value="all">{tr('Everyone')}</option>
+                  <option value="department">{tr('One department only')}</option>
+                  <option value="managers">{tr('Managers only')}</option>
+                </select>
+              </div>
+              {form.visibility === 'department' && (
+                <div className="field">
+                  <label htmlFor="doc-dept">{tr('Department')}</label>
+                  <select id="doc-dept" className="input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                    <option value="">{tr('My department')}</option>
+                    {deptChoices.map((d) => <option key={d.id} value={d.id}>{form.companyId || companies.length < 2 ? d.name : d.name + ' — ' + d.companyName}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
-            <div className="field">
-              <label htmlFor="doc-visibility">{tr('Visibility')}</label>
-              <select id="doc-visibility" className="input" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
-                <option value="all">{tr('All staff')}</option>
-                <option value="department">{tr('My group only')}</option>
-                <option value="managers">{tr('Managers only')}</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="doc-expires">{tr('Expires on (optional)')}</label>
-              <input id="doc-expires" className="input" type="date" value={form.expiresOn} onChange={(e) => setForm({ ...form, expiresOn: e.target.value })} />
-              <span className="field-hint">{tr('For licences, permits, insurance, certificates — the OS warns you 60, 30, 14 and 7 days before.')}</span>
-            </div>
+            {saving && dialog.mode === 'new' && <div className="doc-progress" aria-hidden="true"><span style={{ width: Math.round(progress * 100) + '%' }} /></div>}
+            {formError && <div className="error-banner">{formError}</div>}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={uploading}>{uploading ? tr('Adding…') : tr('Add document')}</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)} disabled={saving}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : dialog.mode === 'new' ? tr('Upload') : tr('Save changes')}</button>
             </div>
           </form>
         </div>
       )}
 
-      {expiryTarget && (
-        <div className="dialog-backdrop" onClick={() => setExpiryTarget(null)}>
-          <form className="dialog documents-dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => saveExpiry(e, false)}>
-            <h2>{tr('Expiry date')}</h2>
-            <p className="dialog-body"><strong>{expiryTarget.doc.title}</strong></p>
-            {expiryTarget.error && <div className="error-banner">{expiryTarget.error}</div>}
+      {replacing && (
+        <div className="dialog-backdrop" onClick={() => !saving && setReplacing(null)}>
+          <form className="dialog doc-dialog" onClick={(e) => e.stopPropagation()} onSubmit={saveReplace}>
+            <h2>{tr('Upload new version')}</h2>
+            <p className="dk-muted doc-small">
+              {tr('"{title}" is on version {n}. The new file replaces the current one ({file}); the title, folder and who can see it stay the same.', { title: replacing.doc.title, n: replacing.doc.version || 1, file: replacing.doc.fileName || tr('no file') })}
+            </p>
+            <DropZone file={replacing.file} onFile={(f) => setReplacing({ ...replacing, file: f })} />
             <div className="field">
-              <label htmlFor="doc-expiry-edit">{tr('Expires on')}</label>
-              <input id="doc-expiry-edit" className="input" type="date" value={expiryTarget.value} onChange={(e) => setExpiryTarget({ ...expiryTarget, value: e.target.value })} required />
-              <span className="field-hint">{tr('Renewed it? Put the new date here — the warnings start again for the new date.')}</span>
+              <label htmlFor="doc-new-expiry">{tr('New expiry date (optional)')}</label>
+              <input id="doc-new-expiry" className="input" type="date" value={replacing.expiresOn} onChange={(e) => setReplacing({ ...replacing, expiresOn: e.target.value })} />
+              <span className="dk-muted doc-small">{replacing.doc.expiresOn ? tr('Now {date}. Leave blank to keep it.', { date: fmtDate(replacing.doc.expiresOn) }) : tr('Leave blank if it does not expire.')}</span>
             </div>
+            {saving && <div className="doc-progress" aria-hidden="true"><span style={{ width: Math.round(progress * 100) + '%' }} /></div>}
+            {formError && <div className="error-banner">{formError}</div>}
             <div className="dialog-actions">
-              {expiryTarget.doc.expiresOn && <button type="button" className="btn btn-secondary" disabled={savingExpiry} onClick={() => saveExpiry(null, true)}>{tr('No expiry date')}</button>}
-              <button type="button" className="btn btn-secondary" onClick={() => setExpiryTarget(null)}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingExpiry}>{tr('Save')}</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setReplacing(null)} disabled={saving}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Uploading…') : tr('Upload')}</button>
             </div>
           </form>
         </div>
@@ -355,10 +628,10 @@ export default function DocumentsPage() {
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Remove document')}</h2>
-            <p className="dialog-body">{tr('Remove')} <strong>{deleteTarget.title}</strong>{tr('? This cannot be undone.')}</p>
+            <p className="dialog-body">{tr('Remove')} <strong>{deleteTarget.title}</strong>{tr('? The file is deleted too. This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Removing…') : tr('Remove')}</button>
+              <button type="button" className="btn btn-primary" onClick={confirmDelete}>{tr('Remove')}</button>
             </div>
           </div>
         </div>
