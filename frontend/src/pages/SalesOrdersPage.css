@@ -1,40 +1,21 @@
-.salesorders-form {
-  border: var(--divider-width) solid var(--color-divider);
-  padding: 16px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  align-items: end;
-  margin-bottom: 16px;
-}
+/* Sales orders: stage tiles reuse the Clients tiles (CustomersPage.css);
+   cards, path and lines reuse Estimates (EstimatesPage.css) */
+.so-stage.is-pending { --c: #8a8580; }
+.so-stage.is-processing { --c: #2a78d6; }
+.so-stage.is-delivered { --c: #b07d12; }
+.so-stage.is-invoiced { --c: var(--color-accent); }
+.so-stage.is-cancelled { --c: var(--color-danger); border-top-style: dashed; }
 
-.salesorders-no-cell { display: flex; align-items: center; gap: 10px; }
-.salesorders-badge {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
-  color: var(--tile-tone);
+/* the window's date-and-notes form, and the new-order dialog */
+.so-edit { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px; margin: 0 0 14px; align-items: start; }
+.so-edit-notes { grid-column: 2; }
+.so-edit-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.so-new { display: flex; flex-direction: column; gap: 14px; max-width: 520px; width: 100%; }
+.so-new h2 { margin: 0; }
+.so-new p { margin: 0; }
+.so-new .field > .tl-small { margin-top: 4px; display: block; }
+@media (max-width: 720px) {
+  .so-stage.is-cancelled { grid-column: 1 / -1; }
+  .so-edit { grid-template-columns: 1fr; }
+  .so-edit-notes { grid-column: 1; }
 }
-.salesorders-badge svg { width: 13px; height: 13px; }
-.salesorders-badge-people { --tile-tone: var(--color-accent); }
-.salesorders-badge-warning { --tile-tone: var(--color-warning); }
-.salesorders-badge-danger { --tile-tone: var(--color-danger); }
-
-.salesorders-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 4px;
-  padding: 32px;
-  border: var(--divider-width) solid var(--color-divider);
-  color: var(--color-text-muted);
-}
-.salesorders-empty-icon { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 6px; }
-.salesorders-empty-icon svg { width: 100%; height: 100%; }
-.salesorders-empty-title { font-weight: 700; font-size: 14px; color: var(--color-text); margin: 0; }

@@ -163,9 +163,13 @@ async function tradeMarketing(co) {
     "FROM quotations q JOIN customers c ON c.id = q.customer_id WHERE q.status IN ('sent','viewed') AND " + mine +
     ' ORDER BY q.valid_until NULLS LAST, q.created_at LIMIT 20', [co.id]
   );
+  // Biggest customers by what they were invoiced over the last twelve
+  // months (voided invoices left out) — invoices are where every sale ends
+  // up, whether it came through a quotation, a sales order or neither.
   var topCustomersRes = await pool.query(
-    'SELECT c.name, o.currency, sum(o.total) AS total, count(*)::int AS orders FROM sales_orders o JOIN customers c ON c.id = o.customer_id WHERE ' + mine +
-    ' GROUP BY c.name, o.currency ORDER BY total DESC LIMIT 5', [co.id]
+    'SELECT c.name, i.currency, sum(i.grand_total) AS total, count(*)::int AS invoices FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    "WHERE i.status <> 'void' AND i.issued_at > CURRENT_DATE - 365 AND " + docScope(co, 'i', 'c') +
+    ' GROUP BY c.name, i.currency ORDER BY total DESC LIMIT 5', [co.id]
   );
   var leadsRes = await pool.query(
     "SELECT c.*, m.first_name, m.last_name, " +
@@ -185,7 +189,7 @@ async function tradeMarketing(co) {
       sent: f.sent, accepted: f.accepted, rejected: f.rejected, waiting: f.waiting,
       conversionRate: f.sent ? Math.round((f.accepted / f.sent) * 100) : 0
     },
-    topCustomers: topCustomersRes.rows.map(function (r) { return { name: r.name, currency: r.currency, total: Number(r.total), orders: r.orders }; }),
+    topCustomers: topCustomersRes.rows.map(function (r) { return { name: r.name, currency: r.currency, total: Number(r.total), invoices: r.invoices }; }),
     leads: leadsRes.rows.map(function (r) {
       return {
         id: r.id, name: r.name, contactPerson: r.contact_person, email: r.email, phone: r.phone, category: r.category,

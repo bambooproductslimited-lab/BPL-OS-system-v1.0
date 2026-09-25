@@ -374,7 +374,7 @@ export default function InvoicesPage() {
 
   const cur = detail ? invoices.find((inv) => inv.id === detail) : null;
   const curTotals = cur ? totalsForDialog(cur, cur.currency).filter((r, i, all) => all.length > 2 || r.strong) : [];
-  const orderChoices = orders.filter((o) => !invoices.some((inv) => inv.salesOrderId === o.id && inv.status !== 'void'));
+  const orderChoices = orders.filter((o) => o.status !== 'cancelled' && !invoices.some((inv) => inv.salesOrderId === o.id && inv.status !== 'void'));
 
   return (
     <div className="dk tl pk cu iv">

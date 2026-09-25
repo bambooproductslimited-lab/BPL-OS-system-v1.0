@@ -9,7 +9,10 @@ router.get('/', async function (req, res, next) {
   try { res.json(await salesOrdersService.list(req.ctx)); } catch (e) { next(e); }
 });
 router.post('/', async function (req, res, next) {
-  try { res.status(201).json(await salesOrdersService.createFromQuotation(req.ctx, req.body.quotationId)); } catch (e) { next(e); }
+  try { res.status(201).json(await salesOrdersService.createFromQuotation(req.ctx, req.body.quotationId, req.body)); } catch (e) { next(e); }
+});
+router.patch('/:id', async function (req, res, next) {
+  try { res.json(await salesOrdersService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 router.post('/:id/status', async function (req, res, next) {
   try { res.json(await salesOrdersService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }

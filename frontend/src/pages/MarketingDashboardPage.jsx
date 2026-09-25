@@ -139,9 +139,9 @@ function tradeCsvRows(data) {
       [tr('Quote'), tr('Customer'), tr('Currency'), tr('Total'), tr('Status'), tr('Valid until')],
       ...(data.waitingQuotes || []).map((q) => [q.quoteNo, q.customerName, q.currency, q.total, q.status, q.validUntil || '']),
       [],
-      [tr('Top customers by sales value')],
-      [tr('Customer'), tr('Currency'), tr('Total'), tr('Orders')],
-      ...data.topCustomers.map((c) => [c.name, c.currency, c.total, c.orders || '']),
+      [tr('Biggest customers')],
+      [tr('Customer'), tr('Currency'), tr('Total'), tr('Invoices')],
+      ...data.topCustomers.map((c) => [c.name, c.currency, c.total, c.invoices || '']),
       [],
       [tr('Recent quotations')],
       [tr('Quote'), tr('Customer'), tr('Currency'), tr('Total'), tr('Status')],
@@ -329,9 +329,9 @@ function TradeView({ data, exporting, onCsv, onPdf, printRef, onRecommendation }
   }
   if (data.topCustomers[0]) {
     const top = data.topCustomers[0];
-    insights.push({ tone: 'good', icon: 'trophy', text: top.orders
-      ? tr('{name} is the biggest customer: {amount} across {orders} orders.', { name: top.name, amount: money(top.total, top.currency), orders: top.orders })
-      : tr('{name} is the biggest customer: {amount} in sales.', { name: top.name, amount: money(top.total, top.currency) }) });
+    insights.push({ tone: 'good', icon: 'trophy', text: top.invoices === 1
+      ? tr('{name} was invoiced the most over the last 12 months: {amount}.', { name: top.name, amount: money(top.total, top.currency) })
+      : tr('{name} was invoiced the most over the last 12 months: {amount} across {n} invoices.', { name: top.name, amount: money(top.total, top.currency), n: top.invoices }) });
   }
 
   const funnelBars = [
@@ -499,8 +499,8 @@ function TradeView({ data, exporting, onCsv, onPdf, printRef, onRecommendation }
           <section className="md-section md-card">
             <div className="md-section-head">
               <div>
-                <h3 className="md-h3">{tr('Top customers by sales value')}</h3>
-                <p className="md-muted">{tr('All sales orders to date, biggest first.')}</p>
+                <h3 className="md-h3">{tr('Biggest customers')}</h3>
+                <p className="md-muted">{tr('Invoiced over the last 12 months, voided invoices left out.')}</p>
               </div>
             </div>
             {data.topCustomers.length ? (
@@ -516,13 +516,13 @@ function TradeView({ data, exporting, onCsv, onPdf, printRef, onRecommendation }
                           <span className="md-top-amount">{money(c.total, c.currency)}</span>
                         </div>
                         <div className="md-top-track" aria-hidden="true"><span style={{ width: Math.round((c.total / max) * 100) + '%' }} /></div>
-                        {c.orders ? <div className="md-muted md-top-meta">{c.orders === 1 ? tr('1 order') : tr('{n} orders', { n: c.orders })}</div> : null}
+                        {c.invoices ? <div className="md-muted md-top-meta">{c.invoices === 1 ? tr('1 invoice') : tr('{n} invoices', { n: c.invoices })}</div> : null}
                       </div>
                     </li>
                   );
                 })}
               </ol>
-            ) : <div className="md-empty"><Icon name="trophy" /><p>{tr('No sales orders yet.')}</p></div>}
+            ) : <div className="md-empty"><Icon name="trophy" /><p>{tr('Nothing invoiced in the last 12 months.')}</p></div>}
           </section>
 
           <section className="md-section md-card">

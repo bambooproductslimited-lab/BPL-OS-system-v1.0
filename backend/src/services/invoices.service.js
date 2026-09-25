@@ -96,7 +96,9 @@ async function createFromOrder(ctx, salesOrderId) {
   var oRes = await pool.query('SELECT * FROM sales_orders WHERE id = $1', [salesOrderId]);
   var o = oRes.rows[0];
   if (!o) fail('notfound', 'Sales order not found.');
-  var existing = await pool.query('SELECT id FROM invoices WHERE sales_order_id = $1', [salesOrderId]);
+  if (o.status === 'cancelled') fail('conflict', 'A cancelled order cannot be invoiced.');
+  // A voided invoice doesn't count: the order can be invoiced again.
+  var existing = await pool.query("SELECT id FROM invoices WHERE sales_order_id = $1 AND status <> 'void'", [salesOrderId]);
   if (existing.rows[0]) fail('conflict', 'An invoice already exists for this order.');
 
   var rawItems = await loadLineItems(pool, 'sales_order', o.id);

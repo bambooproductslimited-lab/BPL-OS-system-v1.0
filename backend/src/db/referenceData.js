@@ -129,7 +129,8 @@ function defaultCommercial() {
       receipt: { prefix: 'RCT', padding: 4, includeYear: true, nextNumber: 1 },
       waybill: { prefix: 'WB', padding: 4, includeYear: true, nextNumber: 1 },
       payrun: { prefix: 'PR', padding: 4, includeYear: true, nextNumber: 1 },
-      booking: { prefix: 'BKG', padding: 4, includeYear: true, nextNumber: 1 }
+      booking: { prefix: 'BKG', padding: 4, includeYear: true, nextNumber: 1 },
+      salesOrder: { prefix: 'SO', padding: 4, includeYear: true, nextNumber: 1 }
     },
     templates: {
       quotationIntro: 'Thank you for the opportunity to quote for your requirements.',
