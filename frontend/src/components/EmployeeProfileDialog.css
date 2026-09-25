@@ -1,6 +1,7 @@
 .employee-profile-dialog { max-width: 640px; max-height: 90vh; overflow: auto; }
 
-.employee-profile-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.employee-profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.employee-profile-who { flex: 1; min-width: 0; }
 .employee-profile-name { margin: 0; font-size: 22px; }
 .employee-profile-sub { font-size: 13px; color: var(--color-text-muted); margin-top: 4px; }
 

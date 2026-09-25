@@ -26,7 +26,10 @@ function rowToEmployee(r, ctx) {
     employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location,
     shiftId: r.shift_id, shiftName: r.shift_tpl_name || null,
     shiftStart: shiftStart, shiftEnd: shiftEnd,
-    shift: r.shift_tpl_name ? (r.shift_tpl_name + ' · ' + shiftStart + '–' + shiftEnd) : (shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift)
+    shift: r.shift_tpl_name ? (r.shift_tpl_name + ' · ' + shiftStart + '–' + shiftEnd) : (shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift),
+    // The profile photo's version (when it last changed), or null — the
+    // picture itself is at /api/messages/people/:id/photo.
+    photo: r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null
   };
   if (ctx && ctx.can('payroll.manage')) {
     out.payCycle = r.pay_cycle;
@@ -58,7 +61,32 @@ async function list(ctx, params) {
     }
     out.push(rowToEmployee(r, ctx));
   }
+  await addDirectoryFacts(ctx, out);
   return out;
+}
+
+// For the directory: who is on approved leave today (and until when), and,
+// for HR (employee.write), whether each person can sign in to the OS.
+async function addDirectoryFacts(ctx, list) {
+  var ids = list.map(function (e) { return e.id; });
+  if (!ids.length) return;
+  var leave = await pool.query(
+    "SELECT employee_id, to_char(max(end_date), 'YYYY-MM-DD') AS until FROM leave_requests " +
+    "WHERE status = 'approved' AND employee_id = ANY($1) AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE GROUP BY employee_id",
+    [ids]
+  );
+  var until = {};
+  leave.rows.forEach(function (l) { until[l.employee_id] = l.until; });
+  var logins = {};
+  var canSeeLogins = ctx.can('employee.write');
+  if (canSeeLogins) {
+    var users = await pool.query('SELECT employee_id, status, last_login_at FROM users WHERE employee_id = ANY($1)', [ids]);
+    users.rows.forEach(function (u) { logins[u.employee_id] = { status: u.status, lastLoginAt: u.last_login_at }; });
+  }
+  list.forEach(function (e) {
+    e.onLeaveUntil = until[e.id] || null;
+    if (canSeeLogins) e.login = logins[e.id] || null;
+  });
 }
 
 // kernel.js: handlers['employees.get']

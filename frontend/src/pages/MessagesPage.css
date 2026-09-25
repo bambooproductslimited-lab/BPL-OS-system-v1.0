@@ -684,9 +684,6 @@
 .chat-group-fields label { font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
 .chat-group-fields textarea.input { min-height: 56px; }
 
-.chat-photo-dialog { max-width: 420px; }
-.chat-photo-dialog p { margin: 0; }
-.chat-photo-preview { display: flex; justify-content: center; padding: 6px 0; }
 
 /* ── full-screen photos ────────────────────────────────────────────── */
 .chat-lightbox {

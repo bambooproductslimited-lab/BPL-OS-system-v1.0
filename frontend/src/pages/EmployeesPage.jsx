@@ -1,37 +1,61 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
 import FaceCapture from '../components/FaceCapture';
+import Photo, { forgetBlob } from '../components/Photo';
+import PhotoDialog from '../components/PhotoDialog';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import './EmployeesPage.css';
 import RowMenu from '../components/RowMenu';
 
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
-import { codeLabel } from '../lib/codeLabels.js';
-// Ported from Bamboo OS.dc.html's employee directory screen (screens.people
-// block) — search/department filter, show-terminated toggle, the
-// add/edit employee dialog, and the terminate + purge-terminated
-// confirmation dialogs. The directory list itself is redesigned around the
-// avatar/icon language established for Messages/Login/Dashboard; every
-// dialog (add/edit, terminate, purge, kiosk PIN, TimeStation sync) is
-// left as-is — this page is complex enough already that reskinning the
-// list view is the highest-value, lowest-risk change.
+// The employee directory. Same "explains itself" layout as the dashboards
+// (components/DashKit.jsx): a company switcher, a header with the key
+// numbers (press one to show only those people), what stands out, the
+// groups at a glance, then everyone — as cards with their photo and
+// one-tap call / WhatsApp / email / message, or as a compact list. Every
+// HR dialog (add/edit, import, TimeStation sync, kiosk PIN and face, ID
+// docs, delete, purge) works as before.
 
-function tagClass(status) {
-  if (status === 'terminated') return 'tag-accent';
-  if (status === 'active') return 'tag-neutral';
-  return 'tag-outline';
+const PPL_PATHS = {
+  phone: <path d="M6.5 4h3l1.5 4-2 1.2a10 10 0 0 0 5.8 5.8L16 13l4 1.5v3a2 2 0 0 1-2.2 2A15.5 15.5 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" />,
+  mail: <><rect x="3.5" y="5.5" width="17" height="13" rx="2" /><path d="m4 7 8 6 8-6" /></>,
+  chat: <path d="M4.5 18.5 5.6 15A7 7 0 1 1 8.9 17.6z" />,
+  whatsapp: <><path d="M4 20l1.2-4.1A8 8 0 1 1 8.3 19z" /><path d="M9 8.6c0 3.3 3 6.4 6.4 6.4l1-1.6-2-1-1 .9a4.4 4.4 0 0 1-2.7-2.7l.9-1-1-2z" /></>,
+  grid: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
+  list: <path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5v.1M4.5 12v.1M4.5 17.5v.1" />
+};
+function PIcon({ name }) {
+  return (
+    <svg className="dk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {PPL_PATHS[name]}
+    </svg>
+  );
 }
 
-const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function initials(first, last) { return ((first ? first[0] : '') + (last ? last[0] : '')).toUpperCase(); }
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
+const NEW_DAYS = 30;
+function daysSince(iso) {
+  if (!iso) return null;
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00');
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((new Date(new Date().toDateString()) - d) / 86400000);
 }
-function avatarColor(name) { return AVATAR_COLORS[hashStr(name) % AVATAR_COLORS.length]; }
+// A Ghanaian number as WhatsApp wants it (233…), or null when it cannot be
+// read as a full number.
+function waNumber(phone) {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  else if (d.startsWith('0')) d = '233' + d.slice(1);
+  else if (d.length === 9) d = '233' + d;
+  return d.length >= 11 ? d : null;
+}
+function realEmail(email) { return email && !/@no-email\.placeholder$/i.test(email) ? email : null; }
+function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
 
 // Length of a shift in hours, from HH:MM start/end (overnight shifts wrap
 // past midnight) — used only to turn a Daily rate into an Hourly rate, the
@@ -80,6 +104,8 @@ function importSummary(created, extras) {
 
 export default function EmployeesPage() {
   const { session, can } = useAuth();
+  const navigate = useNavigate();
+  const myId = session && session.employee ? session.employee.id : null;
   const canWrite = can('employee.write');
   const canPurge = can('role.manage');
   const canManagePayroll = can('payroll.manage');
@@ -94,11 +120,17 @@ export default function EmployeesPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
 
-  const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
-  const [companyFilter, setCompanyFilter] = useState('');
+  const [companyCode, setCompanyCode] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('company');
+    return fromUrl ? fromUrl.toUpperCase() : readPref('bos.peopleCompany', 'ALL');
+  });
   const [deptFilter, setDeptFilter] = useState('');
+  const [chip, setChip] = useState(''); // '' | 'leave' | 'new' | 'incomplete' | 'nologin' | 'inactive'
+  const [sort, setSort] = useState(() => readPref('bos.peopleSort', 'name'));
+  const [view, setView] = useState(() => readPref('bos.peopleView', 'cards'));
   const [showTerminated, setShowTerminated] = useState(false);
+  const [photoTarget, setPhotoTarget] = useState(null);
 
   // Companies aren't fetched separately here — every department already
   // carries its companyId/companyName (departments.service.js#list), so the
@@ -106,16 +138,18 @@ export default function EmployeesPage() {
   // both derived from the one /departments response instead of a second call.
   const companies = useMemo(() => {
     const seen = new Map();
-    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
-    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName, code: d.companyCode || d.companyId }); });
+    // Bamboo Products first, then the rest by name, as on the dashboards.
+    return Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
   }, [departments]);
-
-  // Debounce the search box so typing doesn't fire a request per keystroke —
-  // the prototype's synchronous in-memory kernel had no such cost.
-  useEffect(() => {
-    const t = setTimeout(() => setQ(qInput), 300);
-    return () => clearTimeout(t);
-  }, [qInput]);
+  const currentCompany = companies.find((c) => c.code === companyCode) || null;
+  const companyFilter = currentCompany ? currentCompany.id : '';
+  function pickCompany(code) {
+    setCompanyCode(code);
+    setDeptFilter('');
+    writePref('bos.peopleCompany', code);
+    window.history.replaceState({}, '', window.location.pathname + (code !== 'ALL' ? '?company=' + code : ''));
+  }
 
   const [dialog, setDialog] = useState(null); // 'employee' | 'terminate' | 'purge'
   const [editId, setEditId] = useState(null);
@@ -159,8 +193,6 @@ export default function EmployeesPage() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (q) params.set('q', q);
-      if (deptFilter) params.set('departmentId', deptFilter);
       if (showTerminated) params.set('includeTerminated', 'true');
       const [people, depts] = await Promise.all([
         api.get('/employees?' + params.toString()),
@@ -179,7 +211,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, deptFilter, showTerminated, canWrite]);
+  }, [showTerminated, canWrite]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -188,19 +220,6 @@ export default function EmployeesPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
-
-  function deptName(id) {
-    const d = departments.find((x) => x.id === id);
-    return d ? d.name : '—';
-  }
-  function companyNameOf(departmentId) {
-    const d = departments.find((x) => x.id === departmentId);
-    return d ? d.companyName : '—';
-  }
-  function empName(id) {
-    const e = employees.find((x) => x.id === id) || managers.find((x) => x.id === id);
-    return e ? (e.name || e.firstName + ' ' + e.lastName) : '—';
-  }
 
   function openNew() {
     setDialogError(null);
@@ -545,111 +564,305 @@ export default function EmployeesPage() {
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
+  // ── what the page shows ────────────────────────────────────────────
+  const deptById = Object.fromEntries(departments.map((d) => [d.id, d]));
+  const byId = Object.fromEntries(employees.map((e) => [e.id, e]));
+  const fullName = (e) => e.firstName + ' ' + e.lastName;
+  const showCompany = !companyFilter && companies.length > 1;
+  const scopeName = currentCompany ? currentCompany.name : tr('all companies');
+  const scoped = employees.filter((e) => !companyFilter || (deptById[e.departmentId] && deptById[e.departmentId].companyId === companyFilter));
+  const current = scoped.filter((e) => e.status !== 'terminated');
+  const isNew = (e) => { const d = daysSince(e.hireDate); return d !== null && d >= 0 && d <= NEW_DAYS; };
+  const isIncomplete = (e) => !e.phone || !e.managerId;
+  const noLogin = (e) => canWrite && e.status === 'active' && !e.login;
+  const onLeave = current.filter((e) => e.onLeaveUntil);
+  const joiners = current.filter(isNew).sort((a, b) => String(b.hireDate).localeCompare(String(a.hireDate)));
+  const incomplete = current.filter(isIncomplete);
+  const withoutLogin = current.filter(noLogin);
+  const inactive = current.filter((e) => e.status === 'inactive');
+  const chipTest = { leave: (e) => !!e.onLeaveUntil, new: isNew, incomplete: isIncomplete, nologin: noLogin, inactive: (e) => e.status === 'inactive' };
+
+  // Groups, biggest first.
+  const groupMap = new Map();
+  current.forEach((e) => {
+    const d = deptById[e.departmentId];
+    const key = e.departmentId || 'none';
+    if (!groupMap.has(key)) groupMap.set(key, { key, id: e.departmentId, name: d ? d.name : tr('No group'), company: d ? d.companyName : '', people: [], away: 0 });
+    const g = groupMap.get(key);
+    g.people.push(e);
+    if (e.onLeaveUntil) g.away += 1;
+  });
+  const groups = Array.from(groupMap.values()).sort((a, b) => b.people.length - a.people.length || a.name.localeCompare(b.name));
+
+  const visible = scoped
+    .filter((e) => !deptFilter || e.departmentId === deptFilter)
+    .filter((e) => !chip || (chipTest[chip] && chipTest[chip](e)))
+    .filter((e) => {
+      const d = deptById[e.departmentId];
+      return matchesQuery(q, fullName(e), e.code, e.positionTitle, e.email, e.phone, d && d.name, d && d.companyName);
+    })
+    .sort((a, b) => {
+      if (sort === 'newest') return String(b.hireDate).localeCompare(String(a.hireDate));
+      if (sort === 'code') return String(a.code).localeCompare(String(b.code), undefined, { numeric: true });
+      if (sort === 'group') {
+        const ga = deptById[a.departmentId] ? deptById[a.departmentId].name : '';
+        const gb = deptById[b.departmentId] ? deptById[b.departmentId].name : '';
+        return ga.localeCompare(gb) || fullName(a).localeCompare(fullName(b));
+      }
+      return fullName(a).localeCompare(fullName(b));
+    });
+
+  function showOnly(key) { setChip(chip === key ? '' : key); jump('emp-list'); }
+  function pickView(v) { setView(v); writePref('bos.peopleView', v); }
+  function pickSort(v) { setSort(v); writePref('bos.peopleSort', v); }
+
+  const stats = [
+    { icon: 'people', value: String(current.length), label: tr('people'), note: inactive.length ? tr('{a} active · {i} inactive', { a: current.length - inactive.length, i: inactive.length }) : tr('in {n} groups', { n: groups.length }), onClick: () => { setChip(''); setDeptFilter(''); jump('emp-list'); } },
+    { icon: 'calendar', value: String(onLeave.length), label: tr('on leave today'), note: tr('approved leave'), onClick: () => showOnly('leave') },
+    { icon: 'spark', value: String(joiners.length), label: tr('joined recently'), note: tr('in the last {n} days', { n: NEW_DAYS }), tone: joiners.length ? 'good' : '', onClick: () => showOnly('new') },
+    canWrite
+      ? { icon: 'warn', value: String(incomplete.length), label: tr('missing details'), note: tr('no phone or no manager'), tone: incomplete.length ? 'alert' : '', onClick: () => showOnly('incomplete') }
+      : { icon: 'doc', value: String(groups.length), label: tr('groups'), note: scopeName }
+  ];
+
+  // What stands out.
+  const insights = [];
+  const listNames = (arr) => (arr.length <= 3 ? arr.map(fullName).join(', ') : tr('{names} and {n} more', { names: arr.slice(0, 2).map(fullName).join(', '), n: arr.length - 2 }));
+  if (joiners.length) insights.push({ tone: 'good', icon: 'spark', text: joiners.length === 1 ? tr('{names} joined on {date}. Say hello!', { names: fullName(joiners[0]), date: fmtDate(joiners[0].hireDate) }) : tr('{names} joined in the last {n} days.', { names: listNames(joiners), n: NEW_DAYS }), action: { label: tr('Show them'), run: () => showOnly('new') } });
+  if (onLeave.length) {
+    const soonest = onLeave.slice().sort((a, b) => a.onLeaveUntil.localeCompare(b.onLeaveUntil))[0];
+    insights.push({ tone: 'info', icon: 'calendar', text: onLeave.length === 1 ? tr('{name} is on leave until {date}.', { name: fullName(soonest), date: fmtDate(soonest.onLeaveUntil) }) : tr('{n} people are on leave today. {name} is the first back, after {date}.', { n: onLeave.length, name: fullName(soonest), date: fmtDate(soonest.onLeaveUntil) }), action: { label: tr('Show them'), run: () => showOnly('leave') } });
+  }
+  const noPhone = current.filter((e) => !e.phone);
+  if (noPhone.length) insights.push({ tone: 'warn', icon: 'phone', text: noPhone.length === 1 ? tr('{name} has no phone number on record, so they cannot be called or sent an SMS from the OS.', { name: fullName(noPhone[0]) }) : tr('{n} people have no phone number on record, so they cannot be called or sent an SMS from the OS.', { n: noPhone.length }), action: canWrite ? { label: tr('Show them'), run: () => showOnly('incomplete') } : null });
+  const noManager = current.filter((e) => !e.managerId);
+  if (canWrite && noManager.length && noManager.length < current.length) insights.push({ tone: 'warn', icon: 'people', text: noManager.length === 1 ? tr('{name} does not report to anyone yet, so their leave and expense requests have no manager to approve them.', { name: fullName(noManager[0]) }) : tr('{n} people do not report to anyone yet, so their leave and expense requests have no manager to approve them.', { n: noManager.length }), action: { label: tr('Show them'), run: () => showOnly('incomplete') } });
+  if (withoutLogin.length) insights.push({ tone: 'info', icon: 'card', text: withoutLogin.length === 1 ? tr('{name} cannot sign in to the OS. That is fine for staff who only clock in at the kiosk.', { name: fullName(withoutLogin[0]) }) : tr('{n} active people cannot sign in to the OS. That is fine for staff who only clock in at the kiosk.', { n: withoutLogin.length }), action: { label: tr('Show them'), run: () => showOnly('nologin') } });
+  const neverSigned = canWrite ? current.filter((e) => e.status === 'active' && e.login && !e.login.lastLoginAt) : [];
+  if (neverSigned.length) insights.push({ tone: 'info', icon: 'info', text: neverSigned.length === 1 ? tr('{name} has a login but has never signed in.', { name: fullName(neverSigned[0]) }) : tr('{n} people have a login but have never signed in.', { n: neverSigned.length }) });
+  if (groups.length > 1 && current.length) {
+    const g = groups[0];
+    insights.push({ tone: 'info', icon: 'people', text: tr('{group} is the biggest group, with {n} of the {total} people.', { group: g.name + (showCompany && g.company ? ' (' + g.company + ')' : ''), n: g.people.length, total: current.length }) });
+  }
+  const types = { permanent: 0, contract: 0, casual: 0, day_rate: 0 };
+  current.forEach((e) => { if (types[e.employmentType] !== undefined) types[e.employmentType] += 1; });
+  if (current.length && (types.contract || types.casual || types.day_rate)) {
+    insights.push({ tone: 'info', icon: 'doc', text: tr('{p} permanent, {c} on contract, {ca} casual and {d} paid by the day.', { p: types.permanent, c: types.contract, ca: types.casual, d: types.day_rate }) });
+  }
+
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
   const footer = can('employee.read.all')
     ? tr('{n} record(s) visible to your role — company-wide access.', { n: employees.length })
     : tr('{n} record(s) visible to your role — limited to your group and reporting line.', { n: employees.length });
 
-  return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+  const chips = [
+    ['', tr('Everyone'), scoped.length],
+    ['leave', tr('On leave'), onLeave.length],
+    ['new', tr('New'), joiners.length],
+    canWrite && ['incomplete', tr('Missing details'), incomplete.length],
+    canWrite && ['nologin', tr('No sign-in'), withoutLogin.length],
+    inactive.length > 0 && ['inactive', tr('Inactive'), inactive.length]
+  ].filter(Boolean);
 
-      <div className="employees-toolbar">
-        <div className="field employees-search">
-          <label htmlFor="emp-q">{tr('Search name, code, job title')}</label>
-          <div className="search-input-wrap">
-            <svg className="search-input-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" />
-              <path d="M18 18L14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-            <input id="emp-q" className="input search-input" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={tr('e.g. operator')} />
-            {qInput && <button type="button" className="search-input-clear" aria-label={tr('Clear search')} onClick={() => setQInput('')}>×</button>}
+  function menuFor(p) {
+    const canDelete = canWrite && p.status !== 'terminated' && p.id !== myId;
+    return [
+      { label: tr('View profile'), onClick: () => setProfileTarget(p.id) },
+      canWrite && { label: tr('Edit'), onClick: () => openEdit(p) },
+      canWrite && { label: tr('Change photo'), onClick: () => setPhotoTarget(p) },
+      canWrite && { label: tr('ID docs'), onClick: () => setIdDocsTarget(p) },
+      canWrite && { label: tr('Kiosk PIN'), onClick: () => openKioskPin(p) },
+      canWrite && { label: tr('Kiosk Face'), onClick: () => openKioskFace(p) },
+      canDelete && { label: tr('Delete'), onClick: () => openTerminate(p), danger: true }
+    ].filter(Boolean);
+  }
+  function tagsFor(p) {
+    return (
+      <>
+        {p.status === 'terminated' && <Status tone="bad">{tr('Terminated')}</Status>}
+        {p.status === 'inactive' && <Status tone="muted">{tr('Inactive')}</Status>}
+        {p.onLeaveUntil && <Status tone="warn">{tr('On leave until {date}', { date: fmtDate(p.onLeaveUntil) })}</Status>}
+        {isNew(p) && p.status !== 'terminated' && <Status tone="good">{tr('New')}</Status>}
+        {noLogin(p) && <Status tone="muted">{tr('No sign-in')}</Status>}
+      </>
+    );
+  }
+  function contactsFor(p) {
+    const wa = waNumber(p.phone);
+    const email = realEmail(p.email);
+    const name = fullName(p);
+    return (
+      <>
+        {p.phone && <a className="ppl-act" href={'tel:' + p.phone.replace(/\s+/g, '')} title={tr('Call {name}', { name })} aria-label={tr('Call {name}', { name })}><PIcon name="phone" /></a>}
+        {wa && <a className="ppl-act is-wa" href={'https://wa.me/' + wa} target="_blank" rel="noopener noreferrer" title={tr('WhatsApp {name}', { name })} aria-label={tr('WhatsApp {name}', { name })}><PIcon name="whatsapp" /></a>}
+        {email && <a className="ppl-act is-mail" href={'mailto:' + email} title={tr('Email {name}', { name })} aria-label={tr('Email {name}', { name })}><PIcon name="mail" /></a>}
+        {p.id !== myId && p.status === 'active' && (
+          <button type="button" className="ppl-act" onClick={() => navigate('/messages?peer=' + p.id)} title={tr('Message {name} in the OS', { name })} aria-label={tr('Message {name} in the OS', { name })}><PIcon name="chat" /></button>
+        )}
+      </>
+    );
+  }
+  const managerName = (p) => (p.managerId && byId[p.managerId] ? fullName(byId[p.managerId]) : null);
+  const groupLine = (p) => {
+    const d = deptById[p.departmentId];
+    return d ? d.name + (showCompany ? ' · ' + d.companyName : '') : '—';
+  };
+
+  return (
+    <div className="dk ppl">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      {companies.length > 1 && (
+        <CompanySwitcher companies={[{ code: 'ALL', name: tr('All companies') }, ...companies]} company={currentCompany ? currentCompany.code : 'ALL'}
+          onPick={pickCompany}
+          describe={(co) => {
+            const n = co.code === 'ALL'
+              ? employees.filter((e) => e.status !== 'terminated').length
+              : employees.filter((e) => e.status !== 'terminated' && deptById[e.departmentId] && deptById[e.departmentId].companyId === co.id).length;
+            return tr('{n} people', { n });
+          }} />
+      )}
+
+      <Hero
+        eyebrow={currentCompany ? currentCompany.name : tr('All companies')}
+        title={tr('Employee directory')}
+        sub={tr('Everyone who works at {scope}: find a colleague, call, WhatsApp or message them, and see who is away or new. Press a number to show only those people.', { scope: scopeName })}
+        actions={(canWrite || canSync) && <>
+          {canWrite && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add employee')}</button>}
+          {canWrite && <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>}
+          {canSync && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
+        </>}
+        stats={stats} />
+
+      <Insights items={insights.slice(0, 6)} />
+
+      {groups.length > 1 && (
+        <Section title={tr('Groups')} sub={tr('How many people are in each group. Press one to see its people.')}>
+          <div className="ppl-groups">
+            {groups.map((g) => (
+              <button key={g.key} type="button" className={'ppl-group' + (deptFilter && deptFilter === g.id ? ' is-on' : '')}
+                onClick={() => { setDeptFilter(deptFilter === g.id ? '' : g.id || ''); setChip(''); jump('emp-list'); }}>
+                <span className="ppl-group-top">
+                  <span className="ppl-group-name">{g.name}{showCompany && g.company && <span className="ppl-group-co">{g.company}</span>}</span>
+                  <strong className="ppl-group-count">{g.people.length}</strong>
+                </span>
+                <span className="ppl-faces" aria-hidden="true">
+                  {g.people.slice(0, 5).map((p) => <Photo key={p.id} id={p.id} name={fullName(p)} photo={p.photo} size={28} />)}
+                  {g.people.length > 5 && <span className="ppl-faces-more">+{g.people.length - 5}</span>}
+                </span>
+                <span className="dk-muted ppl-group-meta">{g.away ? tr('{n} on leave today', { n: g.away }) : tr('Everyone is in')}</span>
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="field employees-dept-filter">
-          <label htmlFor="emp-company-filter">{tr('Company')}</label>
-          <select id="emp-company-filter" className="input" value={companyFilter} onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}>
-            <option value="">{tr('All companies')}</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div className="field employees-dept-filter">
-          <label htmlFor="emp-dept">{tr('Department')}</label>
-          <select id="emp-dept" className="input" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
-            <option value="">{tr('All departments')}</option>
+        </Section>
+      )}
+
+      <Section id="emp-list" title={deptFilter && deptById[deptFilter] ? deptById[deptFilter].name : tr('Everyone')}
+        sub={tr('{shown} of {total} shown. Press a person to see their profile.', { shown: visible.length, total: scoped.length })}
+        action={
+          <div className="ppl-view" role="radiogroup" aria-label={tr('Show as')}>
+            <button type="button" role="radio" aria-checked={view === 'cards'} className={view === 'cards' ? 'is-on' : ''} onClick={() => pickView('cards')} title={tr('Cards')} aria-label={tr('Cards')}><PIcon name="grid" /></button>
+            <button type="button" role="radio" aria-checked={view === 'list'} className={view === 'list' ? 'is-on' : ''} onClick={() => pickView('list')} title={tr('List')} aria-label={tr('List')}><PIcon name="list" /></button>
+          </div>
+        }>
+        <div className="ppl-tools">
+          <div className="ppl-search"><SearchInput value={q} onChange={setQ} placeholder={tr('Search name, job, code or phone…')} /></div>
+          <select className="input ppl-select" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} aria-label={tr('Group')}>
+            <option value="">{tr('All groups')}</option>
             {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
               <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
             ))}
           </select>
+          <select className="input ppl-select" value={sort} onChange={(e) => pickSort(e.target.value)} aria-label={tr('Sort by')}>
+            <option value="name">{tr('Name A–Z')}</option>
+            <option value="newest">{tr('Newest first')}</option>
+            <option value="group">{tr('Group')}</option>
+            <option value="code">{tr('Employee code')}</option>
+          </select>
         </div>
-        {canSync && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
-        {canWrite && <button type="button" className="btn btn-secondary employees-add-btn" onClick={openImport}>{tr('Import from sheet')}</button>}
-        {canWrite && <button type="button" className="btn btn-primary employees-add-btn" onClick={openNew}>{tr('Add employee')}</button>}
-      </div>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, n]) => (
+            <button key={key || 'all'} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+              {label} <span className="ppl-chip-n">{n}</span>
+            </button>
+          ))}
+        </div>
 
-      <div className="employees-options">
-        <label className="employees-checkbox">
-          <input type="checkbox" checked={showTerminated} onChange={(e) => setShowTerminated(e.target.checked)} />
-          {tr('Show terminated employees')}
-        </label>
-        {canPurge && terminatedCount > 0 && (
-          <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => { setDialogError(null); setDialog('purge'); }}>
-            {tr('Remove all deleted employees (')}{terminatedCount})
-          </button>
+        {view === 'cards' ? (
+          <div className="ppl-cards">
+            {visible.map((p) => (
+              <article key={p.id} className={'ppl-card' + (p.status === 'terminated' ? ' is-gone' : '')}>
+                <div className="ppl-card-menu"><RowMenu actions={menuFor(p)} /></div>
+                <button type="button" className="ppl-card-main" onClick={() => setProfileTarget(p.id)}>
+                  <Photo id={p.id} name={fullName(p)} photo={p.photo} size={72} />
+                  <span className="ppl-card-name">{fullName(p)}{p.id === myId && <span className="ppl-you">{tr('You')}</span>}</span>
+                  <span className="ppl-card-title">{p.positionTitle || '—'}</span>
+                  <span className="dk-muted ppl-card-group">{groupLine(p)}</span>
+                </button>
+                <div className="ppl-card-tags">{tagsFor(p)}</div>
+                <div className="ppl-card-foot">
+                  <span className="ppl-code">{p.code}</span>
+                  <span className="ppl-acts">{contactsFor(p)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <ul className="ppl-list">
+            {visible.map((p) => (
+              <li key={p.id} className={'ppl-line' + (p.status === 'terminated' ? ' is-gone' : '')}>
+                <button type="button" className="ppl-line-who" onClick={() => setProfileTarget(p.id)}>
+                  <Photo id={p.id} name={fullName(p)} photo={p.photo} size={40} />
+                  <span className="ppl-line-text">
+                    <span className="ppl-line-name">{fullName(p)}{p.id === myId && <span className="ppl-you">{tr('You')}</span>}</span>
+                    <span className="dk-muted">{p.positionTitle || '—'} · {p.code}</span>
+                  </span>
+                </button>
+                <span className="ppl-line-col">
+                  <span>{groupLine(p)}</span>
+                  <span className="dk-muted">{managerName(p) ? tr('Reports to {name}', { name: managerName(p) }) : tr('No manager set')}</span>
+                </span>
+                <span className="ppl-line-col ppl-line-shift">
+                  <span>{p.phone || '—'}</span>
+                  <span className="dk-muted">{p.shift || '—'}</span>
+                </span>
+                <span className="ppl-line-tags">{tagsFor(p)}</span>
+                <span className="ppl-acts">{contactsFor(p)}<RowMenu actions={menuFor(p)} /></span>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
 
-      <table className="table">
-        <thead>
-          <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Job title')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Reports to')}</th><th>{tr('Shift')}</th><th>{tr('Status')}</th><th /></tr>
-        </thead>
-        <tbody>
-          {employees.map((p) => {
-            const canDelete = canWrite && p.status !== 'terminated' && p.id !== (session && session.employee && session.employee.id);
-            const menuItems = [
-              { label: tr('View'), onClick: () => setProfileTarget(p.id) },
-              canWrite && { label: tr('Edit'), onClick: () => openEdit(p) },
-              canWrite && { label: tr('ID docs'), onClick: () => setIdDocsTarget(p) },
-              canWrite && { label: tr('Kiosk PIN'), onClick: () => openKioskPin(p) },
-              canWrite && { label: tr('Kiosk Face'), onClick: () => openKioskFace(p) },
-              canDelete && { label: tr('Delete'), onClick: () => openTerminate(p), danger: true }
-            ].filter(Boolean);
-            return (
-              <tr key={p.id}>
-                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{p.code}</td>
-                <td>
-                  <div className="employees-name-cell">
-                    <span className="employees-avatar" style={{ background: avatarColor(p.firstName + ' ' + p.lastName) }}>
-                      {initials(p.firstName, p.lastName)}
-                    </span>
-                    <span style={{ fontWeight: 600 }}>{p.firstName} {p.lastName}</span>
-                  </div>
-                </td>
-                <td>{p.positionTitle}</td>
-                <td>{companyNameOf(p.departmentId)}</td>
-                <td>{deptName(p.departmentId)}</td>
-                <td>{p.managerId ? empName(p.managerId) : '—'}</td>
-                <td className="employees-shift">{p.shift}</td>
-                <td><span className={'tag ' + tagClass(p.status)}>{codeLabel(p.status)}</span></td>
-                <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                  <RowMenu actions={menuItems} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {!employees.length && (
-        <div className="employees-empty-state">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="employees-empty-icon">
-            <circle cx="12" cy="8" r="3.4" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <p className="employees-empty-title">{tr('No employees match this filter')}</p>
-          <p className="employees-empty-sub">{tr('Try a different search or group.')}</p>
+        {!visible.length && (
+          <div className="dk-empty">
+            <p>{scoped.length ? tr('No one matches. Try another search, group or filter.') : tr('No employees here yet.')}</p>
+            {(q || chip || deptFilter) && <button type="button" className="btn btn-secondary" onClick={() => { setQ(''); setChip(''); setDeptFilter(''); }}>{tr('Clear filters')}</button>}
+          </div>
+        )}
+
+        <div className="ppl-bottom">
+          <label className="employees-checkbox">
+            <input type="checkbox" checked={showTerminated} onChange={(e) => setShowTerminated(e.target.checked)} />
+            {tr('Show terminated employees')}
+          </label>
+          {canPurge && terminatedCount > 0 && (
+            <button type="button" className="btn btn-secondary ppl-small-btn" onClick={() => { setDialogError(null); setDialog('purge'); }}>
+              {tr('Remove all deleted employees (')}{terminatedCount})
+            </button>
+          )}
+          <span className="dk-muted ppl-footer">{footer}</span>
         </div>
-      )}
-      <p className="employees-footer">{footer}</p>
+      </Section>
+
+      <Glossary items={[
+        [tr('Group'), tr('The department someone works in. Each group belongs to one company.')],
+        [tr('Reports to'), tr('Their manager, who approves their leave and expense requests.')],
+        [tr('Permanent, contract, casual, by day'), tr('How someone is employed. "By day" means they are paid a daily rate for the days they work.')],
+        [tr('Inactive'), tr('Still on the books but not working at the moment. They cannot sign in.')],
+        [tr('Terminated'), tr('Has left. Their history is kept for records; turn on "Show terminated employees" to see them.')],
+        [tr('No sign-in'), tr('Has no login for the OS. They can still clock in and out at the kiosk with their PIN.')],
+        [tr('Kiosk PIN and face'), tr('What someone uses to clock in and out at the attendance kiosk.')]
+      ]} />
 
       {dialog === 'employee' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
@@ -1123,6 +1336,17 @@ export default function EmployeesPage() {
 
       {idDocsTarget && <EmployeeIdDocsDialog employee={idDocsTarget} onClose={() => setIdDocsTarget(null)} />}
       {profileTarget && <EmployeeProfileDialog employeeId={profileTarget} onClose={() => setProfileTarget(null)} />}
+      {photoTarget && (
+        <PhotoDialog title={tr('Photo of {name}', { name: photoTarget.firstName + ' ' + photoTarget.lastName })} kind="person"
+          id={photoTarget.id} name={photoTarget.firstName + ' ' + photoTarget.lastName} photo={photoTarget.photo}
+          uploadPath={'/messages/people/' + photoTarget.id + '/photo'}
+          onDone={(v) => {
+            forgetBlob('/messages/people/' + photoTarget.id + '/photo');
+            setEmployees((list) => list.map((e) => (e.id === photoTarget.id ? { ...e, photo: v } : e)));
+            setPhotoTarget(null);
+          }}
+          onClose={() => setPhotoTarget(null)} />
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

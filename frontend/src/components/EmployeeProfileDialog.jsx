@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Photo from './Photo';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { isPdf, toPreviewUrl } from '../lib/previewUrl';
@@ -103,7 +104,8 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
         {e && (
           <>
             <div className="employee-profile-head">
-              <div>
+              <Photo id={e.id} name={e.firstName + ' ' + e.lastName} photo={e.photo} size={56} />
+              <div className="employee-profile-who">
                 <h2 className="employee-profile-name">{e.firstName} {e.lastName}</h2>
                 <div className="employee-profile-sub">{e.code} · {e.positionTitle || '—'}</div>
               </div>
