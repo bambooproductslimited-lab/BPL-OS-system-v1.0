@@ -23,6 +23,16 @@ router.post('/', requireAuth, async function (req, res, next) {
   try { res.json(await rolesService.create(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
+// The latest changes to roles (from the audit log).
+router.get('/changes', requireAuth, async function (req, res, next) {
+  try { res.json(await rolesService.changes(req.ctx)); } catch (e) { next(e); }
+});
+
+// Rename a custom role, or change any role's description.
+router.patch('/:roleId', requireAuth, async function (req, res, next) {
+  try { res.json(await rolesService.update(req.ctx, req.params.roleId, req.body)); } catch (e) { next(e); }
+});
+
 // New capability — DELETE /api/roles/:roleId: remove a custom role that
 // nobody is currently assigned to.
 router.delete('/:roleId', requireAuth, async function (req, res, next) {
@@ -31,7 +41,7 @@ router.delete('/:roleId', requireAuth, async function (req, res, next) {
 
 // kernel.js: handlers['roles.setPermission'] -> POST /api/roles/:roleId/permissions
 router.post('/:roleId/permissions', requireAuth, async function (req, res, next) {
-  try { res.json(await rolesService.setPermission(req.ctx, req.params.roleId, req.body.permission, !!req.body.on)); } catch (e) { next(e); }
+  try { res.json(await rolesService.setPermission(req.ctx, req.params.roleId, req.body.permissions || req.body.permission, !!req.body.on)); } catch (e) { next(e); }
 });
 
 module.exports = router;

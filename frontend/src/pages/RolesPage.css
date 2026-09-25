@@ -64,6 +64,56 @@
 .roles-checkbox-cell:has(.roles-checkbox:disabled) .roles-checkbox-label { cursor: not-allowed; }
 .roles-checkbox { accent-color: var(--color-accent); width: 18px; height: 18px; cursor: inherit; }
 
+/* ── redesigned page: cards, window, changes ── */
+.rl-lock { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; color: var(--color-text-muted); flex-shrink: 0; }
+.rl-card.is-admin { border-top: 3px solid var(--color-accent); }
+.rl-open { padding-right: 0; }
+.rl-desc { margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.rl-count { display: flex; flex-direction: column; gap: 4px; }
+.rl-bar { display: block; height: 6px; border-radius: 3px; background: var(--color-bg-subtle); overflow: hidden; box-shadow: inset 0 0 0 1px var(--color-divider); }
+.rl-bar > span { display: block; height: 100%; border-radius: 3px; background: var(--color-accent); }
+.rl-foot { align-items: center; }
+.rl-faces { display: flex; align-items: center; }
+.rl-faces > * { margin-right: -6px; box-shadow: 0 0 0 2px var(--color-bg); }
+.rl-more { font-size: 11.5px; font-weight: 700; margin-left: 10px; box-shadow: none; color: var(--color-text-muted); }
+.rl-sens { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; border-radius: 50%; font-size: 11px; font-weight: 800; background: var(--color-warning-100, #fbecc8); color: var(--color-warning, #b07d12); }
+.roles-role-name { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
+.roles-role-name:hover { color: var(--color-accent); text-decoration: underline; }
+
+.rl-dialog { max-width: 760px; }
+.rl-dialog h2 { display: flex; align-items: center; }
+.rl-dialog-desc { margin: 4px 0 0; font-size: 13.5px; }
+.rl-note { margin: 0 0 12px; padding: 10px 12px; background: var(--color-bg-subtle); font-size: 13px; }
+.rl-edit { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; margin: 0 0 12px; align-items: start; }
+.rl-edit .error-banner, .rl-edit .dialog-actions { grid-column: 1 / -1; }
+.rl-members { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rl-members li { display: flex; align-items: center; gap: 10px; }
+.rl-m-main { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13.5px; }
+.rl-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.rl-group { border: 1px solid var(--color-divider); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.rl-group-head { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 2px; }
+.rl-group-btns { margin-left: auto; display: flex; gap: 4px; }
+.rl-mini { background: none; border: 1px solid var(--color-divider); padding: 1px 7px; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; color: var(--color-text-muted); }
+.rl-mini:disabled { opacity: 0.4; cursor: default; }
+.rl-mini:not(:disabled):hover { color: var(--color-accent); border-color: var(--color-accent); }
+.rl-perm { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; color: var(--color-text-muted); }
+.rl-perm.is-on { color: var(--color-text); }
+.rl-perm .roles-checkbox { width: 16px; height: 16px; flex-shrink: 0; }
+.rl-perm > span { flex: 1; }
+.rl-confirm { margin-right: auto; align-self: center; }
+.rl-new { max-width: 520px; width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.rl-new h2 { margin: 0; }
+
+.rl-changes { list-style: none; margin: 0; padding: 0; border: var(--divider-width) solid var(--color-divider); background: var(--color-bg); }
+.rl-changes li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--color-divider); font-size: 13.5px; flex-wrap: wrap; }
+.rl-changes li:first-child { border-top: 0; }
+.rl-ch-what { min-width: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .rl-edit { grid-template-columns: 1fr; }
+  .roles-scroll { max-height: 60vh; }
+}
+
 .roles-empty-state {
   display: flex;
   flex-direction: column;
