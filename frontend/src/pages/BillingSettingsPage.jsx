@@ -1,68 +1,69 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { Glossary, Hero, Insights, Section, Status, jump } from '../components/DashKit';
 import { tr } from '../lib/i18n.jsx';
-import './BillingSettingsPage.css';
 import { codeLabel } from '../lib/codeLabels.js';
+import './ToolRoomPage.css';
+import './RestaurantsPage.css';
+import './BillingSettingsPage.css';
 
-// Ported from Bamboo OS.dc.html's billing settings screen
-// (screens.billingsettings block + saveBillingSettings/addTaxRate
-// handlers), backed by GET/PATCH /api/commercial-settings and
-// POST /api/commercial-settings/tax-rates (all require settings.manage —
-// same permission that gates this screen in navModel.js, so unlike
-// Catalog's tax-rate field there is no viewer who can reach this page
-// without also being able to fetch its data).
-
-// Redesigned lightly: this page is settings forms plus two small reference
-// tables (document numbering, tax rates) with no natural icon dimension,
-// so the addition here is a small icon accent on each section header, for
-// visual consistency with the rest of the redesigned app.
-
-const ICON_PATHS = {
-  document: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  cash: <><rect x="2.5" y="6" width="19" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" /></>,
-  hash: <path d="M9 4 7 20M17 4l-2 16M4 9h16M3 15h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />,
-  receipt: <><path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4v-17Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>
-};
-function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
+// Billing settings — the wording, dates, payment details, numbering and tax
+// rates every quotation, estimate and invoice is made with. Same "explains
+// itself" layout as the dashboards (components/DashKit.jsx): how long
+// quotations stay valid and when invoices fall due, which ways to pay the
+// invoices show, the tax rates; what stands out (no bank account or mobile
+// money on invoices, no terms), then each part with a live look at how the
+// payment block prints.
+//
+// Backed by GET/PATCH /api/commercial-settings and the tax-rate routes, all
+// needing settings.manage — the same permission that shows this page in
+// navModel.js. The service keeps only known fields and checks the day
+// counts (1–365); a tax rate goes only when no catalogue item uses it.
+// Currencies are chosen in Company settings, so they are shown here with a
+// link rather than edited twice.
 
 const EMPTY = {
   quotationIntro: '', quotationFooter: '', invoiceFooter: '', paymentTerms: '', terms: '', validityDays: '', invoiceDueDays: '',
   bankName: '', accountName: '', accountNumber: '', branch: '', swift: '', momoProvider: '', momoNumber: '', instructions: ''
 };
+function formFrom(s) {
+  return {
+    quotationIntro: s.templates.quotationIntro || '', quotationFooter: s.templates.quotationFooter || '', invoiceFooter: s.templates.invoiceFooter || '',
+    paymentTerms: s.templates.paymentTerms || '', terms: s.templates.termsAndConditions || '', validityDays: String(s.templates.validityDays || ''), invoiceDueDays: String(s.templates.invoiceDueDays || ''),
+    bankName: s.paymentDetails.bankName || '', accountName: s.paymentDetails.accountName || '', accountNumber: s.paymentDetails.accountNumber || '',
+    branch: s.paymentDetails.branch || '', swift: s.paymentDetails.swift || '', momoProvider: s.paymentDetails.momoProvider || '',
+    momoNumber: s.paymentDetails.momoNumber || '', instructions: s.paymentDetails.instructions || ''
+  };
+}
 
 export default function BillingSettingsPage() {
   const [settings, setSettings] = useState(null);
   const [form, setForm] = useState(EMPTY);
+  const [saved, setSaved] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [saving, setSaving] = useState(false);
-
   const [taxName, setTaxName] = useState('');
   const [taxRate, setTaxRate] = useState('');
   const [addingTax, setAddingTax] = useState(false);
+  const [busyTax, setBusyTax] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const s = await api.get('/commercial-settings');
       setSettings(s);
-      setForm({
-        quotationIntro: s.templates.quotationIntro, quotationFooter: s.templates.quotationFooter, invoiceFooter: s.templates.invoiceFooter,
-        paymentTerms: s.templates.paymentTerms, terms: s.templates.termsAndConditions, validityDays: s.templates.validityDays, invoiceDueDays: s.templates.invoiceDueDays,
-        bankName: s.paymentDetails.bankName, accountName: s.paymentDetails.accountName, accountNumber: s.paymentDetails.accountNumber,
-        branch: s.paymentDetails.branch, swift: s.paymentDetails.swift, momoProvider: s.paymentDetails.momoProvider,
-        momoNumber: s.paymentDetails.momoNumber, instructions: s.paymentDetails.instructions
-      });
+      setForm(formFrom(s));
+      setSaved(formFrom(s));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
@@ -77,7 +78,7 @@ export default function BillingSettingsPage() {
       await api.patch('/commercial-settings', {
         templates: {
           quotationIntro: form.quotationIntro, quotationFooter: form.quotationFooter, invoiceFooter: form.invoiceFooter,
-          paymentTerms: form.paymentTerms, termsAndConditions: form.terms, validityDays: Number(form.validityDays) || 14, invoiceDueDays: Number(form.invoiceDueDays) || 30
+          paymentTerms: form.paymentTerms, termsAndConditions: form.terms, validityDays: Number(form.validityDays), invoiceDueDays: Number(form.invoiceDueDays)
         },
         paymentDetails: {
           bankName: form.bankName, accountName: form.accountName, accountNumber: form.accountNumber, branch: form.branch,
@@ -92,7 +93,6 @@ export default function BillingSettingsPage() {
       setSaving(false);
     }
   }
-
   async function handleAddTaxRate(e) {
     e.preventDefault();
     setAddingTax(true);
@@ -109,123 +109,206 @@ export default function BillingSettingsPage() {
       setAddingTax(false);
     }
   }
+  async function removeTax(t) {
+    if (!window.confirm(tr('Remove the tax rate {name} ({rate}%)?', { name: t.name, rate: t.rate }))) return;
+    setBusyTax(t.id);
+    setError(null);
+    try {
+      await api.del('/commercial-settings/tax-rates/' + t.id);
+      setToast(tr('{name} removed.', { name: t.name }));
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyTax(null);
+    }
+  }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (!settings) return <div className="error-banner">{error}</div>;
 
-  const numberingList = Object.keys(settings.numbering).map((k) => {
+  // ── what the page shows ────────────────────────────────────────────
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const dirty = Object.keys(form).some((k) => form[k] !== saved[k]);
+  const hasBank = !!(saved.bankName && saved.accountNumber);
+  const hasMomo = !!saved.momoNumber;
+  const ways = (hasBank ? 1 : 0) + (hasMomo ? 1 : 0);
+  const taxRates = settings.taxRates || [];
+  const currencies = settings.currencies || ['GHS'];
+  const year = new Date().getFullYear();
+  const numbering = Object.keys(settings.numbering || {}).map((k) => {
     const n = settings.numbering[k];
-    return { doc: codeLabel(k), format: n.prefix + '-' + (n.includeYear ? new Date().getFullYear() + '-' : '') + String(n.nextNumber).padStart(n.padding, '0') };
+    return { key: k, doc: codeLabel(k), next: n.prefix + '-' + (n.includeYear ? year + '-' : '') + String(n.nextNumber).padStart(n.padding, '0') };
   });
 
+  const stats = [
+    { icon: 'doc', value: tr('{n} days', { n: saved.validityDays || '—' }), label: tr('quotations stay valid'), note: tr('then they expire if not answered'), onClick: () => jump('bs-wording') },
+    { icon: 'calendar', value: tr('{n} days', { n: saved.invoiceDueDays || '—' }), label: tr('until an invoice falls due'), note: saved.paymentTerms ? tr('terms: {terms}', { terms: saved.paymentTerms }) : tr('no payment terms written'), onClick: () => jump('bs-wording') },
+    { icon: 'card', value: tr('{n} of 2', { n: ways }), label: tr('ways to pay on invoices'), note: [hasBank && tr('bank'), hasMomo && tr('mobile money')].filter(Boolean).join(' · ') || tr('none filled in'), tone: ways === 0 ? 'bad' : ways === 1 ? 'warn' : 'good', onClick: () => jump('bs-pay') },
+    { icon: 'percent', value: String(taxRates.length), label: tr('tax rates'), note: taxRates.map((t) => t.name).join(', ') || tr('none yet'), onClick: () => jump('bs-tax') }
+  ];
+  const insights = [];
+  if (!hasBank) insights.push({ tone: 'bad', icon: 'card', text: tr('Invoices show no bank account, so clients can\'t pay by transfer from the invoice alone.'), action: { label: tr('Fill it in'), run: () => jump('bs-pay') } });
+  if (!hasMomo) insights.push({ tone: 'warn', icon: 'phone', text: tr('Invoices show no mobile money number.'), action: { label: tr('Fill it in'), run: () => jump('bs-pay') } });
+  if (!saved.terms.trim()) insights.push({ tone: 'warn', icon: 'doc', text: tr('There are no terms & conditions for quotations.'), action: { label: tr('Write them'), run: () => jump('bs-wording') } });
+  if (!saved.instructions.trim()) insights.push({ tone: 'info', icon: 'info', text: tr('There are no payment instructions, such as which reference to use when paying.'), action: { label: tr('Write them'), run: () => jump('bs-pay') } });
+  if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Invoices show both ways to pay, and quotations carry terms & conditions.') });
+
   return (
-    <div className="bs">
-      {error && <div className="error-banner">{error}</div>}
+    <div className="dk tl bs2">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <form className="bs-form" onSubmit={handleSubmit}>
-        <section className="bs-section">
-          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="document" /></span>{tr('Document templates & defaults')}</h2>
-          <div className="field">
-            <label htmlFor="bs-qi">{tr('Quotation introduction')}</label>
-            <textarea id="bs-qi" className="input" value={form.quotationIntro} onChange={(e) => setForm({ ...form, quotationIntro: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-qf">{tr('Quotation footer')}</label>
-            <textarea id="bs-qf" className="input" value={form.quotationFooter} onChange={(e) => setForm({ ...form, quotationFooter: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-if">{tr('Invoice footer')}</label>
-            <textarea id="bs-if" className="input" value={form.invoiceFooter} onChange={(e) => setForm({ ...form, invoiceFooter: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-pt">{tr('Default payment terms')}</label>
-            <input id="bs-pt" className="input" value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })} />
-          </div>
-          <div className="field bs-span">
-            <label htmlFor="bs-terms">{tr('Terms & conditions')}</label>
-            <textarea id="bs-terms" className="input" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-vd">{tr('Default quotation validity (days)')}</label>
-            <input id="bs-vd" className="input" type="number" value={form.validityDays} onChange={(e) => setForm({ ...form, validityDays: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-dd">{tr('Default invoice due period (days)')}</label>
-            <input id="bs-dd" className="input" type="number" value={form.invoiceDueDays} onChange={(e) => setForm({ ...form, invoiceDueDays: e.target.value })} />
-          </div>
-        </section>
+      <Hero
+        eyebrow={tr('Quotations & Invoicing')}
+        title={tr('Billing settings')}
+        sub={tr('What every quotation, estimate and invoice is made with: its wording, dates, how clients pay, numbering and tax rates. Press a number to go to that part.')}
+        actions={<Link className="btn btn-secondary" to="/settings">{tr('Currencies and company details')}</Link>}
+        stats={stats} />
 
-        <section className="bs-section">
-          <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="cash" /></span>{tr('Payment details shown on invoices')}</h2>
-          <div className="field">
-            <label htmlFor="bs-bn">{tr('Bank name')}</label>
-            <input id="bs-bn" className="input" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-an">{tr('Account name')}</label>
-            <input id="bs-an" className="input" value={form.accountName} onChange={(e) => setForm({ ...form, accountName: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-acc">{tr('Account number')}</label>
-            <input id="bs-acc" className="input" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-br">{tr('Branch')}</label>
-            <input id="bs-br" className="input" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-sw">SWIFT</label>
-            <input id="bs-sw" className="input" value={form.swift} onChange={(e) => setForm({ ...form, swift: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-mp">{tr('Mobile Money provider')}</label>
-            <input id="bs-mp" className="input" value={form.momoProvider} onChange={(e) => setForm({ ...form, momoProvider: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="bs-mn">{tr('Mobile Money number')}</label>
-            <input id="bs-mn" className="input" value={form.momoNumber} onChange={(e) => setForm({ ...form, momoNumber: e.target.value })} />
-          </div>
-          <div className="field bs-span">
-            <label htmlFor="bs-inst">{tr('Payment instructions')}</label>
-            <input id="bs-inst" className="input" value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} />
-          </div>
-        </section>
+      <Insights items={insights} />
 
-        <button className="btn btn-primary bs-save" type="submit" disabled={saving}>{tr('Save settings')}</button>
+      <form onSubmit={handleSubmit} className="bs2-form">
+        <Section id="bs-wording" title={tr('Wording and dates')} sub={tr('Printed on every new quotation and invoice. Changing them doesn\'t touch documents already made.')} card>
+          <div className="tl-form">
+            <div className="field">
+              <label htmlFor="bs-vd">{tr('Default quotation validity (days)')}</label>
+              <input id="bs-vd" className="input" type="number" min="1" max="365" step="1" value={form.validityDays} onChange={set('validityDays')} required />
+            </div>
+            <div className="field">
+              <label htmlFor="bs-dd">{tr('Default invoice due period (days)')}</label>
+              <input id="bs-dd" className="input" type="number" min="1" max="365" step="1" value={form.invoiceDueDays} onChange={set('invoiceDueDays')} required />
+            </div>
+            <div className="field tl-span">
+              <label htmlFor="bs-pt">{tr('Default payment terms')}</label>
+              <input id="bs-pt" className="input" value={form.paymentTerms} onChange={set('paymentTerms')} maxLength={200} />
+            </div>
+            <div className="field tl-span">
+              <label htmlFor="bs-qi">{tr('Quotation introduction')}</label>
+              <textarea id="bs-qi" className="input tl-textarea" value={form.quotationIntro} onChange={set('quotationIntro')} maxLength={2000} />
+            </div>
+            <div className="field">
+              <label htmlFor="bs-qf">{tr('Quotation footer')}</label>
+              <textarea id="bs-qf" className="input tl-textarea" value={form.quotationFooter} onChange={set('quotationFooter')} maxLength={2000} />
+            </div>
+            <div className="field">
+              <label htmlFor="bs-if">{tr('Invoice footer')}</label>
+              <textarea id="bs-if" className="input tl-textarea" value={form.invoiceFooter} onChange={set('invoiceFooter')} maxLength={2000} />
+            </div>
+            <div className="field tl-span">
+              <label htmlFor="bs-terms">{tr('Terms & conditions')}</label>
+              <textarea id="bs-terms" className="input tl-textarea bs2-terms" value={form.terms} onChange={set('terms')} maxLength={8000} />
+            </div>
+          </div>
+        </Section>
+
+        <Section id="bs-pay" title={tr('How clients pay')} sub={tr('Shown at the foot of every invoice. The box on the right is how it prints.')} card>
+          <div className="bs2-pay">
+            <div className="tl-form">
+              <div className="field">
+                <label htmlFor="bs-bn">{tr('Bank name')}</label>
+                <input id="bs-bn" className="input" value={form.bankName} onChange={set('bankName')} maxLength={120} />
+              </div>
+              <div className="field">
+                <label htmlFor="bs-br">{tr('Branch')}</label>
+                <input id="bs-br" className="input" value={form.branch} onChange={set('branch')} maxLength={120} />
+              </div>
+              <div className="field">
+                <label htmlFor="bs-an">{tr('Account name')}</label>
+                <input id="bs-an" className="input" value={form.accountName} onChange={set('accountName')} maxLength={120} />
+              </div>
+              <div className="field">
+                <label htmlFor="bs-acc">{tr('Account number')}</label>
+                <input id="bs-acc" className="input" value={form.accountNumber} onChange={set('accountNumber')} maxLength={60} />
+              </div>
+              <div className="field">
+                <label htmlFor="bs-sw">SWIFT</label>
+                <input id="bs-sw" className="input" value={form.swift} onChange={set('swift')} maxLength={20} />
+              </div>
+              <div className="field">
+                <label htmlFor="bs-mp">{tr('Mobile Money provider')}</label>
+                <input id="bs-mp" className="input" value={form.momoProvider} onChange={set('momoProvider')} maxLength={60} />
+              </div>
+              <div className="field">
+                <label htmlFor="bs-mn">{tr('Mobile Money number')}</label>
+                <input id="bs-mn" className="input" type="tel" value={form.momoNumber} onChange={set('momoNumber')} maxLength={30} />
+              </div>
+              <div className="field tl-span">
+                <label htmlFor="bs-inst">{tr('Payment instructions')}</label>
+                <textarea id="bs-inst" className="input tl-textarea" value={form.instructions} onChange={set('instructions')} maxLength={1000} />
+              </div>
+            </div>
+            <aside className="bs2-slip" aria-label={tr('How it prints')}>
+              <p className="bs2-slip-title">{tr('How to pay')}</p>
+              {form.bankName || form.accountNumber ? (
+                <dl>
+                  {form.bankName && <><dt>{tr('Bank')}</dt><dd>{form.bankName}{form.branch ? ', ' + form.branch : ''}</dd></>}
+                  {form.accountName && <><dt>{tr('Account name')}</dt><dd>{form.accountName}</dd></>}
+                  {form.accountNumber && <><dt>{tr('Account number')}</dt><dd className="bs2-mono">{form.accountNumber}</dd></>}
+                  {form.swift && <><dt>SWIFT</dt><dd className="bs2-mono">{form.swift}</dd></>}
+                </dl>
+              ) : <p className="dk-muted tl-small">{tr('No bank account yet.')}</p>}
+              {form.momoNumber ? (
+                <dl>
+                  <dt>{form.momoProvider || tr('Mobile Money')}</dt><dd className="bs2-mono">{form.momoNumber}</dd>
+                </dl>
+              ) : <p className="dk-muted tl-small">{tr('No mobile money number yet.')}</p>}
+              {form.instructions && <p className="bs2-slip-note">{form.instructions}</p>}
+            </aside>
+          </div>
+        </Section>
+
+        <div className={'bs2-savebar' + (dirty ? ' is-dirty' : '')}>
+          <span className="dk-muted tl-small">{dirty ? tr('You have changes that aren\'t saved yet.') : tr('Everything is saved.')}</span>
+          {dirty && <button type="button" className="btn btn-secondary" onClick={() => setForm(saved)} disabled={saving}>{tr('Undo changes')}</button>}
+          <button className="btn btn-primary" type="submit" disabled={saving || !dirty}>{saving ? tr('Saving…') : tr('Save settings')}</button>
+        </div>
       </form>
 
-      <section className="bs-narrow">
-        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="hash" /></span>{tr('Document numbering')}</h2>
-        <table className="table">
-          <thead><tr><th>{tr('Document')}</th><th>{tr('Next number')}</th></tr></thead>
-          <tbody>
-            {numberingList.map((n) => <tr key={n.doc}><td>{n.doc}</td><td className="bs-numbering-format">{n.format}</td></tr>)}
-          </tbody>
-        </table>
-      </section>
-
-      <section className="bs-narrow">
-        <h2 className="bs-section-title"><span className="bs-section-icon"><Icon name="receipt" /></span>{tr('Tax rates')}</h2>
-        <table className="table">
-          <thead><tr><th>{tr('Name')}</th><th>{tr('Rate')}</th></tr></thead>
-          <tbody>
-            {settings.taxRates.map((t) => <tr key={t.id}><td>{t.name}</td><td>{t.rate}%</td></tr>)}
-          </tbody>
-        </table>
-        <form className="bs-tax-form" onSubmit={handleAddTaxRate}>
-          <div className="field bs-tax-name">
+      <Section id="bs-tax" title={tr('Tax rates')} sub={tr('Picked per catalogue item. A rate can be removed once no item uses it; the zero rate always stays.')} card>
+        <ul className="rs-list bs2-taxes">
+          {taxRates.map((t) => (
+            <li key={t.id} className="rs-row">
+              <div className="rs-row-open bs2-tax">
+                <span className="rs-row-main"><strong>{t.name}</strong></span>
+                <span className="rs-row-side"><Status tone={t.rate > 0 ? 'info' : 'muted'}>{t.rate}%</Status></span>
+              </div>
+              {t.id !== 'tx_zero' && <span className="rs-row-menu"><button type="button" className="btn btn-secondary bs2-remove" disabled={busyTax === t.id} onClick={() => removeTax(t)}>{tr('Remove')}</button></span>}
+            </li>
+          ))}
+        </ul>
+        <form className="bs2-taxform" onSubmit={handleAddTaxRate}>
+          <div className="field">
             <label htmlFor="bs-taxname">{tr('New tax name')}</label>
-            <input id="bs-taxname" className="input" value={taxName} onChange={(e) => setTaxName(e.target.value)} required />
+            <input id="bs-taxname" className="input" value={taxName} onChange={(e) => setTaxName(e.target.value)} maxLength={40} required />
           </div>
-          <div className="field bs-tax-rate">
+          <div className="field">
             <label htmlFor="bs-taxrate">{tr('Rate %')}</label>
-            <input id="bs-taxrate" className="input" type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} required />
+            <input id="bs-taxrate" className="input" type="number" min="0" max="100" step="0.01" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} required />
           </div>
           <button className="btn btn-secondary" type="submit" disabled={addingTax}>{tr('Add')}</button>
         </form>
-      </section>
+      </Section>
 
-      {toast && <div className="toast">{toast}</div>}
+      <div className="bs2-pair">
+        <Section id="bs-numbers" title={tr('Document numbering')} sub={tr('The number the next document of each kind will get. Numbers are never reused.')} card>
+          <ul className="rs-lines bs2-numbers">
+            {numbering.map((n) => <li key={n.key}><span /><span>{n.doc}</span><strong className="bs2-mono">{n.next}</strong></li>)}
+          </ul>
+        </Section>
+        <Section id="bs-cur" title={tr('Currencies')} sub={tr('Documents can be made in these. Choose them in Company settings.')} card>
+          <div className="bs2-curs">{currencies.map((c, i) => <Status key={c} tone={i === 0 ? 'good' : 'muted'}>{c}{i === 0 ? ' · ' + tr('default') : ''}</Status>)}</div>
+          <Link className="btn btn-secondary bs2-curlink" to="/settings">{tr('Company settings')}</Link>
+        </Section>
+      </div>
+
+      <Glossary items={[
+        [tr('Validity'), tr('How many days a new quotation stays open. After that it expires if the client hasn\'t answered.')],
+        [tr('Due period'), tr('How many days after issue a new invoice falls due. After that it shows as overdue.')],
+        [tr('Payment instructions'), tr('A line for clients on how to pay, such as quoting the invoice number as the reference.')],
+        [tr('Tax rate'), tr('A percentage added to lines of a catalogue item that uses it.')]
+      ]} />
+
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }

@@ -14,5 +14,8 @@ router.patch('/', async function (req, res, next) {
 router.post('/tax-rates', async function (req, res, next) {
   try { res.status(201).json(await commercialSettingsService.addTaxRate(req.ctx, req.body)); } catch (e) { next(e); }
 });
+router.delete('/tax-rates/:id', async function (req, res, next) {
+  try { res.json(await commercialSettingsService.removeTaxRate(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
 
 module.exports = router;

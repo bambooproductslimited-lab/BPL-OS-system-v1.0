@@ -1,29 +1,34 @@
-.bs { display: flex; flex-direction: column; gap: 20px; max-width: 900px; }
-.bs-form { display: flex; flex-direction: column; gap: 20px; }
-.bs-section {
-  border: var(--divider-width) solid var(--color-divider);
-  padding: 20px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+/* Billing settings: the forms sit in DashKit cards; the payment block has a
+   live "how it prints" slip beside it */
+.bs2-form { display: flex; flex-direction: column; gap: 20px; }
+.bs2-terms { min-height: 140px; }
+.bs2-pay { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+.bs2-slip {
+  border: 1px dashed var(--color-border); border-radius: var(--dk-r, 8px); padding: 14px 16px;
+  background: var(--color-bg-subtle); font-size: 13px; display: flex; flex-direction: column; gap: 10px;
 }
-.bs-section-title { grid-column: 1 / -1; margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
-.bs-section-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg));
-  color: var(--color-accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+.bs2-slip-title { margin: 0; font-weight: 800; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); }
+.bs2-slip dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; }
+.bs2-slip dt { color: var(--color-text-muted); }
+.bs2-slip dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.bs2-slip-note { margin: 0; white-space: pre-line; color: var(--color-text-muted); }
+.bs2-mono { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.bs2-savebar {
+  position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; border: 1px solid var(--color-border); border-radius: var(--dk-r, 8px); background: var(--color-bg);
 }
-.bs-section-icon svg { width: 13px; height: 13px; }
-.bs-span { grid-column: 1 / -1; }
-.bs-save { width: fit-content; }
-.bs-narrow { max-width: 900px; }
-.bs-numbering-format { font-variant-numeric: tabular-nums; }
-.bs-tax-form { display: flex; gap: 10px; align-items: end; margin-top: 12px; max-width: 400px; }
-.bs-tax-name { flex: 1; }
-.bs-tax-rate { width: 100px; }
+.bs2-savebar > span { margin-right: auto; }
+.bs2-savebar.is-dirty { border-color: var(--color-accent); box-shadow: 0 -4px 16px color-mix(in srgb, var(--color-text) 10%, transparent); }
+.bs2-taxes .bs2-tax { cursor: default; }
+.bs2-taxes .bs2-tax:hover { background: none; }
+.bs2-remove { padding: 6px 12px; font-size: 12.5px; }
+.bs2-taxform { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 14px; }
+.bs2-taxform .field:first-child { flex: 1 1 200px; }
+.bs2-taxform .field:nth-child(2) { width: 110px; }
+.bs2-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.bs2-numbers li { grid-template-columns: 0 minmax(0, 1fr) auto; }
+.bs2-curs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.bs2-curlink { width: fit-content; }
+@media (max-width: 860px) {
+  .bs2-pay, .bs2-pair { grid-template-columns: 1fr; }
+}
