@@ -31,6 +31,34 @@ router.post('/:id/checkout', async function (req, res, next) {
   try { res.json(await toolRoomService.setCheckout(req.ctx, req.params.id, req.body.employeeId)); } catch (e) { next(e); }
 });
 
+router.get('/:id/history', async function (req, res, next) {
+  try { res.json(await toolRoomService.history(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+router.post('/:id/check-out', async function (req, res, next) {
+  try { res.json(await toolRoomService.checkout(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/check-in', async function (req, res, next) {
+  try { res.json(await toolRoomService.checkin(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/issue', async function (req, res, next) {
+  try { res.json(await toolRoomService.issue(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/restock', async function (req, res, next) {
+  try { res.json(await toolRoomService.restock(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/retire', async function (req, res, next) {
+  try { res.json(await toolRoomService.setRetired(req.ctx, req.params.id, true, req.body)); } catch (e) { next(e); }
+});
+
+router.post('/:id/restore', async function (req, res, next) {
+  try { res.json(await toolRoomService.setRetired(req.ctx, req.params.id, false, req.body)); } catch (e) { next(e); }
+});
+
 router.post('/import/preview', upload.single('file'), async function (req, res, next) {
   try {
     if (!req.file) fail('invalid', 'No file uploaded.');
