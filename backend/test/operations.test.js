@@ -28,13 +28,16 @@ function jsonAuthed(token) { return Object.assign({ 'Content-Type': 'application
 test('seeded operations data is reachable: warehouses, suppliers, raw batches, products', async function () {
   var isreal = await login('isreal.omozuafo@bplghana.com');
   var warehouses = await (await fetch(base + '/api/warehouses', { headers: authed(isreal) })).json();
-  assert.equal(warehouses.length, 3);
+  // Other test files run at the same time and add their own (Z-prefixed)
+  // records, so only the seeded ones are counted.
+  function seeded(list, field) { return list.filter(function (x) { return !/^Z/i.test(x[field]); }); }
+  assert.equal(seeded(warehouses, 'name').length, 3);
   var suppliers = await (await fetch(base + '/api/suppliers', { headers: authed(isreal) })).json();
-  assert.equal(suppliers.length, 3);
+  assert.equal(seeded(suppliers, 'name').length, 3);
   var rawBatches = await (await fetch(base + '/api/raw-batches', { headers: authed(isreal) })).json();
-  assert.equal(rawBatches.length, 3);
+  assert.equal(seeded(rawBatches, 'species').length, 3);
   var products = await (await fetch(base + '/api/products', { headers: authed(isreal) })).json();
-  assert.equal(products.length, 4);
+  assert.equal(seeded(products, 'sku').length, 4);
 });
 
 test('production.create consumes raw stock, adds product stock, blocks over-consumption', async function () {
