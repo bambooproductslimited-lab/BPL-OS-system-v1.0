@@ -202,6 +202,12 @@ async function saveDay(ctx, dateArg, lines) {
   return getDay(ctx, date);
 }
 
+function prevMonth(month) {
+  var y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7)) - 1;
+  if (m < 1) { m = 12; y--; }
+  return y + '-' + String(m).padStart(2, '0');
+}
+
 function daysIn(month) {
   var y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
   var count = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -221,7 +227,7 @@ async function month(ctx, monthArg) {
 
   // An archived product (products.service.js) shows only in the months it has lines.
   var products = (await pool.query(
-    'SELECT id, sku, name, category, unit, current_stock FROM products p WHERE p.active OR EXISTS ' +
+    'SELECT id, sku, name, category, unit, current_stock, selling_price, cost_price, photo_key, photo_updated_at FROM products p WHERE p.active OR EXISTS ' +
     '(SELECT 1 FROM stock_sheet_lines l WHERE l.product_id = p.id AND l.date BETWEEN $1 AND $2) ORDER BY sheet_order NULLS LAST, sku',
     [first, last]
   )).rows;
@@ -232,16 +238,23 @@ async function month(ctx, monthArg) {
   )).rows;
   var byProduct = {};
   var daysWithLines = {};
+  var price = {};
+  products.forEach(function (p) { price[p.id] = Number(p.selling_price); });
   lines.forEach(function (r) {
     (byProduct[r.product_id] = byProduct[r.product_id] || []).push(r);
-    daysWithLines[r.date] = true;
+    var d = daysWithLines[r.date] = daysWithLines[r.date] || { lines: 0, received: 0, sold: 0, breakage: 0, soldValue: 0 };
+    d.lines++;
+    d.received += Number(r.received);
+    d.sold += Number(r.sold);
+    d.breakage += Number(r.breakage);
+    d.soldValue += Number(r.sold) * (price[r.product_id] || 0);
   });
 
   var rows = products.map(function (p) {
     var own = byProduct[p.id] || [];
     var cells = {};
     var totals = { received: 0, transferred: 0, breakage: 0, sold: 0 };
-    var variances = 0;
+    var variances = 0, counted = 0, missing = 0, extra = 0;
     own.forEach(function (r) {
       var l = lineFromRow(r);
       cells[r.date] = { closing: l.closing, expected: l.expected, physical: l.physical, variance: l.variance };
@@ -249,20 +262,38 @@ async function month(ctx, monthArg) {
       totals.transferred += l.transferred;
       totals.breakage += l.breakage;
       totals.sold += l.sold;
+      if (l.physical !== null) counted++;
       if (l.variance) variances++;
+      // A positive variance is stock the sheet expected that was not there.
+      if (l.variance > 0) missing += l.variance; else if (l.variance < 0) extra -= l.variance;
     });
     return {
       productId: p.id, sku: p.sku, name: p.name, category: p.category, unit: p.unit,
+      sellingPrice: Number(p.selling_price), costPrice: Number(p.cost_price),
+      photo: p.photo_key && p.photo_updated_at ? new Date(p.photo_updated_at).getTime() : null,
       opening: own.length ? Number(own[0].opening) : null,
       closing: own.length ? cells[own[own.length - 1].date].closing : null,
-      totals: totals, daysWithVariance: variances, cells: cells
+      totals: totals, daysWithVariance: variances, daysCounted: counted, missing: missing, extra: extra, cells: cells
     };
   });
 
+  // The month before, for "compared with last month".
+  var prevFirst = daysIn(prevMonth(monthStr))[0];
+  var prev = (await pool.query(
+    'SELECT count(DISTINCT l.date)::int AS days, coalesce(sum(l.sold), 0)::float AS sold, coalesce(sum(l.received), 0)::float AS received, ' +
+    'coalesce(sum(l.breakage), 0)::float AS breakage, coalesce(sum(l.sold * p.selling_price), 0)::float AS sold_value ' +
+    'FROM stock_sheet_lines l JOIN products p ON p.id = l.product_id WHERE l.date BETWEEN $1 AND ($2::date - 1)',
+    [prevFirst, first]
+  )).rows[0];
+
   return {
     month: monthStr,
-    days: days.map(function (d) { return { date: d, hasLines: !!daysWithLines[d] }; }),
-    rows: rows
+    days: days.map(function (d) {
+      var t = daysWithLines[d];
+      return { date: d, hasLines: !!t, lines: t ? t.lines : 0, received: t ? t.received : 0, sold: t ? t.sold : 0, breakage: t ? t.breakage : 0, soldValue: t ? t.soldValue : 0 };
+    }),
+    rows: rows,
+    previous: { month: prevMonth(monthStr), days: prev.days, sold: prev.sold, received: prev.received, breakage: prev.breakage, soldValue: prev.sold_value }
   };
 }
 

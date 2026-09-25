@@ -39,3 +39,15 @@ test('a day knows the last day filled in before it, and carries prices for its l
   var line = day.lines.find(function (l) { return l.productId === mats; });
   assert.deepEqual([line.sellingPrice, line.costPrice, line.photo, line.closing], [20, 8, null, 50]);
 });
+
+test('the month adds per-day totals, what went missing at counts, prices and last month', async function () {
+  await svc.saveLine(admin, '2025-02-20', mats, { opening: 54, sold: 4 });
+  var m = await svc.month(admin, '2025-03');
+  var row = m.rows.find(function (r) { return r.productId === mats; });
+  assert.deepEqual([row.missing, row.extra, row.daysCounted, row.sellingPrice, row.costPrice, row.photo], [2, 0, 1, 20, 8, null]);
+  var d10 = m.days.find(function (d) { return d.date === '2025-03-10'; });
+  assert.ok(d10.lines >= 1 && d10.sold >= 5 && d10.received >= 10 && d10.soldValue >= 100);
+  assert.equal(m.days.find(function (d) { return d.date === '2025-03-11'; }).lines, 0);
+  assert.equal(m.previous.month, '2025-02');
+  assert.ok(m.previous.days >= 1 && m.previous.sold >= 4 && m.previous.soldValue >= 80);
+});

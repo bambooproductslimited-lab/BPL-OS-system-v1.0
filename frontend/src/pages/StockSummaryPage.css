@@ -1,102 +1,94 @@
-.stocksummary-intro { margin: 0 0 16px; font-size: 13px; max-width: 80ch; color: var(--color-text-muted); }
-.stocksummary-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-.stocksummary-monthpicker { display: flex; gap: 6px; align-items: center; }
-.stocksummary-monthpicker .input { width: auto; }
-.stocksummary-category { width: auto; min-width: 150px; }
-.stocksummary-check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-.stocksummary-status { font-size: 13px; margin-bottom: 10px; }
-.stocksummary-note { font-size: 13px; color: var(--color-text-muted); padding: 0 12px; }
-.stocksummary-empty {
-  border: var(--divider-width) solid var(--color-divider); padding: 28px; text-align: center;
-  font-size: 13px; color: var(--color-text-muted);
-}
-.stocksummary-empty p { margin: 0 0 12px; }
+/* The monthly stock summary (StockSummaryPage.jsx). Built from the shared
+   dashboard pieces (components/DashKit.css) and the filter chips in
+   EmployeesPage.css; these are the month picker, the strip of months and
+   the wide grid of daily closings. */
 
-.stocksummary-scroll { overflow-x: auto; border: var(--divider-width) solid var(--color-divider); max-width: 100%; }
-.stocksummary-table th { padding-top: 10px; white-space: nowrap; }
-.stocksummary-table td { padding: 7px 8px; vertical-align: middle; }
-.stocksummary-item {
-  position: sticky; left: 0; z-index: 1;
-  background: var(--color-bg);
-  min-width: 200px; max-width: 260px;
-  border-right: var(--divider-width) solid var(--color-divider);
+.sm { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.sm-monthpicker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sm-monthpicker .input { width: auto; }
+
+/* the months on record */
+.sm-months { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.sm-month {
+  flex: 1 0 76px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 6px; border-radius: var(--dk-r); border: 1px solid var(--color-border); background: var(--color-bg);
+  color: var(--color-text); font: inherit; cursor: pointer;
 }
-.stocksummary-name { font-weight: 600; font-size: 13px; }
-.stocksummary-meta { font-size: 11px; color: var(--color-text-faint); margin-top: 2px; }
-.stocksummary-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.stocksummary-day a { color: inherit; }
-.stocksummary-day.is-empty { opacity: 0.45; }
-.stocksummary-blank { background: var(--color-bg-subtle); }
-.stocksummary-total { background: var(--color-bg-subtle); }
-.stocksummary-table td.has-variance {
-  color: var(--color-danger); font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--color-danger);
-  cursor: help;
+.sm-month:hover { border-color: var(--color-accent); }
+.sm-month-name { font-size: 12.5px; font-weight: 800; text-transform: capitalize; white-space: nowrap; }
+.sm-month-bar { display: block; width: 80%; height: 5px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 10%, transparent); overflow: hidden; }
+.sm-month-bar > span { display: block; height: 100%; background: var(--dk-warn); }
+.sm-month.is-full .sm-month-bar > span { background: var(--color-accent); }
+.sm-month-days { font-size: 11px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.sm-month.is-empty .sm-month-days { color: var(--dk-warn); font-weight: 700; }
+.sm-month.is-current { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg)); box-shadow: inset 0 0 0 1px var(--color-accent); }
+
+.sm-gap {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding: 12px 16px; border-radius: var(--dk-r);
+  border: 1px solid color-mix(in srgb, var(--dk-warn) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--dk-warn) 8%, var(--color-bg)); font-size: 13px;
+}
+.sm-gap p { margin: 0; flex: 1 1 320px; }
+.sm-gap-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sm-charts > .dk-section { min-width: 0; }
+
+.sm-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sm-search { flex: 1 1 260px; min-width: 0; }
+.sm-search .search-input-wrap { max-width: none; }
+.sm-tools .sm-select { width: auto; min-width: 170px; flex: 0 1 auto; }
+.sm-check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; cursor: pointer; }
+.sm-check input { width: auto; accent-color: var(--color-accent); }
+.sm-empty { justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.sm-empty p { margin: 0; flex: 1 1 260px; }
+.sm-note { padding: 16px; margin: 0; }
+
+/* the grid: it scrolls inside its box, the item column and headings stay */
+.sm-scroll {
+  overflow: auto; max-height: calc(100vh - 150px); max-height: calc(100dvh - 150px);
+  border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg);
+}
+.sm-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+.sm-table th {
+  position: sticky; top: 0; z-index: 2; padding: 9px 8px; white-space: nowrap;
+  font-size: 11.5px; font-weight: 700; color: var(--color-text-muted);
+  background: var(--color-bg); border-bottom: 1px solid var(--color-border);
+}
+.sm-table td { padding: 6px 8px; vertical-align: middle; border-top: 1px solid var(--color-divider); }
+.sm-table tbody tr:first-child td { border-top: none; }
+.sm-table tbody tr:hover td { background-color: color-mix(in srgb, var(--color-accent) 5%, var(--color-bg)); }
+.sm-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--color-bg-subtle); border-top: 1px solid var(--color-border); font-weight: 700; }
+.sm-table tfoot td.sm-item { z-index: 3; }
+.sm-table th.sm-item { left: 0; z-index: 3; text-align: left; }
+.sm-item {
+  position: sticky; left: 0; z-index: 1; background: var(--color-bg);
+  min-width: 210px; max-width: 260px; border-right: 1px solid var(--color-divider);
+}
+.sm-item-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sm-item-text { min-width: 0; }
+.sm-name { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.sm-meta { font-size: 11px; color: var(--color-text-faint); margin-top: 2px; }
+.sm-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sm-day a { color: inherit; text-decoration: none; display: inline-block; min-width: 20px; }
+.sm-day a:hover { color: var(--color-accent); text-decoration: underline; }
+.sm-day.is-empty { opacity: 0.45; }
+.sm-blank { background: var(--color-bg-subtle); }
+.sm-total { background: var(--color-bg-subtle); }
+th.sm-total { background: var(--color-bg-subtle); }
+.sm-table td.is-short { color: var(--color-danger); font-weight: 700; background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
+.sm-table td.is-over { color: #2a78d6; font-weight: 700; background: color-mix(in srgb, #2a78d6 9%, transparent); }
+:root[data-theme='dark'] .sm-table td.is-over { color: #5ea2f0; }
+.sm-table td.is-counted { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--color-accent) 70%, transparent); text-underline-offset: 3px; }
+
+@media (max-width: 640px) {
+  .sm-tools .sm-select { flex: 1 1 150px; min-width: 0; }
+  .sm-item { min-width: 150px; }
+  .sm-item .photo { display: none; }
 }
 
-/* ── the strip of months ───────────────────────────────────────────── */
-.stocksummary-months {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 2px 2px 8px;
-  margin-bottom: 12px;
-  scrollbar-width: thin;
-}
-.stocksummary-month {
-  flex: none;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  gap: 2px 10px;
-  min-width: 108px;
-  padding: 8px 12px 10px;
-  font: inherit;
-  text-align: left;
-  color: var(--color-text);
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius, 0px) * 0.6);
-  cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
-}
-.stocksummary-month:hover { border-color: var(--color-accent); }
-.stocksummary-month:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.stocksummary-month.is-current {
-  border-color: var(--color-accent);
-  background: var(--color-accent-100);
-  box-shadow: 0 0 0 1px var(--color-accent);
-}
-.stocksummary-month-name { font-weight: 700; font-size: 13px; text-transform: capitalize; }
-.stocksummary-month-days { font-size: 11px; font-weight: 600; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
-.stocksummary-month-bar {
-  grid-column: 1 / -1;
-  height: 4px;
-  margin-top: 6px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--color-text) 12%, transparent);
-  overflow: hidden;
-}
-.stocksummary-month-bar span { display: block; height: 100%; border-radius: 2px; background: var(--color-warning); }
-.stocksummary-month.is-full .stocksummary-month-bar span { background: var(--color-accent); }
-.stocksummary-month.is-empty { border-style: dashed; }
-.stocksummary-month.is-empty .stocksummary-month-name { color: var(--color-text-muted); }
-
-/* ── a month with days missing ─────────────────────────────────────── */
-.stocksummary-gap {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
-  font-size: 13px;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 55%, var(--color-border));
-  border-left: 3px solid var(--color-warning);
-  background: var(--color-warning-100);
-  border-radius: calc(var(--radius, 0px) * 0.6);
-}
-.stocksummary-gap > div { flex: 1 1 360px; }
-@media (prefers-reduced-motion: reduce) { .stocksummary-month { transition: none; } }
-.stocksummary-gap-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* a month of days in the chart: narrower gaps, and every other label when
+   there are more than a dozen days */
+.sm-charts .dk-pairs-chart { gap: 2px; }
+.sm-charts .dk-pairs-bars { gap: 1px; }
+.sm-charts .dk-pairs-label { font-size: 10px; overflow: visible; text-overflow: clip; }
+.sm-charts .dk-pairs-col:first-child:nth-last-child(n+13) ~ .dk-pairs-col:nth-child(even) .dk-pairs-label { visibility: hidden; }
