@@ -1,5 +1,6 @@
+var { pool, withTransaction } = require('../db/pool');
 var { V } = require('../utils/validate');
-var { AppError } = require('../utils/errors');
+var { AppError, fail } = require('../utils/errors');
 var claude = require('../ai/claude');
 var tools = require('../ai/tools');
 var actions = require('../ai/actions');
@@ -86,8 +87,23 @@ async function runTool(ctx, allowed, block, offers) {
   }
 }
 
-async function chat(ctx, message, history) {
+// One question from the person. With a conversationId the earlier turns
+// come from that saved conversation (only the person's own); without one a
+// new conversation is started. Either way the question and the answer are
+// saved, with the ids of any changes prepared, and the conversation comes
+// back so the screen can keep adding to it. A client-sent history is still
+// accepted for a conversation not saved yet.
+async function chat(ctx, message, history, conversationId) {
   var text = V.text(message, 'Message', 2000);
+  var convo = conversationId ? await ownConversation(ctx, conversationId) : null;
+  if (convo) history = await historyFor(ctx, convo.id);
+  var out = await answer(ctx, text, history);
+  if (!claude.configured()) return out;
+  convo = await saveTurn(ctx, convo, text, out);
+  return Object.assign(out, { conversation: { id: convo.id, title: convo.title } });
+}
+
+async function answer(ctx, text, history) {
 
   if (!claude.configured()) {
     return { reply: 'The AI assistant needs an ANTHROPIC_API_KEY configured on the server, which is not set for this environment.', actions: [] };
@@ -141,4 +157,118 @@ async function chat(ctx, message, history) {
   }
 }
 
-module.exports = { chat: chat, SYSTEM_PROMPT: SYSTEM_PROMPT, MAX_STEPS: MAX_STEPS };
+// ── saved conversations ─────────────────────────────────────────────
+function titleFrom(text) {
+  var line = String(text).replace(/\s+/g, ' ').trim();
+  return line.length > 70 ? line.slice(0, 67).replace(/\s+\S*$/, '') + '…' : line;
+}
+async function ownConversation(ctx, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) fail('notfound', 'That conversation was not found.');
+  var row = (await pool.query('SELECT * FROM ai_conversations WHERE id = $1 AND user_id = $2', [id, ctx.user.id])).rows[0];
+  if (!row) fail('notfound', 'That conversation was not found.');
+  return row;
+}
+// The saved turns as the history Claude is sent, each prepared change
+// noted with how it ended so Claude doesn't offer it twice.
+async function historyFor(ctx, convoId) {
+  await actions.expireOld(ctx);
+  var rows = (await pool.query('SELECT role, text, action_ids FROM ai_messages WHERE conversation_id = $1 ORDER BY id', [convoId])).rows;
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var cards = await actions.cards(ctx, rows[i].action_ids);
+    var t = rows[i].text;
+    if (cards.length) t += '\n\n' + cards.map(function (a) { return '[Prepared: ' + a.summary + ' — ' + a.status + (a.result ? ': ' + a.result : '') + ']'; }).join('\n');
+    out.push({ role: rows[i].role, text: t });
+  }
+  return out;
+}
+async function saveTurn(ctx, convo, text, out) {
+  var ids = (out.actions || []).map(function (a) { return a.id; });
+  return withTransaction(async function (client) {
+    if (!convo) convo = (await client.query('INSERT INTO ai_conversations (user_id, title) VALUES ($1,$2) RETURNING *', [ctx.user.id, titleFrom(text)])).rows[0];
+    else await client.query('UPDATE ai_conversations SET updated_at = now() WHERE id = $1', [convo.id]);
+    await client.query("INSERT INTO ai_messages (conversation_id, role, text) VALUES ($1,'user',$2)", [convo.id, text]);
+    await client.query("INSERT INTO ai_messages (conversation_id, role, text, action_ids) VALUES ($1,'assistant',$2,$3::uuid[])", [convo.id, out.reply, ids]);
+    if (ids.length) await client.query('UPDATE ai_actions SET conversation_id = $1 WHERE id = ANY($2::uuid[]) AND user_id = $3', [convo.id, ids, ctx.user.id]);
+    return convo;
+  });
+}
+
+async function listConversations(ctx) {
+  await actions.expireOld(ctx);
+  var res = await pool.query(
+    'SELECT c.*, (SELECT count(*) FROM ai_messages m WHERE m.conversation_id = c.id AND m.role = \'user\')::int AS questions, ' +
+    "  (SELECT count(*) FROM ai_actions a WHERE a.conversation_id = c.id AND a.status = 'pending')::int AS pending " +
+    'FROM ai_conversations c WHERE c.user_id = $1 ORDER BY c.updated_at DESC LIMIT 100', [ctx.user.id]);
+  return res.rows.map(function (r) { return { id: r.id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at, questions: r.questions, pending: r.pending }; });
+}
+async function getConversation(ctx, id) {
+  var c = await ownConversation(ctx, id);
+  await actions.expireOld(ctx);
+  var rows = (await pool.query('SELECT * FROM ai_messages WHERE conversation_id = $1 ORDER BY id', [c.id])).rows;
+  var messages = [];
+  for (var i = 0; i < rows.length; i++) messages.push({ role: rows[i].role, text: rows[i].text, createdAt: rows[i].created_at, actions: await actions.cards(ctx, rows[i].action_ids) });
+  return { id: c.id, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at, messages: messages };
+}
+async function renameConversation(ctx, id, title) {
+  var c = await ownConversation(ctx, id);
+  var t = V.text(title, 'Name', 120);
+  await pool.query('UPDATE ai_conversations SET title = $2 WHERE id = $1', [c.id, t]);
+  return { id: c.id, title: t };
+}
+// Deleting a conversation removes its messages. The record of changes made
+// through it stays (ai_actions, and the audit log) — it just loses the link.
+async function deleteConversation(ctx, id) {
+  var c = await ownConversation(ctx, id);
+  await pool.query('DELETE FROM ai_conversations WHERE id = $1', [c.id]);
+  return { ok: true };
+}
+
+// ── the page's overview ─────────────────────────────────────────────
+// Whether the assistant is switched on, what it can look up and do for
+// this person's role, how they have used it, changes waiting for their
+// Confirm, the latest changes it made or prepared (on this screen or
+// through the Claude connector), and the Claude apps connected as them.
+async function overview(ctx) {
+  await actions.expireOld(ctx);
+  var uid = ctx.user.id;
+  var q = (await pool.query(
+    "SELECT count(*) FILTER (WHERE m.created_at >= date_trunc('month', now()))::int AS month, count(*)::int AS total, " +
+    "  count(*) FILTER (WHERE m.created_at >= now() - interval '7 days')::int AS week " +
+    "FROM ai_messages m JOIN ai_conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.role = 'user'", [uid])).rows[0];
+  var a = (await pool.query(
+    "SELECT count(*) FILTER (WHERE status = 'done')::int AS done, count(*) FILTER (WHERE status = 'done' AND decided_at >= date_trunc('month', now()))::int AS done_month, " +
+    "  count(*) FILTER (WHERE status = 'done' AND source = 'connector')::int AS by_connector, count(*) FILTER (WHERE status = 'failed')::int AS failed, " +
+    "  count(*) FILTER (WHERE status IN ('cancelled', 'expired'))::int AS dropped FROM ai_actions WHERE user_id = $1", [uid])).rows[0];
+  var conversations = (await pool.query('SELECT count(*)::int AS n FROM ai_conversations WHERE user_id = $1', [uid])).rows[0].n;
+  var pending = (await pool.query("SELECT * FROM ai_actions WHERE user_id = $1 AND status = 'pending' ORDER BY created_at", [uid])).rows.map(actions.toCard);
+  var recent = (await pool.query('SELECT * FROM ai_actions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30', [uid])).rows.map(actions.toCard);
+  var conn = (await pool.query(
+    "SELECT t.client_id, c.info, min(t.created_at) AS since, max(t.created_at) AS last_used FROM mcp_oauth_tokens t JOIN mcp_oauth_clients c ON c.client_id = t.client_id " +
+    'WHERE t.user_id = $1 GROUP BY t.client_id, c.info HAVING bool_or(t.revoked_at IS NULL AND t.expires_at > now()) ORDER BY max(t.created_at) DESC', [uid])).rows;
+  return {
+    configured: claude.configured(),
+    expiresAfterMinutes: actions.EXPIRES_AFTER_MINUTES,
+    tools: tools.toolsFor(ctx).map(function (t) { return { name: t.name, kind: t.kind }; }),
+    stats: {
+      questionsThisMonth: q.month, questionsThisWeek: q.week, questions: q.total, conversations: conversations,
+      done: a.done, doneThisMonth: a.done_month, doneByConnector: a.by_connector, failed: a.failed, dropped: a.dropped
+    },
+    pending: pending,
+    recent: recent,
+    connections: conn.map(function (r) { return { clientId: r.client_id, name: (r.info && r.info.client_name) || 'Claude', since: r.since, lastUsed: r.last_used }; })
+  };
+}
+
+// Stops a Claude app reaching the OS as this person: every token it holds
+// for them is revoked. Connecting again needs a fresh sign-in.
+async function disconnect(ctx, clientId) {
+  var res = await pool.query('UPDATE mcp_oauth_tokens SET revoked_at = now() WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL', [ctx.user.id, String(clientId || '')]);
+  if (!res.rowCount) fail('notfound', 'That connection was not found.');
+  return { ok: true };
+}
+
+module.exports = {
+  overview: overview, listConversations: listConversations, getConversation: getConversation, renameConversation: renameConversation,
+  deleteConversation: deleteConversation, disconnect: disconnect,
+  chat: chat, SYSTEM_PROMPT: SYSTEM_PROMPT, MAX_STEPS: MAX_STEPS };

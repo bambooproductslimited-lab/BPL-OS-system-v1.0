@@ -146,7 +146,13 @@ var ALLOWED = {
   'POST /oauth/login': "the Claude connector's sign-in form — public like the login screen; issues nothing without a signed /authorize request and the person's own email and password (claudeConnector.test.js)",
   'POST /api/ai/chat': "assistant; each of Claude's tools runs with the caller's own permissions, asserted below",
   'POST /api/ai/actions/:id/confirm': "confirms a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)",
-  'POST /api/ai/actions/:id/cancel': "cancels a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)"
+  'POST /api/ai/actions/:id/cancel': "cancels a change the assistant prepared for the caller; anyone else's is 404 (aiAssistant.test.js)",
+  'GET /api/ai/overview': "the assistant page's overview of the caller's own use; the tools listed are only those the caller's permissions allow (aiConversations.test.js)",
+  'GET /api/ai/conversations': "the caller's own saved conversations only (aiConversations.test.js)",
+  'GET /api/ai/conversations/:id': "one of the caller's own conversations; anyone else's is 404 (aiConversations.test.js)",
+  'PATCH /api/ai/conversations/:id': "renames one of the caller's own conversations; anyone else's is 404 (aiConversations.test.js)",
+  'DELETE /api/ai/conversations/:id': "deletes one of the caller's own conversations; anyone else's is 404 (aiConversations.test.js)",
+  'DELETE /api/ai/connections/:clientId': "disconnects a Claude app connected as the caller; nobody else's (aiConversations.test.js)"
 };
 
 // ---------------------------------------------------------------------------

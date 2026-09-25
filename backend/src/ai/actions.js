@@ -15,7 +15,27 @@ var tools = require('./tools');
 var EXPIRES_AFTER_MINUTES = 30;
 
 function toCard(row) {
-  return { id: row.id, tool: row.tool, summary: row.summary, status: row.status, result: row.result || null };
+  return {
+    id: row.id, tool: row.tool, summary: row.summary, status: row.status, result: row.result || null,
+    source: row.source || 'assistant', conversationId: row.conversation_id || null, createdAt: row.created_at, decidedAt: row.decided_at || null
+  };
+}
+
+// Offers nobody answered in time are marked expired, so lists and cards
+// read the truth without waiting for someone to press the button.
+async function expireOld(ctx) {
+  await pool.query(
+    "UPDATE ai_actions SET status = 'expired', decided_at = now() WHERE user_id = $1 AND status = 'pending' AND created_at <= now() - make_interval(mins => $2)",
+    [ctx.user.id, EXPIRES_AFTER_MINUTES]);
+}
+
+// The cards for these ids, as they stand now, in the order given.
+async function cards(ctx, ids) {
+  if (!ids || !ids.length) return [];
+  var rows = (await pool.query('SELECT * FROM ai_actions WHERE user_id = $1 AND id = ANY($2::uuid[])', [ctx.user.id, ids])).rows;
+  var byId = {};
+  rows.forEach(function (r) { byId[r.id] = toCard(r); });
+  return ids.map(function (id) { return byId[id]; }).filter(Boolean);
 }
 
 async function offer(ctx, toolName, prepared) {
@@ -95,4 +115,4 @@ async function cancel(ctx, id) {
   }
 }
 
-module.exports = { offer: offer, confirm: confirm, cancel: cancel, runNow: runNow, EXPIRES_AFTER_MINUTES: EXPIRES_AFTER_MINUTES };
+module.exports = { offer: offer, expireOld: expireOld, cards: cards, toCard: toCard, confirm: confirm, cancel: cancel, runNow: runNow, EXPIRES_AFTER_MINUTES: EXPIRES_AFTER_MINUTES };

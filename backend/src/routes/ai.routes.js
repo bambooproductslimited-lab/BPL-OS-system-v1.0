@@ -11,7 +11,29 @@ router.use(requireAuth);
 // (no perm) — every signed-in user can ask. What Claude can look up or
 // prepare is decided per tool by the asker's own permissions (src/ai/tools.js).
 router.post('/chat', async function (req, res, next) {
-  try { res.json(await aiService.chat(req.ctx, req.body.message, req.body.history)); } catch (e) { next(e); }
+  try { res.json(await aiService.chat(req.ctx, req.body.message, req.body.history, req.body.conversationId)); } catch (e) { next(e); }
+});
+
+// The page's overview, and the person's own saved conversations — nobody
+// else's, whatever their role.
+router.get('/overview', async function (req, res, next) {
+  try { res.json(await aiService.overview(req.ctx)); } catch (e) { next(e); }
+});
+router.get('/conversations', async function (req, res, next) {
+  try { res.json(await aiService.listConversations(req.ctx)); } catch (e) { next(e); }
+});
+router.get('/conversations/:id', async function (req, res, next) {
+  try { res.json(await aiService.getConversation(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.patch('/conversations/:id', async function (req, res, next) {
+  try { res.json(await aiService.renameConversation(req.ctx, req.params.id, req.body.title)); } catch (e) { next(e); }
+});
+router.delete('/conversations/:id', async function (req, res, next) {
+  try { res.json(await aiService.deleteConversation(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+// Cuts off a Claude app connected as this person (the connector).
+router.delete('/connections/:clientId', async function (req, res, next) {
+  try { res.json(await aiService.disconnect(req.ctx, req.params.clientId)); } catch (e) { next(e); }
 });
 
 // The Confirm / Cancel buttons on a change the assistant prepared. Only the
