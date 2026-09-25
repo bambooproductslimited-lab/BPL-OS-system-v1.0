@@ -101,8 +101,8 @@ async function decide(ctx, id, decision, note) {
     var decidedAt = new Date();
     var updated = await client.query('UPDATE expenses SET status = $1, decided_by = $2, decided_at = $3, decision_note = $4 WHERE id = $5 RETURNING *', [decision, ctx.employee.id, decidedAt, note, id]);
     await client.query(
-      "UPDATE approvals SET status = $1, decided_by = $2, decided_at = $3 WHERE subject_type = 'expense' AND subject_id = $4 AND status = 'pending'",
-      [decision, ctx.employee.id, decidedAt, id]
+      "UPDATE approvals SET status = $1, decided_by = $2, decided_at = $3, comment = $5 WHERE subject_type = 'expense' AND subject_id = $4 AND status = 'pending'",
+      [decision, ctx.employee.id, decidedAt, id, note]
     );
     await notify(client, e.requester_id, 'Expense claim ' + decision, e.category + ' claim of GHS ' + Number(e.amount).toLocaleString() + ' was ' + decision + '.' + (note ? ' ' + note : ''), 'expenses');
     await audit(client, ctx, 'expense.decide', 'expense', id, decision.charAt(0).toUpperCase() + decision.slice(1) + ' expense claim (GHS ' + Number(e.amount).toLocaleString() + ').');

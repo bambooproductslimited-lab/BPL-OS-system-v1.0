@@ -10,4 +10,9 @@ router.get('/queue', async function (req, res, next) {
   try { res.json(await approvalsService.queue(req.ctx, { companyId: req.query.companyId, departmentId: req.query.departmentId })); } catch (e) { next(e); }
 });
 
+// What was decided in the last 90 days among the requests the caller could decide.
+router.get('/history', async function (req, res, next) {
+  try { res.json(await approvalsService.history(req.ctx, { companyId: req.query.companyId, departmentId: req.query.departmentId })); } catch (e) { next(e); }
+});
+
 module.exports = router;
