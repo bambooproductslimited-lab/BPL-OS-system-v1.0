@@ -1,290 +1,114 @@
-/* ── animations — same restrained, quick (0.15-0.3s) fade/slide vocabulary
-   already used by Login/Kiosk/Messages (login-fade-up, kiosk-fade-in,
-   messages-bubble-in), scoped to this page rather than touching the
-   shared theme.css classes every other page's dialogs/toasts also use. */
-@keyframes restaurants-fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes restaurants-backdrop-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes restaurants-dialog-pop {
-  from { opacity: 0; transform: translateY(10px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.restaurants-dialog-backdrop { animation: restaurants-backdrop-fade 0.15s ease-out; }
-.restaurants-dialog-pop { animation: restaurants-dialog-pop 0.2s cubic-bezier(0.2, 0.9, 0.3, 1); }
+/* Restaurants (RestaurantsPage.jsx). Built from the shared dashboard pieces
+   (components/DashKit.css), the chips in EmployeesPage.css and the tool
+   room's cards, forms and windows (ToolRoomPage.css); these are the view
+   tabs, the bar charts, the menu dishes, the order and drawer lists, tables
+   and guests, and the receipt-style windows. */
 
-/* Brief highlight after an edit/void succeeds, so the eye catches what
-   just changed instead of a save silently landing somewhere in a long
-   list. Ends at transparent, not the card's own background, so it works
-   the same whether or not that row/card is also mid-hover. */
-@keyframes restaurants-flash {
-  0% { background-color: var(--color-accent-100); }
-  100% { background-color: transparent; }
-}
-.restaurants-flash { animation: restaurants-flash 1s ease-out; }
+.rs-square { padding: 10px 14px; border-radius: var(--dk-r); background: var(--color-bg-subtle); font-size: 13px; }
+.rs-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.rs-danger { color: var(--color-danger); }
+.rs-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.restaurants-brand-logo { display: block; height: 44px; width: auto; margin-bottom: 10px; animation: restaurants-fade-up 0.2s ease-out both; }
-.restaurants-company-seg { margin-bottom: 16px; width: fit-content; }
-.restaurants-company-seg .seg-opt, .restaurants-toolbar .seg-opt { transition: background-color 0.15s ease, color 0.15s ease; }
-.restaurants-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-.restaurants-row-btn { font-size: 12px; padding: 6px 10px; margin-left: 6px; }
-.checkbox-field { display: flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap; cursor: pointer; }
-.restaurants-hide-disabled { color: var(--color-text-muted); }
-.restaurants-lowstock { margin-left: 6px; }
-.restaurants-stock-current { font-size: 13px; color: var(--color-text-muted); margin: 0 0 4px; }
-.restaurants-square-result { font-size: 13px; color: var(--color-text-muted); margin: -8px 0 16px; }
-.restaurants-date-filter { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text-muted); }
-.restaurants-date-filter .input { padding: 6px 10px; font-size: 13px; }
-.restaurants-pager { display: flex; align-items: center; gap: 12px; margin-top: 14px; font-size: 13px; color: var(--color-text-muted); }
+/* the five views */
+.rs-views { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; border-radius: calc(var(--dk-r) + 4px); background: var(--color-bg-subtle); align-self: flex-start; max-width: 100%; }
+.rs-view { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: none; border-radius: var(--dk-r); background: none; color: var(--color-text-muted); font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.rs-view:hover { color: var(--color-text); }
+.rs-view.is-on { background: var(--color-bg); color: var(--color-text); box-shadow: 0 1px 3px color-mix(in srgb, var(--color-text) 14%, transparent); }
 
-.restaurants-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 48px 0;
-  color: var(--color-text-muted);
+/* bar charts: one series, today highlighted, figures on hover/focus */
+.rs-bars { position: relative; display: flex; align-items: stretch; gap: 2px; height: 180px; padding-top: 18px; }
+.rs-bars-max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
+.rs-bars::before { content: ''; position: absolute; left: 0; right: 0; top: 18px; border-top: 1px dashed var(--color-divider); }
+.rs-bar-col { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; outline: none; }
+.rs-bar-track { flex: 1; display: flex; align-items: flex-end; border-bottom: 1px solid var(--color-border); }
+.rs-bar { display: block; width: 100%; max-width: 28px; margin: 0 auto; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--color-accent) 55%, var(--color-bg)); }
+.rs-bar-col.is-current .rs-bar { background: var(--color-accent); }
+.rs-bar-col:hover .rs-bar, .rs-bar-col:focus-visible .rs-bar { background: var(--color-accent-700, var(--color-accent)); }
+.rs-bar-label { height: 14px; font-size: 10.5px; color: var(--color-text-muted); white-space: nowrap; overflow: visible; text-align: center; }
+.rs-bar-tip {
+  position: absolute; bottom: calc(100% - 10px); left: 50%; z-index: 4; transform: translateX(-50%);
+  padding: 6px 9px; border-radius: 8px; background: var(--color-text); color: var(--color-bg);
+  font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.12s;
 }
-.restaurants-empty-icon {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-faint);
-}
-.restaurants-empty-icon svg { width: 100%; height: 100%; }
-.restaurants-empty-title { font-size: 13px; margin: 0; }
-.restaurants-empty-state { animation: restaurants-fade-up 0.25s ease-out; }
+.rs-bar-col:first-child .rs-bar-tip, .rs-bar-col:nth-child(2) .rs-bar-tip, .rs-bar-col:nth-child(3) .rs-bar-tip { left: 0; transform: none; }
+.rs-bar-col:nth-last-child(2) .rs-bar-tip, .rs-bar-col:nth-last-child(3) .rs-bar-tip, .rs-bar-col:nth-last-child(4) .rs-bar-tip { left: auto; right: 0; transform: none; }
+.rs-bar-col:hover .rs-bar-tip, .rs-bar-col:focus-visible .rs-bar-tip { opacity: 1; }
 
-/* Content below the tab bar fades/slides in fresh on every tab switch —
-   the key={tab} on this wrapper (RestaurantsPage.jsx) forces a remount so
-   the animation replays each time, not just on first page load. */
-.restaurants-tab-content { animation: restaurants-fade-up 0.22s ease-out; }
+/* orders and drawers */
+.rs-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rs-filter .input { width: auto; }
+.rs-filter-sum { margin-left: auto; }
+.rs-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg); overflow: hidden; }
+.rs-row { position: relative; display: flex; align-items: center; }
+.rs-row + .rs-row { border-top: 1px solid var(--color-divider); }
+.rs-row.is-void { opacity: 0.6; }
+.rs-row.is-short { box-shadow: inset 3px 0 0 var(--color-danger); }
+.rs-row-open { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: none; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rs-row-open:hover { background: var(--color-bg-subtle); }
+.rs-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rs-row-main strong { overflow-wrap: anywhere; }
+.rs-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+.rs-row-menu { padding-right: 8px; }
+.rs-row-menu .row-menu-btn { width: 28px; height: 28px; }
+.rs-pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
-/* ── stat tiles — same "icon chip + value + label" vocabulary as
-   Dashboard's KPI tiles / Projects' summary tiles ─────────────────────── */
-.restaurants-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
-  margin-bottom: 20px;
-}
-/* Sales' Revenue figure can run long (real Square-imported totals, e.g.
-   "GHS 18,123,349.49") — a wider minimum column keeps it from wrapping
-   awkwardly or crowding the tile next to it. */
-.restaurants-stats-wide { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
-.restaurants-stat-tile {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: var(--divider-width) solid var(--color-divider);
-  padding: 12px 14px;
-  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
-}
-.restaurants-stat-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); border-color: var(--tile-tone); }
-.restaurants-stat-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--tile-tone) 14%, var(--color-bg));
-  color: var(--tile-tone);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.restaurants-stat-icon svg { width: 16px; height: 16px; }
-.restaurants-stat-tile-people { --tile-tone: var(--color-accent); }
-.restaurants-stat-tile-ops { --tile-tone: #3f5a7d; }
-.restaurants-stat-tile-warning { --tile-tone: var(--color-warning); }
-.restaurants-stat-tile-danger { --tile-tone: var(--color-danger); }
-.restaurants-stat-text { min-width: 0; }
-.restaurants-stat-value { font-family: var(--font-heading); font-weight: 800; font-size: 20px; line-height: 1.15; overflow-wrap: break-word; }
-.restaurants-stat-label { font-size: 10.5px; color: var(--color-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the menu */
+.rs-group { display: flex; flex-direction: column; gap: 10px; }
+.rs-group + .rs-group { margin-top: 6px; }
+.rs-group-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
+.rs-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; }
+.rs-dish { position: relative; display: flex; gap: 12px; align-items: flex-start; min-width: 0; padding: 12px; padding-right: 40px; border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg); }
+.rs-dish.is-off { opacity: 0.6; }
+.rs-dish-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rs-dish-name { font-weight: 700; overflow-wrap: anywhere; }
+.rs-dish-price { font-weight: 700; color: var(--color-accent-700); font-variant-numeric: tabular-nums; }
+:root[data-theme='dark'] .rs-dish-price { color: var(--color-accent); }
+.rs-dish-vars { overflow-wrap: anywhere; }
+.rs-sold { color: var(--color-text); font-weight: 600; }
+.rs-dish-menu { position: absolute; top: 8px; right: 8px; }
+.rs-dish-menu .row-menu-btn { width: 28px; height: 28px; }
+.rs-plate { flex: none; border-radius: 12px; object-fit: cover; background: var(--color-bg-subtle); }
+.rs-plate.is-empty { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; font-family: var(--font-heading); font-size: 22px; font-weight: 700; color: var(--color-text-faint); border: 1px dashed var(--color-border); }
+.tl-badge.is-food { --b: #c2571a; }
 
-/* ── menu — grouped card grid instead of a plain table. The 2px gap on a
-   divider-colored background (rather than a border per card) draws thin
-   hairlines between cards without doubling up borders at shared edges —
-   same trick Projects' card grid already uses. ──────────────────────── */
-.restaurants-menu-group { margin-bottom: 28px; }
-.restaurants-menu-category {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin: 0 0 10px;
-  padding: 4px 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: color 0.12s ease;
-}
-.restaurants-menu-category:hover { color: var(--color-text); }
-.restaurants-menu-category-chevron { width: 13px; height: 13px; flex-shrink: 0; transition: transform 0.2s ease; }
-.restaurants-menu-category-chevron-collapsed { transform: rotate(-90deg); }
-.restaurants-menu-category-count { color: var(--color-text-faint); font-weight: 600; }
+/* tables and guests */
+.rs-tables { display: flex; flex-wrap: wrap; gap: 8px; }
+.rs-table { display: inline-flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg); font-size: 13px; }
+.rs-table.is-off { opacity: 0.6; border-style: dashed; }
+.rs-table .row-menu-btn { width: 26px; height: 26px; }
+.rs-guest-search { margin-bottom: 8px; }
+.rs-guests { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rs-guests li { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.rs-guests li + li { border-top: 1px solid var(--color-divider); }
+.rs-guest-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rs-guest-main strong { overflow-wrap: anywhere; }
+.rs-guests .row-menu-btn { width: 28px; height: 28px; }
 
-/* Animating to/from "auto" height via a grid-template-rows fr transition —
-   the collapsed body never needs JS to measure scrollHeight. */
-.restaurants-menu-group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.25s ease; }
-.restaurants-menu-group-collapsed { grid-template-rows: 0fr; }
-.restaurants-menu-group-body-inner { overflow: hidden; min-height: 0; }
-.restaurants-menu-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 2px;
-  background: var(--color-divider);
-  border: var(--divider-width) solid var(--color-divider);
-}
-.restaurants-menu-card {
-  background: var(--color-bg);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: box-shadow 0.15s ease;
-  animation: restaurants-fade-up 0.25s ease-out both;
-}
-.restaurants-menu-card:hover { box-shadow: inset 0 0 0 var(--divider-width) var(--color-accent); }
-/* Stagger the first handful of cards in each group so the grid cascades in
-   rather than popping all at once; a grid can run into the hundreds at
-   Square-import scale, so the delay is capped rather than scaling forever. */
-.restaurants-menu-card:nth-child(2) { animation-delay: 0.02s; }
-.restaurants-menu-card:nth-child(3) { animation-delay: 0.04s; }
-.restaurants-menu-card:nth-child(4) { animation-delay: 0.06s; }
-.restaurants-menu-card:nth-child(5) { animation-delay: 0.08s; }
-.restaurants-menu-card:nth-child(n+6) { animation-delay: 0.1s; }
-.restaurants-menu-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-.restaurants-menu-card-name { font-family: var(--font-heading); font-weight: 800; font-size: 15px; line-height: 1.3; }
-.restaurants-menu-card-price { font-size: 15px; font-weight: 600; color: var(--color-accent-700); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.restaurants-menu-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.restaurants-menu-card-actions .restaurants-row-btn { margin-left: 0; }
+/* windows: menu item photo and variations, receipt lines */
+.rs-photo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rs-photo img { width: 72px; height: 72px; border-radius: 12px; object-fit: cover; }
+.rs-photo-acts { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rs-photo-acts input { max-width: 100%; font-size: 12.5px; }
+.rs-vars { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rs-vars li { display: flex; align-items: center; gap: 8px; }
+.rs-vars li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rs-var-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.rs-var-add .input { flex: 1 1 120px; width: auto; min-width: 0; }
+.rs-lines { list-style: none; margin: 0; padding: 0; border: 1px solid var(--color-border); border-radius: var(--dk-r); overflow: hidden; font-size: 13.5px; }
+.rs-lines li { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 8px 12px; }
+.rs-lines li + li { border-top: 1px solid var(--color-divider); }
+.rs-lines li strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rs-lines li > span:first-child { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.rs-lines .rs-total { background: var(--color-bg-subtle); font-weight: 700; }
+.rs-lines .rs-total strong { font-size: 15px; }
 
-/* A card with price variations is clickable (mouse + keyboard, see the
-   role="button"/tabIndex in the JSX) to expand them inline right in the
-   grid — the common case ("what does M vs L actually cost") shouldn't
-   need the full edit dialog. */
-.restaurants-menu-card-clickable { cursor: pointer; }
-.restaurants-menu-card-clickable:hover {
-  box-shadow: inset 0 0 0 var(--divider-width) var(--color-accent), 0 6px 18px color-mix(in srgb, var(--color-accent) 14%, transparent);
+@media (max-width: 640px) {
+  .rs-menu-grid { grid-template-columns: minmax(0, 1fr); }
+  .rs-views { align-self: stretch; }
+  .rs-view { flex: 1 1 auto; justify-content: center; padding: 8px 10px; }
+  .rs-bars { height: 150px; }
+  .rs-bars.is-days .rs-bar-col:not(:first-child):not(.is-current) .rs-bar-label { visibility: hidden; }
+  .rs-filter-sum { margin-left: 0; width: 100%; }
 }
-.restaurants-menu-card-expanded {
-  box-shadow: inset 0 0 0 1.5px var(--color-accent), 0 8px 22px color-mix(in srgb, var(--color-accent) 16%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg));
-}
-.restaurants-menu-card-price-highlight { color: var(--color-accent-700); font-weight: 800; }
-.restaurants-menu-card-variation-toggle {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  font-size: 11px; font-weight: 700; color: var(--color-accent-700);
-  text-transform: none; letter-spacing: normal;
-  transition: background-color 0.15s ease, transform 0.15s ease;
-  white-space: nowrap;
-}
-.restaurants-menu-card-clickable:hover .restaurants-menu-card-variation-toggle { transform: translateY(-1px); }
-.restaurants-menu-card-variation-toggle-open { background: var(--color-accent); color: #fff; }
-.restaurants-menu-card-variation-toggle .restaurants-menu-category-chevron { width: 10px; height: 10px; }
-
-/* Same grid-template-rows fr trick as the category collapse above, so the
-   variation list slides open/closed smoothly instead of popping in — a
-   conditionally-rendered block can't be transitioned, so this one always
-   stays mounted and animates between a 0fr and 1fr row instead. */
-.restaurants-menu-card-variations-wrap { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.22s ease; margin-top: 2px; }
-.restaurants-menu-card-variations-collapsed { grid-template-rows: 0fr; margin-top: 0; }
-.restaurants-menu-card-variations-inner { overflow: hidden; min-height: 0; }
-.restaurants-menu-card-variations {
-  display: flex; flex-direction: column; gap: 4px;
-  padding-top: 8px;
-  border-top: var(--divider-width) solid var(--color-divider);
-}
-.restaurants-menu-card-variation-row {
-  display: flex; align-items: center; gap: 8px; font-size: 13px;
-  padding: 5px 8px;
-  border-radius: var(--radius, 6px);
-  background: color-mix(in srgb, var(--color-text) 3%, transparent);
-  animation: restaurants-fade-up 0.2s ease-out both;
-  transition: background-color 0.12s ease;
-}
-.restaurants-menu-card-variation-row:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
-.restaurants-menu-card-variation-dot {
-  width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%;
-  background: var(--color-text-faint);
-}
-.restaurants-menu-card-variation-name { flex: 1; color: var(--color-text); }
-.restaurants-menu-card-variation-price { color: var(--color-text-muted); font-variant-numeric: tabular-nums; font-weight: 600; }
-/* The cheapest option (when prices actually differ) gets a small accent
-   nudge — a quiet "best value" cue, not a loud badge. */
-.restaurants-menu-card-variation-row-best { background: color-mix(in srgb, var(--color-accent) 9%, transparent); }
-.restaurants-menu-card-variation-row-best .restaurants-menu-card-variation-dot { background: var(--color-accent); }
-.restaurants-menu-card-variation-row-best .restaurants-menu-card-variation-price { color: var(--color-accent-700); }
-
-/* Photo bleeds to the card's edges — pulled out over the card's own 16px
-   padding rather than the card being restructured into a padded/unpadded
-   split, since only a minority of items (freshly uploaded ones) have one. */
-.restaurants-menu-card-photo {
-  width: calc(100% + 32px);
-  margin: -16px -16px 0;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-  background: var(--color-bg-subtle);
-  border-bottom: var(--divider-width) solid var(--color-divider);
-}
-
-/* ── menu item photo field (add/edit dialog) ──────────────────────── */
-.restaurants-menu-photo-preview {
-  width: 160px;
-  height: 120px;
-  object-fit: cover;
-  background: var(--color-bg-subtle);
-  border: var(--divider-width) solid var(--color-divider);
-  margin-bottom: 8px;
-}
-.restaurants-menu-photo-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
-/* ── menu item price variations ────────────────────────────────────── */
-.restaurants-variations-field { border-top: var(--divider-width) solid var(--color-divider); padding-top: 12px; }
-.restaurants-variations-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.restaurants-variation-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: var(--radius-sm, 6px);
-  background: var(--color-bg-subtle);
-}
-.restaurants-variation-name { flex: 1; font-weight: 500; }
-.restaurants-variation-price { color: var(--color-text-secondary); }
-.restaurants-variation-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.restaurants-variation-add .input { flex: 1; min-width: 100px; }
-.restaurants-variations-hint { color: var(--color-text-secondary); font-size: 13px; margin: 0; }
-
-/* ── sales table polish ────────────────────────────────────────────── */
-.restaurants-sales-table { transition: opacity 0.15s ease; }
-.restaurants-sales-table tbody tr { transition: background-color 0.1s ease; }
-.restaurants-sales-table tbody tr.restaurants-sales-row { cursor: pointer; }
-.restaurants-sales-table tbody tr:hover { background: var(--color-bg-subtle); }
-.restaurants-sales-table tbody tr.restaurants-sales-row-voided { opacity: 0.55; }
-.restaurants-order-no { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; letter-spacing: -0.01em; }
-.restaurants-amount-col { text-align: right; }
-.restaurants-amount { font-weight: 700; font-variant-numeric: tabular-nums; }
-.restaurants-time { color: var(--color-text-muted); font-size: 12.5px; white-space: nowrap; }
-
-/* ── order detail dialog ───────────────────────────────────────────── */
-.restaurants-order-dialog-meta { font-size: 12.5px; color: var(--color-text-muted); display: flex; align-items: center; gap: 6px; }
-.restaurants-order-dialog-items { display: flex; flex-direction: column; border-top: var(--divider-width) solid var(--color-divider); border-bottom: var(--divider-width) solid var(--color-divider); margin: 4px 0; max-height: 320px; overflow-y: auto; }
-.restaurants-order-dialog-item { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid var(--color-divider); }
-.restaurants-order-dialog-item:last-child { border-bottom: none; }
-.restaurants-order-dialog-item-qty { color: var(--color-text-muted); flex-shrink: 0; }
-.restaurants-order-dialog-item-name { flex: 1; }
-.restaurants-order-dialog-item-total { font-weight: 600; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.restaurants-order-dialog-total { display: flex; justify-content: space-between; font-size: 15px; padding: 4px 0; }
-.restaurants-order-dialog-total strong { font-size: 18px; }
+.rs-other { display: flex; justify-content: flex-end; margin-top: -10px; }
+.rs-other .input { width: auto; max-width: 100%; font-size: 13px; }

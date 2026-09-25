@@ -3,6 +3,7 @@ var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var { allowlistFilter } = require('../lib/uploadFilters');
 var restaurantService = require('../services/restaurant.service');
+var restaurantOverviewService = require('../services/restaurantOverview.service');
 var restaurantPosService = require('../services/restaurantPos.service');
 var restaurantSquareImportService = require('../services/restaurantSquareImport.service');
 
@@ -15,6 +16,13 @@ var photoUpload = multer({
 
 var router = express.Router();
 router.use(requireAuth);
+
+router.get('/companies', async function (req, res, next) {
+  try { res.json(await restaurantOverviewService.companies(req.ctx)); } catch (e) { next(e); }
+});
+router.get('/overview', async function (req, res, next) {
+  try { res.json(await restaurantOverviewService.overview(req.ctx, req.query.companyId)); } catch (e) { next(e); }
+});
 
 router.get('/menu-items', async function (req, res, next) {
   try { res.json(await restaurantService.listMenuItems(req.ctx, req.query.companyId)); } catch (e) { next(e); }
@@ -57,7 +65,10 @@ router.put('/supplies/:id', async function (req, res, next) {
   try { res.json(await restaurantService.updateSupply(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 router.post('/supplies/:id/stock', async function (req, res, next) {
-  try { res.json(await restaurantService.adjustSupplyStock(req.ctx, req.params.id, req.body.delta, req.body.note)); } catch (e) { next(e); }
+  try { res.json(await restaurantService.moveStock(req.ctx, 'supply', req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.get('/supplies/:id/history', async function (req, res, next) {
+  try { res.json(await restaurantService.stockHistory(req.ctx, 'supply', req.params.id)); } catch (e) { next(e); }
 });
 router.delete('/supplies/:id', async function (req, res, next) {
   try { res.json(await restaurantService.removeSupply(req.ctx, req.params.id)); } catch (e) { next(e); }
@@ -73,7 +84,10 @@ router.put('/ingredients/:id', async function (req, res, next) {
   try { res.json(await restaurantService.updateIngredient(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 router.post('/ingredients/:id/stock', async function (req, res, next) {
-  try { res.json(await restaurantService.adjustIngredientStock(req.ctx, req.params.id, req.body.delta, req.body.note)); } catch (e) { next(e); }
+  try { res.json(await restaurantService.moveStock(req.ctx, 'ingredient', req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.get('/ingredients/:id/history', async function (req, res, next) {
+  try { res.json(await restaurantService.stockHistory(req.ctx, 'ingredient', req.params.id)); } catch (e) { next(e); }
 });
 router.delete('/ingredients/:id', async function (req, res, next) {
   try { res.json(await restaurantService.removeIngredient(req.ctx, req.params.id)); } catch (e) { next(e); }

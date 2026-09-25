@@ -247,6 +247,7 @@ async function createSupply(ctx, p) {
     [company.id, name, category, p.unit || 'each', Math.max(0, Number(p.stockQty) || 0), Math.max(0, Number(p.reorderLevel) || 0), Math.max(0, Number(p.unitCost) || 0)]
   );
   var item = res.rows[0];
+  await logOpening(ctx, 'supply', item);
   await audit(pool, ctx, 'restaurant.supply.create', 'restaurant_supply', item.id, 'Added supply ' + item.name + ' to ' + company.name + '.');
   return rowToSupply(item);
 }
@@ -270,30 +271,13 @@ async function updateSupply(ctx, id, p) {
   return rowToSupply(item);
 }
 
-async function adjustSupplyStock(ctx, id, delta, note) {
-  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
-  delta = Number(delta);
-  if (!delta || isNaN(delta)) fail('invalid', 'Enter a non-zero quantity.');
-  var res = await pool.query(
-    'UPDATE restaurant_supplies SET stock_qty = stock_qty + $1, updated_at = now() WHERE id = $2 AND stock_qty + $1 >= 0 RETURNING *',
-    [delta, id]
-  );
-  if (!res.rows[0]) {
-    var existing = await pool.query('SELECT stock_qty FROM restaurant_supplies WHERE id = $1', [id]);
-    if (!existing.rows[0]) fail('notfound', 'Supply item not found.');
-    fail('invalid', 'That would take stock below zero (currently ' + Number(existing.rows[0].stock_qty) + ').');
-  }
-  var item = res.rows[0];
-  await audit(pool, ctx, 'restaurant.supply.stock', 'restaurant_supply', id,
-    (delta > 0 ? '+' : '') + delta + ' stock on ' + item.name + ' (now ' + Number(item.stock_qty) + ').' + (note ? ' ' + note : ''));
-  return rowToSupply(item);
-}
 
 async function removeSupply(ctx, id) {
   if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
   var existing = await pool.query('SELECT * FROM restaurant_supplies WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Supply item not found.');
   await pool.query('DELETE FROM restaurant_supplies WHERE id = $1', [id]);
+  await pool.query("DELETE FROM restaurant_stock_moves WHERE item_type = 'supply' AND item_id = $1", [id]);
   await audit(pool, ctx, 'restaurant.supply.delete', 'restaurant_supply', id, 'Removed supply ' + existing.rows[0].name + '.');
   return true;
 }
@@ -329,6 +313,7 @@ async function createIngredient(ctx, p) {
     [company.id, name, p.unit || 'kg', Math.max(0, Number(p.stockQty) || 0), Math.max(0, Number(p.reorderLevel) || 0), Math.max(0, Number(p.unitCost) || 0), expiryDate]
   );
   var item = res.rows[0];
+  await logOpening(ctx, 'ingredient', item);
   await audit(pool, ctx, 'restaurant.ingredient.create', 'restaurant_ingredient', item.id, 'Added ingredient ' + item.name + ' to ' + company.name + '.');
   return rowToIngredient(item);
 }
@@ -352,32 +337,100 @@ async function updateIngredient(ctx, id, p) {
   return rowToIngredient(item);
 }
 
-async function adjustIngredientStock(ctx, id, delta, note) {
-  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
-  delta = Number(delta);
-  if (!delta || isNaN(delta)) fail('invalid', 'Enter a non-zero quantity.');
-  var res = await pool.query(
-    'UPDATE restaurant_ingredients SET stock_qty = stock_qty + $1, updated_at = now() WHERE id = $2 AND stock_qty + $1 >= 0 RETURNING *',
-    [delta, id]
-  );
-  if (!res.rows[0]) {
-    var existing = await pool.query('SELECT stock_qty FROM restaurant_ingredients WHERE id = $1', [id]);
-    if (!existing.rows[0]) fail('notfound', 'Ingredient not found.');
-    fail('invalid', 'That would take stock below zero (currently ' + Number(existing.rows[0].stock_qty) + ').');
-  }
-  var item = res.rows[0];
-  await audit(pool, ctx, 'restaurant.ingredient.stock', 'restaurant_ingredient', id,
-    (delta > 0 ? '+' : '') + delta + ' stock on ' + item.name + ' (now ' + Number(item.stock_qty) + ').' + (note ? ' ' + note : ''));
-  return rowToIngredient(item);
-}
 
 async function removeIngredient(ctx, id) {
   if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
   var existing = await pool.query('SELECT * FROM restaurant_ingredients WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Ingredient not found.');
   await pool.query('DELETE FROM restaurant_ingredients WHERE id = $1', [id]);
+  await pool.query("DELETE FROM restaurant_stock_moves WHERE item_type = 'ingredient' AND item_id = $1", [id]);
   await audit(pool, ctx, 'restaurant.ingredient.delete', 'restaurant_ingredient', id, 'Removed ingredient ' + existing.rows[0].name + '.');
   return true;
+}
+
+// ── stock movements (supplies + ingredients) ────────────────────────────
+//
+// Every change to stock is one of: a delivery received (+), stock used in
+// the kitchen or bar (−), stock thrown away (−) or a count (the new figure,
+// whatever it was). Each is logged in restaurant_stock_moves (migration
+// 0090) with the unit cost at the time, which is where an item's history,
+// "what did we waste this month" and "what did we buy" come from. The
+// update is one atomic UPDATE ... WHERE stock_qty + delta >= 0, so two tills
+// can't race stock past zero. The old { delta, note } body still works:
+// a positive delta is taken as received, a negative one as used.
+
+var STOCK_TABLES = { supply: 'restaurant_supplies', ingredient: 'restaurant_ingredients' };
+var STOCK_KINDS = ['received', 'used', 'wasted', 'count'];
+
+async function moveStock(ctx, type, id, p) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  p = p || {};
+  var table = STOCK_TABLES[type];
+  var label = type === 'supply' ? 'Supply item' : 'Ingredient';
+  var cur = (await pool.query('SELECT * FROM ' + table + ' WHERE id = $1', [id])).rows[0];
+  if (!cur) fail('notfound', label + ' not found.');
+
+  var kind, delta;
+  if (p.kind === undefined && p.delta !== undefined) {
+    delta = Number(p.delta);
+    if (!delta || isNaN(delta)) fail('invalid', 'Enter a non-zero quantity.');
+    kind = delta > 0 ? 'received' : 'used';
+  } else {
+    kind = V.oneOf(p.kind, STOCK_KINDS, 'What happened');
+    var qty = Number(p.qty);
+    if (!Number.isFinite(qty) || qty < 0 || qty > 1e9) fail('invalid', 'Enter a quantity, 0 or more.');
+    if (kind !== 'count' && qty === 0) fail('invalid', 'Enter how much.');
+    delta = kind === 'count' ? qty - Number(cur.stock_qty) : kind === 'received' ? qty : -qty;
+  }
+  delta = Math.round(delta * 100) / 100;
+  var note = String(p.note || '').trim().slice(0, 200);
+  var unitCost = kind === 'received' && p.unitCost !== undefined && p.unitCost !== '' ? Math.max(0, Number(p.unitCost) || 0) : Number(cur.unit_cost);
+  var expiry = type === 'ingredient' && kind === 'received' && p.expiryDate ? V.date(p.expiryDate, 'Expiry date') : null;
+
+  var res = await pool.query(
+    'UPDATE ' + table + ' SET stock_qty = stock_qty + $1, unit_cost = $2, ' +
+    (type === 'ingredient' ? 'expiry_date = coalesce($4::date, expiry_date), ' : '') +
+    'updated_at = now() WHERE id = $3 AND stock_qty + $1 >= 0 RETURNING *',
+    type === 'ingredient' ? [delta, unitCost, id, expiry] : [delta, unitCost, id]
+  );
+  if (!res.rows[0]) fail('invalid', 'Only ' + Number(cur.stock_qty) + ' ' + cur.unit + ' of ' + cur.name + ' in stock.');
+  var item = res.rows[0];
+  if (delta !== 0 || kind === 'count') {
+    await pool.query(
+      'INSERT INTO restaurant_stock_moves (company_id, item_type, item_id, kind, delta, qty_after, unit_cost, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [item.company_id, type, id, kind, delta, Number(item.stock_qty), unitCost, note, ctx.employee ? ctx.employee.id : null]
+    );
+  }
+  await audit(pool, ctx, 'restaurant.' + type + '.stock', 'restaurant_' + type, id,
+    kind + ' ' + (delta > 0 ? '+' : '') + delta + ' ' + item.unit + ' of ' + item.name + ' (now ' + Number(item.stock_qty) + ').' + (note ? ' ' + note : ''));
+  return type === 'supply' ? rowToSupply(item) : rowToIngredient(item);
+}
+
+async function adjustSupplyStock(ctx, id, delta, note) { return moveStock(ctx, 'supply', id, { delta: delta, note: note }); }
+async function adjustIngredientStock(ctx, id, delta, note) { return moveStock(ctx, 'ingredient', id, { delta: delta, note: note }); }
+
+// One item's movements, newest first.
+async function stockHistory(ctx, type, id) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  if (!STOCK_TABLES[type]) fail('notfound', 'Not found.');
+  var res = await pool.query(
+    'SELECT m.*, e.first_name, e.last_name FROM restaurant_stock_moves m LEFT JOIN employees e ON e.id = m.created_by ' +
+    'WHERE m.item_type = $1 AND m.item_id = $2 ORDER BY m.created_at DESC, m.id LIMIT 200', [type, id]
+  );
+  return res.rows.map(function (r) {
+    return {
+      id: r.id, kind: r.kind, delta: Number(r.delta), qtyAfter: Number(r.qty_after), unitCost: Number(r.unit_cost),
+      note: r.note, at: r.created_at, byName: r.first_name ? r.first_name + ' ' + r.last_name : null
+    };
+  });
+}
+
+async function logOpening(ctx, type, item) {
+  if (Number(item.stock_qty) <= 0) return;
+  await pool.query(
+    "INSERT INTO restaurant_stock_moves (company_id, item_type, item_id, kind, delta, qty_after, unit_cost, note, created_by) VALUES ($1,$2,$3,'count',$4,$4,$5,'Opening stock',$6)",
+    [item.company_id, type, item.id, Number(item.stock_qty), Number(item.unit_cost), ctx.employee ? ctx.employee.id : null]
+  );
 }
 
 // ── tables (fixed per-restaurant list, assigned to an order at the till) ──
@@ -495,7 +548,7 @@ module.exports = {
   setMenuItemPhoto: setMenuItemPhoto, removeMenuItemPhoto: removeMenuItemPhoto, getMenuItemPhoto: getMenuItemPhoto,
   createVariation: createVariation, updateVariation: updateVariation, removeVariation: removeVariation,
   listSupplies: listSupplies, createSupply: createSupply, updateSupply: updateSupply,
-  adjustSupplyStock: adjustSupplyStock, removeSupply: removeSupply,
+  adjustSupplyStock: adjustSupplyStock, removeSupply: removeSupply, moveStock: moveStock, stockHistory: stockHistory,
   listIngredients: listIngredients, createIngredient: createIngredient, updateIngredient: updateIngredient,
   adjustIngredientStock: adjustIngredientStock, removeIngredient: removeIngredient,
   listTables: listTables, createTable: createTable, updateTable: updateTable,

@@ -330,14 +330,15 @@ async function listOrders(ctx, companyId, opts) {
   args.push(limit); var limitParam = '$' + args.length;
   args.push(offset); var offsetParam = '$' + args.length;
 
-  // revenue_total/voided_count are window functions too — computed over the
+  // revenue_total/voided_count are window functions too (revenue counts
+  // completed orders only — a voided sale was never money in) — computed over the
   // whole WHERE-filtered set before LIMIT clips it to one page, same as
   // total_count, so the Sales tab's stat tiles show true range-wide figures
   // rather than a partial, misleadingly-small sum of just the visible page.
   var res = await pool.query(
     'SELECT o.*, e.first_name, e.last_name, t.name AS table_name, w.first_name AS waiter_first_name, w.last_name AS waiter_last_name, ' +
     'g.name AS guest_name, count(*) OVER() AS total_count, ' +
-    "coalesce(sum(o.total) OVER(), 0) AS revenue_total, count(*) FILTER (WHERE o.status = 'voided') OVER() AS voided_count " +
+    "coalesce(sum(o.total) FILTER (WHERE o.status = 'completed') OVER(), 0) AS revenue_total, count(*) FILTER (WHERE o.status = 'voided') OVER() AS voided_count " +
     'FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
     'LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN employees w ON w.id = o.waiter_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
     whereSql + ' ORDER BY o.created_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
