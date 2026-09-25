@@ -99,6 +99,7 @@ var ALLOWED = {
   'POST /api/auth/logout': 'ends own session',
   'GET /api/me/': 'own profile',
   'GET /api/me/summary': 'own summary',
+  'GET /api/me/overview': 'own My space overview, keyed on the caller only',
   'POST /api/me/password': 'changes own password; requires the current one',
   'GET /api/me/two-step': "own two-step sign-in status",
   'POST /api/me/two-step/setup': "starts setting up two-step sign-in on the caller's own account; changes nothing until a code proves it",

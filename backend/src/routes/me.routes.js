@@ -81,6 +81,11 @@ router.post('/two-step/backup-codes', requireAuth, async function (req, res, nex
   try { res.json(await twoStep.newBackupCodes(req.ctx, req.body.password)); } catch (e) { next(e); }
 });
 
+// Everything My space shows about the signed-in person (mySpace.service.js).
+router.get('/overview', requireAuth, async function (req, res, next) {
+  try { res.json(await require('../services/mySpace.service').overview(req.ctx)); } catch (e) { next(e); }
+});
+
 router.get('/summary', requireAuth, async function (req, res, next) {
   try {
     var ctx = req.ctx;
