@@ -92,7 +92,7 @@ router.get('/summary', requireAuth, async function (req, res, next) {
       [ctx.employee.id, today]
     );
     var balancesRes = await pool.query(
-      'SELECT lb.entitled, lb.used, lt.name FROM leave_balances lb ' +
+      'SELECT lb.entitled, lb.used, lt.id AS leave_type_id, lt.name, lt.paid FROM leave_balances lb ' +
       'JOIN leave_types lt ON lt.id = lb.leave_type_id ' +
       'WHERE lb.employee_id = $1 AND lb.year = $2 AND lt.active ORDER BY lt.name',
       [ctx.employee.id, year]
@@ -108,7 +108,7 @@ router.get('/summary', requireAuth, async function (req, res, next) {
       permissions: ctx.permissions,
       todayAttendance: attendanceRes.rows[0] ? rowToAttendance(attendanceRes.rows[0]) : null,
       balances: balancesRes.rows.map(function (b) {
-        return { name: b.name, entitled: b.entitled, used: b.used, left: b.entitled - b.used };
+        return { leaveTypeId: b.leave_type_id, name: b.name, paid: b.paid, entitled: b.entitled, used: b.used, left: b.entitled - b.used };
       }),
       myLeave: myLeaveRes.rows.map(rowToLeaveRequest)
     });

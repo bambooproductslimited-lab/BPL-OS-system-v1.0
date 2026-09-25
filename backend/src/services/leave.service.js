@@ -459,7 +459,10 @@ function rowToLeaveRequest(r) {
     startDate: r.start_date, endDate: r.end_date, days: r.days, reason: r.reason,
     status: r.status, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at,
     decisionNote: r.decision_note,
-    employeeName: r.employee_name, department: r.department_name, company: r.company_name, typeName: r.type_name
+    employeeName: r.employee_name, department: r.department_name, company: r.company_name, typeName: r.type_name,
+    // Only on list() rows, which join the employee, department and company.
+    departmentId: r.department_id, companyId: r.company_id, companyCode: r.company_code, paid: r.type_paid,
+    employeePhoto: r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null
   };
 }
 
@@ -472,7 +475,8 @@ async function list(ctx, params) {
   var departmentId = params && params.departmentId;
   var all = ctx.can('leave.read.all');
   var res = await pool.query(
-    'SELECT lr.*, e.first_name, e.last_name, e.department_id, d.name AS department_name, d.company_id, c.name AS company_name, lt.name AS type_name, ' +
+    'SELECT lr.*, e.first_name, e.last_name, e.department_id, e.photo_key, e.photo_updated_at, d.name AS department_name, d.company_id, ' +
+    'c.name AS company_name, c.code AS company_code, lt.name AS type_name, lt.paid AS type_paid, ' +
     "(e.first_name || ' ' || e.last_name) AS employee_name " +
     'FROM leave_requests lr ' +
     'JOIN employees e ON e.id = lr.employee_id ' +
