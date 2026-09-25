@@ -1,519 +1,640 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import './TasksPage.css';
+import Photo from '../components/Photo';
 import RowMenu from '../components/RowMenu';
-
-import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
-// Ported from Bamboo OS.dc.html's tasks screen (screens.tasks block + the
-// tasks/taskScopeFilters computed values, and the taskDetail dialog around
-// its render()), redesigned around the icon/avatar language established
-// for Messages/Dashboard/My Space/Employees/Attendance/Leave: assignee
-// avatar stacks, a comment-count badge, an overdue indicator, avatars on
-// comment authors, and an icon'd empty state.
+import './EmployeesPage.css';
+import './TasksPage.css';
 
-const STATUS_OPTIONS = ['not_started', 'in_progress', 'waiting', 'under_review', 'completed', 'cancelled'];
+// Tasks. Same "explains itself" layout as the dashboards
+// (components/DashKit.jsx): a company switcher, the key numbers (press one
+// to show only those tasks), what stands out (who has overdue work,
+// high-priority tasks not started, reviews waiting for you), then the tasks
+// as a board — a column per status, drag a card to move it — or as a list.
+// A task opens in a window with its status steps, people, dates,
+// description and comments. Anyone who can see a task can move it and
+// comment; creating, editing and deleting need task.manage.
 
-const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/);
-  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+const STATUSES = ['not_started', 'in_progress', 'waiting', 'under_review', 'completed', 'cancelled'];
+const BOARD = ['not_started', 'in_progress', 'waiting', 'under_review', 'completed'];
+const OPEN = (t) => t.status !== 'completed' && t.status !== 'cancelled';
+const DONE_SHOWN = 12;
+const EMPTY_FORM = { title: '', description: '', projectId: '', assigneeIds: [], priority: 'medium', dueDate: '' };
+
+function isoDay(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function addDays(iso, n) { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() + n); return isoDay(d); }
+function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 86400000); }
+function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
+function ago(iso) {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return tr('just now');
+  if (mins < 60) return tr('{n} min ago', { n: mins });
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return tr('{n} h ago', { n: hrs });
+  return fmtDate(String(iso).slice(0, 10));
 }
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
+
+// How a task's timing reads: { text, tone } — tone 'bad' | 'warn' | ''.
+function dueInfo(t, today) {
+  if (t.status === 'completed') return { text: t.completedAt ? tr('Done {date}', { date: fmtDate(String(t.completedAt).slice(0, 10)) }) : tr('Done'), tone: 'good' };
+  if (t.status === 'cancelled') return { text: tr('Cancelled'), tone: '' };
+  if (!t.dueDate) return { text: tr('No due date'), tone: '' };
+  const d = daysBetween(today, t.dueDate);
+  if (d < 0) return { text: -d === 1 ? tr('1 day overdue') : tr('{n} days overdue', { n: -d }), tone: 'bad' };
+  if (d === 0) return { text: tr('Due today'), tone: 'warn' };
+  if (d === 1) return { text: tr('Due tomorrow'), tone: 'warn' };
+  if (d < 7) return { text: tr('Due {day}', { day: new Date(t.dueDate + 'T00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long' }) }), tone: '' };
+  return { text: tr('Due {date}', { date: fmtDate(t.dueDate) }), tone: '' };
 }
-function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
 
-const ICON_PATHS = {
-  checklist: <><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M8 12.5l2.3 2.3L16 9.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
-  clock: <><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" /><path d="M12 7.5V12l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></>,
-  message: <><rect x="3.5" y="5" width="17" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.6" /><path d="M8 20l3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
-  circle: <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />,
-  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" /></>,
-  checkCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></>,
-  xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>
-};
-function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
-
-function AssigneeStack({ names }) {
-  if (!names.length) return <span className="tasks-unassigned">{tr('Unassigned')}</span>;
-  const shown = names.slice(0, 3);
-  const extra = names.length - shown.length;
+function Faces({ people, size = 26, max = 3 }) {
+  if (!people || !people.length) return <span className="dk-muted tk-small">{tr('Unassigned')}</span>;
   return (
-    <div className="tasks-assignee-stack" title={names.join(', ')}>
-      {shown.map((n, i) => (
-        <span key={n + i} className="tasks-assignee-avatar" style={{ background: avatarColor(n), zIndex: shown.length - i }}>{initials(n)}</span>
-      ))}
-      {extra > 0 && <span className="tasks-assignee-avatar tasks-assignee-extra">+{extra}</span>}
+    <span className="tk-faces" title={people.map((p) => p.name).join(', ')}>
+      {people.slice(0, max).map((p) => <Photo key={p.id} id={p.id} name={p.name} photo={p.photo} size={size} />)}
+      {people.length > max && <span className="tk-faces-more">+{people.length - max}</span>}
+    </span>
+  );
+}
+
+function PriorityMark({ priority }) {
+  return <span className={'tk-prio is-' + priority} title={tr('{p} priority', { p: codeLabel(priority) })}>{codeLabel(priority)}</span>;
+}
+
+// Choosing people for a task: chips for who is picked, a search for more.
+function PeoplePicker({ employees, value, onChange }) {
+  const [q, setQ] = useState('');
+  const picked = value.map((id) => employees.find((e) => e.id === id)).filter(Boolean);
+  const matches = q ? employees.filter((e) => !value.includes(e.id) && matchesQuery(q, e.firstName + ' ' + e.lastName, e.positionTitle, e.code)).slice(0, 6) : [];
+  return (
+    <div className="tk-picker">
+      <div className="tk-chips">
+        {picked.map((e) => (
+          <button key={e.id} type="button" className="tk-chip" onClick={() => onChange(value.filter((x) => x !== e.id))} aria-label={tr('Remove {name}', { name: e.firstName + ' ' + e.lastName })}>
+            <Photo id={e.id} name={e.firstName + ' ' + e.lastName} photo={e.photo} size={22} /> {e.firstName} {e.lastName} <span aria-hidden="true">×</span>
+          </button>
+        ))}
+        {!picked.length && <span className="dk-muted tk-small">{tr('Nobody picked: the task is yours.')}</span>}
+      </div>
+      <input className="input" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={tr('Add people: type a name…')} aria-label={tr('Add people')} />
+      {matches.length > 0 && (
+        <div className="tk-picker-list">
+          {matches.map((e) => (
+            <button key={e.id} type="button" className="tk-picker-item" onClick={() => { onChange([...value, e.id]); setQ(''); }}>
+              <Photo id={e.id} name={e.firstName + ' ' + e.lastName} photo={e.photo} size={28} />
+              <span><strong>{e.firstName} {e.lastName}</strong><span className="dk-muted">{e.positionTitle}</span></span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function tagClass(status) {
-  if (['approved', 'present', 'active', 'completed'].includes(status)) return 'tag-neutral';
-  if (['pending', 'late', 'in_progress', 'under_review', 'waiting', 'not_started', 'planning'].includes(status)) return 'tag-outline';
-  if (['rejected', 'absent', 'disabled', 'cancelled', 'on_hold', 'delayed'].includes(status)) return 'tag-accent';
-  return 'tag-neutral';
+function TaskForm({ form, setForm, projects, employees, showStarted }) {
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="tk-title">{tr('What needs doing')}</label>
+        <input id="tk-title" className="input" value={form.title} maxLength={100} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr('e.g. Service the kiln fans')} required autoFocus />
+      </div>
+      <div className="field">
+        <label htmlFor="tk-desc">{tr('Details (optional)')}</label>
+        <textarea id="tk-desc" className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={tr('Anything the person doing it should know.')} />
+      </div>
+      <div className="field">
+        <span className="tk-label">{tr('Who does it')}</span>
+        <PeoplePicker employees={employees} value={form.assigneeIds} onChange={(ids) => setForm({ ...form, assigneeIds: ids })} />
+      </div>
+      <div className="tk-form-grid">
+        <div className="field">
+          <span className="tk-label">{tr('Priority')}</span>
+          <div className="tk-seg" role="radiogroup" aria-label={tr('Priority')}>
+            {['low', 'medium', 'high'].map((p) => (
+              <button key={p} type="button" role="radio" aria-checked={form.priority === p} className={form.priority === p ? 'is-on is-' + p : ''} onClick={() => setForm({ ...form, priority: p })}>{codeLabel(p)}</button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="tk-due">{tr('Due')}</label>
+          <input id="tk-due" className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
+        </div>
+        {showStarted && (
+          <div className="field">
+            <label htmlFor="tk-started">{tr('Date started')}</label>
+            <input id="tk-started" className="input" type="date" value={form.startedDate || ''} onChange={(e) => setForm({ ...form, startedDate: e.target.value })} />
+          </div>
+        )}
+        <div className="field">
+          <label htmlFor="tk-project">{tr('Project')}</label>
+          <select id="tk-project" className="input" value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
+            <option value="">{tr('None')}</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+    </>
+  );
 }
-
-function priorityClass(p) {
-  if (p === 'high') return 'tag-accent';
-  if (p === 'low') return 'tag-neutral';
-  return 'tag-outline';
-}
-
-function statusLabel(s) {
-  return codeLabel(s);
-}
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso.length > 10 ? iso : iso + 'T00:00');
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-const EMPTY_FORM = { title: '', projectId: '', assigneeId: '', dueDate: '' };
 
 export default function TasksPage() {
-  const { can } = useAuth();
+  const { session, can } = useAuth();
   const canManage = can('task.manage');
+  const myId = session && session.employee ? session.employee.id : null;
 
-  const [scope, setScope] = useState('mine');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [qInput, setQInput] = useState('');
-  const [q, setQ] = useState('');
+  const [scope, setScope] = useState(() => readPref('bos.tasksScope', 'mine'));
+  const [view, setView] = useState(() => readPref('bos.tasksView', 'board'));
+  const [companyCode, setCompanyCode] = useState(() => readPref('bos.tasksCompany', 'ALL'));
+  const [chip, setChip] = useState('active');
+  const [search, setSearch] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
 
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [companyFilter, setCompanyFilter] = useState('');
-  const [deptFilter, setDeptFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
 
-  // Departments already carry companyId/companyName (departments.service.js#list)
-  // so the company list is derived from one fetch, same pattern as
-  // EmployeesPage/AttendancePage/PayrollPage/LeavePage.
-  const companies = useMemo(() => {
-    const seen = new Map();
-    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName }); });
-    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [departments]);
-
+  const [newOpen, setNewOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const [detail, setDetail] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState(null);
+  const [editing, setEditing] = useState(null); // form while editing
   const [commentDraft, setCommentDraft] = useState('');
   const [detailError, setDetailError] = useState(null);
-  const [savingDetail, setSavingDetail] = useState(false);
-
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const [dropCol, setDropCol] = useState(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setQ(qInput), 300);
-    return () => clearTimeout(t);
-  }, [qInput]);
-
-  // status is deliberately NOT sent as a query param — it's applied
-  // client-side below (visibleTasks) instead, same as AttendancePage/
-  // LeavePage, so the summary tiles can show true counts across every
-  // status in the current scope/company/department/search, not just
-  // whichever one status happens to be selected.
   const load = useCallback(async () => {
     setError(null);
     try {
-      const params = new URLSearchParams({ scope: scope });
-      if (q) params.set('q', q);
-      if (companyFilter) params.set('companyId', companyFilter);
-      if (deptFilter) params.set('departmentId', deptFilter);
       const [rows, projRows, depts] = await Promise.all([
-        api.get('/tasks?' + params.toString()),
-        api.get('/projects'),
+        api.get('/tasks?scope=' + scope),
+        api.get('/projects').catch(() => []),
         api.get('/departments')
       ]);
       setTasks(rows);
       setProjects(projRows);
       setDepartments(depts);
-      if (canManage) {
-        const empRows = await api.get('/employees');
-        setEmployees(empRows);
-      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [scope, q, companyFilter, deptFilter, canManage]);
-
+  }, [scope]);
   useEffect(() => { load(); }, [load]);
-
+  useEffect(() => {
+    if (canManage) api.get('/employees').then(setEmployees).catch(() => {});
+  }, [canManage]);
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    setCreating(true);
+  const companies = useMemo(() => {
+    const seen = new Map();
+    departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName, code: d.companyCode || d.companyId }); });
+    return Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
+  }, [departments]);
+  const currentCompany = scope === 'all' ? companies.find((c) => c.code === companyCode) || null : null;
+
+  function pickScope(s) { setScope(s); writePref('bos.tasksScope', s); setLoading(true); }
+  function pickView(v) { setView(v); writePref('bos.tasksView', v); }
+  function pickCompany(code) { setCompanyCode(code); setDeptFilter(''); writePref('bos.tasksCompany', code); }
+
+  // ── actions ──────────────────────────────────────────────────────────
+  async function setStatus(task, status) {
+    if (task.status === status) return;
     setError(null);
+    // Move it at once; the reload below confirms it.
+    setTasks((list) => list.map((t) => (t.id === task.id ? { ...t, status, completedAt: status === 'completed' ? new Date().toISOString() : null } : t)));
     try {
-      await api.post('/tasks', {
-        title: form.title, projectId: form.projectId || null,
-        assigneeIds: form.assigneeId ? [form.assigneeId] : undefined,
-        dueDate: form.dueDate || undefined
-      });
-      setToast(tr('Task added.'));
-      setForm(EMPTY_FORM);
+      const updated = await api.post('/tasks/' + task.id + '/status', { status });
+      if (detail && detail.id === task.id) setDetail(updated);
       await load();
     } catch (err) {
       setError(err.message);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function handleSetStatus(row, status) {
-    try {
-      await api.post('/tasks/' + row.id + '/status', { status: status });
       await load();
-    } catch (err) {
-      setError(err.message);
     }
   }
 
-  function fullUpdatePayload(row, overrides) {
-    return Object.assign({
-      title: row.title, projectId: row.projectId, assigneeIds: row.assigneeIds,
-      priority: row.priority, startedDate: (row.createdAt || '').slice(0, 10), dueDate: row.dueDate,
-      description: row.description
-    }, overrides);
-  }
-
-  async function handleSetStarted(row, value) {
-    try {
-      await api.patch('/tasks/' + row.id, fullUpdatePayload(row, { startedDate: value }));
-      await load();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function handleSetDue(row, value) {
-    try {
-      await api.patch('/tasks/' + row.id, fullUpdatePayload(row, { dueDate: value }));
-      await load();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function openDetail(row) {
-    setDetailError(null);
-    setEditing(false);
-    try {
-      const full = await api.get('/tasks/' + row.id);
-      setDetail(full);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  function startEdit() {
-    setEditForm({
-      title: detail.title, priority: detail.priority,
-      startedDate: (detail.createdAt || '').slice(0, 10), dueDate: detail.dueDate || '',
-      description: detail.description || ''
-    });
-    setEditing(true);
-  }
-
-  async function submitEdit(e) {
+  function openNew() { setForm(EMPTY_FORM); setFormError(null); setNewOpen(true); }
+  async function createTask(e) {
     e.preventDefault();
-    setSavingDetail(true);
+    setSaving(true);
+    setFormError(null);
+    try {
+      const created = await api.post('/tasks', {
+        title: form.title, description: form.description, projectId: form.projectId || null,
+        assigneeIds: form.assigneeIds.length ? form.assigneeIds : undefined, priority: form.priority, dueDate: form.dueDate || undefined
+      });
+      setNewOpen(false);
+      setToast(tr('Task added.'));
+      await load();
+      setDetail(created);
+    } catch (err) { setFormError(err.message); } finally { setSaving(false); }
+  }
+
+  async function openDetail(t) {
+    setDetailError(null);
+    setEditing(null);
+    setCommentDraft('');
+    try { setDetail(await api.get('/tasks/' + t.id)); } catch (err) { setError(err.message); }
+  }
+  function startEdit() {
+    setEditing({
+      title: detail.title, description: detail.description || '', projectId: detail.projectId || '',
+      assigneeIds: detail.assigneeIds.slice(), priority: detail.priority,
+      dueDate: detail.dueDate || '', startedDate: (detail.createdAt || '').slice(0, 10)
+    });
+  }
+  async function saveEdit(e) {
+    e.preventDefault();
+    setSaving(true);
     setDetailError(null);
     try {
-      const updated = await api.patch('/tasks/' + detail.id, fullUpdatePayload(detail, editForm));
+      const updated = await api.patch('/tasks/' + detail.id, {
+        title: editing.title, description: editing.description, projectId: editing.projectId || null,
+        assigneeIds: editing.assigneeIds, priority: editing.priority, dueDate: editing.dueDate || detail.dueDate, startedDate: editing.startedDate
+      });
       setDetail(updated);
-      setEditing(false);
+      setEditing(null);
       setToast(tr('Task updated.'));
       await load();
-    } catch (err) {
-      setDetailError(err.message);
-    } finally {
-      setSavingDetail(false);
-    }
+    } catch (err) { setDetailError(err.message); } finally { setSaving(false); }
   }
-
-  async function submitComment(e) {
-    e.preventDefault();
+  async function postComment(e) {
+    if (e) e.preventDefault();
     const body = commentDraft.trim();
     if (!body) return;
     setDetailError(null);
     try {
-      const updated = await api.post('/tasks/' + detail.id + '/comments', { body: body });
-      setDetail(updated);
+      setDetail(await api.post('/tasks/' + detail.id + '/comments', { body }));
       setCommentDraft('');
       await load();
-    } catch (err) {
-      setDetailError(err.message);
-    }
+    } catch (err) { setDetailError(err.message); }
   }
-
-  async function handleDelete(row) {
+  async function confirmDelete() {
     setDeleting(true);
     try {
-      await api.del('/tasks/' + row.id);
+      await api.del('/tasks/' + deleteTarget.id);
       setToast(tr('Task deleted.'));
+      if (detail && detail.id === deleteTarget.id) setDetail(null);
       setDeleteTarget(null);
-      if (detail && detail.id === row.id) setDetail(null);
       await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDeleting(false);
-    }
+    } catch (err) { setError(err.message); } finally { setDeleting(false); }
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  // tasks is already scoped/company/department/search-filtered server-side
-  // (see load()'s comment) but NOT status-filtered — so these counts cover
-  // every status in view, and visibleTasks (what the table actually shows)
-  // narrows that down by statusFilter, same split as AttendancePage's
-  // rows/visibleRows.
-  const visibleTasks = tasks.filter((t) => !statusFilter || (statusFilter === 'overdue' ? t.overdue : t.status === statusFilter));
-  const taskSummary = [
-    { key: '', label: tr('All tasks'), value: tasks.length, icon: 'checklist', tone: 'people' },
-    { key: 'not_started', label: tr('Not started'), value: tasks.filter((t) => t.status === 'not_started').length, icon: 'circle', tone: 'people' },
-    { key: 'in_progress', label: tr('In progress'), value: tasks.filter((t) => t.status === 'in_progress').length, icon: 'clock', tone: 'warning' },
-    { key: 'under_review', label: tr('Under review'), value: tasks.filter((t) => t.status === 'under_review').length, icon: 'eye', tone: 'warning' },
-    { key: 'completed', label: tr('Completed'), value: tasks.filter((t) => t.status === 'completed').length, icon: 'checkCircle', tone: 'people' },
-    { key: 'overdue', label: tr('Overdue'), value: tasks.filter((t) => t.overdue).length, icon: 'xCircle', tone: 'danger' }
+  // ── what the page shows ────────────────────────────────────────────
+  const today = isoDay(new Date());
+  const weekEnd = addDays(today, 6);
+  const weekAgo = addDays(today, -6);
+  const scoped = tasks
+    .filter((t) => !currentCompany || (t.companyCodes || []).includes(currentCompany.code))
+    .filter((t) => !deptFilter || (t.departmentIds || []).includes(deptFilter))
+    .filter((t) => !projectFilter || t.projectId === projectFilter);
+  const open = scoped.filter(OPEN);
+  const overdue = open.filter((t) => t.overdue);
+  const dueWeek = open.filter((t) => t.dueDate && t.dueDate >= today && t.dueDate <= weekEnd);
+  const dueToday = open.filter((t) => t.dueDate === today);
+  const doneWeek = scoped.filter((t) => t.status === 'completed' && t.completedAt && isoDay(new Date(t.completedAt)) >= weekAgo);
+  const high = open.filter((t) => t.priority === 'high');
+  const reviewForMe = scoped.filter((t) => t.status === 'under_review' && t.createdBy === myId);
+
+  const chipTest = {
+    active: (t) => t.status !== 'cancelled',
+    overdue: (t) => OPEN(t) && t.overdue,
+    week: (t) => OPEN(t) && t.dueDate && t.dueDate >= today && t.dueDate <= weekEnd,
+    high: (t) => OPEN(t) && t.priority === 'high',
+    review: (t) => t.status === 'under_review',
+    done: (t) => t.status === 'completed',
+    cancelled: (t) => t.status === 'cancelled',
+    all: () => true
+  };
+  function showOnly(key) { setChip(chip === key ? 'active' : key); jump('tk-list'); }
+  const visible = scoped
+    .filter(chipTest[chip] || chipTest.active)
+    .filter((t) => matchesQuery(search, t.title, t.projectName, t.description, ...(t.assigneeNames || [])));
+
+  const stats = [
+    { icon: 'doc', value: String(open.length), label: tr('open tasks'), note: high.length ? tr('{n} high priority', { n: high.length }) : tr('none high priority'), onClick: () => { setChip('active'); jump('tk-list'); } },
+    { icon: 'warn', value: String(overdue.length), label: tr('overdue'), note: overdue.length ? tr('oldest {n} days late', { n: Math.max(...overdue.map((t) => t.daysOverdue || 0)) }) : tr('nothing late'), tone: overdue.length ? 'bad' : '', onClick: () => showOnly('overdue') },
+    { icon: 'calendar', value: String(dueWeek.length), label: tr('due this week'), note: dueToday.length ? tr('{n} due today', { n: dueToday.length }) : tr('in the next 7 days'), tone: dueToday.length ? 'alert' : '', onClick: () => showOnly('week') },
+    { icon: 'check', value: String(doneWeek.length), label: tr('done this week'), note: tr('in the last 7 days'), tone: doneWeek.length ? 'good' : '', onClick: () => showOnly('done') }
   ];
 
-  return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+  // What stands out.
+  const insights = [];
+  if (scope === 'all' && overdue.length) {
+    const byPerson = new Map();
+    overdue.forEach((t) => (t.assignees || []).forEach((a) => {
+      if (!byPerson.has(a.id)) byPerson.set(a.id, { name: a.name, tasks: [] });
+      byPerson.get(a.id).tasks.push(t);
+    }));
+    const worst = Array.from(byPerson.values()).sort((a, b) => b.tasks.length - a.tasks.length)[0];
+    if (worst && worst.tasks.length > 1) {
+      insights.push({ tone: 'bad', icon: 'people', text: tr('{name} has {n} overdue tasks.', { name: worst.name, n: worst.tasks.length }), action: { label: tr('Show them'), run: () => { setSearch(worst.name); setChip('overdue'); jump('tk-list'); } } });
+    }
+  }
+  const oldest = overdue.slice().sort((a, b) => (b.daysOverdue || 0) - (a.daysOverdue || 0))[0];
+  if (oldest) insights.push({ tone: 'bad', icon: 'clock', text: tr('"{title}" is {n} days overdue ({who}).', { title: oldest.title, n: oldest.daysOverdue, who: (oldest.assigneeNames || []).join(', ') || tr('Unassigned') }), action: { label: tr('Open'), run: () => openDetail(oldest) } });
+  if (reviewForMe.length) insights.push({ tone: 'warn', icon: 'check', text: reviewForMe.length === 1 ? tr('"{title}" is waiting for you to review it.', { title: reviewForMe[0].title }) : tr('{n} tasks you set are waiting for you to review them.', { n: reviewForMe.length }), action: { label: tr('Review'), run: () => (reviewForMe.length === 1 ? openDetail(reviewForMe[0]) : showOnly('review')) } });
+  const highIdle = high.filter((t) => t.status === 'not_started');
+  if (highIdle.length) insights.push({ tone: 'warn', icon: 'warn', text: highIdle.length === 1 ? tr('High priority "{title}" has not been started.', { title: highIdle[0].title }) : tr('{n} high-priority tasks have not been started.', { n: highIdle.length }), action: { label: tr('Show them'), run: () => showOnly('high') } });
+  const myToday = dueToday.filter((t) => (t.assigneeIds || []).includes(myId));
+  if (myToday.length) insights.push({ tone: 'info', icon: 'calendar', text: myToday.length === 1 ? tr('Your task "{title}" is due today.', { title: myToday[0].title }) : tr('You have {n} tasks due today.', { n: myToday.length }), action: { label: tr('Show them'), run: () => showOnly('week') } });
+  if (doneWeek.length >= 3) insights.push({ tone: 'good', icon: 'check', text: tr('{n} tasks were completed in the last 7 days.', { n: doneWeek.length }) });
 
-      <div className="tasks-summary">
-        {taskSummary.map((s) => (
-          <button
-            type="button"
-            key={s.label}
-            className={'tasks-summary-tile tasks-summary-tile-' + s.tone + (statusFilter === s.key ? ' tasks-summary-tile-active' : '')}
-            aria-pressed={statusFilter === s.key}
-            title={s.key ? tr('Show only {label}', { label: s.label.toLowerCase() }) : tr('Clear the status filter')}
-            onClick={() => setStatusFilter(statusFilter === s.key ? '' : s.key)}
-          >
-            <span className="tasks-summary-icon glow-badge"><Icon name={s.icon} /></span>
-            <div>
-              <div className="tasks-summary-value">{s.value}</div>
-              <div className="tasks-summary-label">{s.label}</div>
-            </div>
-          </button>
-        ))}
-      </div>
+  const chips = [
+    ['active', tr('Active'), scoped.filter(chipTest.active).length],
+    ['overdue', tr('Overdue'), overdue.length],
+    ['week', tr('Due this week'), dueWeek.length],
+    ['high', tr('High priority'), high.length],
+    ['review', tr('Under review'), scoped.filter(chipTest.review).length],
+    ['done', tr('Completed'), scoped.filter(chipTest.done).length],
+    ['cancelled', tr('Cancelled'), scoped.filter(chipTest.cancelled).length]
+  ].filter(([k, , n]) => n > 0 || k === 'active' || k === chip);
 
-      <div className="tasks-toolbar">
-        <div className="seg">
-          {[{ key: 'mine', label: tr('My tasks') }, { key: 'all', label: tr('In scope') }].map((opt) => (
-            <label className="seg-opt" key={opt.key}>
-              <input type="radio" name="task-scope" checked={scope === opt.key} onChange={() => setScope(opt.key)} />
-              <span>{opt.label}</span>
-            </label>
-          ))}
+  const columns = chip === 'cancelled' ? ['cancelled'] : BOARD;
+  const sortOpen = (a, b) => (a.overdue === b.overdue ? 0 : a.overdue ? -1 : 1)
+    || ({ high: 0, medium: 1, low: 2 }[a.priority] - { high: 0, medium: 1, low: 2 }[b.priority])
+    || String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'));
+  const listRows = visible.slice().sort((a, b) => {
+    const ra = OPEN(a) ? 0 : 1, rb = OPEN(b) ? 0 : 1;
+    if (ra !== rb) return ra - rb;
+    if (ra === 0) return sortOpen(a, b);
+    return String(b.completedAt || '').localeCompare(String(a.completedAt || ''));
+  });
+
+  function moveMenu(t) {
+    return [
+      { label: tr('Open'), onClick: () => openDetail(t) },
+      ...STATUSES.filter((s) => s !== t.status).map((s) => ({ label: tr('Move to {status}', { status: codeLabel(s) }), onClick: () => setStatus(t, s) })),
+      { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !canManage }
+    ];
+  }
+
+  function renderCard(t) {
+    const due = dueInfo(t, today);
+    return (
+      <article key={t.id} className={'tk-card' + (t.overdue ? ' is-overdue' : '') + (dragId === t.id ? ' is-dragging' : '')} draggable
+        onDragStart={(e) => { setDragId(t.id); e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move'; }}
+        onDragEnd={() => { setDragId(null); setDropCol(null); }}>
+        <div className="tk-card-top">
+          <button type="button" className="tk-card-title" onClick={() => openDetail(t)}>{t.title}</button>
+          <RowMenu actions={moveMenu(t)} />
         </div>
-        <select className="input tasks-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">{tr('All statuses')}</option>
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-          <option value="overdue">{tr('Overdue')}</option>
-        </select>
-        <select
-          className="input tasks-status-filter" value={companyFilter} aria-label={tr('Filter by company')}
-          onChange={(e) => { setCompanyFilter(e.target.value); setDeptFilter(''); }}
-        >
-          <option value="">{tr('All companies')}</option>
-          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select
-          className="input tasks-status-filter" value={deptFilter} aria-label={tr('Filter by department')}
-          onChange={(e) => setDeptFilter(e.target.value)}
-        >
-          <option value="">{tr('All departments')}</option>
-          {departments.filter((d) => !companyFilter || d.companyId === companyFilter).map((d) => (
-            <option key={d.id} value={d.id}>{companyFilter ? d.name : d.name + ' — ' + d.companyName}</option>
-          ))}
-        </select>
-        <input className="input tasks-search" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={tr('Search tasks…')} />
-      </div>
+        {t.projectName && t.projectName !== '—' && <span className="tk-project">{t.projectName}</span>}
+        <div className="tk-card-meta">
+          <PriorityMark priority={t.priority} />
+          <span className={'tk-due is-' + (due.tone || 'plain')}>{due.text}</span>
+        </div>
+        <div className="tk-card-foot">
+          <Faces people={t.assignees} size={24} />
+          {t.commentCount > 0 && (
+            <span className="tk-comments" title={tr('{n} comments', { n: t.commentCount })}>
+              <svg className="dk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 18.5 5.6 15A7 7 0 1 1 8.9 17.6z" /></svg>{t.commentCount}
+            </span>
+          )}
+        </div>
+      </article>
+    );
+  }
 
-      {canManage && (
-        <form className="card tasks-create-form" onSubmit={handleCreate}>
-          <div className="field">
-            <label htmlFor="task-title">{tr('New task')}</label>
-            <input id="task-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr('Task title')} required />
-          </div>
-          <div className="field">
-            <label htmlFor="task-project">{tr('Project')}</label>
-            <select id="task-project" className="input" value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
-              <option value="">{tr('None')}</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="task-assignee">{tr('Assignee')}</label>
-            <select id="task-assignee" className="input" value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
-              <option value="">{tr('Me')}</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="task-due">{tr('Due')}</label>
-            <input id="task-due" className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={creating}>{tr('Add task')}</button>
-        </form>
+  const showCompany = scope === 'all' && companies.length > 1;
+
+  return (
+    <div className="dk tk">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      {showCompany && (
+        <CompanySwitcher companies={[{ code: 'ALL', name: tr('All companies') }, ...companies]} company={currentCompany ? currentCompany.code : 'ALL'}
+          onPick={pickCompany}
+          describe={(co) => {
+            const n = tasks.filter((t) => OPEN(t) && (co.code === 'ALL' || (t.companyCodes || []).includes(co.code))).length;
+            return tr('{n} open', { n });
+          }} />
       )}
 
-      <table className="table">
-        <thead>
-          <tr><th>{tr('Task')}</th><th>{tr('Project')}</th><th>{tr('Assignee(s)')}</th><th>{tr('Priority')}</th><th>{tr('Started')}</th><th>{tr('Due')}</th><th>{tr('Status')}</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleTasks.map((t) => (
-            <tr key={t.id}>
-              <td>
-                <button type="button" className="tasks-title-btn" onClick={() => openDetail(t)}>{t.title}</button>
-                {t.commentCount > 0 && (
-                  <span className="tasks-comment-badge"><Icon name="message" /> {t.commentCount}</span>
-                )}
-              </td>
-              <td>{t.projectName}</td>
-              <td><AssigneeStack names={t.assigneeNames} /></td>
-              <td><span className={'tag ' + priorityClass(t.priority)}>{codeLabel(t.priority)}</span></td>
-              <td>
-                <input type="date" className="input tasks-date-input" value={(t.createdAt || '').slice(0, 10)} disabled={!canManage} onChange={(e) => handleSetStarted(t, e.target.value)} />
-              </td>
-              <td>
-                <input type="date" className="input tasks-date-input" value={t.dueDate || ''} disabled={!canManage} onChange={(e) => handleSetDue(t, e.target.value)} />
-                {t.overdue && <div className="tasks-overdue">{tr('{daysOverdue} day(s) overdue', { daysOverdue: t.daysOverdue })}</div>}
-              </td>
-              <td>
-                <select className="input tasks-status-select" value={t.status} onChange={(e) => handleSetStatus(t, e.target.value)}>
-                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                </select>
-              </td>
-              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                <RowMenu actions={[
-                  { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !(canManage) },
-                ]} />
-              </td>
-            </tr>
+      <Hero
+        eyebrow={new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        title={scope === 'mine' ? tr('My tasks') : tr('Tasks')}
+        sub={scope === 'mine'
+          ? tr('The work given to you: what is late, what is due soon and what is done. Move a task along as you work on it, and comment to keep everyone up to date.')
+          : currentCompany
+            ? tr('All the tasks you can see at {company}: who is doing what, what is late and what is waiting for a review. Press a number to show only those tasks.', { company: currentCompany.name })
+            : tr('All the tasks you can see: who is doing what, what is late and what is waiting for a review. Press a number to show only those tasks.')}
+        actions={<>
+          <div className="tk-seg" role="radiogroup" aria-label={tr('Show')}>
+            <button type="button" role="radio" aria-checked={scope === 'mine'} className={scope === 'mine' ? 'is-on' : ''} onClick={() => pickScope('mine')}>{tr('My tasks')}</button>
+            <button type="button" role="radio" aria-checked={scope === 'all'} className={scope === 'all' ? 'is-on' : ''} onClick={() => pickScope('all')}>{tr('Everything I can see')}</button>
+          </div>
+          {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('+ New task')}</button>}
+        </>}
+        stats={stats} />
+
+      <Insights items={insights.slice(0, 6)} />
+
+      <Section id="tk-list" title={view === 'board' ? tr('Board') : tr('List')}
+        sub={view === 'board' ? tr('A column per status. Drag a card to move it, or use its ⋮ menu.') : tr('Late tasks first, then by priority and due date.')}
+        action={
+          <div className="ppl-view" role="radiogroup" aria-label={tr('Show as')}>
+            <button type="button" role="radio" aria-checked={view === 'board'} className={view === 'board' ? 'is-on' : ''} onClick={() => pickView('board')} title={tr('Board')} aria-label={tr('Board')}>
+              <svg className="dk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3.5" y="4" width="5" height="16" rx="1.2" /><rect x="10" y="4" width="5" height="11" rx="1.2" /><rect x="16.5" y="4" width="4" height="7" rx="1.2" /></svg>
+            </button>
+            <button type="button" role="radio" aria-checked={view === 'list'} className={view === 'list' ? 'is-on' : ''} onClick={() => pickView('list')} title={tr('List')} aria-label={tr('List')}>
+              <svg className="dk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5v.1M4.5 12v.1M4.5 17.5v.1" /></svg>
+            </button>
+          </div>
+        }>
+        <div className="tk-tools">
+          <div className="tk-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search tasks, people, projects…')} /></div>
+          {scope === 'all' && (
+            <select className="input tk-select" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} aria-label={tr('Filter by department')}>
+              <option value="">{tr('All departments')}</option>
+              {departments.filter((d) => !currentCompany || d.companyId === currentCompany.id).map((d) => <option key={d.id} value={d.id}>{currentCompany ? d.name : d.name + ' — ' + d.companyName}</option>)}
+            </select>
+          )}
+          {projects.length > 0 && (
+            <select className="input tk-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} aria-label={tr('Filter by project')}>
+              <option value="">{tr('All projects')}</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+        </div>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, n]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+              {label} <span className="ppl-chip-n">{n}</span>
+            </button>
           ))}
-        </tbody>
-      </table>
-      {!visibleTasks.length && (
-        <div className="tasks-empty-state">
-          <span className="tasks-empty-icon"><Icon name="checklist" /></span>
-          <p className="tasks-empty-title">{tr('No tasks here')}</p>
-          <p className="tasks-empty-sub">{tr('Nothing matches this scope, status, or search.')}</p>
+        </div>
+
+        {!visible.length ? (
+          <div className="dk-empty tk-empty">
+            <p>{scoped.length ? tr('No tasks match. Try another search or filter.') : scope === 'mine' ? tr('Nothing on your plate. Tasks given to you will show here.') : tr('No tasks yet.')}</p>
+            {(search || chip !== 'active' || deptFilter || projectFilter) && scoped.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip('active'); setDeptFilter(''); setProjectFilter(''); }}>{tr('Clear filters')}</button>}
+            {canManage && !scoped.length && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('+ New task')}</button>}
+          </div>
+        ) : view === 'board' ? (
+          <div className="tk-board" style={{ '--tk-cols': columns.length }}>
+            {columns.map((s) => {
+              const inCol = visible.filter((t) => t.status === s).sort(s === 'completed' ? (a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')) : sortOpen);
+              const shown = s === 'completed' && chip !== 'done' ? inCol.slice(0, DONE_SHOWN) : inCol;
+              return (
+                <div key={s} className={'tk-col is-' + s + (dropCol === s ? ' is-drop' : '')}
+                  onDragOver={(e) => { if (dragId) { e.preventDefault(); setDropCol(s); } }}
+                  onDragLeave={(e) => { if (e.currentTarget === e.target) setDropCol(null); }}
+                  onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain') || dragId; const t = tasks.find((x) => x.id === id); setDropCol(null); setDragId(null); if (t) setStatus(t, s); }}>
+                  <header className="tk-col-head">
+                    <span className="tk-col-dot" aria-hidden="true" />
+                    <strong>{codeLabel(s)}</strong>
+                    <span className="tk-col-n">{inCol.length}</span>
+                  </header>
+                  <div className="tk-col-body">
+                    {shown.map((t) => renderCard(t))}
+                    {!inCol.length && <p className="tk-col-empty">{tr('Nothing here')}</p>}
+                    {shown.length < inCol.length && <button type="button" className="dk-link tk-more" onClick={() => showOnly('done')}>{tr('Show all {n} completed', { n: inCol.length })}</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <ul className="tk-list">
+            {listRows.map((t) => {
+              const due = dueInfo(t, today);
+              return (
+                <li key={t.id} className={'tk-row' + (t.overdue ? ' is-overdue' : '') + (OPEN(t) ? '' : ' is-closed')}>
+                  <button type="button" className="tk-row-main" onClick={() => openDetail(t)}>
+                    <strong>{t.title}</strong>
+                    <span className="dk-muted">{[t.projectName !== '—' ? t.projectName : null, t.commentCount ? tr('{n} comments', { n: t.commentCount }) : null].filter(Boolean).join(' · ') || ' '}</span>
+                  </button>
+                  <Faces people={t.assignees} size={28} />
+                  <PriorityMark priority={t.priority} />
+                  <span className={'tk-due is-' + (due.tone || 'plain')}>{due.text}</span>
+                  <select className="input tk-status-select" value={t.status} onChange={(e) => setStatus(t, e.target.value)} aria-label={tr('Status of {title}', { title: t.title })}>
+                    {STATUSES.map((s) => <option key={s} value={s}>{codeLabel(s)}</option>)}
+                  </select>
+                  <RowMenu actions={[{ label: tr('Open'), onClick: () => openDetail(t) }, { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !canManage }]} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
+
+      <Glossary items={[
+        [codeLabel('not_started'), tr('Given out, nobody has begun yet.')],
+        [codeLabel('in_progress'), tr('Someone is working on it.')],
+        [codeLabel('waiting'), tr('Held up by something or someone else: parts, an answer, another task.')],
+        [codeLabel('under_review'), tr('Done by the person doing it, waiting for whoever set it to check. They get a notification.')],
+        [codeLabel('completed'), tr('Finished. The date it was completed is kept.')],
+        [tr('Overdue'), tr('Past its due date and not completed or cancelled.')]
+      ]} />
+
+      {newOpen && (
+        <div className="dialog-backdrop" onClick={() => setNewOpen(false)}>
+          <form className="dialog tk-dialog" onClick={(e) => e.stopPropagation()} onSubmit={createTask}>
+            <h2>{tr('New task')}</h2>
+            <TaskForm form={form} setForm={setForm} projects={projects} employees={employees} />
+            <p className="dk-muted tk-small">{tr('Everyone you add gets a notification. With no due date, it is due today.')}</p>
+            {formError && <div className="error-banner">{formError}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setNewOpen(false)}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Add task')}</button>
+            </div>
+          </form>
         </div>
       )}
 
       {detail && (
         <div className="dialog-backdrop" onClick={() => setDetail(null)}>
-          <div className="dialog tasks-detail-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="dialog tk-dialog tk-detail" onClick={(e) => e.stopPropagation()}>
             {detailError && <div className="error-banner">{detailError}</div>}
             {editing ? (
-              <form onSubmit={submitEdit} className="tasks-edit-form">
+              <form onSubmit={saveEdit} className="tk-edit">
                 <h2>{tr('Edit task')}</h2>
-                <div className="field">
-                  <label htmlFor="edit-title">{tr('Title')}</label>
-                  <input id="edit-title" className="input" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
-                </div>
-                <div className="tasks-edit-grid">
-                  <div className="field">
-                    <label htmlFor="edit-priority">{tr('Priority')}</label>
-                    <select id="edit-priority" className="input" value={editForm.priority} onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}>
-                      <option value="low">{tr('Low')}</option><option value="medium">{tr('Medium')}</option><option value="high">{tr('High')}</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="edit-started">{tr('Date started')}</label>
-                    <input id="edit-started" className="input" type="date" value={editForm.startedDate} onChange={(e) => setEditForm({ ...editForm, startedDate: e.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="edit-due">{tr('Due date')}</label>
-                    <input id="edit-due" className="input" type="date" value={editForm.dueDate} onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })} />
-                  </div>
-                </div>
-                <div className="field">
-                  <label htmlFor="edit-desc">{tr('Description')}</label>
-                  <textarea id="edit-desc" className="input" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
-                </div>
+                <TaskForm form={editing} setForm={setEditing} projects={projects} employees={employees} showStarted />
                 <div className="dialog-actions">
-                  <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>{tr('Cancel')}</button>
-                  <button type="submit" className="btn btn-primary" disabled={savingDetail}>{tr('Save changes')}</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)}>{tr('Cancel')}</button>
+                  <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save changes')}</button>
                 </div>
               </form>
             ) : (
               <>
-                <div className="tasks-detail-header">
-                  <h2>{detail.title}</h2>
-                  <span className={'tag ' + tagClass(detail.status)}>{statusLabel(detail.status)}</span>
+                <header className="tk-detail-head">
+                  <div>
+                    <h2>{detail.title}</h2>
+                    <span className="dk-muted">
+                      {[detail.projectName !== '—' ? detail.projectName : null, detail.createdByName ? tr('set by {name}', { name: detail.createdByName }) : null, tr('started {date}', { date: fmtDate((detail.createdAt || '').slice(0, 10)) })].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                  <button type="button" className="tk-close" onClick={() => setDetail(null)} aria-label={tr('Close')}>×</button>
+                </header>
+
+                <div className="tk-steps" role="radiogroup" aria-label={tr('Status')}>
+                  {STATUSES.map((s) => (
+                    <button key={s} type="button" role="radio" aria-checked={detail.status === s} className={'tk-step is-' + s + (detail.status === s ? ' is-on' : '')} onClick={() => setStatus(detail, s)}>
+                      {codeLabel(s)}
+                    </button>
+                  ))}
                 </div>
-                <div className="tasks-detail-meta">
-                  <div>{tr('Project:')} {detail.projectName}</div>
-                  <div>{tr('Assignees:')} {detail.assigneeNames.join(', ')}</div>
-                  <div>{tr('Priority:')} {codeLabel(detail.priority)}</div>
-                  <div>{tr('Started:')} {fmtDate((detail.createdAt || '').slice(0, 10))}</div>
-                  <div>{tr('Due:')} {fmtDate(detail.dueDate)}</div>
-                </div>
-                {detail.overdue && <div className="tasks-overdue">{tr('{daysOverdue} day(s) overdue', { daysOverdue: detail.daysOverdue })}</div>}
-                {detail.description && <p className="tasks-detail-desc">{detail.description}</p>}
+
+                <dl className="tk-facts">
+                  <div><dt>{tr('Who does it')}</dt><dd className="tk-people">{detail.assignees && detail.assignees.length ? detail.assignees.map((a) => <span key={a.id} className="tk-person"><Photo id={a.id} name={a.name} photo={a.photo} size={26} />{a.name}</span>) : tr('Unassigned')}</dd></div>
+                  <div><dt>{tr('Priority')}</dt><dd><PriorityMark priority={detail.priority} /></dd></div>
+                  <div><dt>{tr('Due')}</dt><dd>{fmtDate(detail.dueDate)} {(() => { const d = dueInfo(detail, today); return d.tone === 'bad' || d.tone === 'warn' ? <Status tone={d.tone}>{d.text}</Status> : null; })()}</dd></div>
+                  {detail.completedAt && <div><dt>{tr('Completed')}</dt><dd>{fmtDate(String(detail.completedAt).slice(0, 10))}</dd></div>}
+                </dl>
+                {detail.description ? <p className="tk-desc">{detail.description}</p> : null}
+
                 {canManage && (
-                  <div className="dialog-actions" style={{ justifyContent: 'flex-start' }}>
-                    <button type="button" className="btn btn-secondary" onClick={startEdit}>{tr('Edit')}</button>
-                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(detail)}>{tr('Delete')}</button>
+                  <div className="tk-detail-actions">
+                    <button type="button" className="btn btn-secondary tk-btn" onClick={startEdit}>{tr('Edit')}</button>
+                    <button type="button" className="btn btn-secondary tk-btn" onClick={() => setDeleteTarget(detail)}>{tr('Delete')}</button>
                   </div>
                 )}
-                <hr className="hr" />
-                <div className="tasks-comments">
-                  <h3>{tr('Comments')}</h3>
-                  {detail.comments.map((c) => (
-                    <div className="tasks-comment" key={c.id}>
-                      <div className="tasks-comment-head">
-                        <span className="tasks-comment-author">
-                          <span className="tasks-comment-avatar" style={{ background: avatarColor(c.authorName) }}>{initials(c.authorName)}</span>
-                          {c.authorName}
-                        </span>
-                        <span>{fmtDate(c.at)}</span>
-                      </div>
-                      <div className="tasks-comment-body">{c.body}</div>
-                    </div>
-                  ))}
-                  {!detail.comments.length && <p className="tasks-no-comments">{tr('No comments yet.')}</p>}
-                  <form className="tasks-comment-form" onSubmit={submitComment}>
-                    <input className="input" value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} placeholder={tr('Add a comment…')} />
-                    <button className="btn btn-primary" type="submit">{tr('Post')}</button>
+
+                <section className="tk-thread">
+                  <h3>{tr('Comments')} <span className="dk-muted">{detail.comments.length}</span></h3>
+                  {detail.comments.length ? (
+                    <ul className="tk-comments-list">
+                      {detail.comments.map((c) => (
+                        <li key={c.id} className={c.authorId === myId ? 'is-mine' : ''}>
+                          <Photo id={c.authorId} name={c.authorName} photo={c.authorPhoto} size={30} />
+                          <div className="tk-comment">
+                            <div className="tk-comment-head"><strong>{c.authorId === myId ? tr('You') : c.authorName}</strong><span className="dk-muted">{ago(c.at)}</span></div>
+                            <p>{c.body}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="dk-muted tk-small">{tr('No comments yet. Ask a question or post an update; the people on the task are notified.')}</p>}
+                  <form className="tk-compose" onSubmit={postComment}>
+                    <textarea className="input" rows={2} value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} maxLength={1000}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); } }}
+                      placeholder={tr('Write a comment…')} aria-label={tr('Comment')} />
+                    <button className="btn btn-primary" type="submit" disabled={!commentDraft.trim()}>{tr('Post')}</button>
                   </form>
-                </div>
+                </section>
               </>
             )}
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setDetail(null)}>{tr('Close')}</button>
-            </div>
           </div>
         </div>
       )}
@@ -525,7 +646,7 @@ export default function TasksPage() {
             <p className="dialog-body">{tr('Delete')} <strong>{deleteTarget.title}</strong>{tr('? This cannot be undone.')}</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{tr('Cancel')}</button>
-              <button type="button" className="btn btn-primary" disabled={deleting} onClick={() => handleDelete(deleteTarget)}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
+              <button type="button" className="btn btn-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? tr('Deleting…') : tr('Delete')}</button>
             </div>
           </div>
         </div>

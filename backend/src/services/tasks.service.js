@@ -33,9 +33,31 @@ async function loadTask(id) {
   var assigneeRes = await pool.query('SELECT employee_id FROM task_assignees WHERE task_id = $1', [id]);
   return {
     id: t.id, title: t.title, projectId: t.project_id, assigneeIds: assigneeRes.rows.map(function (r) { return r.employee_id; }),
-    priority: t.priority, dueDate: t.due_date, status: t.status, createdBy: t.created_by, createdAt: t.created_at, description: t.description
+    priority: t.priority, dueDate: t.due_date, status: t.status, createdBy: t.created_by, createdAt: t.created_at, description: t.description,
+    completedAt: t.completed_at
   };
 }
+
+// Name, photo version, department and company of every person given, in
+// one query: { id: { name, photo, departmentId, companyCode } }.
+async function peopleById(ids) {
+  var out = {};
+  var uniq = Array.from(new Set(ids.filter(Boolean)));
+  if (!uniq.length) return out;
+  var res = await pool.query(
+    'SELECT e.id, e.first_name, e.last_name, e.photo_key, e.photo_updated_at, e.department_id, c.code AS company_code ' +
+    'FROM employees e LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id WHERE e.id = ANY($1)',
+    [uniq]
+  );
+  res.rows.forEach(function (e) {
+    out[e.id] = {
+      id: e.id, name: e.first_name + ' ' + e.last_name, departmentId: e.department_id, companyCode: e.company_code,
+      photo: e.photo_key && e.photo_updated_at ? new Date(e.photo_updated_at).getTime() : null
+    };
+  });
+  return out;
+}
+function person(people, id) { return people[id] || { id: id, name: '—', photo: null }; }
 
 // kernel.js: handlers['tasks.list'] — params.companyId/departmentId keep a
 // task if AT LEAST ONE assignee belongs to that company/department (a task
@@ -65,7 +87,7 @@ async function list(ctx, params) {
     'FROM tasks t LEFT JOIN projects p ON p.id = t.project_id ORDER BY t.due_date'
   );
 
-  var out = [];
+  var kept = [];
   for (var i = 0; i < res.rows.length; i++) {
     var r = res.rows[i];
     var assigneeIds = r.assignee_ids || [];
@@ -75,26 +97,28 @@ async function list(ctx, params) {
     if (params && params.status && r.status !== params.status) continue;
     if (params && params.q && r.title.toLowerCase().indexOf(String(params.q).toLowerCase()) < 0) continue;
     if (eligibleIds && !assigneeIds.some(function (id) { return eligibleIds.has(id); })) continue;
+    kept.push(r);
+  }
 
+  var people = await peopleById(kept.reduce(function (ids, r) { return ids.concat(r.assignee_ids || [], [r.created_by]); }, []));
+  return kept.map(function (r) {
+    var assigneeIds = r.assignee_ids || [];
     var overdue = r.due_date && r.due_date < todayISO() && ['completed', 'cancelled'].indexOf(r.status) < 0;
     var daysOverdue = overdue ? Math.round((new Date(todayISO()) - new Date(r.due_date)) / 86400000) : 0;
-    var assigneeNames = await namesFor(assigneeIds);
-
-    out.push({
+    var assignees = assigneeIds.map(function (id) { return person(people, id); });
+    return {
       id: r.id, title: r.title, projectId: r.project_id, priority: r.priority, dueDate: r.due_date, status: r.status,
-      createdBy: r.created_by, createdAt: r.created_at, description: r.description, assigneeIds: assigneeIds,
-      projectName: r.project_name || '—', assigneeNames: assigneeNames, overdue: overdue, daysOverdue: daysOverdue, commentCount: r.comment_count
-    });
-  }
-  return out;
+      createdBy: r.created_by, createdByName: person(people, r.created_by).name, createdAt: r.created_at, completedAt: r.completed_at,
+      description: r.description, assigneeIds: assigneeIds,
+      projectName: r.project_name || '—', assigneeNames: assignees.map(function (a) { return a.name; }),
+      assignees: assignees.map(function (a) { return { id: a.id, name: a.name, photo: a.photo }; }),
+      departmentIds: Array.from(new Set(assignees.map(function (a) { return a.departmentId; }).filter(Boolean))),
+      companyCodes: Array.from(new Set(assignees.map(function (a) { return a.companyCode; }).filter(Boolean))),
+      overdue: overdue, daysOverdue: daysOverdue, commentCount: r.comment_count
+    };
+  });
 }
 
-async function namesFor(employeeIds) {
-  if (!employeeIds.length) return [];
-  var res = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1)', [employeeIds]);
-  var byId = {}; res.rows.forEach(function (e) { byId[e.id] = e.first_name + ' ' + e.last_name; });
-  return employeeIds.map(function (id) { return byId[id] || '—'; });
-}
 
 // kernel.js: handlers['tasks.get']
 async function get(ctx, id) {
@@ -105,16 +129,22 @@ async function get(ctx, id) {
   var projRes = task.projectId ? await pool.query('SELECT name FROM projects WHERE id = $1', [task.projectId]) : { rows: [] };
   var overdue = task.dueDate && task.dueDate < todayISO() && ['completed', 'cancelled'].indexOf(task.status) < 0;
   var daysOverdue = overdue ? Math.round((new Date(todayISO()) - new Date(task.dueDate)) / 86400000) : 0;
-  var assigneeNames = await namesFor(task.assigneeIds);
-
   var commentsRes = await pool.query(
-    'SELECT tc.*, e.first_name, e.last_name FROM task_comments tc JOIN employees e ON e.id = tc.author_id WHERE tc.task_id = $1 ORDER BY tc.at',
+    'SELECT tc.* FROM task_comments tc WHERE tc.task_id = $1 ORDER BY tc.at',
     [id]
   );
+  var people = await peopleById(task.assigneeIds.concat([task.createdBy], commentsRes.rows.map(function (c) { return c.author_id; })));
+  var assignees = task.assigneeIds.map(function (aid) { return person(people, aid); });
 
   return Object.assign({}, task, {
-    projectName: (projRes.rows[0] && projRes.rows[0].name) || '—', overdue: overdue, daysOverdue: daysOverdue, assigneeNames: assigneeNames,
-    comments: commentsRes.rows.map(function (c) { return { id: c.id, authorId: c.author_id, body: c.text, at: c.at, authorName: c.first_name + ' ' + c.last_name }; })
+    projectName: (projRes.rows[0] && projRes.rows[0].name) || '—', overdue: overdue, daysOverdue: daysOverdue,
+    assigneeNames: assignees.map(function (a) { return a.name; }),
+    assignees: assignees.map(function (a) { return { id: a.id, name: a.name, photo: a.photo }; }),
+    createdByName: person(people, task.createdBy).name,
+    comments: commentsRes.rows.map(function (c) {
+      var a = person(people, c.author_id);
+      return { id: c.id, authorId: c.author_id, body: c.text, at: c.at, authorName: a.name, authorPhoto: a.photo };
+    })
   });
 }
 
@@ -152,8 +182,24 @@ async function setStatus(ctx, id, status) {
   if (!(await taskVisible(ctx, task))) fail('forbidden', 'Outside your scope.');
   status = V.oneOf(status, ['not_started', 'in_progress', 'waiting', 'under_review', 'completed', 'cancelled'], 'Status');
 
-  await pool.query('UPDATE tasks SET status = $1 WHERE id = $2', [status, id]);
-  await audit(pool, ctx, 'task.status', 'task', id, 'Set "' + task.title + '" to ' + status + '.');
+  if (status === task.status) return get(ctx, id);
+  await withTransaction(async function (client) {
+    // completed_at records when it was finished; reopening clears it.
+    await client.query(
+      "UPDATE tasks SET status = $1, completed_at = CASE WHEN $1 = 'completed' THEN now() ELSE NULL END WHERE id = $2",
+      [status, id]
+    );
+    // Whoever set the task hears when it is ready to check or done, unless
+    // they moved it themselves.
+    if ((status === 'under_review' || status === 'completed') && task.createdBy && task.createdBy !== ctx.employee.id) {
+      var who = ctx.employee.first_name + ' ' + ctx.employee.last_name;
+      await notify(client, task.createdBy,
+        status === 'completed' ? 'Task completed' : 'Task ready for review',
+        who + (status === 'completed' ? ' completed "' : ' sent "') + task.title + (status === 'completed' ? '".' : '" for review.'),
+        'tasks');
+    }
+    await audit(client, ctx, 'task.status', 'task', id, 'Set "' + task.title + '" to ' + status + '.');
+  });
   return get(ctx, id);
 }
 
@@ -182,6 +228,10 @@ async function update(ctx, id, p) {
     await client.query('DELETE FROM task_assignees WHERE task_id = $1', [id]);
     for (var i = 0; i < assigneeIds.length; i++) {
       await client.query('INSERT INTO task_assignees (task_id, employee_id) VALUES ($1,$2)', [id, assigneeIds[i]]);
+      // Someone newly put on the task hears about it, as on create().
+      if (existing.assigneeIds.indexOf(assigneeIds[i]) < 0 && assigneeIds[i] !== ctx.employee.id) {
+        await notify(client, assigneeIds[i], 'New task assigned', title, 'tasks');
+      }
     }
     await audit(client, ctx, 'task.update', 'task', id, 'Updated task "' + title + '".');
   });
