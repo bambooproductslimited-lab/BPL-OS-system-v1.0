@@ -4,7 +4,9 @@
 // has no entry and callers fall back to plain text for it.
 var LOGO_BY_COMPANY_CODE = {
   SB: '/restaurant-logos/star-bar.png',
-  BG1: '/restaurant-logos/bamboo-garden.png'
+  SBR: '/restaurant-logos/star-bar.png',
+  BG1: '/restaurant-logos/bamboo-garden.png',
+  BGN: '/restaurant-logos/bamboo-garden.png'
 };
 
 export function restaurantLogoUrl(companyCode) {
