@@ -535,12 +535,16 @@ function rowToRequest(r) {
     reportedOn: r.reported_on, reportedBy: r.reported_by, assignedTo: r.assigned_to,
     assignedToName: r.assigned_to_name || null,
     cost: Number(r.cost), chargeToTenant: r.charge_to_tenant,
-    resolvedOn: r.resolved_on, resolutionNotes: r.resolution_notes
+    resolvedOn: r.resolved_on, resolutionNotes: r.resolution_notes,
+    tenantPhone: r.tenant_phone || null, tenantEmail: r.tenant_email || null, currency: r.booking_currency || 'GHS',
+    chargeInvoiceId: r.charge_invoice_id || null, chargeInvoiceNo: r.charge_invoice_no || null,
+    chargeInvoiceStatus: r.charge_invoice_status || null, createdAt: r.created_at || null
   };
 }
 
 var REQUEST_SELECT =
-  'SELECT m.*, u.code AS unit_code, p.name AS property_name, c.name AS tenant_name, ' +
+  'SELECT m.*, u.code AS unit_code, p.name AS property_name, c.name AS tenant_name, c.phone AS tenant_phone, c.email AS tenant_email, ' +
+  "       l.currency AS booking_currency, ci.invoice_no AS charge_invoice_no, ci.status AS charge_invoice_status, " +
   "       (e.first_name || ' ' || e.last_name) AS assigned_to_name " +
   'FROM poki_maintenance_requests m ' +
   'JOIN poki_units u ON u.id = m.unit_id ' +
@@ -548,7 +552,8 @@ var REQUEST_SELECT =
   'LEFT JOIN poki_bookings l ON l.id = m.booking_id ' +
   'LEFT JOIN poki_tenants t ON t.id = l.tenant_id ' +
   'LEFT JOIN customers c ON c.id = t.customer_id ' +
-  'LEFT JOIN employees e ON e.id = m.assigned_to ';
+  'LEFT JOIN employees e ON e.id = m.assigned_to ' +
+  'LEFT JOIN invoices ci ON ci.id = m.charge_invoice_id ';
 
 async function listRequests(ctx, filters) {
   poki.canRead(ctx);
@@ -634,6 +639,11 @@ async function chargeRequestToTenant(ctx, id) {
   var m = res.rows[0];
   if (!m.booking_id) fail('conflict', 'This request is not attached to a booking, so there is no tenant to charge.');
   if (Number(m.cost) <= 0) fail('invalid', 'Record the repair cost before charging it to the tenant.');
+  // once only: a repair already recharged on an invoice that still stands
+  // is not charged again (voiding that invoice frees it to be charged anew)
+  if (m.charge_invoice_id && m.charge_invoice_status !== 'void') {
+    fail('conflict', 'This repair was already charged to the tenant on ' + m.charge_invoice_no + '.');
+  }
 
   var booking = await pool.query(
     'SELECT l.*, c.id AS customer_id FROM poki_bookings l JOIN poki_tenants t ON t.id = l.tenant_id ' +
@@ -654,7 +664,7 @@ async function chargeRequestToTenant(ctx, id) {
       dueDate: dueDateFor(todayISO(), UTILITY_NET_DAYS), currency: l.currency, instructions: instructions,
       notes: 'Maintenance recharge for ' + m.property_name + ' · ' + m.unit_code + '.'
     });
-    await client.query('UPDATE poki_maintenance_requests SET charge_to_tenant = true, updated_at = now() WHERE id = $1', [id]);
+    await client.query('UPDATE poki_maintenance_requests SET charge_to_tenant = true, charge_invoice_id = $2, updated_at = now() WHERE id = $1', [id, created.id]);
     await audit(client, ctx, 'poki.maintenance.charge', 'invoice', created.id,
       'Charged repair "' + m.title + '" to tenant as ' + created.invoice_no + '.');
     return created;

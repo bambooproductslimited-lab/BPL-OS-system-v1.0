@@ -340,10 +340,47 @@ var TENANT_SELECT =
   'LEFT JOIN poki_units u ON u.id = l.unit_id ' +
   'LEFT JOIN poki_properties p ON p.id = u.property_id ';
 
+// Plus, per tenant, money (what they owe and how much of it is overdue, per
+// currency — from their invoices, the same figures the invoice list gives),
+// what they have paid in all, and their bookings (how many, since when,
+// when the current one ends, deposit held).
 async function listTenants(ctx) {
   canRead(ctx);
   var res = await pool.query(TENANT_SELECT + 'GROUP BY t.id, c.id ORDER BY c.name');
-  return res.rows.map(rowToTenant);
+  var today = todayISO();
+  var money_ = await pool.query(
+    'SELECT i.customer_id, i.currency, ' +
+    "  COALESCE(SUM(i.balance_due) FILTER (WHERE i.status NOT IN ('paid', 'void')), 0) AS owed, " +
+    "  COALESCE(SUM(i.balance_due) FILTER (WHERE i.status NOT IN ('paid', 'void') AND i.due_date < $1), 0) AS overdue, " +
+    "  MAX(($1::date - i.due_date)) FILTER (WHERE i.status NOT IN ('paid', 'void') AND i.balance_due > 0 AND i.due_date < $1) AS days_overdue, " +
+    "  COALESCE(SUM(i.amount_paid) FILTER (WHERE i.status <> 'void'), 0) AS paid " +
+    'FROM invoices i JOIN poki_tenants t ON t.customer_id = i.customer_id GROUP BY 1, 2', [today]);
+  var stays = await pool.query(
+    'SELECT l.tenant_id, COUNT(*) AS bookings, MIN(l.start_date) AS since, ' +
+    "  MAX(l.end_date) FILTER (WHERE l.status = 'active') AS current_end, " +
+    "  MIN(l.start_date) FILTER (WHERE l.status IN ('draft', 'active') AND l.start_date > $1) AS next_start, " +
+    '  COALESCE(SUM(l.deposit_held - l.deposit_refunded), 0) AS deposit_held ' +
+    "FROM poki_bookings l WHERE l.status <> 'draft' OR l.start_date > $1 GROUP BY 1", [today]);
+  var byCustomer = {};
+  money_.rows.forEach(function (r) { (byCustomer[r.customer_id] = byCustomer[r.customer_id] || []).push(r); });
+  var byTenant = {};
+  stays.rows.forEach(function (r) { byTenant[r.tenant_id] = r; });
+  return res.rows.map(function (r) {
+    var t = rowToTenant(r);
+    var m = byCustomer[r.customer_id] || [];
+    var st = byTenant[r.id];
+    t.owed = m.filter(function (x) { return Number(x.owed) > 0; }).map(function (x) { return { currency: x.currency, amount: money(x.owed) }; });
+    t.overdue = m.filter(function (x) { return Number(x.overdue) > 0; }).map(function (x) { return { currency: x.currency, amount: money(x.overdue) }; });
+    t.daysOverdue = m.reduce(function (d, x) { return Math.max(d, Number(x.days_overdue) || 0); }, 0);
+    t.paid = m.filter(function (x) { return Number(x.paid) > 0; }).map(function (x) { return { currency: x.currency, amount: money(x.paid) }; });
+    t.bookings = st ? Number(st.bookings) : 0;
+    t.since = st ? dateOnly(st.since) : null;
+    t.currentEnd = st ? dateOnly(st.current_end) : null;
+    t.nextStart = st ? dateOnly(st.next_start) : null;
+    t.depositHeld = st ? money(st.deposit_held) : 0;
+    t.createdAt = r.created_at || null;
+    return t;
+  });
 }
 
 // Creates the customer (billing identity) and the tenant profile together.

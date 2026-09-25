@@ -98,3 +98,46 @@ test('a unit says when it was last let, when its next booking starts, who is in 
   assert.deepEqual([uf.status, uf.tenantName, uf.tenantPhone, uf.bookingNo, uf.bookingMonthly, uf.openRequests], ['occupied', MARK + ' Resident', '0240000097', live.bookingNo, 1300, 1]);
   await pool.query('DELETE FROM poki_maintenance_requests WHERE unit_id = $1', [f.id]);
 });
+
+test('a tenant carries what they owe, how overdue, what they have paid and when their booking ends', async function () {
+  var prop = await poki.createProperty(boss, { name: MARK + ' Heights', code: MARK + '4' });
+  var unit = await poki.createUnit(boss, { propertyId: prop.id, code: MARK + '-G', baseRent: 1000 });
+  var tenant = await poki.createTenant(boss, { name: MARK + ' Payer', phone: '0240000096' });
+  var fresh = await poki.createTenant(boss, { name: MARK + ' Prospect', status: 'prospect' });
+  var b = await poki.createBooking(boss, { unitId: unit.id, tenantId: tenant.id, startDate: day(-40), durationMonths: 3, status: 'active', notes: MARK });
+  var inv = (await pool.query('SELECT id, grand_total FROM invoices WHERE poki_booking_id = $1', [b.id])).rows[0];
+  await pool.query('UPDATE invoices SET issued_at = $1, due_date = $2 WHERE id = $3', [day(-40), day(-12), inv.id]);
+  await pokiInvoices.recordPayment(boss, inv.id, { amount: 1000, method: 'cash', date: day(-30) });
+
+  var list = await poki.listTenants(boss);
+  var t = list.find(function (x) { return x.id === tenant.id; });
+  var p = list.find(function (x) { return x.id === fresh.id; });
+  var left = Number(inv.grand_total) - 1000;
+  assert.deepEqual(t.owed, [{ currency: 'GHS', amount: left }]);
+  assert.deepEqual(t.overdue, [{ currency: 'GHS', amount: left }]);
+  assert.deepEqual([t.daysOverdue, t.paid[0].amount, t.bookings, t.since, t.currentEnd], [12, 1000, 1, day(-40), b.endDate.slice(0, 10)]);
+  assert.deepEqual([p.owed, p.bookings, p.currentEnd, p.status], [[], 0, null, 'prospect']);
+});
+
+test('a repair is charged to the tenant once; voiding that invoice lets it be charged again', async function () {
+  var prop = await poki.createProperty(boss, { name: MARK + ' Mews', code: MARK + '5' });
+  var unit = await poki.createUnit(boss, { propertyId: prop.id, code: MARK + '-H', baseRent: 800 });
+  var tenant = await poki.createTenant(boss, { name: MARK + ' Breaker', phone: '0240000095' });
+  await poki.createBooking(boss, { unitId: unit.id, tenantId: tenant.id, startDate: day(-5), durationMonths: 2, status: 'active', notes: MARK });
+  var r = await billing.createRequest(boss, { unitId: unit.id, title: MARK + ' broken window', priority: 'urgent' });
+  assert.deepEqual([r.tenantName, r.tenantPhone, r.chargeInvoiceId], [MARK + ' Breaker', '0240000095', null]);
+  await assert.rejects(function () { return billing.chargeRequestToTenant(boss, r.id); }, /repair cost/);
+  await billing.updateRequest(boss, r.id, { cost: 350, status: 'resolved' });
+
+  var first = await billing.chargeRequestToTenant(boss, r.id);
+  assert.equal(first.amount, 350);
+  var listed = (await billing.listRequests(boss, { unitId: unit.id }))[0];
+  assert.deepEqual([listed.chargeInvoiceId, listed.chargeInvoiceNo, listed.chargeToTenant], [first.invoiceId, first.invoiceNo, true]);
+  await assert.rejects(function () { return billing.chargeRequestToTenant(boss, r.id); }, /already charged/);
+
+  await pokiInvoices.voidInvoice(boss, first.invoiceId);
+  var again = await billing.chargeRequestToTenant(boss, r.id);
+  assert.notEqual(again.invoiceId, first.invoiceId);
+  await pool.query('DELETE FROM poki_maintenance_requests WHERE id = $1', [r.id]);
+  await pool.query('DELETE FROM invoices WHERE id = ANY($1::uuid[])', [[first.invoiceId, again.invoiceId]]);
+});

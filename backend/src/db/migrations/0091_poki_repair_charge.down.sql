@@ -1,0 +1,1 @@
+ALTER TABLE poki_maintenance_requests DROP COLUMN charge_invoice_id;

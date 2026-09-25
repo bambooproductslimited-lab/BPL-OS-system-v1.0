@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -6,7 +7,12 @@ import { money } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import ContactButtons from '../components/ContactButtons';
+import { Glossary, Hero, Insights, Section, Status, jump } from '../components/DashKit';
+import './EmployeesPage.css';
+import './ToolRoomPage.css';
 import './PokiPages.css';
+import './PokiRentals.css';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 import { itemsForDialog, totalsForDialog } from '../lib/docItems';
@@ -28,6 +34,14 @@ import { codeLabel } from '../lib/codeLabels.js';
 // When the prospect accepts, the offer converts to a DRAFT booking on that
 // unit. Draft, not active: activating is the deliberate step that checks
 // the unit is still free and flips it to occupied.
+//
+// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
+// the key numbers (drafts not sent, offers out waiting for an answer, offers
+// accepted this year and how many of the offers sent that is, empty units
+// with no offer out), what stands out (an offer past its date, one sent a
+// week ago with no answer, a unit on an offer that has since been let),
+// and the offers as cards or a list, with a call or WhatsApp button to
+// chase the prospect.
 
 const KINDS = [
   { value: 'letting', label: msg('Letting offer') },
@@ -58,6 +72,8 @@ const EMPTY = {
   validUntil: '', clientNotes: '', internalNotes: '', terms: '', items: [blankLine()]
 };
 
+function kindLabel(k) { return tr((KINDS.find((x) => x.value === k) || KINDS[2]).label); }
+
 // A finalized letting offer has gone to the customer and a converted one
 // has become a booking, so the list says Sent and Booked.
 function offerStatusLabel(status) {
@@ -77,7 +93,8 @@ export default function PokiEstimatesPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [chip, setChip] = useState('open');
+  const [view, setView] = useState(() => { try { return localStorage.getItem('bos.pokiOffersView') || 'cards'; } catch { return 'cards'; } });
   const [busyId, setBusyId] = useState(null);
   const [standardTerms, setStandardTerms] = useState('');
   const [detail, setDetail] = useState(null);
@@ -291,10 +308,6 @@ export default function PokiEstimatesPage() {
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  const visible = estimates.filter((e) =>
-    matchesQuery(search, e.estimateNo, e.customerName, e.unitCode, e.propertyName) &&
-    (!statusFilter || e.status === statusFilter)
-  );
   const set = (k) => (ev) => setForm({ ...form, [k]: ev.target.value });
   const setConv = (k) => (ev) => setConvert({ ...convert, [k]: ev.target.value });
   const vacantUnits = units.filter((u) => u.status === 'vacant' || u.id === form.unitId);
@@ -320,81 +333,148 @@ export default function PokiEstimatesPage() {
     ];
   }
 
+  // ── what the page shows ────────────────────────────────────────────
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const daysSince = (d) => (d ? Math.round((today - new Date(String(d).slice(0, 10) + 'T00:00')) / 86400000) : null);
+  const drafts = estimates.filter((e) => e.status === 'draft');
+  const sent = estimates.filter((e) => e.status === 'finalized');
+  const lapsed = sent.filter((e) => e.validUntil && daysSince(e.validUntil) > 0);
+  const waiting = sent.filter((e) => !lapsed.includes(e));
+  const stale = waiting.filter((e) => daysSince(e.createdAt) >= 7);
+  const takenElsewhere = [...drafts, ...sent].filter((e) => e.docKind === 'letting' && e.unitId && e.unitStatus === 'occupied');
+  const year = String(new Date().getFullYear());
+  const accepted = estimates.filter((e) => e.status === 'converted' && String(e.createdAt).slice(0, 4) === year);
+  const decided = estimates.filter((e) => (e.status === 'converted' || e.status === 'finalized' || e.status === 'archived') && String(e.createdAt).slice(0, 4) === year);
+  const offeredUnits = new Set([...drafts, ...sent].map((e) => e.unitId).filter(Boolean));
+  const emptyNoOffer = units.filter((u) => u.status === 'vacant' && u.active !== false && !offeredUnits.has(u.id) && !u.nextBookingStart);
+
+  function showOnly(key) { setChip(chip === key ? 'open' : key); jump('pk-offers'); }
+  const stats = [
+    { icon: 'doc', value: String(drafts.length), label: tr('drafts not sent'), note: drafts.length ? tr('finish and send them') : tr('nothing waiting to go out'), onClick: () => showOnly('draft') },
+    { icon: 'send', value: String(waiting.length), label: tr('out, waiting for an answer'), note: lapsed.length ? tr('{n} past their date', { n: lapsed.length }) : stale.length ? tr('{n} sent over a week ago', { n: stale.length }) : tr('none past their date'), tone: lapsed.length ? 'alert' : '', onClick: () => showOnly('sent') },
+    { icon: 'check', value: String(accepted.length), label: tr('accepted this year'), note: decided.length ? tr('{pct}% of the offers made', { pct: Math.round((accepted.length / decided.length) * 100) }) : tr('none made yet this year'), tone: accepted.length ? 'good' : '', onClick: () => showOnly('converted') },
+    { icon: 'drawer', value: String(emptyNoOffer.length), label: tr('empty units with no offer'), note: emptyNoOffer.length ? emptyNoOffer.slice(0, 3).map((u) => u.code).join(', ') + (emptyNoOffer.length > 3 ? '…' : '') : tr('every empty unit is on offer'), tone: emptyNoOffer.length ? 'alert' : 'good', onClick: () => canManage && emptyNoOffer.length && tenants.length && openOffer(null) }
+  ];
+
+  const insights = [];
+  if (takenElsewhere.length) insights.push({ tone: 'bad', icon: 'warn', text: takenElsewhere.length === 1 ? tr('{no} offers {unit}, which has since been let. Withdraw it or offer another unit.', { no: takenElsewhere[0].estimateNo, unit: takenElsewhere[0].unitCode }) : tr('{n} open offers are for units that have since been let.', { n: takenElsewhere.length }), action: { label: tr('Show them'), run: () => showOnly('taken') } });
+  if (lapsed.length) insights.push({ tone: 'warn', icon: 'calendar', text: lapsed.length === 1 ? tr('The offer to {name} for {unit} ran out on {date}.', { name: lapsed[0].customerName, unit: lapsed[0].unitCode || '—', date: fmtDate(lapsed[0].validUntil) }) : tr('{n} offers are past the date they were valid until.', { n: lapsed.length }), action: { label: tr('Show them'), run: () => showOnly('lapsed') } });
+  if (stale.length) insights.push({ tone: 'info', icon: 'phone', text: stale.length === 1 ? tr('{name} has had the offer for {unit} for {n} days with no answer. Give them a call.', { name: stale[0].customerName, unit: stale[0].unitCode || '—', n: daysSince(stale[0].createdAt) }) : tr('{n} offers were sent over a week ago with no answer.', { n: stale.length }), action: { label: tr('Show them'), run: () => showOnly('sent') } });
+  if (drafts.length) insights.push({ tone: 'info', icon: 'doc', text: drafts.length === 1 ? tr('{no} for {name} is still a draft — mark it sent once it has gone out.', { no: drafts[0].estimateNo, name: drafts[0].customerName }) : tr('{n} offers are still drafts.', { n: drafts.length }), action: { label: tr('Show them'), run: () => showOnly('draft') } });
+  if (emptyNoOffer.length) insights.push({ tone: 'warn', icon: 'drawer', text: emptyNoOffer.length === 1 ? tr('{unit} at {property} is empty and nobody has been offered it.', { unit: emptyNoOffer[0].code, property: emptyNoOffer[0].propertyName }) : tr('{n} empty units have no offer out.', { n: emptyNoOffer.length }), action: canManage && tenants.length ? { label: tr('Make an offer'), run: () => openOffer(null) } : null });
+  if (!insights.length && estimates.length) insights.push({ tone: 'good', icon: 'check', text: tr('Every offer is out and in date, and every empty unit is on offer.') });
+
+  const chipTest = {
+    open: (e) => e.status === 'draft' || e.status === 'finalized', draft: (e) => e.status === 'draft', sent: (e) => waiting.includes(e),
+    lapsed: (e) => lapsed.includes(e), taken: (e) => takenElsewhere.includes(e), converted: (e) => e.status === 'converted',
+    archived: (e) => e.status === 'archived', all: () => true
+  };
+  const visible = estimates.filter(chipTest[chip] || chipTest.open)
+    .filter((e) => matchesQuery(search, e.estimateNo, e.customerName, e.unitCode, e.propertyName));
+  const chips = [
+    ['open', tr('Open'), drafts.length + sent.length], ['draft', tr('Draft'), drafts.length], ['sent', tr('Waiting for an answer'), waiting.length],
+    ['lapsed', tr('Past their date'), lapsed.length], ['taken', tr('Unit since let'), takenElsewhere.length],
+    ['converted', tr('Became a booking'), estimates.filter(chipTest.converted).length], ['archived', tr('Archived'), estimates.filter(chipTest.archived).length], ['all', tr('All'), estimates.length]
+  ].filter(([k, , c]) => c > 0 || k === 'open' || k === chip);
+  function stateOf(e) {
+    if (e.status === 'converted') return { tone: 'good', text: e.bookingNo ? tr('Booked · {no}', { no: e.bookingNo }) : tr('Booked') };
+    if (e.status === 'archived') return { tone: 'muted', text: codeLabel('archived') };
+    if (takenElsewhere.includes(e)) return { tone: 'bad', text: tr('Unit since let') };
+    if (lapsed.includes(e)) return { tone: 'warn', text: tr('Ran out {date}', { date: fmtDate(e.validUntil) }) };
+    if (e.status === 'draft') return { tone: 'muted', text: tr('Draft — not sent') };
+    return { tone: 'info', text: e.validUntil ? tr('Sent · good until {date}', { date: fmtDate(e.validUntil) }) : tr('Sent') };
+  }
+  const tenantFor = (e) => tenants.find((t) => t.customerId === e.customerId);
+
   return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+    <div className="dk tl pk">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <div className="poki-toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder={tr('Search offers…')} />
-        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filter by status')}>
-          <option value="">{tr('All statuses')}</option>
-          <option value="draft">{tr('Draft')}</option>
-          <option value="finalized">{tr('Sent')}</option>
-          <option value="converted">{tr('Became a booking')}</option>
-          <option value="archived">{tr('Archived')}</option>
-        </select>
-        <div className="poki-toolbar-spacer" />
-        {canManage && (
-          <button type="button" className="btn btn-primary" disabled={!tenants.length} onClick={() => openOffer(null)}>
-            {tr('New offer')}
-          </button>
-        )}
-      </div>
+      <Hero
+        eyebrow={tr('Poki Rentals')}
+        title={tr('Letting offers')}
+        sub={tr('What a unit costs to take, quoted to a prospect before any booking exists — costed from the unit\'s own rent, deposit and utilities. Accepted, it becomes a draft booking. Press a number to show only those.')}
+        actions={canManage && <button type="button" className="btn btn-primary" disabled={!tenants.length} onClick={() => openOffer(null)}>{tr('New offer')}</button>}
+        stats={stats} />
 
-      {visible.length === 0 ? (
-        <div className="poki-empty">
-          <p className="poki-empty-title">{estimates.length ? tr('No offers match') : tr('No letting offers yet')}</p>
-          <p className="poki-empty-sub">
-            {estimates.length
-              ? tr('Try a different search or status filter.')
-              : tenants.length
-                ? tr('Quote a prospect what a unit costs to take. The offer is costed from the unit’s own rent, deposit and utility terms, and becomes a booking once accepted.')
-                : tr('Add someone to the tenant register first — a prospect who hasn’t signed still belongs there.')}
-          </p>
+      <Insights items={insights.slice(0, 5)} />
+
+      <Section id="pk-offers" title={tr('Offers')} sub={tr('Press an offer for its lines and totals.')}
+        action={(
+          <div className="ppl-view" role="radiogroup" aria-label={tr('View')}>
+            {[['cards', tr('Cards')], ['list', tr('List')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={view === k} className={view === k ? 'is-on' : ''} onClick={() => { setView(k); try { localStorage.setItem('bos.pokiOffersView', k); } catch { /* this visit only */ } }}>{label}</button>
+            ))}
+          </div>
+        )}>
+        <div className="tl-tools"><div className="tl-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search offers…')} /></div></div>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, c]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+              {label} <span className="ppl-chip-n">{c}</span>
+            </button>
+          ))}
         </div>
-      ) : (
-        <div className="poki-table-wrap">
-          <table className="table table-clickable">
-            <thead>
-              <tr>
-                <th>{tr('Offer')}</th><th>{tr('Kind')}</th><th>{tr('Prospect')}</th><th>{tr('Unit')}</th><th>{tr('Valid until')}</th>
-                <th className="poki-num">{tr('Total')}</th><th>{tr('Status')}</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((e) => (
-                <tr
-                  key={e.id}
-                  tabIndex={0}
-                  onClick={() => setDetail(e)}
-                  onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setDetail(e); } }}
-                >
-                  <td className="poki-strong poki-nowrap">
-                    {e.estimateNo}
-                    {e.bookingNo && <div className="poki-muted">→ {e.bookingNo}</div>}
-                  </td>
-                  <td><span className="poki-chip poki-chip-open">{codeLabel(e.docKind)}</span></td>
-                  <td className="poki-nowrap">{e.customerName}</td>
-                  <td className="poki-nowrap">
-                    {e.unitCode || <span className="poki-muted">—</span>}
-                    {e.propertyName && <div className="poki-muted">{e.propertyName}</div>}
-                  </td>
-                  <td className="poki-nowrap">{fmtDate(e.validUntil)}</td>
-                  <td className="poki-num">{money(e.grandTotal, e.currency)}</td>
-                  <td>
-                    <span className={'poki-chip poki-chip-' + (e.status === 'converted' ? 'active' : e.status === 'finalized' ? 'expiring' : 'open')}>
-                      {offerStatusLabel(e.status)}
+        {!visible.length ? (
+          <div className="dk-empty tl-empty">
+            <p>{estimates.length ? tr('Try a different search or status filter.') : tenants.length
+              ? tr('Quote a prospect what a unit costs to take. The offer is costed from the unit’s own rent, deposit and utility terms, and becomes a booking once accepted.')
+              : tr('Add someone to the tenant register first — a prospect who hasn’t signed still belongs there.')}</p>
+            {!tenants.length && <Link className="btn btn-secondary" to="/pokitenants">{tr('Tenants')}</Link>}
+          </div>
+        ) : view === 'cards' ? (
+          <div className="tl-grid">
+            {visible.map((e) => {
+              const st = stateOf(e);
+              const t = tenantFor(e);
+              return (
+                <article key={e.id} className={'tl-card' + (st.tone === 'bad' ? ' st-late' : st.tone === 'warn' ? ' st-low' : '') + (e.status === 'archived' ? ' st-retired' : '')}>
+                  <button type="button" className="tl-card-open" onClick={() => setDetail(e)}>
+                    <span className={'pk-unit-code' + (e.status === 'converted' ? ' is-let' : '')}>{e.unitCode || '—'}</span>
+                    <span className="tl-card-head">
+                      <span className="dk-muted tl-small">{e.estimateNo} · {kindLabel(e.docKind)}{e.propertyName ? ' · ' + e.propertyName : ''}</span>
+                      <span className="tl-name">{e.customerName}</span>
                     </span>
-                  </td>
-                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                    <RowMenu actions={rowActionsFor(e)} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  </button>
+                  <span className="tl-menu"><RowMenu actions={rowActionsFor(e)} /></span>
+                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status></div>
+                  <div className="tl-foot">
+                    <span className="tl-small"><strong>{money(e.grandTotal, e.currency)}</strong> <span className="dk-muted">{tr('to take it')}</span></span>
+                    <ContactButtons name={e.customerName} phone={e.customerPhone || (t && t.phone)} email={e.customerEmail} />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="tl-table-wrap">
+            <table className="tl-table">
+              <thead><tr><th>{tr('Offer')}</th><th>{tr('Unit')}</th><th className="is-num">{tr('Total')}</th><th>{tr('Status')}</th><th /></tr></thead>
+              <tbody>
+                {visible.map((e) => {
+                  const st = stateOf(e);
+                  return (
+                    <tr key={e.id} className={e.status === 'archived' ? 'st-retired' : ''}>
+                      <td><button type="button" className="tl-row-open" onClick={() => setDetail(e)}><span><span className="tl-name">{e.customerName}</span><span className="dk-muted tl-small">{e.estimateNo} · {kindLabel(e.docKind)}</span></span></button></td>
+                      <td>{e.unitCode || '—'}{e.propertyName && <div className="dk-muted tl-small">{e.propertyName}</div>}</td>
+                      <td className="is-num">{money(e.grandTotal, e.currency)}</td>
+                      <td><Status tone={st.tone}>{st.text}</Status></td>
+                      <td className="tl-menu-cell"><RowMenu actions={rowActionsFor(e)} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Glossary items={[
+        [tr('Letting offer'), tr('What a prospect would pay to take a unit: rent up front, the deposit and the utility terms, with a date it is good until.')],
+        [tr('Sent'), tr('Marked as gone out to the prospect. It can no longer be edited, only accepted or withdrawn.')],
+        [tr('Accept'), tr('Turns the offer into a draft booking on the unit. Activating the booking is what puts the tenant in.')],
+        [tr('Unit since let'), tr('Someone else took the unit after the offer was made. The offer can no longer be honoured as it stands.')]
+      ]} />
 
       {dialog === 'offer' && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
@@ -564,8 +644,8 @@ export default function PokiEstimatesPage() {
               <input id="pc-dep" className="input" type="number" step="0.01" value={convert.depositAmount} onChange={setConv('depositAmount')} />
             </div>
             <div className="field">
-              <label htmlFor="pc-day">{tr('Due on day')}</label>
-              <input id="pc-day" className="input" type="number" min="1" max="28" value={convert.paymentDay} onChange={setConv('paymentDay')} />
+              <label htmlFor="pc-daily">{tr('Rent per day')}</label>
+              <input id="pc-daily" className="input" type="number" step="0.01" value={convert.dailyRate || ''} onChange={setConv('dailyRate')} placeholder={tr('from the unit')} />
             </div>
             <div className="field">
               <label htmlFor="pc-esc">{tr('Renewal increase (%)')}</label>
@@ -622,7 +702,7 @@ export default function PokiEstimatesPage() {
           items={itemsForDialog(detail.items, detail.currency)}
           totals={totalsForDialog(detail, detail.currency)}
           fields={[
-            { label: tr('Kind'), value: codeLabel(detail.docKind) },
+            { label: tr('Kind'), value: kindLabel(detail.docKind) },
             { label: tr('Unit'), value: detail.unitCode },
             { label: tr('Property'), value: detail.propertyName },
             { label: tr('Valid until'), value: fmtDate(detail.validUntil) },

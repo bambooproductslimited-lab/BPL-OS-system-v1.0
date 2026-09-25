@@ -1,22 +1,35 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { money } from '../lib/currency';
+import ContactButtons from '../components/ContactButtons';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { Glossary, Hero, Insights, Section, Status, jump } from '../components/DashKit';
+import { money, moneyBreakdown } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import './EmployeesPage.css';
+import './ToolRoomPage.css';
+import './RestaurantsPage.css';
 import './PokiPages.css';
+import './PokiRentals.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
 import { formatDocDate } from '../lib/dates';
 import { codeLabel } from '../lib/codeLabels.js';
-// Rent & utilities — the billing desk. Three tabs because the three jobs
-// are genuinely separate: raising the period's rent, turning meter
-// readings and shared bills into invoices, and looking at what's been
-// raised.
+// Rent & utilities — the billing desk. Rent is invoiced when a booking is
+// made (it is paid for up front), so what happens here is: taking payments
+// against invoices, raising one-off charges, and turning meter readings and
+// shared building bills into utility invoices. Same "explains itself"
+// layout as the dashboards (components/DashKit.jsx): the key numbers (owed
+// and overdue, collected this month, readings not billed yet, shared bills
+// not charged), what stands out (the most overdue invoice, readings waiting,
+// metered units with no meter, meters not read for over a month), and two
+// views — Invoices (with a call or WhatsApp button to chase the tenant and
+// payment recorded in place) and Utilities (meters, readings, shared bills).
 
-function todayISO() { return new Date().toISOString().slice(0, 10); }
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(String(iso).length > 10 ? iso : iso + 'T00:00');
@@ -28,7 +41,6 @@ export default function PokiBillingPage() {
   const { can } = useAuth();
   const canManage = can('poki.manage');
 
-  const [tab, setTab] = useState('utilities');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -40,8 +52,11 @@ export default function PokiBillingPage() {
   const [newInv, setNewInv] = useState(null);
   const [invError, setInvError] = useState(null);
 
-  const [asOf, setAsOf] = useState(todayISO());
   const [selected, setSelected] = useState({});
+  const [view, setView] = useState('invoices');
+  const [chip, setChip] = useState('unpaid');
+  const [search, setSearch] = useState('');
+  const [overview, setOverview] = useState(null);
 
   const [units, setUnits] = useState([]);
   const [meters, setMeters] = useState([]);
@@ -56,13 +71,6 @@ export default function PokiBillingPage() {
   const [form, setForm] = useState({});
   const [dialogError, setDialogError] = useState(null);
   const [split, setSplit] = useState(null);
-
-  const loadPreview = useCallback(async (date) => {
-    try {
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [asOf]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -84,14 +92,12 @@ export default function PokiBillingPage() {
       setTenants(tn);
       setBookings(ls);
       setProperties(await api.get('/poki/properties'));
+      api.get('/poki/overview').then(setOverview).catch(() => {});
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-    // asOf intentionally excluded — changing the date refreshes only the
-    // preview (loadPreview), not the whole screen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -169,7 +175,7 @@ export default function PokiBillingPage() {
       });
       setToast(tr('Raised {invoiceNo}.', { invoiceNo: res.invoiceNo }));
       setNewInv(null);
-      setTab('invoices');
+      setView('invoices');
       await load();
     } catch (err) {
       setInvError(err.message);
@@ -247,200 +253,238 @@ export default function PokiBillingPage() {
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-  const unbilled = readings.filter((r) => !r.invoiceId);
-  return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <div className="poki-toolbar">
-        <button type="button" className={'btn ' + (tab === 'utilities' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('utilities')}>{tr('Utilities')}</button>
-        <button type="button" className={'btn ' + (tab === 'invoices' ? 'btn-primary' : 'btn-secondary')} onClick={() => setTab('invoices')}>{tr('Invoices')}</button>
+  // ── what the page shows ────────────────────────────────────────────
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const daysSince = (d) => (d ? Math.round((today - new Date(String(d).slice(0, 10) + 'T00:00')) / 86400000) : null);
+  const live = invoices.filter((i) => i.status !== 'void');
+  const unpaid = live.filter((i) => i.status !== 'paid' && i.balanceDue > 0);
+  const overdue = unpaid.filter((i) => i.overdue).sort((x, y) => String(x.dueDate).localeCompare(String(y.dueDate)));
+  const sumBy = (list, f) => { const m = {}; list.forEach((i) => { m[i.currency] = (m[i.currency] || 0) + f(i); }); return Object.entries(m).filter(([, a]) => a).map(([currency, amount]) => ({ currency, amount })); };
+  const unbilled = readings.filter((r) => !r.invoiceId);
+  const unbilledTotal = unbilled.reduce((t, r) => t + r.amount, 0);
+  const masterOpen = masterBills.filter((b) => !b.billedAt);
+  const meteredUnits = units.filter((u) => u.utilityMode === 'metered' && u.active !== false);
+  const noMeter = meteredUnits.filter((u) => !meters.some((m) => m.unitId === u.id));
+  const unread = meters.filter((m) => m.active !== false && (!m.lastReadOn || daysSince(m.lastReadOn) > 40) && units.some((u) => u.id === m.unitId && u.status === 'occupied'));
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const collected = (m) => (overview ? overview.collectedByMonth.filter((r) => r.month === m).map((r) => ({ currency: r.currency, amount: r.amount })) : []);
+  const tenantByCustomer = new Map(tenants.map((t) => [t.customerId, t]));
+
+  function showInvoices(key) { setView('invoices'); setChip(key); setTimeout(() => jump('pk-desk'), 0); }
+  const stats = [
+    { icon: 'owed', value: moneyBreakdown(sumBy(unpaid, (i) => i.balanceDue), money(0)), label: tr('owed by tenants'), note: overdue.length ? (overdue.length === 1 ? tr('1 invoice overdue') : tr('{n} invoices overdue', { n: overdue.length })) : tr('nothing past its due date'), tone: overdue.length ? 'bad' : '', onClick: () => showInvoices(overdue.length ? 'overdue' : 'unpaid') },
+    { icon: 'cash', value: moneyBreakdown(collected(thisMonth), money(0)), label: tr('collected this month'), note: tr('{amount} last month', { amount: moneyBreakdown(collected(lastMonth), money(0)) }), onClick: () => showInvoices('paid') },
+    { icon: 'clock', value: String(unbilled.length), label: tr('readings not billed'), note: unbilled.length ? tr('{amount} to charge', { amount: money(unbilledTotal) }) : tr('every reading is billed'), tone: unbilled.length ? 'alert' : '', onClick: () => { setView('utilities'); setTimeout(() => jump('pk-desk'), 0); } },
+    { icon: 'doc', value: String(masterOpen.length), label: tr('shared bills not charged'), note: tr('building bills split across units'), tone: masterOpen.length ? 'alert' : '', onClick: () => { setView('utilities'); setTimeout(() => jump('pk-master'), 0); } }
+  ];
+
+  const insights = [];
+  if (overdue.length) {
+    const w = overdue[0];
+    insights.push({ tone: 'bad', icon: 'owed', text: overdue.length === 1 ? tr('{name} has owed {amount} on {no} for {days} days.', { name: w.customerName, amount: money(w.balanceDue, w.currency), no: w.invoiceNo, days: daysSince(w.dueDate) }) : tr('{n} invoices are overdue; the oldest is {name}\'s {no}, {days} days.', { n: overdue.length, name: w.customerName, no: w.invoiceNo, days: daysSince(w.dueDate) }), action: canManage && overdue.length === 1 ? { label: tr('Record payment'), run: () => openPay(w) } : { label: tr('Show them'), run: () => showInvoices('overdue') } });
+  }
+  if (unbilled.length) insights.push({ tone: 'warn', icon: 'clock', text: unbilled.length === 1 ? tr('A reading of {amount} on {unit} has not been billed yet.', { amount: money(unbilled[0].amount), unit: unbilled[0].unitCode }) : tr('{n} meter readings worth {amount} have not been billed yet.', { n: unbilled.length, amount: money(unbilledTotal) }), action: { label: tr('Bill them'), run: () => { setView('utilities'); setTimeout(() => jump('pk-desk'), 0); } } });
+  if (masterOpen.length) insights.push({ tone: 'warn', icon: 'doc', text: masterOpen.length === 1 ? tr('The {utility} bill for {property} has not been charged to the tenants.', { utility: codeLabel(masterOpen[0].utilityType).toLowerCase(), property: masterOpen[0].propertyName }) : tr('{n} shared bills have not been charged to the tenants.', { n: masterOpen.length }), action: { label: tr('Review & bill'), run: () => showSplit(masterOpen[0]) } });
+  if (noMeter.length) insights.push({ tone: 'info', icon: 'warn', text: noMeter.length === 1 ? tr('{unit} is set to sub-metered utilities but has no meter, so its usage can\'t be billed.', { unit: noMeter[0].code }) : tr('{n} sub-metered units have no meter, so their usage can\'t be billed.', { n: noMeter.length }), action: canManage ? { label: tr('Add meter'), run: () => { setForm({ unitId: noMeter[0].id, utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); } } : null });
+  if (unread.length) insights.push({ tone: 'info', icon: 'calendar', text: unread.length === 1 ? tr('The meter on {unit} has not been read for over a month.', { unit: unread[0].unitCode }) : tr('{n} meters on let units have not been read for over a month.', { n: unread.length }), action: canManage ? { label: tr('Record reading'), run: () => { setForm({ meterId: unread[0].id, periodStart: unread[0].lastReadOn ? String(unread[0].lastReadOn).slice(0, 10) : '', periodEnd: new Date().toISOString().slice(0, 10), currentReading: '' }); setDialogError(null); setDialog('reading'); } } : null });
+  if (!insights.length && invoices.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything billed is paid or in date, and every reading has been billed.') });
+
+  const chipTest = {
+    unpaid: (i) => unpaid.includes(i), overdue: (i) => overdue.includes(i), paid: (i) => i.status === 'paid',
+    rent: (i) => i.docKind === 'rent', utility: (i) => i.docKind === 'utility', other: (i) => i.docKind !== 'rent' && i.docKind !== 'utility' && i.status !== 'void',
+    void: (i) => i.status === 'void', all: () => true
+  };
+  const visible = invoices.filter(chipTest[chip] || chipTest.unpaid)
+    .filter((i) => matchesQuery(search, i.invoiceNo, i.customerName, i.unitCode, i.propertyName, i.bookingNo));
+  const chips = [
+    ['unpaid', tr('Unpaid'), unpaid.length], ['overdue', tr('Overdue'), overdue.length], ['paid', tr('Paid'), live.filter(chipTest.paid).length],
+    ['rent', tr('Rent'), live.filter(chipTest.rent).length], ['utility', tr('Utilities'), live.filter(chipTest.utility).length], ['other', tr('Other charges'), invoices.filter(chipTest.other).length],
+    ['void', tr('Void'), invoices.filter(chipTest.void).length], ['all', tr('All'), invoices.length]
+  ].filter(([k, , c]) => c > 0 || k === 'unpaid' || k === chip);
+  function invState(i) {
+    if (i.status === 'void') return { tone: 'muted', text: codeLabel('void') };
+    if (i.status === 'paid') return { tone: 'good', text: codeLabel('paid') };
+    if (i.overdue) { const d = daysSince(i.dueDate); return { tone: 'bad', text: d === 1 ? tr('1 day overdue') : tr('{daysOverdue} days overdue', { daysOverdue: d }) }; }
+    if (i.amountPaid > 0) return { tone: 'warn', text: tr('part paid · due {date}', { date: fmtDate(i.dueDate) }) };
+    return { tone: 'info', text: tr('due {date}', { date: fmtDate(i.dueDate) }) };
+  }
+  const readingsOf = (m) => readings.filter((r) => r.meterId === m.id);
+
+  return (
+    <div className="dk tl pk">
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      <Hero
+        eyebrow={tr('Poki Rentals')}
+        title={tr('Rent & utilities')}
+        sub={tr('Take payments against what tenants owe, raise one-off charges, and turn meter readings and shared building bills into utility invoices. Rent itself is invoiced when a booking is made. Press a number to go to it.')}
+        actions={canManage && (
+          <>
+            <button type="button" className="btn btn-primary" onClick={openNewInvoice}>{tr('New invoice')}</button>
+            {meters.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setForm({ meterId: meters[0].id, periodStart: '', periodEnd: '', currentReading: '' }); setDialogError(null); setDialog('reading'); }}>{tr('Record reading')}</button>}
+          </>
+        )}
+        stats={stats} />
+
+      <Insights items={insights.slice(0, 5)} />
+
+      <div id="pk-desk" className="rs-views" role="tablist" aria-label={tr('Show')}>
+        {[['invoices', tr('Invoices'), unpaid.length], ['utilities', tr('Utilities'), unbilled.length + masterOpen.length]].map(([k, label, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} className={'rs-view' + (view === k ? ' is-on' : '')} onClick={() => setView(k)}>
+            {label}{n ? <span className="ppl-chip-n">{n}</span> : null}
+          </button>
+        ))}
       </div>
 
-      {tab === 'utilities' && (
-        <div>
-          <p className="poki-muted" style={{ marginBottom: 12 }}>
-            {tr('Rent is invoiced when a booking is made, not from here — a booking is paid for up front. Utilities are the only charge still raised after the fact.')}
-          </p>
-          <div className="poki-section" style={{ marginTop: 0 }}>
-            <div className="poki-toolbar">
-              <h2 className="poki-section-title" style={{ margin: 0 }}>{tr('Meter readings')}</h2>
-              <div className="poki-toolbar-spacer" />
-              {canManage && <button type="button" className="btn btn-secondary" onClick={() => { setForm({ utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); }}>{tr('Add meter')}</button>}
-              {canManage && meters.length > 0 && (
-                <button type="button" className="btn btn-secondary" onClick={() => { setForm({ meterId: meters[0].id, periodStart: '', periodEnd: '', currentReading: '' }); setDialogError(null); setDialog('reading'); }}>{tr('Record reading')}</button>
-              )}
-              {canManage && unbilled.length > 0 && (
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={billSelectedReadings}>{tr('Bill selected')}</button>
-              )}
-            </div>
-
-            {meters.length === 0 ? (
-              <div className="poki-empty">
-                <p className="poki-empty-title">{tr('No meters yet')}</p>
-                <p className="poki-empty-sub">
-                  {tr('Add a sub-meter to any unit set to "metered" utilities, then record its readings each period to bill consumption.')}
-                </p>
-              </div>
-            ) : readings.length === 0 ? (
-              <div className="poki-empty">
-                <p className="poki-empty-title">{tr('No readings recorded')}</p>
-                <p className="poki-empty-sub">{tr('Record a reading against a meter to bill the consumption.')}</p>
-              </div>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 32 }}></th>
-                    <th>{tr('Unit')}</th><th>{tr('Utility')}</th><th>{tr('Period')}</th>
-                    <th className="poki-num">{tr('Previous')}</th><th className="poki-num">{tr('Current')}</th><th className="poki-num">{tr('Used')}</th>
-                    <th className="poki-num">{tr('Amount')}</th><th>{tr('Status')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {readings.map((r) => (
-                    <tr key={r.id}>
-                      <td>
-                        {!r.invoiceId && (
-                          <input type="checkbox" checked={!!selected['r_' + r.id]}
-                            onChange={(e) => setSelected({ ...selected, ['r_' + r.id]: e.target.checked })}
-                            aria-label={tr('Select reading for {unitCode}', { unitCode: r.unitCode })} />
-                        )}
-                      </td>
-                      <td className="poki-strong">{r.unitCode}</td>
-                      <td>{codeLabel(r.utilityType)}</td>
-                      <td>{fmtDate(r.periodStart)} → {fmtDate(r.periodEnd)}</td>
-                      <td className="poki-num">{r.previousReading}</td>
-                      <td className="poki-num">{r.currentReading}</td>
-                      <td className="poki-num">{r.consumption} {r.measureUnit}</td>
-                      <td className="poki-num poki-strong">{money(r.amount, 'GHS')}</td>
-                      <td>
-                        {r.invoiceId
-                          ? <span className="poki-chip poki-chip-active">{r.invoiceNo}</span>
-                          : <span className="poki-chip poki-chip-open">{tr('unbilled')}</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="poki-section">
-            <div className="poki-toolbar">
-              <h2 className="poki-section-title" style={{ margin: 0 }}>{tr('Shared (master) bills')}</h2>
-              <div className="poki-toolbar-spacer" />
-              {canManage && properties.length > 0 && (
-                <button type="button" className="btn btn-secondary"
-                  onClick={() => { setForm({ propertyId: properties[0].id, utilityType: 'electricity', splitMethod: 'share', periodStart: '', periodEnd: '', totalAmount: '' }); setDialogError(null); setDialog('master'); }}>
-                  {tr('Record master bill')}
-                </button>
-              )}
-            </div>
-            <p className="poki-section-sub">
-              {tr('The whole-building ECG or Ghana Water bill, split across the units set to "apportioned". Review the split before charging it — apportioned utilities are the line tenants query most.')}
-            </p>
-            {masterBills.length === 0 ? (
-              <div className="poki-empty">
-                <p className="poki-empty-title">{tr('No master bills recorded')}</p>
-                <p className="poki-empty-sub">{tr('Only needed if some units share a building meter rather than having their own.')}</p>
-              </div>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr><th>{tr('Property')}</th><th>{tr('Utility')}</th><th>{tr('Period')}</th><th className="poki-num">{tr('Total')}</th><th>{tr('Split by')}</th><th>{tr('Status')}</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {masterBills.map((b) => (
-                    <tr key={b.id}>
-                      <td className="poki-strong">{b.propertyName}</td>
-                      <td>{codeLabel(b.utilityType)}</td>
-                      <td>{fmtDate(b.periodStart)} → {fmtDate(b.periodEnd)}</td>
-                      <td className="poki-num">{money(b.totalAmount, 'GHS')}</td>
-                      <td className="poki-muted">{b.splitMethod === 'share' ? tr('unit share %') : b.splitMethod === 'sqm' ? tr('floor area') : tr('equally')}</td>
-                      <td>
-                        {b.billedAt
-                          ? <span className="poki-chip poki-chip-active">{tr('apportioned')}</span>
-                          : <span className="poki-chip poki-chip-open">{tr('not billed')}</span>}
-                      </td>
-                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                        <RowMenu actions={[
-                          { label: b.billedAt ? tr('View split') : tr('Review & bill'), onClick: () => showSplit(b) },
-                        ]} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === 'invoices' && (
-        invoices.length === 0 ? (
-          <div className="poki-empty">
-            <p className="poki-empty-title">{tr('No invoices raised yet')}</p>
-            <p className="poki-empty-sub">{tr('Rent, utility and repair invoices raised for Poki tenants appear here.')}</p>
-            {canManage && (
-              <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} onClick={openNewInvoice}>
-                {tr('New invoice')}
+      {view === 'invoices' && (
+        <Section title={tr('Invoices')} sub={tr('Rent, utility and repair invoices for Poki tenants, oldest due first.')}>
+          <div className="tl-tools"><div className="tl-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search invoice, tenant, unit…')} /></div></div>
+          <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+            {chips.map(([key, label, c]) => (
+              <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
+                {label} <span className="ppl-chip-n">{c}</span>
               </button>
-            )}
+            ))}
           </div>
-        ) : (
-          <>
-          <div className="poki-toolbar">
-            <span className="poki-muted">{tr('{n} invoice(s)', { n: invoices.length })}</span>
-            <div className="poki-toolbar-spacer" />
-            {canManage && <button type="button" className="btn btn-primary" onClick={openNewInvoice}>{tr('New invoice')}</button>}
-          </div>
-          <div className="poki-table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{tr('Invoice')}</th><th>{tr('Kind')}</th><th>{tr('Tenant')}</th><th>{tr('Unit')}</th><th>{tr('Period')}</th><th>{tr('Due')}</th>
-                <th className="poki-num">{tr('Total')}</th><th className="poki-num">{tr('Balance')}</th><th>{tr('Status')}</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((i) => (
-                <tr key={i.id}>
-                  <td className="poki-strong poki-nowrap">{i.invoiceNo}</td>
-                  <td><span className="poki-chip poki-chip-open">{codeLabel(i.docKind)}</span></td>
-                  <td className="poki-nowrap">{i.customerName}</td>
-                  <td className="poki-nowrap">{i.unitCode || <span className="poki-muted">—</span>}</td>
-                  <td className="poki-muted poki-nowrap">
-                    {i.periodStart ? (
-                      <>
-                        <div>{fmtDate(i.periodStart)}</div>
-                        <div>→ {fmtDate(i.periodEnd)}</div>
-                      </>
-                    ) : '—'}
-                  </td>
-                  <td className={'poki-nowrap' + (i.overdue ? ' poki-overdue' : '')}>{fmtDate(i.dueDate)}</td>
-                  <td className="poki-num">{money(i.grandTotal, i.currency)}</td>
-                  <td className={'poki-num' + (i.balanceDue > 0 ? ' poki-overdue' : '')}>{money(i.balanceDue, i.currency)}</td>
-                  <td>
-                    <span className={'poki-chip poki-chip-' + (i.status === 'void' ? 'expired' : i.status === 'paid' ? 'active' : i.overdue ? 'expired' : 'open')}>
-                      {codeLabel(i.status === 'void' ? 'void' : i.overdue && i.status !== 'paid' ? 'overdue' : i.status)}
+          {!visible.length ? (
+            <div className="dk-empty tl-empty"><p>{invoices.length ? tr('Nothing matches. Try another search or filter.') : tr('Rent, utility and repair invoices raised for Poki tenants appear here.')}</p></div>
+          ) : (
+            <ul className="rs-list">
+              {visible.slice().sort((x, y) => (chip === 'unpaid' || chip === 'overdue' ? String(x.dueDate).localeCompare(String(y.dueDate)) : 0)).map((i) => {
+                const st = invState(i);
+                const t = tenantByCustomer.get(i.customerId);
+                return (
+                  <li key={i.id} className={'rs-row' + (i.status === 'void' ? ' is-void' : '') + (st.tone === 'bad' ? ' is-short' : '')}>
+                    <button type="button" className="rs-row-open" onClick={() => openPreview(i)}>
+                      <span className="rs-row-main">
+                        <strong>{i.customerName}</strong>
+                        <span className="dk-muted tl-small">{[i.invoiceNo, codeLabel(i.docKind), i.unitCode ? i.unitCode + ' · ' + i.propertyName : null, i.periodStart ? fmtDate(i.periodStart) + ' – ' + fmtDate(i.periodEnd) : null].filter(Boolean).join(' · ')}</span>
+                      </span>
+                      <span className="rs-row-side">
+                        <strong className={'rs-amount' + (i.balanceDue > 0 && i.status !== 'void' ? ' pk-owe' : '')}>{money(i.status === 'paid' || i.status === 'void' ? i.grandTotal : i.balanceDue, i.currency)}</strong>
+                        <Status tone={st.tone}>{st.text}</Status>
+                      </span>
+                    </button>
+                    <span className="pk-contact pk-inv-acts">
+                      {canManage && i.status !== 'paid' && i.status !== 'void' && <button type="button" className="btn btn-secondary tl-btn" disabled={busy} onClick={() => openPay(i)}>{tr('Record payment')}</button>}
+                      {i.balanceDue > 0 && i.status !== 'void' && t && <ContactButtons name={i.customerName} phone={t.phone} email={t.email} />}
+                      <RowMenu actions={[
+                        { label: tr('Print'), onClick: () => openPreview(i) },
+                        { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) }
+                      ]} />
                     </span>
-                  </td>
-                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                    <RowMenu actions={[
-                      { label: tr('Print'), onClick: () => openPreview(i) },
-                      { label: tr('Record payment'), onClick: () => openPay(i), disabled: busy, hidden: !(canManage && i.status !== 'paid' && i.status !== 'void') },
-                      { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) },
-                    ]} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-          </>
-        )
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Section>
       )}
+
+      {view === 'utilities' && (
+        <>
+          <Section title={tr('Meters')} sub={tr('A sub-meter on each unit set to metered utilities. Record a reading each period, then bill it.')}
+            action={canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setForm({ utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); }}>{tr('Add meter')}</button>}>
+            {!meters.length ? (
+              <div className="dk-empty tl-empty"><p>{tr('Add a sub-meter to any unit set to "metered" utilities, then record its readings each period to bill consumption.')}</p></div>
+            ) : (
+              <div className="tl-grid">
+                {meters.map((m) => {
+                  const rs = readingsOf(m);
+                  const waiting = rs.filter((r) => !r.invoiceId);
+                  const late = unread.includes(m);
+                  return (
+                    <article key={m.id} className={'tl-card' + (late ? ' st-low' : '')}>
+                      <div className="tl-card-open pk-static">
+                        <span className={'tl-badge pk-util is-' + m.utilityType} style={{ width: 44, height: 44 }} aria-hidden="true">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{m.utilityType === 'water' ? <path d="M12 3.5c3 4 6 7.2 6 10.5a6 6 0 0 1-12 0c0-3.3 3-6.5 6-10.5Z" /> : <path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />}</svg>
+                        </span>
+                        <span className="tl-card-head">
+                          <span className="dk-muted tl-small">{m.propertyName} · {codeLabel(m.utilityType)}{m.meterNumber ? ' · ' + m.meterNumber : ''}</span>
+                          <span className="tl-name">{m.unitCode}</span>
+                        </span>
+                      </div>
+                      <div className="tl-tags">
+                        {late ? <Status tone="warn">{m.lastReadOn ? tr('Last read {date}', { date: fmtDate(m.lastReadOn) }) : tr('Never read')}</Status> : m.lastReadOn ? <Status tone="muted">{tr('Last read {date}', { date: fmtDate(m.lastReadOn) })}</Status> : <Status tone="muted">{tr('Never read')}</Status>}
+                        {waiting.length > 0 && <Status tone="warn">{tr('{amount} not billed', { amount: money(waiting.reduce((t, r) => t + r.amount, 0)) })}</Status>}
+                      </div>
+                      <div className="tl-foot">
+                        <span className="dk-muted tl-small">{tr('reading {n} {unit}', { n: m.lastReading, unit: m.measureUnit })} · {tr('{rate} per {unit}', { rate: money(m.rate), unit: m.measureUnit })}</span>
+                        {canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setForm({ meterId: m.id, periodStart: m.lastReadOn ? String(m.lastReadOn).slice(0, 10) : '', periodEnd: new Date().toISOString().slice(0, 10), currentReading: '' }); setDialogError(null); setDialog('reading'); }}>{tr('Record reading')}</button>}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </Section>
+
+          {readings.length > 0 && (
+            <Section title={tr('Readings')} sub={tr('Tick the ones to bill; each tenant gets one invoice for theirs.')}
+              action={canManage && unbilled.length > 0 && (
+                <span className="rs-actions">
+                  <button type="button" className="btn btn-secondary tl-btn" onClick={() => setSelected(Object.fromEntries(unbilled.map((r) => ['r_' + r.id, true])))}>{tr('Tick all not billed')}</button>
+                  <button type="button" className="btn btn-primary tl-btn" disabled={busy || !unbilled.some((r) => selected['r_' + r.id])} onClick={billSelectedReadings}>{tr('Bill selected')}</button>
+                </span>
+              )}>
+              <ul className="rs-list">
+                {readings.map((r) => (
+                  <li key={r.id} className="rs-row">
+                    <label className="rs-row-open pk-reading">
+                      {!r.invoiceId && canManage
+                        ? <input type="checkbox" checked={!!selected['r_' + r.id]} onChange={(e) => setSelected({ ...selected, ['r_' + r.id]: e.target.checked })} aria-label={tr('Select reading for {unitCode}', { unitCode: r.unitCode })} />
+                        : <span className="pk-reading-pad" />}
+                      <span className="rs-row-main">
+                        <strong>{r.unitCode} · {codeLabel(r.utilityType)}</strong>
+                        <span className="dk-muted tl-small">{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)} · {r.previousReading} → {r.currentReading} · {tr('{n} {unit} used', { n: r.consumption, unit: r.measureUnit })}</span>
+                      </span>
+                      <span className="rs-row-side">
+                        <strong className="rs-amount">{money(r.amount)}</strong>
+                        {r.invoiceId ? <Status tone="good">{r.invoiceNo}</Status> : <Status tone="warn">{tr('unbilled')}</Status>}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          <Section id="pk-master" title={tr('Shared (master) bills')} sub={tr('The whole-building ECG or Ghana Water bill, split across the units set to "apportioned". Review the split before charging it — apportioned utilities are the line tenants query most.')}
+            action={canManage && properties.length > 0 && (
+              <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setForm({ propertyId: properties[0].id, utilityType: 'electricity', splitMethod: 'share', periodStart: '', periodEnd: '', totalAmount: '' }); setDialogError(null); setDialog('master'); }}>{tr('Record master bill')}</button>
+            )}>
+            {!masterBills.length ? <p className="dk-muted tl-small">{tr('Only needed if some units share a building meter rather than having their own.')}</p> : (
+              <ul className="rs-list">
+                {masterBills.map((b) => (
+                  <li key={b.id} className="rs-row">
+                    <button type="button" className="rs-row-open" onClick={() => showSplit(b)}>
+                      <span className="rs-row-main">
+                        <strong>{b.propertyName} · {codeLabel(b.utilityType)}</strong>
+                        <span className="dk-muted tl-small">{fmtDate(b.periodStart)} – {fmtDate(b.periodEnd)} · {b.splitMethod === 'share' ? tr('unit share %') : b.splitMethod === 'sqm' ? tr('floor area') : tr('equally')}{b.reference ? ' · ' + b.reference : ''}</span>
+                      </span>
+                      <span className="rs-row-side">
+                        <strong className="rs-amount">{money(b.totalAmount)}</strong>
+                        {b.billedAt ? <Status tone="good">{tr('apportioned')}</Status> : <Status tone="warn">{tr('not billed')}</Status>}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        </>
+      )}
+
+      <Glossary items={[
+        [tr('Rent'), tr('Invoiced once, when a booking is made, for the whole booking. There is no monthly rent run.')],
+        [tr('Sub-meter'), tr('A meter on one unit. Its readings are billed at the meter\'s rate to whoever is in the unit.')],
+        [tr('Shared (master) bill'), tr('One bill for the whole building, split across the units by their share, their floor area or equally.')],
+        [tr('Void'), tr('Cancels an invoice nothing has been paid on. The number stays used.')]
+      ]} />
+
+      {!invoices.length && !meters.length && <p className="dk-muted tl-small">{tr('Nothing billed yet.')} <Link to="/pokibookings">{tr('Bookings')}</Link></p>}
 
       {(dialog === 'meter' || dialog === 'reading' || dialog === 'master') && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
@@ -641,7 +685,6 @@ export default function PokiBillingPage() {
                 <option value="cash">{tr('Cash')}</option>
                 <option value="cheque">{tr('Cheque')}</option>
                 <option value="card">{tr('Card')}</option>
-                <option value="other">{tr('Other')}</option>
               </select>
             </div>
             <div className="field poki-dialog-span">
@@ -663,7 +706,7 @@ export default function PokiBillingPage() {
           <form className="dialog poki-dialog poki-offer-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitNewInvoice}>
             <h2 className="poki-dialog-title">{tr('New invoice')}</h2>
             <p className="poki-dialog-hint poki-dialog-span">
-              {tr('For one-off charges — service charge, late fee, cleaning, damages. Rent and metered utilities are raised from the Rent run and Utilities tabs so their bookkeeping stays in step.')}
+              {tr('For one-off charges — service charge, late fee, cleaning, damages. Rent is invoiced with its booking and metered utilities from the Utilities view, so their bookkeeping stays in step.')}
             </p>
             {invError && <div className="error-banner poki-dialog-span">{invError}</div>}
 
