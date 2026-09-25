@@ -202,7 +202,10 @@ function buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation
   });
 }
 
-async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation) {
+// quiet: a background import records one summary in the audit log when it
+// finishes instead of one line per order (a busy restaurant's history is
+// tens of thousands of orders).
+async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation, quiet) {
   var total = minorToMajor(order.total_money);
   var items = buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation);
   var subtotal = items.reduce(function (sum, it) { return sum + it.lineTotal; }, 0);
@@ -234,82 +237,171 @@ async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation
         [orderId, it.menuItemId, it.variationId, it.name, it.qty, it.unitPrice, it.lineTotal]
       );
     }
-    await audit(client, ctx, 'restaurant.square_import.order', 'restaurant_order', orderId, 'Imported from Square order ' + order.id + ' (GHS ' + total.toLocaleString() + ').');
+    if (!quiet) await audit(client, ctx, 'restaurant.square_import.order', 'restaurant_order', orderId, 'Imported from Square order ' + order.id + ' (GHS ' + total.toLocaleString() + ').');
     return orderId;
   });
 }
 
-async function runImport(ctx, companyId) {
-  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
-  var company = await requireCompany(companyId);
+// ── the import, as a background job ─────────────────────────────────
+//
+// startImport() checks everything that can be checked at once (permission,
+// company, Square token), records a job and returns straight away; the work
+// runs after the response, and the page asks jobStatus() for progress.
+// Orders are fetched a page at a time, oldest first, and saved as each page
+// arrives — memory stays small however long the history is. Unless a full
+// re-import is asked for, orders are fetched only from the last Square order
+// already saved (less a day, in case of late edits), so a later import takes
+// seconds, and an import stopped by a server restart carries on where it
+// left off. Saving is by Square id, so nothing is ever duplicated.
 
+var STALE_MS = 3 * 60 * 1000;
+var MAX_ERRORS_KEPT = 50;
+var clientFactory = function (creds) { return square.createClient(creds); };
+// Tests hand in a fake Square client instead of the real API.
+function setClientFactoryForTests(fn) { clientFactory = fn || function (creds) { return square.createClient(creds); }; }
+
+function rowToJob(r) {
+  if (!r) return null;
+  var stale = r.status === 'running' && Date.now() - new Date(r.heartbeat_at).getTime() > STALE_MS;
+  return {
+    id: r.id, companyId: r.company_id, status: stale ? 'interrupted' : r.status, phase: r.phase, fullImport: r.full_import,
+    ordersSince: r.orders_since, menuItems: { imported: r.menu_imported, skipped: r.menu_skipped },
+    orders: { imported: r.orders_imported, skipped: r.orders_skipped }, pagesDone: r.pages_done, lastOrderAt: r.last_order_at,
+    errorCount: r.error_count, errors: r.errors || [], message: r.message || null,
+    startedAt: r.started_at, heartbeatAt: r.heartbeat_at, finishedAt: r.finished_at
+  };
+}
+
+async function latestJob(companyId) {
+  return (await pool.query('SELECT * FROM restaurant_import_jobs WHERE company_id = $1 ORDER BY started_at DESC LIMIT 1', [companyId])).rows[0] || null;
+}
+
+// The latest import for this restaurant, with its progress.
+async function jobStatus(ctx, companyId) {
+  if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
+  await requireCompany(companyId);
+  return rowToJob(await latestJob(companyId));
+}
+
+async function startImport(ctx, companyId, opts) {
+  if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
+  opts = opts || {};
+  var company = await requireCompany(companyId);
   var creds = config.restaurantSquare.forCompanyCode(company.code);
   if (!creds.configured) fail('invalid', 'Square is not configured for ' + company.name + " — set SQUARE_ACCESS_TOKEN_" + company.code + ' on the server.');
-  var client = square.createClient(creds);
 
-  var summary = { menuItems: { imported: 0, skipped: 0 }, orders: { imported: 0, skipped: 0 }, errors: [] };
-
-  var cashierId = await ensureImportCashier(company);
-
-  var squareObjects = await client.listAllCatalogItems();
-  var squareCategories = squareObjects.filter(function (o) { return o.type === 'CATEGORY'; });
-  var squareItems = squareObjects.filter(function (o) { return o.type === 'ITEM'; });
-
-  var categoryNameByExternal = {};
-  for (var ci = 0; ci < squareCategories.length; ci++) {
-    categoryNameByExternal[squareCategories[ci].id] = squareCategories[ci].category_data.name;
+  var last = await latestJob(company.id);
+  if (last && rowToJob(last).status === 'running') fail('conflict', 'An import for ' + company.name + ' is already running. It carries on in the background — watch its progress here.');
+  if (last && last.status === 'running') {
+    await pool.query("UPDATE restaurant_import_jobs SET status = 'failed', message = 'Stopped when the server restarted.', finished_at = now() WHERE id = $1", [last.id]);
   }
+  var job = (await pool.query(
+    'INSERT INTO restaurant_import_jobs (company_id, full_import, started_by) VALUES ($1,$2,$3) RETURNING *',
+    [company.id, !!opts.full, ctx.employee ? ctx.employee.id : null])).rows[0];
+  await audit(pool, ctx, 'restaurant.square_import.start', 'restaurant_import_job', job.id, (opts.full ? 'Started a full Square re-import for ' : 'Started a Square import for ') + company.name + '.');
 
-  var locations = await client.listLocations();
-  var allLocationIds = locations.map(function (l) { return l.id; });
-  if (!allLocationIds.length) fail('invalid', 'Square returned no locations for ' + company.name + "'s account — nothing to import.");
-  if (creds.locationId && allLocationIds.indexOf(creds.locationId) === -1) {
-    fail('invalid', 'Configured Square location for ' + company.name + ' (' + creds.locationId + ") wasn't found on this account.");
+  var client = clientFactory(creds);
+  var run = runJob(ctx, job.id, company, creds, client, !!opts.full);
+  if (opts.wait) await run; // tests wait for the job; the web request never does
+  else run.catch(function (e) { console.error('[restaurant import] job ' + job.id + ' crashed:', e); });
+  return rowToJob((await pool.query('SELECT * FROM restaurant_import_jobs WHERE id = $1', [job.id])).rows[0]);
+}
+
+async function runJob(ctx, jobId, company, creds, client, full) {
+  var errors = [];
+  var counts = { menuImported: 0, menuSkipped: 0, ordersImported: 0, ordersSkipped: 0, pages: 0, errorCount: 0, lastOrderAt: null };
+  function keepError(e) { counts.errorCount++; if (errors.length < MAX_ERRORS_KEPT) errors.push(e); }
+  async function save(phase, extra) {
+    await pool.query(
+      'UPDATE restaurant_import_jobs SET phase = $2, menu_imported = $3, menu_skipped = $4, orders_imported = $5, orders_skipped = $6, pages_done = $7, ' +
+      'last_order_at = COALESCE($8, last_order_at), error_count = $9, errors = $10, heartbeat_at = now()' + (extra || '') + ' WHERE id = $1',
+      [jobId, phase, counts.menuImported, counts.menuSkipped, counts.ordersImported, counts.ordersSkipped, counts.pages, counts.lastOrderAt, counts.errorCount, JSON.stringify(errors)]);
   }
-  var locationIds = creds.locationId ? [creds.locationId] : allLocationIds;
+  try {
+    var cashierId = await ensureImportCashier(company);
+    await save('menu');
+    var squareObjects = await client.listAllCatalogItems();
+    var categoryNameByExternal = {};
+    squareObjects.filter(function (o) { return o.type === 'CATEGORY'; }).forEach(function (c) { categoryNameByExternal[c.id] = c.category_data.name; });
+    var squareItems = squareObjects.filter(function (o) { return o.type === 'ITEM'; });
 
-  var menuItemIdByVariation = {};
-  var variationRowIdByVariation = {};
-  for (var it = 0; it < squareItems.length; it++) {
-    var item = squareItems[it];
-    var allVariations = (item.item_data && item.item_data.variations) || [];
-    // Qualifying = actually sold at this restaurant's location and not
-    // itself deleted in Square's catalog — grouped as ONE menu item when
-    // there's more than one (see upsertGroupedMenuItem's comment).
-    var qualifying = allVariations.filter(function (v) { return itemPresentAtLocation(item, v, creds.locationId) && !v.is_deleted; });
-    if (!qualifying.length) continue;
-    try {
-      var grouped = await upsertGroupedMenuItem(company, item, qualifying, categoryNameByExternal);
-      for (var qi = 0; qi < qualifying.length; qi++) {
-        menuItemIdByVariation[qualifying[qi].id] = grouped.menuItemId;
-        if (grouped.variationRowIdByExternalId[qualifying[qi].id]) {
-          variationRowIdByVariation[qualifying[qi].id] = grouped.variationRowIdByExternalId[qualifying[qi].id];
+    var locations = await client.listLocations();
+    var allLocationIds = locations.map(function (l) { return l.id; });
+    if (!allLocationIds.length) fail('invalid', 'Square returned no locations for ' + company.name + "'s account — nothing to import.");
+    if (creds.locationId && allLocationIds.indexOf(creds.locationId) === -1) {
+      fail('invalid', 'Configured Square location for ' + company.name + ' (' + creds.locationId + ") wasn't found on this account.");
+    }
+    var locationIds = creds.locationId ? [creds.locationId] : allLocationIds;
+
+    var menuItemIdByVariation = {};
+    var variationRowIdByVariation = {};
+    for (var it = 0; it < squareItems.length; it++) {
+      var item = squareItems[it];
+      var allVariations = (item.item_data && item.item_data.variations) || [];
+      // Qualifying = actually sold at this restaurant's location and not
+      // itself deleted in Square's catalog — grouped as ONE menu item when
+      // there's more than one (see upsertGroupedMenuItem's comment).
+      var qualifying = allVariations.filter(function (v) { return itemPresentAtLocation(item, v, creds.locationId) && !v.is_deleted; });
+      if (!qualifying.length) continue;
+      try {
+        var grouped = await upsertGroupedMenuItem(company, item, qualifying, categoryNameByExternal);
+        for (var qi = 0; qi < qualifying.length; qi++) {
+          menuItemIdByVariation[qualifying[qi].id] = grouped.menuItemId;
+          if (grouped.variationRowIdByExternalId[qualifying[qi].id]) variationRowIdByVariation[qualifying[qi].id] = grouped.variationRowIdByExternalId[qualifying[qi].id];
+        }
+        counts.menuImported += qualifying.length;
+      } catch (e) {
+        counts.menuSkipped += qualifying.length;
+        keepError({ type: 'menuItem', externalId: item.id, message: e.message });
+      }
+      if (it % 100 === 99) await save('menu');
+    }
+
+    // Where to start: from the last Square order already saved (less a day),
+    // unless a full re-import was asked for.
+    var since = null;
+    if (!full) {
+      var lastSaved = (await pool.query("SELECT max(created_at) AS at FROM restaurant_orders WHERE company_id = $1 AND source = 'square'", [company.id])).rows[0].at;
+      if (lastSaved) since = new Date(new Date(lastSaved).getTime() - 86400000);
+    }
+    await pool.query('UPDATE restaurant_import_jobs SET orders_since = $2 WHERE id = $1', [jobId, since]);
+    await save('orders');
+
+    var cursor = null;
+    do {
+      var page = await client.searchOrdersPage(locationIds, { cursor: cursor, since: since });
+      for (var oi = 0; oi < page.orders.length; oi++) {
+        var order = page.orders[oi];
+        try {
+          await upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation, true);
+          counts.ordersImported++;
+          if (order.created_at) counts.lastOrderAt = order.created_at;
+        } catch (e) {
+          counts.ordersSkipped++;
+          keepError({ type: 'order', externalId: order.id, message: e.message });
         }
       }
-      summary.menuItems.imported += qualifying.length;
-    } catch (e) {
-      summary.menuItems.skipped += qualifying.length;
-      summary.errors.push({ type: 'menuItem', externalId: item.id, message: e.message });
-    }
-  }
+      counts.pages++;
+      await save('orders');
+      cursor = page.cursor;
+    } while (cursor);
 
-  var orders = await client.searchAllOrders(locationIds);
-  for (var oi = 0; oi < orders.length; oi++) {
-    var order = orders[oi];
+    await save('done', ", status = 'done', finished_at = now()");
+    await audit(pool, ctx, 'restaurant.square_import', 'restaurant_import_job', jobId,
+      'Square import for ' + company.name + ': ' + counts.menuImported + ' menu item(s) and ' + counts.ordersImported + ' order(s) saved' +
+      (counts.menuSkipped + counts.ordersSkipped ? ', ' + (counts.menuSkipped + counts.ordersSkipped) + ' skipped' : '') + '.');
+  } catch (e) {
+    console.error('[restaurant import] ' + company.name + ' failed:', e);
     try {
-      await upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation);
-      summary.orders.imported++;
-    } catch (e) {
-      summary.orders.skipped++;
-      summary.errors.push({ type: 'order', externalId: order.id, message: e.message });
-    }
+      await pool.query("UPDATE restaurant_import_jobs SET status = 'failed', message = $2, finished_at = now(), heartbeat_at = now() WHERE id = $1",
+        [jobId, e && e.message ? String(e.message).slice(0, 500) : 'The import stopped with an error.']);
+      await save('failed');
+    } catch (e2) { console.error('[restaurant import] could not record the failure:', e2); }
   }
-
-  return summary;
 }
 
 module.exports = {
-  runImport: runImport,
+  startImport: startImport, jobStatus: jobStatus, setClientFactoryForTests: setClientFactoryForTests, STALE_MS: STALE_MS,
   // Exported for unit testing pure mapping logic without hitting Square's
   // real API — see test/restaurantSquareImport.test.js. requireCompany/
   // ensureImportCashier/upsertMenuItem/upsertOrder are also exported so a

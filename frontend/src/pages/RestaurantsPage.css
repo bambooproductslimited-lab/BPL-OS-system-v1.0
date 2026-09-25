@@ -112,3 +112,11 @@
 }
 .rs-other { display: flex; justify-content: flex-end; margin-top: -10px; }
 .rs-other .input { width: auto; max-width: 100%; font-size: 13px; }
+.rs-square { display: flex; flex-direction: column; gap: 4px; border-left: 3px solid var(--color-accent); }
+.rs-square.is-running { border-left-color: #2a78d6; }
+.rs-square.is-failed, .rs-square.is-interrupted { border-left-color: var(--color-danger); }
+.rs-square p { margin: 0; }
+.rs-square-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.rs-square-nums { font-variant-numeric: tabular-nums; }
+.rs-square-err { color: var(--color-danger); }
+.rs-square-link { background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent-700, var(--color-accent)); text-decoration: underline; cursor: pointer; }

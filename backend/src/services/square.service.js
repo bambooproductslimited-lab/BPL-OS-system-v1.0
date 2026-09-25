@@ -106,6 +106,20 @@ function createClient(creds) {
     }, 'orders');
   }
 
+  // One page of orders, oldest first, optionally only those created from
+  // `since` on — so a long history can be saved a page at a time instead of
+  // held in memory at once, and a later import can pick up where the last
+  // one stopped. Returns { orders, cursor } (no cursor on the last page).
+  async function searchOrdersPage(locationIds, opts) {
+    opts = opts || {};
+    var filter = { state_filter: { states: ['OPEN', 'COMPLETED'] } };
+    if (opts.since) filter.date_time_filter = { created_at: { start_at: new Date(opts.since).toISOString() } };
+    var body = { location_ids: locationIds, limit: opts.limit || 200, query: { filter: filter, sort: { sort_field: 'CREATED_AT', sort_order: 'ASC' } } };
+    if (opts.cursor) body.cursor = opts.cursor;
+    var data = await squareRequest('POST', '/v2/orders/search', body);
+    return { orders: data.orders || [], cursor: data.cursor || null };
+  }
+
   function listAllInvoices(locationId) {
     return paginateGet('/v2/invoices', { location_id: locationId, limit: 200 }, 'invoices');
   }
@@ -119,6 +133,7 @@ function createClient(creds) {
     listAllCustomers: listAllCustomers,
     listAllCatalogItems: listAllCatalogItems,
     searchAllOrders: searchAllOrders,
+    searchOrdersPage: searchOrdersPage,
     listAllInvoices: listAllInvoices,
     listAllPayments: listAllPayments
   };

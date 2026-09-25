@@ -150,8 +150,13 @@ router.get('/drawer-sessions/:id', async function (req, res, next) {
 // One-time historical import trigger, run per restaurant — see
 // restaurantSquareImport.service.js. Safe to call more than once: every row
 // it writes is upserted by external_id.
+// Starts the Square import in the background and answers at once (202);
+// GET shows the latest import's progress (restaurantSquareImport.service.js).
 router.post('/square-import', async function (req, res, next) {
-  try { res.json(await restaurantSquareImportService.runImport(req.ctx, req.body.companyId)); } catch (e) { next(e); }
+  try { res.status(202).json(await restaurantSquareImportService.startImport(req.ctx, req.body.companyId, { full: !!req.body.full })); } catch (e) { next(e); }
+});
+router.get('/square-import', async function (req, res, next) {
+  try { res.json(await restaurantSquareImportService.jobStatus(req.ctx, req.query.companyId)); } catch (e) { next(e); }
 });
 
 module.exports = router;

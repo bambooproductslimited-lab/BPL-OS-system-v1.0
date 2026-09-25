@@ -40,6 +40,7 @@ const STOCK_KINDS = [
 const MOVE_LABELS = { received: msg('Received'), used: msg('Used'), wasted: msg('Thrown away'), count: msg('Counted') };
 const EMPTY_MENU_FORM = { name: '', category: '', price: '' };
 const EMPTY_STOCK_FORM = { name: '', category: '', unit: '', stockQty: '', reorderLevel: '', unitCost: '', expiryDate: '' };
+function fmtDateTime(ts) { return ts ? new Date(ts).toLocaleString(activeIntlLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; }
 const ORDERS_PAGE = 25;
 const DRAWER_PAGE = 20;
 const SOON = 3;
@@ -145,7 +146,13 @@ export default function RestaurantsPage() {
   const [guestDialog, setGuestDialog] = useState(null); // { id?, name, phone, notes }
   const [orderDetail, setOrderDetail] = useState(null); // { loading, data, error }
   const [drawerDetail, setDrawerDetail] = useState(null);
-  const [square, setSquare] = useState({ busy: false, result: null, error: null });
+  // The Square import runs in the background on the server
+  // (restaurantSquareImport.service.js): starting it answers at once, and
+  // the page checks the job every few seconds while it runs.
+  const [squareJob, setSquareJob] = useState(null);
+  const [squareError, setSquareError] = useState(null);
+  const [squareStarting, setSquareStarting] = useState(false);
+  const squareRunning = !!(squareJob && squareJob.status === 'running');
 
   // ── loading ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -163,7 +170,7 @@ export default function RestaurantsPage() {
   const switcher = current && !shown.includes(current) ? [...shown, current] : shown;
   const others = companies.filter((c) => !switcher.includes(c));
   const companyId = current ? current.id : null;
-  function pickCompany(code) { setCompanyCode(code); writePref('bos.restaurantCompany', code); setOrdersOffset(0); setDrawersOffset(0); setSquare({ busy: false, result: null, error: null }); }
+  function pickCompany(code) { setCompanyCode(code); writePref('bos.restaurantCompany', code); setOrdersOffset(0); setDrawersOffset(0); setSquareJob(null); setSquareError(null); }
   function pickView(v, scroll = true) {
     setView(v);
     writePref('bos.restaurantView', v);
@@ -187,6 +194,24 @@ export default function RestaurantsPage() {
     }
   }, [companyId]);
   useEffect(() => { setOv(null); load(); }, [load]);
+
+  useEffect(() => {
+    if (!companyId || !canManage) return undefined;
+    let live = true;
+    api.get('/restaurant/square-import?companyId=' + companyId).then((j) => { if (live) setSquareJob(j); }).catch(() => {});
+    return () => { live = false; };
+  }, [companyId, canManage]);
+  useEffect(() => {
+    if (!squareRunning) return undefined;
+    const t = setTimeout(async () => {
+      try {
+        const j = await api.get('/restaurant/square-import?companyId=' + squareJob.companyId);
+        setSquareJob(j);
+        if (j && j.status !== 'running') load();
+      } catch { /* try again on the next tick */ setSquareJob({ ...squareJob }); }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [squareJob, squareRunning, load]);
 
   const loadOrders = useCallback(async () => {
     if (!companyId) return;
@@ -353,15 +378,13 @@ export default function RestaurantsPage() {
     setDrawerDetail({ loading: true });
     try { setDrawerDetail({ data: await api.get('/restaurant/drawer-sessions/' + id) }); } catch (err) { setDrawerDetail({ error: err.message }); }
   }
-  async function runSquareImport() {
-    setSquare({ busy: true, result: null, error: null });
+  async function runSquareImport(full) {
+    setSquareStarting(true);
+    setSquareError(null);
     try {
-      const result = await api.post('/restaurant/square-import', { companyId });
-      setSquare({ busy: false, result, error: null });
-      await load();
-    } catch (err) { setSquare({ busy: false, result: null, error: err.message }); }
+      setSquareJob(await api.post('/restaurant/square-import', { companyId, full: !!full }));
+    } catch (err) { setSquareError(err.message); } finally { setSquareStarting(false); }
   }
-
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (!current) return <div className="dk"><div className="dk-empty"><p>{tr('No companies found')}</p></div></div>;
 
@@ -494,16 +517,39 @@ export default function RestaurantsPage() {
         actions={(
           <>
             <a className="btn btn-primary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
-            {canManage && <button type="button" className="btn btn-secondary" disabled={square.busy} onClick={runSquareImport}>{square.busy ? tr('Importing from Square…') : tr('Import from Square')}</button>}
+            {canManage && <button type="button" className="btn btn-secondary" disabled={squareStarting || squareRunning} onClick={() => runSquareImport(false)}>{squareRunning ? tr('Importing from Square…') : tr('Import from Square')}</button>}
           </>
         )}
         stats={stats} />
 
-      {square.error && <div className="error-banner">{square.error}</div>}
-      {square.result && (
-        <div className="rs-square">
-          {tr('Menu items {imported} imported ({skipped} skipped)', square.result.menuItems)} · {tr('Orders {imported} imported ({skipped} skipped)', square.result.orders)}
-          {square.result.errors.length > 0 && <>{' '}{tr('— {n} record(s) had errors; see server logs / audit trail.', { n: square.result.errors.length })}</>}
+      {squareError && <div className="error-banner">{squareError}</div>}
+      {canManage && squareJob && (squareRunning || Date.now() - new Date(squareJob.finishedAt || squareJob.startedAt).getTime() < 7 * 86400000) && (
+        <div className={'rs-square is-' + squareJob.status} role="status">
+          <div className="rs-square-head">
+            <strong>
+              {squareRunning ? tr('Importing from Square…') : squareJob.status === 'done' ? tr('Square import finished') : squareJob.status === 'interrupted' ? tr('Square import stopped') : tr('Square import failed')}
+            </strong>
+            <span className="dk-muted tl-small">
+              {squareRunning
+                ? (squareJob.phase === 'menu' || squareJob.phase === 'starting' ? tr('Reading the menu…') : tr('Saving orders, page {n}…', { n: squareJob.pagesDone + 1 }))
+                : fmtDateTime(squareJob.finishedAt || squareJob.heartbeatAt)}
+            </span>
+          </div>
+          <div className="rs-square-nums">
+            {tr('Menu items {imported} imported ({skipped} skipped)', squareJob.menuItems)} · {tr('Orders {imported} imported ({skipped} skipped)', squareJob.orders)}
+            {squareJob.lastOrderAt && <> · {tr('up to {date}', { date: fmtDate(squareJob.lastOrderAt) })}</>}
+            {squareJob.ordersSince && <> · {tr('only orders from {date} on', { date: fmtDate(squareJob.ordersSince) })}</>}
+          </div>
+          {squareRunning && <p className="dk-muted tl-small">{tr('This runs on the server — you can leave this page and come back; it keeps going.')}</p>}
+          {squareJob.status === 'failed' && squareJob.message && <p className="rs-square-err">{squareJob.message}</p>}
+          {squareJob.status === 'interrupted' && <p className="dk-muted tl-small">{tr('The server restarted while it was running. Press Import from Square to carry on from the last order saved — nothing is imported twice.')}</p>}
+          {squareJob.errorCount > 0 && <p className="dk-muted tl-small">{tr('{n} record(s) could not be imported; the first was: {msg}', { n: squareJob.errorCount, msg: (squareJob.errors[0] || {}).message || '—' })}</p>}
+          {!squareRunning && squareJob.status === 'done' && (
+            <p className="dk-muted tl-small">
+              {tr('Next time, only newer orders are fetched.')}{' '}
+              <button type="button" className="rs-square-link" disabled={squareStarting} onClick={() => runSquareImport(true)}>{tr('Re-import everything')}</button>
+            </p>
+          )}
         </div>
       )}
 
