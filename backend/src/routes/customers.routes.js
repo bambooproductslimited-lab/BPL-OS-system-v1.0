@@ -8,6 +8,9 @@ router.use(requireAuth);
 router.get('/', async function (req, res, next) {
   try { res.json(await customersService.list(req.ctx)); } catch (e) { next(e); }
 });
+router.get('/:id/activity', async function (req, res, next) {
+  try { res.json(await customersService.activity(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
 router.post('/', async function (req, res, next) {
   try { res.status(201).json(await customersService.create(req.ctx, req.body)); } catch (e) { next(e); }
 });
