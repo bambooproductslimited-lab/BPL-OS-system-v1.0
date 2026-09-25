@@ -1,0 +1,41 @@
+/* Poki Rentals, redesigned (PokiDashboardPage.jsx and the other Poki
+   screens as they move over). Built from the shared dashboard pieces
+   (components/DashKit.css), the chips and contact buttons in
+   EmployeesPage.css, the tool room's cards, forms and windows
+   (ToolRoomPage.css) and the restaurant's lists (RestaurantsPage.css);
+   these are the compact lists and the bits only Poki has. */
+
+.pk { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.pk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pk-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; min-width: 0; }
+.pk-list li + li { border-top: 1px solid var(--color-divider); }
+.pk-list-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pk-list-main strong { overflow-wrap: anywhere; }
+.pk-list-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex: none; max-width: 60%; }
+.pk-list-side strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pk-static { cursor: default; }
+.pk-static:hover { background: none; }
+.pk-contact { padding-right: 10px; flex: none; }
+
+@media (max-width: 640px) {
+  .pk-list li { flex-wrap: wrap; }
+  .pk-list-side { max-width: none; justify-content: flex-start; }
+  .pk .rs-row { flex-wrap: wrap; }
+  .pk-contact { padding: 0 14px 10px; }
+}
+
+/* a unit's code as its badge; green when let */
+.pk-unit-code {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-width: 44px; height: 44px; padding: 0 8px; border-radius: 12px;
+  background: var(--color-bg-subtle); border: 1px dashed var(--color-border);
+  font-family: var(--font-heading); font-weight: 700; font-size: 14px; color: var(--color-text-muted);
+}
+.pk-unit-code.is-let { border: none; background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg)); color: var(--color-accent-700); }
+:root[data-theme='dark'] .pk-unit-code.is-let { color: var(--color-accent); }
+.pk-unit-code.is-small { min-width: 36px; height: 32px; font-size: 12.5px; border-radius: 9px; }
+.pk-unit-code.is-big { min-width: 56px; height: 56px; font-size: 17px; }
+.tl-badge.pk-prop.is-commercial { --b: #2a78d6; }
+.tl-badge.pk-prop.is-mixed { --b: #7d3f9c; }
+.tl-badge.pk-prop.is-land { --b: #7d6b3f; }
+.tl-card.pk-picked { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }

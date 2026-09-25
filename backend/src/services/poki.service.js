@@ -40,6 +40,8 @@ function canManage(ctx) {
   if (!ctx.can('poki.manage')) fail('forbidden', 'Your role does not allow this action (poki.manage).');
 }
 
+function dateOnly(d) { return d ? (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null; }
+
 function num(v, fallback) {
   var n = Number(v);
   return isFinite(n) ? n : (fallback || 0);
@@ -154,15 +156,25 @@ function rowToUnit(r) {
     utilityMode: r.utility_mode, fixedUtilityAmount: Number(r.fixed_utility_amount), apportionShare: Number(r.apportion_share),
     status: r.status, amenities: r.amenities, notes: r.notes, active: r.active,
     tenantName: r.tenant_name || null, bookingId: r.booking_id || null, bookingEnd: r.booking_end || null,
-    bookingRent: r.booking_rent != null ? Number(r.booking_rent) : null
+    bookingRent: r.booking_rent != null ? Number(r.booking_rent) : null,
+    bookingMonthly: r.booking_monthly != null ? Number(r.booking_monthly) : null, bookingNo: r.booking_no || null,
+    tenantId: r.tenant_id || null, tenantPhone: r.tenant_phone || null, tenantEmail: r.tenant_email || null,
+    lastLetEnd: dateOnly(r.last_let_end), nextBookingStart: dateOnly(r.next_start),
+    openRequests: r.open_requests != null ? Number(r.open_requests) : 0, createdAt: r.created_at || null
   };
 }
 
 // Joins the unit's ACTIVE booking (if any) so every unit list doubles as a
 // rent roll — which unit, who's in it, what they pay, when it ends.
+// Also: when the unit was last let (the day its last booking ended), the
+// next booking waiting to start on it, and how many repairs are open.
 var UNIT_SELECT =
   'SELECT u.*, p.name AS property_name, l.id AS booking_id, l.end_date AS booking_end, l.rent_total AS booking_rent, ' +
-  '       c.name AS tenant_name ' +
+  '       l.monthly_rate AS booking_monthly, l.booking_no, l.tenant_id AS tenant_id, ' +
+  '       c.name AS tenant_name, c.phone AS tenant_phone, c.email AS tenant_email, ' +
+  "       (SELECT MAX(COALESCE(b.terminated_on, b.end_date)) FROM poki_bookings b WHERE b.unit_id = u.id AND b.status IN ('terminated', 'expired', 'renewed')) AS last_let_end, " +
+  "       (SELECT MIN(b.start_date) FROM poki_bookings b WHERE b.unit_id = u.id AND b.status IN ('draft', 'active') AND b.start_date > CURRENT_DATE) AS next_start, " +
+  "       (SELECT COUNT(*) FROM poki_maintenance_requests m WHERE m.unit_id = u.id AND m.status IN ('open', 'in_progress')) AS open_requests " +
   'FROM poki_units u ' +
   'JOIN poki_properties p ON p.id = u.property_id ' +
   "LEFT JOIN poki_bookings l ON l.unit_id = u.id AND l.status = 'active' " +
@@ -1037,8 +1049,63 @@ async function overview(ctx) {
     [companyId]
   );
 
+  // What was billed and what came in, month by month for the last twelve
+  // months, per currency (see the rent-roll note above on why not summed).
+  var twelveAgo = today.slice(0, 8) + '01';
+  twelveAgo = addMonths(twelveAgo, -11);
+  var billed = await pool.query(
+    "SELECT to_char(i.issued_at, 'YYYY-MM') AS month, i.currency, COALESCE(SUM(i.grand_total), 0) AS amount " +
+    "FROM invoices i WHERE i.company_id = $1 AND i.status <> 'void' AND i.issued_at >= $2 GROUP BY 1, 2",
+    [companyId, twelveAgo]
+  );
+  var collected = await pool.query(
+    "SELECT to_char(pm.date, 'YYYY-MM') AS month, pm.currency, COALESCE(SUM(pm.amount), 0) AS amount " +
+    'FROM payments pm JOIN invoices i ON i.id = pm.invoice_id ' +
+    "WHERE i.company_id = $1 AND i.status <> 'void' AND pm.date >= $2 GROUP BY 1, 2",
+    [companyId, twelveAgo]
+  );
+
+  // Vacant units and since when: the day the last booking on them ended (or
+  // was ended early), or when the unit was added if it has never been let.
+  var vacant = await pool.query(
+    'SELECT u.id, u.code, u.name, u.base_rent, u.currency, u.unit_type, p.name AS property_name, ' +
+    '       COALESCE(MAX(COALESCE(l.terminated_on, l.end_date)) FILTER (WHERE l.status IN (\'terminated\', \'expired\', \'renewed\', \'active\')), u.created_at::date) AS vacant_since, ' +
+    '       COUNT(l.id) FILTER (WHERE l.status IN (\'terminated\', \'expired\', \'renewed\', \'active\')) AS times_let ' +
+    'FROM poki_units u JOIN poki_properties p ON p.id = u.property_id ' +
+    'LEFT JOIN poki_bookings l ON l.unit_id = u.id ' +
+    "WHERE p.company_id = $1 AND u.active AND u.status = 'vacant' GROUP BY u.id, p.id ORDER BY vacant_since",
+    [companyId]
+  );
+
+  // Move-ins in the next 30 days: bookings drawn up but not started yet.
+  var upcoming = await pool.query(
+    BOOKING_SELECT +
+    "WHERE p.company_id = $1 AND l.status IN ('draft', 'active') AND l.start_date > $2 AND l.start_date <= ($2::date + INTERVAL '30 days') " +
+    'GROUP BY l.id, u.id, p.id, c.id ORDER BY l.start_date LIMIT 20',
+    [companyId, today]
+  );
+
+  var deposits = await pool.query(
+    'SELECT l.currency, COALESCE(SUM(l.deposit_held - l.deposit_refunded), 0) AS held ' +
+    'FROM poki_bookings l JOIN poki_units u ON u.id = l.unit_id JOIN poki_properties p ON p.id = u.property_id ' +
+    'WHERE p.company_id = $1 AND l.deposit_held > l.deposit_refunded GROUP BY 1 ORDER BY 1',
+    [companyId]
+  );
+
+  var urgent = await pool.query(
+    'SELECT COUNT(*) FILTER (WHERE m.priority IN (\'urgent\', \'high\'))::int AS urgent, MIN(m.reported_on) AS oldest ' +
+    'FROM poki_maintenance_requests m JOIN poki_units u ON u.id = m.unit_id JOIN poki_properties p ON p.id = u.property_id ' +
+    "WHERE p.company_id = $1 AND m.status IN ('open', 'in_progress')",
+    [companyId]
+  );
+
   var u = units.rows[0];
   var occupancyRate = u.total > 0 ? Math.round((u.occupied / u.total) * 1000) / 10 : 0;
+  var months = [];
+  for (var mi = 0; mi < 12; mi++) months.push(addMonths(twelveAgo, mi).slice(0, 7));
+  function byMonth(rows) {
+    return rows.map(function (r) { return { month: r.month, currency: r.currency, amount: money(r.amount) }; });
+  }
 
   return {
     units: { total: u.total, occupied: u.occupied, vacant: u.vacant, other: u.other, occupancyRate: occupancyRate },
@@ -1055,7 +1122,20 @@ async function overview(ctx) {
       .filter(function (r) { return Number(r.overdue_amount) !== 0; })
       .map(function (r) { return { currency: r.currency, amount: Number(r.overdue_amount) }; }),
     openMaintenance: maintenance.rows[0].open_count,
-    expiringBookings: expiring.rows.map(rowToBooking)
+    urgentMaintenance: urgent.rows[0].urgent,
+    oldestOpenMaintenance: urgent.rows[0].oldest,
+    expiringBookings: expiring.rows.map(rowToBooking),
+    upcomingBookings: upcoming.rows.map(rowToBooking),
+    months: months, billedByMonth: byMonth(billed.rows), collectedByMonth: byMonth(collected.rows),
+    depositsHeld: deposits.rows.map(function (r) { return { currency: r.currency, amount: money(r.held) }; }),
+    vacantUnits: vacant.rows.map(function (r) {
+      var since = r.vacant_since instanceof Date ? r.vacant_since.toISOString().slice(0, 10) : String(r.vacant_since).slice(0, 10);
+      return {
+        id: r.id, code: r.code, name: r.name, unitType: r.unit_type, propertyName: r.property_name,
+        baseRent: Number(r.base_rent), currency: r.currency, vacantSince: since, timesLet: Number(r.times_let),
+        daysVacant: Math.max(0, Math.round((new Date(today + 'T00:00:00Z') - new Date(since + 'T00:00:00Z')) / 86400000))
+      };
+    })
   };
 }
 

@@ -458,7 +458,7 @@ async function arrears(ctx) {
   var res = await pool.query(
     'SELECT i.id, i.invoice_no, i.doc_kind, i.issued_at, i.due_date, i.currency, ' +
     '       i.grand_total, i.amount_paid, i.balance_due, i.status, ' +
-    '       c.name AS tenant_name, l.booking_no, u.code AS unit_code, p.name AS property_name, ' +
+    '       c.name AS tenant_name, c.phone AS tenant_phone, c.email AS tenant_email, i.customer_id, l.booking_no, u.code AS unit_code, p.name AS property_name, ' +
     '       GREATEST(0, ($2::date - i.due_date))::int AS days_overdue ' +
     'FROM invoices i ' +
     'JOIN customers c ON c.id = i.customer_id ' +
@@ -472,6 +472,7 @@ async function arrears(ctx) {
   var rows = res.rows.map(function (r) {
     return {
       invoiceId: r.id, invoiceNo: r.invoice_no, docKind: r.doc_kind, tenantName: r.tenant_name,
+      tenantPhone: r.tenant_phone || null, tenantEmail: r.tenant_email || null, customerId: r.customer_id,
       bookingNo: r.booking_no, unitCode: r.unit_code, propertyName: r.property_name,
       issuedAt: r.issued_at, dueDate: r.due_date, currency: r.currency,
       grandTotal: Number(r.grand_total), amountPaid: Number(r.amount_paid), balanceDue: Number(r.balance_due),
