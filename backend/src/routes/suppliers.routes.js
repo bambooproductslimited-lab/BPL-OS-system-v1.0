@@ -34,6 +34,10 @@ router.post('/import/commit', async function (req, res, next) {
   try { res.json(await supplierImportService.commit(req.ctx, req.body.suppliers)); } catch (e) { next(e); }
 });
 
+// GET /api/suppliers/:id/deliveries — the raw bamboo batches they delivered
+router.get('/:id/deliveries', async function (req, res, next) {
+  try { res.json(await suppliersService.deliveries(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
 router.put('/:id', async function (req, res, next) {
   try { res.json(await suppliersService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });

@@ -1,50 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import SearchInput, { matchesQuery } from '../components/SearchInput';
+import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
-import RecordDialog from '../components/RecordDialog';
+import SearchInput, { matchesQuery } from '../components/SearchInput';
+import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
-import { formatDate } from '../lib/dates';
+import { activeIntlLocale, msg, tr, trNodes } from '../lib/i18n.jsx';
+import './EmployeesPage.css';
 import './SuppliersPage.css';
 
-import { tr, trNodes } from '../lib/i18n.jsx';
-// Ported from Bamboo OS.dc.html's suppliers screen (screens.suppliers
-// block + the suppliers computed values, and the shared "supplier"
-// create/edit dialog around its render()).
-//
-// Most of the people on this screen are bamboo farmers rather than
-// companies, imported from the sourcing team's "Farmers & Suppliers" sheet
-// (see backend supplierImport.service.js). So the table shows what you scan
-// a farmer register by — who, where, price per pole, whether their bamboo
-// meets spec, and where they are in the pipeline — and everything else
-// (second phone, IOU, first contact, the notes the import kept) is one
-// click away in the row's detail panel, rather than more columns to scroll
-// sideways through.
-
-const BADGE_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function badgeColor(name) { return BADGE_COLORS[hashStr(name || '') % BADGE_COLORS.length]; }
-
-function BuildingIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="5" y="3" width="9" height="18" stroke="currentColor" strokeWidth="1.6" />
-      <rect x="14" y="9" width="6" height="12" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8 7h1M8 11h1M8 15h1M11 7h1M11 11h1M11 15h1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
+// Suppliers and bamboo farmers. Most of the people here are farmers,
+// imported from the sourcing team's "Farmers & Suppliers" sheet (backend
+// supplierImport.service.js). Same "explains itself" layout as the
+// dashboards (components/DashKit.jsx): the key numbers (who supplies us,
+// what they delivered this year, what is owed either way, how many meet
+// spec), what stands out, the sourcing pipeline by status, then everyone as
+// cards or a list with one-tap call / WhatsApp. A supplier opens in a window
+// with everything on file and every raw bamboo batch they delivered
+// (suppliers.service.js deliveries()).
 
 const EMPTY_FORM = {
   name: '', contactPerson: '', phone: '', email: '', address: '', materialsSupplied: '',
   region: '', town: '', district: '', phone2: '', quotedPrice: '', priceUnit: '', assessment: '',
   sourcingStatus: '', expectedQty: '', iouAmount: '', iouNotes: '', firstContactDate: '', notes: ''
 };
+const NO_STAGE = '\u0000none'; // the pipeline tile for suppliers with no sourcing status
+const SORTS = [
+  { key: 'name', label: msg('Name A–Z') },
+  { key: 'delivered', label: msg('Delivered most this year') },
+  { key: 'recent', label: msg('Delivered most recently') },
+  { key: 'price', label: msg('Lowest quoted price') }
+];
 
 // Numbers come back as numbers or null; the form edits strings.
 function toForm(s) {
@@ -55,11 +42,18 @@ function toForm(s) {
   });
   return f;
 }
+function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
+function n(v, digits = 1) { return Number(v || 0).toLocaleString(activeIntlLocale(), { maximumFractionDigits: digits }); }
+function daysSince(iso) {
+  if (!iso) return null;
+  const today = new Date();
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  return Math.round((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) - Date.UTC(y, m - 1, d)) / 86400000);
+}
 
 // Keyed on the importer's dateOrder code rather than translating its English
 // sentence, so the explanation reaches the catalogue like any other string.
-// A function, not a constant: tr() at module level runs once when the file
-// loads and would stay in that language after a switch.
 function dateNote(order) {
   switch (order) {
     case 'mdy': return tr('Dates read as month/day (e.g. 5/13/2021 = 13 May 2021).');
@@ -78,19 +72,18 @@ function place(s) {
   });
   return parts.join(', ');
 }
-
 function priceLabel(s) {
-  if (s.quotedPrice === null || s.quotedPrice === undefined) return '—';
+  if (s.quotedPrice === null || s.quotedPrice === undefined) return null;
   return money(s.quotedPrice, 'GHS') + (s.priceUnit ? ' / ' + s.priceUnit : '');
 }
-
-function assessmentTag(a) {
-  if (!a) return null;
-  const good = /^meets spec$/i.test(a);
-  // The assessment is the sourcing team's own wording, so it is shown as
-  // written rather than run through the translation catalogue — the
-  // interface is translated, the data people entered is not.
-  return <span className={'tag ' + (good ? 'tag-neutral' : 'tag-accent')}>{a}</span>;
+// The assessment is the sourcing team's own wording, shown as written.
+function meetsSpec(s) { return /^meets spec$/i.test(s.assessment || ''); }
+function Assessment({ s }) {
+  if (!s.assessment) return null;
+  return <Status tone={meetsSpec(s) ? 'good' : 'warn'}>{s.assessment}</Status>;
+}
+function Avatar({ name, size = 44 }) {
+  return <span className="sp-avatar" style={{ width: size, height: size, background: avatarColor(name), fontSize: Math.round(size * 0.36) }} aria-hidden="true">{initials(name)}</span>;
 }
 
 export default function SuppliersPage() {
@@ -112,7 +105,11 @@ export default function SuppliersPage() {
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
   const [region, setRegion] = useState('');
-  const [viewing, setViewing] = useState(null);
+  const [chip, setChip] = useState('active');
+  const [stage, setStage] = useState('');
+  const [sort, setSort] = useState(() => readPref('bos.suppliersSort', 'name'));
+  const [view, setView] = useState(() => readPref('bos.suppliersView', 'cards'));
+  const [viewing, setViewing] = useState(null); // { s, deliveries }
 
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState(null);
@@ -131,7 +128,6 @@ export default function SuppliersPage() {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -140,18 +136,21 @@ export default function SuppliersPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const regions = useMemo(
-    () => Array.from(new Set(suppliers.map((s) => s.region).filter(Boolean))).sort(),
-    [suppliers]
-  );
+  const regions = useMemo(() => Array.from(new Set(suppliers.map((s) => s.region).filter(Boolean))).sort(), [suppliers]);
 
+  async function openView(s) {
+    setViewing({ s, deliveries: null });
+    try {
+      const deliveries = await api.get('/suppliers/' + s.id + '/deliveries');
+      setViewing((cur) => (cur && cur.s.id === s.id ? { ...cur, deliveries } : cur));
+    } catch { setViewing((cur) => (cur && cur.s.id === s.id ? { ...cur, deliveries: [] } : cur)); }
+  }
   function openNew() {
     setDialogError(null);
     setEditId(null);
     setForm(EMPTY_FORM);
     setDialogOpen(true);
   }
-
   function openEdit(s) {
     setViewing(null);
     setDialogError(null);
@@ -159,7 +158,6 @@ export default function SuppliersPage() {
     setForm(toForm(s));
     setDialogOpen(true);
   }
-
   function set(k) { return (e) => setForm({ ...form, [k]: e.target.value }); }
 
   async function handleSubmit(e) {
@@ -178,7 +176,14 @@ export default function SuppliersPage() {
       setSaving(false);
     }
   }
-
+  async function setActive(s, active) {
+    try {
+      await api.put('/suppliers/' + s.id, { ...toForm(s), status: active ? 'active' : 'inactive' });
+      setToast(active ? tr('{name} is active again.', { name: s.name }) : tr('{name} marked inactive.', { name: s.name }));
+      setViewing(null);
+      await load();
+    } catch (err) { setError(err.message); }
+  }
   async function confirmDelete() {
     setDeleting(true);
     try {
@@ -199,7 +204,6 @@ export default function SuppliersPage() {
     setImportError(null);
     setImportOpen(true);
   }
-
   async function runImportPreview() {
     setImportLoading(true);
     setImportError(null);
@@ -213,7 +217,6 @@ export default function SuppliersPage() {
       setImportLoading(false);
     }
   }
-
   async function commitImport() {
     setImportCommitting(true);
     setImportError(null);
@@ -231,14 +234,80 @@ export default function SuppliersPage() {
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
-  const visibleSuppliers = suppliers.filter((s) =>
-    (!region || s.region === region)
-    && matchesQuery(search, s.name, s.contactPerson, s.phone, s.phone2, s.materialsSupplied, s.town, s.district, s.region, s.sourcingStatus, s.assessment));
+  // ── what the page shows ────────────────────────────────────────────
+  const active = suppliers.filter((s) => s.status === 'active');
+  const year = new Date().getFullYear();
+  const deliveredYear = active.filter((s) => s.yearDelivered > 0);
+  const unitTotals = new Map();
+  suppliers.forEach((s) => { if (s.yearDelivered) unitTotals.set(s.deliveredUnit, (unitTotals.get(s.deliveredUnit) || 0) + s.yearDelivered); });
+  const mainUnit = Array.from(unitTotals.entries()).sort((a, b) => b[1] - a[1])[0];
+  const yearCost = suppliers.reduce((t, s) => t + (s.yearCost || 0), 0);
+  const ious = suppliers.filter((s) => s.iouAmount);
+  const iouTotal = ious.reduce((t, s) => t + s.iouAmount, 0);
+  const assessed = active.filter((s) => s.assessment);
+  const good = assessed.filter(meetsSpec);
+  const notGood = assessed.filter((s) => !meetsSpec(s));
+  const noPhone = active.filter((s) => !s.phone && !s.phone2);
+  const waiting = active.filter((s) => s.expectedQty && !s.batchCount);
+  const stages = Array.from(active.reduce((m, s) => m.set(s.sourcingStatus || '', (m.get(s.sourcingStatus || '') || 0) + 1), new Map()).entries())
+    .sort((a, b) => (a[0] ? 0 : 1) - (b[0] ? 0 : 1) || b[1] - a[1]);
+
+  function showOnly(key) { setChip(chip === key ? 'active' : key); setStage(''); jump('sp-list'); }
+  const stats = [
+    { icon: 'people', value: n(active.length, 0), label: tr('active suppliers'), note: regions.length === 1 ? tr('in 1 region') : tr('in {n} regions', { n: regions.length }), onClick: () => { setChip('active'); setStage(''); jump('sp-list'); } },
+    { icon: 'bag', value: mainUnit ? n(mainUnit[1], 0) + ' ' + mainUnit[0] : '0', label: tr('delivered in {year}', { year }), note: deliveredYear.length ? tr('by {n} suppliers · {cost}', { n: deliveredYear.length, cost: money(yearCost) }) : tr('no deliveries recorded yet'), onClick: () => showOnly('delivered') },
+    { icon: 'owed', value: money(iouTotal), label: tr('IOUs on record'), note: ious.length === 1 ? tr('with 1 supplier') : tr('with {n} suppliers', { n: ious.length }), tone: ious.length ? 'alert' : '', onClick: () => showOnly('iou') },
+    { icon: 'check', value: assessed.length ? Math.round((good.length / assessed.length) * 100) + '%' : '—', label: tr('meet spec'), note: tr('{good} of {n} assessed', { good: good.length, n: assessed.length }), tone: notGood.length ? '' : 'good', onClick: () => showOnly('spec') }
+  ];
+
+  const insights = [];
+  if (ious.length) insights.push({ tone: 'warn', icon: 'owed', text: ious.length === 1 ? tr('{name} has an IOU of {amount} on record.', { name: ious[0].name, amount: money(ious[0].iouAmount) }) : tr('{n} suppliers have IOUs on record, {amount} in all. Settle or update them.', { n: ious.length, amount: money(iouTotal) }), action: { label: tr('Show them'), run: () => showOnly('iou') } });
+  const meeting = active.filter((s) => /meeting/i.test(s.sourcingStatus || ''));
+  if (meeting.length) insights.push({ tone: 'info', icon: 'calendar', text: meeting.length === 1 ? tr('{name} is waiting for a meeting.', { name: meeting[0].name }) : tr('{n} farmers are waiting for a meeting.', { n: meeting.length }), action: { label: tr('Show them'), run: () => { setChip('active'); setStage(meeting[0].sourcingStatus); jump('sp-list'); } } });
+  if (notGood.length) insights.push({ tone: 'warn', icon: 'warn', text: notGood.length === 1 ? tr('{name}: "{assessment}".', { name: notGood[0].name, assessment: notGood[0].assessment }) : tr('{n} suppliers do not meet spec or have too many rejects.', { n: notGood.length }), action: { label: tr('Show them'), run: () => showOnly('notspec') } });
+  if (waiting.length) insights.push({ tone: 'info', icon: 'bag', text: waiting.length === 1 ? tr('{name} expects to supply {qty} but has not delivered yet.', { name: waiting[0].name, qty: n(waiting[0].expectedQty, 0) }) : tr('{n} suppliers have an expected quantity but no delivery yet.', { n: waiting.length }), action: { label: tr('Show them'), run: () => showOnly('waiting') } });
+  const top = deliveredYear.slice().sort((a, b) => b.yearCost - a.yearCost || b.yearDelivered - a.yearDelivered)[0];
+  if (top) insights.push({ tone: 'good', icon: 'up', text: tr('Most delivered in {year}: {name}, {qty} {unit}.', { year, name: top.name, qty: n(top.yearDelivered, 0), unit: top.deliveredUnit }), action: { label: tr('Open it'), run: () => openView(top) } });
+  if (noPhone.length) insights.push({ tone: 'info', icon: 'phone', text: noPhone.length === 1 ? tr('{name} has no phone number on file.', { name: noPhone[0].name }) : tr('{n} suppliers have no phone number on file.', { n: noPhone.length }), action: { label: tr('Show them'), run: () => showOnly('nophone') } });
+
+  const chipTest = {
+    active: (s) => s.status === 'active',
+    delivered: (s) => s.yearDelivered > 0,
+    iou: (s) => !!s.iouAmount,
+    spec: (s) => s.status === 'active' && meetsSpec(s),
+    notspec: (s) => s.status === 'active' && s.assessment && !meetsSpec(s),
+    waiting: (s) => s.status === 'active' && s.expectedQty && !s.batchCount,
+    nophone: (s) => s.status === 'active' && !s.phone && !s.phone2,
+    inactive: (s) => s.status !== 'active'
+  };
+  const sorters = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    delivered: (a, b) => b.yearDelivered - a.yearDelivered || a.name.localeCompare(b.name),
+    recent: (a, b) => String(b.lastDelivery || '').localeCompare(String(a.lastDelivery || '')),
+    price: (a, b) => (a.quotedPrice ?? 1e12) - (b.quotedPrice ?? 1e12)
+  };
+  const visible = suppliers
+    .filter(chipTest[chip] || chipTest.active)
+    .filter((s) => (!region || s.region === region) && (!stage || (stage === NO_STAGE ? !s.sourcingStatus : s.sourcingStatus === stage)))
+    .filter((s) => matchesQuery(search, s.name, s.contactPerson, s.phone, s.phone2, s.materialsSupplied, s.town, s.district, s.region, s.sourcingStatus, s.assessment, s.notes))
+    .sort(sorters[sort] || sorters.name);
+  const chips = [
+    ['active', tr('Active'), active.length],
+    ['delivered', tr('Delivered in {year}', { year }), suppliers.filter(chipTest.delivered).length],
+    ['iou', tr('IOU on record'), ious.length],
+    ['spec', tr('Meets spec'), good.length],
+    ['notspec', tr('Not meeting spec'), notGood.length],
+    ['waiting', tr('Expected, not delivered'), waiting.length],
+    ['nophone', tr('No phone'), noPhone.length],
+    ['inactive', tr('Inactive'), suppliers.length - active.length]
+  ].filter(([k, , c]) => c > 0 || k === 'active' || k === chip);
 
   const actionsFor = (s) => [
-    { label: tr('Edit'), onClick: () => openEdit(s), hidden: !canManage },
-    { label: tr('Delete'), onClick: () => { setViewing(null); setDeleteTarget(s); }, danger: true, hidden: !(canManage && s.batchCount === 0) }
-  ];
+    { label: tr('Open'), onClick: () => openView(s) },
+    canManage && { label: tr('Edit'), onClick: () => openEdit(s) },
+    canManage && (s.status === 'active' ? { label: tr('Mark inactive'), onClick: () => setActive(s, false) } : { label: tr('Mark active'), onClick: () => setActive(s, true) }),
+    canManage && s.batchCount === 0 && { label: tr('Delete'), onClick: () => { setViewing(null); setDeleteTarget(s); }, danger: true }
+  ].filter(Boolean);
 
   // Preview rows that need a look go first: the ones with warnings, then
   // updates, then plain new rows — so what matters is at the top of a list
@@ -248,109 +317,204 @@ export default function SuppliersPage() {
       (b.warnings.length ? 2 : 0) + (b.action === 'update' ? 1 : 0) - ((a.warnings.length ? 2 : 0) + (a.action === 'update' ? 1 : 0)))
     : [];
   const toWrite = importPreview ? importPreview.summary.create + importPreview.summary.update : 0;
+  const v = viewing ? viewing.s : null;
 
   return (
-    <div>
-      {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
+    <div className="dk sp">
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <div className="suppliers-toolbar">
-        <div className="suppliers-filters">
-          <SearchInput value={search} onChange={setSearch} placeholder={tr('Search suppliers…')} />
+      <Hero
+        eyebrow={new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        title={tr('Suppliers & farmers')}
+        sub={tr('Who supplies our bamboo and materials, where they are, what they quoted, whether their bamboo meets spec, and what they have delivered. Press a number to show only those.')}
+        actions={canManage && (
+          <>
+            <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add supplier')}</button>
+            <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>
+          </>
+        )}
+        stats={stats} />
+
+      <Insights items={insights.slice(0, 5)} />
+
+      {stages.length > 1 && (
+        <Section id="sp-pipeline" title={tr('Sourcing pipeline')} sub={tr('Active suppliers by where they are with us. Press one to show only them.')}>
+          <div className="sp-stages">
+            {stages.map(([name, count]) => (
+              <button key={name || '-'} type="button" className={'sp-stage' + (stage === (name || NO_STAGE) ? ' is-on' : '')} onClick={() => { setChip('active'); setStage(stage === (name || NO_STAGE) ? '' : name || NO_STAGE); jump('sp-list'); }}>
+                <strong>{count}</strong>
+                <span>{name || tr('No status yet')}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section id="sp-list" title={stage ? tr('Suppliers: {stage}', { stage: stage === NO_STAGE ? tr('No status yet') : stage }) : tr('Everyone')} sub={tr('Press a supplier for everything on file and every delivery.')}
+        action={(
+          <div className="ppl-view" role="radiogroup" aria-label={tr('View')}>
+            {[['cards', tr('Cards')], ['list', tr('List')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={view === k} className={view === k ? 'is-on' : ''} onClick={() => { setView(k); writePref('bos.suppliersView', k); }}>{label}</button>
+            ))}
+          </div>
+        )}>
+        <div className="sp-tools">
+          <div className="sp-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search suppliers…')} /></div>
           {regions.length > 1 && (
-            <select className="input suppliers-region" value={region} onChange={(e) => setRegion(e.target.value)} aria-label={tr('Region')}>
+            <select className="input sp-select" value={region} onChange={(e) => setRegion(e.target.value)} aria-label={tr('Region')}>
               <option value="">{tr('All regions')}</option>
               {regions.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
+          <select className="input sp-select" value={sort} onChange={(e) => { setSort(e.target.value); writePref('bos.suppliersSort', e.target.value); }} aria-label={tr('Sort')}>
+            {SORTS.map((o) => <option key={o.key} value={o.key}>{tr(o.label)}</option>)}
+          </select>
         </div>
-        {canManage && (
-          <div className="suppliers-actions">
-            <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>
-            <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add supplier')}</button>
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          {chips.map(([key, label, c]) => (
+            <button key={key} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => { setChip(key); setStage(''); }}>
+              {label} <span className="ppl-chip-n">{c}</span>
+            </button>
+          ))}
+        </div>
+
+        {!visible.length ? (
+          <div className="dk-empty sp-empty">
+            <p>{suppliers.length ? tr('Nothing matches. Try another search or filter.') : tr('No suppliers on file yet')}</p>
+            {(search || region || stage || chip !== 'active') && suppliers.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setRegion(''); setStage(''); setChip('active'); }}>{tr('Show all')}</button>}
+            {canManage && !suppliers.length && <button type="button" className="btn btn-primary" onClick={openImport}>{tr('Import from sheet')}</button>}
+          </div>
+        ) : view === 'cards' ? (
+          <div className="sp-grid">
+            {visible.map((s) => {
+              const since = daysSince(s.lastDelivery);
+              return (
+                <article key={s.id} className={'sp-card' + (s.status !== 'active' ? ' is-inactive' : '') + (s.iouAmount ? ' has-iou' : '')}>
+                  <button type="button" className="sp-card-open" onClick={() => openView(s)}>
+                    <Avatar name={s.name} />
+                    <span className="sp-card-head">
+                      <span className="sp-name">{s.name}</span>
+                      <span className="dk-muted sp-small">{place(s) || s.materialsSupplied}</span>
+                    </span>
+                  </button>
+                  <span className="sp-menu"><RowMenu actions={actionsFor(s)} /></span>
+                  <div className="sp-tags">
+                    {s.sourcingStatus && <span className="sp-tag">{s.sourcingStatus}</span>}
+                    <Assessment s={s} />
+                    {s.status !== 'active' && <Status tone="muted">{tr('Inactive')}</Status>}
+                    {s.iouAmount ? <Status tone="warn">{tr('IOU {amount}', { amount: money(s.iouAmount) })}</Status> : null}
+                  </div>
+                  <dl className="sp-facts">
+                    <div><dt>{tr('Quoted')}</dt><dd>{priceLabel(s) || '—'}</dd></div>
+                    <div><dt>{tr('Delivered in {year}', { year })}</dt><dd>{s.yearDelivered ? n(s.yearDelivered, 0) + ' ' + s.deliveredUnit : '—'}</dd></div>
+                    <div className="sp-span"><dt>{tr('Last delivery')}</dt><dd>{s.lastDelivery ? fmtDate(s.lastDelivery) + (since !== null ? ' · ' + (since === 0 ? tr('today') : since === 1 ? tr('1 day ago') : tr('{n} days ago', { n: since })) : '') : tr('none yet')}</dd></div>
+                  </dl>
+                  <div className="sp-card-foot">
+                    <span className="dk-muted sp-small">{s.phone || s.phone2 || tr('no phone')}</span>
+                    <ContactButtons name={s.name} phone={s.phone || s.phone2} email={s.email} />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="sp-table-wrap">
+            <table className="sp-table">
+              <thead>
+                <tr><th>{tr('Supplier')}</th><th>{tr('Status')}</th><th className="is-num">{tr('Quoted')}</th><th className="is-num">{tr('Delivered in {year}', { year })}</th><th>{tr('Last delivery')}</th><th>{tr('Contact')}</th><th /></tr>
+              </thead>
+              <tbody>
+                {visible.map((s) => (
+                  <tr key={s.id} className={s.status !== 'active' ? 'is-inactive' : ''}>
+                    <td>
+                      <button type="button" className="sp-row-open" onClick={() => openView(s)}>
+                        <Avatar name={s.name} size={32} />
+                        <span><span className="sp-name">{s.name}</span><span className="dk-muted sp-small">{place(s) || s.materialsSupplied}</span></span>
+                      </button>
+                    </td>
+                    <td><div className="sp-tags">{s.sourcingStatus && <span className="sp-tag">{s.sourcingStatus}</span>}<Assessment s={s} /></div></td>
+                    <td className="is-num">{priceLabel(s) || '—'}</td>
+                    <td className="is-num">{s.yearDelivered ? n(s.yearDelivered, 0) + ' ' + s.deliveredUnit : '—'}</td>
+                    <td>{s.lastDelivery ? fmtDate(s.lastDelivery) : '—'}</td>
+                    <td><ContactButtons name={s.name} phone={s.phone || s.phone2} email={s.email} /></td>
+                    <td className="sp-menu-cell"><RowMenu actions={actionsFor(s)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+      </Section>
 
-      {!!suppliers.length && (
-        <p className="suppliers-count">
-          {tr('Showing {n} of {total}', { n: visibleSuppliers.length, total: suppliers.length })}
-        </p>
-      )}
+      <Glossary items={[
+        [tr('Sourcing status'), tr('Where a farmer is with us, in the sourcing team\'s own words: waiting for a meeting, cutting a sample, cutting, and so on.')],
+        [tr('Assessment'), tr('Whether their bamboo meets our spec, from the last sample or delivery.')],
+        [tr('Quoted'), tr('The price they quoted, per pole, kg or whatever unit they sell in.')],
+        [tr('IOU'), tr('Money on record between us and the supplier, with the story in the IOU notes.')],
+        [tr('Delivered'), tr('Raw bamboo received from them, recorded on Raw bamboo & production.')]
+      ]} />
 
-      <table className="table table-clickable suppliers-table">
-        <thead>
-          <tr><th>{tr('Supplier')}</th><th>{tr('Phone')}</th><th className="suppliers-col-optional">{tr('Price')}</th><th className="suppliers-col-optional suppliers-col-wide">{tr('Assessment')}</th><th className="suppliers-col-optional">{tr('Status')}</th><th className="suppliers-col-optional suppliers-col-wide">{tr('Batches')}</th><th /></tr>
-        </thead>
-        <tbody>
-          {visibleSuppliers.map((s) => (
-            <tr key={s.id} onClick={() => setViewing(s)}>
-              <td className="suppliers-name-td">
-                <div className="suppliers-name-cell">
-                  <span className="suppliers-badge" style={{ background: badgeColor(s.name) }}><BuildingIcon /></span>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>
-                      {s.name}
-                      {s.status !== 'active' && <span className="tag tag-accent suppliers-inactive">{tr('Inactive')}</span>}
-                    </div>
-                    <div className="suppliers-sub">{place(s) || s.materialsSupplied}</div>
-                  </div>
+      {v && (
+        <div className="dialog-backdrop" onClick={() => setViewing(null)}>
+          <div className="dialog sp-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="sp-detail-head">
+              <Avatar name={v.name} size={56} />
+              <div>
+                <h2>{v.name}</h2>
+                <span className="dk-muted">{place(v) || v.materialsSupplied}</span>
+                <div className="sp-tags">
+                  {v.sourcingStatus && <span className="sp-tag">{v.sourcingStatus}</span>}
+                  <Assessment s={v} />
+                  {v.status !== 'active' && <Status tone="muted">{tr('Inactive')}</Status>}
                 </div>
-              </td>
-              <td className="suppliers-phone">{s.phone || '—'}</td>
-              <td className="suppliers-nowrap suppliers-col-optional">{priceLabel(s)}</td>
-              <td className="suppliers-col-optional suppliers-col-wide">{assessmentTag(s.assessment) || '—'}</td>
-              <td className="suppliers-col-optional">{s.sourcingStatus || '—'}</td>
-              <td className="suppliers-col-optional suppliers-col-wide">{s.batchCount}</td>
-              <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                <RowMenu actions={actionsFor(s)} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {!suppliers.length && (
-        <div className="suppliers-empty-state">
-          <span className="suppliers-empty-icon"><BuildingIcon /></span>
-          <p className="suppliers-empty-title">{tr('No suppliers on file yet')}</p>
-          {canManage && <p className="dialog-body">{tr('Add one, or import the farmer & supplier sheet.')}</p>}
+              </div>
+              <button type="button" className="sp-close" onClick={() => setViewing(null)} aria-label={tr('Close')}>×</button>
+            </div>
+            <div className="sp-contact-row">
+              <span>{[v.contactPerson !== v.name ? v.contactPerson : null, v.phone, v.phone2, v.email].filter(Boolean).join(' · ') || tr('No contact details on file')}</span>
+              <ContactButtons name={v.name} phone={v.phone || v.phone2} email={v.email} />
+            </div>
+            <dl className="sp-facts sp-facts-wide">
+              <div><dt>{tr('Materials supplied')}</dt><dd>{v.materialsSupplied || '—'}</dd></div>
+              <div><dt>{tr('Quoted price')}</dt><dd>{priceLabel(v) || '—'}</dd></div>
+              <div><dt>{tr('Expected quantity')}</dt><dd>{v.expectedQty !== null && v.expectedQty !== undefined ? n(v.expectedQty, 0) : '—'}</dd></div>
+              <div><dt>{tr('Delivered, all time')}</dt><dd>{v.delivered ? n(v.delivered, 0) + ' ' + v.deliveredUnit + ' · ' + money(v.deliveredCost) : '—'}</dd></div>
+              <div><dt>{tr('First contact')}</dt><dd>{v.firstContactDate ? fmtDate(v.firstContactDate) : '—'}</dd></div>
+              <div><dt>{tr('Payment terms')}</dt><dd>{v.paymentTerms || '—'}</dd></div>
+              {v.address && <div><dt>{tr('Address')}</dt><dd>{v.address}</dd></div>}
+              {v.iouAmount !== null && v.iouAmount !== undefined && <div><dt>{tr('IOU')}</dt><dd>{money(v.iouAmount)}{v.iouNotes ? ' — ' + v.iouNotes : ''}</dd></div>}
+            </dl>
+            {v.notes && <p className="sp-notes">{v.notes}</p>}
+            <h3 className="sp-h3">{tr('Deliveries')}</h3>
+            {!viewing.deliveries ? <p className="dk-muted sp-small">{tr('Loading…')}</p> : viewing.deliveries.length ? (
+              <div className="sp-table-wrap">
+                <table className="sp-table sp-deliveries">
+                  <thead><tr><th>{tr('Date')}</th><th>{tr('Batch')}</th><th className="is-num">{tr('Received')}</th><th>{tr('Grade')}</th><th className="is-num">{tr('Cost')}</th><th>{tr('Warehouse')}</th></tr></thead>
+                  <tbody>
+                    {viewing.deliveries.map((d) => (
+                      <tr key={d.id}>
+                        <td>{fmtDate(d.date)}</td>
+                        <td>{d.batchNo}<span className="dk-muted sp-small"> · {d.species}</span></td>
+                        <td className="is-num">{n(d.received)} {d.unit}{d.left < d.received ? <span className="dk-muted sp-small"> · {tr('{n} left', { n: n(d.left) })}</span> : null}</td>
+                        <td>{d.grade || '—'}</td>
+                        <td className="is-num">{d.cost ? money(d.cost) : '—'}</td>
+                        <td>{d.warehouse || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="dk-muted sp-small">{tr('Nothing delivered yet.')}</p>}
+            <div className="dialog-actions sp-actions">
+              {canManage && (v.status === 'active'
+                ? <button type="button" className="btn btn-secondary" onClick={() => setActive(v, false)}>{tr('Mark inactive')}</button>
+                : <button type="button" className="btn btn-secondary" onClick={() => setActive(v, true)}>{tr('Mark active')}</button>)}
+              {canManage && v.batchCount === 0 && <button type="button" className="btn btn-secondary" onClick={() => { setViewing(null); setDeleteTarget(v); }}>{tr('Delete')}</button>}
+              {canManage && <button type="button" className="btn btn-primary" onClick={() => openEdit(v)}>{tr('Edit')}</button>}
+              {!canManage && <button type="button" className="btn btn-primary" onClick={() => setViewing(null)}>{tr('Close')}</button>}
+            </div>
+          </div>
         </div>
-      )}
-      {!!suppliers.length && !visibleSuppliers.length && (
-        <div className="suppliers-empty-state">
-          <span className="suppliers-empty-icon"><BuildingIcon /></span>
-          <p className="suppliers-empty-title">{tr('No suppliers match "{search}"', { search })}</p>
-        </div>
-      )}
-
-      {viewing && (
-        <RecordDialog
-          title={viewing.name}
-          subtitle={place(viewing) || viewing.materialsSupplied}
-          tag={viewing.assessment ? assessmentTag(viewing.assessment) : null}
-          onClose={() => setViewing(null)}
-          actions={actionsFor(viewing)}
-          fields={[
-            { label: tr('Contact person'), value: viewing.contactPerson !== viewing.name ? viewing.contactPerson : null },
-            { label: tr('Phone'), value: viewing.phone },
-            { label: tr('Second phone'), value: viewing.phone2 },
-            { label: tr('Email'), value: viewing.email },
-            { label: tr('Region'), value: viewing.region },
-            { label: tr('Town'), value: viewing.town },
-            { label: tr('District'), value: viewing.district },
-            { label: tr('Address'), value: viewing.address },
-            { label: tr('Materials supplied'), value: viewing.materialsSupplied },
-            { label: tr('Quoted price'), value: viewing.quotedPrice !== null ? priceLabel(viewing) : null },
-            { label: tr('Sourcing status'), value: viewing.sourcingStatus },
-            { label: tr('Expected quantity'), value: viewing.expectedQty !== null ? viewing.expectedQty.toLocaleString() : null },
-            { label: tr('IOU'), value: viewing.iouAmount !== null ? money(viewing.iouAmount, 'GHS') : null },
-            { label: tr('IOU notes'), value: viewing.iouNotes },
-            { label: tr('First contact'), value: viewing.firstContactDate ? formatDate(viewing.firstContactDate) : null },
-            { label: tr('Payment terms'), value: viewing.paymentTerms },
-            { label: tr('Raw material batches'), value: String(viewing.batchCount) },
-            { label: tr('Status'), value: viewing.status === 'active' ? tr('Active') : tr('Inactive') },
-            { label: tr('Notes'), value: viewing.notes, wide: true }
-          ]}
-        />
       )}
 
       {dialogOpen && (
@@ -519,7 +683,6 @@ export default function SuppliersPage() {
           </div>
         </div>
       )}
-
       {deleteTarget && (
         <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
