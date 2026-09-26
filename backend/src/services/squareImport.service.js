@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var { insertLineItems, todayISO } = require('../utils/documents');
 var square = require('./square.service');
+var config = require('../config');
 
 // One-time historical import from Square into Customers, Catalog and
 // Invoices (unifying Square's separate Orders and Invoices APIs, since for
@@ -256,9 +257,11 @@ async function reconcileSquareInvoiceBalances() {
   );
 }
 
-async function runImport(ctx) {
-  if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
-
+// The import itself. client is the Square API client (a fake one in tests);
+// progress(phase, summary) is called as it goes, so a background job can
+// record how far it has got and show it's still alive.
+async function doImport(ctx, client, progress) {
+  progress = progress || async function () {};
   var summary = {
     customers: { imported: 0, skipped: 0 }, catalogItems: { imported: 0, skipped: 0 },
     invoices: { imported: 0, skipped: 0 }, payments: { imported: 0, skipped: 0 }, errors: []
@@ -266,7 +269,8 @@ async function runImport(ctx) {
 
   var walkinId = await ensureWalkinCustomer();
 
-  var squareCustomers = await square.listAllCustomers();
+  await progress('customers', summary);
+  var squareCustomers = await client.listAllCustomers();
   var customerIdByExternal = {};
   for (var ci = 0; ci < squareCustomers.length; ci++) {
     var sc = squareCustomers[ci];
@@ -277,9 +281,11 @@ async function runImport(ctx) {
       summary.customers.skipped++;
       summary.errors.push({ type: 'customer', externalId: sc.id, message: e.message });
     }
+    if (ci % 100 === 99) await progress('customers', summary);
   }
 
-  var squareObjects = await square.listAllCatalogItems();
+  await progress('catalog', summary);
+  var squareObjects = await client.listAllCatalogItems();
   var squareCategories = squareObjects.filter(function (o) { return o.type === 'CATEGORY'; });
   var squareItems = squareObjects.filter(function (o) { return o.type === 'ITEM'; });
 
@@ -315,29 +321,39 @@ async function runImport(ctx) {
       summary.catalogItems.skipped += variations.length;
       summary.errors.push({ type: 'catalogItem', externalId: item.id, message: e.message });
     }
+    if (it % 100 === 99) await progress('catalog', summary);
   }
 
-  var locations = await square.listLocations();
+  var locations = await client.listLocations();
   var locationIds = locations.map(function (l) { return l.id; });
   if (!locationIds.length) fail('invalid', 'Square returned no locations for this account — nothing to import.');
 
-  var orders = await square.searchAllOrders(locationIds);
+  // Orders a page at a time, oldest first, saved as each page arrives, so
+  // memory stays small however long the history is.
   var invoiceIdByExternal = {};
-  for (var oi = 0; oi < orders.length; oi++) {
-    var order = orders[oi];
-    try {
-      var custId = (order.customer_id && customerIdByExternal[order.customer_id]) || walkinId;
-      var invoiceId = await upsertInvoiceFromOrder(ctx, order, custId, catalogByVariationId);
-      invoiceIdByExternal[order.id] = invoiceId;
-      summary.invoices.imported++;
-    } catch (e) {
-      summary.invoices.skipped++;
-      summary.errors.push({ type: 'order', externalId: order.id, message: e.message });
+  await progress('invoices', summary);
+  var cursor = null;
+  do {
+    var page = await client.searchOrdersPage(locationIds, { cursor: cursor });
+    for (var oi = 0; oi < page.orders.length; oi++) {
+      var order = page.orders[oi];
+      try {
+        var custId = (order.customer_id && customerIdByExternal[order.customer_id]) || walkinId;
+        var invoiceId = await upsertInvoiceFromOrder(ctx, order, custId, catalogByVariationId);
+        invoiceIdByExternal[order.id] = invoiceId;
+        summary.invoices.imported++;
+      } catch (e) {
+        summary.invoices.skipped++;
+        summary.errors.push({ type: 'order', externalId: order.id, message: e.message });
+      }
     }
-  }
+    summary.pages = (summary.pages || 0) + 1;
+    await progress('invoices', summary);
+    cursor = page.cursor;
+  } while (cursor);
 
   for (var li = 0; li < locationIds.length; li++) {
-    var sqInvoices = await square.listAllInvoices(locationIds[li]);
+    var sqInvoices = await client.listAllInvoices(locationIds[li]);
     for (var ii = 0; ii < sqInvoices.length; ii++) {
       var inv = sqInvoices[ii];
       if (inv.status === 'DRAFT' || inv.status === 'CANCELED') continue; // never sent, or withdrawn — not a real sale
@@ -351,9 +367,10 @@ async function runImport(ctx) {
     }
   }
 
+  await progress('payments', summary);
   var paymentsByInvoice = {};
   for (var pl = 0; pl < locationIds.length; pl++) {
-    var sqPayments = await square.listAllPayments(locationIds[pl]);
+    var sqPayments = await client.listAllPayments(locationIds[pl]);
     for (var pi = 0; pi < sqPayments.length; pi++) {
       var p = sqPayments[pi];
       if (p.status !== 'COMPLETED') continue;
@@ -373,6 +390,7 @@ async function runImport(ctx) {
     } catch (e) {
       summary.errors.push({ type: 'paymentGroup', externalId: invoiceIds[pgi], message: e.message });
     }
+    if (pgi % 100 === 99) await progress('payments', summary);
   }
 
   await reconcileSquareInvoiceBalances();
@@ -380,8 +398,88 @@ async function runImport(ctx) {
   return summary;
 }
 
+
+// ── the import as a background job ─────────────────────────────────
+// Pressing "Run Square import" on the Integrations page starts a job and
+// answers at once; the work runs after the response and the page asks
+// jobStatus() for progress. Everything is saved by its Square id, so a job
+// stopped by a server restart is simply run again.
+
+var STALE_MS = 3 * 60 * 1000;
+var MAX_ERRORS_KEPT = 50;
+var clientFactory = function () { return square; };
+// Tests hand in a fake Square client instead of the real API.
+function setClientFactoryForTests(fn) { clientFactory = fn || function () { return square; }; }
+
+function rowToJob(r) {
+  if (!r) return null;
+  var stale = r.status === 'running' && Date.now() - new Date(r.heartbeat_at).getTime() > STALE_MS;
+  return {
+    id: r.id, status: stale ? 'interrupted' : r.status, phase: r.phase,
+    customers: { imported: r.customers_imported, skipped: r.customers_skipped },
+    catalogItems: { imported: r.catalog_imported, skipped: r.catalog_skipped },
+    invoices: { imported: r.invoices_imported, skipped: r.invoices_skipped },
+    payments: { imported: r.payments_imported, skipped: r.payments_skipped },
+    pagesDone: r.pages_done, errorCount: r.error_count, errors: r.errors || [], message: r.message || null,
+    startedAt: r.started_at, heartbeatAt: r.heartbeat_at, finishedAt: r.finished_at
+  };
+}
+async function latestJob() {
+  return (await pool.query('SELECT * FROM square_import_jobs ORDER BY started_at DESC LIMIT 1')).rows[0] || null;
+}
+
+// The latest import, with its progress.
+async function jobStatus(ctx) {
+  if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
+  return rowToJob(await latestJob());
+}
+
+async function startImport(ctx, opts) {
+  if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
+  opts = opts || {};
+  var client = clientFactory();
+  if (client === square && !config.square.configured) fail('invalid', 'Square is not configured — set SQUARE_ACCESS_TOKEN on the server.');
+  var last = await latestJob();
+  if (last && rowToJob(last).status === 'running') fail('conflict', 'A Square import is already running. It carries on in the background — watch its progress here.');
+  if (last && last.status === 'running') {
+    await pool.query("UPDATE square_import_jobs SET status = 'failed', message = 'Stopped when the server restarted.', finished_at = now() WHERE id = $1", [last.id]);
+  }
+  var job = (await pool.query('INSERT INTO square_import_jobs (started_by) VALUES ($1) RETURNING *', [ctx.employee ? ctx.employee.id : null])).rows[0];
+  await audit(pool, ctx, 'square.import.start', 'square_import_job', job.id, 'Started a Square import.');
+  var run = runJob(ctx, job.id, client);
+  if (opts.wait) await run; // tests wait for the job; the web request never does
+  else run.catch(function (e) { console.error('[square import] job ' + job.id + ' crashed:', e); });
+  return rowToJob((await pool.query('SELECT * FROM square_import_jobs WHERE id = $1', [job.id])).rows[0]);
+}
+
+async function runJob(ctx, jobId, client) {
+  async function save(phase, s, extra) {
+    await pool.query(
+      'UPDATE square_import_jobs SET phase = $2, customers_imported = $3, customers_skipped = $4, catalog_imported = $5, catalog_skipped = $6, ' +
+      'invoices_imported = $7, invoices_skipped = $8, payments_imported = $9, payments_skipped = $10, pages_done = $11, error_count = $12, errors = $13, heartbeat_at = now()' +
+      (extra || '') + ' WHERE id = $1',
+      [jobId, phase, s.customers.imported, s.customers.skipped, s.catalogItems.imported, s.catalogItems.skipped,
+        s.invoices.imported, s.invoices.skipped, s.payments.imported, s.payments.skipped, s.pages || 0, s.errors.length, JSON.stringify(s.errors.slice(0, MAX_ERRORS_KEPT))]);
+  }
+  var last = null;
+  try {
+    var summary = await doImport(ctx, client, function (phase, s) { last = s; return save(phase, s); });
+    await save('done', summary, ", status = 'done', finished_at = now()");
+    await audit(pool, ctx, 'square.import', 'square_import_job', jobId,
+      'Square import: ' + summary.customers.imported + ' customer(s), ' + summary.catalogItems.imported + ' catalogue item(s), ' +
+      summary.invoices.imported + ' invoice(s) and ' + summary.payments.imported + ' payment(s) saved' + (summary.errors.length ? ', ' + summary.errors.length + ' with errors' : '') + '.');
+  } catch (e) {
+    console.error('[square import] failed:', e);
+    try {
+      if (last) await save('failed', last);
+      await pool.query("UPDATE square_import_jobs SET status = 'failed', message = $2, finished_at = now(), heartbeat_at = now() WHERE id = $1",
+        [jobId, e && e.message ? String(e.message).slice(0, 500) : 'The import stopped with an error.']);
+    } catch (e2) { console.error('[square import] could not record the failure:', e2); }
+  }
+}
+
 module.exports = {
-  runImport: runImport,
+  startImport: startImport, jobStatus: jobStatus, setClientFactoryForTests: setClientFactoryForTests, STALE_MS: STALE_MS,
   // Exported for unit testing pure mapping logic without hitting Square's
   // real API — see test/squareImport.test.js.
   minorToMajor: minorToMajor, squareCustomerName: squareCustomerName, squareAddressLine: squareAddressLine,

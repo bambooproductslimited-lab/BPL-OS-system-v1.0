@@ -19,3 +19,16 @@
 .in-env { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .in-env code { font-size: 11.5px; padding: 1px 6px; background: var(--color-bg-subtle); border: 1px solid var(--color-divider); border-radius: 4px; overflow-wrap: anywhere; }
 @media (max-width: 720px) { .in-services li { flex-direction: column; align-items: flex-start; } }
+
+/* The Square import: its state, then the four stages as a flow */
+.in-sq { display: flex; flex-direction: column; gap: 12px; }
+.in-sq-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.in-sq-run { margin-left: auto; }
+.in-sq-stages li { padding-bottom: 12px; }
+.in-sq.is-running .in-sq-stages li:not(.is-good):not(.is-muted):not(.is-bad) .dk-flow-value { color: var(--dk-info); }
+.in-sq-errors { font-size: 13px; border: 1px solid var(--color-border); border-radius: var(--dk-r); padding: 10px 14px; background: var(--color-bg-subtle); }
+.in-sq-errors summary { cursor: pointer; font-weight: 700; }
+.in-sq-errors ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.in-sq-errors code { font-size: 11.5px; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .in-sq-run { margin-left: 0; width: 100%; } }
+.in-sq-msg { margin: 0; padding: 10px 14px; font-size: 13px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-danger); border-radius: var(--dk-r); background: var(--color-bg-subtle); overflow-wrap: anywhere; }

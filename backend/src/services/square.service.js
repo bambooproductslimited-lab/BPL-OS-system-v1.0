@@ -27,15 +27,21 @@ var SQUARE_VERSION = '2025-01-23';
 function createClient(creds) {
   async function squareRequest(method, path, body) {
     if (!creds.configured) fail('invalid', creds.notConfiguredMessage || 'Square is not configured — set its access token on the server.');
-    var res = await fetch(creds.baseUrl + path, {
-      method: method,
-      headers: {
-        Authorization: 'Bearer ' + creds.accessToken,
-        'Square-Version': SQUARE_VERSION,
-        'Content-Type': 'application/json'
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
+    var res;
+    try {
+      res = await fetch(creds.baseUrl + path, {
+        method: method,
+        headers: {
+          Authorization: 'Bearer ' + creds.accessToken,
+          'Square-Version': SQUARE_VERSION,
+          'Content-Type': 'application/json'
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (e) {
+      // Node's own "fetch failed" says nothing to the person reading it.
+      fail('invalid', 'Could not reach Square (' + method + ' ' + path + ') — the connection failed. Try again in a few minutes; what was already saved is kept.');
+    }
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || data.errors) {
       var detail = (data.errors && data.errors[0] && data.errors[0].detail) || res.status;
