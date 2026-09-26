@@ -5455,6 +5455,7 @@ export default {
   "The follower count of each channel over time. A line going up means the audience is growing.": "每个渠道随时间变化的粉丝数。曲线上升表示受众在增长。",
   "The four ways stock changes. A count sets the stock to what is really on the shelf; the difference is kept in the history.": "库存变化的四种方式。盘点会把库存设为货架上的实际数量，差额记录在历史中。",
   "The guest list grows when the till records who ordered. Regulars are the guests worth looking after.": "收银台记录下单人时，宾客名单就会增长。常客是值得用心维护的宾客。",
+  "The item is saved, but the photo isn't: {reason}": "商品已保存，但照片未保存：{reason}",
   "The keys that identify Bamboo OS to a platform. Without them, that platform's Connect button can't work.": "向平台标识 Bamboo OS 的密钥。没有它们，该平台的连接按钮无法使用。",
   "The kitchen group of each menu category. Leave one empty to use the guess shown. Type a new name to make a new group.": "每个菜单类别所属的厨房分组。留空则使用显示的推断结果。输入新名称即可创建新分组。",
   "The last {n} days": "最近 {n} 天",

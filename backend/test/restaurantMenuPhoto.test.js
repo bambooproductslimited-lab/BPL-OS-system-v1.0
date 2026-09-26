@@ -4,10 +4,8 @@
  * unauthenticated GET (menuPhotos.routes.js — a plain <img src> can't
  * attach an Authorization header, and this needs to work from both the
  * main app and the separately-authenticated POS till). R2 isn't
- * configured in this test environment, so the actual upload path is
- * exercised only up to its "not configured" failure — the same class of
- * environment limitation the original Documents/employee-ID-document
- * tests already accept.
+ * configured in this test environment, so photos are kept in the database
+ * (lib/fileStore.js) — the same place they go on a deployment without R2.
  */
 var test = require('node:test');
 var assert = require('node:assert/strict');
@@ -72,15 +70,56 @@ test('POST menu-items/:id/photo is forbidden without restaurant.manage', async f
   assert.equal(res.status, 403);
 });
 
-test('POST menu-items/:id/photo fails clearly when photo storage is not configured', async function () {
+// A tiny real JPEG: its bytes are all this test compares.
+var JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64');
+
+test('a photo saves without R2, is served back to the till, and is removed with its file', async function () {
   var admin = await login('kelvin.duho@bplghana.com');
   var itemId = await starBarMenuItemId(admin);
   var form = new FormData();
-  form.append('file', new Blob(['fake'], { type: 'image/jpeg' }), 'test.jpg');
+  form.append('file', new Blob([JPEG], { type: 'image/jpeg' }), '20230802_113549.jpg');
   var res = await fetch(base + '/api/restaurant/menu-items/' + itemId + '/photo', { method: 'POST', headers: authed(admin), body: form });
+  assert.equal(res.status, 200);
+  var item = await res.json();
+  assert.equal(item.photoUrl, '/api/menu-photos/' + itemId);
+  var key = (await pool.query('SELECT photo_object_key FROM restaurant_menu_items WHERE id = $1', [itemId])).rows[0].photo_object_key;
+  assert.match(key, /^db:/);
+
+  var img = await fetch(base + item.photoUrl);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/jpeg');
+  // the OS pages and the server are on different sites: the browser must be allowed to show it there
+  assert.equal(img.headers.get('cross-origin-resource-policy'), 'cross-origin');
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), JPEG);
+
+  // a new photo replaces the old one's file
+  var again = new FormData();
+  again.append('file', new Blob([JPEG], { type: 'image/jpeg' }), 'second.jpg');
+  assert.equal((await fetch(base + '/api/restaurant/menu-items/' + itemId + '/photo', { method: 'POST', headers: authed(admin), body: again })).status, 200);
+  assert.equal((await pool.query('SELECT 1 FROM stored_files WHERE id = $1', [key.slice(3)])).rowCount, 0);
+  var key2 = (await pool.query('SELECT photo_object_key FROM restaurant_menu_items WHERE id = $1', [itemId])).rows[0].photo_object_key;
+
+  var del = await fetch(base + '/api/restaurant/menu-items/' + itemId + '/photo', { method: 'DELETE', headers: authed(admin) });
+  assert.equal(del.status, 200);
+  assert.equal((await del.json()).photoUrl, null);
+  assert.equal((await pool.query('SELECT 1 FROM stored_files WHERE id = $1', [key2.slice(3)])).rowCount, 0);
+  assert.equal((await fetch(base + item.photoUrl)).status, 404);
+});
+
+test('a photo that is too big, or not an image, gets a clear reason instead of "Something went wrong"', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var itemId = await starBarMenuItemId(admin);
+  var big = new FormData();
+  big.append('file', new Blob([Buffer.alloc(6 * 1024 * 1024, 1)], { type: 'image/jpeg' }), 'big.jpg');
+  var res = await fetch(base + '/api/restaurant/menu-items/' + itemId + '/photo', { method: 'POST', headers: authed(admin), body: big });
   assert.equal(res.status, 400);
-  var body = await res.json();
-  assert.match(body.error.message, /Photo storage is not configured/);
+  assert.match((await res.json()).error.message, /too big/);
+
+  var notImage = new FormData();
+  notImage.append('file', new Blob(['plain text'], { type: 'text/plain' }), 'photo.jpg');
+  res = await fetch(base + '/api/restaurant/menu-items/' + itemId + '/photo', { method: 'POST', headers: authed(admin), body: notImage });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error.message, /JPG, PNG or WebP/);
 });
 
 test('POST menu-items/:id/photo rejects a disallowed file extension before touching storage', async function () {

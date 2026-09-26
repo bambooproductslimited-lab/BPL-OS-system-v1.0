@@ -201,6 +201,13 @@ app.use(function (err, req, res, next) { // eslint-disable-line no-unused-vars
   if (err && err.code === '22P02') {
     return res.status(404).json({ error: { code: 'notfound', message: 'Not found.' } });
   }
+  // An upload refused by multer (routes set their own size limits) —
+  // otherwise it would reach the person as "Something went wrong."
+  if (err && err.name === 'MulterError') {
+    return res.status(400).json({ error: { code: 'invalid', message: err.code === 'LIMIT_FILE_SIZE'
+      ? 'That file is too big to upload here. Choose a smaller one — a photo can be shrunk or taken at a lower size.'
+      : 'That upload couldn\'t be read (' + err.message + '). Try again with one file.' } });
+  }
   // Payload too large for a JSON body — express.json's own error.
   if (err && err.type === 'entity.too.large') {
     return res.status(413).json({ error: { code: 'invalid', message: 'That request is too large.' } });

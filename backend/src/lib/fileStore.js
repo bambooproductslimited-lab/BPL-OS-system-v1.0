@@ -11,7 +11,17 @@ var storage = require('./storage');
 var MAX_DB_BYTES = 15 * 1024 * 1024;
 
 async function put(originalName, buffer, contentType, db) {
-  if (storage.configured) return storage.uploadFile(originalName, buffer, contentType);
+  if (storage.configured) {
+    try {
+      return await storage.uploadFile(originalName, buffer, contentType);
+    } catch (e) {
+      // The storage SDK's own errors mean nothing to the person uploading;
+      // the detail goes to the server log.
+      console.error('[file storage] R2 upload failed:', e);
+      var { fail: failR2 } = require('../utils/errors');
+      failR2('unavailable', 'The file couldn\'t be saved — file storage (Cloudflare R2) refused it. Try again; if it keeps happening, an administrator should check the R2 settings on the server.');
+    }
+  }
   if (buffer.length > MAX_DB_BYTES) {
     var { fail } = require('../utils/errors');
     fail('invalid', 'That file is too big (over 15 MB). Ask an administrator to connect file storage (Cloudflare R2) for bigger files.');

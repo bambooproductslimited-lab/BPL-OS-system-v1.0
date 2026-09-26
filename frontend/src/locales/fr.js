@@ -5455,6 +5455,7 @@ export default {
   "The follower count of each channel over time. A line going up means the audience is growing.": "Le nombre d'abonnés de chaque canal dans le temps. Une courbe qui monte signifie que l'audience grandit.",
   "The four ways stock changes. A count sets the stock to what is really on the shelf; the difference is kept in the history.": "Les quatre façons dont le stock change. Un comptage fixe le stock à ce qui est vraiment en rayon ; l'écart reste dans l'historique.",
   "The guest list grows when the till records who ordered. Regulars are the guests worth looking after.": "La liste des clients s'agrandit quand la caisse enregistre qui a commandé. Les habitués sont les clients à choyer.",
+  "The item is saved, but the photo isn't: {reason}": "L'article est enregistré, mais pas la photo : {reason}",
   "The keys that identify Bamboo OS to a platform. Without them, that platform's Connect button can't work.": "Les clés qui identifient Bamboo OS auprès d'une plateforme. Sans elles, le bouton Connecter de cette plateforme ne peut pas fonctionner.",
   "The kitchen group of each menu category. Leave one empty to use the guess shown. Type a new name to make a new group.": "Le groupe de cuisine de chaque catégorie du menu. Laissez vide pour utiliser la proposition affichée. Saisissez un nouveau nom pour créer un groupe.",
   "The last {n} days": "Les {n} derniers jours",

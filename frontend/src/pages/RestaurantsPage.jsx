@@ -8,6 +8,7 @@ import { CompanySwitcher, Glossary, Hero, Insights, RankList, Section, Status, f
 import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
+import { shrinkPhoto } from '../lib/chatMedia';
 import RestaurantReport from './RestaurantReport';
 import Bars from './RestaurantBars';
 import './EmployeesPage.css';
@@ -251,12 +252,22 @@ export default function RestaurantsPage() {
     setFormError(null);
     try {
       const saved = menuDialog.id ? await api.put('/restaurant/menu-items/' + menuDialog.id, menuForm) : await api.post('/restaurant/menu-items', { ...menuForm, companyId });
-      if (photo.file) {
-        const body = new FormData();
-        body.append('file', photo.file);
-        await api.upload('/restaurant/menu-items/' + saved.id + '/photo', body);
-      } else if (photo.removed && menuDialog.id) {
-        await api.del('/restaurant/menu-items/' + saved.id + '/photo');
+      try {
+        if (photo.file) {
+          // A phone photo is shrunk first (a till tile needs far less than
+          // a 12-megapixel picture), so it uploads quickly and fits the limit.
+          const body = new FormData();
+          body.append('file', await shrinkPhoto(photo.file));
+          await api.upload('/restaurant/menu-items/' + saved.id + '/photo', body);
+        } else if (photo.removed && menuDialog.id) {
+          await api.del('/restaurant/menu-items/' + saved.id + '/photo');
+        }
+      } catch (err) {
+        // The name, price and category are already saved; only the photo isn't.
+        setMenuDialog({ id: saved.id });
+        setFormError(tr('The item is saved, but the photo isn\'t: {reason}', { reason: err.message }));
+        await load();
+        return;
       }
       setToast(menuDialog.id ? tr('Menu item updated.') : tr('Menu item added.'));
       setMenuDialog(null);

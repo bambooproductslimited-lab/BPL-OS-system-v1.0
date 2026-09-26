@@ -2,7 +2,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var storage = require('../lib/storage');
+var fileStore = require('../lib/fileStore');
 
 var MAX_MENU_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB — a food photo, not a scanned document
 
@@ -116,7 +116,7 @@ async function removeMenuItem(ctx, id) {
   var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
   await pool.query('DELETE FROM restaurant_menu_items WHERE id = $1', [id]);
-  if (existing.rows[0].photo_object_key) { try { await storage.deleteFile(existing.rows[0].photo_object_key); } catch (e) { /* orphaned object, not worth failing the delete over */ } }
+  await fileStore.del(existing.rows[0].photo_object_key);
   await audit(pool, ctx, 'restaurant.menu.delete', 'restaurant_menu_item', id, 'Removed ' + existing.rows[0].name + ' from the menu.');
   return true;
 }
@@ -166,26 +166,27 @@ async function removeVariation(ctx, menuItemId, variationId) {
   return true;
 }
 
-// A photo per menu item, for the POS till grid — same R2 storage the
-// Documents module and employee ID documents already use (migration
-// 0045). The uploaded file replaces any existing photo (old object
-// deleted, not left orphaned); see routes/menuPhotos.routes.js for how
-// this gets served back out as a plain, unauthenticated <img src>.
+// A photo per menu item, for the POS till grid. It is kept where the OS
+// keeps its other files (lib/fileStore.js): Cloudflare R2 when that is set
+// up, otherwise the database, so photos work either way. The uploaded file
+// replaces any existing photo (the old one is deleted, not left orphaned);
+// see routes/menuPhotos.routes.js for how it is served back out as a
+// plain, unauthenticated <img src>. The page shrinks a phone photo before
+// sending it, so the limit here is rarely reached.
 async function setMenuItemPhoto(ctx, id, file) {
   if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
-  if (!storage.configured) fail('invalid', 'Photo storage is not configured on the server.');
   if (!file) fail('invalid', 'Choose a photo to upload.');
-  if (file.size > MAX_MENU_PHOTO_BYTES) fail('invalid', 'Photo must be smaller than 5MB.');
+  if (file.size > MAX_MENU_PHOTO_BYTES) fail('invalid', 'That photo is too big — the most a menu photo can be is 5 MB. Choose a smaller one.');
+  if (!/^image\/(jpeg|png|webp)$/.test(file.mimetype || '')) fail('invalid', 'That file isn\'t a JPG, PNG or WebP photo.');
   var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
 
-  var key = await storage.uploadFile(file.originalname, file.buffer, file.mimetype);
+  var key = await fileStore.put(file.originalname, file.buffer, file.mimetype);
   var res = await pool.query(
     'UPDATE restaurant_menu_items SET photo_object_key = $1, photo_file_name = $2, updated_at = now() WHERE id = $3 RETURNING *',
     [key, file.originalname, id]
   );
-  var oldKey = existing.rows[0].photo_object_key;
-  if (oldKey) { try { await storage.deleteFile(oldKey); } catch (e) { /* best-effort cleanup */ } }
+  await fileStore.del(existing.rows[0].photo_object_key);
   var item = res.rows[0];
   await audit(pool, ctx, 'restaurant.menu.photo', 'restaurant_menu_item', id, 'Updated photo for ' + item.name + '.');
   return rowToMenuItem(item);
@@ -195,7 +196,7 @@ async function removeMenuItemPhoto(ctx, id) {
   if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
   var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
-  if (existing.rows[0].photo_object_key) { try { await storage.deleteFile(existing.rows[0].photo_object_key); } catch (e) { /* best-effort cleanup */ } }
+  await fileStore.del(existing.rows[0].photo_object_key);
   var res = await pool.query(
     'UPDATE restaurant_menu_items SET photo_object_key = NULL, photo_file_name = NULL, updated_at = now() WHERE id = $1 RETURNING *',
     [id]
@@ -214,7 +215,9 @@ async function removeMenuItemPhoto(ctx, id) {
 async function getMenuItemPhoto(id) {
   var res = await pool.query('SELECT photo_object_key FROM restaurant_menu_items WHERE id = $1', [id]);
   if (!res.rows[0] || !res.rows[0].photo_object_key) fail('notfound', 'No photo.');
-  return storage.getObjectStream(res.rows[0].photo_object_key);
+  var f = await fileStore.get(res.rows[0].photo_object_key);
+  if (!f) fail('notfound', 'No photo.');
+  return f;
 }
 
 // ── supplies (non-food, no expiry) ──────────────────────────────────────
