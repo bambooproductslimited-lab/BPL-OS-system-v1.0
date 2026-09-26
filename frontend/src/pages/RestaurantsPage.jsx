@@ -9,6 +9,7 @@ import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import RestaurantReport from './RestaurantReport';
+import Bars from './RestaurantBars';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -79,22 +80,6 @@ function drawerState(s) {
 
 // One series of bars: a day or an hour each. The height is the value; the
 // highlighted bar is today. Hover (or focus) shows the figures.
-function Bars({ rows, format, label, className = '' }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  return (
-    <div className={'rs-bars ' + className} role="img" aria-label={label + ': ' + rows.map((r) => r.tip).join('; ')}>
-      {rows.map((r) => (
-        <div key={r.key} className={'rs-bar-col' + (r.current ? ' is-current' : '')} tabIndex={0} aria-label={r.tip}>
-          <span className="rs-bar-tip" role="tooltip">{r.tip}</span>
-          <span className="rs-bar-track"><span className="rs-bar" style={{ height: (r.value ? Math.max(3, Math.round((r.value / max) * 100)) : 0) + '%' }} /></span>
-          <span className="rs-bar-label">{r.label}</span>
-        </div>
-      ))}
-      <span className="rs-bars-max" aria-hidden="true">{format(max)}</span>
-    </div>
-  );
-}
-
 function Plate({ m, size = 56 }) {
   if (m.photoUrl) return <img className="rs-plate" src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" style={{ width: size, height: size }} />;
   return <span className="rs-plate is-empty" style={{ width: size, height: size }} aria-hidden="true">{String(m.name || '?').trim().charAt(0).toUpperCase()}</span>;
