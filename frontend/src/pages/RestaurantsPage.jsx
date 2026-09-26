@@ -239,6 +239,11 @@ export default function RestaurantsPage() {
   }
 
   // ── menu ────────────────────────────────────────────────────────────
+  // Menu cards with price variations open to list them all, with prices.
+  const [openDishes, setOpenDishes] = useState(() => new Set());
+  function toggleDish(id) {
+    setOpenDishes((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
   function openMenu(m) {
     setFormError(null);
     setMenuForm(m ? { name: m.name, category: m.category, price: m.price } : { ...EMPTY_MENU_FORM, category: menuCategory });
@@ -673,9 +678,24 @@ export default function RestaurantsPage() {
                       <div className="rs-dish-main">
                         <span className="rs-dish-name">{m.name}</span>
                         <span className="rs-dish-price">{lo === hi ? money(lo) : tr('{from} to {to}', { from: money(lo), to: money(hi) })}</span>
-                        {m.variations.length > 0 && <span className="dk-muted tl-small rs-dish-vars">{m.variations.slice(0, 3).map((v) => v.name).join(' · ')}{m.variations.length > 3 ? ' +' + (m.variations.length - 3) : ''}</span>}
+                        {m.variations.length > 0 && (
+                          <button type="button" className={'rs-dish-toggle' + (openDishes.has(m.id) ? ' is-open' : '')} aria-expanded={openDishes.has(m.id)} aria-controls={'rs-vars-' + m.id} onClick={() => toggleDish(m.id)}>
+                            {m.variations.length === 1 ? tr('1 variation') : tr('{n} variations', { n: m.variations.length })}
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          </button>
+                        )}
                         <span className={'tl-small ' + (s ? 'rs-sold' : 'dk-muted')}>{!m.active ? tr('Disabled — not on the till') : s ? tr('{qty} sold · {amount} in 30 days', { qty: qtyText(s.qty), amount: money(s.revenue) }) : hasSales ? tr('Not sold in 30 days') : ''}</span>
                       </div>
+                      {m.variations.length > 0 && openDishes.has(m.id) && (
+                        <ul id={'rs-vars-' + m.id} className="rs-dish-vars">
+                          {m.variations.map((v) => (
+                            <li key={v.id} className={Number(v.price) === lo && lo !== hi ? 'is-cheapest' : ''}>
+                              <span>{v.name}</span>
+                              <strong>{money(Number(v.price))}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                       {canManage && (
                         <span className="rs-dish-menu">
                           <RowMenu actions={[

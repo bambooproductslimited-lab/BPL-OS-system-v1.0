@@ -63,7 +63,23 @@
 .rs-dish-name { font-weight: 700; overflow-wrap: anywhere; }
 .rs-dish-price { font-weight: 700; color: var(--color-accent-700); font-variant-numeric: tabular-nums; }
 :root[data-theme='dark'] .rs-dish-price { color: var(--color-accent); }
-.rs-dish-vars { overflow-wrap: anywhere; }
+.rs-dish-main { flex: 1; }
+.rs-dish-vars li:last-child { border-bottom: 0; }
+.rs-dish-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin: 2px 0; padding: 3px 6px 3px 9px; font: inherit; font-size: 12px; font-weight: 700; color: var(--color-text-muted); background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 999px; cursor: pointer; }
+.rs-dish-toggle:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+.rs-dish-toggle svg { width: 14px; height: 14px; transition: transform 0.15s ease; }
+.rs-dish-toggle.is-open { color: var(--color-accent-700); border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg)); }
+:root[data-theme='dark'] .rs-dish-toggle.is-open { color: var(--color-accent); }
+.rs-dish-toggle.is-open svg { transform: rotate(180deg); }
+.rs-dish { flex-wrap: wrap; }
+.rs-menu-grid { align-items: start; }
+.rs-dish-vars { flex: 0 0 100%; margin: 0 -28px 0 0; list-style: none; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--color-divider); animation: rs-vars-in 0.18s ease; }
+.rs-dish-vars li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--color-divider); }
+.rs-dish-vars li span { min-width: 0; overflow-wrap: anywhere; }
+.rs-dish-vars li strong { flex: none; font-variant-numeric: tabular-nums; }
+.rs-dish-vars li.is-cheapest strong { color: var(--color-accent-700); }
+:root[data-theme='dark'] .rs-dish-vars li.is-cheapest strong { color: var(--color-accent); }
+@keyframes rs-vars-in { from { opacity: 0; transform: translateY(-4px); } }
 .rs-sold { color: var(--color-text); font-weight: 600; }
 .rs-dish-menu { position: absolute; top: 8px; right: 8px; }
 .rs-dish-menu .row-menu-btn { width: 28px; height: 28px; }
