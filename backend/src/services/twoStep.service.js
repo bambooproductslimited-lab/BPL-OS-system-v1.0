@@ -478,34 +478,52 @@ async function checkLoginCode(challenge, code, maxAttempts, lockoutMinutes) {
 }
 
 // ---- Forgotten password ------------------------------------------------------
-// A code to choose a new password goes to the address the person signs in
-// with, through the company mailbox; when email isn't set up on the server,
-// by text to their two-step phone or the phone on their staff record. The
-// answer looks the same whether or not the address has an account, so the
-// screen can't be used to find out who works here.
-async function sendResetCode(email) {
+// A code to choose a new password goes, as the person picks, to the address
+// they sign in with (through the company mailbox) or by text to their phone
+// (the two-step phone, else the phone on their staff record). Only ways set
+// up on the server are offered. The answer looks the same whether or not the
+// address has an account, or a phone on it, so the screen can't be used to
+// find out who works here or to read anyone's number.
+function resetOptions() {
+  return { email: mail.configured(), sms: sms.configured(), expiresInMinutes: CODE_MINUTES };
+}
+
+async function sendResetCode(email, channel) {
   email = String(email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+$/.test(email)) fail('invalid', 'Enter the email address you sign in with.');
-  var viaEmail = mail.configured();
-  var viaSms = !viaEmail && sms.configured();
-  if (!viaEmail && !viaSms) {
+  var ways = resetOptions();
+  if (!ways.email && !ways.sms) {
     fail('unavailable', 'Resetting a password yourself isn\'t set up yet — email and text messages aren\'t connected on the server. Ask an administrator to reset it for you.');
   }
-  var channel = viaEmail ? 'email' : 'sms';
-  var answer = { channel: channel, sentTo: viaEmail ? maskedEmail(email) : null, expiresInMinutes: CODE_MINUTES };
+  if (channel && channel !== 'email' && channel !== 'sms') fail('invalid', 'Choose email or text message.');
+  if (channel === 'email' && !ways.email) fail('unavailable', 'Codes by email aren\'t available — email isn\'t set up on the server yet. Choose a text message instead.');
+  if (channel === 'sms' && !ways.sms) fail('unavailable', 'Codes by text message aren\'t available — text messages aren\'t set up on the server yet. Choose email instead.');
+  channel = channel || (ways.email ? 'email' : 'sms');
+  var answer = { channel: channel, sentTo: channel === 'email' ? maskedEmail(email) : null, expiresInMinutes: CODE_MINUTES };
   var u = (await pool.query(
     'SELECT u.*, e.phone AS employee_phone FROM users u JOIN employees e ON e.id = u.employee_id WHERE u.email = $1', [email])).rows[0];
   if (!u || u.status !== 'active') return answer;
-  var to = viaEmail ? u.email : (u.two_step_phone || u.employee_phone);
-  if (!to) return answer;
-  await sendCode(u, channel, to, 'reset');
+  var to = channel === 'email' ? u.email : (u.two_step_phone || u.employee_phone);
+  if (!to || !String(to).trim()) return answer;
+  try {
+    await sendCode(u, channel, to, 'reset');
+  } catch (e) {
+    if (e.code === 'ratelimited') throw e;
+    // The reason can name the number on file ("The phone number … isn't one
+    // a text can go to"), which isn't for whoever typed the address — the
+    // details go to the server log and the screen gets a plain answer.
+    console.error('[password reset] could not send a code by ' + channel + ':', e.message);
+    fail('unavailable', channel === 'sms'
+      ? 'The text couldn\'t be sent. Try email instead, or ask an administrator to reset your password.'
+      : 'The email couldn\'t be sent. Try a text message instead, or ask an administrator to reset your password.');
+  }
   return answer;
 }
 // True when the code is this person's latest unused reset code.
 async function checkResetCode(userId, code) { return !!(await useCode(userId, 'reset', code, null)); }
 
 module.exports = {
-  sendResetCode: sendResetCode, checkResetCode: checkResetCode,
+  resetOptions: resetOptions, sendResetCode: sendResetCode, checkResetCode: checkResetCode,
   status: status, startSetup: startSetup, enable: enable, startSmsSetup: startSmsSetup, enableSms: enableSms,
   startEmailSetup: startEmailSetup, enableEmail: enableEmail, defaultChannel: defaultChannel,
   disable: disable, newBackupCodes: newBackupCodes, adminReset: adminReset,

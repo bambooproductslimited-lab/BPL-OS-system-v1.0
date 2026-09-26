@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { forgotPassword, resetPassword, sendLoginCode } from '../api/client';
+import { forgotPassword, resetOptions, resetPassword, sendLoginCode } from '../api/client';
 import AuthLayout, { AuthIcon, PasswordField, PasswordRules, passwordProblems } from '../components/AuthLayout';
-import { tr } from '../lib/i18n.jsx';
+import { msg, tr } from '../lib/i18n.jsx';
 
 // The sign-in screens: email and password; the two-step code for accounts
 // that have it on (from the authenticator app, a text or an email, or a
@@ -42,6 +42,12 @@ function avatarColor(name) {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
+// Where a password reset code can go.
+const RESET_WAYS = [
+  ['email', 'mail', msg('Email'), msg('To the address above')],
+  ['sms', 'phone', msg('Text message'), msg('To the phone number on your staff record')]
+];
+
 export default function LoginPage() {
   const { login, verifyCode } = useAuth();
   const navigate = useNavigate();
@@ -66,7 +72,10 @@ export default function LoginPage() {
   const [sendingCode, setSendingCode] = useState(false);
   const [code, setCode] = useState('');
   const [rememberDevice, setRememberDevice] = useState(false);
-  // Forgot password: where the code went, and the new password.
+  // Forgot password: which ways a code can go (as set up on the server), the
+  // way picked, where the code went, and the new password.
+  const [resetWays, setResetWays] = useState(null); // { email, sms } — null until known
+  const [resetChannel, setResetChannel] = useState('email');
   const [resetTo, setResetTo] = useState(null); // { channel, sentTo, expiresInMinutes }
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -78,6 +87,32 @@ export default function LoginPage() {
   const redirectTo = location.state && location.state.from ? location.state.from : '/dashboard';
 
   function go(next) { setMode(next); setError(null); setNotice(null); setSubmitting(false); }
+
+  useEffect(() => {
+    if (mode !== 'forgot' || resetWays) return undefined;
+    let live = true;
+    resetOptions().then((w) => {
+      if (!live) return;
+      setResetWays(w);
+      if (!w.email && w.sms) setResetChannel('sms');
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [mode, resetWays]);
+
+  // "Send it by text instead" on the code screen.
+  async function resendResetBy(channel) {
+    setSendingCode(channel);
+    setError(null);
+    setNotice(null);
+    try {
+      setResetTo(await forgotPassword(email, channel));
+      setResetChannel(channel);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSendingCode(false);
+    }
+  }
 
   async function sendMeACode(channel) {
     setSendingCode(channel);
@@ -125,7 +160,7 @@ export default function LoginPage() {
         await verifyCode(email, challenge, code, rememberDevice);
         navigate(redirectTo, { replace: true });
       } else if (mode === 'forgot') {
-        const r = await forgotPassword(email);
+        const r = await forgotPassword(email, resetChannel);
         rememberEmail(email.trim().toLowerCase());
         setResetTo(r);
         setCode('');
@@ -261,11 +296,28 @@ export default function LoginPage() {
           <>
             <button type="button" className="auth-back" onClick={() => go('signin')}><AuthIcon name="back" />{tr('Back to sign in')}</button>
             <h2 className="auth-title">{tr('Forgot your password?')}</h2>
-            <p className="auth-sub">{tr('Enter the email you sign in with. We\'ll send you a 6-digit code to choose a new password.')}</p>
+            <p className="auth-sub">{tr('Enter the email you sign in with, then choose where we send a 6-digit code to choose a new password.')}</p>
             {emailField(true)}
+            <fieldset className="auth-choice">
+              <legend className="auth-ways-title">{tr('Send the code by')}</legend>
+              {RESET_WAYS.map(([key, icon, label, help]) => {
+                const off = !!resetWays && !resetWays[key];
+                return (
+                  <label key={key} className={'auth-pick' + (resetChannel === key ? ' is-picked' : '') + (off ? ' is-off' : '')}>
+                    <input type="radio" name="bpl-reset-way" value={key} checked={resetChannel === key} disabled={off} onChange={() => setResetChannel(key)} />
+                    <AuthIcon name={icon} />
+                    <span className="auth-pick-text">
+                      <strong>{tr(label)}</strong>
+                      <span>{off ? tr('Not set up on the server yet') : tr(help)}</span>
+                    </span>
+                    <span className="auth-pick-dot" aria-hidden="true" />
+                  </label>
+                );
+              })}
+            </fieldset>
             {error && <div className="error-banner" role="alert">{error}</div>}
-            <button className="btn btn-primary btn-block auth-submit" type="submit" disabled={submitting}>
-              {submitting ? tr('Sending…') : tr('Send me a code')}
+            <button className="btn btn-primary btn-block auth-submit" type="submit" disabled={submitting || (!!resetWays && !resetWays[resetChannel])}>
+              {submitting ? tr('Sending…') : resetChannel === 'sms' ? tr('Text me a code') : tr('Email me a code')}
             </button>
             <p className="auth-help">{tr('No email or phone on your account? Ask HR or an administrator to reset your password for you.')}</p>
           </>
@@ -294,7 +346,15 @@ export default function LoginPage() {
             <button className="btn btn-primary btn-block auth-submit" type="submit" disabled={submitting}>
               {submitting ? tr('Saving…') : tr('Save and sign in')}
             </button>
-            <button type="button" className="auth-link" onClick={() => go('forgot')}>{tr('Send a new code')}</button>
+            <div className="auth-resend">
+              <button type="button" className="auth-link" onClick={() => go('forgot')}>{tr('Send a new code')}</button>
+              {resetWays && resetTo && resetWays[resetTo.channel === 'sms' ? 'email' : 'sms'] && (
+                <button type="button" className="auth-link" disabled={!!sendingCode} onClick={() => resendResetBy(resetTo.channel === 'sms' ? 'email' : 'sms')}>
+                  <AuthIcon name={resetTo.channel === 'sms' ? 'mail' : 'phone'} />
+                  {sendingCode ? tr('Sending…') : resetTo.channel === 'sms' ? tr('Send it by email instead') : tr('Send it by text instead')}
+                </button>
+              )}
+            </div>
           </>
         )}
       </form>

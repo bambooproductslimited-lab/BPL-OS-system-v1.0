@@ -67,8 +67,10 @@ var resetLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: { code: 'rate_limited', message: 'Too many attempts. Try again later.' } }
 });
+// Which ways a reset code can go (email, text) — set up on the server or not.
+router.get('/password/options', function (req, res) { res.json(twoStep.resetOptions()); });
 router.post('/password/forgot', resetLimiter, async function (req, res, next) {
-  try { res.json(await twoStep.sendResetCode(req.body.email)); } catch (e) { next(e); }
+  try { res.json(await twoStep.sendResetCode(req.body.email, req.body.channel)); } catch (e) { next(e); }
 });
 router.post('/password/reset', resetLimiter, async function (req, res, next) {
   try { res.json(await authService.resetPassword(req.body.email, req.body.code, req.body.newPassword)); } catch (e) { next(e); }

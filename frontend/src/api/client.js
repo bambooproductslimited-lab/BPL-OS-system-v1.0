@@ -104,8 +104,11 @@ export function verifyLogin(challenge, code, rememberDevice) {
 
 // "Forgot your password?" — a code to the account's address -> { channel,
 // sentTo, expiresInMinutes }; then the code and a new password.
-export function forgotPassword(email) {
-  return request('POST', '/auth/password/forgot', { email: email });
+export function resetOptions() {
+  return request('GET', '/auth/password/options');
+}
+export function forgotPassword(email, channel) {
+  return request('POST', '/auth/password/forgot', { email: email, channel: channel });
 }
 export function resetPassword(email, code, newPassword) {
   return request('POST', '/auth/password/reset', { email: email, code: code, newPassword: newPassword });

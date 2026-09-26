@@ -74,6 +74,7 @@ var ALLOWED = {
   // --- genuinely public: no session at all ---
   'GET /api/health': 'liveness probe, no data',
   'POST /api/auth/login': 'the front door; rate-limited + per-account lockout',
+  'GET /api/auth/password/options': 'only whether email and text messages are set up on the server — nothing about any account',
   'POST /api/auth/password/forgot': 'sends a reset code to the account\'s own address; same answer whether or not it exists; rate-limited per IP and per account',
   'POST /api/auth/password/reset': 'needs the emailed/texted code; wrong codes count towards the login lockout',
   'GET /api/roles/permissions': 'static permission catalogue, not per-user data',

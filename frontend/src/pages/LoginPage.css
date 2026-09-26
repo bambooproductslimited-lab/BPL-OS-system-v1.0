@@ -95,3 +95,21 @@
   .auth-title { font-size: 24px; }
   .auth-rules, .auth-demo-list { grid-template-columns: 1fr; }
 }
+
+/* Forgot password: email or text message */
+.auth-choice { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.auth-choice legend { padding: 0; margin-bottom: 8px; }
+.auth-pick { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--color-bg-subtle); border: 1px solid var(--color-border); cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; }
+.auth-pick:hover:not(.is-off) { border-color: var(--color-text); }
+.auth-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.auth-pick > .auth-icon { width: 34px; height: 34px; padding: 7px; border-radius: 50%; color: var(--color-accent-700); background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg)); }
+.auth-pick-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.auth-pick-text strong { font-size: 14px; }
+.auth-pick-text span { font-size: 12.5px; line-height: 1.35; color: var(--color-text-muted); }
+.auth-pick-dot { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid var(--color-border); background: var(--color-bg); }
+.auth-pick.is-picked { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 7%, var(--color-bg)); box-shadow: inset 3px 0 0 var(--color-accent); }
+.auth-pick.is-picked .auth-pick-dot { border-color: var(--color-accent); background: radial-gradient(circle, var(--color-accent) 0 4px, var(--color-bg) 5px); }
+.auth-pick:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.auth-pick.is-off { cursor: default; opacity: 0.6; }
+.auth-pick.is-off > .auth-icon { color: var(--color-text-muted); background: var(--color-bg); }
+.auth-resend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; }
