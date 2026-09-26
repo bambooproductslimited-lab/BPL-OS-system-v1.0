@@ -249,6 +249,22 @@ async function workbook() {
   buys.addRow(['Customer Name', 'Location', 'Phone Number', 'Source', 'Product Purchased', 'Custom Project/Item', 'Purchase Date', 'Month', 'Original Price', 'Discount in %', 'Discount in Amount', 'Value (GHS)', 'Amount Paid', 'Balance', 'Repeat Customer', 'Sales Representative', 'Core Team', 'Commission Payable', 'Commission After Discount', 'Actual Commission', 'Kick back applied']);
   buys.addRow(['Zqc Crafts', 'Zq Town', '', 'WhatsApp', 'Custom', 'Zq table', new Date(today + 'T00:00:00Z'), 9, '1000.00', '30%', '300', '700.00', '700', '0', 'No', 'Mr. Zq Kofi', 'Zq Team', '0.00', '0%', '20%', 'TRUE']);
   buys.addRow(['Zq Unknown Buyer', 'Zq Town', '', 'Walk-in', 'Board', '', '01-July-2026', 7, '250.00', '0%', '0', '250.00', '250', '0', 'No', 'Zq Esi', '', '', '', '', 'FALSE']);
+  // the same buyer again (a second sale), and a buyer already on the Leads tab
+  buys.addRow(['Zq Unknown Buyer', 'Zq Town', '', 'Walk-in', 'Board', '', '09-July-2026', 7, '300.00', '0%', '0', '300.00', '300', '0', 'Yes', 'Zq Esi', '', '', '', '', 'FALSE']);
+  buys.addRow(['Mr. Zq Kwame', 'Zq Tema', '0559000444', 'Phone Call', 'Door', 'Zq sliding door', '26-Sep-2026', 9, '2000', '0%', '0', '2000', '2000', '0', 'No', 'Zq Kofi', '', '400', '20%', '20%', 'FALSE']);
+  // the sheet's other tabs, which aren't imported: Kick back repeats Purchases rows
+  var kick = wb.addWorksheet('Kick back');
+  kick.addRow(['Purchase Date', 'Customer Name', 'Source', 'Custom Project/Item', 'Original Price', 'Discount in %', 'Discount in Amount', 'Value (GHS)', 'Amount Paid', 'Balance', 'Sales Representative', 'Kick back rate', 'Kick back rate payable', 'Kick back amount', 'For Co.']);
+  kick.addRow([new Date(today + 'T00:00:00Z'), 'Zqc Crafts', 'WhatsApp', 'Zq table', '1000', '30%', '300', '700', '700', '0', 'Zq Kofi', '20%', '0%', '0', '700']);
+  var quote = wb.addWorksheet('Quotation');
+  quote.addRow(['Quote No.', 'Customer', 'Location', 'Product', 'Custom Project/Item', 'Amount (GHS)', 'Status', 'Date Sent ']);
+  quote.addRow(['ZQ13', 'Zq Quote Person', 'Zq Town', 'Custom', 'Zq stool', '', 'Approved', '16-July-2026']);
+  var summary = wb.addWorksheet('Summary');
+  summary.addRow(['Month', 'Total Leads', 'Closed Won Deals', 'Sales Revenue Received (GHS)', 'Revenue In Arears(GHS)', 'Total Revenue (GHS)', 'Comments']);
+  summary.addRow(['July', 21, 11, 1000, 0, 1000, '']);
+  var data = wb.addWorksheet('Data');
+  data.addRow(['Items', 'Source', 'Leads', 'Commision', 'Sales rep', 'Repeat Customer', 'Quotation', 'Month', 'Site Visit Status']);
+  data.addRow(['Board', 'WhatsApp', 'New Lead', 'Paid', 'Zq Kofi', 'Yes', 'Draft', 'January', 'Visited']);
   var visits = wb.addWorksheet('Site Visits');
   visits.addRow(['Client ', 'Location ', 'Scheduled Date for Visit', 'Status', 'Site Assessors –']);
   visits.addRow(['Zq Kwame', 'Zq Tema', '10-July-2026', 'Visited', 'Zq Kofi & Zq Carpenter']);
@@ -271,20 +287,26 @@ test('the spreadsheet import: preview, import, and again adds nothing', async fu
   await assert.rejects(crmImport.preview(andy, file), /crm.manage/);
   var pv = await crmImport.preview(rep, file);
   assert.deepEqual(pv.tabs.map(function (t) { return t.kind; }), ['leads', 'purchases', 'visits', 'referrals', 'prospects']);
-  assert.deepEqual([pv.leads.new, pv.sales.new, pv.visits.new, pv.referrals.new, pv.prospects.new], [3, 2, 2, 1, 3]);
+  assert.deepEqual([pv.leads.new, pv.sales.new, pv.visits.new, pv.referrals.new, pv.prospects.new], [3, 4, 2, 1, 3]);
+  assert.equal(pv.salesJoiningLeads, 2);                                  // Zq Kwame's, and the second Unknown Buyer sale
   assert.deepEqual(pv.stages, { new: 1, follow_up: 1, lost: 1 });
   assert.deepEqual(pv.unknownPeople, ['Nobody Zq', 'Zq Carpenter']);
 
   var r = await crmImport.run(rep, file);
-  assert.deepEqual([r.leads, r.sales, r.linked, r.visits, r.referrals, r.prospects], [3, 2, 1, 2, 1, 3]);
-  assert.equal(r.unlinkedSales.length, 1);
-  assert.equal(r.unlinkedSales[0].name, 'Zq Unknown Buyer');
+  assert.deepEqual([r.leads, r.sales, r.joined, r.linked, r.visits, r.referrals, r.prospects], [3, 4, 2, 1, 2, 1, 3]);
+  assert.deepEqual(r.unlinkedSales.map(function (x) { return x.name; }), ['Zq Unknown Buyer', 'Zq Unknown Buyer', 'Mr. Zq Kwame']);   // each sale with no OS invoice yet
+  // nobody is counted twice: one lead per buyer
+  assert.equal((await crm.listLeads(rep, { q: 'Zq Unknown Buyer', stage: 'all' })).length, 1);
+  assert.equal((await crm.listLeads(rep, { q: 'Zq Kwame', stage: 'all' })).length, 1);
 
   var etta = (await crm.listLeads(rep, { q: 'Zq Etta', stage: 'all' }))[0];
   assert.equal(etta.source, 'TikTok');                                    // the "phone" said TikTok
   assert.equal(etta.phone, '');
   var kwame = (await crm.listLeads(rep, { q: 'Zq Kwame', stage: 'all' }))[0];
-  assert.deepEqual([kwame.phone, kwame.stage, kwame.nextFollowUp, kwame.repId, kwame.sheetRef, kwame.item], ['0559000444', 'follow_up', '2026-09-30', rep.employee.id, 'ZQ39', 'Door — Zq sliding door']);
+  // on the Leads tab as Follow-Up, and in Purchases: won, with no follow-up left
+  assert.deepEqual([kwame.phone, kwame.stage, kwame.nextFollowUp, kwame.repId, kwame.sheetRef, kwame.item], ['0559000444', 'won', null, rep.employee.id, 'ZQ39', 'Door — Zq sliding door']);
+  assert.match(kwame.comments, /Zq wants two/);
+  assert.match(kwame.comments, /GHS 2000\.00.*no matching OS invoice/);
   var abena = (await crm.listLeads(rep, { q: 'Zq Abena', stage: 'all' }))[0];
   assert.equal(abena.repName, 'Nobody Zq');                               // not in the OS: kept as a name
   // the sale that matched ZQC-003 (700 after 30% off, today, "Zqc Crafts") is a won deal, as a kick-back
@@ -309,7 +331,8 @@ test('the spreadsheet import: preview, import, and again adds nothing', async fu
 
   var again = await crmImport.run(rep, file);
   assert.deepEqual([again.leads, again.sales, again.visits, again.referrals, again.prospects], [0, 0, 0, 0, 0]);
-  assert.deepEqual(again.skipped, { leads: 3, sales: 2, visits: 2, referrals: 1, prospects: 3 });
+  assert.deepEqual(again.skipped, { leads: 3, sales: 4, visits: 2, referrals: 1, prospects: 3 });
+  assert.equal((await crm.listLeads(rep, { q: 'Zq Kwame', stage: 'all' }))[0].comments.match(/no matching OS invoice/g).length, 1);
 
   await assert.rejects(crmImport.run(rep, { originalname: 'x.xlsx', buffer: Buffer.from('not a workbook') }), /couldn’t be read/);
 });

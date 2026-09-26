@@ -10,9 +10,11 @@ var crm = require('./crm.service');
 // recognised by their column headings, not their names:
 //
 //   Leads        (Customer Name, Status, Lead ID / Next Follow-Up …)  -> leads
-//   Purchases    (Customer Name, Purchase Date, Value …)              -> won leads,
-//                each linked to its OS invoice when exactly one invoice
-//                matches the customer, amount and date
+//   Purchases    (Customer Name, Purchase Date, Value …)              -> won leads:
+//                a buyer already on the Leads tab (same phone or name) is
+//                marked won there rather than added twice; each sale is
+//                linked to its OS invoice when exactly one invoice matches
+//                the customer, amount and date
 //   Site Visits  (Client, Scheduled Date for Visit, Status …)         -> site visits
 //   Referral     (Referrer, Customer Referred …)                      -> referrals
 //   Data Base    (Fair/Event, Prospect Name, Contact …)                -> prospects
@@ -21,7 +23,8 @@ var crm = require('./crm.service');
 // the same workbook again adds nothing twice; rows already imported are
 // counted as such and left as they are (they may have been worked since).
 // The other tabs (the dashboard, summary, quotations, kick-back, lists) are
-// worked out by the OS itself and aren't imported.
+// worked out by the OS itself and aren't imported — the Kick back tab is
+// skipped on purpose, as its rows are Purchases rows again.
 
 var MAX_ROWS = 5000;
 
@@ -122,6 +125,9 @@ function readSheet(ws) {
     var vals = ws.getRow(r).values || [];
     var heads = {};
     for (var c = 1; c < vals.length; c++) { var t = norm(cellText(vals[c])); if (t && heads[t] === undefined) heads[t] = c; }
+    // The Kick back tab repeats rows of Purchases (the OS works kick-backs
+    // out itself): reading it would add those sales twice.
+    if (heads['kick back amount'] !== undefined || heads['kick back rate'] !== undefined) return null;
     var kind = null;
     Object.keys(KINDS).forEach(function (k) { if (!kind && KINDS[k](heads)) kind = k; });
     if (!kind) continue;
@@ -277,6 +283,26 @@ async function matchInvoice(db, companyId, sale) {
   return hits.length === 1 ? hits[0].id : null;
 }
 
+// The same customer, as the sheet writes them: the last nine digits of the
+// phone, or the name without Mr/Mrs/Dr and spacing.
+function phoneKey(v) { var d = String(v || '').replace(/\D/g, ''); return d.length >= 9 ? d.slice(-9) : ''; }
+function nameKey(v) { return norm(String(v || '').replace(/^\s*(mr|mrs|ms|miss|dr)\.?\s+/i, '')); }
+
+// Leads to match sales against: [{ id, phone, name, received, stage, rep_id, rep_name }].
+// A sale belongs to the lead with its phone, else to the one with its name
+// (the latest, when the sheet has the same name more than once).
+function leadFor(leads, sale) {
+  var ph = phoneKey(sale.phone);
+  if (ph) {
+    var byPhone = leads.filter(function (l) { return phoneKey(l.phone) === ph; });
+    if (byPhone.length) return latest(byPhone);
+  }
+  var nk = nameKey(sale.name);
+  var byName = nk ? leads.filter(function (l) { return nameKey(l.name) === nk; }) : [];
+  return byName.length ? latest(byName) : null;
+}
+function latest(list) { return list.slice().sort(function (a, b) { return String(b.received || '').localeCompare(String(a.received || '')); })[0]; }
+
 function need(ctx) {
   if (!ctx.can('crm.manage')) fail('forbidden', 'Your role does not allow this action (crm.manage).');
 }
@@ -285,7 +311,8 @@ async function summarise(ctx, p) {
   var matchRep = await staffMatcher();
   var keys = {
     leads: await existingKeys('crm_leads', p.leads.map(function (x) { return x.key; })),
-    sales: await existingKeys('crm_leads', p.sales.map(function (x) { return x.key; })),
+    sales: Object.assign(await existingKeys('crm_leads', p.sales.map(function (x) { return x.key; })),
+      await existingKeys('crm_import_keys', p.sales.map(function (x) { return x.key; }))),
     visits: await existingKeys('crm_site_visits', p.visits.map(function (x) { return x.key; })),
     referrals: await existingKeys('crm_referrals', p.referrals.map(function (x) { return x.key; })),
     prospects: await existingKeys('crm_prospects', p.prospects.map(function (x) { return x.key; }))
@@ -296,9 +323,17 @@ async function summarise(ctx, p) {
   p.visits.forEach(function (v) { v.assessors.forEach(function (a) { if (!matchRep(a)) repNames[a] = true; }); });
   var stages = {};
   p.leads.forEach(function (l) { stages[l.stage] = (stages[l.stage] || 0) + 1; });
+  var known = (await pool.query('SELECT id, phone, name, received_on AS received FROM crm_leads')).rows
+    .concat(p.leads.filter(function (l) { return !keys.leads[l.key]; }).map(function (l) { return { phone: l.phone, name: l.name, received: l.receivedOn }; }));
+  var joining = 0;
+  p.sales.forEach(function (x) {
+    if (keys.sales[x.key]) return;
+    if (leadFor(known, x)) joining++;
+    else known.push({ phone: x.phone, name: x.name, received: x.receivedOn });   // a second sale of the same buyer joins the first
+  });
   return {
     tabs: p.tabs, leads: count('leads'), sales: count('sales'), visits: count('visits'), referrals: count('referrals'), prospects: count('prospects'),
-    stages: stages, unknownPeople: Object.keys(repNames).sort(), keys: keys, matchRep: matchRep
+    stages: stages, salesJoiningLeads: joining, unknownPeople: Object.keys(repNames).sort(), keys: keys, matchRep: matchRep
   };
 }
 
@@ -317,7 +352,7 @@ async function run(ctx, file) {
   var settings = await crm._settingsRow();
   var companyId = settings.company_id || ((await pool.query("SELECT id FROM companies WHERE code = 'BPL' LIMIT 1")).rows[0] || {}).id || null;
   var meId = ctx.employee ? ctx.employee.id : null;
-  var result = { leads: 0, sales: 0, linked: 0, unlinkedSales: [], visits: 0, referrals: 0, prospects: 0 };
+  var result = { leads: 0, sales: 0, joined: 0, linked: 0, unlinkedSales: [], visits: 0, referrals: 0, prospects: 0 };
 
   await withTransaction(async function (db) {
     async function insertLead(l, extraComment) {
@@ -341,9 +376,29 @@ async function run(ctx, file) {
       var sale = p.sales[j];
       if (s.keys.sales[sale.key]) continue;
       var invoiceId = await matchInvoice(db, companyId, sale);
-      var lead = await insertLead(sale, invoiceId ? '' : 'Sale in the spreadsheet' + (sale.value !== null ? ' of GHS ' + sale.value.toFixed(2) : '') +
-        (sale.receivedOn ? ' on ' + sale.receivedOn : '') + ' — no matching OS invoice was found; link it from here once the invoice is in the OS.');
-      if (!lead) continue;
+      var unlinkedNote = invoiceId ? '' : 'Sale in the spreadsheet' + (sale.value !== null ? ' of GHS ' + sale.value.toFixed(2) : '') +
+        (sale.receivedOn ? ' on ' + sale.receivedOn : '') + ' — no matching OS invoice was found; link it from here once the invoice is in the OS.';
+      var leads = (await db.query('SELECT id, phone, name, received_on AS received, stage, rep_id, rep_name, comments FROM crm_leads')).rows;
+      var lead = leadFor(leads, sale);
+      if (lead) {
+        // the customer is already a lead (the sheet's Leads tab, or a
+        // second sale of the same buyer): the sale goes on that lead
+        await db.query('INSERT INTO crm_import_keys (external_key, lead_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [sale.key, lead.id]);
+        var saleRep = sale.rep ? s.matchRep(sale.rep) : null;
+        await db.query(
+          "UPDATE crm_leads SET stage = 'won', next_follow_up = NULL, stage_changed_at = CASE WHEN stage <> 'won' THEN now() ELSE stage_changed_at END, " +
+          "rep_id = coalesce(rep_id, $2), rep_name = CASE WHEN rep_id IS NULL AND $2::uuid IS NULL AND rep_name = '' THEN $3 ELSE rep_name END, " +
+          "source = CASE WHEN source = '' THEN $4 ELSE source END, location = CASE WHEN location = '' THEN $5 ELSE location END, " +
+          "comments = CASE WHEN $6 = '' THEN comments WHEN comments = '' THEN $6 ELSE comments || E'\n' || $6 END, updated_at = now() WHERE id = $1",
+          [lead.id, saleRep, saleRep ? '' : (sale.rep || ''), sale.source || '', sale.location || '', unlinkedNote]);
+        if (lead.stage !== 'won') {
+          await db.query("INSERT INTO crm_lead_notes (lead_id, kind, body, from_stage, to_stage, by_employee) VALUES ($1, 'stage', 'Imported from the spreadsheet.', $2, 'won', $3)", [lead.id, lead.stage, meId]);
+        }
+        result.joined++;
+      } else {
+        lead = await insertLead(sale, unlinkedNote);
+        if (!lead) continue;
+      }
       result.sales++;
       if (invoiceId) {
         var repId = sale.rep ? s.matchRep(sale.rep) : null;
@@ -393,7 +448,7 @@ async function run(ctx, file) {
     }
 
     await audit(db, ctx, 'crm.import', 'crm', null,
-      'Imported from a spreadsheet: ' + result.leads + ' lead(s), ' + result.sales + ' sale(s) (' + result.linked + ' linked to invoices), ' +
+      'Imported from a spreadsheet: ' + result.leads + ' lead(s), ' + result.sales + ' sale(s) (' + result.joined + ' added to existing leads, ' + result.linked + ' linked to invoices), ' +
       result.visits + ' site visit(s), ' + result.referrals + ' referral(s), ' + result.prospects + ' prospect(s).');
   });
   result.unknownPeople = s.unknownPeople;

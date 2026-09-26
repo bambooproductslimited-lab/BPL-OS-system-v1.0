@@ -525,6 +525,7 @@ export function ImportDialog({ onClose, onDone }) {
               ))}
             </ul>
             {preview.unknownPeople.length > 0 && <div className="crm-note is-info"><Icon name="info" /> {tr('Not found among OS staff, so kept as names: {names}. Pick the right person on each lead later if they are staff.', { names: preview.unknownPeople.join(', ') })}</div>}
+            {preview.salesJoiningLeads > 0 && <div className="crm-note is-info"><Icon name="info" /> {tr('{n} of the sales are by people already among the leads, so they are marked won on that lead instead of being added twice.', { n: preview.salesJoiningLeads })}</div>}
             {preview.sales.new > 0 && <p className="dk-muted tl-small">{tr('Each sale becomes a won lead. It is linked to its OS invoice when exactly one invoice matches the customer, the amount and the date; the others wait for someone to link them.')}</p>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>{tr('Cancel')}</button>
@@ -535,6 +536,7 @@ export function ImportDialog({ onClose, onDone }) {
         {result && (
           <>
             <div className="crm-note is-good"><Icon name="check" /> {tr('Imported: {leads} leads, {sales} sales ({linked} linked to invoices), {visits} site visits, {referrals} referrals, {prospects} prospects.', result)}</div>
+            {result.joined > 0 && <p className="dk-muted tl-small">{tr('{n} sales went on leads that were already there, so nobody is counted twice.', { n: result.joined })}</p>}
             {result.unlinkedSales.length > 0 && <p className="dk-muted tl-small">{tr('{n} sales have no matching OS invoice yet. They are won leads with a note saying so; link each one\'s invoice from the lead when it is in the OS.', { n: result.unlinkedSales.length })}</p>}
             <div className="dialog-actions"><button type="button" className="btn btn-primary" onClick={onClose}>{tr('Done')}</button></div>
           </>
