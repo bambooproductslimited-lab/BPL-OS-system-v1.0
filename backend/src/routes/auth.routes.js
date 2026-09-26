@@ -57,6 +57,23 @@ router.post('/login/send-code', verifyLimiter, async function (req, res, next) {
   } catch (e) { next(e); }
 });
 
+// "Forgot your password?": send a code, then choose a new password with it.
+// Their own per-IP limit on top of the per-account limits on codes and the
+// login lockout.
+var resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: 'rate_limited', message: 'Too many attempts. Try again later.' } }
+});
+router.post('/password/forgot', resetLimiter, async function (req, res, next) {
+  try { res.json(await twoStep.sendResetCode(req.body.email)); } catch (e) { next(e); }
+});
+router.post('/password/reset', resetLimiter, async function (req, res, next) {
+  try { res.json(await authService.resetPassword(req.body.email, req.body.code, req.body.newPassword)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['auth.logout'] -> POST /api/auth/logout
 router.post('/logout', requireAuth, async function (req, res, next) {
   try {

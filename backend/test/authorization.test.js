@@ -74,6 +74,8 @@ var ALLOWED = {
   // --- genuinely public: no session at all ---
   'GET /api/health': 'liveness probe, no data',
   'POST /api/auth/login': 'the front door; rate-limited + per-account lockout',
+  'POST /api/auth/password/forgot': 'sends a reset code to the account\'s own address; same answer whether or not it exists; rate-limited per IP and per account',
+  'POST /api/auth/password/reset': 'needs the emailed/texted code; wrong codes count towards the login lockout',
   'GET /api/roles/permissions': 'static permission catalogue, not per-user data',
   'GET /api/menu-photos/:id': 'a plain <img src> cannot send a bearer token; POS and app both render it',
   'GET /api/share/:token': 'customer-facing document link; the unguessable token is the credential',

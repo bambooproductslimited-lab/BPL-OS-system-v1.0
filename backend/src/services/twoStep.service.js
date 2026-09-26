@@ -138,7 +138,9 @@ async function sendCode(user, channel, to, purpose) {
     if (channel === 'sms') {
       var text = purpose === 'setup'
         ? 'Your Bamboo OS code to confirm this phone is {code}. It expires in ' + CODE_MINUTES + ' minutes.'
-        : 'Your Bamboo OS sign-in code is {code}. It expires in ' + CODE_MINUTES + ' minutes. Never share it — Bamboo staff will never ask for it.';
+        : purpose === 'reset'
+          ? 'Your Bamboo OS code to reset your password is {code}. It expires in ' + CODE_MINUTES + ' minutes. If you didn\'t ask for it, ignore this text.'
+          : 'Your Bamboo OS sign-in code is {code}. It expires in ' + CODE_MINUTES + ' minutes. Never share it — Bamboo staff will never ask for it.';
       await sms.send({
         to: to, message: text.replace('{code}', code), logMessage: text.replace('{code}', '••••••'),
         purpose: 'two_step', refId: user.id, sentBy: user.employee_id || null
@@ -146,10 +148,12 @@ async function sendCode(user, channel, to, purpose) {
     } else {
       var body = purpose === 'setup'
         ? mail.codeEmail(code, 'Here is the code to turn on two-step sign-in by email:', 'It expires in ' + CODE_MINUTES + ' minutes. If you didn\'t ask for it, you can ignore this email.')
-        : mail.codeEmail(code, 'Here is your code to sign in to Bamboo OS:', 'It expires in ' + CODE_MINUTES + ' minutes. Never share it — Bamboo staff will never ask for it. If you didn\'t just try to sign in, change your password.');
+        : purpose === 'reset'
+          ? mail.codeEmail(code, 'Here is your code to choose a new Bamboo OS password:', 'It expires in ' + CODE_MINUTES + ' minutes. If you didn\'t ask to reset your password, ignore this email — your password stays as it is.')
+          : mail.codeEmail(code, 'Here is your code to sign in to Bamboo OS:', 'It expires in ' + CODE_MINUTES + ' minutes. Never share it — Bamboo staff will never ask for it. If you didn\'t just try to sign in, change your password.');
       await mail.send({
         to: to, text: body.text, html: body.html,
-        subject: purpose === 'setup' ? code + ' is your Bamboo OS set-up code' : code + ' is your Bamboo OS sign-in code'
+        subject: purpose === 'setup' ? code + ' is your Bamboo OS set-up code' : purpose === 'reset' ? code + ' is your Bamboo OS password reset code' : code + ' is your Bamboo OS sign-in code'
       });
     }
   } catch (e) {
@@ -473,7 +477,35 @@ async function checkLoginCode(challenge, code, maxAttempts, lockoutMinutes) {
   return u.id;
 }
 
+// ---- Forgotten password ------------------------------------------------------
+// A code to choose a new password goes to the address the person signs in
+// with, through the company mailbox; when email isn't set up on the server,
+// by text to their two-step phone or the phone on their staff record. The
+// answer looks the same whether or not the address has an account, so the
+// screen can't be used to find out who works here.
+async function sendResetCode(email) {
+  email = String(email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+$/.test(email)) fail('invalid', 'Enter the email address you sign in with.');
+  var viaEmail = mail.configured();
+  var viaSms = !viaEmail && sms.configured();
+  if (!viaEmail && !viaSms) {
+    fail('unavailable', 'Resetting a password yourself isn\'t set up yet — email and text messages aren\'t connected on the server. Ask an administrator to reset it for you.');
+  }
+  var channel = viaEmail ? 'email' : 'sms';
+  var answer = { channel: channel, sentTo: viaEmail ? maskedEmail(email) : null, expiresInMinutes: CODE_MINUTES };
+  var u = (await pool.query(
+    'SELECT u.*, e.phone AS employee_phone FROM users u JOIN employees e ON e.id = u.employee_id WHERE u.email = $1', [email])).rows[0];
+  if (!u || u.status !== 'active') return answer;
+  var to = viaEmail ? u.email : (u.two_step_phone || u.employee_phone);
+  if (!to) return answer;
+  await sendCode(u, channel, to, 'reset');
+  return answer;
+}
+// True when the code is this person's latest unused reset code.
+async function checkResetCode(userId, code) { return !!(await useCode(userId, 'reset', code, null)); }
+
 module.exports = {
+  sendResetCode: sendResetCode, checkResetCode: checkResetCode,
   status: status, startSetup: startSetup, enable: enable, startSmsSetup: startSmsSetup, enableSms: enableSms,
   startEmailSetup: startEmailSetup, enableEmail: enableEmail, defaultChannel: defaultChannel,
   disable: disable, newBackupCodes: newBackupCodes, adminReset: adminReset,

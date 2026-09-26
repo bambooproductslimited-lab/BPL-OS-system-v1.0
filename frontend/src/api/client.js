@@ -102,6 +102,15 @@ export function verifyLogin(challenge, code, rememberDevice) {
   return request('POST', '/auth/login/verify', { challenge: challenge, code: code, rememberDevice: !!rememberDevice });
 }
 
+// "Forgot your password?" — a code to the account's address -> { channel,
+// sentTo, expiresInMinutes }; then the code and a new password.
+export function forgotPassword(email) {
+  return request('POST', '/auth/password/forgot', { email: email });
+}
+export function resetPassword(email, code, newPassword) {
+  return request('POST', '/auth/password/reset', { email: email, code: code, newPassword: newPassword });
+}
+
 // kernel.js: handlers['auth.logout']
 export function logout() {
   return request('POST', '/auth/logout');

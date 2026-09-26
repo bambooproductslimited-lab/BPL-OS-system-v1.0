@@ -118,6 +118,35 @@ async function changeOwnPassword(ctx, currentPassword, newPassword) {
   return true;
 }
 
+// "Forgot your password?": the code sent by twoStep.sendResetCode and a new
+// password. A wrong code counts towards the same lockout as a wrong
+// password. Two-step sign-in, where it is on, still applies the next time
+// they sign in — a reset never skips it.
+async function resetPassword(email, code, newPassword) {
+  email = String(email || '').trim().toLowerCase();
+  newPassword = String(newPassword || '');
+  if (newPassword.length < 8) fail('invalid', 'The new password must be at least 8 characters.');
+  var u = (await pool.query('SELECT id, status, failed_login_attempts, locked_until FROM users WHERE email = $1', [email])).rows[0];
+  if (!u || u.status !== 'active') fail('auth', 'That code is not right, or it has expired. Ask for a new one.');
+  if (u.locked_until && new Date(u.locked_until) > new Date()) {
+    fail('auth', 'This account is temporarily locked after too many failed attempts. Try again later.');
+  }
+  if (!(await twoStep.checkResetCode(u.id, code))) {
+    var attempts = u.failed_login_attempts + 1;
+    var lockedUntil = attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MINUTES * 60000) : null;
+    await pool.query('UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3', [attempts, lockedUntil, u.id]);
+    fail('auth', 'That code is not right, or it has expired. Ask for a new one.');
+  }
+  var hash = await bcrypt.hash(newPassword, config.bcryptRounds);
+  await pool.query(
+    'UPDATE users SET password_hash = $1, must_change_password = false, failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $2',
+    [hash, u.id]);
+  await require('../mcp/oauth').revokeAllForUser(pool, u.id);
+  var ctx = await buildContext(u.id);
+  await audit(pool, ctx, 'auth.password_reset', 'user', u.id, 'Chose a new password with a code sent to them.');
+  return { ok: true };
+}
+
 async function logout(ctx) {
   await audit(pool, ctx, 'auth.logout', 'user', ctx.user.id, 'Signed out.');
   // JWTs are stateless — the client discards the token. Token lifetime is
@@ -126,4 +155,4 @@ async function logout(ctx) {
   return true;
 }
 
-module.exports = { login: login, verifyLogin: verifyLogin, logout: logout, signToken: signToken, verifyToken: verifyToken, changeOwnPassword: changeOwnPassword };
+module.exports = { resetPassword: resetPassword, login: login, verifyLogin: verifyLogin, logout: logout, signToken: signToken, verifyToken: verifyToken, changeOwnPassword: changeOwnPassword };
