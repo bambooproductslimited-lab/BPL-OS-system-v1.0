@@ -63,6 +63,11 @@ import PokiBillingPage from './pages/PokiBillingPage';
 import PokiMaintenancePage from './pages/PokiMaintenancePage';
 import SharePage from './pages/SharePage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
+import CrmOverviewPage from './pages/crm/CrmOverviewPage';
+import CrmLeadsPage from './pages/crm/CrmLeadsPage';
+import CrmProspectsPage from './pages/crm/CrmProspectsPage';
+import CrmVisitsPage from './pages/crm/CrmVisitsPage';
+import CrmCommissionsPage from './pages/crm/CrmCommissionsPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
 // not yet built render a placeholder rather than a dead link, matching the
@@ -79,7 +84,8 @@ const BUILT_SCREENS = {
   marketing: MarketingDashboardPage, socialtracker: SocialTrackerPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
   audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage,
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
-  pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage
+  pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage,
+  crm: CrmOverviewPage, crmleads: CrmLeadsPage, crmprospects: CrmProspectsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];

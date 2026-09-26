@@ -54,6 +54,13 @@ export const NAV_GROUPS = [
     { key: 'pokibilling', label: msg('Rent & utilities'), perm: 'poki.read', icon: 'cash' },
     { key: 'pokimaintenance', label: msg('Maintenance'), perm: 'poki.read', icon: 'wrench' }
   ] },
+  { label: msg('Sales & CRM'), items: [
+    { key: 'crm', label: msg('Overview'), perm: 'crm.read', icon: 'chart' },
+    { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
+    { key: 'crmprospects', label: msg('Prospects'), perm: 'crm.read', icon: 'megaphone' },
+    { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
+    { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' }
+  ] },
   { label: msg('Quotations & Invoicing'), items: [
     { key: 'qioverview', label: msg('Overview'), perm: 'report.read', icon: 'chart' },
     { key: 'customers', label: msg('Clients'), perm: 'customer.read', icon: 'building' },

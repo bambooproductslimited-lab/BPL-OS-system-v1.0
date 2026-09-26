@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS crm_site_visits;
+DROP TABLE IF EXISTS crm_referrals;
+DROP TABLE IF EXISTS crm_deals;
+DROP TABLE IF EXISTS crm_lead_notes;
+DROP TABLE IF EXISTS crm_leads;
+DROP SEQUENCE IF EXISTS crm_lead_ref_seq;
+DROP TABLE IF EXISTS crm_prospects;
+DROP TABLE IF EXISTS crm_settings;
+DELETE FROM role_permissions WHERE permission_key IN ('crm.read', 'crm.manage', 'crm.commission');
+DELETE FROM permissions WHERE key IN ('crm.read', 'crm.manage', 'crm.commission');
