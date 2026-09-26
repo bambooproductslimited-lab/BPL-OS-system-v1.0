@@ -188,7 +188,7 @@ function orderPaymentMethod(order) {
 function buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation) {
   var lineItems = order.line_items || [];
   if (!lineItems.length) {
-    return [{ menuItemId: null, variationId: null, name: 'Square order total', qty: 1, unitPrice: minorToMajor(order.total_money), lineTotal: minorToMajor(order.total_money) }];
+    return [{ menuItemId: null, variationId: null, name: 'Square order total', qty: 1, unitPrice: minorToMajor(order.total_money), lineTotal: minorToMajor(order.total_money), gross: null }];
   }
   return lineItems.map(function (li) {
     var qty = Math.max(0.01, Number(li.quantity) || 1);
@@ -197,7 +197,9 @@ function buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation
     return {
       menuItemId: (li.catalog_object_id && menuItemIdByVariation[li.catalog_object_id]) || null,
       variationId: (li.catalog_object_id && variationRowIdByVariation && variationRowIdByVariation[li.catalog_object_id]) || null,
-      name: li.name || 'Item', qty: qty, unitPrice: unitPrice, lineTotal: lineTotal
+      name: li.name || 'Item', qty: qty, unitPrice: unitPrice, lineTotal: lineTotal,
+      // before discounts, with modifiers — the report ranks items on it
+      gross: li.gross_sales_money ? minorToMajor(li.gross_sales_money) : null
     };
   });
 }
@@ -233,8 +235,8 @@ async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       await client.query(
-        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [orderId, it.menuItemId, it.variationId, it.name, it.qty, it.unitPrice, it.lineTotal]
+        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [orderId, it.menuItemId, it.variationId, it.name, it.qty, it.unitPrice, it.lineTotal, it.gross]
       );
     }
     if (!quiet) await audit(client, ctx, 'restaurant.square_import.order', 'restaurant_order', orderId, 'Imported from Square order ' + order.id + ' (GHS ' + total.toLocaleString() + ').');

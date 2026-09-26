@@ -8,6 +8,7 @@ import { CompanySwitcher, Glossary, Hero, Insights, RankList, Section, Status, f
 import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
+import RestaurantReport from './RestaurantReport';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -18,10 +19,12 @@ import './RestaurantsPage.css';
 // (sales today against the same day last week, this month against the same
 // days last month, stock to reorder, cash drawers), what stands out (food
 // expiring, a drawer counted short, voids, what sells and what does not)
-// and five views:
+// and six views:
 //   Sales — each of the last 35 days, best sellers, the busy hours, how
 //     people pay, who sells, and every order (paged — a Square import can
 //     leave tens of thousands);
+//   Report — the monthly analysis by kitchen group, shift and hour, the
+//     best-selling items and the kitchen bonus (RestaurantReport.jsx);
 //   Menu — what the till sells, with what each item sold in 30 days;
 //   Stock — food and supplies together: record a delivery, what was used,
 //     thrown away or counted, and each item's history (migration 0090);
@@ -32,7 +35,7 @@ import './RestaurantsPage.css';
 // restaurantOverview.service.js. The cards and dialogs use the tool room's
 // pieces (ToolRoomPage.css).
 
-const VIEWS = ['sales', 'menu', 'stock', 'drawers', 'tables'];
+const VIEWS = ['sales', 'report', 'menu', 'stock', 'drawers', 'tables'];
 const STOCK_KINDS = [
   { key: 'received', label: msg('Delivery received') }, { key: 'used', label: msg('Used') },
   { key: 'wasted', label: msg('Thrown away') }, { key: 'count', label: msg('Counted') }
@@ -465,6 +468,7 @@ export default function RestaurantsPage() {
 
   const views = [
     ['sales', tr('Sales'), null],
+    ['report', tr('Report'), null],
     ['menu', tr('Menu'), activeMenu.length],
     ['stock', tr('Stock'), low.length + expiring.length || null],
     ['drawers', tr('Cash drawers'), openDrawers.length || null],
@@ -628,6 +632,9 @@ export default function RestaurantsPage() {
           </Section>
         </>
       )}
+
+      {/* ── the monthly report ── */}
+      {view === 'report' && <RestaurantReport companyId={companyId} companyName={current.name} canManage={canManage} onToast={setToast} />}
 
       {/* ── menu ── */}
       {view === 'menu' && (

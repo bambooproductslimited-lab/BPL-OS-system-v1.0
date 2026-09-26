@@ -6,6 +6,7 @@ var restaurantService = require('../services/restaurant.service');
 var restaurantOverviewService = require('../services/restaurantOverview.service');
 var restaurantPosService = require('../services/restaurantPos.service');
 var restaurantSquareImportService = require('../services/restaurantSquareImport.service');
+var restaurantReportService = require('../services/restaurantReport.service');
 
 var MENU_PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
 var photoUpload = multer({
@@ -22,6 +23,14 @@ router.get('/companies', async function (req, res, next) {
 });
 router.get('/overview', async function (req, res, next) {
   try { res.json(await restaurantOverviewService.overview(req.ctx, req.query.companyId)); } catch (e) { next(e); }
+});
+
+// The monthly report (restaurantReport.service.js) and its settings.
+router.get('/report', async function (req, res, next) {
+  try { res.json(await restaurantReportService.report(req.ctx, req.query.companyId, { month: req.query.month })); } catch (e) { next(e); }
+});
+router.put('/report/settings', async function (req, res, next) {
+  try { res.json(await restaurantReportService.saveSettings(req.ctx, req.body.companyId, req.body)); } catch (e) { next(e); }
 });
 
 router.get('/menu-items', async function (req, res, next) {
