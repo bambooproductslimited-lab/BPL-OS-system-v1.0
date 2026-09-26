@@ -183,6 +183,9 @@
 .rr-fieldset { border: none; margin: 0 0 12px; padding: 0; }
 .rr-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 6px; }
 .rr-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.rr-switch { font-weight: 800; margin-bottom: 4px; }
+.rr-fieldset:disabled { opacity: 0.55; }
+.rr-fieldset.rr-two { min-width: 0; }
 .rr-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 1100px) {
   .rr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

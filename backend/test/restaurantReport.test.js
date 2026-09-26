@@ -113,7 +113,7 @@ test('ranks the month\'s items by how many sold, and pays the bonus on the best 
   assert.equal(ribs.gross, 1300);                                         // Square's gross when there is one
   assert.equal(ribs.net, 1200);
   // default rule: Chinese and Thai kitchens, top 10, 10%
-  assert.deepEqual(r.bonus.rule, { groups: ['Chinese', 'Thai'], top: 10, rate: 10 });
+  assert.deepEqual(r.bonus.rule, { enabled: true, groups: ['Chinese', 'Thai'], top: 10, rate: 10 });
   assert.deepEqual(r.bonus.rows.map(function (x) { return x.name; }), ['Zqr ribs', 'Zqr tom yum', 'Zqr pickled fish', 'Zqr roast duck']);
   assert.equal(r.bonus.rows[0].bonus, 130);
   assert.equal(r.bonus.rows[0].kitchen, '中式 Chinese Ktn');
@@ -143,6 +143,22 @@ test('the restaurant sets groups, shifts and the bonus rule, and the report foll
   assert.equal(r.bonus.total, 34);
   assert.equal(r.categories.find(function (c) { return c.category === 'Zqr Snacks'; }).set, true);
   assert.ok((await pool.query("SELECT 1 FROM audit_logs WHERE action = 'restaurant.report.settings' AND entity_id = $1", [company.id])).rows[0]);
+});
+
+test('a restaurant can switch the bonus off, and the same month last year comes along', async function () {
+  await report.saveSettings(kelvin, company.id, { bonus: { enabled: false, groups: ['Thai'], top: 3, rate: 5 } });
+  var r = await report.report(kelvin, company.id, { month: '2027-07' });
+  assert.equal(r.lastYear, '2026-07');
+  assert.equal(r.totals['2026-07'].net, 300 + 600);
+  assert.equal(r.months.indexOf('2026-07'), -1);                         // not one of the 12 months shown
+  r = await report.report(kelvin, company.id, { month: '2026-08' });
+  assert.equal(r.bonus.rule.enabled, false);
+  assert.deepEqual(r.bonus.rule.groups, ['Thai']);                         // the rule is kept for when it is switched back on
+  assert.equal(r.bonus.rows.length, 0);
+  assert.equal(r.bonus.total, 0);
+  await report.saveSettings(kelvin, company.id, { bonus: { enabled: true, groups: ['Thai'], top: 1, rate: 5 } });
+  assert.equal((await report.report(kelvin, company.id, { month: '2026-08' })).bonus.total, 34);
+  assert.equal(report.guessGroup('Filipino Food'), 'Japanese');
 });
 
 test('with no month asked for it shows the latest month with sales; it needs restaurant.read, settings restaurant.manage', async function () {

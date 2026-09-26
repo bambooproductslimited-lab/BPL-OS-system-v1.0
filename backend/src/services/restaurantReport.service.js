@@ -23,7 +23,7 @@ var { audit } = require('../utils/audit');
 
 var WINDOW = 12;
 var DEFAULT_SHIFTS = [{ name: 'Breakfast', start: 6 }, { name: 'Lunch', start: 11 }, { name: 'Dinner', start: 17 }, { name: 'Night cap', start: 22 }];
-var DEFAULT_BONUS = { groups: ['Chinese', 'Thai'], top: 10, rate: 10 };
+var DEFAULT_BONUS = { enabled: true, groups: ['Chinese', 'Thai'], top: 10, rate: 10 };
 var GROUPS = ['Bar', 'BBQ', 'Breakfast', 'Chinese', 'Thai', 'Japanese', 'Korean', 'Service', 'Other'];
 var NOT_ON_MENU = 'Not on the menu';
 
@@ -34,7 +34,7 @@ var GUESS = [
   [/breakfast|早餐/i, 'Breakfast'],
   [/bbq|barbecue|烧烤/i, 'BBQ'],
   [/thai|泰/i, 'Thai'],
-  [/japan|sushi|日式|日本/i, 'Japanese'],
+  [/japan|sushi|filipino|日式|日本/i, 'Japanese'],
   [/korea|韩/i, 'Korean'],
   [/\bbar\b|beer|alcohol|wine|whisk|cocktail|mocktail|drink|smoothie|juice|cigarette|啤酒|酒|饮料|饮品|烟|吧台|冰沙/i, 'Bar'],
   [/chinese|中式|广东|粤|hot dish|main dish|soup|congee|porridge|cold dish|vege|pot dish|special|快餐|热菜|主食|汤|粥|凉拌|青菜|干锅|特色/i, 'Chinese']
@@ -109,7 +109,9 @@ async function report(ctx, companyId, opts) {
   var month = /^\d{4}-(0[1-9]|1[0-2])$/.test(opts.month || '') ? opts.month : lastKey;
   var months = [];
   for (var i = WINDOW - 1; i >= 0; i--) months.push(addMonths(month, -i));
-  var from = monthStart(months[0]);
+  // a year back too, for the same month last year
+  var lastYear = addMonths(month, -12);
+  var from = monthStart(lastYear);
   var to = monthStart(addMonths(month, 1));
   var selFrom = monthStart(month);
 
@@ -135,7 +137,7 @@ async function report(ctx, companyId, opts) {
   // ── by kitchen group, month by month ──
   var groups = {};
   var totals = {};
-  months.forEach(function (k) { totals[k] = { net: 0, qty: 0, orders: 0, lines: 0 }; });
+  [lastYear].concat(months).forEach(function (k) { totals[k] = { net: 0, qty: 0, orders: 0, lines: 0 }; });
   q[0].rows.forEach(function (r) {
     var g = groupOf(r.category);
     if (!groups[g]) groups[g] = { group: g, byMonth: {}, net: 0, qty: 0 };
@@ -178,7 +180,8 @@ async function report(ctx, companyId, opts) {
 
   // ── the kitchen bonus ──
   var rule = settings.bonus;
-  var inBonus = (rule.groups || []);
+  var enabled = rule.enabled !== false;
+  var inBonus = enabled ? (rule.groups || []) : [];
   var ranked = items.filter(function (it) { return inBonus.indexOf(it.group) >= 0 && it.gross > 0; })
     .sort(function (a, b) { return b.gross - a.gross; });
   var bonusRows = ranked.slice(0, rule.top + 5).map(function (it, idx) {
@@ -199,11 +202,11 @@ async function report(ctx, companyId, opts) {
   });
 
   return {
-    companyId: companyId, month: month, months: months,
+    companyId: companyId, month: month, months: months, lastYear: lastYear,
     first: span.first ? monthKey(new Date(span.first)) : null, last: span.last ? lastKey : null,
     totals: totals, groups: groupList, shifts: shifts, items: items,
     bonus: {
-      rule: { groups: inBonus, top: rule.top, rate: Number(rule.rate) },
+      rule: { enabled: enabled, groups: enabled ? inBonus : (rule.groups || []), top: rule.top, rate: Number(rule.rate) },
       rows: bonusRows, kitchens: kitchenList,
       total: num(kitchenList.reduce(function (s, k) { return s + k.bonus; }, 0))
     },
@@ -234,6 +237,7 @@ async function saveSettings(ctx, companyId, body) {
   shifts.sort(function (a, b) { return a.start - b.start; });
   var b = body.bonus || {};
   var bonus = {
+    enabled: b.enabled !== false,
     groups: Array.isArray(b.groups) ? b.groups.map(function (g) { return cleanText(g, 40); }).filter(Boolean) : DEFAULT_BONUS.groups,
     top: Number(b.top === undefined ? DEFAULT_BONUS.top : b.top),
     rate: Number(b.rate === undefined ? DEFAULT_BONUS.rate : b.rate)
@@ -248,7 +252,7 @@ async function saveSettings(ctx, companyId, body) {
   await audit(pool, ctx, 'restaurant.report.settings', 'company', companyId,
     'Report settings for ' + co.name + ': ' + Object.keys(groups).length + ' categories grouped, shifts ' +
     shifts.map(function (s) { return s.name + ' from ' + s.start + ':00'; }).join(', ') +
-    '; bonus ' + bonus.rate + '% on the top ' + bonus.top + ' dishes from ' + (bonus.groups.join(', ') || 'no kitchen') + '.');
+    (bonus.enabled ? '; bonus ' : '; no kitchen bonus (rule kept: ') + bonus.rate + '% on the top ' + bonus.top + ' dishes from ' + (bonus.groups.join(', ') || 'no kitchen') + (bonus.enabled ? '.' : ').'));
   return loadSettings(companyId);
 }
 

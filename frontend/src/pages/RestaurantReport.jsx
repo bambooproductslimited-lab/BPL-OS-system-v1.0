@@ -88,12 +88,18 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
   // ── the key numbers ──
   const topItem = data.items[0];
   const paid = data.bonus.rows.filter((r) => r.bonus > 0);
+  const ly = data.totals[data.lastYear];
+  const yoy = ly && ly.net > 0 ? Math.round(((tot.net - ly.net) / ly.net) * 100) : null;
+  const lyText = yoy === null ? '' : ' · ' + (yoy >= 0 ? tr('{n}% up on {month}', { n: yoy, month: monthLabel(data.lastYear, true) }) : tr('{n}% down on {month}', { n: -yoy, month: monthLabel(data.lastYear, true) }));
+  const topShift = data.shifts.slice().sort((a, b) => ((b.byMonth[sel] || {}).net || 0) - ((a.byMonth[sel] || {}).net || 0))[0];
+  const bonusOn = data.bonus.rule.enabled !== false;
   const stats = [
     { icon: 'cash', value: money(tot.net), label: tr('sales in {month}', { month: selLong }), tone: change !== null && change < -10 ? 'alert' : '',
-      note: change === null ? tr('nothing to compare with the month before') : change >= 0 ? tr('{n}% up on {month}', { n: change, month: prevShort }) : tr('{n}% down on {month}', { n: -change, month: prevShort }), onClick: () => jump('rr-groups') },
+      note: (change === null ? tr('nothing to compare with the month before') : change >= 0 ? tr('{n}% up on {month}', { n: change, month: prevShort }) : tr('{n}% down on {month}', { n: -change, month: prevShort })) + lyText, onClick: () => jump('rr-groups') },
     { icon: 'receipt', value: whole(tot.orders), label: tr('orders'), note: tot.orders ? tr('{amount} an order on average', { amount: money(tot.net / tot.orders) }) : '', onClick: () => jump('rr-shifts') },
     { icon: 'bag', value: whole(tot.qty), label: tr('items sold'), note: topItem ? tr('most sold: {name} ({n})', { name: topItem.name, n: whole(topItem.qty) }) : '', onClick: () => jump('rr-items') },
-    { icon: 'spark', value: money(data.bonus.total), label: tr('kitchen bonus'), note: paid.length ? (paid.length === 1 ? tr('1 dish') : tr('{n} dishes', { n: paid.length })) + ' · ' + (data.bonus.kitchens.length === 1 ? tr('1 kitchen') : tr('{n} kitchens', { n: data.bonus.kitchens.length })) : tr('no dish earns a bonus'), onClick: () => jump('rr-bonus') }
+    !bonusOn ? { icon: 'clock', value: topShift ? topShift.name : '—', label: tr('busiest shift'), note: topShift && tot.net > 0 ? tr('{share} of sales', { share: pct((((topShift.byMonth[sel] || {}).net || 0) / tot.net) * 100) }) : '', onClick: () => jump('rr-shifts') }
+      : { icon: 'spark', value: money(data.bonus.total), label: tr('kitchen bonus'), note: paid.length ? (paid.length === 1 ? tr('1 dish') : tr('{n} dishes', { n: paid.length })) + ' · ' + (data.bonus.kitchens.length === 1 ? tr('1 kitchen') : tr('{n} kitchens', { n: data.bonus.kitchens.length })) : tr('no dish earns a bonus'), onClick: () => jump('rr-bonus') }
   ];
 
   // ── what stands out ──
@@ -188,7 +194,7 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
       part: part || 'groups',
       groups: Object.fromEntries(data.categories.map((c) => [c.category, data.settings.groups[c.category] || ''])),
       shifts: data.settings.shifts.map((s) => ({ name: s.name, start: s.start })),
-      bonus: { groups: rule.groups.slice(), top: String(rule.top), rate: String(rule.rate) }
+      bonus: { enabled: rule.enabled !== false, groups: rule.groups.slice(), top: String(rule.top), rate: String(rule.rate) }
     });
   }
   async function saveSettings(e) {
@@ -199,7 +205,7 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
         companyId,
         groups: Object.fromEntries(Object.entries(settings.groups).filter(([, g]) => g.trim())),
         shifts: settings.shifts.map((s) => ({ name: s.name.trim(), start: Number(s.start) })),
-        bonus: { groups: settings.bonus.groups, top: Number(settings.bonus.top), rate: Number(settings.bonus.rate) }
+        bonus: { enabled: settings.bonus.enabled, groups: settings.bonus.groups, top: Number(settings.bonus.top), rate: Number(settings.bonus.rate) }
       });
       setSettings(null);
       if (onToast) onToast(tr('Report settings saved.'));
@@ -211,7 +217,9 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
   return (
     <div className="rr" style={{ opacity: loading ? 0.6 : 1 }}>
       <Section id="rr-top" title={tr('Report for {month}', { month: selLong })}
-        sub={tr('Sales by kitchen group, shifts and hours, the best-selling items and the kitchen bonus. Worked out from the till\'s own sales, the way the Square spreadsheet did. Press a number to go to it.')}
+        sub={data.bonus.rule.enabled !== false
+          ? tr('Sales by kitchen group, shifts and hours, the best-selling items and the kitchen bonus. Worked out from the till\'s own sales, the way the Square spreadsheet did. Press a number to go to it.')
+          : tr('Sales by kitchen group, shifts and hours and the best-selling items. Worked out from the till\'s own sales, the way the Square spreadsheet did. Press a number to go to it.')}
         action={(
           <span className="rr-head-tools">
             <span className="rr-month">
@@ -367,7 +375,7 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
             )}
           </Section>
 
-          <Section id="rr-bonus" card title={tr('Kitchen bonus')}
+          {bonusOn && <Section id="rr-bonus" card title={tr('Kitchen bonus')}
             sub={rule.groups.length
               ? tr('The top {n} dishes of {month} by gross sales from {groups} earn {rate}% of their gross sales for the kitchen that makes them.', { n: rule.top, month: selLong, groups: rule.groups.join(', '), rate: rule.rate })
               : tr('No kitchen is chosen for the bonus yet.')}
@@ -405,7 +413,7 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
                 ))}
               </ul>
             ) : <Empty icon="info">{tr('No dishes from the bonus kitchens sold in {month}.', { month: selLong })}</Empty>}
-          </Section>
+          </Section>}
         </>
       )}
 
@@ -470,8 +478,14 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
 
             {settings.part === 'bonus' && (
               <>
-                <p className="dk-muted tl-small">{tr('The month\'s dishes from the chosen kitchen groups are ranked by gross sales; the top ones earn the rate on what they sold.')}</p>
-                <fieldset className="rr-fieldset">
+                <label className="rr-check rr-switch">
+                  <input type="checkbox" checked={settings.bonus.enabled} onChange={(e) => setSettings({ ...settings, bonus: { ...settings.bonus, enabled: e.target.checked } })} />
+                  {tr('This restaurant pays a kitchen bonus')}
+                </label>
+                <p className="dk-muted tl-small">{settings.bonus.enabled
+                  ? tr('The month\'s dishes from the chosen kitchen groups are ranked by gross sales; the top ones earn the rate on what they sold.')
+                  : tr('No bonus is worked out and the report leaves the bonus out. The rule below is kept for if you switch it back on.')}</p>
+                <fieldset className="rr-fieldset" disabled={!settings.bonus.enabled}>
                   <legend className="tl-label">{tr('Kitchen groups that earn a bonus')}</legend>
                   <div className="rr-checks">
                     {allGroups.map((g) => (
@@ -483,7 +497,7 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
                     ))}
                   </div>
                 </fieldset>
-                <div className="rr-two">
+                <fieldset className="rr-two rr-fieldset" disabled={!settings.bonus.enabled}>
                   <div className="field">
                     <label htmlFor="rr-top-n">{tr('Dishes that earn it')}</label>
                     <input id="rr-top-n" className="input" type="number" min="1" max="100" step="1" value={settings.bonus.top} onChange={(e) => setSettings({ ...settings, bonus: { ...settings.bonus, top: e.target.value } })} required />
@@ -492,7 +506,7 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
                     <label htmlFor="rr-rate">{tr('Rate (%)')}</label>
                     <input id="rr-rate" className="input" type="number" min="0" max="100" step="0.5" value={settings.bonus.rate} onChange={(e) => setSettings({ ...settings, bonus: { ...settings.bonus, rate: e.target.value } })} required />
                   </div>
-                </div>
+                </fieldset>
               </>
             )}
 
