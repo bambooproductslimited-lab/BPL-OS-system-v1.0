@@ -8,7 +8,10 @@ import {
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
-import './KioskPage.css';
+import { Icon, Status } from '../components/DashKit';
+import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import '../components/DashKit.css';
+import './ToolRoomPage.css';
 import './RestaurantPosPage.css';
 import { codeLabel } from '../lib/codeLabels.js';
 
@@ -192,6 +195,39 @@ export default function RestaurantPosPage() {
   const [pairingKind, setPairingKind] = useState(null); // 'usb' | 'bluetooth' | null
   const [printing, setPrinting] = useState(false);
 
+  // The till follows the OS's light/dark choice on this device, with its
+  // own switch in the top bar.
+  const [theme, setTheme] = useState(getInitialTheme);
+  const [now, setNow] = useState(() => new Date());
+  // This cashier's shift so far and the open tables (orders kept to pay
+  // later) — restaurantPos.service.js's shiftSummary / listTabs.
+  const [shift, setShift] = useState(null);
+  const [tabs, setTabs] = useState([]);
+  const [tabsOpen, setTabsOpen] = useState(false);
+  const [currentTab, setCurrentTab] = useState(null); // the open table being added to, or null
+  const [keepDialog, setKeepDialog] = useState(null); // { label } while naming an order to keep open
+  const [savingTab, setSavingTab] = useState(false);
+  const [tabError, setTabError] = useState(null);
+  const [category, setCategory] = useState(''); // '' = every category
+  const [cartOpen, setCartOpen] = useState(false); // the order as a full-screen sheet on a phone
+  const [cashGiven, setCashGiven] = useState('');
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    applyTheme(theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
+  }, [theme]);
+  useEffect(() => () => clearTheme(), []);
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 20000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   useEffect(() => {
     (async () => {
       const usb = await reconnectUsbPrinter();
@@ -307,7 +343,21 @@ export default function RestaurantPosPage() {
     }
   }
 
+  async function loadShift(token) {
+    try { setShift(await posFetch('GET', '/pos/shift', token || session.token)); } catch { /* the shift figures just don't show */ }
+  }
+  async function loadTabs(token) {
+    try { setTabs(await posFetch('GET', '/pos/tabs', token || session.token)); } catch { /* the open tables list just stays as it was */ }
+  }
+
+  // The drawer's running figures (cash sales so far), after each sale.
+  async function refreshDrawer() {
+    try { const d = await posFetch('GET', '/pos/drawer', session.token); if (d) setDrawer(d); } catch { /* keeps the last figures */ }
+  }
+
   async function loadDrawer(token) {
+    loadShift(token);
+    loadTabs(token);
     try {
       setDrawer(await posFetch('GET', '/pos/drawer', token));
     } catch {
@@ -337,6 +387,17 @@ export default function RestaurantPosPage() {
     if (next.length === PIN_LENGTH) handlePinComplete(next);
   }
   function tapClear() { if (!loggingIn) setPin(''); }
+  // A till with a keyboard can type the PIN as well as tap it.
+  useEffect(() => {
+    if (session || !sessionChecked) return undefined;
+    function onKey(e) {
+      if (/^[0-9]$/.test(e.key)) tapDigit(e.key);
+      else if (e.key === 'Backspace') tapBackspace();
+      else if (e.key === 'Escape') tapClear();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   function tapBackspace() { if (!loggingIn) setPin(pin.slice(0, -1)); }
 
   async function handlePinComplete(fullPin) {
@@ -376,6 +437,11 @@ export default function RestaurantPosPage() {
     setSelectedTable(null);
     setSelectedWaiter(null);
     setSelectedGuest(null);
+    setShift(null);
+    setTabs([]);
+    setCurrentTab(null);
+    setCategory('');
+    setCartOpen(false);
   }
 
   async function searchGuests(q) {
@@ -421,6 +487,7 @@ export default function RestaurantPosPage() {
     try {
       setDrawer(await posFetch('POST', '/pos/drawer/open', session.token, { startingCash: openingCash === '' ? 0 : openingCash }));
       setOpeningCash('');
+      loadShift();
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
       else setOpenDrawerError(err.message);
@@ -445,6 +512,7 @@ export default function RestaurantPosPage() {
         direction: movementDirection, amount: movementAmount, note: movementNote
       }));
       setMovementDirection(null);
+      setToast(movementDirection === 'in' ? tr('Cash paid in recorded.') : tr('Cash paid out recorded.'));
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
       else setMovementError(err.message);
@@ -539,6 +607,8 @@ export default function RestaurantPosPage() {
   function openCheckout() {
     setCheckoutError(null);
     setPaymentMethod('cash');
+    setCashGiven('');
+    setCartOpen(false);
     setCheckoutOpen(true);
   }
 
@@ -551,7 +621,9 @@ export default function RestaurantPosPage() {
         paymentMethod: paymentMethod,
         tableId: selectedTable ? selectedTable.id : undefined,
         waiterId: selectedWaiter ? selectedWaiter.id : undefined,
-        guestId: selectedGuest ? selectedGuest.id : undefined
+        guestId: selectedGuest ? selectedGuest.id : undefined,
+        tabId: currentTab ? currentTab.id : undefined,
+        cashTendered: paymentMethod === 'cash' && cashGiven !== '' ? Number(cashGiven) : undefined
       });
       // The order response only carries ids (see restaurantPos.service.js's
       // rowToOrder) — names come from what's already selected here, so the
@@ -561,13 +633,85 @@ export default function RestaurantPosPage() {
       setSelectedTable(null);
       setSelectedWaiter(null);
       setSelectedGuest(null);
+      setCurrentTab(null);
       setCheckoutOpen(false);
+      loadShift();
+      loadTabs();
+      refreshDrawer();
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); setCheckoutOpen(false); }
       else setCheckoutError(err.message);
     } finally {
       setCheckingOut(false);
     }
+  }
+
+  // ── open tables ──
+  function clearOrder() {
+    setCart([]);
+    setSelectedTable(null);
+    setSelectedWaiter(null);
+    setSelectedGuest(null);
+    setCurrentTab(null);
+  }
+  function keepOpen() {
+    setTabError(null);
+    if (selectedTable || selectedGuest || currentTab) { saveTab(currentTab ? currentTab.label : ''); return; }
+    setKeepDialog({ label: '' });
+  }
+  async function saveTab(label, table) {
+    const tbl = table || selectedTable;
+    setSavingTab(true);
+    setTabError(null);
+    try {
+      const saved = await posFetch('POST', '/pos/tabs', session.token, {
+        id: currentTab ? currentTab.id : undefined, label: label || '',
+        items: cart.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty })),
+        tableId: tbl ? tbl.id : undefined,
+        waiterId: selectedWaiter ? selectedWaiter.id : undefined,
+        guestId: selectedGuest ? selectedGuest.id : undefined
+      });
+      setToast(tr('{name} kept open. Pay it from Open tables.', { name: tabName(saved) }));
+      setKeepDialog(null);
+      setCartOpen(false);
+      clearOrder();
+      loadTabs();
+      loadShift();
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+      else if (keepDialog) setTabError(err.message);
+      else setToast(err.message);
+    } finally {
+      setSavingTab(false);
+    }
+  }
+  function tabName(t) { return t.tableName || t.label || t.guestName || tr('Order'); }
+  function openTab(t, pay) {
+    if (cart.length && !(currentTab && currentTab.id === t.id) && !window.confirm(tr('Put the order on the till aside and open {name}?', { name: tabName(t) }))) return;
+    setCart(t.lines.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, price: l.unitPrice, qty: l.qty })));
+    setSelectedTable(t.tableId ? { id: t.tableId, name: t.tableName } : null);
+    setSelectedWaiter(t.waiterId ? { id: t.waiterId, name: t.waiterName } : null);
+    setSelectedGuest(t.guestId ? { id: t.guestId, name: t.guestName } : null);
+    setCurrentTab({ id: t.id, label: t.label, name: tabName(t), createdAt: t.createdAt });
+    setTabsOpen(false);
+    if (pay) { setCheckoutError(null); setPaymentMethod('cash'); setCashGiven(''); setCheckoutOpen(true); }
+  }
+  async function dropTab(t) {
+    if (!window.confirm(tr('Remove the open order for {name}? Nothing has been paid for it.', { name: tabName(t) }))) return;
+    try {
+      await posFetch('DELETE', '/pos/tabs/' + t.id, session.token);
+      if (currentTab && currentTab.id === t.id) clearOrder();
+      setToast(tr('Open order removed.'));
+      loadTabs();
+      loadShift();
+    } catch (err) { setToast(err.message); }
+  }
+  async function reprint(orderId) {
+    try {
+      const r = await posFetch('GET', '/pos/orders/' + orderId + '/receipt', session.token);
+      setDrawerPanelOpen(false);
+      setReceipt({ ...r, reprint: true });
+    } catch (err) { setToast(err.message); }
   }
 
   // Star Bar's real Square-imported menu runs into the thousands of items —
@@ -606,59 +750,69 @@ export default function RestaurantPosPage() {
     return (
       <button
         key={m.id} type="button"
-        className={'pos-menu-tile' + (qty ? ' pos-menu-tile-selected' : '') + (tappedId === m.id ? ' pos-menu-tile-tapped' : '')}
+        className={'pos-tile' + (qty ? ' is-picked' : '') + (tappedId === m.id ? ' is-tapped' : '')}
         onClick={() => tapItem(m)}
       >
-        <span className="pos-menu-tile-photo" style={m.photoUrl ? undefined : { background: tileColor(m.name) }}>
-          {m.photoUrl ? (
-            <img src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />
-          ) : (
-            <span className="pos-menu-tile-fallback">{tileInitial(m.name)}</span>
-          )}
-          <span
-            role="button" tabIndex={0}
-            className={'pos-menu-tile-favorite' + (m.favorite ? ' pos-menu-tile-favorite-on' : '')}
-            onClick={(e) => toggleFavorite(e, m)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavorite(e, m); } }}
-            aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
-            aria-pressed={m.favorite}
-          >★</span>
-          {!!qty && <span className="pos-menu-tile-badge">{qty}</span>}
+        <span className="pos-tile-pic" style={m.photoUrl ? undefined : { '--c': tileColor(m.name) }}>
+          {m.photoUrl ? <img src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" /> : <span>{tileInitial(m.name.replace(/^zq\s+/i, ''))}</span>}
         </span>
-        <span className="pos-menu-tile-body">
-          <span className="pos-menu-tile-name">{m.name}</span>
-          <span className="pos-menu-tile-price">{tilePriceLabel(m)}</span>
+        <span className="pos-tile-text">
+          <span className="pos-tile-name">{m.name}</span>
+          <span className="pos-tile-price">{tilePriceLabel(m)}</span>
         </span>
+        <span
+          role="button" tabIndex={0}
+          className={'pos-tile-star' + (m.favorite ? ' is-on' : '')}
+          onClick={(e) => toggleFavorite(e, m)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavorite(e, m); } }}
+          aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
+          aria-pressed={m.favorite}
+        >★</span>
+        {!!qty && <span className="pos-tile-qty">{qty}</span>}
       </button>
     );
   }
+  const themeButton = (
+    <button type="button" className="pos-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')} title={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
+      {theme === 'dark' ? '☀' : '☾'}
+    </button>
+  );
+  const firstName = session ? String(session.employeeName || '').split(' ').slice(0, -1).join(' ') || session.employeeName : '';
+  const hour = now.getHours();
+  const greeting = hour < 12 ? tr('Good morning, {name}', { name: firstName }) : hour < 17 ? tr('Good afternoon, {name}', { name: firstName }) : tr('Good evening, {name}', { name: firstName });
+  const clock = now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
+  const today = now.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
+  const timeOf = (iso) => new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
 
   if (!sessionChecked) return null;
 
   if (!session) {
     return (
-      <div className="kiosk-root">
-        <div className="kiosk-content pos-login-content">
-          <div className="kiosk-header">
-            <div className="kiosk-brand">{tr('RESTAURANT POS')}</div>
+      <div className="dk pos-shell pos-gate">
+        <div className="pos-gate-top">{themeButton}</div>
+        <div className="pos-gate-card">
+          <div className="pos-gate-side">
+            <p className="dk-eyebrow">{today}</p>
+            <div className="pos-clock">{clock}</div>
+            <h1 className="pos-gate-title">{tr('Restaurant till')}</h1>
+            <p className="dk-muted">{tr('Enter your 4-digit PIN, the same one you clock in with. The till then stays open for your shift on this device.')}</p>
+            <div className="pos-gate-logos" aria-hidden="true">
+              {['SBR', 'BGN'].map((c) => restaurantLogoUrl(c) && <img key={c} src={restaurantLogoUrl(c)} alt="" />)}
+            </div>
           </div>
-          <div className="kiosk-pad-wrap">
-            <div className="kiosk-prompt">{tr('Enter your PIN to start your till')}</div>
-            {loginError && <div className="error-banner" style={{ marginBottom: 16 }}>{loginError}</div>}
-            <div className="kiosk-pin-dots">
-              {Array.from({ length: PIN_LENGTH }).map((_, i) => (
-                <div key={i} className={'kiosk-pin-dot' + (i < pin.length ? ' kiosk-pin-dot-filled' : '')} />
-              ))}
+          <div className="pos-gate-pad">
+            <div className={'pos-pin' + (loginError ? ' is-bad' : '')} aria-label={tr('PIN')}>
+              {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
             </div>
-            <div className="kiosk-keypad">
+            <p className={'pos-pin-note' + (loginError ? ' is-bad' : '')} role="status">{loggingIn ? tr('Checking…') : loginError || tr('Tap your PIN or type it.')}</p>
+            <div className="pos-keypad">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-                <button key={d} type="button" className="kiosk-key" disabled={loggingIn} onClick={() => tapDigit(d)}>{d}</button>
+                <button key={d} type="button" disabled={loggingIn} onClick={() => tapDigit(d)}>{d}</button>
               ))}
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={loggingIn} onClick={tapClear}>{tr('Clear')}</button>
-              <button type="button" className="kiosk-key" disabled={loggingIn} onClick={() => tapDigit('0')}>0</button>
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={loggingIn} onClick={tapBackspace} aria-label={tr('Backspace')}>⌫</button>
+              <button type="button" className="is-muted" disabled={loggingIn} onClick={tapClear}>{tr('Clear')}</button>
+              <button type="button" disabled={loggingIn} onClick={() => tapDigit('0')}>0</button>
+              <button type="button" className="is-muted" disabled={loggingIn} onClick={tapBackspace} aria-label={tr('Backspace')}>⌫</button>
             </div>
-            {loggingIn && <div className="kiosk-loading">{tr('Checking…')}</div>}
           </div>
         </div>
       </div>
@@ -673,29 +827,48 @@ export default function RestaurantPosPage() {
   // restaurantPos.service.js's buildReport: Cash Sales is summed from
   // this session's own opened_at onward).
   if (!drawer && !closedReport) {
+    const last = shift && shift.lastClosed;
+    const quick = [0, 100, 200, 500, 1000];
     return (
-      <div className="kiosk-root">
-        <div className="kiosk-content pos-login-content">
-          <div className="kiosk-header">
-            <div className="kiosk-brand">{tr('RESTAURANT POS')}</div>
-            <button type="button" className="btn btn-secondary" onClick={logout}>{tr('Log out')}</button>
-          </div>
-          <div className="kiosk-pad-wrap">
-            <div className="kiosk-prompt">{tr('Open your drawer to start, {employeeName}', { employeeName: session.employeeName })}</div>
-            {openDrawerError && <div className="error-banner" style={{ marginBottom: 16 }}>{openDrawerError}</div>}
-            <form className="pos-open-drawer-form" onSubmit={submitOpenDrawer}>
-              <div className="field">
-                <label htmlFor="opening-cash">{tr('Starting cash in drawer')}</label>
-                <input
-                  id="opening-cash" className="input" type="number" min="0" step="0.01" autoFocus
-                  value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0.00"
-                />
+      <div className="dk pos-shell pos-gate">
+        <div className="pos-gate-top">
+          {themeButton}
+          <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
+        </div>
+        <div className="pos-gate-card">
+          <div className="pos-gate-side">
+            {restaurantLogoUrl(session.companyCode) && <img className="pos-gate-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />}
+            <p className="dk-eyebrow">{session.companyName} · {today}</p>
+            <h1 className="pos-gate-title">{greeting}</h1>
+            <p className="dk-muted">{tr('Count the cash in the drawer before your first sale. At the end of your shift you count it again, and the till shows whether it adds up.')}</p>
+            {last && (
+              <div className="pos-note">
+                <Icon name="info" />
+                <span>{tr('The last drawer was closed by {name} on {date} with {amount} counted.', { name: last.cashierName, date: new Date(last.closedAt).toLocaleString(activeIntlLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), amount: money(last.counted) })}</span>
               </div>
-              <button type="submit" className="btn btn-primary btn-block" disabled={openingDrawer}>
-                {openingDrawer ? tr('Opening…') : tr('Open drawer')}
-              </button>
-            </form>
+            )}
+            {shift && shift.openTabs > 0 && (
+              <div className="pos-note is-warn">
+                <Icon name="clock" />
+                <span>{shift.openTabs === 1 ? tr('1 table is still open from before. You can pay it once your drawer is open.') : tr('{n} tables are still open from before. You can pay them once your drawer is open.', { n: shift.openTabs })}</span>
+              </div>
+            )}
           </div>
+          <form className="pos-gate-pad pos-open-form" onSubmit={submitOpenDrawer}>
+            <label htmlFor="opening-cash" className="pos-big-label">{tr('Starting cash in the drawer')}</label>
+            <input
+              id="opening-cash" className="input pos-big-input" type="number" min="0" step="0.01" inputMode="decimal" autoFocus
+              value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0.00"
+            />
+            <div className="pos-quick">
+              {quick.map((q) => <button key={q} type="button" className={Number(openingCash) === q && openingCash !== '' ? 'is-on' : ''} onClick={() => setOpeningCash(String(q))}>{money(q)}</button>)}
+              {last && last.counted > 0 && !quick.includes(last.counted) && <button type="button" onClick={() => setOpeningCash(String(last.counted))}>{tr('Last count {amount}', { amount: money(last.counted) })}</button>}
+            </div>
+            {openDrawerError && <div className="error-banner">{openDrawerError}</div>}
+            <button type="submit" className="btn btn-primary pos-big-btn" disabled={openingDrawer}>
+              {openingDrawer ? tr('Opening…') : tr('Open drawer and start selling')}
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -703,8 +876,9 @@ export default function RestaurantPosPage() {
 
   if (closedReport) {
     const r = closedReport;
+    const diffTone = r.difference === null ? '' : Math.abs(r.difference) < 0.01 ? 'good' : r.difference < 0 ? 'bad' : 'warn';
     return (
-      <div className="pos-shell pos-receipt-screen">
+      <div className="dk pos-shell pos-done">
         <div className="pos-receipt-print" id="pos-receipt">
           {restaurantLogoUrl(session.companyCode) && (
             <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
@@ -735,7 +909,7 @@ export default function RestaurantPosPage() {
               <div className="pos-receipt-lines">
                 {r.movements.map((m) => (
                   <div key={m.id} className="pos-receipt-line">
-                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) }) : tr('Paid out at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -743,15 +917,23 @@ export default function RestaurantPosPage() {
             </>
           )}
         </div>
-        {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
-        <div className="pos-receipt-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print report')}</button>
-          {printer && (
-            <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printDrawerReportThermal(closedReport)}>
-              {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
-            </button>
-          )}
-          <button type="button" className="btn btn-primary" onClick={logout}>{tr('Done')}</button>
+        <div className="pos-done-side">
+          <span className={'pos-done-mark is-' + (diffTone || 'good')}><Icon name={diffTone === 'bad' || diffTone === 'warn' ? 'warn' : 'check'} /></span>
+          <h1 className="pos-gate-title">{tr('Drawer closed')}</h1>
+          <p className="pos-done-big">
+            {diffTone === 'good' ? tr('The count matches exactly.') : r.difference < 0 ? tr('{amount} short', { amount: money(-r.difference) }) : tr('{amount} over', { amount: money(r.difference) })}
+          </p>
+          <p className="dk-muted">{tr('Expected {expected}, counted {actual}. Managers see this report under Restaurants → Cash drawers.', { expected: money(r.expected), actual: money(r.actual) })}</p>
+          {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
+          <div className="pos-done-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print report')}</button>
+            {printer && (
+              <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printDrawerReportThermal(closedReport)}>
+                {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
+              </button>
+            )}
+            <button type="button" className="btn btn-primary" onClick={logout}>{tr('Done, log out')}</button>
+          </div>
         </div>
       </div>
     );
@@ -759,7 +941,7 @@ export default function RestaurantPosPage() {
 
   if (receipt) {
     return (
-      <div className="pos-shell pos-receipt-screen">
+      <div className="dk pos-shell pos-done">
         <div className="pos-receipt-print" id="pos-receipt">
           {restaurantLogoUrl(session.companyCode) && (
             <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
@@ -769,8 +951,8 @@ export default function RestaurantPosPage() {
             {tr('Order {orderNo}', { orderNo: receipt.orderNo })}<br />
             {new Date(receipt.createdAt).toLocaleString(activeIntlLocale())}<br />
             {receipt.tableName
-              ? tr('Served by {name} at {table}', { name: session.employeeName, table: receipt.tableName })
-              : tr('Served by {name}', { name: session.employeeName })}
+              ? tr('Served by {name} at {table}', { name: receipt.cashierName || session.employeeName, table: receipt.tableName })
+              : tr('Served by {name}', { name: receipt.cashierName || session.employeeName })}
             {receipt.waiterName && <><br />{tr('Waiter:')} {receipt.waiterName}</>}
             {receipt.guestName && <><br />{tr('Guest:')} {receipt.guestName}</>}
           </div>
@@ -787,199 +969,382 @@ export default function RestaurantPosPage() {
           <div className="pos-receipt-total">
             <span>{tr('Total')}</span><span>{money(receipt.total)}</span>
           </div>
+          {receipt.cashTendered != null && (
+            <div className="pos-receipt-lines pos-receipt-cash">
+              <div className="pos-receipt-line"><span>{tr('Cash')}</span><span>{money(receipt.cashTendered)}</span></div>
+              <div className="pos-receipt-line"><span>{tr('Change')}</span><span>{money(receipt.change)}</span></div>
+            </div>
+          )}
           <div className="pos-receipt-footer">{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</div>
         </div>
-        {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
-        <div className="pos-receipt-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print receipt')}</button>
-          {printer && (
-            <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
-              {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
-            </button>
+        <div className="pos-done-side">
+          <span className="pos-done-mark is-good"><Icon name="check" /></span>
+          <h1 className="pos-gate-title">{receipt.reprint ? tr('Receipt for {no}', { no: receipt.orderNo }) : tr('Sale complete')}</h1>
+          {!receipt.reprint && receipt.change != null && receipt.change > 0 && (
+            <p className="pos-done-big">{tr('Give {amount} change', { amount: money(receipt.change) })}</p>
           )}
-          <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)}>{tr('New sale')}</button>
+          {!receipt.reprint && (receipt.change == null || receipt.change === 0) && (
+            <p className="pos-done-big">{tr('{amount} paid by {method}', { amount: money(receipt.total), method: codeLabel(receipt.paymentMethod) })}</p>
+          )}
+          <p className="dk-muted">{receipt.reprint ? tr('A copy of an order from this shift.') : tr('Print the receipt if the guest wants one, then start the next sale.')}</p>
+          {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
+          <div className="pos-done-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print receipt')}</button>
+            {printer && (
+              <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
+                {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
+              </button>
+            )}
+            <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)} autoFocus>{receipt.reprint ? tr('Back to the till') : tr('New sale')}</button>
+          </div>
         </div>
       </div>
     );
   }
 
+  const cartCount = cart.reduce((n, l) => n + l.qty, 0);
+  const categories = grouped.map(([c, items]) => [c, items.length]);
+  const shownGroups = category ? grouped.filter(([c]) => c === category) : grouped;
+  const given = cashGiven === '' ? null : Number(cashGiven);
+  const change = given === null ? null : Math.round((given - cartTotal) * 100) / 100;
+  // the notes a guest is likely to hand over: the next round figure up
+  const roundUps = Array.from(new Set([10, 20, 50, 100, 200].map((step) => { const v = Math.ceil(cartTotal / step) * step; return v > cartTotal ? v : v + step; }))).sort((x, y) => x - y).slice(0, 3);
+  const METHODS = [['cash', tr('Cash'), 'cash'], ['mobile_money', tr('Mobile Money'), 'phone'], ['card', tr('Card'), 'card'], ['bank_transfer', tr('Bank transfer'), 'doc'], ['other', tr('Other'), 'info']];
+  const avgOrder = shift && shift.orders ? shift.sales / shift.orders : 0;
+
+  const orderPanel = (
+    <section className={'pos-order' + (cartOpen ? ' is-open' : '')} aria-label={tr('Current order')}>
+      <div className="pos-order-head">
+        <div>
+          <h2 className="pos-order-title">{currentTab ? currentTab.name : tr('New order')}</h2>
+          <p className="dk-muted">
+            {currentTab ? tr('Open since {time}. Add to it, keep it open or charge it.', { time: timeOf(currentTab.createdAt) }) : cartCount ? (cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })) : tr('Tap a dish to start.')}
+          </p>
+        </div>
+        <div className="pos-order-head-tools">
+          {(cart.length > 0 || currentTab) && <button type="button" className="pos-link" onClick={clearOrder}>{currentTab ? tr('Put aside') : tr('Clear')}</button>}
+          <button type="button" className="pos-icon-btn pos-sheet-close" onClick={() => setCartOpen(false)} aria-label={tr('Close')}>×</button>
+        </div>
+      </div>
+      <div className="pos-order-who">
+        <button type="button" className={selectedTable ? 'is-set' : ''} onClick={() => setTablePickerOpen(true)}>
+          <small>{tr('Table')}</small><span>{selectedTable ? selectedTable.name : tr('None')}</span>
+        </button>
+        <button type="button" className={selectedWaiter ? 'is-set' : ''} onClick={() => setWaiterPickerOpen(true)}>
+          <small>{tr('Waiter')}</small><span>{selectedWaiter ? selectedWaiter.name : tr('None')}</span>
+        </button>
+        <button type="button" className={selectedGuest ? 'is-set' : ''} onClick={openGuestPicker}>
+          <small>{tr('Guest')}</small><span>{selectedGuest ? selectedGuest.name : tr('None')}</span>
+        </button>
+      </div>
+      <div className="pos-lines">
+        {!cart.length && (
+          <div className="pos-lines-empty">
+            <Icon name="bag" />
+            <p>{tr('Nothing on this order yet. Tap dishes on the left; tap again to add another.')}</p>
+          </div>
+        )}
+        {cart.map((l) => (
+          <div key={lineKey(l.menuItemId, l.variationId)} className="pos-line">
+            <div className="pos-line-main">
+              <span className="pos-line-name">{l.name}</span>
+              <span className="dk-muted">{money(l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
+            </div>
+            <div className="pos-stepper">
+              <button type="button" onClick={() => changeQty(l.menuItemId, l.variationId, -1)} aria-label={tr('Decrease')}>−</button>
+              <span>{l.qty}</span>
+              <button type="button" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label={tr('Increase')}>+</button>
+            </div>
+            <span className="pos-line-total">{money(l.price * l.qty)}</span>
+            <button type="button" className="pos-line-x" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label={tr('Remove')}>×</button>
+          </div>
+        ))}
+      </div>
+      <div className="pos-order-foot">
+        <div className="pos-total"><span>{tr('Total')}</span><strong>{money(animatedCartTotal)}</strong></div>
+        <div className="pos-order-actions">
+          <button type="button" className="btn btn-secondary" disabled={!cart.length || savingTab} onClick={keepOpen} title={tr('Keep this order open to add to and pay later')}>
+            {savingTab ? tr('Saving…') : currentTab ? tr('Update open table') : tr('Keep open')}
+          </button>
+          <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}>{tr('Charge {amount}', { amount: money(cartTotal) })}</button>
+        </div>
+      </div>
+    </section>
+  );
+
   return (
-    <div className="pos-shell">
-      <div className="pos-topbar">
-        <div className="pos-topbar-brand">
-          {restaurantLogoUrl(session.companyCode) && (
-            <img className="pos-topbar-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
-          )}
+    <div className="dk pos-shell">
+      <header className="pos-top">
+        <div className="pos-top-who">
+          {restaurantLogoUrl(session.companyCode) && <img className="pos-top-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />}
           <div>
-            <div className="pos-topbar-company">{session.companyName}</div>
-            <div className="pos-topbar-cashier">{session.employeeName}</div>
+            <div className="pos-top-company">{session.companyName}</div>
+            <div className="dk-muted">{tr('{name} · {time}', { name: session.employeeName, time: clock })}</div>
           </div>
         </div>
-        <div className="pos-topbar-actions">
-          <button type="button" className="btn btn-secondary pos-drawer-btn" onClick={() => setDrawerPanelOpen(true)}>
-            {tr('Drawer ·')} {money(drawer.expected)}
+        <div className="pos-top-stats">
+          <button type="button" className="pos-stat" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
+            <small>{tr('Your shift')}</small>
+            <strong>{money(shift ? shift.sales : 0)}</strong>
+            <span>{shift && shift.orders === 1 ? tr('1 order') : tr('{n} orders', { n: shift ? shift.orders : 0 })}</span>
           </button>
+          <button type="button" className="pos-stat" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
+            <small>{tr('In the drawer')}</small>
+            <strong>{money(drawer.expected)}</strong>
+            <span>{tr('expected')}</span>
+          </button>
+          <button type="button" className={'pos-stat' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
+            <small>{tr('Open tables')}</small>
+            <strong>{tabs.length}</strong>
+            <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
+          </button>
+        </div>
+        <div className="pos-top-tools">
           {printer ? (
-            <span className="pos-printer-status" title={printer.name}>🖨 {printer.name}</span>
+            <span className="pos-printer" title={printer.name}>🖨 <span>{printer.name}</span></span>
           ) : (
             <>
               {usbSupported() && (
-                <button type="button" className="btn btn-secondary pos-printer-btn" disabled={!!pairingKind} onClick={pairUsb}>
-                  {pairingKind === 'usb' ? tr('Connecting…') : tr('Connect USB printer')}
+                <button type="button" className="btn btn-secondary tl-btn" disabled={!!pairingKind} onClick={pairUsb}>
+                  {pairingKind === 'usb' ? tr('Connecting…') : tr('USB printer')}
                 </button>
               )}
               {bluetoothSupported() && (
-                <button type="button" className="btn btn-secondary pos-printer-btn" disabled={!!pairingKind} onClick={pairBluetooth}>
-                  {pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect Bluetooth printer')}
+                <button type="button" className="btn btn-secondary tl-btn" disabled={!!pairingKind} onClick={pairBluetooth}>
+                  {pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Bluetooth printer')}
                 </button>
               )}
             </>
           )}
-          <button type="button" className="btn btn-secondary" onClick={logout}>{tr('Log out')}</button>
+          {themeButton}
+          <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
         </div>
-      </div>
+      </header>
       {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
 
       <div className="pos-body">
-        <div className="pos-menu">
-          <div className="pos-menu-search">
-            <SearchInput value={search} onChange={setSearch} placeholder={tr('Search the menu…')} />
+        <section className="pos-menu" aria-label={tr('Menu')}>
+          <div className="pos-menu-tools">
+            <div className="pos-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search the menu…')} /></div>
+            <div className="dk-segment" role="radiogroup" aria-label={tr('Show')}>
+              {VIEW_TABS.map((t) => (
+                <button key={t.key} type="button" role="radio" aria-checked={viewTab === t.key} className={viewTab === t.key ? 'is-on' : ''} onClick={() => setViewTab(t.key)}>
+                  {t.label}{typeof t.count === 'number' && t.count > 0 ? ' · ' + t.count : ''}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="pos-view-tabs">
-            {VIEW_TABS.map((t) => (
-              <button
-                key={t.key} type="button"
-                className={'pos-view-tab' + (viewTab === t.key ? ' pos-view-tab-active' : '')}
-                onClick={() => setViewTab(t.key)}
-              >
-                {t.label}{typeof t.count === 'number' && <span className="pos-view-tab-count">{t.count}</span>}
-              </button>
-            ))}
-          </div>
-          {menuError && <div className="error-banner">{menuError}</div>}
-          {menuLoading ? (
-            <div className="eyebrow">{tr('Loading menu…')}</div>
-          ) : viewTab === 'all' ? (
-            !grouped.length ? (
-              <div className="pos-empty">{search ? tr('No items match "{search}"', { search }) : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</div>
-            ) : (
-              grouped.map(([category, items]) => (
-                <div key={category} className="pos-menu-group">
-                  <div className="pos-menu-category"><span className="pos-menu-category-pill">{category}<span className="pos-menu-category-count">{items.length}</span></span></div>
-                  <div className="pos-menu-grid">{items.map(renderTile)}</div>
-                </div>
-              ))
-            )
-          ) : viewTab === 'favorites' ? (
-            !favoriteItems.length ? (
-              <div className="pos-empty">{search ? tr('No favorites match "{search}"', { search }) : tr('No favorites yet — tap the ★ on any item to pin it here.')}</div>
-            ) : (
-              <div className="pos-menu-grid pos-menu-grid-flat">{favoriteItems.map(renderTile)}</div>
-            )
-          ) : viewTab === 'recent' ? (
-            !recentItems.length ? (
-              <div className="pos-empty">{search ? tr('No recent items match "{search}"', { search }) : tr('Nothing added to an order yet this shift.')}</div>
-            ) : (
-              <div className="pos-menu-grid pos-menu-grid-flat">{recentItems.map(renderTile)}</div>
-            )
-          ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
-            <div className="eyebrow">{tr('Loading…')}</div>
-          ) : !mostlyBoughtItems.length ? (
-            <div className="pos-empty">{search ? tr('No results match "{search}"', { search }) : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</div>
-          ) : (
-            <div className="pos-menu-grid pos-menu-grid-flat">{mostlyBoughtItems.map(renderTile)}</div>
+          {viewTab === 'all' && categories.length > 1 && (
+            <div className="pos-cats" role="radiogroup" aria-label={tr('Category')}>
+              <button type="button" role="radio" aria-checked={!category} className={!category ? 'is-on' : ''} onClick={() => setCategory('')}>{tr('Everything')} <span>{searchedMenu.length}</span></button>
+              {categories.map(([c, n]) => (
+                <button key={c} type="button" role="radio" aria-checked={category === c} className={category === c ? 'is-on' : ''} onClick={() => setCategory(category === c ? '' : c)}>{c} <span>{n}</span></button>
+              ))}
+            </div>
           )}
-        </div>
-
-        <div className="pos-cart">
-          <div className="pos-cart-title">{tr('Current order')}</div>
-          <div className="pos-order-info-row">
-            <button type="button" className={'pos-order-info-pill' + (selectedTable ? ' pos-order-info-pill-set' : '')} onClick={() => setTablePickerOpen(true)}>
-              {tr('Table:')} {selectedTable ? selectedTable.name : tr('Select')}
-            </button>
-            <button type="button" className={'pos-order-info-pill' + (selectedWaiter ? ' pos-order-info-pill-set' : '')} onClick={() => setWaiterPickerOpen(true)}>
-              {tr('Waiter:')} {selectedWaiter ? selectedWaiter.name : tr('Select')}
-            </button>
-            <button type="button" className={'pos-order-info-pill' + (selectedGuest ? ' pos-order-info-pill-set' : '')} onClick={openGuestPicker}>
-              {tr('Guest:')} {selectedGuest ? selectedGuest.name : tr('Select')}
-            </button>
+          <div className="pos-menu-scroll">
+            {menuError && <div className="error-banner">{menuError}</div>}
+            {menuLoading ? (
+              <p className="dk-muted">{tr('Loading menu…')}</p>
+            ) : viewTab === 'all' ? (
+              !shownGroups.length ? (
+                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No items match "{search}"', { search }) : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</p></div>
+              ) : (
+                shownGroups.map(([cat, items]) => (
+                  <div key={cat} className="pos-group">
+                    <h3 className="pos-group-title">{cat} <span>{items.length}</span></h3>
+                    <div className="pos-grid">{items.map(renderTile)}</div>
+                  </div>
+                ))
+              )
+            ) : viewTab === 'favorites' ? (
+              !favoriteItems.length ? (
+                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No favorites match "{search}"', { search }) : tr('No favorites yet — tap the ★ on any item to pin it here.')}</p></div>
+              ) : <div className="pos-grid">{favoriteItems.map(renderTile)}</div>
+            ) : viewTab === 'recent' ? (
+              !recentItems.length ? (
+                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No recent items match "{search}"', { search }) : tr('Nothing added to an order yet this shift.')}</p></div>
+              ) : <div className="pos-grid">{recentItems.map(renderTile)}</div>
+            ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
+              <p className="dk-muted">{tr('Loading…')}</p>
+            ) : !mostlyBoughtItems.length ? (
+              <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No results match "{search}"', { search }) : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</p></div>
+            ) : <div className="pos-grid">{mostlyBoughtItems.map(renderTile)}</div>}
           </div>
-          {!cart.length && <div className="pos-cart-empty">{tr('Tap a menu item to add it')}</div>}
-          <div className="pos-cart-lines">
-            {cart.map((l) => (
-              <div key={lineKey(l.menuItemId, l.variationId)} className="pos-cart-line">
-                <div className="pos-cart-line-name">{l.name}</div>
-                <div className="pos-cart-line-controls">
-                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, -1)} aria-label={tr('Decrease')}>−</button>
-                  <span>{l.qty}</span>
-                  <button type="button" className="pos-cart-qty-btn" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label={tr('Increase')}>+</button>
-                </div>
-                <div className="pos-cart-line-total">{money(l.price * l.qty)}</div>
-                <button type="button" className="pos-cart-remove" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label={tr('Remove')}>×</button>
-              </div>
-            ))}
-          </div>
-          <div className="pos-cart-total">
-            <span>{tr('Total')}</span>
-            <strong>{money(animatedCartTotal)}</strong>
-          </div>
-          <button type="button" className="btn btn-primary pos-checkout-btn" disabled={!cart.length} onClick={openCheckout}>{tr('Charge')} {money(cartTotal)}</button>
-        </div>
+        </section>
+        {orderPanel}
       </div>
+
+      {!cartOpen && (
+        <button type="button" className="pos-phone-bar" onClick={() => setCartOpen(true)}>
+          <span>{currentTab ? currentTab.name : tr('Order')} · {cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })}</span>
+          <strong>{money(cartTotal)}</strong>
+        </button>
+      )}
+
+      {toast && <div className="toast" role="status">{toast}</div>}
 
       {checkoutOpen && (
         <div className="dialog-backdrop" onClick={() => !checkingOut && setCheckoutOpen(false)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); submitCheckout(); }}>
+          <form className="dialog pos-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); submitCheckout(); }}>
             <h2>{tr('Take payment')}</h2>
-            {checkoutError && <div className="error-banner">{checkoutError}</div>}
-            <p className="pos-checkout-total">{tr('Total due:')} <strong>{money(cartTotal)}</strong></p>
-            <div className="field">
-              <label htmlFor="pos-pay-method">{tr('Payment method')}</label>
-              <select id="pos-pay-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-                <option value="cash">{tr('Cash')}</option>
-                <option value="mobile_money">{tr('Mobile Money')}</option>
-                <option value="card">{tr('Card')}</option>
-                <option value="other">{tr('Other')}</option>
-              </select>
+            <div className="pos-pay-due"><span>{currentTab ? currentTab.name : tr('To pay')}</span><strong>{money(cartTotal)}</strong></div>
+            <div className="pos-methods" role="radiogroup" aria-label={tr('Payment method')}>
+              {METHODS.map(([k, label, icon]) => (
+                <button key={k} type="button" role="radio" aria-checked={paymentMethod === k} className={paymentMethod === k ? 'is-on' : ''} onClick={() => setPaymentMethod(k)}>
+                  <Icon name={icon} /><span>{label}</span>
+                </button>
+              ))}
             </div>
+            {paymentMethod === 'cash' && (
+              <div className="pos-cash">
+                <label htmlFor="pos-cash-given" className="pos-big-label">{tr('Cash received')}</label>
+                <input id="pos-cash-given" className="input pos-big-input" type="number" min="0" step="0.01" inputMode="decimal" autoFocus
+                  value={cashGiven} onChange={(e) => setCashGiven(e.target.value)} placeholder={tr('Optional')} />
+                <div className="pos-quick">
+                  <button type="button" className={given === cartTotal ? 'is-on' : ''} onClick={() => setCashGiven(String(cartTotal))}>{tr('Exact')}</button>
+                  {roundUps.map((v) => <button key={v} type="button" className={given === v ? 'is-on' : ''} onClick={() => setCashGiven(String(v))}>{money(v)}</button>)}
+                </div>
+                {change !== null && (
+                  <div className={'pos-change' + (change < 0 ? ' is-bad' : '')}>
+                    <span>{change < 0 ? tr('Still to pay') : tr('Change to give')}</span>
+                    <strong>{money(Math.abs(change))}</strong>
+                  </div>
+                )}
+              </div>
+            )}
+            {checkoutError && <div className="error-banner">{checkoutError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={checkingOut}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
+              <button type="submit" className="btn btn-primary" disabled={checkingOut || (change !== null && change < 0)}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
             </div>
           </form>
         </div>
       )}
 
+      {keepDialog && (
+        <div className="dialog-backdrop" onClick={() => !savingTab && setKeepDialog(null)}>
+          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); saveTab(keepDialog.label); }}>
+            <h2>{tr('Keep this order open')}</h2>
+            <p className="dk-muted">{tr('Give it a table or a name so anyone on the till can find it again and pay it later.')}</p>
+            {tables.length > 0 && (
+              <div className="pos-picker-grid">
+                {tables.filter((t) => !tabs.some((x) => x.tableId === t.id)).map((t) => (
+                  <button key={t.id} type="button" className="pos-picker-tile" onClick={() => { setSelectedTable(t); saveTab('', t); }}>{t.name}</button>
+                ))}
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="pos-keep-name">{tables.length ? tr('Or a name') : tr('Name')}</label>
+              <input id="pos-keep-name" className="input" maxLength={60} value={keepDialog.label} onChange={(e) => setKeepDialog({ label: e.target.value })} placeholder={tr('e.g. Bar – Kofi, Takeaway 2')} autoFocus />
+            </div>
+            {tabError && <div className="error-banner">{tabError}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setKeepDialog(null)} disabled={savingTab}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingTab || !keepDialog.label.trim()}>{savingTab ? tr('Saving…') : tr('Keep open')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {tabsOpen && (
+        <div className="dialog-backdrop" onClick={() => setTabsOpen(false)}>
+          <div className="dialog pos-panel" onClick={(e) => e.stopPropagation()}>
+            <h2>{tr('Open tables')}</h2>
+            <p className="dk-muted">{tr('Orders kept open to add to and pay later. They are not sales until they are paid.')}</p>
+            {!tabs.length ? (
+              <div className="dk-empty"><Icon name="check" /><p>{tr('No open tables. Use Keep open on an order to hold it here.')}</p></div>
+            ) : (
+              <ul className="dk-rows pos-tabs">
+                {tabs.map((t) => (
+                  <li key={t.id} className="dk-row">
+                    <span className="dk-lead-icon"><Icon name="clock" /></span>
+                    <div className="dk-row-main">
+                      <div className="dk-row-title">{tabName(t)}</div>
+                      <div className="dk-muted dk-row-meta">
+                        {[t.lines.reduce((n, l) => n + l.qty, 0) === 1 ? tr('1 item') : tr('{n} items', { n: t.lines.reduce((n, l) => n + l.qty, 0) }), t.waiterName, tr('open since {time}', { time: timeOf(t.createdAt) }), t.openedBy ? tr('by {name}', { name: t.openedBy }) : null].filter(Boolean).join(' · ')}
+                      </div>
+                      {t.unavailable > 0 && <Status tone="warn">{t.unavailable === 1 ? tr('1 item is off the menu now') : tr('{n} items are off the menu now', { n: t.unavailable })}</Status>}
+                    </div>
+                    <div className="dk-row-side">
+                      <div className="dk-row-amount">{money(t.total)}</div>
+                      <div className="pos-tab-actions">
+                        <button type="button" className="pos-link is-bad" onClick={() => dropTab(t)}>{tr('Remove')}</button>
+                        <button type="button" className="btn btn-secondary tl-btn" onClick={() => openTab(t, false)}>{tr('Open')}</button>
+                        <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setTabsOpen(false)}>{tr('Close')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {drawerPanelOpen && (
         <div className="dialog-backdrop" onClick={() => setDrawerPanelOpen(false)}>
-          <div className="dialog pos-drawer-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Drawer —')} {session.employeeName}</h2>
-            <p className="pos-checkout-total" style={{ marginBottom: 0 }}>
-              {tr('Opened')} {new Date(drawer.session.openedAt).toLocaleString(activeIntlLocale())}
-            </p>
+          <div className="dialog pos-panel" onClick={(e) => e.stopPropagation()}>
+            <h2>{tr('Your shift')}</h2>
+            <p className="dk-muted">{tr('{name} · drawer opened {date}', { name: session.employeeName, date: new Date(drawer.session.openedAt).toLocaleString(activeIntlLocale(), { weekday: 'short', hour: '2-digit', minute: '2-digit' }) })}</p>
+            <dl className="dk-sum pos-sum">
+              <div><dt>{tr('Sales')}</dt><dd>{money(shift ? shift.sales : 0)}</dd></div>
+              <div><dt>{tr('Orders')}</dt><dd>{shift ? shift.orders : 0}</dd></div>
+              <div><dt>{tr('Average order')}</dt><dd>{avgOrder ? money(avgOrder) : '—'}</dd></div>
+            </dl>
+            {shift && shift.byMethod.length > 0 && (
+              <div className="pos-methods-sum">
+                {shift.byMethod.map((m) => (
+                  <div key={m.method}><span>{codeLabel(m.method)}</span><span className="dk-muted">{m.orders === 1 ? tr('1 order') : tr('{n} orders', { n: m.orders })}</span><strong>{money(m.total)}</strong></div>
+                ))}
+              </div>
+            )}
+            <h3 className="pos-panel-h">{tr('Cash drawer')}</h3>
             <div className="pos-drawer-lines">
               <div className="pos-drawer-line"><span>{tr('Starting Cash')}</span><span>{money(drawer.startingCash)}</span></div>
               <div className="pos-drawer-line"><span>{tr('Cash Sales')}</span><span>{money(drawer.cashSales)}</span></div>
               <div className="pos-drawer-line"><span>{tr('Paid In/Out')}</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
-              <div className="pos-drawer-line pos-drawer-line-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
-            </div>
-            <div className="dialog-actions" style={{ justifyContent: 'flex-start' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => openMovement('in')}>{tr('Paid in…')}</button>
-              <button type="button" className="btn btn-secondary" onClick={() => openMovement('out')}>{tr('Paid out…')}</button>
+              <div className="pos-drawer-line is-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
             </div>
             {!!drawer.movements.length && (
-              <div className="pos-drawer-movements">
+              <div className="pos-drawer-moves">
                 {drawer.movements.slice().reverse().map((m) => (
-                  <div key={m.id} className="pos-drawer-movement-row">
-                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) }) : tr('Paid out at {time}', { time: new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })}{m.note ? ' — ' + m.note : ''}</span>
+                  <div key={m.id} className="pos-drawer-line">
+                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
               </div>
             )}
+            <div className="pos-panel-actions">
+              <button type="button" className="btn btn-secondary tl-btn" onClick={() => openMovement('in')}>{tr('Paid in…')}</button>
+              <button type="button" className="btn btn-secondary tl-btn" onClick={() => openMovement('out')}>{tr('Paid out…')}</button>
+            </div>
+            {shift && shift.recent.length > 0 && (
+              <>
+                <h3 className="pos-panel-h">{tr('Latest orders')}</h3>
+                <ul className="dk-rows">
+                  {shift.recent.map((o) => (
+                    <li key={o.id} className="dk-row">
+                      <div className="dk-row-main">
+                        <div className="dk-row-title">{o.orderNo}</div>
+                        <div className="dk-muted dk-row-meta">{[timeOf(o.createdAt), o.tableName, o.items === 1 ? tr('1 item') : tr('{n} items', { n: o.items }), codeLabel(o.paymentMethod)].filter(Boolean).join(' · ')}</div>
+                      </div>
+                      <div className="dk-row-side">
+                        <div className="dk-row-amount">{money(o.total)}</div>
+                        <button type="button" className="pos-link" onClick={() => reprint(o.id)}>{tr('Receipt')}</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDrawerPanelOpen(false)}>{tr('Close')}</button>
-              <button type="button" className="btn btn-primary" onClick={openCloseDrawer}>{tr('Close drawer…')}</button>
+              <button type="button" className="btn btn-primary" onClick={openCloseDrawer}>{tr('End shift: count the drawer…')}</button>
             </div>
           </div>
         </div>

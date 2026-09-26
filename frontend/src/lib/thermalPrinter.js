@@ -90,6 +90,10 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(line(twoColumn('TOTAL', money2(order.total), width)));
   out = out.concat(BOLD_OFF);
   out = out.concat(line('Paid by ' + String(order.paymentMethod || '').replace('_', ' ')));
+  if (order.cashTendered != null) {
+    out = out.concat(line(twoColumn('Cash', money2(order.cashTendered), width)));
+    out = out.concat(line(twoColumn('Change', money2(order.change), width)));
+  }
   out = out.concat(ALIGN_CENTER);
   out = out.concat(line(''));
   out = out.concat(line('Thank you!'));

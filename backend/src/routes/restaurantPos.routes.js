@@ -36,6 +36,27 @@ router.post('/orders', posAuth, async function (req, res, next) {
   try { res.status(201).json(await restaurantPosService.createOrder(req.posToken, req.body)); } catch (e) { next(e); }
 });
 
+router.get('/orders/:id/receipt', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.receiptForSession(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+
+// Open tables: orders kept to add to and pay later (paid through POST
+// /orders with tabId).
+router.get('/tabs', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.listTabs(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/tabs', posAuth, async function (req, res, next) {
+  try { res.status(req.body.id ? 200 : 201).json(await restaurantPosService.saveTab(req.posToken, req.body)); } catch (e) { next(e); }
+});
+router.delete('/tabs/:id', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.removeTab(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+
+// This cashier's shift so far.
+router.get('/shift', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.shiftSummary(req.posToken)); } catch (e) { next(e); }
+});
+
 router.get('/drawer', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.getOpenDrawerSession(req.posToken)); } catch (e) { next(e); }
 });
