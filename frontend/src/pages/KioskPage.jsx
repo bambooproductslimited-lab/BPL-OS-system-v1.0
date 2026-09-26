@@ -5,6 +5,8 @@ import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/k
 import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import '../components/DashKit.css';
 import './KioskPage.css';
 
 // The clock-in/out kiosk — a full-screen, standalone page meant to be
@@ -31,14 +33,13 @@ import './KioskPage.css';
 // swiped away to another app or tab — that's a device-level iOS setting,
 // nothing this page can enforce on its own.
 //
-// Redesigned to match the visual language established for Login/Messages/
-// Dashboard: hand-drawn SVG icons (no emoji — inconsistent across devices,
-// and this runs on whatever browser is on the mounted iPad), a gradient +
-// bamboo-grove decoration instead of flat color, and a full-screen color
-// wash on the result screen (green/red/amber) — the same "big confident
-// feedback" pattern real POS/kiosk terminals use, since the whole point of
-// this screen is being readable at a glance from a few feet away while
-// walking past it.
+// Built from the OS's own tokens and DashKit pieces, like the restaurant
+// till, and following the device's light/dark choice. Readable from a few
+// feet away: a big clock and keypad while idle, and after a tap a full
+// colour wash (green in, blue out, red error, amber offline) that says who
+// was clocked, when, and what it means — their shift, whether they were
+// late, the hours worked, and the week so far (kiosk.service.js's
+// tapSummary).
 
 const PIN_LENGTH = 4;
 const RESULT_DISPLAY_MS = 3500;
@@ -57,6 +58,13 @@ function shiftHours(s) {
   const end = new Date(s.clockOutDate + 'T' + s.clockOut + ':00Z').getTime();
   const h = (end - start) / 3600000;
   return Number.isInteger(h) ? h : Math.round(h * 10) / 10;
+}
+// "5 h 47 min", "47 min", "8 h"
+function duration(mins) {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (!h) return tr('{m} min', { m });
+  if (!m) return tr('{h} h', { h });
+  return tr('{h} h {m} min', { h, m });
 }
 const FLUSH_INTERVAL_MS = 20000;
 // requiresFace came back true from /kiosk/identify — the server knows this
@@ -92,30 +100,13 @@ const ICON_PATHS = {
   cloud: <path d="M7 18a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.2 8.06 4.5 4.5 0 0 1 17 17H7Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />,
   xCircle: <><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" /><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
   clock: <><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.7" /><path d="M12 7.5V12l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></>,
+  sun: <><circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.7" /><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></>,
+  moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />,
+  calendar: <><rect x="3.5" y="5" width="17" height="15" stroke="currentColor" strokeWidth="1.7" /><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></>,
+  warn: <><path d="M12 3.5 2.5 20h19L12 3.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="M12 10v4.5M12 17.2v.3" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" /></>,
   backspace: <><path d="M8 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8l-6-6 6-6Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="M13 10l4 4m0-4l-4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></>
 };
 function Icon({ name }) { return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">{ICON_PATHS[name]}</svg>; }
-
-function KioskDecoration() {
-  // Same abstract bamboo-grove motif as the login page's brand panel —
-  // plain lines only, purely decorative, tuned for a full dark canvas.
-  const canes = [
-    { x: 60, top: 90 }, { x: 150, top: 220 }, { x: 250, top: 40 }, { x: 340, top: 180 },
-    { x: 430, top: 100 }, { x: 520, top: 250 }, { x: 610, top: 60 }, { x: 700, top: 190 }
-  ];
-  return (
-    <svg className="kiosk-deco" viewBox="0 0 760 500" fill="none" aria-hidden="true" preserveAspectRatio="xMidYMax slice">
-      <g stroke="#ffffff" strokeOpacity="0.06" strokeWidth="14" strokeLinecap="round">
-        {canes.map((c) => <line key={c.x} x1={c.x} y1="520" x2={c.x} y2={c.top} />)}
-      </g>
-      <g stroke="#ffffff" strokeOpacity="0.09" strokeWidth="14">
-        {canes.map((c) => [260, 380].filter((y) => y > c.top).map((y) => (
-          <line key={c.x + '-' + y} x1={c.x - 22} y1={y} x2={c.x + 22} y2={y} />
-        )))}
-      </g>
-    </svg>
-  );
-}
 
 function useClock() {
   const [now, setNow] = useState(new Date());
@@ -137,6 +128,14 @@ export default function KioskPage() {
   const flushingRef = useRef(false);
   const locationRef = useRef(null); // latest GPS fix, kept fresh by watchPosition below
   const now = useClock();
+  // The kiosk follows the OS's light/dark choice on this device, with a
+  // small switch in the corner.
+  const [theme, setTheme] = useState(getInitialTheme);
+  useEffect(() => {
+    applyTheme(theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
+  }, [theme]);
+  useEffect(() => () => clearTheme(), []);
 
   useEffect(() => () => { if (resultTimerRef.current) clearTimeout(resultTimerRef.current); }, []);
 
@@ -240,26 +239,27 @@ export default function KioskPage() {
     setSubmitting(true);
     try {
       const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
-      setResult({
-        kind: 'ok', action: r.action, employeeName: r.employeeName, time: r.time, status: r.status, minutesLate: r.minutesLate,
-        autoClosedShifts: r.autoClosedShifts || []
-      });
       noticeShown = !!(r.autoClosedShifts && r.autoClosedShifts.length);
+      setResult({
+        kind: 'ok', action: r.action, employeeName: r.employeeName, firstName: r.firstName || r.employeeName, time: r.time, status: r.status, minutesLate: r.minutesLate,
+        autoClosedShifts: r.autoClosedShifts || [], shift: r.shift || null, workedMinutes: r.workedMinutes, week: r.week || null, lateThisMonth: r.lateThisMonth || 0,
+        ms: noticeShown ? NOTICE_DISPLAY_MS : RESULT_DISPLAY_MS + 2500
+      });
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
       if (err instanceof ApiError) {
-        setResult({ kind: 'error', message: err.message || tr('Something went wrong.') });
+        setResult({ kind: 'error', message: err.message || tr('Something went wrong.'), ms: RESULT_DISPLAY_MS });
         playWrongPin();
       } else {
         enqueueTap(fullPin, new Date().toISOString(), locationRef.current, faceDescriptor);
         setPendingCount(queueLength());
-        setResult({ kind: 'pending' });
+        setResult({ kind: 'pending', ms: RESULT_DISPLAY_MS });
       }
     } finally {
       setSubmitting(false);
       setPin('');
-      resultTimerRef.current = setTimeout(() => setResult(null), noticeShown ? NOTICE_DISPLAY_MS : RESULT_DISPLAY_MS);
+      resultTimerRef.current = setTimeout(() => setResult(null), noticeShown ? NOTICE_DISPLAY_MS : RESULT_DISPLAY_MS + 2500);
     }
   }
 
@@ -270,7 +270,7 @@ export default function KioskPage() {
 
   function showErrorResult(message) {
     setPin('');
-    setResult({ kind: 'error', message });
+    setResult({ kind: 'error', message, ms: RESULT_DISPLAY_MS });
     playWrongPin();
     resultTimerRef.current = setTimeout(() => setResult(null), RESULT_DISPLAY_MS);
   }
@@ -323,113 +323,131 @@ export default function KioskPage() {
 
   function tapClear() { if (!submitting) setPin(''); }
   function tapBackspace() { if (!submitting) setPin(pin.slice(0, -1)); }
+  // A kiosk with a keyboard can type the PIN as well as tap it; Enter or
+  // Escape clears a result early.
+  useEffect(() => {
+    function onKey(e) {
+      if (result && (e.key === 'Enter' || e.key === 'Escape')) { dismissResult(); return; }
+      if (faceStage) return;
+      if (/^[0-9]$/.test(e.key)) tapDigit(e.key);
+      else if (e.key === 'Backspace') tapBackspace();
+      else if (e.key === 'Escape') tapClear();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const tone = result ? (result.kind === 'ok' ? (result.action === 'in' ? 'clockin' : 'clockout') : result.kind) : '';
+  const clock = now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
+  const dateLine = now.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  function facts(r) {
+    const out = [];
+    if (r.action === 'in') {
+      if (r.status === 'late') out.push({ icon: 'warn', tone: 'warn', text: tr('{time} late for your shift', { time: duration(r.minutesLate || 0) }) });
+      else if (r.status) out.push({ icon: 'checkCircle', tone: 'good', text: tr('On time') });
+      if (r.shift) out.push({ icon: 'clock', text: r.shift.end ? tr('Your shift: {start} to {end}', { start: r.shift.start, end: r.shift.end }) : tr('Your shift starts at {start}', { start: r.shift.start }) });
+    } else if (r.workedMinutes != null) {
+      out.push({ icon: 'clock', tone: 'good', text: tr('You worked {time} this shift', { time: duration(r.workedMinutes) }) });
+    }
+    if (r.week && r.week.days) {
+      out.push({ icon: 'calendar', text: r.week.hours > 0
+        ? (r.week.days === 1 ? tr('This week: 1 day, {h} hours', { h: r.week.hours }) : tr('This week: {n} days, {h} hours', { n: r.week.days, h: r.week.hours }))
+        : (r.week.days === 1 ? tr('This week: 1 day') : tr('This week: {n} days', { n: r.week.days })) });
+    }
+    if (r.action === 'in' && r.lateThisMonth > 1) out.push({ icon: 'warn', tone: 'warn', text: tr('Late {n} times this month', { n: r.lateThisMonth }) });
+    return out;
+  }
 
   return (
-    <div className={'kiosk-root' + (result ? ' kiosk-root-' + result.kind : '')}>
-      <KioskDecoration />
-      <div className="kiosk-content">
-        <div className="kiosk-header">
-          <div>
-            <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
-            {pendingCount > 0 && (
-              <div className="kiosk-pending-badge">
-                <Icon name="cloud" />
-                {pendingCount === 1 ? tr('1 tap syncing…') : tr('{n} taps syncing…', { n: pendingCount })}
-              </div>
-            )}
-          </div>
-          <div className="kiosk-clock">
-            <div className="kiosk-time">{now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}</div>
-            <div className="kiosk-date">{now.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
-          </div>
+    <div className={'dk kiosk' + (tone ? ' is-' + tone : '')}>
+      <div className="kiosk-top">
+        <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
+        <div className="kiosk-top-tools">
+          {pendingCount > 0 && (
+            <span className="kiosk-pending">
+              <Icon name="cloud" />
+              {pendingCount === 1 ? tr('1 tap syncing…') : tr('{n} taps syncing…', { n: pendingCount })}
+            </span>
+          )}
+          <button type="button" className="kiosk-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+          </button>
         </div>
+      </div>
 
-        {result ? (
-          <div className="kiosk-result">
-            <div className="kiosk-result-badge">
-              <Icon name={result.kind === 'ok' ? (result.action === 'in' ? 'checkCircle' : 'exit') : result.kind === 'pending' ? 'cloud' : 'xCircle'} />
-            </div>
-            {result.kind === 'ok' && (
-              <>
-                <div className="kiosk-result-title">{result.action === 'in' ? tr('Clocked in') : tr('Clocked out')}</div>
-                <div className="kiosk-result-name">{result.employeeName}</div>
-                <div className="kiosk-result-time">{result.time}</div>
-                {result.action === 'in' && result.status && (
-                  <div className={'kiosk-result-late' + (result.status === 'late' ? ' kiosk-result-late-yes' : '')}>
-                    {result.status === 'late'
-                      ? (result.minutesLate === 1 ? tr("You're 1 minute late") : tr("You're {n} minutes late", { n: result.minutesLate }))
-                      : tr('You\'re on time')}
-                  </div>
-                )}
-                {result.autoClosedShifts && result.autoClosedShifts.length > 0 && (() => {
-                  const last = result.autoClosedShifts[0];
-                  const earlier = result.autoClosedShifts.length - 1;
-                  return (
-                    <div className="kiosk-notice" role="alertdialog" aria-labelledby="kiosk-notice-title">
-                      <div className="kiosk-notice-title" id="kiosk-notice-title">
-                        <Icon name="clock" /> {tr('Your last shift was not clocked out')}
-                      </div>
-                      <p className="kiosk-notice-body">
-                        {tr('You clocked in at {clockIn} on {date} but didn\'t clock out, so the system clocked you out automatically at {clockOut}, {hours} hours later.', {
-                          clockIn: last.clockIn, date: noticeDate(last.date), clockOut: last.clockOut, hours: shiftHours(last)
-                        })}
-                      </p>
-                      {earlier > 0 && (
-                        <p className="kiosk-notice-body">
-                          {earlier === 1
-                            ? tr('One earlier shift was also clocked out automatically.')
-                            : tr('{n} earlier shifts were also clocked out automatically.', { n: earlier })}
-                        </p>
-                      )}
-                      <p className="kiosk-notice-body kiosk-notice-hint">
-                        {tr('If you left at a different time, tell your supervisor so they can correct it. Remember to clock out at the end of every shift.')}
-                      </p>
-                      <button type="button" className="kiosk-notice-ok" onClick={dismissResult} autoFocus>{tr('OK, got it')}</button>
+      {result ? (
+        <div className={'kiosk-card kiosk-result is-' + tone} role="status" aria-live="assertive">
+          <div className="kiosk-result-mark">
+            <Icon name={result.kind === 'ok' ? (result.action === 'in' ? 'checkCircle' : 'exit') : result.kind === 'pending' ? 'cloud' : 'xCircle'} />
+          </div>
+          {result.kind === 'ok' && (
+            <>
+              <p className="kiosk-result-kicker">{result.action === 'in' ? tr('Clocked in at {time}', { time: result.time }) : tr('Clocked out at {time}', { time: result.time })}</p>
+              <h1 className="kiosk-result-title">{result.action === 'in' ? tr('Welcome, {name}', { name: result.firstName }) : tr('Goodbye, {name}', { name: result.firstName })}</h1>
+              <p className="kiosk-result-name">{result.employeeName}</p>
+              {facts(result).length > 0 && (
+                <ul className="kiosk-facts">
+                  {facts(result).map((f, i) => <li key={i} className={f.tone ? 'is-' + f.tone : ''}><Icon name={f.icon} /><span>{f.text}</span></li>)}
+                </ul>
+              )}
+              {result.autoClosedShifts && result.autoClosedShifts.length > 0 && (() => {
+                const last = result.autoClosedShifts[0];
+                const earlier = result.autoClosedShifts.length - 1;
+                return (
+                  <div className="kiosk-notice" role="alertdialog" aria-labelledby="kiosk-notice-title">
+                    <div className="kiosk-notice-title" id="kiosk-notice-title">
+                      <Icon name="clock" /> {tr('Your last shift was not clocked out')}
                     </div>
-                  );
-                })()}
-              </>
-            )}
-            {result.kind === 'pending' && (
-              <>
-                <div className="kiosk-result-title">{tr('Recorded')}</div>
-                <div className="kiosk-result-name">{tr('No connection — this will sync automatically once you\'re back online.')}</div>
-              </>
-            )}
-            {result.kind === 'error' && (
-              <div className="kiosk-result-title">{result.message}</div>
-            )}
-          </div>
-        ) : faceStage ? (
-          <div className="kiosk-face-wrap">
-            <FaceCapture
-              mode="kiosk"
-              title={tr('Confirm it\'s you')}
-              subtitle={tr('Hold still and look at the camera to finish clocking in or out.')}
-              timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
-              onCapture={(descriptor) => {
-                const p = faceStage.pin;
-                setFaceStage(null);
-                submitPin(p, descriptor);
-              }}
-              onCancel={() => { setFaceStage(null); setPin(''); }}
-              onTimeout={() => {
-                const p = faceStage.pin, optional = faceStage.optional;
-                setFaceStage(null);
-                if (optional) submitPin(p);
-                else showErrorResult(tr("Couldn't see your face clearly — try again."));
-              }}
-              onError={(message, name) => {
-                const p = faceStage.pin, optional = faceStage.optional;
-                setFaceStage(null);
-                if (name === 'NotAllowedError') setCameraBlocked(true);
-                if (optional) submitPin(p);
-                else showErrorResult(message);
-              }}
-            />
-          </div>
-        ) : (
-          <div className="kiosk-pad-wrap">
+                    <p className="kiosk-notice-body">
+                      {tr('You clocked in at {clockIn} on {date} but didn\'t clock out, so the system clocked you out automatically at {clockOut}, {hours} hours later.', {
+                        clockIn: last.clockIn, date: noticeDate(last.date), clockOut: last.clockOut, hours: shiftHours(last)
+                      })}
+                    </p>
+                    {earlier > 0 && (
+                      <p className="kiosk-notice-body">
+                        {earlier === 1
+                          ? tr('One earlier shift was also clocked out automatically.')
+                          : tr('{n} earlier shifts were also clocked out automatically.', { n: earlier })}
+                      </p>
+                    )}
+                    <p className="kiosk-notice-body kiosk-notice-hint">
+                      {tr('If you left at a different time, tell your supervisor so they can correct it. Remember to clock out at the end of every shift.')}
+                    </p>
+                  </div>
+                );
+              })()}
+            </>
+          )}
+          {result.kind === 'pending' && (
+            <>
+              <p className="kiosk-result-kicker">{tr('No connection')}</p>
+              <h1 className="kiosk-result-title">{tr('Recorded')}</h1>
+              <p className="kiosk-result-name">{tr('No connection — this will sync automatically once you\'re back online.')}</p>
+            </>
+          )}
+          {result.kind === 'error' && (
+            <>
+              <p className="kiosk-result-kicker">{tr('Not clocked')}</p>
+              <h1 className="kiosk-result-title">{result.message}</h1>
+              <p className="kiosk-result-name">{tr('Check your PIN and try again. If it keeps happening, ask your supervisor.')}</p>
+            </>
+          )}
+          <button type="button" className="kiosk-done" onClick={dismissResult} autoFocus>{result.autoClosedShifts && result.autoClosedShifts.length ? tr('OK, got it') : tr('Done')}</button>
+          <span className="kiosk-timer" aria-hidden="true"><span key={result.time + result.kind} style={{ animationDuration: (result.ms || RESULT_DISPLAY_MS) + 'ms' }} /></span>
+        </div>
+      ) : (
+        <div className="kiosk-card">
+          <div className="kiosk-side">
+            <p className="dk-eyebrow">{dateLine}</p>
+            <div className="kiosk-clock">{clock}</div>
+            <h1 className="kiosk-title">{tr('Clock in or out')}</h1>
+            <p className="dk-muted">{tr('Tap your 4-digit PIN. The same PIN clocks you in when you arrive and out when you leave.')}</p>
+            <ol className="kiosk-steps">
+              <li><span>1</span>{tr('Tap your PIN')}</li>
+              <li><span>2</span>{tr('Look at the camera if it asks')}</li>
+              <li><span>3</span>{tr('Check your name on the screen')}</li>
+            </ol>
             {cameraBlocked && (
               <button type="button" className="kiosk-camera-warning" onClick={enableCamera}>
                 <Icon name="xCircle" />
@@ -439,24 +457,55 @@ export default function KioskPage() {
                 </span>
               </button>
             )}
-            <div className="kiosk-prompt">{tr('Enter your PIN to clock in or out')}</div>
-            <div className="kiosk-pin-dots">
-              {Array.from({ length: PIN_LENGTH }).map((_, i) => (
-                <span key={i} className={'kiosk-pin-dot' + (i < pin.length ? ' kiosk-pin-dot-filled' : '')} />
-              ))}
-            </div>
-            <div className="kiosk-keypad">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-                <button key={d} type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
-              ))}
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapClear}>{tr('Clear')}</button>
-              <button type="button" className="kiosk-key" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
-              <button type="button" className="kiosk-key kiosk-key-muted" disabled={submitting} onClick={tapBackspace} aria-label={tr('Backspace')}><Icon name="backspace" /></button>
-            </div>
-            {submitting && <div className="kiosk-loading">{tr('Checking…')}</div>}
           </div>
-        )}
-      </div>
+          <div className="kiosk-main">
+            {faceStage ? (
+              <div className="kiosk-face-wrap">
+                <FaceCapture
+                  mode="kiosk"
+                  title={tr('Confirm it\'s you')}
+                  subtitle={tr('Hold still and look at the camera to finish clocking in or out.')}
+                  timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
+                  onCapture={(descriptor) => {
+                    const p = faceStage.pin;
+                    setFaceStage(null);
+                    submitPin(p, descriptor);
+                  }}
+                  onCancel={() => { setFaceStage(null); setPin(''); }}
+                  onTimeout={() => {
+                    const p = faceStage.pin, optional = faceStage.optional;
+                    setFaceStage(null);
+                    if (optional) submitPin(p);
+                    else showErrorResult(tr("Couldn't see your face clearly — try again."));
+                  }}
+                  onError={(message, name) => {
+                    const p = faceStage.pin, optional = faceStage.optional;
+                    setFaceStage(null);
+                    if (name === 'NotAllowedError') setCameraBlocked(true);
+                    if (optional) submitPin(p);
+                    else showErrorResult(message);
+                  }}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="kiosk-pin" aria-label={tr('PIN')}>
+                  {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
+                </div>
+                <p className="kiosk-pin-note" role="status">{submitting ? tr('Checking…') : pin.length ? tr('{n} of 4', { n: pin.length }) : tr('Enter your PIN')}</p>
+                <div className="kiosk-keypad">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+                    <button key={d} type="button" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
+                  ))}
+                  <button type="button" className="is-muted" disabled={submitting} onClick={tapClear}>{tr('Clear')}</button>
+                  <button type="button" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
+                  <button type="button" className="is-muted" disabled={submitting} onClick={tapBackspace} aria-label={tr('Backspace')}><Icon name="backspace" /></button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,261 +1,114 @@
-.kiosk-root {
-  position: relative;
-  overflow: hidden;
+/* The clock-in kiosk (/kiosk). Built from the OS's own tokens (theme.css)
+   so it looks like the rest of Bamboo OS and follows its light/dark
+   choice (KioskPage.jsx applies the theme to <html> while it is open).
+   Sized to be read from a few feet away on a mounted iPad. */
+.kiosk {
   min-height: 100vh;
-  width: 100%;
-  color: #ffffff;
-  user-select: none;
-  -webkit-user-select: none;
-  background: linear-gradient(160deg, var(--color-accent-700) 0%, var(--color-accent-800) 60%, #173016 100%);
-  transition: background 0.4s ease;
-}
-
-/* Gradient stops below are var(--color-*) pre-mixed with black at build time
-   (was color-mix(in srgb, ...)) — Safari never supported color-mix() before
-   16.2, and the kiosk iPad (iPad Air 2, capped at iPadOS 15.8.8 forever)
-   can never reach that version. An unsupported function invalidates the
-   whole background declaration, leaving this white-text page background-
-   less — i.e. invisible white-on-white, which is exactly the "blank /kiosk"
-   bug reported from that device. Static hex values render identically on
-   every browser and don't depend on color-mix() support at all. */
-.kiosk-root-ok {
-  background: linear-gradient(160deg, var(--color-accent-700) 0%, #1d3b1b 60%, black 100%);
-}
-.kiosk-root-error {
-  background: linear-gradient(160deg, #621511 0%, #2d0a08 60%, black 100%);
-}
-.kiosk-root-pending {
-  background: linear-gradient(160deg, #5c3e00 0%, #2e1f00 60%, black 100%);
-}
-
-.kiosk-deco {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-}
-
-.kiosk-content {
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 32px 24px;
-}
-
-.kiosk-header {
-  width: 100%;
-  max-width: 720px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 40px;
-}
-.kiosk-brand { font-family: var(--font-heading); font-weight: 800; font-size: 36px; letter-spacing: 0.02em; }
-.kiosk-pending-badge {
-  margin-top: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-.kiosk-pending-badge svg { width: 14px; height: 14px; }
-
-.kiosk-clock { text-align: right; }
-.kiosk-time { font-family: var(--font-heading); font-weight: 800; font-size: 34px; line-height: 1; letter-spacing: -0.01em; }
-.kiosk-date { font-size: 13px; opacity: 0.75; margin-top: 6px; }
-
-.kiosk-pad-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 420px;
-  animation: kiosk-fade-in 0.3s ease-out;
-}
-.kiosk-prompt { font-size: 18px; font-weight: 600; margin-bottom: 24px; text-align: center; opacity: 0.95; }
-
-.kiosk-pin-dots { display: flex; gap: 20px; margin-bottom: 36px; }
-.kiosk-pin-dot {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  background: transparent;
-  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-}
-.kiosk-pin-dot-filled {
-  background: #ffffff;
-  border-color: #ffffff;
-  transform: scale(1.15);
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.55);
-}
-
-.kiosk-keypad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  width: 100%;
-}
-.kiosk-key {
-  font-family: var(--font-heading);
-  font-size: 28px;
-  font-weight: 700;
-  padding: 22px 0;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1.5px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.08s ease, background 0.12s ease;
-}
-.kiosk-key svg { width: 24px; height: 24px; }
-.kiosk-key:hover { background: rgba(255, 255, 255, 0.13); }
-.kiosk-key:active { transform: scale(0.94); background: rgba(255, 255, 255, 0.24); }
-.kiosk-key:disabled { opacity: 0.5; cursor: default; transform: none; }
-.kiosk-key-muted { font-size: 15px; font-weight: 600; }
-
-.kiosk-loading { margin-top: 24px; font-size: 14px; opacity: 0.8; }
-
-.kiosk-result {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-
-.kiosk-result-badge {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.14);
-  border: 3px solid rgba(255, 255, 255, 0.5);
-  margin-bottom: 22px;
-  animation: kiosk-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.kiosk-result-badge svg { width: 58px; height: 58px; }
-.kiosk-root-error .kiosk-result-badge { animation: kiosk-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), kiosk-shake 0.4s ease 0.3s; }
-
-.kiosk-result-title { font-family: var(--font-heading); font-weight: 800; font-size: 30px; animation: kiosk-fade-in 0.3s ease-out 0.1s both; }
-.kiosk-result-name { font-size: 20px; margin-top: 10px; animation: kiosk-fade-in 0.3s ease-out 0.15s both; }
-.kiosk-root-pending .kiosk-result-name { font-size: 16px; opacity: 0.85; max-width: 380px; }
-.kiosk-result-time { font-size: 16px; opacity: 0.8; margin-top: 6px; animation: kiosk-fade-in 0.3s ease-out 0.2s both; }
-.kiosk-result-late {
-  margin-top: 14px;
+  gap: 18px;
+  padding: 18px 20px 28px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
+  font-family: var(--font-body);
   font-size: 15px;
-  font-weight: 700;
-  padding: 6px 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-  animation: kiosk-fade-in 0.3s ease-out 0.25s both;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background 0.3s ease;
 }
-.kiosk-result-late-yes { background: rgba(255, 90, 80, 0.28); }
+.kiosk svg { width: 1em; height: 1em; }
+.kiosk.is-clockin { background: color-mix(in srgb, var(--color-accent) 22%, var(--color-bg-subtle)); }
+.kiosk.is-clockout { background: color-mix(in srgb, var(--dk-info) 20%, var(--color-bg-subtle)); }
+.kiosk.is-error { background: color-mix(in srgb, var(--color-danger) 20%, var(--color-bg-subtle)); }
+.kiosk.is-pending { background: color-mix(in srgb, var(--dk-warn) 22%, var(--color-bg-subtle)); }
 
-.kiosk-face-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 420px;
-  animation: kiosk-fade-in 0.3s ease-out;
-}
-.kiosk-face-wrap .facecap-status,
-.kiosk-face-wrap .facecap-subtitle { color: #ffffff; }
-.kiosk-face-wrap .facecap-subtitle { opacity: 0.75; }
-.kiosk-face-wrap .facecap-frame { border: 3px solid rgba(255, 255, 255, 0.3); }
-.kiosk-face-wrap .btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
-  color: #ffffff;
-}
+.kiosk-top { width: min(1000px, 100%); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.kiosk-brand { font-family: var(--font-heading); font-size: 15px; font-weight: 800; letter-spacing: 0.12em; }
+.kiosk-top-tools { display: flex; align-items: center; gap: 10px; }
+.kiosk-pending { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; font-weight: 700; color: var(--color-text); border: 1px solid color-mix(in srgb, var(--dk-warn) 55%, var(--color-border)); background: var(--color-warning-100); }
+.kiosk-pending svg { width: 16px; height: 16px; color: var(--dk-warn); }
+.kiosk-theme { width: 40px; height: 40px; display: grid; place-items: center; color: var(--color-text); background: var(--color-bg); border: 1px solid var(--color-border); cursor: pointer; }
+.kiosk-theme svg { width: 18px; height: 18px; }
 
-@keyframes kiosk-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes kiosk-pop {
-  from { opacity: 0; transform: scale(0.5); }
-  to { opacity: 1; transform: scale(1); }
-}
-@keyframes kiosk-shake {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-8px); }
-  40% { transform: translateX(8px); }
-  60% { transform: translateX(-5px); }
-  80% { transform: translateX(5px); }
-}
+.kiosk-card { width: min(1000px, 100%); flex: 1; max-height: 720px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); background: var(--color-bg); border: 1px solid var(--color-border); }
+.kiosk-side { display: flex; flex-direction: column; gap: 12px; padding: 40px; border-right: 1px solid var(--color-border); background: linear-gradient(160deg, color-mix(in srgb, var(--color-accent) 11%, var(--color-bg)), var(--color-bg) 60%); }
+.kiosk-clock { font-family: var(--font-heading); font-size: 96px; font-weight: 800; line-height: 0.95; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.kiosk-title { font-size: 30px; line-height: 1.1; }
+.kiosk-side .dk-muted { margin: 0; font-size: 15px; max-width: 420px; }
+.kiosk-steps { list-style: none; margin: auto 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.kiosk-steps li { display: flex; align-items: center; gap: 12px; font-weight: 700; }
+.kiosk-steps span { width: 28px; height: 28px; display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 800; color: var(--color-accent-700); border: 1.5px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); border-radius: 50%; }
+.kiosk-camera-warning { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; font: inherit; font-size: 14px; text-align: left; color: var(--color-text); background: var(--color-danger-100); border: 1px solid color-mix(in srgb, var(--color-danger) 45%, var(--color-border)); cursor: pointer; }
+.kiosk-camera-warning svg { width: 22px; height: 22px; flex: none; color: var(--color-danger); }
+.kiosk-camera-warning strong { display: block; margin-bottom: 2px; }
 
-/* Shown on the idle PIN pad when this device has no camera permission but
-   needs one — see kiosk/cameraReady.js. It's a button, not a notice: the
-   tap is what lets Safari prompt at all in some situations. */
-.kiosk-camera-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.7rem;
-  width: 100%;
-  max-width: 30rem;
-  margin: 0 auto 1.25rem;
-  padding: 0.85rem 1rem;
-  text-align: left;
-  font: inherit;
-  font-size: 0.95rem;
-  line-height: 1.4;
-  color: #ffe9c7;
-  background: rgba(196, 120, 20, 0.22);
-  border: 1px solid rgba(255, 190, 100, 0.45);
-  border-radius: 14px;
-  cursor: pointer;
-}
-.kiosk-camera-warning:hover { background: rgba(196, 120, 20, 0.32); }
-.kiosk-camera-warning svg { width: 1.4rem; height: 1.4rem; flex: 0 0 auto; margin-top: 0.05rem; }
-.kiosk-camera-warning strong { display: block; margin-bottom: 0.15rem; color: #fff6e6; }
+.kiosk-main { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 32px; }
+.kiosk-pin { display: flex; gap: 18px; }
+.kiosk-pin span { width: 22px; height: 22px; border: 2px solid var(--color-text-muted); border-radius: 50%; transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease; }
+.kiosk-pin span.is-on { background: var(--color-accent); border-color: var(--color-accent); transform: scale(1.08); }
+.kiosk-pin-note { margin: 0; min-height: 20px; font-size: 14px; color: var(--color-text-muted); }
+.kiosk-keypad { display: grid; grid-template-columns: repeat(3, 100px); gap: 12px; }
+.kiosk-keypad button { height: 82px; display: grid; place-items: center; font: inherit; font-family: var(--font-heading); font-size: 32px; font-weight: 800; color: var(--color-text); background: var(--color-bg-subtle); border: 1px solid var(--color-border); cursor: pointer; transition: background 0.1s ease, transform 0.08s ease; }
+.kiosk-keypad button:hover { border-color: var(--color-text); }
+.kiosk-keypad button:active { transform: scale(0.95); background: color-mix(in srgb, var(--color-accent) 20%, var(--color-bg)); }
+.kiosk-keypad button:disabled { opacity: 0.55; }
+.kiosk-keypad button.is-muted { font-size: 16px; color: var(--color-text-muted); }
+.kiosk-keypad button svg { width: 30px; height: 30px; }
 
-/* A clock-in that brings news about the previous shift (clocked out
-   automatically): stays until the employee taps OK. */
-.kiosk-notice {
-  margin-top: 22px;
-  max-width: 520px;
-  padding: 18px 20px;
-  border-radius: 14px;
-  background: rgba(255, 196, 70, 0.16);
-  border: 1px solid rgba(255, 196, 70, 0.55);
-  text-align: left;
-  animation: kiosk-fade-in 0.3s ease-out 0.25s both;
+/* ── the result of a tap ── */
+.kiosk-result { position: relative; grid-template-columns: minmax(0, 1fr); align-content: center; justify-items: center; gap: 10px; padding: 48px 32px 56px; text-align: center; overflow: hidden; --k: var(--color-accent); animation: kiosk-in 0.25s ease; }
+.kiosk-result.is-clockout { --k: var(--dk-info); }
+.kiosk-result.is-error { --k: var(--color-danger); }
+.kiosk-result.is-pending { --k: var(--dk-warn); }
+.kiosk-result { border-top: 6px solid var(--k); }
+.kiosk-result-mark { width: 96px; height: 96px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--k); animation: kiosk-pop 0.3s ease; }
+.kiosk-result-mark svg { width: 56px; height: 56px; }
+.kiosk-result-kicker { margin: 8px 0 0; font-size: 15px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--k); }
+.kiosk-result-title { font-size: 44px; line-height: 1.1; max-width: 760px; }
+.kiosk-result-name { margin: 0; font-size: 17px; color: var(--color-text-muted); max-width: 640px; }
+.kiosk-facts { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; max-width: 760px; }
+.kiosk-facts li { display: flex; align-items: center; gap: 10px; padding: 12px 16px; font-size: 17px; font-weight: 700; border: 1px solid var(--color-border); background: var(--color-bg-subtle); animation: kiosk-in 0.3s ease 0.1s both; }
+.kiosk-facts li svg { width: 22px; height: 22px; flex: none; color: var(--color-text-muted); }
+.kiosk-facts li.is-good svg { color: var(--color-accent-700); }
+.kiosk-facts li.is-warn { border-color: color-mix(in srgb, var(--dk-warn) 55%, var(--color-border)); background: var(--color-warning-100); }
+.kiosk-facts li.is-warn svg { color: var(--dk-warn); }
+.kiosk-notice { max-width: 640px; margin-top: 14px; padding: 16px 18px; text-align: left; border: 1px solid color-mix(in srgb, var(--dk-warn) 55%, var(--color-border)); border-left: 4px solid var(--dk-warn); background: var(--color-warning-100); }
+.kiosk-notice-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; }
+.kiosk-notice-title svg { width: 20px; height: 20px; color: var(--dk-warn); }
+.kiosk-notice-body { margin: 8px 0 0; font-size: 15px; line-height: 1.45; }
+.kiosk-notice-hint { color: var(--color-text-muted); }
+.kiosk-done { margin-top: 18px; min-width: 180px; height: 54px; padding: 0 28px; font: inherit; font-size: 17px; font-weight: 800; color: #fff; background: var(--k); border: 0; cursor: pointer; }
+.kiosk-timer { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: color-mix(in srgb, var(--k) 18%, transparent); }
+.kiosk-timer span { display: block; height: 100%; background: var(--k); animation: kiosk-timer linear forwards; }
+@keyframes kiosk-timer { from { width: 100%; } to { width: 0; } }
+@keyframes kiosk-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes kiosk-pop { from { opacity: 0; transform: scale(0.5); } }
+
+/* FaceCapture inside the kiosk */
+.kiosk-face-wrap { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; animation: kiosk-in 0.25s ease; }
+.kiosk-face-wrap .facecap-status { color: var(--color-text); }
+.kiosk-face-wrap .facecap-subtitle { color: var(--color-text-muted); }
+.kiosk-face-wrap .facecap-frame { border: 3px solid var(--color-accent); }
+
+@media (max-width: 900px) {
+  .kiosk-card { grid-template-columns: minmax(0, 1fr); max-height: none; }
+  .kiosk-side { border-right: 0; border-bottom: 1px solid var(--color-border); padding: 28px; }
+  .kiosk-clock { font-size: 72px; }
+  .kiosk-steps { margin-top: 6px; }
+  .kiosk-result { padding: 40px 20px 52px; }
+  .kiosk-result-title { font-size: 34px; }
 }
-.kiosk-notice-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 18px; }
-.kiosk-notice-title svg { width: 22px; height: 22px; flex-shrink: 0; }
-.kiosk-notice-body { margin: 10px 0 0; font-size: 15px; line-height: 1.45; }
-.kiosk-notice-hint { opacity: 0.85; font-size: 14px; }
-.kiosk-notice-ok {
-  margin-top: 14px;
-  width: 100%;
-  min-height: 52px;
-  border: 0;
-  border-radius: 12px;
-  font: inherit;
-  font-weight: 800;
-  font-size: 17px;
-  background: #fff;
-  color: #1a1a1a;
-  cursor: pointer;
+@media (max-width: 520px) {
+  .kiosk { padding: 12px 12px 20px; }
+  .kiosk-side { padding: 20px; }
+  .kiosk-clock { font-size: 56px; }
+  .kiosk-title { font-size: 24px; }
+  .kiosk-steps { display: none; }
+  .kiosk-main { padding: 20px 12px; }
+  .kiosk-keypad { grid-template-columns: repeat(3, minmax(0, 88px)); gap: 10px; }
+  .kiosk-keypad button { height: 70px; font-size: 28px; }
+  .kiosk-result-title { font-size: 28px; }
+  .kiosk-facts li { font-size: 15px; }
 }

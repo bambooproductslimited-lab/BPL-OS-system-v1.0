@@ -491,9 +491,44 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   var autoClosedShifts = action === 'in' && !occurredAt ? await attendanceService.takeAutoClockOutNotices(emp.id) : [];
 
   var time = (action === 'in' ? rec.clock_in : rec.clock_out).slice(0, 5);
-  return {
-    action: action, employeeName: emp.first_name + ' ' + emp.last_name, time: time, status: rec.status,
+  var summary = await tapSummary(emp.id, rec, resolved.date);
+  return Object.assign({
+    action: action, employeeName: emp.first_name + ' ' + emp.last_name, firstName: emp.first_name, time: time, status: rec.status,
     minutesLate: rec.minutesLate || 0, autoClosedShifts: autoClosedShifts
+  }, summary);
+}
+
+// What the kiosk tells the person after a tap, so it explains itself: the
+// shift they are meant to work, how long this shift ran (on a clock-out),
+// the days and hours worked so far this week (Monday on), and how many
+// times they were late this month. Only about the person who just proved
+// who they are with their PIN (and face, when enrolled).
+function isoDate(d) { return d.toISOString().slice(0, 10); }
+async function tapSummary(employeeId, rec, dateStr) {
+  var shiftRow = (await pool.query(
+    'SELECT coalesce(s.start_time, e.shift_start) AS start, coalesce(s.end_time, e.shift_end) AS finish ' +
+    'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1', [employeeId])).rows[0] || {};
+  var day = new Date(dateStr + 'T00:00:00Z');
+  var monday = new Date(day); monday.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  var HOURS = "EXTRACT(EPOCH FROM ((coalesce(clock_out_date, date) + clock_out) - (date + clock_in))) / 3600";
+  var week = (await pool.query(
+    'SELECT count(*) FILTER (WHERE clock_in IS NOT NULL)::int AS days, coalesce(sum(' + HOURS + ') FILTER (WHERE clock_in IS NOT NULL AND clock_out IS NOT NULL), 0)::float AS hours ' +
+    'FROM attendance WHERE employee_id = $1 AND date >= $2 AND date <= $3', [employeeId, isoDate(monday), dateStr])).rows[0];
+  var late = (await pool.query(
+    "SELECT count(*)::int AS n FROM attendance WHERE employee_id = $1 AND status = 'late' AND date >= $2 AND date <= $3",
+    [employeeId, dateStr.slice(0, 8) + '01', dateStr])).rows[0].n;
+  var worked = null;
+  if (rec.clock_in && rec.clock_out) {
+    var from = new Date(String(rec.date instanceof Date ? isoDate(rec.date) : rec.date).slice(0, 10) + 'T' + String(rec.clock_in).slice(0, 8) + 'Z');
+    var toDate = rec.clock_out_date || rec.date;
+    var to = new Date(String(toDate instanceof Date ? isoDate(toDate) : toDate).slice(0, 10) + 'T' + String(rec.clock_out).slice(0, 8) + 'Z');
+    worked = Math.max(0, Math.round((to - from) / 60000));
+  }
+  return {
+    shift: shiftRow.start ? { start: String(shiftRow.start).slice(0, 5), end: shiftRow.finish ? String(shiftRow.finish).slice(0, 5) : null } : null,
+    workedMinutes: worked,
+    week: { days: week.days, hours: Math.round(week.hours * 10) / 10 },
+    lateThisMonth: late
   };
 }
 
