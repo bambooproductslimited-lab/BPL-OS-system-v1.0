@@ -162,11 +162,11 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
 
   async function openLinking() {
     setLinking({ q: '', list: null, kind: 'commission', repId: lead.repId || '' });
-    try { const list = await api.get('/crm/invoices-to-link?leadId=' + leadId); setLinking((l) => l && { ...l, list }); } catch (err) { setError(err.message); }
+    try { const r = await api.get('/crm/invoices-to-link?leadId=' + leadId); setLinking((l) => l && { ...l, list: r.invoices, why: r.why }); } catch (err) { setError(err.message); }
   }
   async function searchInvoices(q) {
     setLinking((l) => ({ ...l, q }));
-    try { const list = await api.get('/crm/invoices-to-link?leadId=' + leadId + '&q=' + encodeURIComponent(q)); setLinking((l) => l && { ...l, list }); } catch { /* keep the last list */ }
+    try { const r = await api.get('/crm/invoices-to-link?leadId=' + leadId + '&q=' + encodeURIComponent(q)); setLinking((l) => l && l.q === q ? { ...l, list: r.invoices, why: r.why } : l); } catch { /* keep the last list */ }
   }
 
   if (!lead) {
@@ -328,7 +328,7 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                       {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
-                  {!linking.list ? <p className="dk-muted tl-small">{tr('Loading…')}</p> : !linking.list.length ? <Empty icon="receipt">{tr('No sales invoice to link. Raise the invoice first (Quotations & Invoicing), then come back.')}</Empty> : (
+                  {!linking.list ? <p className="dk-muted tl-small">{tr('Loading…')}</p> : !linking.list.length ? <Empty icon="receipt">{linking.why ? whyNotLinkable(linking.why) : linking.q.trim() ? tr('No sales invoice that isn\'t linked yet matches "{q}".', { q: linking.q.trim() }) : tr('No sales invoice to link. Raise the invoice first (Quotations & Invoicing), then come back.')}</Empty> : (
                     <ul className="crm-pick">
                       {linking.list.map((iv) => (
                         <li key={iv.id}>
@@ -421,6 +421,15 @@ function historyText(body) {
   if ((m = /^Site visit booked for (\d{4}-\d{2}-\d{2})\.$/.exec(body))) return tr('Site visit booked for {date}.', { date: fmtDate(m[1]) });
   if ((m = /^Site visited\.\s*(.*)$/.exec(body))) return tr('Site visited.') + (m[1] ? ' ' + m[1] : '');
   return body;
+}
+
+// Why a searched-for invoice can't be linked to this lead.
+function whyNotLinkable(w) {
+  if (w.reason === 'linked') return tr('{no} is already linked to lead {ref} ({name}). Unlink it there first if it belongs here.', { no: w.invoiceNo, ref: w.leadRef, name: w.leadName });
+  if (w.reason === 'void') return tr('{no} is void, so it can\'t be a sale.', { no: w.invoiceNo });
+  if (w.reason === 'notSale') return tr('{no} isn\'t a sales invoice (it is a {kind} bill), so it can\'t be a CRM sale.', { no: w.invoiceNo, kind: w.docKind });
+  if (w.reason === 'otherCompany') return tr('{no} belongs to {company}, and the CRM counts sales of its own company only.', { no: w.invoiceNo, company: w.companyName || tr('another company') });
+  return tr('There is no invoice {no} in the OS. Check the number, or raise the invoice first.', { no: w.invoiceNo });
 }
 
 export function visitLabel(s) { return s === 'visited' ? tr('Visited') : s === 'cancelled' ? tr('Cancelled') : tr('Booked'); }

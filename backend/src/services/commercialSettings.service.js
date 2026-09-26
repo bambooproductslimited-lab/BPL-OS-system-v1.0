@@ -4,6 +4,16 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var crypto = require('crypto');
 
+// Saves only the given top-level parts of settings.commercial. The document
+// number counters (commercial.numbering, advanced by utils/documents.js
+// nextDocNumber as quotations and invoices are made) are never written back
+// from a copy read earlier: a save landing between that read and a new
+// quotation used to put a counter back, so the next quotation got a number
+// already used and failed.
+async function saveParts(parts) {
+  await pool.query('UPDATE settings SET commercial = commercial || $1::jsonb, updated_at = now() WHERE id = 1', [JSON.stringify(parts)]);
+}
+
 // kernel.js: handlers['commercialSettings.get']
 async function get(ctx) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
@@ -42,7 +52,7 @@ async function save(ctx, p) {
     if (p.templates.invoiceDueDays !== undefined) c.templates.invoiceDueDays = cleanDays(p.templates.invoiceDueDays, 'Invoice due period');
   }
   if (p.paymentDetails) pickText(p.paymentDetails, PAYMENT_TEXT, c.paymentDetails);
-  await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(c)]);
+  await saveParts({ templates: c.templates, paymentDetails: c.paymentDetails });
   await audit(pool, ctx, 'commercialSettings.save', 'settings', 'commercial', 'Updated quotations & invoicing settings.');
   return c;
 }
@@ -58,7 +68,7 @@ async function addTaxRate(ctx, p) {
   var c = res.rows[0].commercial;
   var taxRate = { id: 'tx_' + crypto.randomUUID().slice(0, 8), name: name, rate: rate };
   c.taxRates.push(taxRate);
-  await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(c)]);
+  await saveParts({ taxRates: c.taxRates });
   await audit(pool, ctx, 'commercialSettings.taxRate', 'settings', 'commercial', 'Added tax rate ' + name + ' (' + rate + '%).');
   return taxRate;
 }
@@ -75,7 +85,7 @@ async function removeTaxRate(ctx, id) {
   var used = await pool.query('SELECT count(*)::int AS n FROM catalog_items WHERE tax_rate_id = $1', [id]);
   if (used.rows[0].n) fail('conflict', used.rows[0].n + ' catalogue item(s) use ' + t.name + '. Move them to another rate first.');
   c.taxRates = c.taxRates.filter(function (x) { return x.id !== id; });
-  await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(c)]);
+  await saveParts({ taxRates: c.taxRates });
   await audit(pool, ctx, 'commercialSettings.taxRate', 'settings', 'commercial', 'Removed tax rate ' + t.name + ' (' + t.rate + '%).');
   return true;
 }

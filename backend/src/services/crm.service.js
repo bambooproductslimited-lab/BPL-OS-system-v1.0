@@ -49,9 +49,20 @@ async function settingsRow(db) {
 // The company whose sale invoices are CRM sales: the one chosen in the
 // settings, else Bamboo Products Limited (code BPL), else every company.
 async function salesCompany(s) {
-  if (s.company_id) return { id: s.company_id, name: s.company_name };
-  var bpl = (await pool.query("SELECT id, name FROM companies WHERE code = 'BPL' LIMIT 1")).rows[0];
-  return bpl || { id: null, name: null };
+  if (s.company_id) return { id: s.company_id, name: s.company_name, code: s.company_code };
+  var bpl = (await pool.query("SELECT id, name, code FROM companies WHERE code = 'BPL' LIMIT 1")).rows[0];
+  return bpl || { id: null, name: null, code: null };
+}
+// Which invoices are the CRM company's (i. is invoices, c. its customer).
+// Bamboo Products' invoices from before the OS had companies have none set,
+// and the rest of the OS counts those as BPL's (reports.service.js,
+// salesOrders.service.js) — unless the customer belongs to another company.
+// arg(value) adds a query parameter and returns its $n.
+function invoiceScope(co, arg) {
+  if (!co.id) return 'true';
+  var p = arg(co.id);
+  if (co.code === 'BPL') return '(i.company_id = ' + p + ' OR (i.company_id IS NULL AND (c.company_id IS NULL OR c.company_id = ' + p + ')))';
+  return 'i.company_id = ' + p;
 }
 function settingsOut(s, co) {
   return {
@@ -330,16 +341,32 @@ async function invoicesToLink(ctx, q) {
   var co = await salesCompany(s);
   var args = [], where = ["i.doc_kind = 'sale'", "i.status <> 'void'", 'NOT EXISTS (SELECT 1 FROM crm_deals d WHERE d.invoice_id = i.id)'];
   function arg(v) { args.push(v); return '$' + args.length; }
-  if (co.id) where.push('i.company_id = ' + arg(co.id));
-  if (q.q) { var like = arg('%' + String(q.q).trim().toLowerCase() + '%'); where.push('(lower(i.invoice_no) LIKE ' + like + ' OR lower(c.name) LIKE ' + like + ')'); }
+  where.push(invoiceScope(co, arg));
+  var search = String(q.q || '').trim();
+  if (search) { var like = arg('%' + search.toLowerCase() + '%'); where.push('(lower(i.invoice_no) LIKE ' + like + ' OR lower(c.name) LIKE ' + like + ')'); }
   var customerId = null;
   if (q.leadId) customerId = (await leadRow(q.leadId)).customer_id;
   var res = await pool.query(
     'SELECT i.id, i.invoice_no, i.issued_at, i.grand_total, i.balance_due, i.customer_id, c.name AS customer_name FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id ' +
     'WHERE ' + where.join(' AND ') + ' ORDER BY (i.customer_id = ' + arg(customerId) + ') DESC NULLS LAST, i.issued_at DESC LIMIT 40', args);
-  return res.rows.map(function (r) {
+  var invoices = res.rows.map(function (r) {
     return { id: r.id, invoiceNo: r.invoice_no, issuedAt: dateOnly(r.issued_at), total: round2(r.grand_total), balance: round2(r.balance_due), customerName: r.customer_name, sameCustomer: !!customerId && r.customer_id === customerId };
   });
+  // Searched for an invoice number that can't be linked: say why, rather
+  // than just "nothing to link".
+  var why = null;
+  if (search && !invoices.length) {
+    var hit = (await pool.query(
+      'SELECT i.invoice_no, i.status, i.doc_kind, i.company_id, i.customer_id, c.company_id AS customer_company, co.name AS company_name, co.code AS company_code, l.ref AS lead_ref, l.name AS lead_name ' +
+      'FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id LEFT JOIN companies co ON co.id = coalesce(i.company_id, c.company_id) ' +
+      'LEFT JOIN crm_deals d ON d.invoice_id = i.id LEFT JOIN crm_leads l ON l.id = d.lead_id ' +
+      'WHERE lower(i.invoice_no) = lower($1) LIMIT 1', [search])).rows[0];
+    if (hit) {
+      var reason = hit.lead_ref ? 'linked' : hit.status === 'void' ? 'void' : hit.doc_kind !== 'sale' ? 'notSale' : 'otherCompany';
+      why = { invoiceNo: hit.invoice_no, reason: reason, leadRef: hit.lead_ref || null, leadName: hit.lead_name || null, docKind: hit.doc_kind, companyName: hit.company_name || null };
+    } else why = { invoiceNo: search, reason: 'notFound' };
+  }
+  return { invoices: invoices, why: why };
 }
 
 async function linkInvoice(ctx, leadId, p) {
@@ -747,8 +774,10 @@ async function overview(ctx, q) {
   // sales of the company in the period that aren't linked to any lead
   var unlinkedArgs = [period.from, period.to];
   var unlinked = (await pool.query(
-    "SELECT count(*)::int AS n, coalesce(sum(i.grand_total), 0) AS total FROM invoices i WHERE i.doc_kind = 'sale' AND i.status <> 'void' AND i.issued_at BETWEEN $1 AND $2 " +
-    'AND NOT EXISTS (SELECT 1 FROM crm_deals d WHERE d.invoice_id = i.id)' + (co.id ? ' AND i.company_id = $3' : ''), co.id ? unlinkedArgs.concat([co.id]) : unlinkedArgs)).rows[0];
+    "SELECT count(*)::int AS n, coalesce(sum(i.grand_total), 0) AS total FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id " +
+    "WHERE i.doc_kind = 'sale' AND i.status <> 'void' AND i.issued_at BETWEEN $1 AND $2 " +
+    'AND NOT EXISTS (SELECT 1 FROM crm_deals d WHERE d.invoice_id = i.id) AND ' +
+    invoiceScope(co, function (v) { unlinkedArgs.push(v); return '$' + unlinkedArgs.length; }), unlinkedArgs)).rows[0];
 
   // site visits in the period
   var visits = (await pool.query('SELECT status, scheduled_on FROM crm_site_visits WHERE scheduled_on BETWEEN $1 AND $2', [period.from, addDays(today, 14) > period.to ? addDays(today, 14) : period.to])).rows;
@@ -806,5 +835,5 @@ module.exports = {
   listReferrals: listReferrals, saveReferral: saveReferral, setReferralStatus: setReferralStatus, removeReferral: removeReferral,
   listProspects: listProspects, saveProspect: saveProspect, removeProspect: removeProspect, prospectToLead: prospectToLead,
   listVisits: listVisits, saveVisit: saveVisit, removeVisit: removeVisit,
-  _settingsRow: settingsRow
+  _settingsRow: settingsRow, _salesCompany: salesCompany, _invoiceScope: invoiceScope
 };

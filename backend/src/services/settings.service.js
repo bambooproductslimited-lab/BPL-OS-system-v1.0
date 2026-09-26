@@ -131,8 +131,9 @@ async function save(ctx, p) {
 
   if (sets.length) await pool.query('UPDATE settings SET ' + sets.join(', ') + ', updated_at = now() WHERE id = 1', values);
   if (p.currencies !== undefined) {
-    commercial.currencies = currencies;
-    await pool.query('UPDATE settings SET commercial = $1, updated_at = now() WHERE id = 1', [JSON.stringify(commercial)]);
+    // Only the currencies: writing back the whole copy read above could put
+    // the document number counters back (see commercialSettings.service.js).
+    await pool.query('UPDATE settings SET commercial = commercial || $1::jsonb, updated_at = now() WHERE id = 1', [JSON.stringify({ currencies: currencies })]);
   }
 
   // Minutes after a shift start that still count as on time. Takes effect

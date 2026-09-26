@@ -17,7 +17,11 @@ test.before(async function () {
   before = (await pool.query('SELECT short_name, work_week, fiscal_year_start, standard_hours, currency, commercial FROM settings WHERE id = 1')).rows[0];
 });
 test.after(async function () {
-  await pool.query('UPDATE settings SET short_name = $1, work_week = $2, fiscal_year_start = $3, standard_hours = $4, currency = $5, commercial = $6 WHERE id = 1',
+  // Everything back as it was except the document number counters: other
+  // test files make quotations and invoices meanwhile, and putting their
+  // counters back would hand the next one a number already used.
+  await pool.query("UPDATE settings SET short_name = $1, work_week = $2, fiscal_year_start = $3, standard_hours = $4, currency = $5, " +
+    "commercial = $6::jsonb || jsonb_build_object('numbering', commercial->'numbering') WHERE id = 1",
     [before.short_name, before.work_week, before.fiscal_year_start, before.standard_hours, before.currency, JSON.stringify(before.commercial)]);
   await pool.query("DELETE FROM audit_logs WHERE entity = 'settings' AND summary LIKE '%Zqs%'");
   await pool.end();

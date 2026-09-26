@@ -111,13 +111,18 @@ test('a lead: added, contacted, followed up, made a customer, won with its sale'
   assert.equal(lead.customerId, cust);
 
   var toLink = await crm.invoicesToLink(rep, { leadId: lead.id });
-  assert.equal(toLink[0].sameCustomer, true);
+  assert.equal(toLink.invoices[0].sameCustomer, true);
+  assert.equal(toLink.why, null);
   var deal = await crm.linkInvoice(rep, lead.id, { invoiceId: inv.paid });
   assert.equal(deal.value, 950);
   assert.equal(deal.rate, 15);
   assert.equal(deal.commission, 142.5);                                   // the rep sees their own
   assert.equal(deal.ready, true);
   await assert.rejects(crm.linkInvoice(rep, lead.id, { invoiceId: inv.paid }), /already linked/);
+  // searching for an invoice that can't be linked says why
+  var already = await crm.invoicesToLink(rep, { leadId: lead.id, q: 'zqc-001' });
+  assert.deepEqual([already.invoices.length, already.why.reason, already.why.leadRef], [0, 'linked', lead.ref]);
+  assert.equal((await crm.invoicesToLink(rep, { q: 'ZQC-NOPE' })).why.reason, 'notFound');
   lead = await crm.getLead(rep, lead.id);
   assert.equal(lead.stage, 'won');
   assert.equal(lead.nextFollowUp, null);
@@ -149,6 +154,29 @@ test('a lead with no matching customer becomes a new customer of the CRM\'s comp
   assert.equal((await crm.toCustomer(rep, l.id)).customerId, c.id);        // twice does nothing more
   await assert.rejects(crm.toCustomer(andy, l.id), /crm.manage/);
   await crm.removeLead(rep, l.id);
+});
+
+test('an invoice with no company counts as Bamboo Products\', as everywhere in the OS', async function () {
+  var bplCo = (await pool.query("SELECT id, name, code FROM companies WHERE code = 'BPL'")).rows[0];
+  var zqc = { id: bpl, code: 'ZQC' };
+  // void, so no report counting invoices while this runs in parallel sees it
+  var c0 = (await pool.query("INSERT INTO customers (name) VALUES ('Zqc No Company Customer') RETURNING id")).rows[0].id;
+  var i0 = (await pool.query("INSERT INTO invoices (invoice_no, customer_id, status) VALUES ('ZQC-NULL-1', $1, 'void') RETURNING id", [c0])).rows[0].id;
+  async function inScope(co) {
+    var args = [i0];
+    var sql = 'SELECT count(*)::int AS n FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id WHERE i.id = $1 AND ' + crm._invoiceScope(co, function (v) { args.push(v); return '$' + args.length; });
+    return (await pool.query(sql, args)).rows[0].n === 1;
+  }
+  try {
+    assert.equal(await inScope(bplCo), true);                              // BPL's: no company at all
+    assert.equal(await inScope(zqc), false);                               // not another company's
+    await pool.query('UPDATE customers SET company_id = $2 WHERE id = $1', [c0, bpl]);
+    assert.equal(await inScope(bplCo), false);                             // its customer is another company's
+    assert.equal(await inScope({ id: null }), true);                       // no company chosen at all: everything
+  } finally {
+    await pool.query('DELETE FROM invoices WHERE id = $1', [i0]);
+    await pool.query('DELETE FROM customers WHERE id = $1', [c0]);
+  }
 });
 
 test('a lost lead keeps its reason; the same phone is flagged as probably the same person', async function () {

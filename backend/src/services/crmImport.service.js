@@ -271,13 +271,13 @@ async function existingKeys(table, keys) {
 // One OS invoice for a sale in the sheet: same amount (to the cedi), within
 // ten days, a customer whose name shares a word with the sheet's, and not
 // already a deal. Anything less certain is left for a person to link.
-async function matchInvoice(db, companyId, sale) {
+async function matchInvoice(db, co, sale) {
   if (sale.value === null || sale.value === undefined || !sale.receivedOn) return null;
   var args = [sale.value, sale.receivedOn];
   var res = await db.query(
     "SELECT i.id, c.name AS customer_name FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id WHERE i.doc_kind = 'sale' AND i.status <> 'void' " +
-    'AND abs(i.grand_total - $1) < 1 AND i.issued_at BETWEEN $2::date - 10 AND $2::date + 10 AND NOT EXISTS (SELECT 1 FROM crm_deals d WHERE d.invoice_id = i.id)' +
-    (companyId ? ' AND i.company_id = $3' : ''), companyId ? args.concat([companyId]) : args);
+    'AND abs(i.grand_total - $1) < 1 AND i.issued_at BETWEEN $2::date - 10 AND $2::date + 10 AND NOT EXISTS (SELECT 1 FROM crm_deals d WHERE d.invoice_id = i.id) AND ' +
+    crm._invoiceScope(co, function (v) { args.push(v); return '$' + args.length; }), args);
   var words = norm(sale.name).split(' ').filter(function (w) { return w.length > 2 && ['mr', 'mrs', 'miss', 'dr'].indexOf(w) < 0; });
   var hits = res.rows.filter(function (r) { var n = norm(r.customer_name); return words.some(function (w) { return n.split(' ').indexOf(w) >= 0; }); });
   return hits.length === 1 ? hits[0].id : null;
@@ -350,7 +350,7 @@ async function run(ctx, file) {
   var p = await plan(ctx, await loadWorkbook(file));
   var s = await summarise(ctx, p);
   var settings = await crm._settingsRow();
-  var companyId = settings.company_id || ((await pool.query("SELECT id FROM companies WHERE code = 'BPL' LIMIT 1")).rows[0] || {}).id || null;
+  var co = await crm._salesCompany(settings);
   var meId = ctx.employee ? ctx.employee.id : null;
   var result = { leads: 0, sales: 0, joined: 0, linked: 0, unlinkedSales: [], visits: 0, referrals: 0, prospects: 0 };
 
@@ -375,7 +375,7 @@ async function run(ctx, file) {
     for (var j = 0; j < p.sales.length; j++) {
       var sale = p.sales[j];
       if (s.keys.sales[sale.key]) continue;
-      var invoiceId = await matchInvoice(db, companyId, sale);
+      var invoiceId = await matchInvoice(db, co, sale);
       var unlinkedNote = invoiceId ? '' : 'Sale in the spreadsheet' + (sale.value !== null ? ' of GHS ' + sale.value.toFixed(2) : '') +
         (sale.receivedOn ? ' on ' + sale.receivedOn : '') + ' — no matching OS invoice was found; link it from here once the invoice is in the OS.';
       var leads = (await db.query('SELECT id, phone, name, received_on AS received, stage, rep_id, rep_name, comments FROM crm_leads')).rows;
