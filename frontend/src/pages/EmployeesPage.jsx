@@ -90,7 +90,7 @@ const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '',
-  shiftStart: '', shiftEnd: '', language: ''
+  shiftStart: '', shiftEnd: '', language: '', ssnitNumber: '', tin: ''
 };
 
 // "Imported 12 employee(s) (3 skipped, 1 failed)." — the count and each
@@ -239,7 +239,8 @@ export default function EmployeesPage() {
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
       roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
-      shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || ''
+      shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
+      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || ''
     });
     setDialog('employee');
   }
@@ -260,6 +261,8 @@ export default function EmployeesPage() {
           body.payCycle = form.payCycle;
           body.dailyRate = form.dailyRate;
           body.hourlyRate = form.hourlyRate === '' ? null : form.hourlyRate;
+          body.ssnitNumber = form.ssnitNumber;
+          body.tin = form.tin;
         }
         const updated = await api.patch('/employees/' + editId, body);
         setToast(tr('Updated {firstName} {lastName}.', { firstName: updated.firstName, lastName: updated.lastName }));
@@ -269,7 +272,8 @@ export default function EmployeesPage() {
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null,
-          createAccount: !!form.roleId, roleId: form.roleId || null
+          createAccount: !!form.roleId, roleId: form.roleId || null,
+          ...(canManagePayroll ? { ssnitNumber: form.ssnitNumber, tin: form.tin } : {})
         });
         setToast(tr('{code} — {firstName} {lastName} added.', { code: created.code, firstName: created.firstName, lastName: created.lastName }));
       }
@@ -995,6 +999,21 @@ export default function EmployeesPage() {
                     {tr('Auto-filled from Daily rate ÷ shift hours ({hours}h/day) — edit it directly to override.', { hours: effectiveShiftHours(form, shifts) })}
                   </p>
                 </div>
+              </>
+            )}
+            {canManagePayroll && (
+              <>
+                <div className="field"><label htmlFor="emp-ssnit-no">{tr('SSNIT number')}</label>
+                  <input id="emp-ssnit-no" className="input" value={form.ssnitNumber} maxLength={30} autoComplete="off" placeholder={tr('e.g. C018306020094')}
+                    onChange={(e) => setForm({ ...form, ssnitNumber: e.target.value })} />
+                </div>
+                <div className="field"><label htmlFor="emp-tin">{tr('TIN')}</label>
+                  <input id="emp-tin" className="input" value={form.tin} maxLength={30} autoComplete="off" placeholder={tr('e.g. GHA-123456789-0')}
+                    onChange={(e) => setForm({ ...form, tin: e.target.value })} />
+                </div>
+                <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+                  {tr('For filing SSNIT and PAYE. For most people the TIN is now their Ghana Card number. Only people who manage payroll can see these.')}
+                </p>
               </>
             )}
 

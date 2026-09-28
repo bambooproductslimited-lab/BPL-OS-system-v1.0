@@ -37,8 +37,27 @@ function rowToEmployee(r, ctx) {
     out.payCycle = r.pay_cycle;
     out.dailyRate = Number(r.daily_rate);
     out.hourlyRate = r.hourly_rate == null ? null : Number(r.hourly_rate);
+    out.ssnitNumber = r.ssnit_number || null;
+    out.tin = r.tin || null;
   }
   return out;
+}
+
+// SSNIT number / TIN as typed: trimmed, upper case, spaces dropped; empty
+// clears it. Letters, digits and dashes only (an old SSNIT number like
+// C018306020094, a Ghana Card number like GHA-123456789-0).
+function idNumber(v, label) {
+  if (v === undefined) return undefined;
+  var t = String(v == null ? '' : v).replace(/\s+/g, '').toUpperCase();
+  if (!t) return null;
+  if (!/^[A-Z0-9-]{5,24}$/.test(t)) fail('invalid', label + ' can only have letters, numbers and dashes (5 to 24 of them).');
+  return t;
+}
+// Which other employee already has this SSNIT number or TIN, if any.
+async function idTaken(column, value, exceptId, label) {
+  if (!value) return;
+  var r = (await pool.query('SELECT first_name, last_name FROM employees WHERE upper(' + column + ') = $1 AND ($2::uuid IS NULL OR id <> $2)', [value, exceptId || null])).rows[0];
+  if (r) fail('conflict', label + ' ' + value + ' is already on ' + r.first_name + ' ' + r.last_name + '\'s record.');
 }
 
 // kernel.js: handlers['employees.list']
@@ -137,6 +156,13 @@ async function create(ctx, p) {
   if (p.hourlyRate !== undefined && p.hourlyRate !== null && p.hourlyRate !== '' && ctx.can('payroll.manage')) {
     hourlyRate = Math.max(0, Number(p.hourlyRate) || 0);
   }
+  var ssnitNumber = null, tin = null;
+  if (ctx.can('payroll.manage')) {
+    ssnitNumber = idNumber(p.ssnitNumber, 'SSNIT number') || null;
+    tin = idNumber(p.tin, 'TIN') || null;
+    await idTaken('ssnit_number', ssnitNumber, null, 'SSNIT number');
+    await idTaken('tin', tin, null, 'TIN');
+  }
 
   var countRes = await pool.query('SELECT count(*)::int AS n FROM employees');
   var code = 'BPL-' + String(countRes.rows[0].n + 1).padStart(3, '0');
@@ -145,11 +171,11 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
         employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate,
-        p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null]
+        p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null, ssnitNumber, tin]
     );
     var e = insertRes.rows[0];
 
@@ -231,7 +257,7 @@ async function update(ctx, id, p) {
   // Pay rate/cycle are compensation data — gated separately behind
   // payroll.manage so a department manager with plain employee.write
   // (who can otherwise edit this same record) can't set someone's pay.
-  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined) && !ctx.can('payroll.manage')) {
+  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined || p.ssnitNumber !== undefined || p.tin !== undefined) && !ctx.can('payroll.manage')) {
     fail('forbidden', 'Your role does not allow this action (payroll.manage).');
   }
 
@@ -286,6 +312,17 @@ async function update(ctx, id, p) {
     var hourlyRate = p.hourlyRate === null || p.hourlyRate === '' ? null : Math.max(0, Number(p.hourlyRate) || 0);
     var curHourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
     if (hourlyRate !== curHourlyRate) { changed.push('hourlyRate'); values.push(hourlyRate); sets.push('hourly_rate = $' + values.length); }
+  }
+
+  var ssnitNumber = idNumber(p.ssnitNumber, 'SSNIT number');
+  if (ssnitNumber !== undefined && ssnitNumber !== (e.ssnit_number || null)) {
+    await idTaken('ssnit_number', ssnitNumber, id, 'SSNIT number');
+    changed.push('ssnitNumber'); values.push(ssnitNumber); sets.push('ssnit_number = $' + values.length);
+  }
+  var tin = idNumber(p.tin, 'TIN');
+  if (tin !== undefined && tin !== (e.tin || null)) {
+    await idTaken('tin', tin, id, 'TIN');
+    changed.push('tin'); values.push(tin); sets.push('tin = $' + values.length);
   }
 
   var newEmail = null;

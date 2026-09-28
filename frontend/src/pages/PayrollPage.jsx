@@ -223,8 +223,8 @@ export default function PayrollPage() {
     }
   }
   function exportRun(run) {
-    const rows = [[tr('Employee'), tr('Code'), tr('Company'), tr('Department'), tr('Days'), tr('Daily rate'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
-      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.companyName, s.departmentName, s.daysWorked, s.dailyRate, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
+    const rows = [[tr('Employee'), tr('Code'), tr('SSNIT number'), tr('TIN'), tr('Company'), tr('Department'), tr('Days'), tr('Daily rate'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
+      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.ssnitNumber || '', s.tin || '', s.companyName, s.departmentName, s.daysWorked, s.dailyRate, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
     downloadCsv(run.runNo + '.csv', rowsToCsv(rows));
   }
 
@@ -260,6 +260,9 @@ export default function PayrollPage() {
   if (monthlyMissing) insights.push({ tone: 'warn', icon: 'calendar', text: tr('No monthly pay run covers {month} yet, for {n} staff on the monthly cycle.', { month: monthName(lm.start), n: monthlyStaff.length }), action: canManage ? { label: tr('Make it'), run: () => openNew('monthly') } : null });
   if (zeroDrafts.length) insights.push({ tone: 'warn', icon: 'people', text: zeroDrafts.length === 1 ? (zeroDrafts[0].zeroDays === 1 ? tr('Someone in {runNo} has no days worked. Check Attendance before approving.', { runNo: zeroDrafts[0].runNo }) : tr('{n} people in {runNo} have no days worked. Check Attendance before approving.', { n: zeroDrafts[0].zeroDays, runNo: zeroDrafts[0].runNo })) : tr('{n} draft runs have payslips with no days worked. Check Attendance before approving.', { n: zeroDrafts.length }), action: { label: tr('Open'), run: () => openRun(zeroDrafts[0].id) } });
   if (drafts.length && !zeroDrafts.length) insights.push({ tone: 'info', icon: 'check', text: drafts.length === 1 ? tr('{runNo} is waiting to be approved.', { runNo: drafts[0].runNo }) : tr('{n} pay runs are waiting to be approved.', { n: drafts.length }), action: { label: drafts.length === 1 ? tr('Open') : tr('Show them'), run: () => (drafts.length === 1 ? openRun(drafts[0].id) : showOnly('draft')) } });
+  // SSNIT number / TIN are only sent to payroll.manage (undefined otherwise).
+  const noIds = staff.filter((e) => e.ssnitNumber === null || e.tin === null);
+  if (noIds.length) insights.push({ tone: 'info', icon: 'info', text: noIds.length === 1 ? tr('{name} has no SSNIT number or TIN on their record, needed for filing SSNIT and PAYE.', { name: noIds[0].firstName + ' ' + noIds[0].lastName }) : tr('{n} active staff are missing an SSNIT number or TIN, needed for filing SSNIT and PAYE. Add them on each person\'s employee record.', { n: noIds.length }), action: null });
   if (noRate.length) insights.push({ tone: 'warn', icon: 'owed', text: noRate.length === 1 ? tr('{name} has no daily rate, so their payslips come out at zero.', { name: noRate[0].firstName + ' ' + noRate[0].lastName }) : tr('{n} active staff have no daily rate, so their payslips come out at zero.', { n: noRate.length }), action: null });
   if (!insights.length && runs.length) insights.push({ tone: 'good', icon: 'check', text: tr('Every pay run is approved and paid, and last month is covered.') });
 
