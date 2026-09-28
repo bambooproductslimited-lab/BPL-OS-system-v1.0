@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { Empty, Glossary, Hero, Icon, Section, fmtDate } from '../../components/DashKit';
 import SearchInput, { matchesQuery } from '../../components/SearchInput';
 import { tr } from '../../lib/i18n.jsx';
-import { OPEN_STAGES, STAGES, ImportDialog, LeadDialog, NewLeadDialog, StageTag, Toast, VisitDialog, daysUntil, followUpClass, followUpText, ghs, stage, todayISO, useCrmBasics, usePerms } from './crmShared';
+import { OPEN_STAGES, STAGES, ImportDialog, LeadDialog, NewLeadDialog, StageTag, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, daysUntil, followUpClass, followUpText, ghs, stage, todayISO, useCrmBasics, usePerms } from './crmShared';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -31,6 +31,7 @@ export default function CrmLeadsPage() {
   const [dialog, setDialog] = useState(() => (params.get('lead') ? { kind: 'lead', id: params.get('lead') } : params.get('new') ? { kind: 'new' } : null));
   const [toast, setToast] = useState(null);
   const [moving, setMoving] = useState(null);
+  const unmatched = useUnmatchedNames();
 
   const view = params.get('view') === 'board' ? 'board' : 'list';
   const stageF = params.get('stage') || 'open';
@@ -125,6 +126,15 @@ export default function CrmLeadsPage() {
             {[['list', tr('List')], ['board', tr('Board')]].map(([k, label]) => <button key={k} type="button" role="radio" aria-checked={view === k} className={view === k ? 'is-on' : ''} onClick={() => setParam('view', k === 'board' ? 'board' : '')}>{label}</button>)}
           </div>
         }>
+        {unmatched.names.length > 0 && canManage && (
+          <div className="crm-note is-warn crm-who-note">
+            <Icon name="people" />
+            <span>{unmatched.names.length === 1
+              ? tr('1 name from the spreadsheet ({names}) isn\'t linked to anyone on the staff list yet.', { names: unmatched.names[0].name })
+              : tr('{n} names from the spreadsheet ({names}) aren\'t linked to anyone on the staff list yet.', { n: unmatched.names.length, names: unmatched.names.slice(0, 5).map((x) => x.name).join(', ') + (unmatched.names.length > 5 ? '…' : '') })}</span>
+            <button type="button" className="dk-link" onClick={() => setDialog({ kind: 'who' })}>{tr('Who is this?')} <Icon name="arrow" /></button>
+          </div>
+        )}
         <div className="crm-filters">
           <SearchInput value={q} onChange={setQ} placeholder={tr('Search name, phone, item, place…')} />
           <select className="input" value={repF} onChange={(e) => setParam('rep', e.target.value)} aria-label={tr('Sales rep')}>
@@ -180,7 +190,8 @@ export default function CrmLeadsPage() {
       <Glossary items={STAGES.map((s) => [tr(s.label), tr(s.help)]).concat([[tr('Next follow-up'), tr('The date someone should get back to the lead. Adding a call or note to a new lead marks it contacted.')]])} />
 
       {dialog && dialog.kind === 'new' && settings && <NewLeadDialog settings={settings} people={people} meId={meId} onClose={() => setDialog(null)} onSaved={(l) => { setDialog({ kind: 'lead', id: l.id }); setToast(tr('Lead {ref} added.', { ref: l.ref })); load(); }} />}
-      {dialog && dialog.kind === 'import' && <ImportDialog onClose={() => setDialog(null)} onDone={load} />}
+      {dialog && dialog.kind === 'import' && <ImportDialog onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}
+      {dialog && dialog.kind === 'who' && <WhoIsThisDialog people={people} onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}
       {dialog && dialog.kind === 'lead' && settings && <LeadDialog leadId={dialog.id} settings={settings} people={people} onClose={() => setDialog(null)} onChanged={load} onVisit={(v) => setDialog({ kind: 'visit', visit: v, back: dialog.id })} />}
       {dialog && dialog.kind === 'visit' && <VisitDialog visit={dialog.visit} people={people} onClose={() => setDialog({ kind: 'lead', id: dialog.back })} onSaved={() => { setToast(tr('Site visit saved.')); setDialog({ kind: 'lead', id: dialog.back }); }} />}
       <Toast text={toast} onDone={() => setToast(null)} />

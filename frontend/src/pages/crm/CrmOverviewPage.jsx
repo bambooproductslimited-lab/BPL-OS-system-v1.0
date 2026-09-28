@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Change, Empty, Glossary, Hero, Icon, Insights, LinkButton, PairBars, RankList, Row, Section, Status, fmtDate, jump } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
-import { STAGES, ImportDialog, LeadDialog, NewLeadDialog, Toast, VisitDialog, addDays, followUpText, ghs, monthLabel, stage, todayISO, useCrmBasics, usePerms, visitLabel } from './crmShared';
+import { STAGES, ImportDialog, LeadDialog, NewLeadDialog, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, followUpText, ghs, monthLabel, stage, todayISO, useCrmBasics, usePerms, visitLabel } from './crmShared';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -41,6 +41,7 @@ export default function CrmOverviewPage() {
   const [error, setError] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [toast, setToast] = useState(null);
+  const unmatched = useUnmatchedNames();
 
   const load = useCallback(async () => {
     const p = PERIODS[period]();
@@ -64,6 +65,7 @@ export default function CrmOverviewPage() {
   const newCount = (d.stages.find((s) => s.stage === 'new') || {}).count || 0;
   if (newCount) insights.push({ tone: 'warn', icon: 'send', text: newCount === 1 ? tr('1 new lead hasn\'t been contacted yet.') : tr('{n} new leads haven\'t been contacted yet.', { n: newCount }), action: { label: tr('Show them'), run: () => toLeads('stage=new') } });
   if (f.stale) insights.push({ tone: 'info', icon: 'calendar', text: tr('{n} open leads have had no stage change for {days} days and no follow-up date — they are drifting.', { n: f.stale, days: f.staleDays }), action: { label: tr('Show them'), run: () => toLeads('followUp=none') } });
+  if (canManage && unmatched.names.length) insights.push({ tone: 'warn', icon: 'people', text: unmatched.names.length === 1 ? tr('1 name from the spreadsheet isn\'t linked to anyone on the staff list, so their leads and commission show under a name only.') : tr('{n} names from the spreadsheet aren\'t linked to anyone on the staff list, so their leads and commission show under a name only.', { n: unmatched.names.length }), action: { label: tr('Who is this?'), run: () => setDialog({ kind: 'who' }) } });
   if (d.unlinkedSales.count) insights.push({ tone: 'warn', icon: 'receipt', text: tr('{n} sales invoices worth {amount} {period} aren\'t linked to a lead, so they don\'t count here and nobody\'s commission is worked out.', { n: d.unlinkedSales.count, amount: ghs(d.unlinkedSales.total), period: periodName }) });
   if (d.seeAllCommission && d.commission.readyCount) insights.push({ tone: 'info', icon: 'cash', text: tr('{n} commissions worth {amount} are on paid-up sales and can be paid.', { n: d.commission.readyCount, amount: ghs(d.commission.ready) }), action: { label: tr('Open commissions'), run: () => navigate('/crmcommissions') } });
   const bestSource = d.sources.filter((s) => s.leads >= 3).sort((a, b) => b.won / b.leads - a.won / a.leads)[0];
@@ -195,7 +197,8 @@ export default function CrmOverviewPage() {
       ]} />
 
       {dialog && dialog.kind === 'new' && settings && <NewLeadDialog settings={settings} people={people} meId={meId} onClose={() => setDialog(null)} onSaved={(l) => { setDialog({ kind: 'lead', id: l.id }); setToast(tr('Lead {ref} added.', { ref: l.ref })); load(); }} />}
-      {dialog && dialog.kind === 'import' && <ImportDialog onClose={() => setDialog(null)} onDone={load} />}
+      {dialog && dialog.kind === 'import' && <ImportDialog onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}
+      {dialog && dialog.kind === 'who' && <WhoIsThisDialog people={people} onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}
       {dialog && dialog.kind === 'lead' && settings && <LeadDialog leadId={dialog.id} settings={settings} people={people} onClose={() => setDialog(null)} onChanged={load} onVisit={(v) => setDialog({ kind: 'visit', visit: v, back: dialog.id })} />}
       {dialog && dialog.kind === 'visit' && <VisitDialog visit={dialog.visit} people={people} onClose={() => setDialog(dialog.back ? { kind: 'lead', id: dialog.back } : null)} onSaved={() => { setToast(tr('Site visit saved.')); load(); setDialog(dialog.back ? { kind: 'lead', id: dialog.back } : null); }} />}
       <Toast text={toast} onDone={() => setToast(null)} />

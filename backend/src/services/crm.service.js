@@ -819,6 +819,63 @@ async function overview(ctx, q) {
   };
 }
 
+// ── names from the spreadsheet that aren't staff yet ─────────────────
+// The import keeps a sales rep or site assessor it couldn't match to an
+// employee as a plain name ("Jennifer", "Mr. Frank"). Here each such name
+// is listed once (whatever its spelling of capitals) with what carries it,
+// and picking the staff member for it moves every lead, sale and visit
+// over in one go.
+function nameKey(v) { return String(v || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+function splitNames(s) { return String(s || '').split(/\s*,\s*/).map(function (x) { return x.trim(); }).filter(Boolean); }
+
+async function unmatchedNames(ctx) {
+  need(ctx, 'crm.read');
+  var byKey = {};
+  function add(name, field) {
+    var k = nameKey(name);
+    if (!k) return;
+    byKey[k] = byKey[k] || { name: String(name).trim(), leads: 0, deals: 0, visits: 0 };
+    byKey[k][field]++;
+  }
+  (await pool.query("SELECT rep_name FROM crm_leads WHERE rep_id IS NULL AND rep_name <> ''")).rows.forEach(function (r) { add(r.rep_name, 'leads'); });
+  (await pool.query("SELECT rep_name FROM crm_deals WHERE rep_id IS NULL AND rep_name <> ''")).rows.forEach(function (r) { add(r.rep_name, 'deals'); });
+  (await pool.query("SELECT assessors_text FROM crm_site_visits WHERE assessors_text <> ''")).rows.forEach(function (r) {
+    splitNames(r.assessors_text).forEach(function (n) { add(n, 'visits'); });
+  });
+  return Object.keys(byKey).map(function (k) { return byKey[k]; })
+    .sort(function (a, b) { return (b.leads + b.deals + b.visits) - (a.leads + a.deals + a.visits) || a.name.localeCompare(b.name); });
+}
+
+async function assignName(ctx, p) {
+  need(ctx, 'crm.manage');
+  p = p || {};
+  var key = nameKey(p.name);
+  if (!key) fail('invalid', 'Which name?');
+  var emp = (await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [p.employeeId])).rows[0];
+  if (!emp) fail('invalid', 'Choose the staff member this name is.');
+  var out = await withTransaction(async function (db) {
+    var leads = await db.query("UPDATE crm_leads SET rep_id = $2, rep_name = '', updated_at = now() WHERE rep_id IS NULL AND lower(regexp_replace(trim(rep_name), '\s+', ' ', 'g')) = $1", [key, emp.id]);
+    // a paid commission keeps who it was paid to
+    var deals = await db.query("UPDATE crm_deals SET rep_id = $2, rep_name = '' WHERE rep_id IS NULL AND status <> 'paid' AND lower(regexp_replace(trim(rep_name), '\s+', ' ', 'g')) = $1", [key, emp.id]);
+    var visits = 0;
+    var rows = (await db.query("SELECT id, assessor_ids, assessors_text FROM crm_site_visits WHERE assessors_text <> ''")).rows;
+    for (var i = 0; i < rows.length; i++) {
+      var names = splitNames(rows[i].assessors_text);
+      var keep = names.filter(function (n) { return nameKey(n) !== key; });
+      if (keep.length === names.length) continue;
+      var ids = rows[i].assessor_ids.indexOf(emp.id) >= 0 ? rows[i].assessor_ids : rows[i].assessor_ids.concat([emp.id]);
+      await db.query('UPDATE crm_site_visits SET assessor_ids = $2, assessors_text = $3, updated_at = now() WHERE id = $1', [rows[i].id, ids, keep.join(', ')]);
+      visits++;
+    }
+    await db.query('INSERT INTO crm_name_aliases (name_key, employee_id, created_by) VALUES ($1, $2, $3) ON CONFLICT (name_key) DO UPDATE SET employee_id = EXCLUDED.employee_id',
+      [key, emp.id, me(ctx)]);
+    await audit(db, ctx, 'crm.name.assign', 'employee', emp.id, '"' + String(p.name).trim() + '" from the spreadsheet is ' + personName(emp.first_name, emp.last_name) + ': ' +
+      leads.rowCount + ' lead(s), ' + deals.rowCount + ' sale(s), ' + visits + ' site visit(s) moved over.');
+    return { leads: leads.rowCount, deals: deals.rowCount, visits: visits, employeeName: personName(emp.first_name, emp.last_name) };
+  });
+  return out;
+}
+
 // People who can be picked as a rep or a site assessor.
 async function people(ctx) {
   need(ctx, 'crm.read');
@@ -835,5 +892,6 @@ module.exports = {
   listReferrals: listReferrals, saveReferral: saveReferral, setReferralStatus: setReferralStatus, removeReferral: removeReferral,
   listProspects: listProspects, saveProspect: saveProspect, removeProspect: removeProspect, prospectToLead: prospectToLead,
   listVisits: listVisits, saveVisit: saveVisit, removeVisit: removeVisit,
+  unmatchedNames: unmatchedNames, assignName: assignName,
   _settingsRow: settingsRow, _salesCompany: salesCompany, _invoiceScope: invoiceScope
 };

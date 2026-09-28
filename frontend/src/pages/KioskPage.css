@@ -38,8 +38,9 @@
 .kiosk-title { font-size: 30px; line-height: 1.1; }
 .kiosk-side .dk-muted { margin: 0; font-size: 15px; max-width: 420px; }
 .kiosk-steps { list-style: none; margin: auto 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.kiosk-steps li { display: flex; align-items: center; gap: 12px; font-weight: 700; }
-.kiosk-steps span { width: 28px; height: 28px; display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 800; color: var(--color-accent-700); border: 1.5px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); border-radius: 50%; }
+.kiosk-steps li { display: flex; align-items: flex-start; gap: 12px; font-weight: 700; }
+.kiosk-steps li > div { display: flex; flex-direction: column; min-width: 0; }
+.kiosk-steps li > span { width: 28px; height: 28px; display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 800; color: var(--color-accent-700); border: 1.5px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); border-radius: 50%; }
 .kiosk-camera-warning { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; font: inherit; font-size: 14px; text-align: left; color: var(--color-text); background: var(--color-danger-100); border: 1px solid color-mix(in srgb, var(--color-danger) 45%, var(--color-border)); cursor: pointer; }
 .kiosk-camera-warning svg { width: 22px; height: 22px; flex: none; color: var(--color-danger); }
 .kiosk-camera-warning strong { display: block; margin-bottom: 2px; }
@@ -112,3 +113,21 @@
   .kiosk-result-title { font-size: 28px; }
   .kiosk-facts li { font-size: 15px; }
 }
+
+/* A line in each other language the staff read, under the kiosk's own
+   (before it knows who is tapping). */
+.kiosk-also { display: block; margin-top: 2px; font-size: 0.72em; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--color-text-muted); }
+.kiosk-title .kiosk-also { font-size: 0.62em; margin-top: 4px; }
+.kiosk-result-title .kiosk-also { font-size: 0.55em; }
+.kiosk-steps .kiosk-also { font-size: 13px; }
+.kiosk-leaving { display: flex; align-items: flex-start; gap: 10px; margin: 14px 0 0; padding: 10px 12px; font-size: 14px; font-weight: 700; border: 1px solid var(--color-border); border-left: 4px solid #2a78d6; background: var(--color-bg-subtle); }
+.kiosk-leaving svg { width: 20px; height: 20px; flex: none; color: #2a78d6; }
+.kiosk-leaving .kiosk-also { font-size: 13px; }
+
+/* On every clock-in: don't forget to clock out before leaving. */
+.kiosk-remind { display: flex; align-items: flex-start; gap: 14px; max-width: 640px; margin-top: 16px; padding: 16px 20px; text-align: left; border: 2px solid #2a78d6; background: color-mix(in srgb, #2a78d6 10%, var(--color-bg)); box-shadow: 0 6px 24px color-mix(in srgb, #2a78d6 22%, transparent); animation: kiosk-remind-in 0.45s cubic-bezier(.2,.9,.3,1.3) 0.35s both; }
+.kiosk-remind svg { width: 30px; height: 30px; flex: none; color: #2a78d6; margin-top: 2px; }
+.kiosk-remind-title { margin: 0; font-size: 20px; font-weight: 800; line-height: 1.25; }
+.kiosk-remind-body { margin: 6px 0 0; font-size: 16px; line-height: 1.45; color: var(--color-text-muted); }
+@keyframes kiosk-remind-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .kiosk-remind { animation: none; } }

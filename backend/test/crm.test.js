@@ -364,3 +364,36 @@ test('the spreadsheet import: preview, import, and again adds nothing', async fu
 
   await assert.rejects(crmImport.run(rep, { originalname: 'x.xlsx', buffer: Buffer.from('not a workbook') }), /couldn’t be read/);
 });
+
+test('who is this: a spreadsheet name is linked to staff once, everywhere, and remembered for the next import', async function () {
+  var names = await crm.unmatchedNames(rep);
+  var nobody = names.find(function (n) { return n.name.toLowerCase() === 'nobody zq'; });
+  var carpenter = names.find(function (n) { return n.name === 'Zq Carpenter'; });
+  assert.deepEqual([nobody.leads, carpenter.visits], [1, 2]);            // Zq Carpenter: the imported visit and the one booked earlier
+  await assert.rejects(crm.assignName(andy, { name: 'Nobody Zq', employeeId: rep2.employee.id }), /crm.manage/);
+  await assert.rejects(crm.assignName(rep, { name: 'Nobody Zq', employeeId: '00000000-0000-0000-0000-000000000000' }), /Choose the staff member/);
+
+  var r = await crm.assignName(rep, { name: '  NOBODY   zq ', employeeId: rep2.employee.id });   // any capitals and spacing
+  assert.deepEqual([r.leads, r.deals, r.visits], [1, 0, 0]);
+  var abena = (await crm.listLeads(rep, { q: 'Zq Abena', stage: 'all' }))[0];
+  assert.deepEqual([abena.repId, abena.repName], [rep2.employee.id, 'Zq Esi Zqrep']);
+
+  var v = await crm.assignName(rep, { name: 'Zq Carpenter', employeeId: rep2.employee.id });
+  assert.equal(v.visits, 2);
+  var visit = (await crm.listVisits(rep, {})).find(function (x) { return x.client === 'Zq Kwame'; });
+  assert.deepEqual(visit.assessors.map(function (a) { return a.id; }).sort(), [rep.employee.id, rep2.employee.id].sort());
+  assert.equal(visit.assessorsText, '');
+  var left = (await crm.unmatchedNames(rep)).map(function (n) { return n.name.toLowerCase(); });
+  assert.equal(left.indexOf('nobody zq'), -1);
+  assert.equal(left.indexOf('zq carpenter'), -1);
+
+  // the next spreadsheet with the same name matches straight away
+  var wb = new ExcelJS.Workbook();
+  var leads = wb.addWorksheet('Leads');
+  leads.addRow(['Date', 'Lead ID', 'Customer Name', 'Location', 'Phone', 'Product Interest', 'Custom Project/Item ', 'Status', 'Next Follow-Up', 'Sales rep', 'Comments']);
+  leads.addRow(['27-Sep-2026', 'ZQ90', 'Zq Later Lead', '', '0559000999', '', 'Zq shelf', 'New Lead', '', 'Nobody Zq', '']);
+  var file = { originalname: 'zq-next.xlsx', buffer: Buffer.from(await wb.xlsx.writeBuffer()) };
+  assert.deepEqual((await crmImport.preview(rep, file)).unknownPeople, []);
+  await crmImport.run(rep, file);
+  assert.equal((await crm.listLeads(rep, { q: 'Zq Later Lead', stage: 'all' }))[0].repId, rep2.employee.id);
+});

@@ -26,6 +26,8 @@ function rowToEmployee(r, ctx) {
     employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location,
     shiftId: r.shift_id, shiftName: r.shift_tpl_name || null,
     shiftStart: shiftStart, shiftEnd: shiftEnd,
+    // The language they read on the kiosk; null follows their account's.
+    language: r.language || null,
     shift: r.shift_tpl_name ? (r.shift_tpl_name + ' · ' + shiftStart + '–' + shiftEnd) : (shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift),
     // The profile photo's version (when it last changed), or null — the
     // picture itself is at /api/messages/people/:id/photo.
@@ -143,10 +145,11 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
-        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate]
+        employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate,
+        p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null]
     );
     var e = insertRes.rows[0];
 
@@ -262,6 +265,11 @@ async function update(ctx, id, p) {
     var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
     var curShiftEnd = e.shift_end ? e.shift_end.slice(0, 5) : null;
     if (shiftEnd !== curShiftEnd) { changed.push('shiftEnd'); values.push(shiftEnd); sets.push('shift_end = $' + values.length); }
+  }
+  // The kiosk's language for them; empty clears back to their account's.
+  if (p.language !== undefined) {
+    var language = p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null;
+    if (language !== (e.language || null)) { changed.push('language'); values.push(language); sets.push('language = $' + values.length); }
   }
   var shiftIdUpdate = await resolveShiftIdUpdate(p, e);
   if (shiftIdUpdate !== undefined && shiftIdUpdate !== e.shift_id) {

@@ -12,7 +12,7 @@ import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, ju
 import './EmployeesPage.css';
 import RowMenu from '../components/RowMenu';
 
-import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
+import { LOCALES, activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 // The employee directory. Same "explains itself" layout as the dashboards
 // (components/DashKit.jsx): a company switcher, a header with the key
 // numbers (press one to show only those people), what stands out, the
@@ -90,7 +90,7 @@ const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '',
-  shiftStart: '', shiftEnd: ''
+  shiftStart: '', shiftEnd: '', language: ''
 };
 
 // "Imported 12 employee(s) (3 skipped, 1 failed)." — the count and each
@@ -239,7 +239,7 @@ export default function EmployeesPage() {
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
       roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
-      shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || ''
+      shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || ''
     });
     setDialog('employee');
   }
@@ -254,7 +254,7 @@ export default function EmployeesPage() {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status,
-          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language
         };
         if (canManagePayroll) {
           body.payCycle = form.payCycle;
@@ -268,7 +268,7 @@ export default function EmployeesPage() {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
-          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd,
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null,
           createAccount: !!form.roleId, roleId: form.roleId || null
         });
         setToast(tr('{code} — {firstName} {lastName} added.', { code: created.code, firstName: created.firstName, lastName: created.lastName }));
@@ -939,6 +939,15 @@ export default function EmployeesPage() {
             </div>
             <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
               {tr('These are a manual override only — leave blank if the shift picked above already covers it. Attendance uses (in order) the assigned shift\'s start time, then this manual override, then the company default, with the grace period set in Company settings, to decide who\'s marked late.')}
+            </p>
+            <div className="field"><label htmlFor="emp-language">{tr('Kiosk language')}</label>
+              <select id="emp-language" className="input" value={form.language} onChange={(e) => setForm({ ...form, language: e.target.value })}>
+                <option value="">{tr('Same as their account')}</option>
+                {LOCALES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+            </div>
+            <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+              {tr('When they tap their PIN or face at the clock-in kiosk, the kiosk answers in this language. Pick 中文 for staff who read Chinese.')}
             </p>
             {editId && (
               <div className="field"><label htmlFor="emp-status">{tr('Status')}</label>

@@ -24,6 +24,9 @@ router.get('/overview', h(function (req) { return crm.overview(req.ctx, req.quer
 router.get('/settings', h(function (req) { return crm.getSettings(req.ctx); }));
 router.put('/settings', h(function (req) { return crm.saveSettings(req.ctx, req.body); }));
 router.get('/people', h(function (req) { return crm.people(req.ctx); }));
+// Names from the spreadsheet that aren't linked to staff yet, and linking one.
+router.get('/unmatched-names', h(function (req) { return crm.unmatchedNames(req.ctx); }));
+router.post('/unmatched-names', h(function (req) { return crm.assignName(req.ctx, req.body); }));
 
 router.get('/leads', h(function (req) { return crm.listLeads(req.ctx, req.query); }));
 router.post('/leads', async function (req, res, next) { try { res.status(201).json(await crm.createLead(req.ctx, req.body)); } catch (e) { next(e); } });

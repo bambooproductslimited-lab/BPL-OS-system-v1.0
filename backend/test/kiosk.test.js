@@ -211,7 +211,7 @@ test('kiosk config reports whether face verification is in use here, without aut
   try {
     var none = await fetch(base + '/api/kiosk/config');
     assert.equal(none.status, 200); // no Authorization header at all
-    assert.deepEqual(await none.json(), { faceVerificationInUse: false });
+    assert.equal((await none.json()).faceVerificationInUse, false);
 
     var poses = [new Array(128).fill(0.1), new Array(128).fill(0.2)];
     var enrolled = await fetch(base + '/api/employees/' + emp.id + '/kiosk-face', {
@@ -219,13 +219,13 @@ test('kiosk config reports whether face verification is in use here, without aut
     });
     assert.equal(enrolled.status, 200);
 
-    assert.deepEqual(await (await fetch(base + '/api/kiosk/config')).json(), { faceVerificationInUse: true });
+    assert.equal((await (await fetch(base + '/api/kiosk/config')).json()).faceVerificationInUse, true);
 
     var cleared = await fetch(base + '/api/employees/' + emp.id + '/kiosk-face', {
       method: 'DELETE', headers: authed(admin)
     });
     assert.equal(cleared.status, 200);
-    assert.deepEqual(await (await fetch(base + '/api/kiosk/config')).json(), { faceVerificationInUse: false });
+    assert.equal((await (await fetch(base + '/api/kiosk/config')).json()).faceVerificationInUse, false);
   } finally {
     for (var i = 0; i < snapshot.rows.length; i++) {
       var row = snapshot.rows[i];

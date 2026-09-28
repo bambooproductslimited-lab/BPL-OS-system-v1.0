@@ -81,6 +81,12 @@ export function activeIntlLocale() { return currentIntlTag; }
 // nowhere in the codebase, so it means one thing everywhere.
 export function tr(key, vars) { return translate(currentLocale, key, vars); }
 
+// For a reader who isn't the one this screen was opened in: the kiosk
+// shows each person the result of their own tap in their own language
+// (KioskPage.jsx), whatever the kiosk itself is set to. An unknown or empty
+// locale falls back to the screen's.
+export function trIn(locale, key, vars) { return translate(isKnownLocale(locale) ? locale : currentLocale, key, vars); }
+
 // Customer-facing documents — invoices, quotations, estimates, letting
 // offers, receipts, waybills and the page behind a share link — are always
 // written in the company's document language, whatever language the person

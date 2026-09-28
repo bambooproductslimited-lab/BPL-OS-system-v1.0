@@ -161,3 +161,11 @@
   .crm-filters select.input { flex: 1 1 140px; }
   .crm-board { grid-auto-columns: minmax(78vw, 1fr); }
 }
+
+/* who is this? */
+.crm-who-note { align-items: center; margin-bottom: 10px; }
+.crm-who-note > span { flex: 1; min-width: 0; }
+.crm-who .dk-row { flex-wrap: wrap; }
+.crm-who-pick { display: flex; gap: 6px; align-items: center; flex: 1 1 260px; min-width: 0; max-width: 100%; justify-content: flex-end; }
+.crm-who-pick select.input { width: auto; min-width: 0; flex: 1 1 140px; max-width: 280px; }
+.crm-who-pick .btn { flex: none; }

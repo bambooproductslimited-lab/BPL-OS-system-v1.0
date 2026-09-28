@@ -366,8 +366,20 @@ async function deviceConfig() {
   var res = await pool.query(
     "SELECT 1 FROM employees WHERE face_descriptor IS NOT NULL AND status = 'active' LIMIT 1"
   );
-  return { faceVerificationInUse: res.rowCount > 0 };
+  // The languages the kiosk's own users read, so its waiting screen can
+  // carry a line in each (e.g. Chinese under English) before it knows who
+  // is tapping. Only which languages, never who reads them.
+  var langs = await pool.query(
+    'SELECT DISTINCT ' + PERSON_LOCALE + " AS locale FROM employees e WHERE e.status = 'active' AND e.kiosk_pin_hash IS NOT NULL");
+  return {
+    faceVerificationInUse: res.rowCount > 0,
+    staffLocales: langs.rows.map(function (r) { return r.locale; }).filter(function (l) { return l && ['en', 'fr', 'zh'].indexOf(l) >= 0; }).sort()
+  };
 }
+
+// The language a person reads: the one set on their employee record (many
+// kiosk users have no OS account), else their account's own choice.
+var PERSON_LOCALE = "coalesce(e.language, (SELECT u.locale FROM users u WHERE u.employee_id = e.id LIMIT 1))";
 
 // kiosk.identify — resolves a PIN to the employee it belongs to, without
 // clocking anything, so the kiosk knows before capturing a camera frame
@@ -383,7 +395,7 @@ async function identify(pin, ip) {
   }
   var hash = hashPin(pin);
   var empRes = await pool.query(
-    "SELECT id, first_name, last_name, face_descriptor FROM employees WHERE kiosk_pin_hash = $1 AND status = 'active'", [hash]
+    'SELECT e.id, e.first_name, e.last_name, e.face_descriptor, ' + PERSON_LOCALE + " AS locale FROM employees e WHERE e.kiosk_pin_hash = $1 AND e.status = 'active'", [hash]
   );
   var emp = empRes.rows[0];
   if (!emp) {
@@ -391,7 +403,7 @@ async function identify(pin, ip) {
     fail('invalid', 'Incorrect PIN.');
   }
   recordSuccess(ip);
-  return { employeeName: emp.first_name + ' ' + emp.last_name, requiresFace: !!emp.face_descriptor };
+  return { employeeName: emp.first_name + ' ' + emp.last_name, requiresFace: !!emp.face_descriptor, locale: emp.locale || null };
 }
 
 // kiosk.clock — the public, unauthenticated endpoint the iPad calls.
@@ -413,7 +425,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   }
   var hash = hashPin(pin);
   var empRes = await pool.query(
-    "SELECT id, first_name, last_name, face_descriptor FROM employees WHERE kiosk_pin_hash = $1 AND status = 'active'", [hash]
+    'SELECT e.id, e.first_name, e.last_name, e.face_descriptor, ' + PERSON_LOCALE + " AS locale FROM employees e WHERE e.kiosk_pin_hash = $1 AND e.status = 'active'", [hash]
   );
   var emp = empRes.rows[0];
   if (!emp) {
@@ -494,7 +506,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   var summary = await tapSummary(emp.id, rec, resolved.date);
   return Object.assign({
     action: action, employeeName: emp.first_name + ' ' + emp.last_name, firstName: emp.first_name, time: time, status: rec.status,
-    minutesLate: rec.minutesLate || 0, autoClosedShifts: autoClosedShifts
+    minutesLate: rec.minutesLate || 0, autoClosedShifts: autoClosedShifts, locale: emp.locale || null
   }, summary);
 }
 

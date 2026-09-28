@@ -487,6 +487,70 @@ export function VisitDialog({ visit, people, onClose, onSaved, onDeleted }) {
   );
 }
 
+// ── "who is this?": spreadsheet names linked to staff ────────────────
+// A sales rep or site assessor the import couldn't match to an employee is
+// kept as a plain name. Picking the staff member here moves every lead,
+// sale and visit carrying that name over at once, and the next import
+// remembers it.
+export function useUnmatchedNames() {
+  const [names, setNames] = useState([]);
+  const load = useCallback(() => api.get('/crm/unmatched-names').then(setNames).catch(() => {}), []);
+  useEffect(() => { load(); }, [load]);
+  return { names, reload: load };
+}
+
+export function WhoIsThisDialog({ people, onClose, onDone }) {
+  const { canManage } = usePerms();
+  const { names, reload } = useUnmatchedNames();
+  const [picked, setPicked] = useState({});
+  const [busy, setBusy] = useState(null);
+  const [done, setDone] = useState([]);
+  const [error, setError] = useState(null);
+  async function link(n) {
+    setBusy(n.name); setError(null);
+    try {
+      const r = await api.post('/crm/unmatched-names', { name: n.name, employeeId: picked[n.name] });
+      setDone((d) => [...d, tr('{name} is {person}: {leads} leads, {deals} sales and {visits} site visits moved over.', { name: n.name, person: r.employeeName, leads: r.leads, deals: r.deals, visits: r.visits })]);
+      await reload();
+      if (onDone) onDone();
+    } catch (err) { setError(err.message); } finally { setBusy(null); }
+  }
+  return (
+    <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
+      <div className="dialog tl-dialog crm-dialog" role="dialog" aria-modal="true" aria-labelledby="crm-who-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="crm-who-title">{tr('Who is this?')}</h2>
+        <p className="dialog-body">{tr('These names came from the spreadsheet but aren\'t linked to anyone on the staff list. Pick who each one is, and all their leads, sales and site visits move over at once. The next import will remember.')}</p>
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        {done.map((t, i) => <div key={i} className="crm-note is-good"><Icon name="check" /> {t}</div>)}
+        {names.length ? (
+          <ul className="dk-rows crm-who">
+            {names.map((n) => (
+              <li key={n.name} className="dk-row">
+                <span className="dk-lead-icon"><Icon name="people" /></span>
+                <div className="dk-row-main">
+                  <div className="dk-row-title">{n.name}</div>
+                  <div className="dk-muted dk-row-meta">{[n.leads ? tr('{n} leads', { n: n.leads }) : null, n.deals ? tr('{n} sales', { n: n.deals }) : null, n.visits ? tr('{n} site visits', { n: n.visits }) : null].filter(Boolean).join(' · ')}</div>
+                </div>
+                {canManage && (
+                  <div className="crm-who-pick">
+                    <select className="input" value={picked[n.name] || ''} onChange={(e) => setPicked({ ...picked, [n.name]: e.target.value })} aria-label={tr('Who {name} is', { name: n.name })}>
+                      <option value="">{tr('Pick a staff member…')}</option>
+                      {people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.position ? ' — ' + p.position : ''}</option>)}
+                    </select>
+                    <button type="button" className="btn btn-primary tl-btn" disabled={!picked[n.name] || busy === n.name} onClick={() => link(n)}>{busy === n.name ? tr('Linking…') : tr('Link')}</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : <Empty>{tr('Every name is linked to someone on the staff list.')}</Empty>}
+        <p className="dk-muted tl-small">{tr('Not on the staff list at all (an outside carpenter, say)? Leave them as a name — nothing else is needed.')}</p>
+        <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button></div>
+      </div>
+    </div>
+  );
+}
+
 // ── the spreadsheet import ───────────────────────────────────────────
 const TAB_LABEL = { leads: msg('Leads'), purchases: msg('Purchases (sales)'), visits: msg('Site visits'), referrals: msg('Referrals'), prospects: msg('Prospects') };
 

@@ -25,7 +25,7 @@ const LANGS = ['fr', 'zh'];
 // Everything a screen might use to translate or to format for the reader's
 // language, and the module that has to provide it.
 const PROVIDERS = {
-  tr: 'i18n.jsx', trNodes: 'i18n.jsx', docTr: 'i18n.jsx', msg: 'i18n.jsx',
+  tr: 'i18n.jsx', trNodes: 'i18n.jsx', docTr: 'i18n.jsx', msg: 'i18n.jsx', trIn: 'i18n.jsx',
   activeLocale: 'i18n.jsx', activeIntlLocale: 'i18n.jsx',
   DOCUMENT_LOCALE: 'i18n.jsx', DOCUMENT_INTL_LOCALE: 'i18n.jsx',
   formatDocDate: 'dates.js'

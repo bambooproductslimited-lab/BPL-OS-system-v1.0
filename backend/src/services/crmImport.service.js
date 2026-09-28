@@ -165,7 +165,13 @@ async function loadWorkbook(file) {
 
 async function staffMatcher() {
   var emps = (await pool.query("SELECT id, first_name, last_name FROM employees WHERE status = 'active'")).rows;
+  // names someone has already said are this staff member (the CRM's
+  // "who is this?")
+  var aliases = {};
+  (await pool.query('SELECT name_key, employee_id FROM crm_name_aliases')).rows.forEach(function (r) { aliases[r.name_key] = r.employee_id; });
   return function (name) {
+    var alias = aliases[String(name || '').trim().toLowerCase().replace(/\s+/g, ' ')];
+    if (alias) return alias;
     var n = norm(String(name || '').replace(/^\s*(mr|mrs|ms|miss|dr)\.?\s+/i, ''));
     if (!n) return null;
     var full = emps.filter(function (e) { return norm(e.first_name + ' ' + e.last_name) === n; });

@@ -11,11 +11,13 @@ import { readFileSync, globSync, existsSync } from 'node:fs';
 import { parseAst } from 'vite';
 
 // The ways a string enters a catalogue. tr() translates into the reader's
-// language (trNodes() too, for a sentence with markup in it), docTr() into
-// the documents' language, and msg() only marks a string in a module-level
-// constant that is translated later, where it is shown (see lib/i18n.jsx
-// for why each exists).
-export const KEY_FUNCTIONS = new Set(['tr', 'trNodes', 'docTr', 'msg']);
+// language (trNodes() too, for a sentence with markup in it), trIn() into a
+// given person's (the kiosk's), docTr() into the documents' language, and
+// msg() only marks a string in a module-level constant that is translated
+// later, where it is shown (see lib/i18n.jsx for why each exists).
+export const KEY_FUNCTIONS = new Set(['tr', 'trNodes', 'docTr', 'msg', 'trIn']);
+// Where the key is, when it isn't the first argument: trIn(locale, key).
+const KEY_ARGUMENT = { trIn: 1 };
 
 export function sourceFiles() {
   return globSync('src/**/*.{jsx,js}')
@@ -46,7 +48,7 @@ export function walk(node, visit, parents = []) {
 // The literal first argument of a tr()/docTr()/msg() call, or null when the
 // key is computed — tr(item.label), which is how msg() strings are shown.
 export function literalKey(call) {
-  const arg = call.arguments[0];
+  const arg = call.arguments[(call.callee && KEY_ARGUMENT[call.callee.name]) || 0];
   if (!arg) return null;
   if (arg.type === 'Literal' && typeof arg.value === 'string') return arg.value;
   if (arg.type === 'TemplateLiteral' && arg.expressions.length === 0) return arg.quasis[0].value.cooked;

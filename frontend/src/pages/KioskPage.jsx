@@ -4,7 +4,7 @@ import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/of
 import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
 import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
-import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import { tr, trIn, msg, activeIntlLocale, activeLocale, localeMeta, translate } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
 import '../components/DashKit.css';
 import './KioskPage.css';
@@ -47,12 +47,22 @@ const RESULT_DISPLAY_MS = 3500;
 // employee taps OK — long enough to read — but never leaves the kiosk stuck
 // on one person's result if they walk away.
 const NOTICE_DISPLAY_MS = 20000;
+// A clock-in also carries the reminder to clock out before going home: a
+// little longer on screen, to be read.
+const REMINDER_DISPLAY_MS = 9000;
 
-// "Tuesday 22 September" in the kiosk's language, from the server's
+// Each person reads the result of their own tap in their own language (set
+// on their employee record, or their account's — kiosk.service.js), with
+// trIn(). Before the kiosk knows who is tapping it speaks its own language,
+// with a line in each other language its staff read underneath (<Also>).
+function intlFor(locale) { return localeMeta(locale || activeLocale()).intl; }
+
+// "Tuesday 22 September" in the reader's language, from the server's
 // YYYY-MM-DD.
-function noticeDate(iso) {
-  return new Date(iso + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
+function noticeDate(iso, loc) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString(intlFor(loc), { weekday: 'long', day: 'numeric', month: 'long' });
 }
+
 function shiftHours(s) {
   const start = new Date(s.date + 'T' + s.clockIn + ':00Z').getTime();
   const end = new Date(s.clockOutDate + 'T' + s.clockOut + ':00Z').getTime();
@@ -60,11 +70,11 @@ function shiftHours(s) {
   return Number.isInteger(h) ? h : Math.round(h * 10) / 10;
 }
 // "5 h 47 min", "47 min", "8 h"
-function duration(mins) {
+function duration(mins, loc) {
   const h = Math.floor(mins / 60), m = mins % 60;
-  if (!h) return tr('{m} min', { m });
-  if (!m) return tr('{h} h', { h });
-  return tr('{h} h {m} min', { h, m });
+  if (!h) return trIn(loc, '{m} min', { m });
+  if (!m) return trIn(loc, '{h} h', { h });
+  return trIn(loc, '{h} h {m} min', { h, m });
 }
 const FLUSH_INTERVAL_MS = 20000;
 // requiresFace came back true from /kiosk/identify — the server knows this
@@ -92,6 +102,28 @@ function rememberFaceInUse(inUse) {
 }
 function recallFaceInUse() {
   try { return localStorage.getItem(FACE_IN_USE_KEY) === '1'; } catch { return false; }
+}
+// The languages this kiosk's staff read, as last answered by /kiosk/config —
+// remembered for the same reason as the camera: an offline start should
+// still show the Chinese line it showed yesterday.
+const STAFF_LOCALES_KEY = 'bamboo-kiosk-staff-locales';
+function rememberStaffLocales(list) {
+  try { localStorage.setItem(STAFF_LOCALES_KEY, JSON.stringify(list)); } catch { /* private mode */ }
+}
+function recallStaffLocales() {
+  try { const v = JSON.parse(localStorage.getItem(STAFF_LOCALES_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+// The server's answer to a wrong PIN, listed so it gets translated too.
+msg('Incorrect PIN.');
+
+// The same words again in each other language the staff read, smaller,
+// under the kiosk's own — for everything shown before we know who is
+// tapping.
+function Also({ locales, k, vars }) {
+  const others = locales.filter((l) => l !== activeLocale());
+  if (!others.length) return null;
+  return others.map((l) => <span key={l} className="kiosk-also" lang={l}>{translate(l, k, vars)}</span>);
 }
 
 const ICON_PATHS = {
@@ -124,6 +156,7 @@ export default function KioskPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [faceStage, setFaceStage] = useState(null); // { pin, optional } while the camera step is showing
   const [cameraBlocked, setCameraBlocked] = useState(false); // camera needed here, but this device hasn't granted it
+  const [staffLocales, setStaffLocales] = useState(recallStaffLocales);
   const resultTimerRef = useRef(null);
   const flushingRef = useRef(false);
   const locationRef = useRef(null); // latest GPS fix, kept fresh by watchPosition below
@@ -157,6 +190,7 @@ export default function KioskPage() {
         const cfg = await api.get('/kiosk/config');
         inUse = !!cfg.faceVerificationInUse;
         rememberFaceInUse(inUse);
+        if (!cancelled && Array.isArray(cfg.staffLocales)) { setStaffLocales(cfg.staffLocales); rememberStaffLocales(cfg.staffLocales); }
       } catch {
         inUse = recallFaceInUse(); // offline at boot — go with what this device saw last
       }
@@ -234,16 +268,18 @@ export default function KioskPage() {
     }
   }
 
-  async function submitPin(fullPin, faceDescriptor) {
+  async function submitPin(fullPin, faceDescriptor, knownLocale) {
     let noticeShown = false;
+    let reminder = false;
     setSubmitting(true);
     try {
       const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
       noticeShown = !!(r.autoClosedShifts && r.autoClosedShifts.length);
-      setResult({
+      reminder = r.action === 'in';
+      setResult({ locale: r.locale || knownLocale || null,
         kind: 'ok', action: r.action, employeeName: r.employeeName, firstName: r.firstName || r.employeeName, time: r.time, status: r.status, minutesLate: r.minutesLate,
         autoClosedShifts: r.autoClosedShifts || [], shift: r.shift || null, workedMinutes: r.workedMinutes, week: r.week || null, lateThisMonth: r.lateThisMonth || 0,
-        ms: noticeShown ? NOTICE_DISPLAY_MS : RESULT_DISPLAY_MS + 2500
+        ms: noticeShown ? NOTICE_DISPLAY_MS : reminder ? REMINDER_DISPLAY_MS : RESULT_DISPLAY_MS + 2500
       });
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
@@ -259,7 +295,7 @@ export default function KioskPage() {
     } finally {
       setSubmitting(false);
       setPin('');
-      resultTimerRef.current = setTimeout(() => setResult(null), noticeShown ? NOTICE_DISPLAY_MS : RESULT_DISPLAY_MS + 2500);
+      resultTimerRef.current = setTimeout(() => setResult(null), noticeShown ? NOTICE_DISPLAY_MS : reminder ? REMINDER_DISPLAY_MS : RESULT_DISPLAY_MS + 2500);
     }
   }
 
@@ -288,9 +324,9 @@ export default function KioskPage() {
       const r = await api.post('/kiosk/identify', { pin: fullPin });
       setSubmitting(false);
       if (r.requiresFace) {
-        setFaceStage({ pin: fullPin, optional: false });
+        setFaceStage({ pin: fullPin, optional: false, locale: r.locale || null });
       } else {
-        submitPin(fullPin);
+        submitPin(fullPin, null, r.locale || null);
       }
     } catch (err) {
       setSubmitting(false);
@@ -341,23 +377,24 @@ export default function KioskPage() {
   const clock = now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
   const dateLine = now.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  function facts(r) {
+  function facts(r, loc) {
     const out = [];
     if (r.action === 'in') {
-      if (r.status === 'late') out.push({ icon: 'warn', tone: 'warn', text: tr('{time} late for your shift', { time: duration(r.minutesLate || 0) }) });
-      else if (r.status) out.push({ icon: 'checkCircle', tone: 'good', text: tr('On time') });
-      if (r.shift) out.push({ icon: 'clock', text: r.shift.end ? tr('Your shift: {start} to {end}', { start: r.shift.start, end: r.shift.end }) : tr('Your shift starts at {start}', { start: r.shift.start }) });
+      if (r.status === 'late') out.push({ icon: 'warn', tone: 'warn', text: trIn(loc, '{time} late for your shift', { time: duration(r.minutesLate || 0, loc) }) });
+      else if (r.status) out.push({ icon: 'checkCircle', tone: 'good', text: trIn(loc, 'On time') });
+      if (r.shift) out.push({ icon: 'clock', text: r.shift.end ? trIn(loc, 'Your shift: {start} to {end}', { start: r.shift.start, end: r.shift.end }) : trIn(loc, 'Your shift starts at {start}', { start: r.shift.start }) });
     } else if (r.workedMinutes != null) {
-      out.push({ icon: 'clock', tone: 'good', text: tr('You worked {time} this shift', { time: duration(r.workedMinutes) }) });
+      out.push({ icon: 'clock', tone: 'good', text: trIn(loc, 'You worked {time} this shift', { time: duration(r.workedMinutes, loc) }) });
     }
     if (r.week && r.week.days) {
       out.push({ icon: 'calendar', text: r.week.hours > 0
-        ? (r.week.days === 1 ? tr('This week: 1 day, {h} hours', { h: r.week.hours }) : tr('This week: {n} days, {h} hours', { n: r.week.days, h: r.week.hours }))
-        : (r.week.days === 1 ? tr('This week: 1 day') : tr('This week: {n} days', { n: r.week.days })) });
+        ? (r.week.days === 1 ? trIn(loc, 'This week: 1 day, {h} hours', { h: r.week.hours }) : trIn(loc, 'This week: {n} days, {h} hours', { n: r.week.days, h: r.week.hours }))
+        : (r.week.days === 1 ? trIn(loc, 'This week: 1 day') : trIn(loc, 'This week: {n} days', { n: r.week.days })) });
     }
-    if (r.action === 'in' && r.lateThisMonth > 1) out.push({ icon: 'warn', tone: 'warn', text: tr('Late {n} times this month', { n: r.lateThisMonth }) });
+    if (r.action === 'in' && r.lateThisMonth > 1) out.push({ icon: 'warn', tone: 'warn', text: trIn(loc, 'Late {n} times this month', { n: r.lateThisMonth }) });
     return out;
   }
+  const rl = result && result.locale;   // the reader of this result
 
   return (
     <div className={'dk kiosk' + (tone ? ' is-' + tone : '')}>
@@ -383,13 +420,24 @@ export default function KioskPage() {
           </div>
           {result.kind === 'ok' && (
             <>
-              <p className="kiosk-result-kicker">{result.action === 'in' ? tr('Clocked in at {time}', { time: result.time }) : tr('Clocked out at {time}', { time: result.time })}</p>
-              <h1 className="kiosk-result-title">{result.action === 'in' ? tr('Welcome, {name}', { name: result.firstName }) : tr('Goodbye, {name}', { name: result.firstName })}</h1>
+              <p className="kiosk-result-kicker">{result.action === 'in' ? trIn(rl, 'Clocked in at {time}', { time: result.time }) : trIn(rl, 'Clocked out at {time}', { time: result.time })}</p>
+              <h1 className="kiosk-result-title">{result.action === 'in' ? trIn(rl, 'Welcome, {name}', { name: result.firstName }) : trIn(rl, 'Goodbye, {name}', { name: result.firstName })}</h1>
               <p className="kiosk-result-name">{result.employeeName}</p>
-              {facts(result).length > 0 && (
+              {facts(result, rl).length > 0 && (
                 <ul className="kiosk-facts">
-                  {facts(result).map((f, i) => <li key={i} className={f.tone ? 'is-' + f.tone : ''}><Icon name={f.icon} /><span>{f.text}</span></li>)}
+                  {facts(result, rl).map((f, i) => <li key={i} className={f.tone ? 'is-' + f.tone : ''}><Icon name={f.icon} /><span>{f.text}</span></li>)}
                 </ul>
+              )}
+              {result.action === 'in' && (
+                <div className="kiosk-remind" role="alert" lang={rl || activeLocale()}>
+                  <Icon name="exit" />
+                  <div>
+                    <p className="kiosk-remind-title">{trIn(rl, 'Don\'t forget to clock out before you leave')}</p>
+                    <p className="kiosk-remind-body">{result.shift && result.shift.end
+                      ? trIn(rl, 'Your shift ends at {end}. When you go home, tap your PIN here again.', { end: result.shift.end })
+                      : trIn(rl, 'When you go home, tap your PIN here again.')}</p>
+                  </div>
+                </div>
               )}
               {result.autoClosedShifts && result.autoClosedShifts.length > 0 && (() => {
                 const last = result.autoClosedShifts[0];
@@ -397,22 +445,22 @@ export default function KioskPage() {
                 return (
                   <div className="kiosk-notice" role="alertdialog" aria-labelledby="kiosk-notice-title">
                     <div className="kiosk-notice-title" id="kiosk-notice-title">
-                      <Icon name="clock" /> {tr('Your last shift was not clocked out')}
+                      <Icon name="clock" /> {trIn(rl, 'Your last shift was not clocked out')}
                     </div>
                     <p className="kiosk-notice-body">
-                      {tr('You clocked in at {clockIn} on {date} but didn\'t clock out, so the system clocked you out automatically at {clockOut}, {hours} hours later.', {
-                        clockIn: last.clockIn, date: noticeDate(last.date), clockOut: last.clockOut, hours: shiftHours(last)
+                      {trIn(rl, 'You clocked in at {clockIn} on {date} but didn\'t clock out, so the system clocked you out automatically at {clockOut}, {hours} hours later.', {
+                        clockIn: last.clockIn, date: noticeDate(last.date, rl), clockOut: last.clockOut, hours: shiftHours(last)
                       })}
                     </p>
                     {earlier > 0 && (
                       <p className="kiosk-notice-body">
                         {earlier === 1
-                          ? tr('One earlier shift was also clocked out automatically.')
-                          : tr('{n} earlier shifts were also clocked out automatically.', { n: earlier })}
+                          ? trIn(rl, 'One earlier shift was also clocked out automatically.')
+                          : trIn(rl, '{n} earlier shifts were also clocked out automatically.', { n: earlier })}
                       </p>
                     )}
                     <p className="kiosk-notice-body kiosk-notice-hint">
-                      {tr('If you left at a different time, tell your supervisor so they can correct it. Remember to clock out at the end of every shift.')}
+                      {trIn(rl, 'If you left at a different time, tell your supervisor so they can correct it. Remember to clock out at the end of every shift.')}
                     </p>
                   </div>
                 );
@@ -422,18 +470,18 @@ export default function KioskPage() {
           {result.kind === 'pending' && (
             <>
               <p className="kiosk-result-kicker">{tr('No connection')}</p>
-              <h1 className="kiosk-result-title">{tr('Recorded')}</h1>
-              <p className="kiosk-result-name">{tr('No connection — this will sync automatically once you\'re back online.')}</p>
+              <h1 className="kiosk-result-title">{tr('Recorded')}<Also locales={staffLocales} k="Recorded" /></h1>
+              <p className="kiosk-result-name">{tr('No connection — this will sync automatically once you\'re back online.')}<Also locales={staffLocales} k={'No connection — this will sync automatically once you\'re back online.'} /></p>
             </>
           )}
           {result.kind === 'error' && (
             <>
-              <p className="kiosk-result-kicker">{tr('Not clocked')}</p>
-              <h1 className="kiosk-result-title">{result.message}</h1>
-              <p className="kiosk-result-name">{tr('Check your PIN and try again. If it keeps happening, ask your supervisor.')}</p>
+              <p className="kiosk-result-kicker">{tr('Not clocked')}<Also locales={staffLocales} k="Not clocked" /></p>
+              <h1 className="kiosk-result-title">{result.message}{result.message === 'Incorrect PIN.' && <Also locales={staffLocales} k="Incorrect PIN." />}</h1>
+              <p className="kiosk-result-name">{tr('Check your PIN and try again. If it keeps happening, ask your supervisor.')}<Also locales={staffLocales} k="Check your PIN and try again. If it keeps happening, ask your supervisor." /></p>
             </>
           )}
-          <button type="button" className="kiosk-done" onClick={dismissResult} autoFocus>{result.autoClosedShifts && result.autoClosedShifts.length ? tr('OK, got it') : tr('Done')}</button>
+          <button type="button" className="kiosk-done" onClick={dismissResult} autoFocus>{result.kind === 'ok' ? (result.autoClosedShifts && result.autoClosedShifts.length ? trIn(rl, 'OK, got it') : trIn(rl, 'Done')) : tr('Done')}</button>
           <span className="kiosk-timer" aria-hidden="true"><span key={result.time + result.kind} style={{ animationDuration: (result.ms || RESULT_DISPLAY_MS) + 'ms' }} /></span>
         </div>
       ) : (
@@ -441,13 +489,14 @@ export default function KioskPage() {
           <div className="kiosk-side">
             <p className="dk-eyebrow">{dateLine}</p>
             <div className="kiosk-clock">{clock}</div>
-            <h1 className="kiosk-title">{tr('Clock in or out')}</h1>
-            <p className="dk-muted">{tr('Tap your 4-digit PIN. The same PIN clocks you in when you arrive and out when you leave.')}</p>
+            <h1 className="kiosk-title">{tr('Clock in or out')}<Also locales={staffLocales} k="Clock in or out" /></h1>
+            <p className="dk-muted">{tr('Tap your 4-digit PIN. The same PIN clocks you in when you arrive and out when you leave.')}<Also locales={staffLocales} k="Tap your 4-digit PIN. The same PIN clocks you in when you arrive and out when you leave." /></p>
             <ol className="kiosk-steps">
-              <li><span>1</span>{tr('Tap your PIN')}</li>
-              <li><span>2</span>{tr('Look at the camera if it asks')}</li>
-              <li><span>3</span>{tr('Check your name on the screen')}</li>
+              <li><span>1</span><div>{tr('Tap your PIN')}<Also locales={staffLocales} k="Tap your PIN" /></div></li>
+              <li><span>2</span><div>{tr('Look at the camera if it asks')}<Also locales={staffLocales} k="Look at the camera if it asks" /></div></li>
+              <li><span>3</span><div>{tr('Check your name on the screen')}<Also locales={staffLocales} k="Check your name on the screen" /></div></li>
             </ol>
+            <p className="kiosk-leaving"><Icon name="exit" /><span>{tr('Going home? Clock out first: tap your PIN again.')}<Also locales={staffLocales} k="Going home? Clock out first: tap your PIN again." /></span></p>
             {cameraBlocked && (
               <button type="button" className="kiosk-camera-warning" onClick={enableCamera}>
                 <Icon name="xCircle" />
@@ -463,13 +512,13 @@ export default function KioskPage() {
               <div className="kiosk-face-wrap">
                 <FaceCapture
                   mode="kiosk"
-                  title={tr('Confirm it\'s you')}
-                  subtitle={tr('Hold still and look at the camera to finish clocking in or out.')}
+                  title={trIn(faceStage.locale, 'Confirm it\'s you')}
+                  subtitle={trIn(faceStage.locale, 'Hold still and look at the camera to finish clocking in or out.')}
                   timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
                   onCapture={(descriptor) => {
-                    const p = faceStage.pin;
+                    const p = faceStage.pin, loc = faceStage.locale;
                     setFaceStage(null);
-                    submitPin(p, descriptor);
+                    submitPin(p, descriptor, loc);
                   }}
                   onCancel={() => { setFaceStage(null); setPin(''); }}
                   onTimeout={() => {
@@ -492,7 +541,7 @@ export default function KioskPage() {
                 <div className="kiosk-pin" aria-label={tr('PIN')}>
                   {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
                 </div>
-                <p className="kiosk-pin-note" role="status">{submitting ? tr('Checking…') : pin.length ? tr('{n} of 4', { n: pin.length }) : tr('Enter your PIN')}</p>
+                <p className="kiosk-pin-note" role="status">{submitting ? tr('Checking…') : pin.length ? tr('{n} of 4', { n: pin.length }) : <>{tr('Enter your PIN')}<Also locales={staffLocales} k="Enter your PIN" /></>}</p>
                 <div className="kiosk-keypad">
                   {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
                     <button key={d} type="button" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>

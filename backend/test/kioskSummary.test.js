@@ -73,3 +73,30 @@ test('someone with no shift set gets no shift line', async function () {
   var tap = await kiosk.clock(PIN, '10.8.8.2');
   assert.equal(tap.shift, null);
 });
+
+test('the tap answers in the person\'s own language: their employee setting, else their account\'s', async function () {
+  var employees = require('../src/services/employees.service');
+  var { buildContext } = require('../src/services/context.service');
+  var kelvin = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'kelvin.duho@bplghana.com'")).rows[0].id);
+  var alice = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'alice.kamau@bplghana.com'")).rows[0].id);
+  await pool.query('DELETE FROM attendance WHERE employee_id = $1', [emp]);
+  assert.equal((await kiosk.identify(PIN, '10.8.8.3')).locale, null);                       // nothing set: the kiosk's own language
+
+  await assert.rejects(employees.update(alice, emp, { language: 'zh' }), /employee/);
+  await assert.rejects(employees.update(kelvin, emp, { language: 'xx' }), /Language/);
+  var e = await employees.update(kelvin, emp, { language: 'zh' });
+  assert.equal(e.language, 'zh');
+  assert.equal((await kiosk.identify(PIN, '10.8.8.3')).locale, 'zh');
+  var tap = await kiosk.clock(PIN, '10.8.8.3');
+  assert.equal(tap.locale, 'zh');
+  assert.ok((await kiosk.deviceConfig()).staffLocales.indexOf('zh') >= 0);                  // the waiting screen adds a Chinese line
+
+  // cleared, it follows their account's language
+  await employees.update(kelvin, emp, { language: '' });
+  var user = (await pool.query("INSERT INTO users (employee_id, email, password_hash, status, locale) VALUES ($1, 'zqk1.user@example.com', 'x', 'active', 'fr') RETURNING id", [emp])).rows[0].id;
+  try {
+    assert.equal((await kiosk.identify(PIN, '10.8.8.3')).locale, 'fr');
+  } finally {
+    await pool.query('DELETE FROM users WHERE id = $1', [user]);
+  }
+});
