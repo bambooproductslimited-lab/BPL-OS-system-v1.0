@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { tr } from '../lib/i18n.jsx';
+import { CatalogImage } from './CatalogPhotos';
 import './CatalogPicker.css';
 
 // Combined search-or-type-custom item field, used by DocItemsEditor
@@ -111,10 +112,11 @@ export default function CatalogPicker({ value, onChange, onPickOption, options, 
             <button
               type="button"
               key={c.id}
-              className={'catpick-option' + (i === highlight ? ' catpick-option-active' : '')}
+              className={'catpick-option' + (i === highlight ? ' catpick-option-active' : '') + (c.photoId ? ' has-photo' : '')}
               onMouseDown={(e) => { e.preventDefault(); pick(c); }}
               onMouseEnter={() => setHighlight(i)}
             >
+              {c.photoId && <span className="catpick-photo" aria-hidden="true"><CatalogImage id={c.photoId} /></span>}
               {renderOption ? renderOption(c) : (c.name + (c.code ? ' (' + c.code + ')' : ''))}
             </button>
           ))}

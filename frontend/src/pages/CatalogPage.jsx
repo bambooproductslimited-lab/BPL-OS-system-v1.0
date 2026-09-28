@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
+import { CameraIcon, CatalogImage, ItemGallery } from '../components/CatalogPhotos';
 import { Glossary, Hero, Insights, RankList, Section, Status, avatarColor, fmtDate, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr } from '../lib/i18n.jsx';
@@ -42,7 +43,9 @@ function BoxIcon() {
     </svg>
   );
 }
+// The item's cover photo, or a coloured box when it has none.
 function Mark({ item, size = 44 }) {
+  if (item.photos && item.photos.length) return <span className="ct-thumb" style={{ width: size, height: size }} aria-hidden="true"><CatalogImage id={item.photos[0].id} /></span>;
   return <span className="pk-avatar cu-mark ct-mark" style={{ width: size, height: size, background: avatarColor(item.categoryId ? item.categoryName : item.name) }} aria-hidden="true"><BoxIcon /></span>;
 }
 function margin(v) { return v.unitPrice > 0 && v.costPrice > 0 ? Math.round(((v.unitPrice - v.costPrice) / v.unitPrice) * 100) : null; }
@@ -125,6 +128,7 @@ export default function CatalogPage() {
   }, [canSeeTaxRates]);
 
   useEffect(() => { load(); }, [load]);
+  const setPhotos = (itemId, photos) => setItems((list) => list.map((it) => (it.id === itemId ? { ...it, photos } : it)));
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -324,11 +328,13 @@ export default function CatalogPage() {
   if (noPrice.length) insights.push({ tone: 'warn', icon: 'warn', text: noPrice.length === 1 ? tr('{name} has no price, so it goes on quotations at zero.', { name: fullName(noPrice[0], noPrice[0].item) }) : tr('{n} products on sale have no price, so they go on quotations at zero.', { n: noPrice.length }), action: { label: tr('Show them'), run: () => showOnly('noprice') } });
   if (soldOut.length) insights.push({ tone: 'warn', icon: 'bag', text: soldOut.length === 1 ? tr('{name} sold recently and has none in stock.', { name: fullName(soldOut[0], soldOut[0].item) }) : tr('{n} products sold recently and have none in stock.', { n: soldOut.length }), action: { label: tr('Show them'), run: () => showOnly('soldout') } });
   if (noCost.length) insights.push({ tone: 'info', icon: 'percent', text: noCost.length === 1 ? tr('{name} has no cost price, so its margin is unknown.', { name: fullName(noCost[0], noCost[0].item) }) : tr('{n} products have no cost price, so their margin is unknown.', { n: noCost.length }), action: { label: tr('Show them'), run: () => showOnly('nocost') } });
+  const noPhoto = onSaleItems.filter((it) => !(it.photos && it.photos.length));
+  if (noPhoto.length && canManage) insights.push({ tone: 'info', icon: 'info', text: noPhoto.length === onSaleItems.length ? tr('No item has a photo yet. Add photos so everyone can see what they are quoting.') : noPhoto.length === 1 ? tr('{name} has no photo yet.', { name: noPhoto[0].name }) : tr('{n} items on sale have no photo yet.', { n: noPhoto.length }), action: noPhoto.length === 1 ? { label: tr('Add photos'), run: () => setDetail(noPhoto[0].id) } : { label: tr('Show them'), run: () => showOnly('nophoto') } });
   if (best.length) insights.push({ tone: 'good', icon: 'up', text: tr('{name} sold the most over the last 12 months: {amount}.', { name: fullName(best[0], best[0].item), amount: moneyBreakdown(best[0].sold.amounts) }), action: { label: tr('Open'), run: () => setDetail(best[0].item.id) } });
 
   const chipItems = {
     onsale: onSaleItems, selling: [...itemIds(sold)], unsold: [...itemIds(unsold)], below: [...itemIds(below)], noprice: [...itemIds(noPrice)],
-    nocost: [...itemIds(noCost)], soldout: [...itemIds(soldOut)], archived: items.filter((it) => !it.active), all: items
+    nocost: [...itemIds(noCost)], soldout: [...itemIds(soldOut)], nophoto: noPhoto, archived: items.filter((it) => !it.active), all: items
   };
   const inChip = (it) => { const l = chipItems[chip] || chipItems.onsale; return l.length && typeof l[0] === 'string' ? l.includes(it.id) : l.includes(it); };
   const visible = items.filter(inChip)
@@ -337,7 +343,7 @@ export default function CatalogPage() {
   const chips = [
     ['onsale', tr('On sale'), onSaleItems.length], ['selling', tr('Selling'), itemIds(sold).size], ['unsold', tr('Not sold in 12 months'), itemIds(unsold).size],
     ['below', tr('Below cost'), itemIds(below).size], ['noprice', tr('No price'), itemIds(noPrice).size], ['nocost', tr('No cost price'), itemIds(noCost).size],
-    ['soldout', tr('Sold out'), itemIds(soldOut).size], ['archived', tr('Archived'), items.filter((it) => !it.active).length], ['all', tr('All'), items.length]
+    ['soldout', tr('Sold out'), itemIds(soldOut).size], ['nophoto', tr('No photo'), noPhoto.length], ['archived', tr('Archived'), items.filter((it) => !it.active).length], ['all', tr('All'), items.length]
   ].filter(([k, , c]) => c > 0 || k === 'onsale' || k === chip);
 
   function stateOf(it) {
@@ -367,6 +373,8 @@ export default function CatalogPage() {
     ].filter(Boolean);
   }
   const cur = detail ? items.find((it) => it.id === detail) : null;
+  // Once any item has a photo, the cards show a cover each (or a gap for one).
+  const showCovers = items.some((it) => it.photos && it.photos.length);
   const catChoices = [...new Map(items.map((it) => [it.categoryId || 'none', it.categoryId ? it.categoryName : tr('No category')])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
 
   return (
@@ -425,14 +433,20 @@ export default function CatalogPage() {
         ) : view === 'cards' ? (
           <div className="tl-grid">
             {visible.map((it) => {
+              const cover = it.photos && it.photos[0];
               const st = stateOf(it);
               const live = it.variations.filter((v) => v.active || !it.active);
               const ms = live.map(margin).filter((m) => m !== null);
               const stock = live.reduce((s, v) => s + v.stockQty, 0);
               return (
                 <article key={it.id} className={'tl-card' + (st.tone === 'bad' ? ' st-late' : '') + (!it.active ? ' st-retired' : '')}>
+                  {showCovers && (
+                    <button type="button" className={'ct-cover' + (cover ? '' : ' ct-cover-none')} onClick={() => setDetail(it.id)} tabIndex={-1} aria-hidden="true">
+                      {cover ? <CatalogImage id={cover.id} /> : <><CameraIcon />{canManage ? tr('Add a photo') : tr('No photo yet')}</>}
+                    </button>
+                  )}
                   <button type="button" className="tl-card-open" onClick={() => setDetail(it.id)}>
-                    <Mark item={it} />
+                    {!showCovers && <Mark item={it} />}
                     <span className="tl-card-head">
                       <span className="dk-muted tl-small">{it.categoryId ? it.categoryName : tr('No category')} · {live.length === 1 ? tr('1 variation') : tr('{n} variations', { n: live.length })}</span>
                       <span className="tl-name">{it.name}</span>
@@ -480,6 +494,7 @@ export default function CatalogPage() {
         [tr('Variation'), tr('One size, finish or version of an item, with its own code, price, cost and stock. It is what goes on a quotation or invoice line.')],
         [tr('Margin'), tr('What is left of the price after the cost price, as a share of the price.')],
         [tr('Sold'), tr('Invoiced over the last 12 months, voided invoices left out. A line counts when it was picked from here, or carries the same name.')],
+        [tr('Photos'), tr('Pictures of the item, up to 12. The first is the cover on its card; one marked for a variation is shown for that variation when picking lines for a quotation or invoice.')],
         [tr('Archived'), tr('No longer offered: it can\'t be picked for new documents, but past documents keep it.')]
       ]} />
 
@@ -497,13 +512,17 @@ export default function CatalogPage() {
               <button type="button" className="tl-close" onClick={() => setDetail(null)} aria-label={tr('Close')}>×</button>
             </div>
             {cur.description && <p className="tl-notes">{cur.description}</p>}
+            <h3 className="tl-h3">{tr('Photos')}</h3>
+            <ItemGallery key={cur.id} item={cur} canManage={canManage} onPhotos={(photos) => setPhotos(cur.id, photos)} />
             <h3 className="tl-h3">{tr('Variations')}</h3>
             <ul className="rs-list ct-vars">
               {cur.variations.map((v) => {
                 const m = margin(v);
+                const own = (cur.photos || []).find((p) => p.variationId === v.id);
                 return (
                   <li key={v.id} className={'rs-row' + (!v.active ? ' is-void' : '')}>
                     <div className="rs-row-open ct-var">
+                      {own && <span className="ct-var-photo"><CatalogImage id={own.id} /></span>}
                       <span className="rs-row-main">
                         <strong>{varLabel(v)} <span className="dk-muted tl-small">· {v.code}</span></strong>
                         <span className="dk-muted tl-small">

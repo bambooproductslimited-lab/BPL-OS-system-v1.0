@@ -1,6 +1,15 @@
 var express = require('express');
+var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
+var { allowlistFilter } = require('../lib/uploadFilters');
+var fileStore = require('../lib/fileStore');
 var catalogService = require('../services/catalog.service');
+
+var photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 12 },
+  fileFilter: allowlistFilter(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'], 'That isn’t a photo.')
+});
 
 var router = express.Router();
 router.use(requireAuth);
@@ -43,6 +52,24 @@ router.post('/variations/:id/stock', async function (req, res, next) {
 });
 router.delete('/variations/:id', async function (req, res, next) {
   try { res.json(await catalogService.removeVariation(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+// Photos of an item: add (multipart "photos", optional variationId), show
+// one, tag it to a variation or caption it, make it the cover, remove it.
+router.post('/items/:id/photos', photoUpload.array('photos', 12), async function (req, res, next) {
+  try { res.status(201).json(await catalogService.addPhotos(req.ctx, req.params.id, req.files, req.body && req.body.variationId)); } catch (e) { next(e); }
+});
+router.get('/photos/:id', async function (req, res, next) {
+  try { await fileStore.send(res, await catalogService.photoFor(req.ctx, req.params.id), 'photo.jpg', true); } catch (e) { next(e); }
+});
+router.put('/photos/:id', async function (req, res, next) {
+  try { res.json(await catalogService.updatePhoto(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+router.post('/photos/:id/cover', async function (req, res, next) {
+  try { res.json(await catalogService.makeCover(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.delete('/photos/:id', async function (req, res, next) {
+  try { res.json(await catalogService.removePhoto(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
 router.get('/categories', async function (req, res, next) {

@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { bplScopeClause } = require('../utils/documents');
+var fileStore = require('../lib/fileStore');
 
 // Products & Services, restructured (migration 0027) to match Square's own
 // catalog shape: an Item (this business's real Square catalog uses this
@@ -16,6 +17,10 @@ function rowToVariation(r) {
     defaultQty: Number(r.default_qty), unitPrice: Number(r.unit_price), costPrice: Number(r.cost_price),
     stockQty: Number(r.stock_qty), active: r.active
   };
+}
+
+function rowToPhoto(r) {
+  return { id: r.id, variationId: r.variation_id || null, caption: r.caption || '', version: new Date(r.created_at).getTime() };
 }
 
 // 'Regular' (the default variation name for an item nobody bothered to name
@@ -33,10 +38,13 @@ function variationDisplayName(itemName, variationName) {
 async function list(ctx) {
   if (!ctx.can('catalog.read')) fail('forbidden', 'Your role does not allow this action (catalog.read).');
   var res = await pool.query(
-    'SELECT v.*, i.name AS item_name, i.description AS item_description FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.name'
+    'SELECT v.*, i.name AS item_name, i.description AS item_description, ' +
+    // The variation's own photo, else the item's cover.
+    '(SELECT p.id FROM catalog_item_photos p WHERE p.item_id = v.item_id ORDER BY (p.variation_id = v.id) IS TRUE DESC, p.position LIMIT 1) AS photo_id ' +
+    'FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.name'
   );
   return res.rows.map(function (r) {
-    return Object.assign(rowToVariation(r), { name: variationDisplayName(r.item_name, r.name), description: r.item_description || '' });
+    return Object.assign(rowToVariation(r), { name: variationDisplayName(r.item_name, r.name), description: r.item_description || '', photoId: r.photo_id || null });
   });
 }
 
@@ -45,7 +53,8 @@ async function listItems(ctx) {
   if (!ctx.can('catalog.read')) fail('forbidden', 'Your role does not allow this action (catalog.read).');
   var res = await pool.query(
     'SELECT i.*, c.name AS category_name, ' +
-    "coalesce((SELECT json_agg(v.* ORDER BY v.name) FROM catalog_item_variations v WHERE v.item_id = i.id), '[]') AS variations " +
+    "coalesce((SELECT json_agg(v.* ORDER BY v.name) FROM catalog_item_variations v WHERE v.item_id = i.id), '[]') AS variations, " +
+    "coalesce((SELECT json_agg(p.* ORDER BY p.position, p.created_at) FROM catalog_item_photos p WHERE p.item_id = i.id), '[]') AS photos " +
     'FROM catalog_items i LEFT JOIN catalog_categories c ON c.id = i.category_id ORDER BY i.name'
   );
   var sales = await salesByVariation(res.rows);
@@ -53,6 +62,7 @@ async function listItems(ctx) {
     return {
       id: r.id, name: r.name, description: r.description, categoryId: r.category_id, categoryName: r.category_name || '—',
       taxRateId: r.tax_rate_id, active: r.active,
+      photos: r.photos.map(rowToPhoto),
       variations: r.variations.map(function (v) {
         return Object.assign(rowToVariation(v), { sold: sales[v.id] || { qty: 0, amounts: [], invoices: 0, lastSoldOn: null } });
       })
@@ -186,7 +196,9 @@ async function remove(ctx, id) {
   if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
   var res = await pool.query('SELECT name FROM catalog_items WHERE id = $1', [id]);
   if (!res.rows[0]) fail('notfound', 'Item not found.');
+  var keys = (await pool.query('SELECT photo_key FROM catalog_item_photos WHERE item_id = $1', [id])).rows.map(function (r) { return r.photo_key; });
   await pool.query('DELETE FROM catalog_items WHERE id = $1', [id]);
+  for (var k of keys) await fileStore.del(k);
   await audit(pool, ctx, 'catalog.delete', 'catalog_item', id, 'Deleted catalogue item ' + res.rows[0].name + '.');
   return true;
 }
@@ -266,7 +278,91 @@ async function removeVariation(ctx, id) {
   return true;
 }
 
+// ── photos of an item ──────────────────────────────────────────────
+// Several per item; position 0 is the cover. Anyone who can see the
+// catalogue sees them; catalog.manage adds, tags, reorders and removes.
+var MAX_PHOTOS = 12;
+
+async function itemPhotos(itemId) {
+  var r = await pool.query('SELECT * FROM catalog_item_photos WHERE item_id = $1 ORDER BY position, created_at', [itemId]);
+  return r.rows.map(rowToPhoto);
+}
+async function renumber(itemId) {
+  await pool.query(
+    'UPDATE catalog_item_photos p SET position = o.n FROM (SELECT id, row_number() OVER (ORDER BY position, created_at) - 1 AS n FROM catalog_item_photos WHERE item_id = $1) o WHERE p.id = o.id',
+    [itemId]);
+}
+async function photoRow(id) {
+  var r = (await pool.query('SELECT p.*, i.name AS item_name FROM catalog_item_photos p JOIN catalog_items i ON i.id = p.item_id WHERE p.id = $1', [id])).rows[0];
+  if (!r) fail('notfound', 'Photo not found.');
+  return r;
+}
+async function checkVariation(itemId, variationId) {
+  if (!variationId) return null;
+  var r = await pool.query('SELECT id FROM catalog_item_variations WHERE id = $1 AND item_id = $2', [variationId, itemId]);
+  if (!r.rows[0]) fail('invalid', 'That variation isn’t part of this item.');
+  return variationId;
+}
+
+async function photoFor(ctx, id) {
+  if (!ctx.can('catalog.read')) fail('forbidden', 'Your role does not allow this action (catalog.read).');
+  return (await photoRow(id)).photo_key;
+}
+
+async function addPhotos(ctx, itemId, files, variationId) {
+  if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
+  var item = (await pool.query('SELECT * FROM catalog_items WHERE id = $1', [itemId])).rows[0];
+  if (!item) fail('notfound', 'Item not found.');
+  files = files || [];
+  if (!files.length) fail('invalid', 'Choose a photo.');
+  files.forEach(function (f) { if (!/^image\//.test(f.mimetype || '')) fail('invalid', 'That isn’t a photo.'); });
+  variationId = await checkVariation(itemId, variationId || null);
+  var have = (await pool.query('SELECT count(*)::int AS n, coalesce(max(position), -1) AS top FROM catalog_item_photos WHERE item_id = $1', [itemId])).rows[0];
+  if (have.n + files.length > MAX_PHOTOS) fail('invalid', 'An item can have up to ' + MAX_PHOTOS + ' photos. It has ' + have.n + ' already.');
+  var slug = item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'item';
+  for (var i = 0; i < files.length; i++) {
+    var key = await fileStore.put('catalog-' + slug + '.jpg', files[i].buffer, files[i].mimetype);
+    try {
+      await pool.query('INSERT INTO catalog_item_photos (item_id, variation_id, photo_key, position, created_by) VALUES ($1,$2,$3,$4,$5)',
+        [itemId, variationId, key, have.top + 1 + i, ctx.employee ? ctx.employee.id : null]);
+    } catch (err) { await fileStore.del(key); throw err; }
+  }
+  await audit(pool, ctx, 'catalog.photo.add', 'catalog_item', itemId, (files.length === 1 ? 'Added a photo of ' : 'Added ' + files.length + ' photos of ') + item.name + '.');
+  return itemPhotos(itemId);
+}
+
+// { variationId (null = the whole item), caption }
+async function updatePhoto(ctx, id, p) {
+  if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
+  var r = await photoRow(id);
+  var variationId = p.variationId !== undefined ? await checkVariation(r.item_id, p.variationId || null) : r.variation_id;
+  var caption = p.caption !== undefined ? String(p.caption || '').trim().slice(0, 200) : r.caption;
+  await pool.query('UPDATE catalog_item_photos SET variation_id = $2, caption = $3 WHERE id = $1', [id, variationId, caption]);
+  await audit(pool, ctx, 'catalog.photo.update', 'catalog_item', r.item_id, 'Changed a photo of ' + r.item_name + '.');
+  return itemPhotos(r.item_id);
+}
+
+async function makeCover(ctx, id) {
+  if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
+  var r = await photoRow(id);
+  await pool.query('UPDATE catalog_item_photos SET position = -1 WHERE id = $1', [id]);
+  await renumber(r.item_id);
+  await audit(pool, ctx, 'catalog.photo.cover', 'catalog_item', r.item_id, 'Changed the cover photo of ' + r.item_name + '.');
+  return itemPhotos(r.item_id);
+}
+
+async function removePhoto(ctx, id) {
+  if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
+  var r = await photoRow(id);
+  await pool.query('DELETE FROM catalog_item_photos WHERE id = $1', [id]);
+  await fileStore.del(r.photo_key);
+  await renumber(r.item_id);
+  await audit(pool, ctx, 'catalog.photo.remove', 'catalog_item', r.item_id, 'Removed a photo of ' + r.item_name + '.');
+  return itemPhotos(r.item_id);
+}
+
 module.exports = {
+  photoFor: photoFor, addPhotos: addPhotos, updatePhoto: updatePhoto, makeCover: makeCover, removePhoto: removePhoto,
   list: list, listItems: listItems, listCategories: listCategories, createCategory: createCategory,
   create: create, update: update, setActive: setActive, remove: remove,
   addVariation: addVariation, updateVariation: updateVariation, setVariationActive: setVariationActive, removeVariation: removeVariation,
