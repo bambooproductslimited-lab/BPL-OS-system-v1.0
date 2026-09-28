@@ -192,7 +192,7 @@ export default function ReportsPage() {
         [tr('Invoiced'), tr('Invoices issued in the period, voided ones left out, added up in each currency.')],
         [tr('Collected'), tr('Payments received in the period, by the day the money came in, part-payments included.')],
         [tr('Owed to us now'), tr('What is still to pay on unpaid and part-paid invoices today, whatever the period.')],
-        [tr('Spent'), tr('Approved and paid expense claims dated in the period, plus payroll cost: gross pay and the employer\'s SSNIT for runs approved or paid with a pay date in the period.')],
+        [tr('Spent'), tr('Approved and paid expense claims dated in the period, plus payroll cost: gross pay, the employer\'s SSNIT and any PAYE the company pays, for runs approved or paid with a pay date in the period.')],
         [tr('In less out'), tr('Money collected less expense claims and payroll cost, in the base currency. It leaves out purchases and other costs, so it isn\'t profit — see Financial reports for that.')]
       ]} />
     </div>

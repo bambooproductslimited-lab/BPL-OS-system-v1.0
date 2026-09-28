@@ -58,7 +58,7 @@ async function overview(ctx) {
   var purchases = (await pool.query(
     "SELECT id, item, quantity, estimated_price, status, created_at FROM procurement_requests WHERE requester_id = $1 AND created_at >= now() - interval '90 days' ORDER BY created_at DESC LIMIT 10", [emp])).rows;
   var payslips = (await pool.query(
-    "SELECT p.days_worked, p.gross_pay, p.net_pay, p.ssnit_employee, p.paye_tax, pr.run_no, pr.period_start, pr.period_end, pr.pay_date, pr.status " +
+    "SELECT p.days_worked, p.gross_pay, p.net_pay, p.ssnit_employee, p.paye_tax, p.paye_by_company, pr.run_no, pr.period_start, pr.period_end, pr.pay_date, pr.status " +
     "FROM payslips p JOIN pay_runs pr ON pr.id = p.pay_run_id WHERE p.employee_id = $1 AND pr.status IN ('approved', 'paid') ORDER BY pr.period_end DESC LIMIT 6", [emp])).rows;
 
   var announcements = [];
@@ -103,7 +103,7 @@ async function overview(ctx) {
     payslips: payslips.map(function (p) {
       return {
         runNo: p.run_no, periodStart: p.period_start, periodEnd: p.period_end, payDate: p.pay_date, status: p.status, daysWorked: Number(p.days_worked),
-        gross: Number(p.gross_pay), net: Number(p.net_pay), ssnit: Number(p.ssnit_employee), paye: Number(p.paye_tax)
+        gross: Number(p.gross_pay), net: Number(p.net_pay), ssnit: Number(p.ssnit_employee), paye: Number(p.paye_tax), payeByCompany: !!p.paye_by_company
       };
     }),
     announcements: announcements,

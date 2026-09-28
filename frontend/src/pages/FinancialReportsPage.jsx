@@ -195,7 +195,7 @@ export default function FinancialReportsPage() {
     { label: tr('Gross profit'), amount: pnl.grossProfit, kind: 'total', note: grossMargin === null ? null : tr('{pct}% of revenue', { pct: grossMargin }) },
     { label: tr('Running costs'), kind: 'head' },
     ...pnl.expenseByCategory.map((r) => ({ label: r.category, amount: r.amount })),
-    { label: tr('Payroll'), amount: pnl.payrollCost, note: tr('gross pay and employer SSNIT') },
+    { label: tr('Payroll'), amount: pnl.payrollCost, note: tr('gross pay, employer SSNIT and PAYE the company pays') },
     { label: tr('Total running costs'), amount: pnl.totalExpenses + pnl.payrollCost, kind: 'sub' },
     { label: pnl.netProfit < 0 ? tr('Net loss') : tr('Net profit'), amount: pnl.netProfit, kind: 'total', note: margin === null ? null : tr('{pct}% of revenue', { pct: margin }) }
   ];
@@ -403,7 +403,7 @@ export default function FinancialReportsPage() {
         [tr('Revenue'), tr('Invoices issued in the period (voided ones left out) plus restaurant till sales.')],
         [tr('Purchases received'), tr('Purchase requests that arrived, at their real cost, raw bamboo batches and restaurant supplies delivered. Supplier payments aren\'t recorded, so a purchase counts as paid when it is received.')],
         [tr('Gross profit'), tr('Revenue less purchases.')],
-        [tr('Running costs'), tr('Approved expense claims by the day they were spent, and payroll: gross pay plus the employer\'s SSNIT for runs approved or paid, by pay date.')],
+        [tr('Running costs'), tr('Approved expense claims by the day they were spent, and payroll: gross pay plus the employer\'s SSNIT and any PAYE the company pays, for runs approved or paid, by pay date.')],
         [tr('Cash flow'), tr('Money that actually moved in the period: payments and till sales in; expense claims paid out, pay runs marked paid and purchases received out. What is approved but not paid is shown separately.')],
         [tr('Retained earnings'), tr('All profit since the start, worked out the same way as the P&L.')]
       ]} />

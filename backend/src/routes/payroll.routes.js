@@ -9,6 +9,13 @@ router.get('/runs', async function (req, res, next) {
   try { res.json(await payrollService.list(req.ctx, { companyId: req.query.companyId })); } catch (e) { next(e); }
 });
 
+// Who pays PAYE: the staff, or (company policy) the company itself.
+router.get('/paye-policy', async function (req, res, next) {
+  try { res.json(await payrollService.payePolicy(req.ctx)); } catch (e) { next(e); }
+});
+router.put('/paye-policy/:companyId', async function (req, res, next) {
+  try { res.json(await payrollService.setPayePolicy(req.ctx, req.params.companyId, req.body && req.body.paysStaffPaye)); } catch (e) { next(e); }
+});
 router.get('/payslips', async function (req, res, next) {
   try { res.json(await payrollService.payslipHistory(req.ctx, req.query.employeeId, req.query.from, req.query.to)); } catch (e) { next(e); }
 });

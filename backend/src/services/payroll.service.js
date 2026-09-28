@@ -39,19 +39,22 @@ function rowToPayslip(r, extra) {
     id: r.id, payRunId: r.pay_run_id, employeeId: r.employee_id, daysWorked: Number(r.days_worked),
     dailyRate: Number(r.daily_rate), grossPay: Number(r.gross_pay), ssnitEmployee: Number(r.ssnit_employee),
     ssnitEmployer: Number(r.ssnit_employer), taxableIncome: Number(r.taxable_income), payeTax: Number(r.paye_tax),
-    netPay: Number(r.net_pay)
+    payeByCompany: !!r.paye_by_company, netPay: Number(r.net_pay)
   }, extra || {});
 }
 
-async function computeSlipFields(db, dailyRate, daysWorked, periodScale) {
+// companyPaysPaye: the employee's company pays their PAYE (companies.
+// pays_staff_paye), so it isn't taken off their take-home pay; it is still
+// worked out the same way and still owed to GRA, as a cost to the company.
+async function computeSlipFields(db, dailyRate, daysWorked, periodScale, companyPaysPaye) {
   var payroll = await getPayrollSettings(db);
   var grossPay = Math.round(dailyRate * daysWorked * 100) / 100;
   var ssnitEmployee = Math.round(grossPay * (payroll.ssnitEmployeeRate / 100) * 100) / 100;
   var ssnitEmployer = Math.round(grossPay * (payroll.ssnitEmployerRate / 100) * 100) / 100;
   var taxableIncome = Math.max(0, grossPay - ssnitEmployee);
   var payeTax = computePaye(taxableIncome, payroll.payeBands, periodScale);
-  var netPay = Math.round((grossPay - ssnitEmployee - payeTax) * 100) / 100;
-  return { grossPay: grossPay, ssnitEmployee: ssnitEmployee, ssnitEmployer: ssnitEmployer, taxableIncome: taxableIncome, payeTax: payeTax, netPay: netPay };
+  var netPay = Math.round((grossPay - ssnitEmployee - (companyPaysPaye ? 0 : payeTax)) * 100) / 100;
+  return { grossPay: grossPay, ssnitEmployee: ssnitEmployee, ssnitEmployer: ssnitEmployer, taxableIncome: taxableIncome, payeTax: payeTax, payeByCompany: !!companyPaysPaye, netPay: netPay };
 }
 
 // payroll.payslipHistory — one employee's payslips across every run,
@@ -102,6 +105,7 @@ async function list(ctx, params) {
     'FROM pay_runs pr JOIN employees e ON e.id = pr.created_by LEFT JOIN employees a ON a.id = pr.approved_by LEFT JOIN companies c ON c.id = pr.company_id ' +
     'LEFT JOIN LATERAL (SELECT count(*)::int AS employee_count, coalesce(sum(net_pay),0) AS total_net, coalesce(sum(gross_pay),0) AS total_gross, ' +
     '  coalesce(sum(ssnit_employee),0) AS total_ssnit_ee, coalesce(sum(ssnit_employer),0) AS total_ssnit_er, coalesce(sum(paye_tax),0) AS total_paye, ' +
+    '  coalesce(sum(paye_tax) FILTER (WHERE paye_by_company),0) AS total_paye_co, ' +
     '  count(*) FILTER (WHERE days_worked = 0)::int AS zero_days FROM payslips p WHERE p.pay_run_id = pr.id) t ON true ' +
     'ORDER BY pr.period_end DESC, pr.created_at DESC'
   );
@@ -117,10 +121,10 @@ async function list(ctx, params) {
 }
 
 function totalsOf(r) {
-  var gross = Number(r.total_gross), er = Number(r.total_ssnit_er);
+  var gross = Number(r.total_gross), er = Number(r.total_ssnit_er), co = Number(r.total_paye_co);
   return {
     gross: gross, net: Number(r.total_net), ssnitEmployee: Number(r.total_ssnit_ee), ssnitEmployer: er,
-    paye: Number(r.total_paye), cost: Math.round((gross + er) * 100) / 100
+    paye: Number(r.total_paye), payeByCompany: co, cost: Math.round((gross + er + co) * 100) / 100
   };
 }
 
@@ -159,7 +163,8 @@ async function get(ctx, id) {
   });
   var sum = function (k) { return Math.round(slips.reduce(function (a, x) { return a + x[k]; }, 0) * 100) / 100; };
   var totals = { gross: sum('grossPay'), net: sum('netPay'), ssnitEmployee: sum('ssnitEmployee'), ssnitEmployer: sum('ssnitEmployer'), paye: sum('payeTax') };
-  totals.cost = Math.round((totals.gross + totals.ssnitEmployer) * 100) / 100;
+  totals.payeByCompany = Math.round(slips.reduce(function (a, x) { return a + (x.payeByCompany ? x.payeTax : 0); }, 0) * 100) / 100;
+  totals.cost = Math.round((totals.gross + totals.ssnitEmployer + totals.payeByCompany) * 100) / 100;
   return Object.assign(rowToPayRun(run), {
     companyName: run.company_name || 'All companies', payslips: slips, totals: totals, periodDays: periodDays(run.period_start, run.period_end),
     createdByName: run.c_first ? run.c_first + ' ' + run.c_last : null, approvedByName: run.a_first ? run.a_first + ' ' + run.a_last : null
@@ -202,11 +207,14 @@ async function create(ctx, p) {
 
   var employeesRes = companyId
     ? await pool.query(
-        "SELECT e.id, e.daily_rate FROM employees e JOIN departments d ON d.id = e.department_id " +
+        "SELECT e.id, e.daily_rate, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1 AND d.company_id = $2",
         [cycle, companyId]
       )
-    : await pool.query("SELECT id, daily_rate FROM employees WHERE status = 'active' AND pay_cycle = $1", [cycle]);
+    : await pool.query(
+        "SELECT e.id, e.daily_rate, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
+        "LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id " +
+        "WHERE e.status = 'active' AND e.pay_cycle = $1", [cycle]);
   if (!employeesRes.rows.length) {
     fail('invalid', 'No active employees are on the ' + cycle + ' pay cycle' + (companyName ? ' at ' + companyName : '') + '.');
   }
@@ -230,12 +238,12 @@ async function create(ctx, p) {
       );
       var daysWorked = Number(attRes.rows[0].worked_days);
       var dailyRate = Number(emp.daily_rate);
-      var slip = await computeSlipFields(client, dailyRate, daysWorked, periodScale);
+      var slip = await computeSlipFields(client, dailyRate, daysWorked, periodScale, emp.pays_staff_paye);
 
       await client.query(
-        'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-        [run.id, emp.id, daysWorked, dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, slip.netPay]
+        'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, paye_by_company) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [run.id, emp.id, daysWorked, dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, slip.netPay, slip.payeByCompany]
       );
     }
 
@@ -268,7 +276,7 @@ async function editSlip(ctx, payRunId, employeeId, daysWorked) {
   if (days > maxDays) fail('invalid', 'This pay period only has ' + maxDays + ' days.');
 
   var periodScale = periodScaleFor(run.period_start, run.period_end);
-  var computed = await computeSlipFields(pool, Number(slip.daily_rate), days, periodScale);
+  var computed = await computeSlipFields(pool, Number(slip.daily_rate), days, periodScale, slip.paye_by_company);
 
   await pool.query(
     'UPDATE payslips SET days_worked = $1, gross_pay = $2, ssnit_employee = $3, ssnit_employer = $4, taxable_income = $5, paye_tax = $6, net_pay = $7 WHERE id = $8',
@@ -317,4 +325,36 @@ async function remove(ctx, id) {
   return true;
 }
 
-module.exports = { list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, remove: remove, payslipHistory: payslipHistory };
+// Who pays PAYE, company by company. Turning it on or off changes the
+// payslips of draft runs straight away; approved and paid runs keep what
+// they were paid.
+async function payePolicy(ctx) {
+  if (!ctx.can('payroll.read')) fail('forbidden', 'Your role does not allow this action (payroll.read).');
+  var r = await pool.query(
+    "SELECT c.id, c.code, c.name, c.pays_staff_paye, (SELECT count(*)::int FROM employees e JOIN departments d ON d.id = e.department_id WHERE d.company_id = c.id AND e.status = 'active') AS staff " +
+    'FROM companies c ORDER BY c.name');
+  return r.rows.map(function (c) { return { id: c.id, code: c.code, name: c.name, paysStaffPaye: c.pays_staff_paye, staff: c.staff }; });
+}
+
+async function setPayePolicy(ctx, companyId, pays) {
+  if (!ctx.can('payroll.manage')) fail('forbidden', 'Your role does not allow this action (payroll.manage).');
+  if (typeof pays !== 'boolean') fail('invalid', 'Say whether the company pays its staff\'s PAYE.');
+  var drafts = 0, name = null;
+  await withTransaction(async function (client) {
+    var c = (await client.query('UPDATE companies SET pays_staff_paye = $2 WHERE id = $1 RETURNING name', [companyId, pays])).rows[0];
+    if (!c) fail('notfound', 'Company not found.');
+    name = c.name;
+    var upd = await client.query(
+      'UPDATE payslips p SET paye_by_company = $2, net_pay = round(p.gross_pay - p.ssnit_employee - CASE WHEN $2 THEN 0 ELSE p.paye_tax END, 2) ' +
+      "FROM pay_runs pr, employees e, departments d WHERE pr.id = p.pay_run_id AND pr.status = 'draft' AND e.id = p.employee_id AND d.id = e.department_id AND d.company_id = $1 AND p.paye_by_company <> $2",
+      [companyId, pays]);
+    drafts = upd.rowCount;
+    await audit(client, ctx, 'payroll.payePolicy', 'company', companyId,
+      (pays ? name + ' now pays its staff\'s PAYE' : name + '\'s staff now pay their own PAYE') + (drafts ? ' (' + drafts + ' draft payslip(s) updated).' : '.'));
+  });
+  return { companies: await payePolicy(ctx), draftPayslipsUpdated: drafts };
+}
+
+module.exports = {
+  payePolicy: payePolicy, setPayePolicy: setPayePolicy,
+  list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, remove: remove, payslipHistory: payslipHistory };

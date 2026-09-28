@@ -355,7 +355,9 @@ export default function MySpacePage() {
                   <li key={s.runNo}>
                     <span className="msp-main">
                       <strong>{fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}</strong>
-                      <span className="dk-muted tl-small">{tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })}</span>
+                      <span className="dk-muted tl-small">{s.payeByCompany
+                        ? tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}, paid by the company', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })
+                        : tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })}</span>
                     </span>
                     <span className="msp-net"><strong>{money(s.net, 'GHS')}</strong><span className="dk-muted tl-small">{s.status === 'paid' ? tr('paid {date}', { date: fmtDate(s.payDate) }) : tr('to be paid {date}', { date: fmtDate(s.payDate) })}</span></span>
                   </li>
@@ -405,7 +407,7 @@ export default function MySpacePage() {
         [tr('On time'), tr('Clocked in no later than your shift start plus the grace the company allows. Days marked late or absent by a supervisor count too.')],
         [tr('Days of paid leave left'), tr('Your entitlement this year minus what you have used, for paid leave types. Requests still waiting are not taken off until approved.')],
         [tr('Clocked out by the system'), tr('Shifts you forgot to clock out of. The system closes them after a set time — tell your supervisor if you left at a different time.')],
-        [tr('Take-home pay'), tr('What reaches you after SSNIT and PAYE are taken off the gross.')],
+        [tr('Take-home pay'), tr('What reaches you after SSNIT and PAYE are taken off the gross. Where the company pays your PAYE, only SSNIT is taken off.')],
         [tr('Two-step sign-in'), tr('A code from your phone or email as well as your password, so a stolen password alone can\'t open your account.')]
       ]} />
 

@@ -92,6 +92,8 @@ export default function PayrollPage() {
   const [companyFilter, setCompanyFilter] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [history, setHistory] = useState(null);
+  const [payePolicy, setPayePolicy] = useState([]);
+  const [policyBusy, setPolicyBusy] = useState(null);
   const [historyError, setHistoryError] = useState(null);
 
   const load = useCallback(async () => {
@@ -110,6 +112,7 @@ export default function PayrollPage() {
   useEffect(() => {
     api.get('/employees').then(setEmployees).catch(() => setEmployees([]));
     api.get('/departments').then(setDepartments).catch(() => setDepartments([]));
+    api.get('/payroll/paye-policy').then(setPayePolicy).catch(() => setPayePolicy([]));
   }, []);
   useEffect(() => {
     if (!toast) return undefined;
@@ -202,9 +205,26 @@ export default function PayrollPage() {
     const ok = await runAction(() => api.del('/payroll/runs/' + activeRun.id), () => tr('{runNo} deleted.', { runNo: no }));
     if (ok) setActiveRun(null);
   }
+  // Who pays PAYE for one company: its staff (taken from pay) or the company.
+  async function setCompanyPays(c, pays) {
+    setPolicyBusy(c.id);
+    setError(null);
+    try {
+      const r = await api.put('/payroll/paye-policy/' + c.id, { paysStaffPaye: pays });
+      setPayePolicy(r.companies);
+      const what = pays ? tr('{name} now pays its staff\'s PAYE.', { name: c.name }) : tr('{name}\'s staff now pay their own PAYE.', { name: c.name });
+      setToast(r.draftPayslipsUpdated ? what + ' ' + tr('{n} draft payslips updated.', { n: r.draftPayslipsUpdated }) : what);
+      await load();
+      if (activeRun && activeRun.status === 'draft') setActiveRun(await api.get('/payroll/runs/' + activeRun.id));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPolicyBusy(null);
+    }
+  }
   function exportRun(run) {
-    const rows = [[tr('Employee'), tr('Code'), tr('Company'), tr('Department'), tr('Days'), tr('Daily rate'), tr('Gross'), 'SSNIT', 'PAYE', tr('Net'), tr('SSNIT (employer)')]]
-      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.companyName, s.departmentName, s.daysWorked, s.dailyRate, s.grossPay, s.ssnitEmployee, s.payeTax, s.netPay, s.ssnitEmployer]));
+    const rows = [[tr('Employee'), tr('Code'), tr('Company'), tr('Department'), tr('Days'), tr('Daily rate'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
+      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.companyName, s.departmentName, s.daysWorked, s.dailyRate, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
     downloadCsv(run.runNo + '.csv', rowsToCsv(rows));
   }
 
@@ -367,6 +387,29 @@ export default function PayrollPage() {
         )}
       </Section>
 
+      {payePolicy.length > 0 && (
+        <Section id="pr-paye" title={tr('Who pays PAYE')} sub={tr('By law PAYE is worked out on every payslip and paid to GRA. Each company decides who bears it: its staff, taken off their pay, or the company itself as a cost, so take-home pay keeps it. A change updates draft runs at once; approved and paid runs stay as they were paid.')} card>
+          <ul className="dk-rows prl-paye">
+            {payePolicy.filter((c) => (c.staff > 0 || c.paysStaffPaye) && (!companyFilter || c.id === companyFilter)).map((c) => (
+              <li key={c.id} className="dk-row">
+                <Mark name={c.name} size={32} />
+                <div className="dk-row-main">
+                  <div className="dk-row-title">{c.name}</div>
+                  <div className="dk-muted dk-row-meta">{c.paysStaffPaye ? tr('The company pays its staff\'s PAYE. Take-home = gross − SSNIT.') : tr('Staff pay their own PAYE. Take-home = gross − SSNIT − PAYE.')} · {c.staff === 1 ? tr('1 person') : tr('{n} people', { n: c.staff })}</div>
+                </div>
+                {canManage ? (
+                  <div className="ppl-view prl-paye-pick" role="radiogroup" aria-label={tr('Who pays PAYE at {name}', { name: c.name })}>
+                    {[[false, tr('Staff pay it')], [true, tr('Company pays it')]].map(([v, label]) => (
+                      <button key={String(v)} type="button" role="radio" aria-checked={c.paysStaffPaye === v} className={c.paysStaffPaye === v ? 'is-on' : ''} disabled={policyBusy === c.id} onClick={() => c.paysStaffPaye !== v && setCompanyPays(c, v)}>{label}</button>
+                    ))}
+                  </div>
+                ) : <Status tone={c.paysStaffPaye ? 'good' : 'muted'}>{c.paysStaffPaye ? tr('Company pays it') : tr('Staff pay it')}</Status>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       <Section id="pr-person" title={tr('One person\'s pay')} sub={tr('Every payslip for one employee, newest first.')} card>
         <select className="input prl-person" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)} aria-label={tr('Employee')}>
           <option value="">{tr('Choose an employee…')}</option>
@@ -386,7 +429,7 @@ export default function PayrollPage() {
                     <td className="is-num">{s.daysWorked}</td>
                     <td className="is-num">{money(s.grossPay)}</td>
                     <td className="is-num">{money(s.ssnitEmployee)}</td>
-                    <td className="is-num">{money(s.payeTax)}</td>
+                    <td className="is-num">{money(s.payeTax)}{s.payeByCompany && <span className="dk-muted tl-small prl-co"> {tr('by the company')}</span>}</td>
                     <td className="is-num"><strong>{money(s.netPay)}</strong></td>
                     <td><Status tone={statusTone(s.runStatus)}>{codeLabel(s.runStatus)}</Status></td>
                   </tr>
@@ -399,10 +442,10 @@ export default function PayrollPage() {
 
       <Glossary items={[
         [tr('Pay run'), tr('One payment of every active employee on a cycle, for a period. It holds one payslip each.')],
-        [tr('Take-home'), tr('What staff receive: gross pay less their SSNIT and PAYE.')],
-        [tr('Cost'), tr('What the company pays in all: gross pay plus the employer\'s SSNIT.')],
+        [tr('Take-home'), tr('What staff receive: gross pay less their SSNIT, and less PAYE unless their company pays it for them.')],
+        [tr('Cost'), tr('What the company pays in all: gross pay plus the employer\'s SSNIT, plus PAYE where the company pays it.')],
         ['SSNIT', tr('Social security: a share taken from staff pay plus a share the employer adds on top, both paid to SSNIT.')],
-        ['PAYE', tr('Income tax taken from staff pay and paid to GRA.')],
+        ['PAYE', tr('Income tax on staff pay, paid to GRA. Taken from their pay, or paid by the company where that is its policy (see Who pays PAYE).')],
         [tr('Days worked'), tr('Present or late days in Attendance for the period. They can be changed while the run is a draft.')]
       ]} />
 
@@ -425,7 +468,7 @@ export default function PayrollPage() {
             {runError && <div className="error-banner">{runError}</div>}
             <dl className="tl-facts">
               <div><dt>{tr('Take-home')}</dt><dd><strong>{money(run.totals.net)}</strong></dd></div>
-              <div><dt>PAYE</dt><dd>{money(run.totals.paye)}</dd></div>
+              <div><dt>PAYE</dt><dd>{money(run.totals.paye)}{run.totals.payeByCompany > 0 && <span className="dk-muted tl-small"> · {run.totals.payeByCompany === run.totals.paye ? tr('paid by the company') : tr('{amount} of it paid by the company', { amount: money(run.totals.payeByCompany) })}</span>}</dd></div>
               <div><dt>{tr('SSNIT, staff + employer')}</dt><dd>{money(run.totals.ssnitEmployee)} + {money(run.totals.ssnitEmployer)}</dd></div>
               <div><dt>{tr('Cost')}</dt><dd><strong>{money(run.totals.cost)}</strong></dd></div>
               <div><dt>{tr('Pay date')}</dt><dd>{fmtDate(run.payDate)}</dd></div>
@@ -451,7 +494,9 @@ export default function PayrollPage() {
                             <button type="button" className="btn btn-primary" disabled={runBusy} onClick={() => saveSlipEdit(s.employeeId)}>{tr('Save')}</button>
                             <button type="button" className="btn btn-secondary" onClick={() => setEditingSlip(null)}>{tr('Cancel')}</button>
                           </span>
-                        ) : tr('{d} days × {rate} = {gross} gross · PAYE {paye} · SSNIT {ssnit}', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay), paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })}
+                        ) : s.payeByCompany
+                          ? tr('{d} days × {rate} = {gross} gross · SSNIT {ssnit} · PAYE {paye}, paid by the company', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay), paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
+                          : tr('{d} days × {rate} = {gross} gross · PAYE {paye} · SSNIT {ssnit}', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay), paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })}
                       </span>
                     </span>
                     <span className="rs-row-side">

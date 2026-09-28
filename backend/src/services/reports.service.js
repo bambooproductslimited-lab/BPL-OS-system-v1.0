@@ -51,7 +51,7 @@ async function summary(ctx, params) {
   var byCat = await pool.query("SELECT e.category, sum(e.amount) AS amount, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + exp + ' GROUP BY e.category ORDER BY amount DESC', P);
   var pendingExp = await pool.query("SELECT coalesce(sum(e.amount),0) AS amount, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'pending' AND " + exp, [co.id]);
   var payroll = await pool.query(
-    'SELECT coalesce(sum(s.net_pay),0) AS net, coalesce(sum(s.gross_pay),0) AS gross, coalesce(sum(s.ssnit_employee),0) AS ssnit_ee, coalesce(sum(s.ssnit_employer),0) AS ssnit_er, coalesce(sum(s.paye_tax),0) AS paye, count(DISTINCT pr.id)::int AS runs ' +
+    'SELECT coalesce(sum(s.net_pay),0) AS net, coalesce(sum(s.gross_pay),0) AS gross, coalesce(sum(s.ssnit_employee),0) AS ssnit_ee, coalesce(sum(s.ssnit_employer),0) AS ssnit_er, coalesce(sum(s.paye_tax),0) AS paye, coalesce(sum(s.paye_tax) FILTER (WHERE s.paye_by_company),0) AS paye_co, count(DISTINCT pr.id)::int AS runs ' +
     "FROM payslips s JOIN pay_runs pr ON pr.id = s.pay_run_id JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.department_id WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + payScope, P);
   var quotes = await pool.query(
     "SELECT count(*) FILTER (WHERE q.sent_at::date BETWEEN $2 AND $3)::int AS sent, count(*) FILTER (WHERE q.status = 'accepted' AND q.answered_at::date BETWEEN $2 AND $3)::int AS accepted, " +
@@ -66,7 +66,7 @@ async function summary(ctx, params) {
   var mInv = await pool.query("SELECT to_char(i.issued_at, 'YYYY-MM') AS m, sum(i.grand_total) AS a FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status <> 'void' AND i.currency = $4 AND i.issued_at BETWEEN $2 AND $3 AND " + inv + ' GROUP BY 1', S);
   var mCol = await pool.query("SELECT to_char(p.date, 'YYYY-MM') AS m, sum(p.amount) AS a FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.currency = $4 AND p.date BETWEEN $2 AND $3 AND " + inv + ' GROUP BY 1', S);
   var mExp = await pool.query("SELECT to_char(e.date, 'YYYY-MM') AS m, sum(e.amount) AS a FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + exp + ' GROUP BY 1', S.slice(0, 3));
-  var mPay = await pool.query("SELECT to_char(pr.pay_date, 'YYYY-MM') AS m, sum(s.gross_pay + s.ssnit_employer) AS a FROM payslips s JOIN pay_runs pr ON pr.id = s.pay_run_id JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.department_id WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + payScope + ' GROUP BY 1', S.slice(0, 3));
+  var mPay = await pool.query("SELECT to_char(pr.pay_date, 'YYYY-MM') AS m, sum(s.gross_pay + s.ssnit_employer + CASE WHEN s.paye_by_company THEN s.paye_tax ELSE 0 END) AS a FROM payslips s JOIN pay_runs pr ON pr.id = s.pay_run_id JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.department_id WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + payScope + ' GROUP BY 1', S.slice(0, 3));
   function mapOf(rows) { var m = {}; rows.forEach(function (r) { m[r.m] = Number(r.a); }); return m; }
   var mi = mapOf(mInv.rows), mc = mapOf(mCol.rows), me = mapOf(mExp.rows), mp = mapOf(mPay.rows);
   var months = [];
@@ -83,7 +83,7 @@ async function summary(ctx, params) {
     collected: collected.rows.map(function (r) { return { currency: r.currency, amount: r2(r.amount), count: r.n }; }),
     owed: owed.rows.map(function (r) { return { currency: r.currency, amount: r2(r.amount), overdue: r2(r.overdue || 0), count: r.n }; }),
     expenses: { byCategory: byCat.rows.map(function (r) { return { category: r.category, amount: r2(r.amount), count: r.n }; }), total: r2(byCat.rows.reduce(function (a, r) { return a + Number(r.amount); }, 0)), pending: r2(pendingExp.rows[0].amount), pendingCount: pendingExp.rows[0].n },
-    payroll: { runs: pr.runs, net: r2(pr.net), gross: r2(pr.gross), paye: r2(pr.paye), ssnitEmployee: r2(pr.ssnit_ee), ssnitEmployer: r2(pr.ssnit_er), cost: r2(Number(pr.gross) + Number(pr.ssnit_er)) },
+    payroll: { runs: pr.runs, net: r2(pr.net), gross: r2(pr.gross), paye: r2(pr.paye), payeByCompany: r2(pr.paye_co), ssnitEmployee: r2(pr.ssnit_ee), ssnitEmployer: r2(pr.ssnit_er), cost: r2(Number(pr.gross) + Number(pr.ssnit_er) + Number(pr.paye_co)) },
     quotations: quotes.rows[0], orders: orders.rows[0].n,
     topCustomers: byCustomer.rows.map(function (r) { return { id: r.id, name: r.name, currency: r.currency, amount: r2(r.amount), invoices: r.n }; }),
     months: months
@@ -707,7 +707,7 @@ async function profitAndLoss(ctx, params) {
   var expByCatRes = await pool.query(
     "SELECT e.category, sum(e.amount) AS amount FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + sc.exp + ' GROUP BY e.category ORDER BY amount DESC', P);
   var payrollRes = await pool.query(
-    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
+    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
     "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + sc.pay, P);
   var purchases = await purchasesIn(co, sc, period.from, period.to);
 
@@ -749,10 +749,10 @@ async function cashFlow(ctx, params) {
   var expDueRes = await pool.query(
     "SELECT coalesce(sum(e.amount),0) AS s, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'approved' AND " + sc.exp, [co.id]);
   var payRes = await pool.query(
-    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
+    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
     "WHERE pr.status = 'paid' AND pr.pay_date BETWEEN $2 AND $3 AND " + sc.pay, P);
   var payDueRes = await pool.query(
-    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s, count(DISTINCT pr.id)::int AS n FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
+    'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s, count(DISTINCT pr.id)::int AS n FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
     "WHERE pr.status = 'approved' AND " + sc.pay, [co.id]);
   var purchases = await purchasesIn(co, sc, period.from, period.to);
 
@@ -787,7 +787,7 @@ async function balanceSheet(ctx) {
   var assetsRes = await pool.query('SELECT coalesce(sum(purchase_price),0) AS s FROM assets');
   var revRes = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'void' AND currency = $1", [base]);
   var expRes = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid')");
-  var payrollRes = await pool.query("SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id WHERE pr.status IN ('approved','paid')");
+  var payrollRes = await pool.query("SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id WHERE pr.status IN ('approved','paid')");
   var restRes = await pool.query("SELECT coalesce(sum(total),0) AS s FROM restaurant_orders WHERE status = 'completed'");
   var allPurchases = await purchasesIn(ALL_COMPANIES, scopes(ALL_COMPANIES), '1900-01-01', '2999-12-31');
 
