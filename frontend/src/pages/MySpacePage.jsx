@@ -358,6 +358,7 @@ export default function MySpacePage() {
                       <span className="dk-muted tl-small">{s.payeByCompany
                         ? tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}, paid by the company', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })
                         : tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })}</span>
+                      {s.salaried && <span className="dk-muted tl-small">{tr('Basic {basic} + allowance {allowance}', { basic: money(s.basic, 'GHS'), allowance: money(s.allowance, 'GHS') })}</span>}
                     </span>
                     <span className="msp-net"><strong>{money(s.net, 'GHS')}</strong><span className="dk-muted tl-small">{s.status === 'paid' ? tr('paid {date}', { date: fmtDate(s.payDate) }) : tr('to be paid {date}', { date: fmtDate(s.payDate) })}</span></span>
                   </li>

@@ -29,7 +29,7 @@ router.post('/runs', async function (req, res, next) {
 });
 
 router.put('/runs/:id/payslips/:employeeId', async function (req, res, next) {
-  try { res.json(await payrollService.editSlip(req.ctx, req.params.id, req.params.employeeId, req.body.daysWorked)); } catch (e) { next(e); }
+  try { res.json(await payrollService.editSlip(req.ctx, req.params.id, req.params.employeeId, req.body.daysWorked, req.body)); } catch (e) { next(e); }
 });
 
 router.delete('/runs/:id', async function (req, res, next) {

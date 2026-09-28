@@ -19,9 +19,11 @@
 .prl-slip { cursor: default; justify-content: flex-start; }
 .prl-slip .rs-row-main { flex: 1 1 auto; }
 .prl-slip:hover { background: none; }
-.prl-days-edit { display: inline-flex; gap: 6px; align-items: center; margin-top: 4px; }
+.prl-days-edit { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; margin-top: 4px; }
 .prl-days-edit .input { width: 90px; padding: 6px 8px; }
 .prl-days-edit .btn { padding: 6px 10px; font-size: 12.5px; }
+.prl-edit-field { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
+.prl-edit-field .input { width: 110px; }
 .prl-confirm { margin-right: auto; }
 @media (max-width: 560px) {
   .prl-slip { flex-wrap: wrap; }

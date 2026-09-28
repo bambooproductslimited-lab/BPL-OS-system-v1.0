@@ -1,6 +1,6 @@
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
-var { V } = require('../utils/validate');
+var { V, businessDays } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { nextDocNumber } = require('../utils/documents');
 var { computePaye } = require('../utils/payroll');
@@ -13,6 +13,12 @@ var { computePaye } = require('../utils/payroll');
 // count) over the chosen period, then gross/SSNIT/PAYE/net — see
 // computePaye() in utils/payroll.js for the important caveat on the tax
 // figures.
+//
+// Or (migration 0108) a monthly basic salary and allowance
+// (employees.basic_salary / allowance): the run pays them cut by the days
+// paid for — present or late, plus approved paid
+// leave — out of the month's working days (not Sundays or the company's
+// public holidays). SSNIT is on basic only; the allowance is not taxed.
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -39,22 +45,69 @@ function rowToPayslip(r, extra) {
     id: r.id, payRunId: r.pay_run_id, employeeId: r.employee_id, daysWorked: Number(r.days_worked),
     dailyRate: Number(r.daily_rate), grossPay: Number(r.gross_pay), ssnitEmployee: Number(r.ssnit_employee),
     ssnitEmployer: Number(r.ssnit_employer), taxableIncome: Number(r.taxable_income), payeTax: Number(r.paye_tax),
-    payeByCompany: !!r.paye_by_company, netPay: Number(r.net_pay)
+    payeByCompany: !!r.paye_by_company, netPay: Number(r.net_pay),
+    payBasis: r.pay_basis || 'daily', basicPay: Number(r.basic_pay), allowancePay: Number(r.allowance_pay),
+    monthlyBasic: r.monthly_basic == null ? null : Number(r.monthly_basic), monthlyAllowance: r.monthly_allowance == null ? null : Number(r.monthly_allowance),
+    workingDays: r.working_days == null ? null : r.working_days, amountsEdited: !!r.amounts_edited
   }, extra || {});
 }
 
 // companyPaysPaye: the employee's company pays their PAYE (companies.
 // pays_staff_paye), so it isn't taken off their take-home pay; it is still
 // worked out the same way and still owed to GRA, as a cost to the company.
-async function computeSlipFields(db, dailyRate, daysWorked, periodScale, companyPaysPaye) {
+// pay: { basic, allowance } for the period. SSNIT (staff and employer) is
+// on basic only; PAYE on basic less staff SSNIT (the allowance is not
+// taxed), with its bands scaled to the period.
+async function computeSlipFields(db, pay, periodScale, companyPaysPaye) {
   var payroll = await getPayrollSettings(db);
-  var grossPay = Math.round(dailyRate * daysWorked * 100) / 100;
-  var ssnitEmployee = Math.round(grossPay * (payroll.ssnitEmployeeRate / 100) * 100) / 100;
-  var ssnitEmployer = Math.round(grossPay * (payroll.ssnitEmployerRate / 100) * 100) / 100;
-  var taxableIncome = Math.max(0, grossPay - ssnitEmployee);
+  var basic = Math.round(pay.basic * 100) / 100, allowance = Math.round((pay.allowance || 0) * 100) / 100;
+  var grossPay = Math.round((basic + allowance) * 100) / 100;
+  var ssnitEmployee = Math.round(basic * (payroll.ssnitEmployeeRate / 100) * 100) / 100;
+  var ssnitEmployer = Math.round(basic * (payroll.ssnitEmployerRate / 100) * 100) / 100;
+  var taxableIncome = Math.max(0, Math.round((basic - ssnitEmployee) * 100) / 100);
   var payeTax = computePaye(taxableIncome, payroll.payeBands, periodScale);
   var netPay = Math.round((grossPay - ssnitEmployee - (companyPaysPaye ? 0 : payeTax)) * 100) / 100;
-  return { grossPay: grossPay, ssnitEmployee: ssnitEmployee, ssnitEmployer: ssnitEmployer, taxableIncome: taxableIncome, payeTax: payeTax, payeByCompany: !!companyPaysPaye, netPay: netPay };
+  return { basicPay: basic, allowancePay: allowance, grossPay: grossPay, ssnitEmployee: ssnitEmployee, ssnitEmployer: ssnitEmployer, taxableIncome: taxableIncome, payeTax: payeTax, payeByCompany: !!companyPaysPaye, netPay: netPay };
+}
+
+// A monthly amount for the days paid: monthly x paid days / the month's
+// working days, never more than the period's share of the month.
+function salaryShare(monthly, paidDays, workingDays, monthWorkingDays) {
+  if (!monthly || !monthWorkingDays) return 0;
+  return Math.round(Number(monthly) * Math.min(Number(paidDays), workingDays) / monthWorkingDays * 100) / 100;
+}
+function iso(d) { return d.toISOString().slice(0, 10); }
+async function holidaySet(db, companyId, from, to) {
+  if (!companyId) return new Set();
+  var r = await db.query("SELECT to_char(date, 'YYYY-MM-DD') AS d FROM holidays WHERE company_id = $1 AND date BETWEEN $2 AND $3", [companyId, from, to]);
+  return new Set(r.rows.map(function (x) { return x.d; }));
+}
+// Days paid for, for a salaried employee: present or late, plus approved
+// paid leave on working days not already counted as present or late.
+async function paidDaysFor(db, employeeId, from, to, holidays) {
+  var att = await db.query(
+    "SELECT to_char(date, 'YYYY-MM-DD') AS d, status FROM attendance WHERE employee_id = $1 AND date BETWEEN $2 AND $3", [employeeId, from, to]);
+  var marked = {}, days = 0;
+  att.rows.forEach(function (a) {
+    if (a.status === 'present' || a.status === 'late') { marked[a.d] = true; days += 1; }
+  });
+  var leave = await db.query(
+    "SELECT to_char(greatest(lr.start_date, $2::date), 'YYYY-MM-DD') AS s, to_char(least(lr.end_date, $3::date), 'YYYY-MM-DD') AS e " +
+    "FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id " +
+    "WHERE lr.employee_id = $1 AND lr.status = 'approved' AND lt.paid AND lr.start_date <= $3 AND lr.end_date >= $2", [employeeId, from, to]);
+  var counted = {};
+  leave.rows.forEach(function (l) {
+    for (var d = new Date(l.s + 'T00:00:00Z'); iso(d) <= l.e; d = new Date(d.getTime() + 86400000)) {
+      var k = iso(d);
+      if (d.getUTCDay() === 0 || holidays.has(k) || marked[k] || counted[k]) continue;
+      counted[k] = true; days += 1;
+    }
+  });
+  return days;
+}
+function monthOf(periodEnd) {
+  var e = new Date(String(periodEnd).slice(0, 10) + 'T00:00:00Z');
+  return { start: iso(new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), 1))), end: iso(new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() + 1, 0))) };
 }
 
 // payroll.payslipHistory — one employee's payslips across every run,
@@ -208,12 +261,12 @@ async function create(ctx, p) {
 
   var employeesRes = companyId
     ? await pool.query(
-        "SELECT e.id, e.daily_rate, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
+        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1 AND d.company_id = $2",
         [cycle, companyId]
       )
     : await pool.query(
-        "SELECT e.id, e.daily_rate, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
+        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
         "LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1", [cycle]);
   if (!employeesRes.rows.length) {
@@ -239,12 +292,29 @@ async function create(ctx, p) {
       );
       var daysWorked = Number(attRes.rows[0].worked_days);
       var dailyRate = Number(emp.daily_rate);
-      var slip = await computeSlipFields(client, dailyRate, daysWorked, periodScale, emp.pays_staff_paye);
+      var salaried = emp.basic_salary != null;
+      var basis = { basis: 'daily', monthlyBasic: null, monthlyAllowance: null, workingDays: null, monthWorkingDays: null };
+      var pay = { basic: dailyRate * daysWorked, allowance: 0 };
+      if (salaried) {
+        var month = monthOf(periodEnd);
+        var hol = await holidaySet(client, emp.company_id, month.start < periodStart ? month.start : periodStart, month.end > periodEnd ? month.end : periodEnd);
+        var workingDays = businessDays(periodStart, periodEnd, hol);
+        var monthWorkingDays = businessDays(month.start, month.end, hol);
+        daysWorked = await paidDaysFor(client, emp.id, periodStart, periodEnd, hol);
+        basis = { basis: 'salary', monthlyBasic: Number(emp.basic_salary), monthlyAllowance: Number(emp.allowance || 0), workingDays: workingDays, monthWorkingDays: monthWorkingDays };
+        pay = {
+          basic: salaryShare(basis.monthlyBasic, daysWorked, workingDays, monthWorkingDays),
+          allowance: salaryShare(basis.monthlyAllowance, daysWorked, workingDays, monthWorkingDays)
+        };
+      }
+      var slip = await computeSlipFields(client, pay, periodScale, emp.pays_staff_paye);
 
       await client.query(
-        'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, paye_by_company) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-        [run.id, emp.id, daysWorked, dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, slip.netPay, slip.payeByCompany]
+        'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, paye_by_company, ' +
+        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
+        [run.id, emp.id, daysWorked, salaried ? 0 : dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, slip.netPay, slip.payeByCompany,
+          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays]
       );
     }
 
@@ -260,7 +330,7 @@ async function create(ctx, p) {
 // payroll.editSlip — while still a draft, HR/Finance can correct the
 // auto-computed days worked (e.g. unpaid leave not reflected in
 // Attendance yet); everything downstream recalculates from that.
-async function editSlip(ctx, payRunId, employeeId, daysWorked) {
+async function editSlip(ctx, payRunId, employeeId, daysWorked, amounts) {
   if (!ctx.can('payroll.manage')) fail('forbidden', 'Your role does not allow this action (payroll.manage).');
   var runRes = await pool.query('SELECT * FROM pay_runs WHERE id = $1', [payRunId]);
   var run = runRes.rows[0];
@@ -271,19 +341,45 @@ async function editSlip(ctx, payRunId, employeeId, daysWorked) {
   var slip = slipRes.rows[0];
   if (!slip) fail('notfound', 'Payslip not found.');
 
-  var days = Number(daysWorked);
+  var days = daysWorked === undefined || daysWorked === null || daysWorked === '' ? Number(slip.days_worked) : Number(daysWorked);
   if (!(days >= 0)) fail('invalid', 'Days worked must be a non-negative number.');
   var maxDays = periodDays(run.period_start, run.period_end);
   if (days > maxDays) fail('invalid', 'This pay period only has ' + maxDays + ' days.');
 
+  // Salaried: basic and allowance typed for this run, or else worked out
+  // again from the monthly amounts for the days. Daily: days x rate.
+  amounts = amounts || {};
+  var typed = function (v) { return v !== undefined && v !== null && v !== ''; };
+  var pay, edited = !!slip.amounts_edited;
+  if (slip.pay_basis === 'salary') {
+    if (typed(amounts.basicPay) || typed(amounts.allowancePay)) {
+      var b = typed(amounts.basicPay) ? Number(amounts.basicPay) : Number(slip.basic_pay);
+      var a = typed(amounts.allowancePay) ? Number(amounts.allowancePay) : Number(slip.allowance_pay);
+      if (!(b >= 0) || !(a >= 0)) fail('invalid', 'Basic and allowance must be amounts of zero or more.');
+      pay = { basic: b, allowance: a };
+      edited = true;
+    } else {
+      pay = {
+        basic: salaryShare(slip.monthly_basic, days, slip.working_days, slip.month_working_days),
+        allowance: salaryShare(slip.monthly_allowance, days, slip.working_days, slip.month_working_days)
+      };
+      edited = false;
+    }
+  } else {
+    if (typed(amounts.basicPay) || typed(amounts.allowancePay)) fail('invalid', 'This person is paid a daily rate. Give them a basic salary on their employee record to pay basic and allowance.');
+    pay = { basic: Number(slip.daily_rate) * days, allowance: 0 };
+  }
+
   var periodScale = periodScaleFor(run.period_start, run.period_end);
-  var computed = await computeSlipFields(pool, Number(slip.daily_rate), days, periodScale, slip.paye_by_company);
+  var computed = await computeSlipFields(pool, pay, periodScale, slip.paye_by_company);
 
   await pool.query(
-    'UPDATE payslips SET days_worked = $1, gross_pay = $2, ssnit_employee = $3, ssnit_employer = $4, taxable_income = $5, paye_tax = $6, net_pay = $7 WHERE id = $8',
-    [days, computed.grossPay, computed.ssnitEmployee, computed.ssnitEmployer, computed.taxableIncome, computed.payeTax, computed.netPay, slip.id]
+    'UPDATE payslips SET days_worked = $1, gross_pay = $2, ssnit_employee = $3, ssnit_employer = $4, taxable_income = $5, paye_tax = $6, net_pay = $7, ' +
+    'basic_pay = $8, allowance_pay = $9, amounts_edited = $10 WHERE id = $11',
+    [days, computed.grossPay, computed.ssnitEmployee, computed.ssnitEmployer, computed.taxableIncome, computed.payeTax, computed.netPay,
+      computed.basicPay, computed.allowancePay, edited, slip.id]
   );
-  await audit(pool, ctx, 'payroll.editSlip', 'pay_run', payRunId, 'Adjusted days worked in ' + run.run_no + '.');
+  await audit(pool, ctx, 'payroll.editSlip', 'pay_run', payRunId, (edited ? 'Changed basic/allowance' : 'Adjusted days worked') + ' in ' + run.run_no + '.');
   return get(ctx, payRunId);
 }
 

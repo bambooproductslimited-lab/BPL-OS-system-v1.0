@@ -89,7 +89,7 @@ const EMPLOYMENT_TYPES = [
 const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
-  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '',
+  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '',
   shiftStart: '', shiftEnd: '', language: '', ssnitNumber: '', tin: ''
 };
 
@@ -238,6 +238,7 @@ export default function EmployeesPage() {
       shiftId: emp.shiftId || '', managerId: emp.managerId || '',
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
       roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
+      basicSalary: emp.basicSalary == null ? '' : emp.basicSalary, allowance: emp.allowance == null ? '' : emp.allowance,
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
       ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || ''
@@ -261,6 +262,8 @@ export default function EmployeesPage() {
           body.payCycle = form.payCycle;
           body.dailyRate = form.dailyRate;
           body.hourlyRate = form.hourlyRate === '' ? null : form.hourlyRate;
+          body.basicSalary = form.basicSalary;
+          body.allowance = form.allowance;
           body.ssnitNumber = form.ssnitNumber;
           body.tin = form.tin;
         }
@@ -999,6 +1002,19 @@ export default function EmployeesPage() {
                     {tr('Auto-filled from Daily rate ÷ shift hours ({hours}h/day) — edit it directly to override.', { hours: effectiveShiftHours(form, shifts) })}
                   </p>
                 </div>
+                <div className="field"><label htmlFor="emp-basic">{tr('Basic salary, monthly (GHS)')}</label>
+                  <input id="emp-basic" className="input" type="number" min="0" step="0.01" placeholder={tr('Not set')}
+                    value={form.basicSalary} onChange={(e) => setForm({ ...form, basicSalary: e.target.value })} />
+                </div>
+                <div className="field"><label htmlFor="emp-allowance">{tr('Allowance, monthly (GHS)')}</label>
+                  <input id="emp-allowance" className="input" type="number" min="0" step="0.01" placeholder={tr('Not set')} disabled={form.basicSalary === ''}
+                    value={form.allowance} onChange={(e) => setForm({ ...form, allowance: e.target.value })} />
+                </div>
+                <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+                  {form.basicSalary === ''
+                    ? tr('No basic salary: pay runs pay the daily rate × days worked.')
+                    : tr('Pay runs pay basic + allowance, cut by the days paid for (worked, or on paid leave) out of the month\'s working days, instead of the daily rate. SSNIT is on basic only; the allowance is not taxed. Both can be changed on a draft payslip.')}
+                </p>
               </>
             )}
             {canManagePayroll && (

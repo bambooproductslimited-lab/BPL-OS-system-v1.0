@@ -81,6 +81,7 @@ export default function PayrollPage() {
   const [runBusy, setRunBusy] = useState(false);
   const [editingSlip, setEditingSlip] = useState(null);
   const [editDays, setEditDays] = useState('');
+  const [editPay, setEditPay] = useState(null); // { basic, allowance, basic0, allowance0 } for a salaried payslip
   const [slipSearch, setSlipSearch] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -188,8 +189,16 @@ export default function PayrollPage() {
       setRunBusy(false);
     }
   }
+  function startEdit(s) {
+    setEditingSlip(s.employeeId);
+    setEditDays(String(s.daysWorked));
+    setEditPay(s.payBasis === 'salary' ? { basic: String(s.basicPay), allowance: String(s.allowancePay), basic0: String(s.basicPay), allowance0: String(s.allowancePay) } : null);
+  }
   async function saveSlipEdit(employeeId) {
-    const updated = await runAction(() => api.put('/payroll/runs/' + activeRun.id + '/payslips/' + employeeId, { daysWorked: editDays }));
+    // Typed amounts win; otherwise the days work the amounts out again.
+    const typed = editPay && (editPay.basic !== editPay.basic0 || editPay.allowance !== editPay.allowance0);
+    const body = typed ? { daysWorked: editDays, basicPay: editPay.basic, allowancePay: editPay.allowance } : { daysWorked: editDays };
+    const updated = await runAction(() => api.put('/payroll/runs/' + activeRun.id + '/payslips/' + employeeId, body));
     if (updated) { setActiveRun(updated); setEditingSlip(null); }
   }
   async function approveRun() {
@@ -223,8 +232,8 @@ export default function PayrollPage() {
     }
   }
   function exportRun(run) {
-    const rows = [[tr('Employee'), tr('Code'), tr('SSNIT number'), tr('TIN'), tr('Company'), tr('Department'), tr('Days'), tr('Daily rate'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
-      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.ssnitNumber || '', s.tin || '', s.companyName, s.departmentName, s.daysWorked, s.dailyRate, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
+    const rows = [[tr('Employee'), tr('Code'), tr('SSNIT number'), tr('TIN'), tr('Company'), tr('Department'), tr('Days'), tr('Daily rate'), tr('Basic'), tr('Allowance'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
+      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.ssnitNumber || '', s.tin || '', s.companyName, s.departmentName, s.daysWorked, s.payBasis === 'salary' ? '' : s.dailyRate, s.basicPay, s.allowancePay, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
     downloadCsv(run.runNo + '.csv', rowsToCsv(rows));
   }
 
@@ -422,7 +431,7 @@ export default function PayrollPage() {
         {history && (history.payslips.length ? (
           <div className="tl-table-wrap prl-history">
             <table className="tl-table">
-              <thead><tr><th>{tr('Pay date')}</th><th>{tr('Run')}</th><th>{tr('Period')}</th><th className="is-num">{tr('Days')}</th><th className="is-num">{tr('Gross')}</th><th className="is-num">SSNIT</th><th className="is-num">PAYE</th><th className="is-num">{tr('Net')}</th><th>{tr('Status')}</th></tr></thead>
+              <thead><tr><th>{tr('Pay date')}</th><th>{tr('Run')}</th><th>{tr('Period')}</th><th className="is-num">{tr('Days')}</th><th className="is-num">{tr('Basic')}</th><th className="is-num">{tr('Allowance')}</th><th className="is-num">{tr('Gross')}</th><th className="is-num">SSNIT</th><th className="is-num">PAYE</th><th className="is-num">{tr('Net')}</th><th>{tr('Status')}</th></tr></thead>
               <tbody>
                 {history.payslips.map((s) => (
                   <tr key={s.id}>
@@ -430,6 +439,8 @@ export default function PayrollPage() {
                     <td><button type="button" className="tl-row-open" onClick={() => openRun(s.payRunId)}><span className="tl-name">{s.runNo}</span></button></td>
                     <td>{periodText(s)}</td>
                     <td className="is-num">{s.daysWorked}</td>
+                    <td className="is-num">{money(s.basicPay)}</td>
+                    <td className="is-num">{money(s.allowancePay)}</td>
                     <td className="is-num">{money(s.grossPay)}</td>
                     <td className="is-num">{money(s.ssnitEmployee)}</td>
                     <td className="is-num">{money(s.payeTax)}{s.payeByCompany && <span className="dk-muted tl-small prl-co"> {tr('by the company')}</span>}</td>
@@ -447,8 +458,9 @@ export default function PayrollPage() {
         [tr('Pay run'), tr('One payment of every active employee on a cycle, for a period. It holds one payslip each.')],
         [tr('Take-home'), tr('What staff receive: gross pay less their SSNIT, and less PAYE unless their company pays it for them.')],
         [tr('Cost'), tr('What the company pays in all: gross pay plus the employer\'s SSNIT, plus PAYE where the company pays it.')],
-        ['SSNIT', tr('Social security: a share taken from staff pay plus a share the employer adds on top, both paid to SSNIT.')],
-        ['PAYE', tr('Income tax on staff pay, paid to GRA. Taken from their pay, or paid by the company where that is its policy (see Who pays PAYE).')],
+        [tr('Basic and allowance'), tr('Staff with a monthly basic salary are paid basic + allowance, cut by the days paid for (worked or on paid leave) out of the month\'s working days. Staff without one are paid their daily rate × days worked, all of it basic.')],
+        ['SSNIT', tr('Social security on basic pay only: a share taken from staff pay plus a share the employer adds on top, both paid to SSNIT.')],
+        ['PAYE', tr('Income tax on basic pay less staff SSNIT (the allowance is not taxed), paid to GRA. Taken from their pay, or paid by the company where that is its policy (see Who pays PAYE).')],
         [tr('Days worked'), tr('Present or late days in Attendance for the period. They can be changed while the run is a draft.')]
       ]} />
 
@@ -493,13 +505,26 @@ export default function PayrollPage() {
                       <span className="dk-muted tl-small">
                         {editingSlip === s.employeeId ? (
                           <span className="prl-days-edit">
-                            <input className="input" type="number" min="0" max={run.periodDays} step="0.5" value={editDays} onChange={(e) => setEditDays(e.target.value)} aria-label={tr('Days worked')} autoFocus />
+                            <label className="prl-edit-field"><span>{tr('Days')}</span><input className="input" type="number" min="0" max={run.periodDays} step="0.5" value={editDays} onChange={(e) => setEditDays(e.target.value)} aria-label={tr('Days worked')} autoFocus /></label>
+                            {editPay && (
+                              <>
+                                <label className="prl-edit-field"><span>{tr('Basic')}</span><input className="input" type="number" min="0" step="0.01" value={editPay.basic} onChange={(e) => setEditPay({ ...editPay, basic: e.target.value })} aria-label={tr('Basic')} /></label>
+                                <label className="prl-edit-field"><span>{tr('Allowance')}</span><input className="input" type="number" min="0" step="0.01" value={editPay.allowance} onChange={(e) => setEditPay({ ...editPay, allowance: e.target.value })} aria-label={tr('Allowance')} /></label>
+                              </>
+                            )}
                             <button type="button" className="btn btn-primary" disabled={runBusy} onClick={() => saveSlipEdit(s.employeeId)}>{tr('Save')}</button>
                             <button type="button" className="btn btn-secondary" onClick={() => setEditingSlip(null)}>{tr('Cancel')}</button>
                           </span>
-                        ) : s.payeByCompany
-                          ? tr('{d} days × {rate} = {gross} gross · SSNIT {ssnit} · PAYE {paye}, paid by the company', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay), paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
-                          : tr('{d} days × {rate} = {gross} gross · PAYE {paye} · SSNIT {ssnit}', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay), paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })}
+                        ) : [
+                          s.payBasis === 'salary'
+                            ? (s.amountsEdited
+                              ? tr('basic {basic} + allowance {allowance} = {gross} gross, set for this run', { basic: money(s.basicPay), allowance: money(s.allowancePay), gross: money(s.grossPay) })
+                              : tr('{d} of {w} days paid · basic {basic} + allowance {allowance} = {gross} gross', { d: s.daysWorked, w: s.workingDays, basic: money(s.basicPay), allowance: money(s.allowancePay), gross: money(s.grossPay) }))
+                            : tr('{d} days × {rate} = {gross} gross', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay) }),
+                          s.payeByCompany
+                            ? tr('SSNIT {ssnit} · PAYE {paye}, paid by the company', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
+                            : tr('SSNIT {ssnit} · PAYE {paye}', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
+                        ].join(' · ')}
                       </span>
                     </span>
                     <span className="rs-row-side">
@@ -507,7 +532,7 @@ export default function PayrollPage() {
                       <span className="dk-muted tl-small">{tr('take-home')}</span>
                     </span>
                   </div>
-                  {canManage && run.status === 'draft' && editingSlip !== s.employeeId && <span className="rs-row-menu"><RowMenu actions={[{ label: tr('Change days worked'), onClick: () => { setEditingSlip(s.employeeId); setEditDays(String(s.daysWorked)); } }]} /></span>}
+                  {canManage && run.status === 'draft' && editingSlip !== s.employeeId && <span className="rs-row-menu"><RowMenu actions={[{ label: s.payBasis === 'salary' ? tr('Change days or pay') : tr('Change days worked'), onClick: () => startEdit(s) }]} /></span>}
                 </li>
               ))}
             </ul>

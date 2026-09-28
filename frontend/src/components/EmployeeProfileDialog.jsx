@@ -126,6 +126,12 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                   <div><div className="employee-profile-label">{tr('Pay cycle')}</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>
                   <div><div className="employee-profile-label">{tr('Daily rate')}</div><div>{fmtMoney(e.dailyRate)}</div></div>
                   <div><div className="employee-profile-label">{tr('Hourly rate')}</div><div>{e.hourlyRate == null ? tr('Not set') : tr('{rate}/hr', { rate: fmtMoney(e.hourlyRate) })}</div></div>
+                  {e.basicSalary != null && (
+                    <>
+                      <div><div className="employee-profile-label">{tr('Basic salary, monthly')}</div><div>{fmtMoney(e.basicSalary)}</div></div>
+                      <div><div className="employee-profile-label">{tr('Allowance, monthly')}</div><div>{fmtMoney(e.allowance || 0)}</div></div>
+                    </>
+                  )}
                   <div><div className="employee-profile-label">{tr('SSNIT number')}</div><div>{e.ssnitNumber || tr('Not set')}</div></div>
                   <div><div className="employee-profile-label">{tr('TIN')}</div><div>{e.tin || tr('Not set')}</div></div>
                 </>

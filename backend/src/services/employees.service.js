@@ -37,6 +37,9 @@ function rowToEmployee(r, ctx) {
     out.payCycle = r.pay_cycle;
     out.dailyRate = Number(r.daily_rate);
     out.hourlyRate = r.hourly_rate == null ? null : Number(r.hourly_rate);
+    // Monthly basic salary and allowance (null: paid the daily rate).
+    out.basicSalary = r.basic_salary == null ? null : Number(r.basic_salary);
+    out.allowance = r.allowance == null ? null : Number(r.allowance);
     out.ssnitNumber = r.ssnit_number || null;
     out.tin = r.tin || null;
   }
@@ -257,7 +260,7 @@ async function update(ctx, id, p) {
   // Pay rate/cycle are compensation data — gated separately behind
   // payroll.manage so a department manager with plain employee.write
   // (who can otherwise edit this same record) can't set someone's pay.
-  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined || p.ssnitNumber !== undefined || p.tin !== undefined) && !ctx.can('payroll.manage')) {
+  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined || p.ssnitNumber !== undefined || p.tin !== undefined || p.basicSalary !== undefined || p.allowance !== undefined) && !ctx.can('payroll.manage')) {
     fail('forbidden', 'Your role does not allow this action (payroll.manage).');
   }
 
@@ -314,6 +317,19 @@ async function update(ctx, id, p) {
     if (hourlyRate !== curHourlyRate) { changed.push('hourlyRate'); values.push(hourlyRate); sets.push('hourly_rate = $' + values.length); }
   }
 
+  // Monthly basic and allowance; empty clears (back to the daily rate).
+  [['basicSalary', 'basic_salary', 'Basic salary'], ['allowance', 'allowance', 'Allowance']].forEach(function (f) {
+    if (p[f[0]] === undefined) return;
+    var v = p[f[0]] === null || p[f[0]] === '' ? null : Number(p[f[0]]);
+    if (v !== null && !(v >= 0)) fail('invalid', f[2] + ' must be an amount of zero or more.');
+    if (v !== null) v = Math.round(v * 100) / 100;
+    var cur = e[f[1]] == null ? null : Number(e[f[1]]);
+    if (v !== cur) { changed.push(f[0]); values.push(v); sets.push(f[1] + ' = $' + values.length); }
+  });
+  if (p.allowance !== undefined && p.allowance !== null && p.allowance !== '' && Number(p.allowance) > 0 &&
+      (p.basicSalary !== undefined ? (p.basicSalary === null || p.basicSalary === '') : e.basic_salary == null)) {
+    fail('invalid', 'Give a basic salary too: the allowance is paid with it.');
+  }
   var ssnitNumber = idNumber(p.ssnitNumber, 'SSNIT number');
   if (ssnitNumber !== undefined && ssnitNumber !== (e.ssnit_number || null)) {
     await idTaken('ssnit_number', ssnitNumber, id, 'SSNIT number');
