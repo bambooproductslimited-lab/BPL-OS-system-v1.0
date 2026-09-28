@@ -5,6 +5,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
+var { WORK_WEEKS } = require('../utils/workWeek');
 
 // ctx is optional (some callers, e.g. profile(), only need it to decide
 // whether to include payCycle/dailyRate — compensation data, which stays
@@ -28,6 +29,8 @@ function rowToEmployee(r, ctx) {
     shiftStart: shiftStart, shiftEnd: shiftEnd,
     // The language they read on the kiosk; null follows their account's.
     language: r.language || null,
+    // Their work week: 'mon_fri', 'mon_sat', 'all', or null (the usual week).
+    workDays: r.work_days || null,
     shift: r.shift_tpl_name ? (r.shift_tpl_name + ' · ' + shiftStart + '–' + shiftEnd) : (shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift),
     // The profile photo's version (when it last changed), or null — the
     // picture itself is at /api/messages/people/:id/photo.
@@ -174,11 +177,12 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
         employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate,
-        p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null, ssnitNumber, tin]
+        p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null, ssnitNumber, tin,
+        p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null]
     );
     var e = insertRes.rows[0];
 
@@ -294,6 +298,10 @@ async function update(ctx, id, p) {
     var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
     var curShiftEnd = e.shift_end ? e.shift_end.slice(0, 5) : null;
     if (shiftEnd !== curShiftEnd) { changed.push('shiftEnd'); values.push(shiftEnd); sets.push('shift_end = $' + values.length); }
+  }
+  if (p.workDays !== undefined) {
+    var workDays = p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null;
+    if (workDays !== (e.work_days || null)) { changed.push('workDays'); values.push(workDays); sets.push('work_days = $' + values.length); }
   }
   // The kiosk's language for them; empty clears back to their account's.
   if (p.language !== undefined) {

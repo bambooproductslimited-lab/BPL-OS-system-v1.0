@@ -121,6 +121,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
               <div><div className="employee-profile-label">{tr('Hire date')}</div><div>{fmtDate(e.hireDate)}</div></div>
               <div><div className="employee-profile-label">{tr('Location')}</div><div>{e.location || '—'}</div></div>
               <div><div className="employee-profile-label">{tr('Shift')}</div><div>{e.shift || '—'}</div></div>
+              <div><div className="employee-profile-label">{tr('Work week')}</div><div>{e.workDays === 'mon_fri' ? tr('Monday to Friday') : e.workDays === 'all' ? tr('Every day') : tr('Monday to Saturday')}</div></div>
               {e.payCycle !== undefined && (
                 <>
                   <div><div className="employee-profile-label">{tr('Pay cycle')}</div><div style={{ textTransform: 'capitalize' }}>{e.payCycle}</div></div>

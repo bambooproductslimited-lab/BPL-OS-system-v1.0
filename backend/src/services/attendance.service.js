@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
+var { restWeekdays } = require('../utils/workWeek');
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function nowHM() { return new Date().toTimeString().slice(0, 5); }
@@ -49,7 +50,9 @@ function hmToMinutes(hm) {
 // their real record says (e.g. still shows late if they came in late).
 var BPL_COMPANY_NAME = 'Bamboo Products Limited';
 var SECURITY_DEPARTMENT_NAME = 'Security';
-function isRestDay(companyName, departmentName, dateISO) {
+// An employee's own work week (employees.work_days) decides when set.
+function isRestDay(companyName, departmentName, dateISO, workDays) {
+  if (workDays) return restWeekdays(workDays).indexOf(new Date(dateISO + 'T00:00').getDay()) >= 0;
   if (companyName !== BPL_COMPANY_NAME) return false;
   if (departmentName === SECURITY_DEPARTMENT_NAME) return false;
   return new Date(dateISO + 'T00:00').getDay() === 0; // Sunday
@@ -429,7 +432,7 @@ async function clockOut(ctx) {
 async function scopedEmployees(ctx, filters) {
   var canAll = ctx.can('attendance.read.all');
   var baseQuery =
-    'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, e.position_title, e.hourly_rate, ' +
+    'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, e.position_title, e.hourly_rate, e.work_days, ' +
     'd.name AS department_name, d.company_id, c.name AS company_name, c.code AS company_code, ' +
     'coalesce(s.start_time, e.shift_start) AS shift_start_time ' +
     'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id LEFT JOIN shifts s ON s.id = e.shift_id ' +
@@ -476,7 +479,7 @@ async function list(ctx, params) {
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         autoClockedOut: !!(r && r.auto_clocked_out),
-        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), note: r ? r.note : ''
+        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date, e.work_days) ? 'off' : 'absent'), note: r ? r.note : ''
       };
     })
   };
@@ -554,7 +557,7 @@ async function report(ctx, from, to, filters) {
         date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         autoClockedOut: !!(r && r.auto_clocked_out),
-        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
+        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date, e.work_days) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
       rows.push(row);

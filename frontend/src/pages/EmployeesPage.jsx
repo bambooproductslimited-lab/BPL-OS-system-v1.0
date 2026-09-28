@@ -90,8 +90,15 @@ const EMPTY_EMPLOYEE_FORM = {
   firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '',
-  shiftStart: '', shiftEnd: '', language: '', ssnitNumber: '', tin: ''
+  shiftStart: '', shiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: ''
 };
+// An employee's work week (employees.work_days); '' is the usual Monday to Saturday.
+const WORK_WEEKS = [
+  { value: '', label: msg('Usual week (Monday to Saturday)') },
+  { value: 'mon_fri', label: msg('Monday to Friday') },
+  { value: 'mon_sat', label: msg('Monday to Saturday') },
+  { value: 'all', label: msg('Every day') }
+];
 
 // "Imported 12 employee(s) (3 skipped, 1 failed)." — the count and each
 // extra as whole phrases, so every language can word them its own way.
@@ -241,7 +248,7 @@ export default function EmployeesPage() {
       basicSalary: emp.basicSalary == null ? '' : emp.basicSalary, allowance: emp.allowance == null ? '' : emp.allowance,
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
-      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || ''
+      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || '', workDays: emp.workDays || ''
     });
     setDialog('employee');
   }
@@ -256,7 +263,7 @@ export default function EmployeesPage() {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status,
-          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language, workDays: form.workDays
         };
         if (canManagePayroll) {
           body.payCycle = form.payCycle;
@@ -274,7 +281,7 @@ export default function EmployeesPage() {
           firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
-          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null,
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null, workDays: form.workDays || null,
           createAccount: !!form.roleId, roleId: form.roleId || null,
           ...(canManagePayroll ? { ssnitNumber: form.ssnitNumber, tin: form.tin } : {})
         });
@@ -946,6 +953,14 @@ export default function EmployeesPage() {
             </div>
             <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
               {tr('These are a manual override only — leave blank if the shift picked above already covers it. Attendance uses (in order) the assigned shift\'s start time, then this manual override, then the company default, with the grace period set in Company settings, to decide who\'s marked late.')}
+            </p>
+            <div className="field"><label htmlFor="emp-work-week">{tr('Work week')}</label>
+              <select id="emp-work-week" className="input" value={form.workDays} onChange={(e) => setForm({ ...form, workDays: e.target.value })}>
+                {WORK_WEEKS.map((w) => <option key={w.value} value={w.value}>{tr(w.label)}</option>)}
+              </select>
+            </div>
+            <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+              {tr('The days they are meant to work. Their rest days show as off, not absent, in Attendance; leave doesn\'t charge them; and a basic salary is shared over the working days of the month.')}
             </p>
             <div className="field"><label htmlFor="emp-language">{tr('Kiosk language')}</label>
               <select id="emp-language" className="input" value={form.language} onChange={(e) => setForm({ ...form, language: e.target.value })}>

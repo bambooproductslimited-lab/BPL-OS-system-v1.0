@@ -31,11 +31,14 @@ function addDays(iso, n) {
 }
 function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 86400000); }
 // Working days in a range as the server counts them, less public holidays
-// (which only the server knows): Sundays are skipped.
-function countDays(start, end) {
+// (which only the server knows): the person's rest days are skipped
+// (Sundays, and Saturdays too on a Monday-to-Friday week; utils/workWeek.js).
+function restDays(workDays) { return workDays === 'mon_fri' ? [0, 6] : workDays === 'all' ? [] : [0]; }
+function countDays(start, end, workDays) {
   if (!start || !end || end < start) return 0;
+  const rest = restDays(workDays);
   let n = 0;
-  for (let d = start; d <= end; d = addDays(d, 1)) if (new Date(d + 'T00:00').getDay() !== 0) n += 1;
+  for (let d = start; d <= end; d = addDays(d, 1)) if (!rest.includes(new Date(d + 'T00:00').getDay())) n += 1;
   return n;
 }
 function overlaps(a, b) { return !(a.endDate < b.startDate || a.startDate > b.endDate); }
@@ -296,7 +299,8 @@ export default function LeavePage() {
   // The request form's live preview.
   const selectedType = leaveTypes.find((t) => t.id === form.leaveTypeId);
   const selectedBalance = selectedType && balances.find((b) => b.leaveTypeId === selectedType.id || b.name === selectedType.name);
-  const previewDays = countDays(form.startDate, form.endDate);
+  const myWorkDays = session && session.employee ? session.employee.workDays : null;
+  const previewDays = countDays(form.startDate, form.endDate, myWorkDays);
   const unlimited = selectedType && selectedType.paid === false;
   const over = !unlimited && selectedBalance && previewDays > selectedBalance.left;
 
@@ -503,7 +507,11 @@ export default function LeavePage() {
                         : tr('You will have {left} of {total} days left.', { left: selectedBalance.left - previewDays, total: selectedBalance.entitled }))
                       : tr('Your balance for this type is set when you send the request.')}
                 </span>
-                <small className="dk-muted">{tr('Sundays are not counted. Public holidays in these dates are taken off when you send it.')}</small>
+                <small className="dk-muted">{myWorkDays === 'mon_fri'
+                  ? tr('Saturdays and Sundays are not counted. Public holidays in these dates are taken off when you send it.')
+                  : myWorkDays === 'all'
+                    ? tr('Every day counts. Public holidays in these dates are taken off when you send it.')
+                    : tr('Sundays are not counted. Public holidays in these dates are taken off when you send it.')}</small>
               </div>
             )}
             <div className="field">

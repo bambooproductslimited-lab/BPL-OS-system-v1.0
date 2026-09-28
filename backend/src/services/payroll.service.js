@@ -4,6 +4,7 @@ var { V, businessDays } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { nextDocNumber } = require('../utils/documents');
 var { computePaye } = require('../utils/payroll');
+var { restWeekdays } = require('../utils/workWeek');
 
 // Payroll: employees are paid a daily rate (employees.daily_rate) on one of
 // three cycles (employees.pay_cycle — 'monthly', paid on the 5th per Company
@@ -17,8 +18,8 @@ var { computePaye } = require('../utils/payroll');
 // Or (migration 0108) a monthly basic salary and allowance
 // (employees.basic_salary / allowance): the run pays them cut by the days
 // paid for — present or late, plus approved paid
-// leave — out of the month's working days (not Sundays or the company's
-// public holidays). SSNIT is on basic only; the allowance is not taxed.
+// leave — out of the month's working days (not their rest days, Sundays
+// unless their work week says otherwise, or the company's public holidays). SSNIT is on basic only; the allowance is not taxed.
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -84,7 +85,7 @@ async function holidaySet(db, companyId, from, to) {
 }
 // Days paid for, for a salaried employee: present or late, plus approved
 // paid leave on working days not already counted as present or late.
-async function paidDaysFor(db, employeeId, from, to, holidays) {
+async function paidDaysFor(db, employeeId, from, to, holidays, restDays) {
   var att = await db.query(
     "SELECT to_char(date, 'YYYY-MM-DD') AS d, status FROM attendance WHERE employee_id = $1 AND date BETWEEN $2 AND $3", [employeeId, from, to]);
   var marked = {}, days = 0;
@@ -99,7 +100,7 @@ async function paidDaysFor(db, employeeId, from, to, holidays) {
   leave.rows.forEach(function (l) {
     for (var d = new Date(l.s + 'T00:00:00Z'); iso(d) <= l.e; d = new Date(d.getTime() + 86400000)) {
       var k = iso(d);
-      if (d.getUTCDay() === 0 || holidays.has(k) || marked[k] || counted[k]) continue;
+      if (restDays.indexOf(d.getUTCDay()) >= 0 || holidays.has(k) || marked[k] || counted[k]) continue;
       counted[k] = true; days += 1;
     }
   });
@@ -261,12 +262,12 @@ async function create(ctx, p) {
 
   var employeesRes = companyId
     ? await pool.query(
-        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
+        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.work_days, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1 AND d.company_id = $2",
         [cycle, companyId]
       )
     : await pool.query(
-        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
+        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.work_days, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
         "LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1", [cycle]);
   if (!employeesRes.rows.length) {
@@ -298,9 +299,10 @@ async function create(ctx, p) {
       if (salaried) {
         var month = monthOf(periodEnd);
         var hol = await holidaySet(client, emp.company_id, month.start < periodStart ? month.start : periodStart, month.end > periodEnd ? month.end : periodEnd);
-        var workingDays = businessDays(periodStart, periodEnd, hol);
-        var monthWorkingDays = businessDays(month.start, month.end, hol);
-        daysWorked = await paidDaysFor(client, emp.id, periodStart, periodEnd, hol);
+        var rest = restWeekdays(emp.work_days);
+        var workingDays = businessDays(periodStart, periodEnd, hol, rest);
+        var monthWorkingDays = businessDays(month.start, month.end, hol, rest);
+        daysWorked = await paidDaysFor(client, emp.id, periodStart, periodEnd, hol, rest);
         basis = { basis: 'salary', monthlyBasic: Number(emp.basic_salary), monthlyAllowance: Number(emp.allowance || 0), workingDays: workingDays, monthWorkingDays: monthWorkingDays };
         pay = {
           basic: salaryShare(basis.monthlyBasic, daysWorked, workingDays, monthWorkingDays),

@@ -1,6 +1,7 @@
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V, businessDays } = require('../utils/validate');
+var { restWeekdays } = require('../utils/workWeek');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
@@ -518,7 +519,7 @@ async function requestLeave(ctx, p) {
 
   var companyId = await employeeCompanyId(ctx.employee.department_id);
   var holidaySet = await holidayDatesInRange(companyId, start, end);
-  var days = businessDays(start, end, holidaySet);
+  var days = businessDays(start, end, holidaySet, restWeekdays(ctx.employee.work_days));
   if (days <= 0) fail('invalid', 'That range has no working days to take as leave (weekends and public holidays are already excluded).');
 
   var overlapRes = await pool.query(
