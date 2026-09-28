@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
@@ -222,6 +223,14 @@ export default function TasksPage() {
     } catch (err) { setFormError(err.message); } finally { setSaving(false); }
   }
 
+  // A link like /tasks?open=<id> (a task shared in a chat) opens that task.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const id = params.get('open');
+    if (!id) return;
+    openDetail({ id });
+    setParams({}, { replace: true });
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
   async function openDetail(t) {
     setDetailError(null);
     setEditing(null);

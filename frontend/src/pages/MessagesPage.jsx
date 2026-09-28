@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -9,6 +9,10 @@ import {
   ACCEPT_FILES, MAX_FILES, MAX_FILE_BYTES, downloadProtected, fileBadge, fmtSize, kindOf, shrinkPhoto, squarePhoto, uploadWithProgress
 } from '../lib/chatMedia';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
+import {
+  Burst, ChatGlyph, ForwardDialog, MentionPopup, MessageMenu, ReactionChips, ReactionPicker, RecordCard, RecordPicker,
+  ReplyQuote, RichText, SeenTicks, TypingBubble, recordHref, recordLabel
+} from './chat/ChatParts';
 import './MessagesPage.css';
 
 // Chats: one-to-one and group conversations, with photos, videos, voice
@@ -23,9 +27,19 @@ import './MessagesPage.css';
 // files (button, drag and drop, or paste) and voice notes. The info panel
 // shows a contact or a group: its photo, members and admins, and the photos
 // and files shared in it. Open chats refresh every few seconds.
+//
+// Migration 0110 (chat/ChatParts.jsx): reply to, react to, forward, pin,
+// edit or delete a message from its actions (hover, or tap it on a phone);
+// @mention people in a group; share an OS record as a card; "seen" ticks,
+// "typing…" and who is online; search across every chat; everything shared
+// in a chat in its info panel. An open chat asks /pulse every 2.5 s and
+// reloads only when something changed. New messages, reactions, typing and
+// pins animate, unless the reader asked for less motion.
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const POLL_MS = 6000;
+const PULSE_MS = 2500;
+const TYPING_EVERY_MS = 3000;
 
 const PATHS = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -92,6 +106,7 @@ function systemText(meta) {
     case 'renamed': return tr('{by} renamed the group to "{name}"', { by: meta.by, name: meta.name });
     case 'photo': return tr('{by} changed the group photo', { by: meta.by });
     case 'photoRemoved': return tr('{by} removed the group photo', { by: meta.by });
+    case 'pinned': return tr('{by} pinned a message', { by: meta.by });
     default: return '';
   }
 }
@@ -252,6 +267,7 @@ function PeoplePicker({ people, selected, onToggle, exclude }) {
 
 export default function MessagesPage() {
   const { session, can } = useAuth();
+  const navigate = useNavigate();
   const me = session && session.employee ? session.employee : {};
   const myName = ((me.firstName || '') + ' ' + (me.lastName || '')).trim();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -282,8 +298,32 @@ export default function MessagesPage() {
   const [addSel, setAddSel] = useState([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [editing, setEditing] = useState(null); // { name, description }
-  const [lightbox, setLightbox] = useState(null); // index into images
+  const [lightbox, setLightbox] = useState(null); // { list, index }
   const [myPhoto, setMyPhoto] = useState('probe');
+
+  // Migration 0110: replying, editing, mentions, a message's actions.
+  const [replyTo, setReplyTo] = useState(null);
+  const [editingMsg, setEditingMsg] = useState(null);
+  const [mentionIds, setMentionIds] = useState([]);
+  const [mention, setMention] = useState(null); // { q, start, index }
+  const [selectedMsg, setSelectedMsg] = useState(null);
+  const [menuFor, setMenuFor] = useState(null);
+  const [pickerFor, setPickerFor] = useState(null);
+  const [burst, setBurst] = useState(null); // { id, emoji, key }
+  const [forwardMsg, setForwardMsg] = useState(null);
+  const [deleteMsg, setDeleteMsg] = useState(null);
+  const [recordPicker, setRecordPicker] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [hits, setHits] = useState([]);
+  const [jumpTo, setJumpTo] = useState(null);
+  const [flash, setFlash] = useState(null);
+  const [pinIndex, setPinIndex] = useState(0);
+  const [shared, setShared] = useState(null);
+  const [live, setLive] = useState(null); // the last pulse: { convId, typing, reads, online }
+  const [freshIds, setFreshIds] = useState(() => new Set());
+  const seenRef = useRef({ convId: null, ids: new Set() });
+  const typingSentRef = useRef(0);
+  const sendingRef = useRef(false);
 
   const endRef = useRef(null);
   const bodyRef = useRef(null);
@@ -300,6 +340,12 @@ export default function MessagesPage() {
     if (!a) { setConv(null); return; }
     try {
       const data = await api.get(a.type === 'conv' ? '/messages/conversations/' + a.id : '/messages/' + a.id);
+      // Messages that weren't there last time get the arriving animation.
+      const prev = seenRef.current;
+      const fresh = prev.convId && prev.convId === data.id ? data.messages.filter((m) => !prev.ids.has(m.id)).map((m) => m.id) : [];
+      seenRef.current = { convId: data.id, ids: new Set(data.messages.map((m) => m.id)) };
+      setFreshIds(new Set(fresh));
+      setLive(null);
       setConv(data);
       if (a.type === 'peer' && data.id) setActive({ type: 'conv', id: data.id });
     } catch (err) {
@@ -325,17 +371,66 @@ export default function MessagesPage() {
     setActive((a) => (chat ? (a && a.type === 'conv' && a.id === chat ? a : { type: 'conv', id: chat }) : (a && a.type === 'peer' && a.id === peer ? a : { type: 'peer', id: peer })));
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
-  useEffect(() => { setInfoOpen(false); setEditing(null); loadConv(active); }, [active, loadConv]);
-
-  // Keep the list and the open chat fresh while the page is visible.
   useEffect(() => {
-    const t = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      loadInbox();
-      if (active && active.type === 'conv' && !sending) loadConv(active, true);
-    }, POLL_MS);
+    setInfoOpen(false); setEditing(null); setReplyTo(null); setEditingMsg(null); setMention(null); setMentionIds([]);
+    setSelectedMsg(null); setMenuFor(null); setPickerFor(null); setPinIndex(0); setShared(null);
+    loadConv(active);
+  }, [active, loadConv]);
+
+  // Keep the list fresh while the page is visible.
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadInbox(); }, POLL_MS);
     return () => clearInterval(t);
-  }, [active, sending, loadInbox, loadConv]);
+  }, [loadInbox]);
+  // The open chat asks what changed: it reloads when something did, and
+  // otherwise just takes who is typing, how far people have read and who is online.
+  const convId = conv && conv.id;
+  const convUpdated = conv && conv.updatedAt;
+  useEffect(() => {
+    if (!convId) return undefined;
+    const t = setInterval(async () => {
+      if (document.visibilityState !== 'visible' || sendingRef.current) return;
+      try {
+        const p = await api.get('/messages/conversations/' + convId + '/pulse');
+        if (p.updatedAt !== convUpdated) loadConv({ type: 'conv', id: convId }, true);
+        else setLive({ convId, ...p });
+      } catch { /* the next one will try again */ }
+    }, PULSE_MS);
+    return () => clearInterval(t);
+  }, [convId, convUpdated, loadConv]);
+  useEffect(() => { sendingRef.current = sending; }, [sending]);
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => setNotice(null), 3200);
+    return () => clearTimeout(t);
+  }, [notice]);
+  // Search inside every chat, as you type in the list's search box.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) { setHits([]); return undefined; }
+    let alive = true;
+    const t = setTimeout(() => { api.get('/messages/search?q=' + encodeURIComponent(q)).then((r) => { if (alive) setHits(r); }).catch(() => {}); }, 350);
+    return () => { alive = false; clearTimeout(t); };
+  }, [search]);
+  // Jump to a message (from search, a pin or a reply) once it is on screen.
+  useEffect(() => {
+    if (!jumpTo || !conv) return;
+    const el = document.getElementById('msg-' + jumpTo);
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      stickRef.current = false;
+      setFlash(jumpTo);
+      setTimeout(() => setFlash((f) => (f === jumpTo ? null : f)), 1700);
+    } else if (conv.messages.length) {
+      setNotice(tr('That message is further back than this chat shows.'));
+    }
+    setJumpTo(null);
+  }, [jumpTo, conv]);
+  // What was shared, for the info panel.
+  useEffect(() => {
+    if (!infoOpen || !convId) return;
+    api.get('/messages/conversations/' + convId + '/shared').then(setShared).catch(() => setShared(null));
+  }, [infoOpen, convId, convUpdated]);
 
   // Scroll to the newest message when the chat opens or something new arrives
   // (unless the reader has scrolled up to read older ones).
@@ -371,6 +466,21 @@ export default function MessagesPage() {
   useEffect(() => () => pending.forEach((p) => p.url && URL.revokeObjectURL(p.url)), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = useMemo(() => (conv ? buildItems(conv.messages) : []), [conv]);
+  // Live state: from the last pulse when there is one, else from the chat itself.
+  const liveNow = live && conv && live.convId === conv.id ? live : null;
+  const others = conv ? conv.members.filter((mb) => !mb.me) : [];
+  const readAt = useMemo(() => {
+    const m = {};
+    (liveNow ? liveNow.reads : (conv ? conv.members.map((mb) => ({ id: mb.id, lastReadAt: mb.lastReadAt })) : [])).forEach((r) => { m[r.id] = r.lastReadAt; });
+    return m;
+  }, [liveNow, conv]);
+  const onlineIds = useMemo(() => new Set(liveNow ? liveNow.online : (conv ? conv.members.filter((mb) => !mb.me && mb.online).map((mb) => mb.id) : [])), [liveNow, conv]);
+  const typingNames = liveNow ? liveNow.typing.map((t) => t.name) : (conv ? conv.members.filter((mb) => mb.typing).map((mb) => mb.name.split(' ')[0]) : []);
+  const memberNames = useMemo(() => (conv ? conv.members.map((mb) => mb.name) : []), [conv]);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [typingNames.length]);
   const images = useMemo(() => (conv ? conv.messages.flatMap((m) => m.attachments.filter((a) => a.kind === 'image')) : []), [conv]);
   const sharedFiles = useMemo(() => (conv ? conv.messages.flatMap((m) => m.attachments.filter((a) => a.kind !== 'image')).reverse() : []), [conv]);
   const peopleById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
@@ -380,6 +490,79 @@ export default function MessagesPage() {
     clearPending();
     setActive(a);
   }
+
+  // ── a message's actions ─────────────────────────────────────────────
+  async function msgAction(fn, after) {
+    setError(null);
+    try { const r = await fn(); if (after) after(r); await loadConv({ type: 'conv', id: conv.id }, true); loadInbox(); } catch (err) { setError(err.message); }
+  }
+  function react(m, emoji) {
+    const had = (m.reactions || []).some((r) => r.mine && r.emoji === emoji);
+    setPickerFor(null); setSelectedMsg(null);
+    if (!had) setBurst({ id: m.id, emoji, key: Date.now() });
+    msgAction(() => api.post('/messages/m/' + m.id + '/react', { emoji }));
+  }
+  function startReply(m) {
+    setEditingMsg(null); setReplyTo(m); setSelectedMsg(null);
+    if (composerRef.current) composerRef.current.focus();
+  }
+  function startEdit(m) {
+    setReplyTo(null); setEditingMsg(m); setDraft(m.body); setSelectedMsg(null); clearPending();
+    setTimeout(() => { if (composerRef.current) { composerRef.current.focus(); composerRef.current.setSelectionRange(m.body.length, m.body.length); } }, 0);
+  }
+  function cancelContext() { if (editingMsg) setDraft(''); setEditingMsg(null); setReplyTo(null); }
+  function menuItems(m) {
+    const own = m.fromMe;
+    return [
+      { icon: 'reply', label: tr('Reply'), run: () => startReply(m) },
+      m.body && { icon: 'copy', label: tr('Copy text'), run: () => { navigator.clipboard.writeText(m.body).then(() => setNotice(tr('Copied.'))).catch(() => {}); } },
+      { icon: 'forward', label: tr('Forward'), run: () => setForwardMsg(m) },
+      conv.canPin && { icon: 'pin', label: m.pinned ? tr('Unpin') : tr('Pin'), run: () => msgAction(() => api.post('/messages/m/' + m.id + '/pin', { pinned: !m.pinned }), () => setNotice(m.pinned ? tr('Unpinned.') : tr('Pinned to the top of the chat.'))) },
+      own && { icon: 'edit', label: tr('Edit'), run: () => startEdit(m) },
+      own && { icon: 'trash', label: tr('Delete'), danger: true, run: () => setDeleteMsg(m) }
+    ].filter(Boolean);
+  }
+  // Where a menu or picker fits: up near the bottom of the chat, down near the top.
+  function placeFor(e) {
+    const rowEl = e.currentTarget.closest('.chat-row');
+    const body = bodyRef.current;
+    if (!rowEl || !body) return { up: false, down: false };
+    const r = rowEl.getBoundingClientRect(), b = body.getBoundingClientRect();
+    return { up: b.bottom - r.bottom < 250, down: r.top - b.top < 70 };
+  }
+  function seenState(m) {
+    if (!others.length) return null;
+    const readers = others.filter((o) => readAt[o.id] && new Date(readAt[o.id]) >= new Date(m.at));
+    if (!readers.length) return { state: 'sent', title: tr('Sent') };
+    if (!isGroup) return { state: 'seen', title: tr('Seen') };
+    return { state: readers.length === others.length ? 'seen' : 'some', title: tr('Seen by {names}', { names: readers.map((r) => r.name.split(' ')[0]).join(', ') }) };
+  }
+  function openRecord(r) { const href = recordHref(r); if (href) navigate(href); }
+
+  // ── typing and @mentions ──────────────────────────────────────────
+  function onDraftChange(e) {
+    const value = e.target.value;
+    setDraft(value);
+    if (conv && conv.id && value.trim() && !editingMsg && Date.now() - typingSentRef.current > TYPING_EVERY_MS) {
+      typingSentRef.current = Date.now();
+      api.post('/messages/conversations/' + conv.id + '/typing').catch(() => {});
+    }
+    const caret = e.target.selectionStart || value.length;
+    const m = /(^|\s)@([^\s@]{0,30})$/.exec(value.slice(0, caret));
+    if (m && conv && conv.kind === 'group') setMention({ q: m[2], start: caret - m[2].length - 1, index: 0 });
+    else setMention(null);
+  }
+  const mentionPeople = mention && conv ? others.filter((o) => matchesQuery(mention.q, o.name, o.title)).slice(0, 6) : [];
+  function pickMention(pp) {
+    const el = composerRef.current;
+    const caret = el ? el.selectionStart : draft.length;
+    const before = draft.slice(0, mention.start) + '@' + pp.name + ' ';
+    setDraft(before + draft.slice(caret));
+    setMentionIds((ids) => (ids.includes(pp.id) ? ids : [...ids, pp.id]));
+    setMention(null);
+    setTimeout(() => { if (el) { el.focus(); el.setSelectionRange(before.length, before.length); } }, 0);
+  }
+  function mentionsIn(body) { return mentionIds.filter((id) => { const pp = others.find((o) => o.id === id); return pp && body.includes('@' + pp.name); }); }
 
   // ── attachments ──────────────────────────────────────────────────────
   async function addFiles(fileList) {
@@ -409,25 +592,39 @@ export default function MessagesPage() {
     setPending((p) => { p.forEach((x) => x.url && URL.revokeObjectURL(x.url)); return []; });
   }
 
-  async function send(e, extraFiles) {
+  async function send(e, extraFiles, record) {
     if (e) e.preventDefault();
     const body = draft.trim();
+    if (editingMsg) {
+      if (!body && !editingMsg.attachments.length && !editingMsg.record) return;
+      setSending(true); setError(null);
+      try {
+        await api.patch('/messages/m/' + editingMsg.id, { body });
+        setEditingMsg(null); setDraft('');
+        await loadConv({ type: 'conv', id: conv.id }, true);
+        loadInbox();
+      } catch (err) { setError(err.message); } finally { setSending(false); }
+      return;
+    }
     const files = extraFiles || pending.map((p) => p.file);
-    if (!body && !files.length) return;
+    if (!body && !files.length && !record) return;
     if (!active) return;
-    setSending(true); setError(null); setProgress(files.length ? 0 : null);
+    setSending(true); setError(null); setProgress(files.length ? 0 : null); setMention(null);
+    const mentions = mentionsIn(body);
     try {
       const path = active.type === 'conv' ? '/messages/conversations/' + active.id : '/messages/' + active.id;
       let r;
       if (files.length) {
         const fd = new FormData();
         if (body) fd.append('body', body);
+        if (replyTo) fd.append('replyTo', replyTo.id);
+        if (mentions.length) fd.append('mentions', JSON.stringify(mentions));
         files.forEach((f) => fd.append('files', f, f.name));
         r = await uploadWithProgress(path, fd, setProgress);
       } else {
-        r = await api.post(path, { body });
+        r = await api.post(path, { body, replyTo: replyTo ? replyTo.id : null, mentions, record: record ? { type: record.type, id: record.id } : null });
       }
-      setDraft('');
+      setDraft(''); setReplyTo(null); setMentionIds([]); stickRef.current = true;
       if (!extraFiles) clearPending();
       if (active.type === 'peer' && r && r.conversationId) setActive({ type: 'conv', id: r.conversationId });
       else await loadConv(active, true);
@@ -439,6 +636,13 @@ export default function MessagesPage() {
     }
   }
   function onComposerKey(e) {
+    if (mention && mentionPeople.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMention({ ...mention, index: (mention.index + 1) % mentionPeople.length }); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMention({ ...mention, index: (mention.index - 1 + mentionPeople.length) % mentionPeople.length }); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mentionPeople[mention.index]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
+    }
+    if (e.key === 'Escape' && (replyTo || editingMsg)) { e.preventDefault(); cancelContext(); return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(e); }
   }
   function onPaste(e) {
@@ -521,15 +725,30 @@ export default function MessagesPage() {
     const l = c.last;
     if (!l) return c.kind === 'group' ? tr('{n} members', { n: c.memberCount }) : '';
     if (l.kind === 'system') return systemText(l.meta);
+    if (l.deleted) return tr('This message was deleted');
     const who = l.fromMe ? tr('You') + ': ' : c.kind === 'group' ? l.fromName + ': ' : '';
-    return who + (l.body || filesLabel(l.files, l.fileKind));
+    return who + (l.body || (l.record ? recordLabel(l.record.type) + ': ' + l.record.title : filesLabel(l.files, l.fileKind)));
   }
 
   const isGroup = conv && conv.kind === 'group';
   const amAdmin = isGroup && conv.myRole === 'admin';
-  const subtitle = conv ? (isGroup
-    ? conv.members.map((m) => (m.me ? tr('You') : m.name.split(' ')[0])).join(', ')
-    : [conv.title, conv.department].filter(Boolean).join(' · ')) : '';
+  const peerOnline = conv && !isGroup && onlineIds.has(conv.peerId);
+  const subtitle = conv ? (typingNames.length
+    ? (isGroup ? (typingNames.length === 1 ? tr('{name} is typing…', { name: typingNames[0] }) : tr('{n} people are typing…', { n: typingNames.length })) : tr('typing…'))
+    : isGroup
+      ? conv.members.map((m) => (m.me ? tr('You') : m.name.split(' ')[0])).join(', ')
+      : peerOnline ? tr('online')
+        : conv.peer && conv.peer.lastSeenAt ? tr('last seen {when}', { when: listTime(conv.peer.lastSeenAt) === hhmm(conv.peer.lastSeenAt) ? tr('today at {time}', { time: hhmm(conv.peer.lastSeenAt) }) : listTime(conv.peer.lastSeenAt) })
+          : [conv.title, conv.department].filter(Boolean).join(' · ')) : '';
+  const subtitleClass = typingNames.length ? ' chat-typing-sub' : peerOnline ? ' chat-online-sub' : '';
+  const pins = conv ? conv.pinned || [] : [];
+  const pin = pins.length ? pins[Math.min(pinIndex, pins.length - 1)] : null;
+  function highlight(text) {
+    const q = search.trim();
+    const i = text.toLowerCase().indexOf(q.toLowerCase());
+    if (!q || i < 0) return text;
+    return <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
+  }
 
   return (
     <div className="chat">
@@ -556,11 +775,11 @@ export default function MessagesPage() {
             ))}
           </div>
           <div className="chat-list-items">
-            {visibleInbox.map((c) => {
+            {visibleInbox.map((c, n) => {
               const on = active && ((active.type === 'conv' && active.id === c.id) || (active.type === 'peer' && active.id === c.peerId));
               return (
-                <button key={c.id} type="button" className={'chat-item' + (on ? ' is-active' : '') + (c.unread ? ' is-unread' : '')} onClick={() => open({ type: 'conv', id: c.id })}>
-                  <Photo kind={c.kind === 'group' ? 'group' : 'person'} id={c.kind === 'group' ? c.id : c.peerId} name={c.name} photo={c.photo} size={48} />
+                <button key={c.id} type="button" style={{ '--n': Math.min(n, 12) }} className={'chat-item' + (on ? ' is-active' : '') + (c.unread ? ' is-unread' : '')} onClick={() => open({ type: 'conv', id: c.id })}>
+                  <span className={'chat-av' + (c.kind === 'direct' && c.online ? ' is-online' : '')}><Photo kind={c.kind === 'group' ? 'group' : 'person'} id={c.kind === 'group' ? c.id : c.peerId} name={c.name} photo={c.photo} size={48} /></span>
                   <span className="chat-item-main">
                     <span className="chat-item-row">
                       <span className="chat-item-name">{c.name}</span>
@@ -577,6 +796,20 @@ export default function MessagesPage() {
                 </button>
               );
             })}
+            {hits.length > 0 && (
+              <>
+                <p className="chat-list-label">{tr('Messages')}</p>
+                {hits.map((h) => (
+                  <button key={h.id} type="button" className="chat-item" onClick={() => { setJumpTo(h.id); open({ type: 'conv', id: h.conversationId }); }}>
+                    <Photo kind={h.kind === 'group' ? 'group' : 'person'} id={h.kind === 'group' ? h.conversationId : h.peerId} name={h.name} photo={h.photo} size={48} />
+                    <span className="chat-item-main">
+                      <span className="chat-item-row"><span className="chat-item-name">{h.name}</span><span className="chat-item-at">{listTime(h.at)}</span></span>
+                      <span className="chat-item-preview chat-hit-body">{(h.fromMe ? tr('You') : h.fromName.split(' ')[0]) + ': '}{highlight(h.body)}</span>
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
             {newPeople.length > 0 && (
               <>
                 <p className="chat-list-label">{tr('Start a new chat')}</p>
@@ -602,7 +835,7 @@ export default function MessagesPage() {
                 </div>
               </div>
             )}
-            {!!inbox.length && !visibleInbox.length && !newPeople.length && <p className="chat-muted chat-pad">{tr('No chats match.')}</p>}
+            {!!inbox.length && !visibleInbox.length && !newPeople.length && !hits.length && <p className="chat-muted chat-pad">{tr('No chats match.')}</p>}
           </div>
         </aside>
 
@@ -616,14 +849,27 @@ export default function MessagesPage() {
               <header className="chat-thread-head">
                 <button type="button" className="chat-icon-btn chat-back" onClick={() => setActive(null)} aria-label={tr('Back to chats')}><Icon name="back" /></button>
                 <button type="button" className="chat-thread-id" onClick={() => setInfoOpen(true)}>
-                  <Photo kind={isGroup ? 'group' : 'person'} id={isGroup ? conv.id : conv.peerId} name={conv.name} photo={conv.photo} size={42} />
+                  <span className={'chat-av' + (peerOnline ? ' is-online' : '')}><Photo kind={isGroup ? 'group' : 'person'} id={isGroup ? conv.id : conv.peerId} name={conv.name} photo={conv.photo} size={42} /></span>
                   <span className="chat-thread-text">
                     <span className="chat-thread-name">{conv.name}</span>
-                    <span className="chat-muted chat-thread-sub">{subtitle}</span>
+                    <span className={'chat-muted chat-thread-sub' + subtitleClass}>{subtitle}</span>
                   </span>
                 </button>
                 <button type="button" className="chat-icon-btn" onClick={() => setInfoOpen((v) => !v)} aria-label={isGroup ? tr('Group info') : tr('Contact info')} title={isGroup ? tr('Group info') : tr('Contact info')}><Icon name="info" /></button>
               </header>
+
+              {pin && (
+                <div className="chat-pinned" key={pin.id}>
+                  <ChatGlyph name="pin" size={16} />
+                  <button type="button" className="chat-pinned-open" onClick={() => { setJumpTo(pin.id); setPinIndex((i) => (i + 1) % pins.length); }}
+                    title={pins.length > 1 ? tr('Show the next pinned message') : tr('Go to the pinned message')}>
+                    <span className="chat-pinned-label">{pins.length > 1 ? tr('Pinned message {n} of {total}', { n: Math.min(pinIndex, pins.length - 1) + 1, total: pins.length }) : tr('Pinned message')}</span>
+                    <span className="chat-pinned-text">{pin.fromName.split(' ')[0]}: {pin.body || (pin.record ? recordLabel(pin.record.type) + ': ' + pin.record.title : filesLabel(pin.files, pin.fileKind))}</span>
+                  </button>
+                  {pins.length > 1 && <span className="chat-pinned-bars" aria-hidden="true">{pins.map((pp, i) => <i key={pp.id} className={i === Math.min(pinIndex, pins.length - 1) ? 'is-on' : ''} />)}</span>}
+                  {conv.canPin && <button type="button" className="chat-icon-btn is-small" onClick={() => msgAction(() => api.post('/messages/m/' + pin.id + '/pin', { pinned: false }))} aria-label={tr('Unpin')} title={tr('Unpin')}><ChatGlyph name="close" size={15} /></button>}
+                </div>
+              )}
 
               <MediaLoaded.Provider value={onMediaLoaded}>
               <div className="chat-thread-body" ref={bodyRef} onScroll={onBodyScroll}>
@@ -640,21 +886,55 @@ export default function MessagesPage() {
                   const m = it.message;
                   const sender = peopleById[m.fromId];
                   const hasFiles = m.attachments.length > 0;
-                  const onlyMedia = !m.body && hasFiles && m.attachments.every((a) => a.kind === 'image');
+                  const onlyMedia = !m.body && hasFiles && !m.replyTo && !m.forwarded && m.attachments.every((a) => a.kind === 'image');
+                  const seen = m.fromMe && !m.deleted ? seenState(m) : null;
+                  const mine = (m.reactions || []).find((r) => r.mine);
+                  const align = m.fromMe ? 'right' : 'left';
                   return (
-                    <div key={it.key} className={'chat-row' + (m.fromMe ? ' is-mine' : '') + (it.isFirst ? ' is-first' : '')}>
+                    <div key={it.key} id={'msg-' + m.id}
+                      className={'chat-row' + (m.fromMe ? ' is-mine' : '') + (it.isFirst ? ' is-first' : '') + (freshIds.has(m.id) ? ' is-new' : '') + (flash === m.id ? ' is-flash' : '') + (selectedMsg === m.id ? ' is-selected' : '')}>
                       {!m.fromMe && isGroup && (
                         <span className="chat-row-avatar">{it.isLast && <Photo id={m.fromId} name={m.fromName} photo={sender ? sender.photo : null} size={30} />}</span>
                       )}
-                      <div className={'chat-bubble' + (m.fromMe ? ' is-mine' : '') + (!it.isFirst ? ' is-cont-top' : '') + (!it.isLast ? ' is-cont-bottom' : '') + (onlyMedia ? ' is-media' : '')}>
-                        {!m.fromMe && isGroup && it.isFirst && <span className="chat-sender" style={{ color: colorFor(m.fromName) }}>{m.fromName}</span>}
-                        {hasFiles && <Attachments list={m.attachments} onOpenImage={(id) => setLightbox(images.findIndex((x) => x.id === id))} />}
-                        {m.body && <span className="chat-text">{m.body}</span>}
-                        <span className="chat-time">{hhmm(m.at)}</span>
+                      <div className="chat-bubble-wrap">
+                        <div className={'chat-bubble' + (m.fromMe ? ' is-mine' : '') + (!it.isFirst ? ' is-cont-top' : '') + (!it.isLast ? ' is-cont-bottom' : '') + (onlyMedia && !m.deleted ? ' is-media' : '')}
+                          onClick={(e) => { if (!m.deleted && !e.target.closest('button, a, audio, video, input')) setSelectedMsg((x) => (x === m.id ? null : m.id)); }}
+                          onDoubleClick={(e) => { if (!m.deleted && !e.target.closest('button, a, audio, video')) react(m, '❤️'); }}>
+                          {!m.fromMe && isGroup && it.isFirst && <span className="chat-sender" style={{ color: colorFor(m.fromName) }}>{m.fromName}</span>}
+                          {m.forwarded && !m.deleted && <span className="chat-fwd"><ChatGlyph name="forward" size={13} /> {tr('Forwarded')}</span>}
+                          {m.replyTo && !m.deleted && <ReplyQuote reply={m.replyTo} onJump={m.replyTo.deleted ? null : () => setJumpTo(m.replyTo.id)} />}
+                          {m.deleted ? (
+                            <span className="chat-deleted"><ChatGlyph name="ban" size={15} /> {m.fromMe ? tr('You deleted this message') : tr('This message was deleted')}</span>
+                          ) : (
+                            <>
+                              {hasFiles && <Attachments list={m.attachments} onOpenImage={(id) => setLightbox({ list: images, index: images.findIndex((x) => x.id === id) })} />}
+                              {m.record && <RecordCard record={m.record} onOpen={() => openRecord(m.record)} />}
+                              {m.body && <RichText text={m.body} names={isGroup ? memberNames : []} />}
+                            </>
+                          )}
+                          <span className="chat-meta">
+                            {m.pinned && <span className="chat-pin-mark" title={tr('Pinned')}><ChatGlyph name="pin" size={11} /></span>}
+                            {m.editedAt && !m.deleted && <span className="chat-edited">{tr('edited')}</span>}
+                            <span className="chat-time">{hhmm(m.at)}</span>
+                            {seen && <SeenTicks state={seen.state} title={seen.title} />}
+                          </span>
+                        </div>
+                        {!m.deleted && <ReactionChips reactions={m.reactions} onToggle={(emoji) => react(m, emoji)} />}
+                        {!m.deleted && (
+                          <div className="chat-actions">
+                            <button type="button" onClick={(e) => { const pl = placeFor(e); setMenuFor(null); setPickerFor(pickerFor && pickerFor.id === m.id ? null : { id: m.id, down: pl.down }); }} aria-label={tr('React')} title={tr('React')}><ChatGlyph name="smile" /></button>
+                            <button type="button" onClick={() => startReply(m)} aria-label={tr('Reply')} title={tr('Reply')}><ChatGlyph name="reply" /></button>
+                            <button type="button" onClick={(e) => { const pl = placeFor(e); setPickerFor(null); setMenuFor(menuFor && menuFor.id === m.id ? null : { id: m.id, up: pl.up }); }} aria-label={tr('More')} title={tr('More')}><ChatGlyph name="more" /></button>
+                          </div>
+                        )}
+                        {pickerFor && pickerFor.id === m.id && <ReactionPicker choices={conv.reactionChoices || []} mine={mine && mine.emoji} align={align} down={pickerFor.down} onPick={(emoji) => react(m, emoji)} onClose={() => setPickerFor(null)} />}
+                        {menuFor && menuFor.id === m.id && <MessageMenu items={menuItems(m)} align={align} up={menuFor.up} onClose={() => setMenuFor(null)} />}
+                        {burst && burst.id === m.id && <Burst key={burst.key} emoji={burst.emoji} />}
                       </div>
                     </div>
                   );
                 })}
+                <TypingBubble names={typingNames} isGroup={isGroup} />
                 <div ref={endRef} />
               </div>
               </MediaLoaded.Provider>
@@ -676,7 +956,15 @@ export default function MessagesPage() {
               )}
               {progress !== null && <div className="chat-progress" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: Math.round(progress * 100) + '%' }} /></div>}
 
-              <form className="chat-compose" onSubmit={send}>
+              {(replyTo || editingMsg) && (
+                <div className="chat-context" key={(replyTo || editingMsg).id}>
+                  <ChatGlyph name={editingMsg ? 'edit' : 'reply'} size={18} />
+                  <ReplyQuote inComposer reply={editingMsg ? { fromName: tr('Editing your message'), body: editingMsg.body } : { fromName: tr('Replying to {name}', { name: replyTo.fromMe ? tr('yourself') : replyTo.fromName }), body: replyTo.body, files: replyTo.attachments.length, fileKind: replyTo.attachments[0] && replyTo.attachments[0].kind, record: replyTo.record }} />
+                  <button type="button" className="chat-icon-btn is-small" onClick={cancelContext} aria-label={tr('Cancel')} title={tr('Cancel')}><ChatGlyph name="close" size={15} /></button>
+                </div>
+              )}
+              <form className="chat-compose" onSubmit={send} style={{ position: 'relative' }}>
+                {mention && <MentionPopup people={mentionPeople} index={mention.index} onPick={pickMention} />}
                 <input ref={fileInputRef} type="file" multiple accept={ACCEPT_FILES} hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
                 <input ref={mediaInputRef} type="file" multiple accept="image/*,video/*" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
                 {recording ? (
@@ -688,15 +976,22 @@ export default function MessagesPage() {
                   </div>
                 ) : (
                   <>
-                    <button type="button" className="chat-icon-btn" onClick={() => fileInputRef.current.click()} aria-label={tr('Attach files')} title={tr('Attach documents, photos or audio')} disabled={sending}><Icon name="clip" /></button>
-                    <button type="button" className="chat-icon-btn chat-media-btn" onClick={() => mediaInputRef.current.click()} aria-label={tr('Photos and videos')} title={tr('Photos and videos')} disabled={sending}><Icon name="image" /></button>
+                    {!editingMsg && (
+                      <>
+                        <button type="button" className="chat-icon-btn" onClick={() => fileInputRef.current.click()} aria-label={tr('Attach files')} title={tr('Attach documents, photos or audio')} disabled={sending}><Icon name="clip" /></button>
+                        <button type="button" className="chat-icon-btn chat-media-btn" onClick={() => mediaInputRef.current.click()} aria-label={tr('Photos and videos')} title={tr('Photos and videos')} disabled={sending}><Icon name="image" /></button>
+                        <button type="button" className="chat-icon-btn" onClick={() => setRecordPicker(true)} aria-label={tr('Share from the OS')} title={tr('Share a task, invoice, quotation, client, lead or leave request')} disabled={sending}><ChatGlyph name="grid" size={18} /></button>
+                      </>
+                    )}
                     <textarea ref={composerRef} className="chat-input" rows={1} value={draft}
-                      onChange={(e) => setDraft(e.target.value)} onKeyDown={onComposerKey} onPaste={onPaste}
-                      placeholder={pending.length ? tr('Add a caption…') : tr('Write a message…')} aria-label={tr('Message')} disabled={sending} />
-                    {draft.trim() || pending.length ? (
-                      <button type="submit" className="chat-send" disabled={sending} aria-label={tr('Send')} title={tr('Send')}><Icon name="send" /></button>
+                      onChange={onDraftChange} onKeyDown={onComposerKey} onPaste={onPaste} onBlur={() => setTimeout(() => setMention(null), 150)}
+                      placeholder={editingMsg ? tr('Edit your message…') : pending.length ? tr('Add a caption…') : isGroup ? tr('Message… (@ to mention)') : tr('Write a message…')} aria-label={tr('Message')} disabled={sending} />
+                    {editingMsg ? (
+                      <button type="submit" key="save" className="chat-send" disabled={sending} aria-label={tr('Save')} title={tr('Save')}><ChatGlyph name="check" size={18} /></button>
+                    ) : draft.trim() || pending.length ? (
+                      <button type="submit" key="send" className="chat-send" disabled={sending} aria-label={tr('Send')} title={tr('Send')}><Icon name="send" /></button>
                     ) : (
-                      <button type="button" className="chat-send is-mic" onClick={startRecording} disabled={sending} aria-label={tr('Record a voice note')} title={tr('Record a voice note')}><Icon name="mic" /></button>
+                      <button type="button" key="mic" className="chat-send is-mic" onClick={startRecording} disabled={sending} aria-label={tr('Record a voice note')} title={tr('Record a voice note')}><Icon name="mic" /></button>
                     )}
                   </>
                 )}
@@ -757,7 +1052,7 @@ export default function MessagesPage() {
                   <ul className="chat-members">
                     {conv.members.map((mb) => (
                       <li key={mb.id}>
-                        <Photo id={mb.id} name={mb.name} photo={mb.photo} size={38} />
+                        <span className={'chat-av' + (!mb.me && onlineIds.has(mb.id) ? ' is-online' : '')}><Photo id={mb.id} name={mb.name} photo={mb.photo} size={38} /></span>
                         <span className="chat-person-text">
                           <span className="chat-person-name">{mb.me ? tr('You') : mb.name}</span>
                           <span className="chat-muted">{mb.title}</span>
@@ -775,19 +1070,33 @@ export default function MessagesPage() {
                 </section>
               )}
 
-              <section className="chat-info-section">
-                <div className="chat-info-section-head"><strong>{tr('Photos')}</strong><span className="chat-muted">{images.length}</span></div>
-                {images.length ? (
-                  <div className="chat-info-media">
-                    {images.slice(-12).reverse().map((a) => <ImageTile key={a.id} a={a} count={2} onOpen={() => setLightbox(images.findIndex((x) => x.id === a.id))} />)}
-                  </div>
-                ) : <p className="chat-muted">{tr('No photos shared yet.')}</p>}
-              </section>
-              <section className="chat-info-section">
-                <div className="chat-info-section-head"><strong>{tr('Files, audio and videos')}</strong><span className="chat-muted">{sharedFiles.length}</span></div>
-                {sharedFiles.length ? <div className="chat-info-files">{sharedFiles.slice(0, 12).map((a) => (a.kind === 'video' ? <VideoItem key={a.id} a={a} /> : a.kind === 'audio' ? <AudioItem key={a.id} a={a} /> : <FileCard key={a.id} a={a} />))}</div>
-                  : <p className="chat-muted">{tr('No files shared yet.')}</p>}
-              </section>
+              {(() => {
+                const pics = shared ? shared.images : images.slice().reverse();
+                const docs = shared ? shared.files : sharedFiles;
+                const recs = shared ? shared.records : [];
+                return (
+                  <>
+                    <section className="chat-info-section">
+                      <div className="chat-info-section-head"><strong>{tr('Photos')}</strong><span className="chat-muted">{pics.length}</span></div>
+                      {pics.length ? (
+                        <div className="chat-info-media">
+                          {pics.slice(0, 24).map((a, i) => <ImageTile key={a.id} a={a} count={2} onOpen={() => setLightbox({ list: pics, index: i })} />)}
+                        </div>
+                      ) : <p className="chat-muted">{tr('No photos shared yet.')}</p>}
+                    </section>
+                    <section className="chat-info-section">
+                      <div className="chat-info-section-head"><strong>{tr('Files, audio and videos')}</strong><span className="chat-muted">{docs.length}</span></div>
+                      {docs.length ? <div className="chat-info-files">{docs.slice(0, 20).map((a) => (a.kind === 'video' ? <VideoItem key={a.id} a={a} /> : a.kind === 'audio' ? <AudioItem key={a.id} a={a} /> : <FileCard key={a.id} a={a} />))}</div>
+                        : <p className="chat-muted">{tr('No files shared yet.')}</p>}
+                    </section>
+                    <section className="chat-info-section">
+                      <div className="chat-info-section-head"><strong>{tr('Shared from the OS')}</strong><span className="chat-muted">{recs.length}</span></div>
+                      {recs.length ? <div className="chat-info-records">{recs.slice(0, 20).map((r) => <RecordCard key={r.messageId} record={r.record} onOpen={() => openRecord(r.record)} />)}</div>
+                        : <p className="chat-muted">{tr('No tasks, invoices or other records shared yet.')}</p>}
+                    </section>
+                  </>
+                );
+              })()}
 
               {isGroup && (
                 <button type="button" className="btn btn-secondary chat-leave" onClick={leaveGroup}><Icon name="leave" size={16} /> {tr('Leave group')}</button>
@@ -893,9 +1202,37 @@ export default function MessagesPage() {
           onClose={() => setDialog(null)} />
       )}
 
-      {lightbox !== null && lightbox >= 0 && (
-        <Lightbox images={images} index={lightbox} onIndex={setLightbox} onClose={() => setLightbox(null)} />
+      {lightbox && lightbox.index >= 0 && (
+        <Lightbox images={lightbox.list} index={lightbox.index} onIndex={(i) => setLightbox((l) => ({ ...l, index: i }))} onClose={() => setLightbox(null)} />
       )}
+
+      {forwardMsg && (
+        <ForwardDialog inbox={inbox} people={people} onClose={() => setForwardMsg(null)}
+          onSend={async (sel) => {
+            const r = await api.post('/messages/m/' + forwardMsg.id + '/forward', {
+              conversationIds: sel.filter((x) => x.kind === 'conv').map((x) => x.id), peerIds: sel.filter((x) => x.kind === 'peer').map((x) => x.id)
+            });
+            setForwardMsg(null);
+            setNotice(r.sent === 1 ? tr('Forwarded to 1 chat.') : tr('Forwarded to {n} chats.', { n: r.sent }));
+            loadInbox();
+          }} />
+      )}
+      {recordPicker && (
+        <RecordPicker onClose={() => setRecordPicker(false)} onPick={(r) => { setRecordPicker(false); send(null, null, r); }} />
+      )}
+      {deleteMsg && (
+        <div className="dialog-backdrop" onClick={() => setDeleteMsg(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>{tr('Delete this message?')}</h2>
+            <p className="dialog-body">{tr('It is removed for everyone in the chat, with its files. A note that it was deleted stays in its place.')}</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteMsg(null)}>{tr('Cancel')}</button>
+              <button type="button" className="btn btn-primary" onClick={() => { const m = deleteMsg; setDeleteMsg(null); msgAction(() => api.del('/messages/m/' + m.id), () => setNotice(tr('Message deleted.'))); }}>{tr('Delete')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {notice && <div className="chat-notice" role="status" key={notice}>{notice}</div>}
     </div>
   );
 }

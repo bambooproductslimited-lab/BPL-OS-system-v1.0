@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
@@ -71,6 +71,14 @@ export default function CustomersPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [detail, setDetail] = useState(null);
+  // A link like /customers?open=<id> (a client shared in a chat) opens that client.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const id = params.get('open');
+    if (!id) return;
+    setDetail(id);
+    setParams({}, { replace: true });
+  }, [params, setParams]);
   const [activity, setActivity] = useState(null);
 
   const load = useCallback(async () => {
