@@ -1,6 +1,7 @@
 var { AppError } = require('../utils/errors');
 var { verifyToken } = require('../services/auth.service');
 var { buildContext } = require('../services/context.service');
+var { pool } = require('../db/pool');
 
 // Endpoints a user with must_change_password still needs to reach: reading
 // their own session (so the frontend can show the forced-change screen with
@@ -34,6 +35,10 @@ async function requireAuth(req, res, next) {
     var ctx = await buildContext(payload.sub);
     if (!ctx) return next(new AppError('auth', 'Your session has ended. Please sign in again.'));
     req.ctx = ctx;
+    // "Online" in chats: seen in the last two minutes (the notification
+    // bell asks every 45 s). At most one write every 30 s per person, and
+    // never in the way of the request.
+    pool.query("UPDATE employees SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '30 seconds')", [ctx.employee.id]).catch(function () {});
 
     if (ctx.user.mustChangePassword) {
       var path = req.originalUrl.split('?')[0];

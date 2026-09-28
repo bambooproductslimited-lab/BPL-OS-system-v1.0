@@ -4,6 +4,7 @@ var { requireAuth } = require('../middleware/auth');
 var { allowlistFilter } = require('../lib/uploadFilters');
 var fileStore = require('../lib/fileStore');
 var messagesService = require('../services/messages.service');
+var chatRecords = require('../services/chatRecords.service');
 
 // Chat attachments: photos, videos, audio and everyday documents — not
 // programs or archives. Each file up to 25 MB (15 MB when files are kept in
@@ -42,8 +43,12 @@ router.post('/groups', wrap(async function (req, res) { res.status(201).json(awa
 
 // One conversation: read, send (JSON { body } or multipart with body + files), settings, members, photo
 router.get('/conversations/:id', wrap(async function (req, res) { res.json(await messagesService.conversation(req.ctx, req.params.id)); }));
+// Sending: body, files, and optionally replyTo (a message id), mentions
+// (employee ids) and record ({ type, id }) — as JSON, or as form fields
+// (mentions and record then JSON text) when files are attached.
+function sendOpts(b) { b = b || {}; return { replyTo: b.replyTo || null, mentions: b.mentions, record: b.record }; }
 router.post('/conversations/:id', files.array('files', 10), wrap(async function (req, res) {
-  res.status(201).json(await messagesService.sendToConversation(req.ctx, req.params.id, (req.body || {}).body, req.files));
+  res.status(201).json(await messagesService.sendToConversation(req.ctx, req.params.id, (req.body || {}).body, req.files, sendOpts(req.body)));
 }));
 router.patch('/conversations/:id', wrap(async function (req, res) { res.json(await messagesService.updateGroup(req.ctx, req.params.id, req.body || {})); }));
 router.post('/conversations/:id/members', wrap(async function (req, res) {
@@ -58,6 +63,22 @@ router.post('/conversations/:id/leave', wrap(async function (req, res) {
 router.post('/conversations/:id/admins/:employeeId', wrap(async function (req, res) {
   res.json(await messagesService.setAdmin(req.ctx, req.params.id, req.params.employeeId, (req.body || {}).admin !== false));
 }));
+// Live: typing, and what an open chat asks every few seconds; what was shared.
+router.post('/conversations/:id/typing', wrap(async function (req, res) { res.json(await messagesService.typing(req.ctx, req.params.id)); }));
+router.get('/conversations/:id/pulse', wrap(async function (req, res) { res.json(await messagesService.pulse(req.ctx, req.params.id)); }));
+router.get('/conversations/:id/shared', wrap(async function (req, res) { res.json(await messagesService.shared(req.ctx, req.params.id)); }));
+
+// One message: edit or delete your own, react, pin, forward.
+router.patch('/m/:messageId', wrap(async function (req, res) { res.json(await messagesService.editMessage(req.ctx, req.params.messageId, (req.body || {}).body)); }));
+router.delete('/m/:messageId', wrap(async function (req, res) { res.json(await messagesService.deleteMessage(req.ctx, req.params.messageId)); }));
+router.post('/m/:messageId/react', wrap(async function (req, res) { res.json(await messagesService.react(req.ctx, req.params.messageId, (req.body || {}).emoji)); }));
+router.post('/m/:messageId/pin', wrap(async function (req, res) { res.json(await messagesService.pin(req.ctx, req.params.messageId, !!(req.body || {}).pinned)); }));
+router.post('/m/:messageId/forward', wrap(async function (req, res) { res.json(await messagesService.forward(req.ctx, req.params.messageId, req.body || {})); }));
+
+// Search your chats; OS records you can share as a card.
+router.get('/search', wrap(async function (req, res) { res.json(await messagesService.search(req.ctx, req.query.q)); }));
+router.get('/records', wrap(async function (req, res) { res.json(await chatRecords.search(req.ctx, req.query.type, req.query.q)); }));
+
 router.get('/conversations/:id/photo', wrap(async function (req, res) {
   var p = await messagesService.groupPhoto(req.ctx, req.params.id);
   await fileStore.send(res, p.key, 'group.jpg', true);
@@ -95,7 +116,7 @@ router.delete('/people/:id/photo', wrap(async function (req, res) {
 // kernel.js: handlers['messages.thread'] / ['messages.send']
 router.get('/:peerId', wrap(async function (req, res) { res.json(await messagesService.direct(req.ctx, req.params.peerId)); }));
 router.post('/:peerId', files.array('files', 10), wrap(async function (req, res) {
-  res.status(201).json(await messagesService.sendDirect(req.ctx, req.params.peerId, (req.body || {}).body, req.files));
+  res.status(201).json(await messagesService.sendDirect(req.ctx, req.params.peerId, (req.body || {}).body, req.files, sendOpts(req.body)));
 }));
 
 module.exports = router;

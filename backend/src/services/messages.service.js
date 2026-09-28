@@ -4,6 +4,7 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
 var fileStore = require('../lib/fileStore');
+var chatRecords = require('./chatRecords.service');
 
 // Chats (migration 0080): one-to-one ('direct') and group conversations,
 // messages with files, and profile photos for people and groups.
@@ -13,9 +14,27 @@ var fileStore = require('../lib/fileStore');
 // the admins (whoever created it, and anyone they make admin) rename it,
 // change its photo and add or remove people; anyone can leave. Unread is
 // what others sent after the member's last_read_at.
+//
+// Migration 0110 adds: replying to a message, editing and deleting your own,
+// forwarding, pinning (anyone in a one-to-one chat, admins in a group),
+// @mentions (which notify), one emoji reaction per person per message,
+// sharing an OS record as a card (chatRecords.service.js), "seen" from each
+// member's last_read_at, "typing…" and "online", search across your chats,
+// and everything shared in a chat. conversations.updated_at moves on any of
+// these, so an open chat asks pulse() and reloads only when it changed.
 
 var MAX_FILES = 10;
 var MAX_GROUP_MEMBERS = 256;
+var MAX_PINS = 5;
+var ONLINE_MS = 2 * 60 * 1000;
+var TYPING_MS = 6000;
+var REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🎉', '🔥'];
+var UUID = /^[0-9a-f-]{36}$/i;
+
+async function touch(db, conversationId) {
+  await db.query('UPDATE conversations SET updated_at = clock_timestamp() WHERE id = $1', [conversationId]);
+}
+function online(ts) { return !!ts && Date.now() - new Date(ts).getTime() < ONLINE_MS; }
 
 function fullName(r) { return r.first_name + ' ' + r.last_name; }
 function directKey(a, b) { return a < b ? a + '|' + b : b + '|' + a; }
@@ -52,14 +71,15 @@ function requireAdmin(m) {
 async function employeeRows(ids) {
   if (!ids.length) return [];
   return (await pool.query(
-    'SELECT e.id, e.first_name, e.last_name, e.position_title, e.status, e.photo_updated_at, e.photo_key, d.name AS department ' +
+    'SELECT e.id, e.first_name, e.last_name, e.position_title, e.status, e.photo_updated_at, e.photo_key, e.last_seen_at, d.name AS department ' +
     'FROM employees e LEFT JOIN departments d ON d.id = e.department_id WHERE e.id = ANY($1)', [ids]
   )).rows;
 }
 function personOut(e) {
   return {
     id: e.id, name: fullName(e), title: e.position_title || '', department: e.department || '',
-    photo: e.photo_key ? version(e.photo_updated_at) : null, active: e.status === 'active'
+    photo: e.photo_key ? version(e.photo_updated_at) : null, active: e.status === 'active',
+    online: online(e.last_seen_at), lastSeenAt: e.last_seen_at || null
   };
 }
 
@@ -78,7 +98,7 @@ async function inbox(ctx) {
   var ids = rows.map(function (r) { return r.id; });
   var last = {};
   (await pool.query(
-    'SELECT DISTINCT ON (m.conversation_id) m.conversation_id, m.id, m.from_id, m.body, m.kind, m.meta, m.at, e.first_name, e.last_name, ' +
+    'SELECT DISTINCT ON (m.conversation_id) m.conversation_id, m.id, m.from_id, m.body, m.kind, m.meta, m.at, m.deleted_at, m.record, e.first_name, e.last_name, ' +
     '(SELECT count(*)::int FROM message_attachments a WHERE a.message_id = m.id) AS files, ' +
     '(SELECT min(a.kind) FROM message_attachments a WHERE a.message_id = m.id) AS file_kind ' +
     'FROM messages m JOIN employees e ON e.id = m.from_id WHERE m.conversation_id = ANY($1) ORDER BY m.conversation_id, m.at DESC', [ids]
@@ -97,7 +117,8 @@ async function inbox(ctx) {
       lastAt: m ? m.at : r.created_at,
       last: m ? {
         body: m.body, kind: m.kind, meta: m.meta, files: m.files, fileKind: m.file_kind,
-        fromMe: m.from_id === mine, fromName: m.first_name
+        fromMe: m.from_id === mine, fromName: m.first_name, deleted: !!m.deleted_at,
+        record: m.record ? { type: m.record.type, title: m.record.title } : null
       } : null
     };
     if (r.kind === 'direct') {
@@ -105,7 +126,7 @@ async function inbox(ctx) {
       var peer = peers[peerId];
       Object.assign(out, {
         peerId: peerId, name: peer ? fullName(peer) : '', title: peer ? peer.position_title || '' : '',
-        photo: peer && peer.photo_key ? version(peer.photo_updated_at) : null
+        photo: peer && peer.photo_key ? version(peer.photo_updated_at) : null, online: peer ? online(peer.last_seen_at) : false
       });
     } else {
       Object.assign(out, { name: r.name, title: r.description, photo: r.photo_key ? version(r.photo_updated_at) : null, role: r.role });
@@ -118,7 +139,7 @@ async function inbox(ctx) {
 // a chat or adding people to a group.
 async function directory(ctx) {
   var res = await pool.query(
-    "SELECT e.id, e.first_name, e.last_name, e.position_title, e.status, e.photo_key, e.photo_updated_at, d.name AS department " +
+    "SELECT e.id, e.first_name, e.last_name, e.position_title, e.status, e.photo_key, e.photo_updated_at, e.last_seen_at, d.name AS department " +
     "FROM employees e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'active' AND e.id != $1",
     [ctx.employee.id]
   );
@@ -126,44 +147,94 @@ async function directory(ctx) {
 }
 
 // ── one conversation ─────────────────────────────────────────────────
-function messageOut(m, mine, attachmentsById) {
+function snippet(m) {
+  if (!m) return null;
   return {
-    id: m.id, fromId: m.from_id, fromName: fullName(m), fromMe: m.from_id === mine, body: m.body, at: m.at,
-    kind: m.kind, meta: m.meta, attachments: attachmentsById[m.id] || []
+    id: m.id, fromId: m.from_id, fromName: fullName(m), deleted: !!m.deleted_at,
+    body: m.deleted_at ? '' : String(m.body || '').slice(0, 160), files: Number(m.files || 0), fileKind: m.file_kind || null,
+    record: !m.deleted_at && m.record ? { type: m.record.type, title: m.record.title } : null
   };
 }
+function messageOut(m, mine, extra) {
+  var deleted = !!m.deleted_at;
+  return {
+    id: m.id, fromId: m.from_id, fromName: fullName(m), fromMe: m.from_id === mine, body: deleted ? '' : m.body, at: m.at,
+    kind: m.kind, meta: m.meta, attachments: deleted ? [] : (extra.attachments[m.id] || []),
+    replyTo: m.reply_to ? (extra.replies[m.reply_to] || { id: m.reply_to, deleted: true, fromName: '', body: '' }) : null,
+    editedAt: m.edited_at || null, deleted: deleted, forwarded: !!m.forwarded, pinned: !!m.pinned_at,
+    record: deleted ? null : m.record || null, mentions: m.mentions || [],
+    reactions: deleted ? [] : (extra.reactions[m.id] || [])
+  };
+}
+var MSG_SELECT = 'SELECT m.*, e.first_name, e.last_name, ' +
+  '(SELECT count(*)::int FROM message_attachments a WHERE a.message_id = m.id) AS files, ' +
+  '(SELECT min(a.kind) FROM message_attachments a WHERE a.message_id = m.id) AS file_kind ' +
+  'FROM messages m JOIN employees e ON e.id = m.from_id ';
+
+// Reactions grouped by emoji: [{ emoji, count, mine, names }].
+async function reactionsFor(ids, mine) {
+  var out = {};
+  if (!ids.length) return out;
+  (await pool.query(
+    'SELECT r.message_id, r.emoji, r.employee_id, e.first_name, e.last_name FROM message_reactions r JOIN employees e ON e.id = r.employee_id ' +
+    'WHERE r.message_id = ANY($1) ORDER BY r.created_at', [ids]
+  )).rows.forEach(function (r) {
+    var list = out[r.message_id] = out[r.message_id] || [];
+    var g = list.filter(function (x) { return x.emoji === r.emoji; })[0];
+    if (!g) { g = { emoji: r.emoji, count: 0, mine: false, names: [] }; list.push(g); }
+    g.count += 1; g.names.push(fullName(r));
+    if (r.employee_id === mine) g.mine = true;
+  });
+  return out;
+}
+
 async function conversationOut(ctx, conversationId, m) {
   var mine = ctx.employee.id;
   var c = (await pool.query('SELECT * FROM conversations WHERE id = $1', [conversationId])).rows[0];
   var memberRows = (await pool.query(
-    'SELECT employee_id, role, joined_at FROM conversation_members WHERE conversation_id = $1 AND left_at IS NULL', [conversationId]
+    'SELECT employee_id, role, joined_at, last_read_at, typing_at FROM conversation_members WHERE conversation_id = $1 AND left_at IS NULL', [conversationId]
   )).rows;
   var people = {};
   (await employeeRows(memberRows.map(function (x) { return x.employee_id; }))).forEach(function (e) { people[e.id] = e; });
   var members = memberRows.filter(function (x) { return people[x.employee_id]; }).map(function (x) {
-    return Object.assign(personOut(people[x.employee_id]), { role: x.role, me: x.employee_id === mine });
+    return Object.assign(personOut(people[x.employee_id]), {
+      role: x.role, me: x.employee_id === mine, lastReadAt: x.last_read_at,
+      typing: x.employee_id !== mine && !!x.typing_at && Date.now() - new Date(x.typing_at).getTime() < TYPING_MS
+    });
   }).sort(function (a, b) { return (b.me - a.me) || ((a.role === 'admin' ? 0 : 1) - (b.role === 'admin' ? 0 : 1)) || a.name.localeCompare(b.name); });
 
   var msgs = (await pool.query(
-    'SELECT * FROM (SELECT m.*, e.first_name, e.last_name FROM messages m JOIN employees e ON e.id = m.from_id ' +
-    'WHERE m.conversation_id = $1 ORDER BY m.at DESC LIMIT 300) x ORDER BY at', [conversationId]
+    'SELECT * FROM (' + MSG_SELECT + 'WHERE m.conversation_id = $1 ORDER BY m.at DESC LIMIT 300) x ORDER BY at', [conversationId]
   )).rows;
+  var ids = msgs.map(function (x) { return x.id; });
   var attachmentsById = {};
   if (msgs.length) {
     (await pool.query(
       'SELECT id, message_id, file_name, content_type, size, kind FROM message_attachments WHERE message_id = ANY($1) ORDER BY created_at, file_name',
-      [msgs.map(function (x) { return x.id; })]
+      [ids]
     )).rows.forEach(function (a) {
       (attachmentsById[a.message_id] = attachmentsById[a.message_id] || []).push({ id: a.id, fileName: a.file_name, contentType: a.content_type, size: a.size, kind: a.kind });
     });
   }
+  // What each reply points at, even when that message is older than the 300 shown.
+  var replyIds = Array.from(new Set(msgs.map(function (x) { return x.reply_to; }).filter(Boolean)));
+  var replies = {};
+  if (replyIds.length) {
+    (await pool.query(MSG_SELECT + 'WHERE m.id = ANY($1)', [replyIds])).rows.forEach(function (r) { replies[r.id] = snippet(r); });
+  }
+  var reactions = await reactionsFor(ids, mine);
+  var pinned = (await pool.query(MSG_SELECT + 'WHERE m.conversation_id = $1 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL ORDER BY m.pinned_at DESC', [conversationId]))
+    .rows.map(function (r) { return Object.assign(snippet(r), { at: r.at, pinnedAt: r.pinned_at }); });
+
   // Opening a chat reads it.
   await pool.query('UPDATE conversation_members SET last_read_at = now() WHERE conversation_id = $1 AND employee_id = $2', [conversationId, mine]);
   await pool.query('UPDATE messages SET read = true WHERE conversation_id = $1 AND to_id = $2 AND read = false', [conversationId, mine]);
 
   var out = {
-    id: c.id, kind: c.kind, createdAt: c.created_at, myRole: m.role, members: members,
-    messages: msgs.map(function (x) { return messageOut(x, mine, attachmentsById); })
+    id: c.id, kind: c.kind, createdAt: c.created_at, updatedAt: c.updated_at, myRole: m.role, members: members, pinned: pinned,
+    canPin: c.kind === 'direct' || m.role === 'admin',
+    reactionChoices: REACTIONS,
+    messages: msgs.map(function (x) { return messageOut(x, mine, { attachments: attachmentsById, replies: replies, reactions: reactions }); })
   };
   if (c.kind === 'direct') {
     var p = c.direct_key.split('|'); var peerId = p[0] === mine ? p[1] : p[0];
@@ -195,7 +266,7 @@ async function direct(ctx, peerId) {
   var p = personOut(peer);
   return {
     id: null, kind: 'direct', peerId: peerId, name: p.name, title: p.title, department: p.department, photo: p.photo, peer: p,
-    myRole: 'member', members: [], messages: []
+    myRole: 'member', members: [], messages: [], pinned: [], canPin: true, reactionChoices: REACTIONS
   };
 }
 
@@ -226,11 +297,30 @@ function attachmentLabel(files) {
   return k === 'image' ? 'Photo' : k === 'video' ? 'Video' : k === 'audio' ? 'Audio' : files[0].originalname;
 }
 
+// A value from a form or JSON: an id list may arrive as JSON text.
+function idList(v) {
+  if (v == null || v === '') return [];
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = [v]; } }
+  return (Array.isArray(v) ? v : [v]).map(String).filter(function (x) { return UUID.test(x); });
+}
+function recordIn(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'string') { try { return JSON.parse(v); } catch (e) { fail('invalid', 'Choose something to share.'); } }
+  return v;
+}
+
 // files: multer files ({ originalname, mimetype, buffer, size }).
-async function sendTo(ctx, conversationId, body, files) {
+// opts: { replyTo, mentions: [employee ids], record: { type, id } } — or,
+// when forwarding, { forwarded: true, recordSnapshot, copyAttachments }.
+async function sendTo(ctx, conversationId, body, files, opts) {
+  opts = opts || {};
   files = (files || []).filter(Boolean);
   body = String(body || '').trim();
-  if (!body && !files.length) fail('invalid', 'Write a message or attach a file.');
+  var record = opts.recordSnapshot || null;
+  var wantRecord = recordIn(opts.record);
+  if (wantRecord) record = await chatRecords.snapshot(ctx, wantRecord);
+  var copies = opts.copyAttachments || [];
+  if (!body && !files.length && !record && !copies.length) fail('invalid', 'Write a message or attach a file.');
   if (body.length > 4000) fail('invalid', 'Message is too long (4000 characters at most).');
   if (files.length > MAX_FILES) fail('invalid', 'Send at most ' + MAX_FILES + ' files at a time.');
 
@@ -254,10 +344,26 @@ async function sendTo(ctx, conversationId, body, files) {
         [conversationId, ctx.employee.id]
       )).rows.map(function (r) { return r.employee_id; });
       var toId = m.kind === 'direct' ? others[0] || null : null;
+      var replyTo = null;
+      if (opts.replyTo) {
+        if (!UUID.test(String(opts.replyTo))) fail('invalid', 'That message isn\'t in this chat.');
+        var target = (await client.query("SELECT id FROM messages WHERE id = $1 AND conversation_id = $2 AND kind = 'text' AND deleted_at IS NULL", [opts.replyTo, conversationId])).rows[0];
+        if (!target) fail('invalid', 'That message isn\'t in this chat.');
+        replyTo = target.id;
+      }
+      // Only people in this chat can be mentioned.
+      var mentions = idList(opts.mentions).filter(function (id, i, a) { return others.indexOf(id) >= 0 && a.indexOf(id) === i; });
       var msg = (await client.query(
-        'INSERT INTO messages (from_id, to_id, body, conversation_id) VALUES ($1, $2, $3, $4) RETURNING *',
-        [ctx.employee.id, toId, body, conversationId]
+        'INSERT INTO messages (from_id, to_id, body, conversation_id, reply_to, record, mentions, forwarded) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+        [ctx.employee.id, toId, body, conversationId, replyTo, record, mentions, !!opts.forwarded]
       )).rows[0];
+      for (var cp = 0; cp < copies.length; cp++) {
+        var a0 = copies[cp];
+        await client.query(
+          'INSERT INTO message_attachments (message_id, file_name, content_type, size, kind, storage_key) VALUES ($1,$2,$3,$4,$5,$6)',
+          [msg.id, a0.file_name, a0.content_type, a0.size, a0.kind, a0.storage_key]
+        );
+      }
       for (var j = 0; j < stored.length; j++) {
         var s = stored[j];
         await client.query(
@@ -265,13 +371,14 @@ async function sendTo(ctx, conversationId, body, files) {
           [msg.id, s.name, s.type, s.size, s.kind, s.key]
         );
       }
-      await client.query('UPDATE conversations SET last_message_at = $2 WHERE id = $1', [conversationId, msg.at]);
-      await client.query('UPDATE conversation_members SET last_read_at = $3 WHERE conversation_id = $1 AND employee_id = $2', [conversationId, ctx.employee.id, msg.at]);
+      await client.query('UPDATE conversations SET last_message_at = $2, updated_at = clock_timestamp() WHERE id = $1', [conversationId, msg.at]);
+      await client.query('UPDATE conversation_members SET last_read_at = $3, typing_at = NULL WHERE conversation_id = $1 AND employee_id = $2', [conversationId, ctx.employee.id, msg.at]);
 
       var me = ctx.employee.first_name + ' ' + ctx.employee.last_name;
-      var preview = (body || attachmentLabel(files)).slice(0, 140);
+      var preview = (body || (record ? record.title : '') || attachmentLabel(files) || (copies.length ? copies.length + ' file(s)' : '')).slice(0, 140);
       for (var k = 0; k < others.length; k++) {
-        if (m.kind === 'direct') await notify(client, others[k], 'New message from ' + me, preview, 'message:' + ctx.employee.id);
+        if (mentions.indexOf(others[k]) >= 0) await notify(client, others[k], me + ' mentioned you' + (m.kind === 'group' ? ' in ' + m.name : ''), preview, m.kind === 'direct' ? 'message:' + ctx.employee.id : 'chat:' + conversationId);
+        else if (m.kind === 'direct') await notify(client, others[k], 'New message from ' + me, preview, 'message:' + ctx.employee.id);
         else await notify(client, others[k], me + ' in ' + m.name, preview, 'chat:' + conversationId);
       }
       await audit(client, ctx, 'message.send', 'message', msg.id,
@@ -286,13 +393,175 @@ async function sendTo(ctx, conversationId, body, files) {
 
 // kernel.js: handlers['messages.send'] — to a person (creating the chat if
 // needed) or to a conversation.
-async function sendDirect(ctx, peerId, body, files) {
+async function sendDirect(ctx, peerId, body, files, opts) {
   var conversationId = await withTransaction(function (client) { return getOrCreateDirect(client, ctx, peerId); });
-  return sendTo(ctx, conversationId, body, files);
+  return sendTo(ctx, conversationId, body, files, opts);
 }
-async function sendToConversation(ctx, conversationId, body, files) {
+async function sendToConversation(ctx, conversationId, body, files, opts) {
   await requireMember(pool, ctx, conversationId);
-  return sendTo(ctx, conversationId, body, files);
+  return sendTo(ctx, conversationId, body, files, opts);
+}
+
+// ── one message: edit, delete, react, pin, forward ──────────────────
+async function ownMessage(ctx, messageId) {
+  if (!UUID.test(String(messageId))) fail('notfound', 'Message not found.');
+  var msg = (await pool.query('SELECT * FROM messages WHERE id = $1', [messageId])).rows[0];
+  if (!msg || !msg.conversation_id) fail('notfound', 'Message not found.');
+  var m = await requireMember(pool, ctx, msg.conversation_id);
+  return { msg: msg, member: m };
+}
+function needLive(msg) {
+  if (msg.kind !== 'text') fail('invalid', 'That can\'t be done to a group event.');
+  if (msg.deleted_at) fail('invalid', 'That message was deleted.');
+}
+
+async function editMessage(ctx, messageId, body) {
+  var x = await ownMessage(ctx, messageId);
+  needLive(x.msg);
+  if (x.msg.from_id !== ctx.employee.id) fail('forbidden', 'You can only edit your own messages.');
+  body = String(body || '').trim();
+  if (body.length > 4000) fail('invalid', 'Message is too long (4000 characters at most).');
+  var files = (await pool.query('SELECT count(*)::int AS n FROM message_attachments WHERE message_id = $1', [messageId])).rows[0].n;
+  if (!body && !files && !x.msg.record) fail('invalid', 'A message can\'t be empty. Delete it instead.');
+  if (body === x.msg.body) return { ok: true };
+  await pool.query('UPDATE messages SET body = $2, edited_at = now() WHERE id = $1', [messageId, body]);
+  await touch(pool, x.msg.conversation_id);
+  return { ok: true };
+}
+
+// Deleting clears what it said and its files for everyone; a line "This
+// message was deleted" stays in its place. A file forwarded elsewhere is
+// kept for that other message.
+async function deleteMessage(ctx, messageId) {
+  var x = await ownMessage(ctx, messageId);
+  needLive(x.msg);
+  if (x.msg.from_id !== ctx.employee.id) fail('forbidden', 'You can only delete your own messages.');
+  var keys = await withTransaction(async function (client) {
+    var files = (await client.query('DELETE FROM message_attachments WHERE message_id = $1 RETURNING storage_key', [messageId])).rows;
+    await client.query('DELETE FROM message_reactions WHERE message_id = $1', [messageId]);
+    await client.query("UPDATE messages SET body = '', record = NULL, mentions = '{}', pinned_at = NULL, pinned_by = NULL, deleted_at = now() WHERE id = $1", [messageId]);
+    await touch(client, x.msg.conversation_id);
+    var unused = [];
+    for (var i = 0; i < files.length; i++) {
+      var still = (await client.query('SELECT 1 FROM message_attachments WHERE storage_key = $1 LIMIT 1', [files[i].storage_key])).rows[0];
+      if (!still) unused.push(files[i].storage_key);
+    }
+    await audit(client, ctx, 'message.delete', 'message', messageId, 'Deleted a message.');
+    return unused;
+  });
+  for (var k = 0; k < keys.length; k++) await fileStore.del(keys[k]);
+  return { ok: true };
+}
+
+// One reaction per person: the same emoji again takes it back.
+async function react(ctx, messageId, emoji) {
+  var x = await ownMessage(ctx, messageId);
+  needLive(x.msg);
+  if (REACTIONS.indexOf(emoji) < 0) fail('invalid', 'Pick one of the reactions.');
+  var cur = (await pool.query('SELECT emoji FROM message_reactions WHERE message_id = $1 AND employee_id = $2', [messageId, ctx.employee.id])).rows[0];
+  if (cur && cur.emoji === emoji) {
+    await pool.query('DELETE FROM message_reactions WHERE message_id = $1 AND employee_id = $2', [messageId, ctx.employee.id]);
+  } else {
+    await pool.query(
+      'INSERT INTO message_reactions (message_id, employee_id, emoji) VALUES ($1, $2, $3) ON CONFLICT (message_id, employee_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = now()',
+      [messageId, ctx.employee.id, emoji]);
+  }
+  await touch(pool, x.msg.conversation_id);
+  return { reactions: (await reactionsFor([messageId], ctx.employee.id))[messageId] || [] };
+}
+
+async function pin(ctx, messageId, pinned) {
+  var x = await ownMessage(ctx, messageId);
+  needLive(x.msg);
+  if (x.member.kind === 'group' && x.member.role !== 'admin') fail('forbidden', 'Only a group admin can pin messages.');
+  if (pinned && !x.msg.pinned_at) {
+    var n = (await pool.query('SELECT count(*)::int AS n FROM messages WHERE conversation_id = $1 AND pinned_at IS NOT NULL', [x.msg.conversation_id])).rows[0].n;
+    if (n >= MAX_PINS) fail('invalid', 'A chat can have ' + MAX_PINS + ' pinned messages. Unpin one first.');
+  }
+  await withTransaction(async function (client) {
+    await client.query('UPDATE messages SET pinned_at = $2, pinned_by = $3 WHERE id = $1', [messageId, pinned ? new Date() : null, pinned ? ctx.employee.id : null]);
+    if (pinned && !x.msg.pinned_at) await systemMessage(client, ctx, x.msg.conversation_id, { event: 'pinned', by: ctx.employee.first_name + ' ' + ctx.employee.last_name });
+    await touch(client, x.msg.conversation_id);
+  });
+  return { ok: true };
+}
+
+// To up to 10 chats and people at once; files are shared, not copied.
+async function forward(ctx, messageId, p) {
+  var x = await ownMessage(ctx, messageId);
+  needLive(x.msg);
+  var convIds = idList(p && p.conversationIds), peerIds = idList(p && p.peerIds);
+  if (!convIds.length && !peerIds.length) fail('invalid', 'Pick where to forward it.');
+  if (convIds.length + peerIds.length > 10) fail('invalid', 'Forward to at most 10 chats at a time.');
+  var files = (await pool.query('SELECT file_name, content_type, size, kind, storage_key FROM message_attachments WHERE message_id = $1', [messageId])).rows;
+  var opts = { forwarded: true, recordSnapshot: x.msg.record || null, copyAttachments: files };
+  var sent = [];
+  for (var i = 0; i < convIds.length; i++) sent.push(await sendToConversation(ctx, convIds[i], x.msg.body, [], opts));
+  for (var j = 0; j < peerIds.length; j++) sent.push(await sendDirect(ctx, peerIds[j], x.msg.body, [], opts));
+  return { sent: sent.length, conversationIds: sent.map(function (s) { return s.conversationId; }) };
+}
+
+// ── live: typing, seen, online ────────────────────────────────────────
+async function typing(ctx, conversationId) {
+  await requireMember(pool, ctx, conversationId);
+  await pool.query('UPDATE conversation_members SET typing_at = now() WHERE conversation_id = $1 AND employee_id = $2', [conversationId, ctx.employee.id]);
+  return { ok: true };
+}
+
+// What an open chat asks every few seconds: whether anything changed (then
+// it reloads), who is typing, how far each member has read, who is online.
+async function pulse(ctx, conversationId) {
+  await requireMember(pool, ctx, conversationId);
+  var c = (await pool.query('SELECT updated_at FROM conversations WHERE id = $1', [conversationId])).rows[0];
+  var rows = (await pool.query(
+    'SELECT cm.employee_id, cm.last_read_at, cm.typing_at, e.first_name, e.last_seen_at FROM conversation_members cm JOIN employees e ON e.id = cm.employee_id ' +
+    'WHERE cm.conversation_id = $1 AND cm.left_at IS NULL', [conversationId])).rows;
+  var others = rows.filter(function (r) { return r.employee_id !== ctx.employee.id; });
+  return {
+    updatedAt: c.updated_at,
+    typing: others.filter(function (r) { return r.typing_at && Date.now() - new Date(r.typing_at).getTime() < TYPING_MS; }).map(function (r) { return { id: r.employee_id, name: r.first_name }; }),
+    reads: rows.map(function (r) { return { id: r.employee_id, lastReadAt: r.last_read_at }; }),
+    online: others.filter(function (r) { return online(r.last_seen_at); }).map(function (r) { return r.employee_id; })
+  };
+}
+
+// ── find and keep ─────────────────────────────────────────────────────
+// Messages in your chats with these words, newest first.
+async function search(ctx, q) {
+  q = String(q || '').trim();
+  if (q.length < 2) return [];
+  var pattern = '%' + q.replace(/[\\%_]/g, '\\$&') + '%';
+  var mine = ctx.employee.id;
+  var rows = (await pool.query(
+    'SELECT m.id, m.conversation_id, m.body, m.at, m.from_id, e.first_name, e.last_name, c.kind, c.name, c.direct_key ' +
+    'FROM messages m JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.employee_id = $1 AND cm.left_at IS NULL ' +
+    'JOIN conversations c ON c.id = m.conversation_id JOIN employees e ON e.id = m.from_id ' +
+    "WHERE m.kind = 'text' AND m.deleted_at IS NULL AND (m.body ILIKE $2 OR m.record->>'title' ILIKE $2) ORDER BY m.at DESC LIMIT 40", [mine, pattern])).rows;
+  var peerIds = rows.filter(function (r) { return r.kind === 'direct'; }).map(function (r) { var p = r.direct_key.split('|'); return p[0] === mine ? p[1] : p[0]; });
+  var peers = {};
+  (await employeeRows(peerIds)).forEach(function (e) { peers[e.id] = e; });
+  return rows.map(function (r) {
+    var name = r.name, photo = null, peerId = null;
+    if (r.kind === 'direct') { var p = r.direct_key.split('|'); peerId = p[0] === mine ? p[1] : p[0]; var pe = peers[peerId]; name = pe ? fullName(pe) : ''; photo = pe && pe.photo_key ? version(pe.photo_updated_at) : null; }
+    return { id: r.id, conversationId: r.conversation_id, kind: r.kind, name: name, peerId: peerId, photo: photo, fromName: fullName(r), fromMe: r.from_id === mine, body: r.body.slice(0, 200), at: r.at };
+  });
+}
+
+// Everything shared in a chat: photos, other files, and OS records.
+async function shared(ctx, conversationId) {
+  await requireMember(pool, ctx, conversationId);
+  var files = (await pool.query(
+    'SELECT a.id, a.file_name, a.content_type, a.size, a.kind, m.at FROM message_attachments a JOIN messages m ON m.id = a.message_id ' +
+    'WHERE m.conversation_id = $1 AND m.deleted_at IS NULL ORDER BY m.at DESC LIMIT 400', [conversationId])).rows
+    .map(function (a) { return { id: a.id, fileName: a.file_name, contentType: a.content_type, size: a.size, kind: a.kind, at: a.at }; });
+  var records = (await pool.query(
+    "SELECT m.id, m.record, m.at, e.first_name, e.last_name FROM messages m JOIN employees e ON e.id = m.from_id WHERE m.conversation_id = $1 AND m.record IS NOT NULL AND m.deleted_at IS NULL ORDER BY m.at DESC LIMIT 100",
+    [conversationId])).rows.map(function (r) { return { messageId: r.id, at: r.at, fromName: fullName(r), record: r.record }; });
+  return {
+    images: files.filter(function (a) { return a.kind === 'image'; }),
+    files: files.filter(function (a) { return a.kind !== 'image'; }),
+    records: records
+  };
 }
 
 // ── groups ───────────────────────────────────────────────────────────
@@ -494,6 +763,8 @@ async function unreadCount(ctx) {
 }
 
 module.exports = {
+  editMessage: editMessage, deleteMessage: deleteMessage, react: react, pin: pin, forward: forward,
+  typing: typing, pulse: pulse, search: search, shared: shared, REACTIONS: REACTIONS,
   inbox: inbox, directory: directory, conversation: conversation, direct: direct,
   sendDirect: sendDirect, sendToConversation: sendToConversation,
   createGroup: createGroup, updateGroup: updateGroup, addMembers: addMembers, removeMember: removeMember, setAdmin: setAdmin,
