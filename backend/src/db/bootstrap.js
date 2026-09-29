@@ -8,11 +8,13 @@
  * permission catalogue, the 12 role definitions, one default company
  * settings row — see referenceData.js) if that data isn't there yet, then
  * creates exactly one real administrator account from the ADMIN_* env vars
- * below. Safe to run on every deploy: each step checks first and skips
+ * below, only while there is no active administrator at all. Safe to run
+ * on every deploy: each step checks first and skips
  * anything already present, so re-running it after the first real deploy
  * is a no-op.
  *
- * Required env vars: ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_FIRST_NAME, ADMIN_LAST_NAME.
+ * Env vars for the first run: ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_FIRST_NAME,
+ * ADMIN_LAST_NAME. Not needed once an administrator exists.
  * Run with: npm run bootstrap
  */
 var bcrypt = require('bcrypt');
@@ -204,6 +206,20 @@ async function ensureDefaultCompany(client) {
 }
 
 async function ensureAdminUser(client, deptId, roleIds) {
+  // Only ever the first administrator. Once anyone can sign in as an
+  // administrator, ADMIN_* is not looked at again: an admin who later signs
+  // in with another address, or whose record was merged into another, would
+  // otherwise get a brand-new "System Administrator" on the next deploy.
+  var admins = await client.query(
+    'SELECT u.email FROM users u JOIN user_roles ur ON ur.user_id = u.id ' +
+    "LEFT JOIN employees e ON e.id = u.employee_id WHERE ur.role_id = $1 AND u.status = 'active' AND (e.id IS NULL OR e.status <> 'terminated') LIMIT 1",
+    [roleIds.administrator]
+  );
+  if (admins.rows[0]) {
+    console.log('An administrator already exists (' + admins.rows[0].email + ') — skipping admin creation.');
+    return;
+  }
+
   var email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   var password = process.env.ADMIN_PASSWORD || '';
   var firstName = (process.env.ADMIN_FIRST_NAME || '').trim();

@@ -60,7 +60,8 @@ services:
       # Fill these in on the Render dashboard before the first deploy — the
       # build's `npm run bootstrap` step reads them to create your one real
       # admin account. They are never stored anywhere after that first run
-      # (bootstrap.js skips admin creation on every run after the first),
+      # (bootstrap.js skips admin creation whenever an active administrator
+      # already exists, whatever these say),
       # so you can blank ADMIN_PASSWORD out again afterward if you want.
       - key: ADMIN_EMAIL
         sync: false
