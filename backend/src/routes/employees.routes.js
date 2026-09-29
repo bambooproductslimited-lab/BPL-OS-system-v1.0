@@ -1,4 +1,5 @@
 var express = require('express');
+var employeeMerge = require('../services/employeeMerge.service');
 var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
@@ -70,6 +71,14 @@ router.patch('/:id', async function (req, res, next) {
 });
 
 // kernel.js: handlers['employees.terminate'] -> POST /api/employees/:id/terminate
+// Merging a duplicate record of the same person into this one: what would
+// happen (GET ?from=<duplicate id>), then doing it (POST { fromId }).
+router.get('/:id/merge-preview', async function (req, res, next) {
+  try { res.json(await employeeMerge.preview(req.ctx, req.params.id, req.query.from)); } catch (e) { next(e); }
+});
+router.post('/:id/merge', async function (req, res, next) {
+  try { res.json(await employeeMerge.merge(req.ctx, req.params.id, (req.body || {}).fromId)); } catch (e) { next(e); }
+});
 router.post('/:id/terminate', async function (req, res, next) {
   try { res.json(await employeesService.terminate(req.ctx, req.params.id, req.body.reason)); } catch (e) { next(e); }
 });

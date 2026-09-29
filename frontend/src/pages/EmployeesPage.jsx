@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
+import MergeEmployeesDialog from '../components/MergeEmployeesDialog';
 import FaceCapture from '../components/FaceCapture';
 import Photo, { forgetBlob } from '../components/Photo';
 import PhotoDialog from '../components/PhotoDialog';
@@ -126,6 +127,8 @@ export default function EmployeesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [mergeTarget, setMergeTarget] = useState(null);
+  const canMerge = can('employee.write') && can('user.manage');
 
   const [q, setQ] = useState('');
   const [companyCode, setCompanyCode] = useState(() => {
@@ -641,6 +644,21 @@ export default function EmployeesPage() {
 
   // What stands out.
   const insights = [];
+  // Two current records with the same name: probably one person, entered twice.
+  const dupGroups = (() => {
+    const byName = new Map();
+    current.forEach((e) => { const k = fullName(e).trim().toLowerCase(); byName.set(k, [...(byName.get(k) || []), e]); });
+    return [...byName.values()].filter((g) => g.length > 1);
+  })();
+  if (canMerge && dupGroups.length) {
+    const g = dupGroups[0];
+    const keeper = g.find((e) => e.login) || g[0];
+    insights.push({
+      tone: 'warn', icon: 'people',
+      text: dupGroups.length === 1 ? tr('{name} has {n} records. If they are the same person, merge them into one.', { name: fullName(g[0]), n: g.length }) : tr('{n} names appear on more than one record: {names}. Merge the ones that are the same person.', { n: dupGroups.length, names: dupGroups.slice(0, 4).map((x) => fullName(x[0])).join(', ') }),
+      action: { label: tr('Merge'), run: () => setMergeTarget(keeper) }
+    });
+  }
   const listNames = (arr) => (arr.length <= 3 ? arr.map(fullName).join(', ') : tr('{names} and {n} more', { names: arr.slice(0, 2).map(fullName).join(', '), n: arr.length - 2 }));
   if (joiners.length) insights.push({ tone: 'good', icon: 'spark', text: joiners.length === 1 ? tr('{names} joined on {date}. Say hello!', { names: fullName(joiners[0]), date: fmtDate(joiners[0].hireDate) }) : tr('{names} joined in the last {n} days.', { names: listNames(joiners), n: NEW_DAYS }), action: { label: tr('Show them'), run: () => showOnly('new') } });
   if (onLeave.length) {
@@ -687,6 +705,7 @@ export default function EmployeesPage() {
       canWrite && { label: tr('ID docs'), onClick: () => setIdDocsTarget(p) },
       canWrite && { label: tr('Kiosk PIN'), onClick: () => openKioskPin(p) },
       canWrite && { label: tr('Kiosk Face'), onClick: () => openKioskFace(p) },
+      canMerge && { label: tr('Merge a duplicate into…'), onClick: () => setMergeTarget(p) },
       canDelete && { label: tr('Delete'), onClick: () => openTerminate(p), danger: true }
     ].filter(Boolean);
   }
@@ -1394,6 +1413,10 @@ export default function EmployeesPage() {
       )}
 
       {idDocsTarget && <EmployeeIdDocsDialog employee={idDocsTarget} onClose={() => setIdDocsTarget(null)} />}
+      {mergeTarget && (
+        <MergeEmployeesDialog keep={mergeTarget} onClose={() => setMergeTarget(null)}
+          onDone={(text) => { setMergeTarget(null); setToast(text); load(); }} />
+      )}
       {profileTarget && <EmployeeProfileDialog employeeId={profileTarget} onClose={() => setProfileTarget(null)} />}
       {photoTarget && (
         <PhotoDialog title={tr('Photo of {name}', { name: photoTarget.firstName + ' ' + photoTarget.lastName })} kind="person"
