@@ -1,5 +1,6 @@
 var express = require('express');
 var employeeMerge = require('../services/employeeMerge.service');
+var employeeCodes = require('../services/employeeCodes.service');
 var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
@@ -53,6 +54,20 @@ router.post('/import/preview', uploadCsv.single('file'), async function (req, re
 
 router.post('/import/commit', async function (req, res, next) {
   try { res.json(await employeeImportService.commit(req.ctx, req.body.rows)); } catch (e) { next(e); }
+});
+
+// Employee IDs for many people at once from a pasted list of IDs and names.
+router.post('/codes/preview', async function (req, res, next) {
+  try { res.json(await employeeCodes.preview(req.ctx, (req.body || {}).text)); } catch (e) { next(e); }
+});
+router.post('/codes/apply', async function (req, res, next) {
+  try { res.json(await employeeCodes.apply(req.ctx, (req.body || {}).changes)); } catch (e) { next(e); }
+});
+router.get('/codes/next', async function (req, res, next) {
+  try {
+    if (!req.ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+    res.json({ code: await employeeCodes.next() });
+  } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['employees.get'] -> GET /api/employees/:id

@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
 import MergeEmployeesDialog from '../components/MergeEmployeesDialog';
+import SetEmployeeIdsDialog from '../components/SetEmployeeIdsDialog';
 import FaceCapture from '../components/FaceCapture';
 import Photo, { forgetBlob } from '../components/Photo';
 import PhotoDialog from '../components/PhotoDialog';
@@ -88,7 +89,7 @@ const EMPLOYMENT_TYPES = [
 ];
 
 const EMPTY_EMPLOYEE_FORM = {
-  firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
+  code: '', firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '',
   shiftStart: '', shiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: ''
@@ -128,6 +129,7 @@ export default function EmployeesPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [mergeTarget, setMergeTarget] = useState(null);
+  const [idsOpen, setIdsOpen] = useState(false);
   const canMerge = can('employee.write') && can('user.manage');
 
   const [q, setQ] = useState('');
@@ -164,6 +166,7 @@ export default function EmployeesPage() {
   const [dialog, setDialog] = useState(null); // 'employee' | 'terminate' | 'purge'
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY_EMPLOYEE_FORM);
+  const [nextCode, setNextCode] = useState('');
   const [terminateTarget, setTerminateTarget] = useState(null);
   const [termReason, setTermReason] = useState('');
   const [dialogError, setDialogError] = useState(null);
@@ -235,6 +238,8 @@ export default function EmployeesPage() {
     setDialogError(null);
     setEditId(null);
     setForm(EMPTY_EMPLOYEE_FORM);
+    setNextCode('');
+    api.get('/employees/codes/next').then((r) => setNextCode(r.code)).catch(() => {});
     setDialog('employee');
   }
 
@@ -243,7 +248,7 @@ export default function EmployeesPage() {
     setEditId(emp.id);
     const dept = departments.find((d) => d.id === emp.departmentId);
     setForm({
-      firstName: emp.firstName, lastName: emp.lastName, email: emp.email, phone: emp.phone,
+      code: emp.code, firstName: emp.firstName, lastName: emp.lastName, email: emp.email, phone: emp.phone,
       positionTitle: emp.positionTitle, companyId: dept ? dept.companyId : '', departmentId: emp.departmentId,
       shiftId: emp.shiftId || '', managerId: emp.managerId || '',
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
@@ -263,7 +268,7 @@ export default function EmployeesPage() {
     try {
       if (editId) {
         const body = {
-          firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
+          code: form.code, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language, workDays: form.workDays
@@ -281,7 +286,7 @@ export default function EmployeesPage() {
         setToast(tr('Updated {firstName} {lastName}.', { firstName: updated.firstName, lastName: updated.lastName }));
       } else {
         const created = await api.post('/employees', {
-          firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
+          code: form.code.trim() || null, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null, workDays: form.workDays || null,
@@ -763,6 +768,7 @@ export default function EmployeesPage() {
         actions={(canWrite || canSync) && <>
           {canWrite && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add employee')}</button>}
           {canWrite && <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>}
+          {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setIdsOpen(true)}>{tr('Set IDs from a list')}</button>}
           {canSync && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
         </>}
         stats={stats} />
@@ -901,6 +907,15 @@ export default function EmployeesPage() {
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>
           <form className="dialog employees-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitEmployee}>
             <h2 className="employees-dialog-title">{editId ? tr('Edit employee') : tr('Add employee')}</h2>
+
+            <div className="field employees-dialog-span emp-code-field"><label htmlFor="emp-code">{tr('Employee ID')}</label>
+              <input id="emp-code" className="input" value={form.code} maxLength={20} autoComplete="off" required={!!editId}
+                placeholder={editId ? '' : nextCode} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+              <span className="emp-field-hint">
+                {editId ? tr('Letters, numbers and dashes. No one else can have the same ID.')
+                  : nextCode ? tr('Leave it empty and they get {code}, the next number.', { code: nextCode }) : tr('Leave it empty for the next number.')}
+              </span>
+            </div>
 
             <div className="field"><label htmlFor="emp-fn">{tr('First name')}</label>
               <input id="emp-fn" className="input" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required />
@@ -1417,6 +1432,7 @@ export default function EmployeesPage() {
         <MergeEmployeesDialog keep={mergeTarget} onClose={() => setMergeTarget(null)}
           onDone={(text) => { setMergeTarget(null); setToast(text); load(); }} />
       )}
+      {idsOpen && <SetEmployeeIdsDialog onClose={() => setIdsOpen(false)} onDone={(text) => { setIdsOpen(false); setToast(text); load(); }} />}
       {profileTarget && <EmployeeProfileDialog employeeId={profileTarget} onClose={() => setProfileTarget(null)} />}
       {photoTarget && (
         <PhotoDialog title={tr('Photo of {name}', { name: photoTarget.firstName + ' ' + photoTarget.lastName })} kind="person"

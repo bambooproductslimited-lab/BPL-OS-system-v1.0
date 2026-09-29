@@ -6,6 +6,7 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 var { WORK_WEEKS } = require('../utils/workWeek');
+var codes = require('./employeeCodes.service');
 
 // ctx is optional (some callers, e.g. profile(), only need it to decide
 // whether to include payCycle/dailyRate — compensation data, which stays
@@ -170,8 +171,10 @@ async function create(ctx, p) {
     await idTaken('tin', tin, null, 'TIN');
   }
 
-  var countRes = await pool.query('SELECT count(*)::int AS n FROM employees');
-  var code = 'BPL-' + String(countRes.rows[0].n + 1).padStart(3, '0');
+  // The ID given, or the next free BPL-nnn.
+  var code;
+  if (p.code != null && String(p.code).trim()) { code = codes.normalize(p.code); await codes.mustBeFree(pool, code, null); }
+  else code = await codes.next(pool);
   var settingsRes = await pool.query('SELECT plants FROM settings WHERE id = 1');
   var defaultLocation = (settingsRes.rows[0] && settingsRes.rows[0].plants[0]) || '';
 
@@ -347,6 +350,11 @@ async function update(ctx, id, p) {
   if (tin !== undefined && tin !== (e.tin || null)) {
     await idTaken('tin', tin, id, 'TIN');
     changed.push('tin'); values.push(tin); sets.push('tin = $' + values.length);
+  }
+
+  if (p.code !== undefined) {
+    var code = codes.normalize(p.code);
+    if (code !== e.code) { await codes.mustBeFree(pool, code, id); changed.push('code'); values.push(code); sets.push('code = $' + values.length); }
   }
 
   var newEmail = null;
