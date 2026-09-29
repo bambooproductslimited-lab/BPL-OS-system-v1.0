@@ -16,6 +16,7 @@ var leaveService = require('../services/leave.service');
 var approvalsService = require('../services/approvals.service');
 var procurementService = require('../services/procurement.service');
 var expensesService = require('../services/expenses.service');
+var employeeCodes = require('../services/employeeCodes.service');
 
 // What Claude can look up and do in Bamboo OS, shared by the AI Assistant
 // screen (services/ai.service.js) and the connector that lets claude.ai and
@@ -567,6 +568,71 @@ var TOOLS = [
     }
   }
 ];
+
+
+// Employee IDs for several people at once. Each person is named twice, by
+// their current ID and their name, and both must point at the same one
+// person; if any line doesn't, nothing is changed.
+TOOLS.push({
+  name: 'set_employee_ids',
+  kind: 'action',
+  destructive: true, // replaces the IDs people have now
+  perm: 'employee.write',
+  description: 'Change the employee ID (code) of one or more people. Look them up with search_employees first. Give each person\'s current ID and full name exactly as the OS shows them, and the new ID. Nothing changes unless every line matches one person.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      changes: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 200,
+        items: {
+          type: 'object',
+          properties: {
+            current_id: { type: 'string', description: 'Their ID in the OS now, e.g. "BPL-017".' },
+            name: { type: 'string', description: 'Their name as the OS shows it, e.g. "Ama Serwaa".' },
+            new_id: { type: 'string', description: 'The ID to give them, e.g. "3016".' }
+          },
+          required: ['current_id', 'name', 'new_id'],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ['changes'],
+    additionalProperties: false
+  },
+  prepare: async function (ctx, input) {
+    var changes = Array.isArray(input.changes) ? input.changes : [];
+    if (!changes.length) fail('invalid', 'Give at least one person.');
+    if (changes.length > 200) fail('invalid', 'At most 200 people at once.');
+    var staff = (await pool.query("SELECT id, code, first_name, last_name FROM employees WHERE status <> 'terminated'")).rows;
+    var problems = [], lines = [], payload = [];
+    changes.forEach(function (c, i) {
+      var where = 'Line ' + (i + 1) + ' (' + (c.current_id || '?') + ', ' + (c.name || '?') + ')';
+      var newId;
+      try { newId = employeeCodes.normalize(c.new_id); } catch (e) { problems.push(where + ': ' + e.message); return; }
+      var cur = String(c.current_id || '').trim().toUpperCase();
+      var e = staff.filter(function (s) { return s.code.toUpperCase() === cur; })[0];
+      if (!e) { problems.push(where + ': no one in the OS has ID ' + cur + '.'); return; }
+      var full = e.first_name + ' ' + e.last_name;
+      if (!employeeCodes.same(employeeCodes.words(full), employeeCodes.words(c.name))) {
+        problems.push(where + ': ' + cur + ' is ' + full + ', not ' + c.name + '.'); return;
+      }
+      lines.push(full + ': ' + e.code + ' → ' + newId);
+      payload.push({ employeeId: e.id, code: newId });
+    });
+    if (problems.length) fail('invalid', 'Nothing was changed. ' + problems.join(' '));
+    return {
+      summary: 'Set ' + payload.length + ' employee ID' + (payload.length === 1 ? '' : 's') + ': ' + lines.join('; ') + '.',
+      payload: { changes: payload }
+    };
+  },
+  execute: async function (ctx, payload) {
+    // All or nothing; an ID someone else keeps, or given twice, is refused (employeeCodes.apply).
+    var r = await employeeCodes.apply(ctx, payload.changes);
+    return { message: r.updated + ' employee ID' + (r.updated === 1 ? '' : 's') + ' set' + (r.unchanged ? ', ' + r.unchanged + ' already had theirs' : '') + '.' };
+  }
+});
 
 var BY_NAME = {};
 TOOLS.forEach(function (t) { BY_NAME[t.name] = t; });

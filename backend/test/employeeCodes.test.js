@@ -107,3 +107,33 @@ test('only people who can edit employees can set IDs', async function () {
   await rejects(codes.preview(plain, '1 Zq Name'), /employee.write/);
   await rejects(codes.apply(plain, [{ employeeId: P.pris, code: '1' }]), /employee.write/);
 });
+
+test('Claude\'s set_employee_ids tool checks each person by current ID and name, all or nothing', async function () {
+  var aiTools = require('../src/ai/tools');
+  var tool = aiTools.get('set_employee_ids');
+  var ag1 = await codeOf(P.ag1), ag2 = await codeOf(P.ag2);
+  var ok = await tool.prepare(boss, { changes: [
+    { current_id: ag1.toLowerCase(), name: 'Cornuzq Agneszq', new_id: '9201' }, // surname first is the same person
+    { current_id: ag2, name: 'Agneszq Oforizq', new_id: '9202' }
+  ] });
+  assert.match(ok.summary, /Set 2 employee IDs: Agneszq Cornuzq: ZQC-A3 → 9201; Agneszq Oforizq: ZQC-A4 → 9202/);
+  // Nothing happens until it is executed.
+  assert.equal(await codeOf(P.ag1), ag1);
+  var done = await tool.execute(boss, ok.payload);
+  assert.equal(done.message, '2 employee IDs set.');
+  assert.equal(await codeOf(P.ag1), '9201');
+  assert.equal(await codeOf(P.ag2), '9202');
+
+  // A name that doesn't fit the ID, or an ID no one has: nothing is changed.
+  await rejects(tool.prepare(boss, { changes: [
+    { current_id: '9201', name: 'Agneszq Cornuzq', new_id: '9301' },
+    { current_id: '9202', name: 'Twinzq Samezq', new_id: '9302' }
+  ] }), /Nothing was changed\. Line 2 \(9202, Twinzq Samezq\): 9202 is Agneszq Oforizq, not Twinzq Samezq\./);
+  await rejects(tool.prepare(boss, { changes: [{ current_id: 'ZQC-NOPE', name: 'Agneszq Cornuzq', new_id: '9303' }] }), /no one in the OS has ID ZQC-NOPE/);
+  await rejects(tool.prepare(boss, { changes: [{ current_id: 'ZQC-A7', name: 'Leftzq Gonezq', new_id: '9304' }] }), /no one in the OS has ID ZQC-A7/);
+  assert.equal(await codeOf(P.ag1), '9201');
+
+  var plain = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'faith.wanjiru@bplghana.com'")).rows[0].id);
+  assert.ok(aiTools.toolsFor(plain).every(function (t) { return t.name !== 'set_employee_ids'; }), 'offered without employee.write');
+  assert.ok(aiTools.toolsFor(boss).some(function (t) { return t.name === 'set_employee_ids'; }));
+});

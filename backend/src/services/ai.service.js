@@ -37,7 +37,7 @@ var SYSTEM_PROMPT = [
   '- Answer in the language the person writes in.',
   '',
   'Doing things:',
-  '- Tools that change something (create_task, request_leave, submit_purchase_request, add_customer, update_product_stock) do not do it. They prepare it, and the person sees a card with Confirm and Cancel buttons under your reply. Nothing happens until they press Confirm.',
+  '- Tools that change something (create_task, request_leave, submit_purchase_request, add_customer, update_product_stock, set_employee_ids) do not do it. They prepare it, and the person sees a card with Confirm and Cancel buttons under your reply. Nothing happens until they press Confirm.',
   '- So after preparing, say what you have prepared and ask them to press Confirm. Never say it is done. If they reply "yes" or "do it" in the chat, remind them to press Confirm on the card.',
   '- Only prepare what the person asked for. If something needed is missing or unclear (which person, which product, which dates), ask first rather than guessing. If a tool says a name matches several people or products, ask which one.',
   '- Prepare each change once; do not prepare the same change again unless asked.'

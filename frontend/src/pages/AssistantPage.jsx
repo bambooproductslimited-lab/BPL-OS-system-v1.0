@@ -44,7 +44,8 @@ const TOOL_INFO = {
   request_leave: { label: msg('Request leave'), what: msg('For you, on the dates you give.'), ask: msg('Request annual leave for me next Monday to Wednesday.') },
   submit_purchase_request: { label: msg('Ask to buy something'), what: msg('A purchase request that goes for approval.'), ask: msg('Ask to buy 20 bags of cement for the workshop.') },
   add_customer: { label: msg('Add a client'), what: msg('A new client with their contact details.'), ask: msg('Add a new client called Riverside Lodge, phone 020 000 0000.') },
-  update_product_stock: { label: msg('Correct a stock count'), what: msg('Sets the stock to what was counted, with the reason.'), ask: msg('We counted 40 bamboo stools. Correct the stock.') }
+  update_product_stock: { label: msg('Correct a stock count'), what: msg('Sets the stock to what was counted, with the reason.'), ask: msg('We counted 40 bamboo stools. Correct the stock.') },
+  set_employee_ids: { label: msg('Change employee IDs'), what: msg('Gives people new IDs, checked against their current ID and name.'), ask: msg('Change BPL-017 Ama Serwaa to ID 3016.') }
 };
 
 function SparkleIcon() {

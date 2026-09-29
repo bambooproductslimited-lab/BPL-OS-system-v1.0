@@ -161,4 +161,4 @@ async function apply(ctx, changes) {
   });
 }
 
-module.exports = { normalize: normalize, mustBeFree: mustBeFree, next: next, preview: preview, apply: apply, parseLine: parseLine };
+module.exports = { normalize: normalize, mustBeFree: mustBeFree, next: next, preview: preview, apply: apply, parseLine: parseLine, words: words, same: same };
