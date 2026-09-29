@@ -11,7 +11,7 @@ import {
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import {
   Burst, ChatGlyph, ForwardDialog, MentionPopup, MessageMenu, ReactionChips, ReactionPicker, RecordCard, RecordPicker,
-  ReplyQuote, RichText, SeenTicks, TypingBubble, recordHref, recordLabel
+  ReplyQuote, RichText, SeenDialog, SeenTicks, TypingBubble, recordHref, recordLabel
 } from './chat/ChatParts';
 import './MessagesPage.css';
 
@@ -312,6 +312,7 @@ export default function MessagesPage() {
   const [burst, setBurst] = useState(null); // { id, emoji, key }
   const [forwardMsg, setForwardMsg] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState(null);
+  const [seenFor, setSeenFor] = useState(null); // a message id
   const [recordPicker, setRecordPicker] = useState(false);
   const [notice, setNotice] = useState(null);
   const [hits, setHits] = useState([]);
@@ -517,6 +518,7 @@ export default function MessagesPage() {
       { icon: 'reply', label: tr('Reply'), run: () => startReply(m) },
       m.body && { icon: 'copy', label: tr('Copy text'), run: () => { navigator.clipboard.writeText(m.body).then(() => setNotice(tr('Copied.'))).catch(() => {}); } },
       { icon: 'forward', label: tr('Forward'), run: () => setForwardMsg(m) },
+      isGroup && (own || conv.myRole === 'admin') && { icon: 'eye', label: tr('Seen by…'), run: () => setSeenFor(m.id) },
       conv.canPin && { icon: 'pin', label: m.pinned ? tr('Unpin') : tr('Pin'), run: () => msgAction(() => api.post('/messages/m/' + m.id + '/pin', { pinned: !m.pinned }), () => setNotice(m.pinned ? tr('Unpinned.') : tr('Pinned to the top of the chat.'))) },
       own && { icon: 'edit', label: tr('Edit'), run: () => startEdit(m) },
       own && { icon: 'trash', label: tr('Delete'), danger: true, run: () => setDeleteMsg(m) }
@@ -535,7 +537,7 @@ export default function MessagesPage() {
     const readers = others.filter((o) => readAt[o.id] && new Date(readAt[o.id]) >= new Date(m.at));
     if (!readers.length) return { state: 'sent', title: tr('Sent') };
     if (!isGroup) return { state: 'seen', title: tr('Seen') };
-    return { state: readers.length === others.length ? 'seen' : 'some', title: tr('Seen by {names}', { names: readers.map((r) => r.name.split(' ')[0]).join(', ') }) };
+    return { state: readers.length === others.length ? 'seen' : 'some', count: readers.length, all: readers.length === others.length, title: tr('Seen by {names}', { names: readers.map((r) => r.name.split(' ')[0]).join(', ') }) };
   }
   function openRecord(r) { const href = recordHref(r); if (href) navigate(href); }
 
@@ -916,7 +918,12 @@ export default function MessagesPage() {
                             {m.pinned && <span className="chat-pin-mark" title={tr('Pinned')}><ChatGlyph name="pin" size={11} /></span>}
                             {m.editedAt && !m.deleted && <span className="chat-edited">{tr('edited')}</span>}
                             <span className="chat-time">{hhmm(m.at)}</span>
-                            {seen && <SeenTicks state={seen.state} title={seen.title} />}
+                            {seen && isGroup && seen.count > 0 && (
+                              <button type="button" className={'chat-seen-count' + (seen.all ? ' is-all' : '')} onClick={() => setSeenFor(m.id)} title={tr('See who has seen it')} aria-label={tr('Seen by {n}. See who.', { n: seen.count })}>
+                                <ChatGlyph name="eye" size={12} />{seen.count}
+                              </button>
+                            )}
+                            {seen && <SeenTicks state={seen.state} title={seen.title} onClick={isGroup ? () => setSeenFor(m.id) : undefined} />}
                           </span>
                         </div>
                         {!m.deleted && <ReactionChips reactions={m.reactions} onToggle={(emoji) => react(m, emoji)} />}
@@ -1232,6 +1239,7 @@ export default function MessagesPage() {
           </div>
         </div>
       )}
+      {seenFor && <SeenDialog messageId={seenFor} locale={activeIntlLocale()} onClose={() => setSeenFor(null)} />}
       {notice && <div className="chat-notice" role="status" key={notice}>{notice}</div>}
     </div>
   );

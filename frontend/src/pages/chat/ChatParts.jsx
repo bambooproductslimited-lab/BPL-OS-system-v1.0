@@ -31,7 +31,8 @@ const P = {
   customer: <><path d="M4.5 20V8.5L12 4l7.5 4.5V20" /><path d="M9.5 20v-5h5v5" /></>,
   lead: <><circle cx="10" cy="8.5" r="3" /><path d="M4.5 19c.6-3 2.8-4.8 5.5-4.8 1.3 0 2.5.4 3.4 1.1M17.5 13.5v6M14.5 16.5h6" /></>,
   leave: <><rect x="4" y="5.5" width="16" height="14" rx="2" /><path d="M8 3.5v4M16 3.5v4M4 10h16" /></>,
-  open: <path d="M13.5 5.5H19v5.5M19 5.5l-8 8M17 14v5H5V7h5" />
+  open: <path d="M13.5 5.5H19v5.5M19 5.5l-8 8M17 14v5H5V7h5" />,
+  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>
 };
 export function ChatGlyph({ name, size = 16 }) {
   return (
@@ -196,12 +197,77 @@ export function ReplyQuote({ reply, onJump, inComposer }) {
   );
 }
 
-export function SeenTicks({ state, title }) {
+export function SeenTicks({ state, title, onClick }) {
   // state: 'sent' | 'some' | 'seen'
+  const inner = <ChatGlyph name={state === 'sent' ? 'check' : 'check2'} size={15} />;
+  if (onClick) return <button type="button" className={'chat-ticks is-' + state + ' is-button'} title={title} aria-label={title} onClick={onClick}>{inner}</button>;
+  return <span className={'chat-ticks is-' + state} title={title} aria-label={title}>{inner}</span>;
+}
+
+// Who has seen a message, and when (GET /messages/m/:id/seen). Refreshes
+// while open, so people move to "Seen" as they read it.
+function seenWhen(iso, locale) {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return tr('today at {time}', { time });
+  const y = new Date(); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return tr('yesterday at {time}', { time });
+  return d.toLocaleDateString(locale, { day: 'numeric', month: 'short' }) + ', ' + time;
+}
+export function SeenDialog({ messageId, locale, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get('/messages/m/' + messageId + '/seen').then((r) => { if (alive) setData(r); }).catch((e) => { if (alive) setError(e.message); });
+    load();
+    const t = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(t); };
+  }, [messageId]);
+  const total = data ? data.seen.length + data.notSeen.length : 0;
   return (
-    <span className={'chat-ticks is-' + state} title={title} aria-label={title}>
-      <ChatGlyph name={state === 'sent' ? 'check' : 'check2'} size={15} />
-    </span>
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog chat-dialog chat-seen-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-seen-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="chat-seen-title">{tr('Seen by')}</h2>
+        {error && <div className="error-banner">{error}</div>}
+        {!data ? <p className="chat-muted">{tr('Loading…')}</p> : (
+          <>
+            {data.body && <p className="chat-seen-msg">{data.body}</p>}
+            <div className="chat-seen-bar" aria-hidden="true"><span style={{ width: total ? Math.round((data.seen.length / total) * 100) + '%' : 0 }} /></div>
+            <p className="chat-muted">{total ? tr('{n} of {total} have seen it', { n: data.seen.length, total }) : tr('No one else is in this chat.')}</p>
+            {data.seen.length > 0 && (
+              <section className="chat-seen-section">
+                <h3><ChatGlyph name="check2" size={16} /> {tr('Seen')} <span className="chat-muted">{data.seen.length}</span></h3>
+                <ul>
+                  {data.seen.map((p, i) => (
+                    <li key={p.id} style={{ animationDelay: i * 30 + 'ms' }}>
+                      <Photo id={p.id} name={p.name} photo={p.photo} size={36} />
+                      <span className="chat-person-text"><span className="chat-person-name">{p.me ? tr('You') : p.name}</span><span className="chat-muted">{p.title}</span></span>
+                      <span className="chat-seen-at">{p.readAt ? seenWhen(p.readAt, locale) : tr('seen')}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {data.notSeen.length > 0 && (
+              <section className="chat-seen-section is-waiting">
+                <h3><ChatGlyph name="check" size={16} /> {tr('Not seen yet')} <span className="chat-muted">{data.notSeen.length}</span></h3>
+                <ul>
+                  {data.notSeen.map((p) => (
+                    <li key={p.id}>
+                      <Photo id={p.id} name={p.name} photo={p.photo} size={36} />
+                      <span className="chat-person-text"><span className="chat-person-name">{p.me ? tr('You') : p.name}</span><span className="chat-muted">{p.title}</span></span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
+        )}
+        <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button></div>
+      </div>
+    </div>
   );
 }
 

@@ -73,6 +73,7 @@ router.patch('/m/:messageId', wrap(async function (req, res) { res.json(await me
 router.delete('/m/:messageId', wrap(async function (req, res) { res.json(await messagesService.deleteMessage(req.ctx, req.params.messageId)); }));
 router.post('/m/:messageId/react', wrap(async function (req, res) { res.json(await messagesService.react(req.ctx, req.params.messageId, (req.body || {}).emoji)); }));
 router.post('/m/:messageId/pin', wrap(async function (req, res) { res.json(await messagesService.pin(req.ctx, req.params.messageId, !!(req.body || {}).pinned)); }));
+router.get('/m/:messageId/seen', wrap(async function (req, res) { res.json(await messagesService.seenBy(req.ctx, req.params.messageId)); }));
 router.post('/m/:messageId/forward', wrap(async function (req, res) { res.json(await messagesService.forward(req.ctx, req.params.messageId, req.body || {})); }));
 
 // Search your chats; OS records you can share as a card.

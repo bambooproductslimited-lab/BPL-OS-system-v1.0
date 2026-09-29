@@ -227,7 +227,7 @@ async function conversationOut(ctx, conversationId, m) {
     .rows.map(function (r) { return Object.assign(snippet(r), { at: r.at, pinnedAt: r.pinned_at }); });
 
   // Opening a chat reads it.
-  await pool.query('UPDATE conversation_members SET last_read_at = now() WHERE conversation_id = $1 AND employee_id = $2', [conversationId, mine]);
+  await markRead(pool, conversationId, mine, null);
   await pool.query('UPDATE messages SET read = true WHERE conversation_id = $1 AND to_id = $2 AND read = false', [conversationId, mine]);
 
   var out = {
@@ -372,7 +372,8 @@ async function sendTo(ctx, conversationId, body, files, opts) {
         );
       }
       await client.query('UPDATE conversations SET last_message_at = $2, updated_at = clock_timestamp() WHERE id = $1', [conversationId, msg.at]);
-      await client.query('UPDATE conversation_members SET last_read_at = $3, typing_at = NULL WHERE conversation_id = $1 AND employee_id = $2', [conversationId, ctx.employee.id, msg.at]);
+      await markRead(client, conversationId, ctx.employee.id, msg.at);
+      await client.query('UPDATE conversation_members SET typing_at = NULL WHERE conversation_id = $1 AND employee_id = $2', [conversationId, ctx.employee.id]);
 
       var me = ctx.employee.first_name + ' ' + ctx.employee.last_name;
       var preview = (body || (record ? record.title : '') || attachmentLabel(files) || (copies.length ? copies.length + ' file(s)' : '')).slice(0, 140);
@@ -501,6 +502,33 @@ async function forward(ctx, messageId, p) {
   return { sent: sent.length, conversationIds: sent.map(function (s) { return s.conversationId; }) };
 }
 
+// Who has seen a message, and when: for its sender, or a group admin.
+// Everyone else in the chat is listed as seen (with the time it was read,
+// when known) or not seen yet.
+async function seenBy(ctx, messageId) {
+  var x = await ownMessage(ctx, messageId);
+  if (x.msg.kind !== 'text') fail('invalid', 'That can\'t be done to a group event.');
+  if (x.msg.from_id !== ctx.employee.id && x.member.role !== 'admin') fail('forbidden', 'Only the sender or a group admin can see who has read a message.');
+  var rows = (await pool.query(
+    'SELECT cm.employee_id, cm.last_read_at, cm.joined_at, r.read_at FROM conversation_members cm ' +
+    'LEFT JOIN message_reads r ON r.message_id = $1 AND r.employee_id = cm.employee_id ' +
+    'WHERE cm.conversation_id = $2 AND cm.left_at IS NULL AND cm.employee_id <> $3', [messageId, x.msg.conversation_id, x.msg.from_id])).rows;
+  var people = {};
+  (await employeeRows(rows.map(function (r) { return r.employee_id; }))).forEach(function (e) { people[e.id] = e; });
+  var seen = [], notSeen = [];
+  rows.forEach(function (r) {
+    var p = people[r.employee_id];
+    if (!p) return;
+    var out = Object.assign(personOut(p), { me: r.employee_id === ctx.employee.id });
+    if (r.read_at) seen.push(Object.assign(out, { readAt: r.read_at }));
+    else if (new Date(r.last_read_at) >= new Date(x.msg.at)) seen.push(Object.assign(out, { readAt: null }));
+    else notSeen.push(out);
+  });
+  seen.sort(function (a, b) { return (a.readAt ? new Date(a.readAt) : 0) - (b.readAt ? new Date(b.readAt) : 0) || a.name.localeCompare(b.name); });
+  notSeen.sort(function (a, b) { return a.name.localeCompare(b.name); });
+  return { messageId: x.msg.id, at: x.msg.at, body: x.msg.deleted_at ? '' : String(x.msg.body || '').slice(0, 200), seen: seen, notSeen: notSeen };
+}
+
 // ── live: typing, seen, online ────────────────────────────────────────
 async function typing(ctx, conversationId) {
   await requireMember(pool, ctx, conversationId);
@@ -564,6 +592,17 @@ async function shared(ctx, conversationId) {
   };
 }
 
+// A member's place in a chat moves on to upTo (now when null). What others
+// sent in between is recorded as read at this moment (message_reads), so
+// "Seen by" has a time even when someone answers without reopening the chat.
+async function markRead(q, conversationId, employeeId, upTo) {
+  await q.query(
+    "INSERT INTO message_reads (message_id, employee_id) SELECT m.id, $2 FROM messages m JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.employee_id = $2 " +
+    "WHERE m.conversation_id = $1 AND m.from_id <> $2 AND m.kind = 'text' AND m.at > cm.last_read_at AND m.at <= COALESCE($3::timestamptz, now()) ON CONFLICT DO NOTHING",
+    [conversationId, employeeId, upTo]);
+  await q.query('UPDATE conversation_members SET last_read_at = COALESCE($3::timestamptz, now()) WHERE conversation_id = $1 AND employee_id = $2', [conversationId, employeeId, upTo]);
+}
+
 // ── groups ───────────────────────────────────────────────────────────
 async function systemMessage(client, ctx, conversationId, meta) {
   var r = (await client.query(
@@ -571,7 +610,7 @@ async function systemMessage(client, ctx, conversationId, meta) {
     [ctx.employee.id, conversationId, meta]
   )).rows[0];
   await client.query('UPDATE conversations SET last_message_at = $2 WHERE id = $1', [conversationId, r.at]);
-  await client.query('UPDATE conversation_members SET last_read_at = $3 WHERE conversation_id = $1 AND employee_id = $2', [conversationId, ctx.employee.id, r.at]);
+  await markRead(client, conversationId, ctx.employee.id, r.at);
 }
 async function activePeople(client, ids) {
   ids = Array.from(new Set((ids || []).map(String)));
@@ -763,7 +802,7 @@ async function unreadCount(ctx) {
 }
 
 module.exports = {
-  editMessage: editMessage, deleteMessage: deleteMessage, react: react, pin: pin, forward: forward,
+  seenBy: seenBy, editMessage: editMessage, deleteMessage: deleteMessage, react: react, pin: pin, forward: forward,
   typing: typing, pulse: pulse, search: search, shared: shared, REACTIONS: REACTIONS,
   inbox: inbox, directory: directory, conversation: conversation, direct: direct,
   sendDirect: sendDirect, sendToConversation: sendToConversation,
