@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useStockProducts } from '../lib/stockProducts';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -88,6 +89,7 @@ export default function QuotationsPage() {
   const [quotations, setQuotations] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  const stockProducts = useStockProducts(can('inventory.read'));
   const [currencies, setCurrencies] = useState(['GHS']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -490,7 +492,7 @@ export default function QuotationsPage() {
             </div>
           }
           message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel={tr('Message to customer')}
-          items={items} onItemsChange={setItems} catalogOptions={catalog}
+          items={items} onItemsChange={setItems} catalogOptions={catalog} stockProducts={stockProducts}
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}

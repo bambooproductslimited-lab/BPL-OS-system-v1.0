@@ -15,8 +15,21 @@ function rowToVariation(r) {
   return {
     id: r.id, itemId: r.item_id, name: r.name, code: r.code, unit: r.unit,
     defaultQty: Number(r.default_qty), unitPrice: Number(r.unit_price), costPrice: Number(r.cost_price),
-    stockQty: Number(r.stock_qty), active: r.active
+    stockQty: Number(r.stock_qty), active: r.active,
+    // The stock product (Products & inventory) it takes from when invoiced.
+    productId: r.product_id || null
   };
+}
+
+// The linked stock products' names and stock, for showing next to them.
+async function stockProducts(ids) {
+  var list = Array.from(new Set(ids.filter(Boolean)));
+  var out = {};
+  if (!list.length) return out;
+  (await pool.query('SELECT id, sku, name, unit, current_stock FROM products WHERE id = ANY($1::uuid[])', [list])).rows.forEach(function (p) {
+    out[p.id] = { id: p.id, sku: p.sku, name: p.name, unit: p.unit, stock: Number(p.current_stock) };
+  });
+  return out;
 }
 
 function rowToPhoto(r) {
@@ -43,8 +56,12 @@ async function list(ctx) {
     '(SELECT p.id FROM catalog_item_photos p WHERE p.item_id = v.item_id ORDER BY (p.variation_id = v.id) IS TRUE DESC, p.position LIMIT 1) AS photo_id ' +
     'FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.name'
   );
+  var products = await stockProducts(res.rows.map(function (r) { return r.product_id; }));
   return res.rows.map(function (r) {
-    return Object.assign(rowToVariation(r), { name: variationDisplayName(r.item_name, r.name), description: r.item_description || '', photoId: r.photo_id || null });
+    return Object.assign(rowToVariation(r), {
+      name: variationDisplayName(r.item_name, r.name), description: r.item_description || '', photoId: r.photo_id || null,
+      product: r.product_id ? products[r.product_id] || null : null
+    });
   });
 }
 
@@ -58,13 +75,17 @@ async function listItems(ctx) {
     'FROM catalog_items i LEFT JOIN catalog_categories c ON c.id = i.category_id ORDER BY i.name'
   );
   var sales = await salesByVariation(res.rows);
+  var products = await stockProducts([].concat.apply([], res.rows.map(function (r) { return r.variations.map(function (v) { return v.product_id; }); })));
   return res.rows.map(function (r) {
     return {
       id: r.id, name: r.name, description: r.description, categoryId: r.category_id, categoryName: r.category_name || '—',
       taxRateId: r.tax_rate_id, active: r.active,
       photos: r.photos.map(rowToPhoto),
       variations: r.variations.map(function (v) {
-        return Object.assign(rowToVariation(v), { sold: sales[v.id] || { qty: 0, amounts: [], invoices: 0, lastSoldOn: null } });
+        return Object.assign(rowToVariation(v), {
+          sold: sales[v.id] || { qty: 0, amounts: [], invoices: 0, lastSoldOn: null },
+          product: v.product_id ? products[v.product_id] || null : null
+        });
       })
     };
   });
@@ -228,9 +249,15 @@ async function updateVariation(ctx, id, p) {
     unitPrice: p.unitPrice !== undefined ? p.unitPrice : existing.rows[0].unit_price,
     costPrice: p.costPrice !== undefined ? p.costPrice : existing.rows[0].cost_price
   }));
+  // Which stock product it takes from when invoiced (null: none).
+  var productId = existing.rows[0].product_id;
+  if (p.productId !== undefined) {
+    productId = p.productId || null;
+    if (productId && !(await pool.query('SELECT 1 FROM products WHERE id = $1', [productId])).rows[0]) fail('invalid', 'That stock product no longer exists.');
+  }
   var res = await pool.query(
-    'UPDATE catalog_item_variations SET name = $1, code = $2, unit = $3, default_qty = $4, unit_price = $5, cost_price = $6 WHERE id = $7 RETURNING *',
-    [v.name, v.code, v.unit, v.defaultQty, v.unitPrice, v.costPrice, id]
+    'UPDATE catalog_item_variations SET name = $1, code = $2, unit = $3, default_qty = $4, unit_price = $5, cost_price = $6, product_id = $7 WHERE id = $8 RETURNING *',
+    [v.name, v.code, v.unit, v.defaultQty, v.unitPrice, v.costPrice, productId, id]
   );
   await audit(pool, ctx, 'catalog.variation.update', 'catalog_item_variation', id, 'Updated variation ' + v.name + '.');
   return rowToVariation(res.rows[0]);

@@ -22,7 +22,10 @@ function buildLineItems(rawItems) {
       description: V.text(it.description, 'Item description', 160), qty: qty, unit: it.unit || 'each', unitPrice: price,
       discount: Math.max(0, Number(it.discount) || 0), discountType: it.discountType === 'percent' ? 'percent' : 'fixed',
       taxRate: Math.max(0, Number(it.taxRate) || 0), notes: (it.notes || '').trim(),
-      packageLabel: (it.packageLabel || '').trim().slice(0, 80)
+      packageLabel: (it.packageLabel || '').trim().slice(0, 80),
+      // The stock product this line sells, if any (Products & inventory):
+      // an invoice takes its quantity off stock (inventorySales.service.js).
+      productId: /^[0-9a-f-]{36}$/i.test(String(it.productId || '')) ? String(it.productId) : null
     };
   });
 }
@@ -124,12 +127,17 @@ function resolveCurrency(commercial, requested, customerPreferred) {
 // Line items are stored in the shared document_line_items table; these two
 // helpers write/read them for any of quotation/estimate/sales_order/invoice.
 async function insertLineItems(client, documentType, documentId, items) {
+  // Which stock product each sold line is (inventorySales.service.js):
+  // carried from estimate to quotation to invoice, where it leaves stock.
+  if (['invoice', 'quotation', 'estimate', 'sales_order'].indexOf(documentType) >= 0) {
+    await require('../services/inventorySales.service').resolveLines(client, items);
+  }
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     await client.query(
-      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate, notes, package_label) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
-      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate, it.notes || '', it.packageLabel || '']
+      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate, notes, package_label, product_id) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
+      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate, it.notes || '', it.packageLabel || '', it.productId || null]
     );
   }
 }
@@ -140,7 +148,7 @@ async function loadLineItems(db, documentType, documentId) {
     [documentType, documentId]
   );
   return res.rows.map(function (r) {
-    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), notes: r.notes, packageLabel: r.package_label || '' };
+    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), notes: r.notes, packageLabel: r.package_label || '', productId: r.product_id || null };
   });
 }
 

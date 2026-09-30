@@ -1,3 +1,4 @@
+var inventorySales = require('./inventorySales.service');
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
@@ -115,6 +116,8 @@ async function createFromOrder(ctx, salesOrderId) {
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
+    // What it sells leaves stock now (inventorySales.service.js).
+    await inventorySales.takeForInvoice(client, ctx, i);
     await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Issued ' + i.invoice_no + ' for ' + o.order_no + ' (' + o.currency + ' ' + totals.grandTotal.toLocaleString() + ').');
     return i.id;
   });
@@ -146,6 +149,8 @@ async function createFromQuotation(ctx, quotationId, poReference) {
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
+    // What it sells leaves stock now (inventorySales.service.js).
+    await inventorySales.takeForInvoice(client, ctx, i);
     await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Issued ' + i.invoice_no + ' from ' + q.quote_no + ' (' + q.currency + ' ' + Number(q.grand_total).toLocaleString() + ').');
     return i.id;
   });
@@ -178,6 +183,8 @@ async function createManual(ctx, p) {
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
+    // What it sells leaves stock now (inventorySales.service.js).
+    await inventorySales.takeForInvoice(client, ctx, i);
     await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Manually created ' + i.invoice_no + ' (' + currency + ' ' + totals.grandTotal.toLocaleString() + ').');
     return i.id;
   });
@@ -278,8 +285,12 @@ async function remove(ctx, id) {
   var i = res.rows[0];
   if (!i) fail('notfound', 'Invoice not found.');
   if (Number(i.amount_paid) > 0) fail('conflict', 'Cannot delete an invoice that has payments recorded. Remove the payments first.');
-  await pool.query('DELETE FROM invoices WHERE id = $1', [id]);
-  await audit(pool, ctx, 'invoice.delete', 'invoice', id, 'Deleted invoice ' + i.invoice_no + '.');
+  await withTransaction(async function (client) {
+    // What it took from stock goes back first.
+    await inventorySales.giveBack(client, ctx, i, 'deleted');
+    await client.query('DELETE FROM invoices WHERE id = $1', [id]);
+    await audit(client, ctx, 'invoice.delete', 'invoice', id, 'Deleted invoice ' + i.invoice_no + '.');
+  });
   return true;
 }
 
@@ -291,8 +302,14 @@ async function voidInvoice(ctx, id) {
   if (!i) fail('notfound', 'Invoice not found.');
   if (i.status === 'void') fail('conflict', 'This invoice has already been voided.');
   if (Number(i.amount_paid) > 0) fail('conflict', 'Cannot void an invoice that already has payments recorded against it.');
-  var updated = await pool.query("UPDATE invoices SET status = 'void' WHERE id = $1 RETURNING *", [id]);
-  await audit(pool, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided.');
+  var updated = await withTransaction(async function (client) {
+    var u = await client.query("UPDATE invoices SET status = 'void' WHERE id = $1 AND status <> 'void' RETURNING *", [id]);
+    if (!u.rows[0]) fail('conflict', 'This invoice has already been voided.');
+    // What it took from stock goes back.
+    await inventorySales.giveBack(client, ctx, i, 'voided');
+    await audit(client, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided.');
+    return u;
+  });
   return rowToInvoice(pool, updated.rows[0]);
 }
 

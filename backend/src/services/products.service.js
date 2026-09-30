@@ -31,7 +31,7 @@ async function list(ctx) {
   if (!ctx.can('inventory.read')) fail('forbidden', 'Your role does not allow this action (inventory.read).');
   var res = await pool.query(
     'SELECT p.*, m.sold30, m.received30, m.breakage30, m.last_line, pr.made30 FROM products p ' +
-    'LEFT JOIN (SELECT product_id, sum(sold) AS sold30, sum(received) AS received30, sum(breakage) AS breakage30, max(date) AS last_line ' +
+    'LEFT JOIN (SELECT product_id, sum(sold + invoiced) AS sold30, sum(received) AS received30, sum(breakage) AS breakage30, max(date) AS last_line ' +
     "  FROM stock_sheet_lines WHERE date > current_date - 30 GROUP BY product_id) m ON m.product_id = p.id " +
     "LEFT JOIN (SELECT output_product_id, sum(output_qty) AS made30 FROM production_batches WHERE status <> 'cancelled' AND date > current_date - 30 GROUP BY output_product_id) pr ON pr.output_product_id = p.id " +
     'ORDER BY p.sku'
@@ -171,18 +171,25 @@ async function history(ctx, id) {
   var prod = (await pool.query('SELECT id FROM products WHERE id = $1', [id])).rows[0];
   if (!prod) fail('notfound', 'Product not found.');
   var lines = (await pool.query(
-    'SELECT l.date::text AS date, l.opening, l.received, l.transferred, l.breakage, l.sold, l.physical, l.note, e.first_name, e.last_name ' +
+    'SELECT l.date::text AS date, l.opening, l.received, l.transferred, l.breakage, l.sold, l.invoiced, l.physical, l.note, e.first_name, e.last_name ' +
     'FROM stock_sheet_lines l LEFT JOIN employees e ON e.id = l.updated_by WHERE l.product_id = $1 AND l.date > current_date - 60 ORDER BY l.date DESC',
     [id]
   )).rows.map(function (r) {
-    var line = { opening: num(r.opening), received: num(r.received), transferred: num(r.transferred), breakage: num(r.breakage), sold: num(r.sold), physical: r.physical === null ? null : num(r.physical) };
+    var line = { opening: num(r.opening), received: num(r.received), transferred: num(r.transferred), breakage: num(r.breakage), sold: num(r.sold), invoiced: num(r.invoiced), physical: r.physical === null ? null : num(r.physical) };
     return Object.assign({ date: r.date, note: r.note || '', by: r.first_name ? r.first_name + ' ' + r.last_name : null }, line, stockSheet.computed(line));
   });
   var made = (await pool.query(
     "SELECT pb.id, pb.batch_no, pb.date, pb.output_qty, pb.production_line FROM production_batches pb WHERE pb.output_product_id = $1 AND pb.status <> 'cancelled' ORDER BY pb.date DESC, pb.created_at DESC LIMIT 10",
     [id]
   )).rows.map(function (r) { return { id: r.id, batchNo: r.batch_no, date: r.date, qty: num(r.output_qty), line: r.production_line }; });
-  return { lines: lines, production: made };
+  // Invoices that took this product off stock, or put it back.
+  var invoiced = (await pool.query(
+    'SELECT m.invoice_id, m.invoice_no, m.qty, m.date::text AS date, m.reason, c.name AS customer_name FROM invoice_stock_moves m ' +
+    'LEFT JOIN invoices i ON i.id = m.invoice_id LEFT JOIN customers c ON c.id = i.customer_id ' +
+    'WHERE m.product_id = $1 ORDER BY m.created_at DESC LIMIT 15', [id])).rows.map(function (r) {
+    return { invoiceId: r.invoice_id, invoiceNo: r.invoice_no, qty: num(r.qty), date: r.date, reason: r.reason, customerName: r.customer_name || null };
+  });
+  return { lines: lines, production: made, invoiced: invoiced };
 }
 
 // Archive a product no longer made or sold: it drops off the page and the

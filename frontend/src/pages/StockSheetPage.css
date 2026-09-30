@@ -115,3 +115,6 @@ td.ss-calc { font-weight: 700; color: var(--color-text); }
   .ss-row.is-saved { border-left: 3px solid color-mix(in srgb, var(--color-accent) 55%, transparent); }
   .ss-savebar { border-radius: var(--dk-r); width: 100%; }
 }
+/* What invoices took that day — filled in by the OS, never typed. */
+td.ss-f-invoiced { font-weight: 500; color: var(--color-text-muted); }
+td.ss-f-invoiced.has-invoiced { font-weight: 700; color: var(--color-accent); }

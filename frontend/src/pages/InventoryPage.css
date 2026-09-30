@@ -132,3 +132,9 @@
   .inv-tools .inv-select { flex: 1 1 150px; min-width: 0; }
   .inv-detail-head .photo { width: 56px !important; height: 56px !important; }
 }
+/* Which invoices took this product off stock (or put it back). */
+.inv-invoiced ul { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.inv-invoiced li { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.inv-invoiced-qty { min-width: 56px; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--color-danger); }
+.inv-invoiced li.is-back .inv-invoiced-qty { color: var(--color-accent); }
+.inv-invoiced-text { min-width: 0; overflow-wrap: anywhere; }

@@ -47,10 +47,11 @@ function fmt(n) {
 }
 function numOr0(v) { const x = Number(v); return v === '' || !Number.isFinite(x) ? 0 : x; }
 
-// The sheet's formulas, for the figures shown while typing.
-function work(v) {
+// The sheet's formulas, for the figures shown while typing. invoiced is
+// what invoices took that day — filled in by the OS, not typed.
+function work(v, invoiced) {
   const total = numOr0(v.opening) + numOr0(v.received);
-  const expected = total - numOr0(v.transferred) - numOr0(v.breakage) - numOr0(v.sold);
+  const expected = total - numOr0(v.transferred) - numOr0(v.breakage) - numOr0(v.sold) - numOr0(invoiced);
   const physical = v.physical === '' ? null : numOr0(v.physical);
   return { total, expected, physical, variance: physical === null ? null : expected - physical, closing: physical === null ? expected : physical };
 }
@@ -176,13 +177,14 @@ export default function StockSheetPage() {
   // ── what the page shows ────────────────────────────────────────────
   const rows = lines.map((line) => {
     const v = valuesOf(line);
-    const w = work(v);
-    const moved = numOr0(v.received) + numOr0(v.transferred) + numOr0(v.breakage) + numOr0(v.sold) > 0;
+    const w = work(v, line.invoiced);
+    const moved = numOr0(v.received) + numOr0(v.transferred) + numOr0(v.breakage) + numOr0(v.sold) + Math.abs(numOr0(line.invoiced)) > 0;
     const openingDiffers = line.previousClosing !== null && numOr0(v.opening) !== line.previousClosing;
     return { line, v, w, moved, openingDiffers, dirty: !!drafts[line.productId], problem: w.expected < 0 || (line.saved && openingDiffers) };
   });
-  const sold = rows.reduce((s, r) => s + numOr0(r.v.sold), 0);
-  const soldValue = rows.reduce((s, r) => s + numOr0(r.v.sold) * (r.line.sellingPrice || 0), 0);
+  // Sold by hand on the sheet and sold on invoices are both sold.
+  const sold = rows.reduce((s, r) => s + numOr0(r.v.sold) + numOr0(r.line.invoiced), 0);
+  const soldValue = rows.reduce((s, r) => s + (numOr0(r.v.sold) + numOr0(r.line.invoiced)) * (r.line.sellingPrice || 0), 0);
   const received = rows.reduce((s, r) => s + numOr0(r.v.received), 0);
   const produced = rows.filter((r) => r.line.producedToday > 0);
   const counted = rows.filter((r) => r.w.physical !== null);
@@ -307,6 +309,7 @@ export default function StockSheetPage() {
                   <th>{tr('Transferred')}</th>
                   <th>{tr('Breakage')}</th>
                   <th>{tr('Sold')}</th>
+                  <th className="ss-calc" title={tr('Taken off by invoices that day, filled in by the OS')}>{tr('Invoiced')}</th>
                   <th className="ss-calc">{tr('Expected closing')}</th>
                   <th>{tr('Counted')}</th>
                   <th className="ss-calc">{tr('Variance')}</th>
@@ -369,6 +372,12 @@ export default function StockSheetPage() {
                         const calcAfter = f === 'received' ? w.total : f === 'sold' ? w.expected : null;
                         return [
                           <td key={f} className={'ss-num ss-f-' + f} data-label={tr(COLUMN_LABELS[f])}>{cell}</td>,
+                          f === 'sold' && (
+                            <td key="invoiced" className={'ss-num ss-calc ss-f-invoiced' + (numOr0(line.invoiced) ? ' has-invoiced' : '')} data-label={tr('Invoiced')}
+                              title={numOr0(line.invoiced) ? tr('{n} taken off by invoices that day', { n: fmt(line.invoiced) }) : undefined}>
+                              {numOr0(line.invoiced) ? fmt(line.invoiced) : '—'}
+                            </td>
+                          ),
                           calcAfter !== null && (
                             <td key={f + '-calc'} className={'ss-num ss-calc ss-f-' + (f === 'received' ? 'total' : 'expected') + (calcAfter < 0 ? ' is-negative' : '')} data-label={f === 'received' ? tr('Total stock') : tr('Expected closing')}>{fmt(calcAfter)}</td>
                           )
@@ -404,7 +413,9 @@ export default function StockSheetPage() {
         [tr('Opening stock'), tr('What was there at the start of the day: the previous day\'s closing, or the product\'s stock before its first day on the sheet.')],
         [tr('Received'), tr('Came into stock: from production (filled in for you), a supplier or a return.')],
         [tr('Transferred'), tr('Moved out to another store or site.')],
-        [tr('Expected closing'), tr('Opening + received − transferred − breakage − sold.')],
+        [tr('Sold'), tr('Sales that aren\'t on an invoice, typed in here.')],
+        [tr('Invoiced'), tr('What invoices took off stock that day, filled in by the OS the moment each invoice is made (less anything from invoices voided since). Don\'t type these sales into Sold as well.')],
+        [tr('Expected closing'), tr('Opening + received − transferred − breakage − sold − invoiced.')],
         [tr('Counted'), tr('What was actually on the shelf, when someone counted. Left blank, the day closes at the expected figure.')],
         [tr('Variance'), tr('Expected minus counted. A positive number means stock is missing.')],
         [tr('Save the rest as shown'), tr('Saves every line nobody touched, for a day when most products did not move.')]

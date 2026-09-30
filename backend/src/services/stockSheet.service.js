@@ -14,8 +14,11 @@ var { audit } = require('../utils/audit');
 //   Total stock     opening + received
 //   Transferred     entered
 //   Breakage        entered
-//   Sold            entered
-//   Expected        total − transferred − breakage − sold
+//   Sold            entered: sales that aren't on an invoice
+//   Invoiced        filled in by the OS: what invoices took that day, less
+//                   what voided or deleted invoices put back
+//                   (inventorySales.service.js)
+//   Expected        total − transferred − breakage − sold − invoiced
 //   Physical count  entered when someone counts; blank = not counted
 //   Variance        expected − physical, when counted
 //
@@ -38,7 +41,7 @@ function n(v) { return v === null || v === undefined ? null : Number(v); }
 
 function computed(line) {
   var total = line.opening + line.received;
-  var expected = total - line.transferred - line.breakage - line.sold;
+  var expected = total - line.transferred - line.breakage - line.sold - (line.invoiced || 0);
   var closing = line.physical === null ? expected : line.physical;
   return {
     total: total,
@@ -51,7 +54,7 @@ function computed(line) {
 function lineFromRow(r) {
   var line = {
     opening: Number(r.opening), received: Number(r.received), transferred: Number(r.transferred),
-    breakage: Number(r.breakage), sold: Number(r.sold), physical: n(r.physical)
+    breakage: Number(r.breakage), sold: Number(r.sold), invoiced: Number(r.invoiced || 0), physical: n(r.physical)
   };
   return Object.assign(line, computed(line));
 }
@@ -70,7 +73,7 @@ async function getDay(ctx, dateArg) {
 
   var products = (await pool.query(
     'SELECT p.id, p.sku, p.name, p.category, p.unit, p.current_stock, p.selling_price, p.cost_price, p.reorder_level, p.photo_key, p.photo_updated_at, ' +
-    'l.opening, l.received, l.transferred, l.breakage, l.sold, ' +
+    'l.opening, l.received, l.transferred, l.breakage, l.sold, l.invoiced, ' +
     'l.physical, l.note, l.updated_at, e.first_name AS upd_first, e.last_name AS upd_last ' +
     'FROM products p LEFT JOIN stock_sheet_lines l ON l.product_id = p.id AND l.date = $1 ' +
     'LEFT JOIN employees e ON e.id = l.updated_by WHERE p.active OR l.product_id IS NOT NULL ORDER BY p.sheet_order NULLS LAST, p.sku',
@@ -78,7 +81,7 @@ async function getDay(ctx, dateArg) {
   )).rows;
   var prev = {};
   (await pool.query(
-    'SELECT DISTINCT ON (product_id) product_id, date::text AS date, opening, received, transferred, breakage, sold, physical ' +
+    'SELECT DISTINCT ON (product_id) product_id, date::text AS date, opening, received, transferred, breakage, sold, invoiced, physical ' +
     'FROM stock_sheet_lines WHERE date < $1 ORDER BY product_id, date DESC',
     [date]
   )).rows.forEach(function (r) { prev[r.product_id] = { date: r.date, line: lineFromRow(r) }; });
@@ -94,7 +97,7 @@ async function getDay(ctx, dateArg) {
     var line = saved ? lineFromRow(p) : (function () {
       var l = {
         opening: before ? before.line.closing : Number(p.current_stock),
-        received: produced[p.id] || 0, transferred: 0, breakage: 0, sold: 0, physical: null
+        received: produced[p.id] || 0, transferred: 0, breakage: 0, sold: 0, invoiced: 0, physical: null
       };
       return Object.assign(l, computed(l));
     })();
@@ -139,13 +142,19 @@ function readLine(body) {
   return line;
 }
 
+// line.invoiced is the OS's to set (inventorySales.service.js); a line
+// saved from the sheet keeps whatever it already had.
 async function writeLine(client, ctx, date, productId, line) {
+  if (line.invoiced === undefined) {
+    var had = (await client.query('SELECT invoiced FROM stock_sheet_lines WHERE product_id = $1 AND date = $2', [productId, date])).rows[0];
+    line.invoiced = had ? Number(had.invoiced) : 0;
+  }
   await client.query(
-    'INSERT INTO stock_sheet_lines (date, product_id, opening, received, transferred, breakage, sold, physical, note, updated_by, updated_at) ' +
-    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now()) ON CONFLICT (product_id, date) DO UPDATE SET ' +
+    'INSERT INTO stock_sheet_lines (date, product_id, opening, received, transferred, breakage, sold, invoiced, physical, note, updated_by, updated_at) ' +
+    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now()) ON CONFLICT (product_id, date) DO UPDATE SET ' +
     'opening = EXCLUDED.opening, received = EXCLUDED.received, transferred = EXCLUDED.transferred, breakage = EXCLUDED.breakage, ' +
-    'sold = EXCLUDED.sold, physical = EXCLUDED.physical, note = EXCLUDED.note, updated_by = EXCLUDED.updated_by, updated_at = now()',
-    [date, productId, line.opening, line.received, line.transferred, line.breakage, line.sold, line.physical, line.note, ctx.employee ? ctx.employee.id : null]
+    'sold = EXCLUDED.sold, invoiced = EXCLUDED.invoiced, physical = EXCLUDED.physical, note = EXCLUDED.note, updated_by = EXCLUDED.updated_by, updated_at = now()',
+    [date, productId, line.opening, line.received, line.transferred, line.breakage, line.sold, line.invoiced, line.physical, line.note, ctx.employee ? ctx.employee.id : null]
   );
   // The product's stock follows its latest day. A correction to an older
   // day changes that day (and the summary) but not today's stock.
@@ -232,7 +241,7 @@ async function month(ctx, monthArg) {
     [first, last]
   )).rows;
   var lines = (await pool.query(
-    'SELECT product_id, date::text AS date, opening, received, transferred, breakage, sold, physical FROM stock_sheet_lines ' +
+    'SELECT product_id, date::text AS date, opening, received, transferred, breakage, sold, invoiced, physical FROM stock_sheet_lines ' +
     'WHERE date BETWEEN $1 AND $2 ORDER BY date',
     [first, last]
   )).rows;
@@ -245,9 +254,11 @@ async function month(ctx, monthArg) {
     var d = daysWithLines[r.date] = daysWithLines[r.date] || { lines: 0, received: 0, sold: 0, breakage: 0, soldValue: 0 };
     d.lines++;
     d.received += Number(r.received);
-    d.sold += Number(r.sold);
+    // Sold on the sheet and sold on invoices are both sold.
+    var out = Number(r.sold) + Number(r.invoiced || 0);
+    d.sold += out;
     d.breakage += Number(r.breakage);
-    d.soldValue += Number(r.sold) * (price[r.product_id] || 0);
+    d.soldValue += out * (price[r.product_id] || 0);
   });
 
   var rows = products.map(function (p) {
@@ -261,7 +272,7 @@ async function month(ctx, monthArg) {
       totals.received += l.received;
       totals.transferred += l.transferred;
       totals.breakage += l.breakage;
-      totals.sold += l.sold;
+      totals.sold += l.sold + l.invoiced;
       if (l.physical !== null) counted++;
       if (l.variance) variances++;
       // A positive variance is stock the sheet expected that was not there.
@@ -280,8 +291,8 @@ async function month(ctx, monthArg) {
   // The month before, for "compared with last month".
   var prevFirst = daysIn(prevMonth(monthStr))[0];
   var prev = (await pool.query(
-    'SELECT count(DISTINCT l.date)::int AS days, coalesce(sum(l.sold), 0)::float AS sold, coalesce(sum(l.received), 0)::float AS received, ' +
-    'coalesce(sum(l.breakage), 0)::float AS breakage, coalesce(sum(l.sold * p.selling_price), 0)::float AS sold_value ' +
+    'SELECT count(DISTINCT l.date)::int AS days, coalesce(sum(l.sold + l.invoiced), 0)::float AS sold, coalesce(sum(l.received), 0)::float AS received, ' +
+    'coalesce(sum(l.breakage), 0)::float AS breakage, coalesce(sum((l.sold + l.invoiced) * p.selling_price), 0)::float AS sold_value ' +
     'FROM stock_sheet_lines l JOIN products p ON p.id = l.product_id WHERE l.date BETWEEN $1 AND ($2::date - 1)',
     [prevFirst, first]
   )).rows[0];
@@ -344,9 +355,9 @@ async function days(ctx, toArg, countArg) {
   var rows = (await pool.query(
     "SELECT d::date::text AS date, count(l.product_id)::int AS lines, " +
     "count(l.physical)::int AS counted, " +
-    "count(*) FILTER (WHERE l.physical IS NOT NULL AND l.physical <> l.opening + l.received - l.transferred - l.breakage - l.sold)::int AS variances, " +
-    "coalesce(sum(l.received), 0)::float AS received, coalesce(sum(l.sold), 0)::float AS sold, " +
-    "coalesce(sum(l.sold * p.selling_price), 0)::float AS sold_value " +
+    "count(*) FILTER (WHERE l.physical IS NOT NULL AND l.physical <> l.opening + l.received - l.transferred - l.breakage - l.sold - l.invoiced)::int AS variances, " +
+    "coalesce(sum(l.received), 0)::float AS received, coalesce(sum(l.sold + l.invoiced), 0)::float AS sold, " +
+    "coalesce(sum((l.sold + l.invoiced) * p.selling_price), 0)::float AS sold_value " +
     "FROM generate_series($1::date - ($2::int - 1), $1::date, interval '1 day') d " +
     'LEFT JOIN stock_sheet_lines l ON l.date = d::date LEFT JOIN products p ON p.id = l.product_id ' +
     'GROUP BY d ORDER BY d',
@@ -361,4 +372,5 @@ async function days(ctx, toArg, countArg) {
   };
 }
 
-module.exports = { getDay: getDay, saveLine: saveLine, saveDay: saveDay, month: month, months: months, days: days, computed: computed };
+module.exports = {
+  writeLine: writeLine, computed: computed, lineFromRow: lineFromRow, getDay: getDay, saveLine: saveLine, saveDay: saveDay, month: month, months: months, days: days, computed: computed };

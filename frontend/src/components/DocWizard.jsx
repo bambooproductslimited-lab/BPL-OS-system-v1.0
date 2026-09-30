@@ -23,7 +23,7 @@ const STEPS = [msg('Details'), msg('Items & pricing'), msg('Finish')];
 
 export default function DocWizard({
   title, docKind, detailsSlot, message, onMessageChange, messageLabel,
-  items, onItemsChange, catalogOptions, currency,
+  items, onItemsChange, catalogOptions, stockProducts, currency,
   docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
   paymentSchedule, onPaymentScheduleChange,
   recapBlocks, submitLabel, saving, error, onSubmit, onClose
@@ -84,6 +84,7 @@ export default function DocWizard({
           <div className="docwizard-panel">
             <DocItemsEditor
               items={items} onChange={onItemsChange} catalogOptions={catalogOptions} currency={currency}
+              stockProducts={stockProducts} stockMode={docKind === 'invoice' ? 'invoice' : 'plan'}
               docDiscount={docDiscount} onDocDiscountChange={onDocDiscountChange}
               docTaxRate={docTaxRate} onDocTaxRateChange={onDocTaxRateChange}
               paymentSchedule={paymentSchedule} onPaymentScheduleChange={onPaymentScheduleChange}

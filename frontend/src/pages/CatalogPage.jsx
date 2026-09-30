@@ -8,6 +8,7 @@ import { CameraIcon, CatalogImage, ItemGallery } from '../components/CatalogPhot
 import { Glossary, Hero, Insights, RankList, Section, Status, avatarColor, fmtDate, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr } from '../lib/i18n.jsx';
+import { useStockProducts } from '../lib/stockProducts';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -48,6 +49,9 @@ function Mark({ item, size = 44 }) {
   if (item.photos && item.photos.length) return <span className="ct-thumb" style={{ width: size, height: size }} aria-hidden="true"><CatalogImage id={item.photos[0].id} /></span>;
   return <span className="pk-avatar cu-mark ct-mark" style={{ width: size, height: size, background: avatarColor(item.categoryId ? item.categoryName : item.name) }} aria-hidden="true"><BoxIcon /></span>;
 }
+// A variation linked to a stock product shows that product's stock (it is
+// what invoices take from); otherwise its own count.
+function stockOf(v) { return v.product ? v.product.stock : v.stockQty; }
 function margin(v) { return v.unitPrice > 0 && v.costPrice > 0 ? Math.round(((v.unitPrice - v.costPrice) / v.unitPrice) * 100) : null; }
 function belowCost(v) { return v.costPrice > 0 && v.unitPrice < v.costPrice; }
 function ghsSold(v) { return (v.sold.amounts.find((a) => a.currency === 'GHS') || { amount: 0 }).amount; }
@@ -73,6 +77,7 @@ function varLabel(v) { return v.name && v.name !== 'Regular' ? v.name : tr('Regu
 
 export default function CatalogPage() {
   const { can } = useAuth();
+  const stockProducts = useStockProducts(can('inventory.read'));
   const canManage = can('catalog.manage');
   const canSeeTaxRates = can('settings.manage');
 
@@ -213,7 +218,7 @@ export default function CatalogPage() {
   }
   function openEditVariation(itemId, v) {
     setVarDialogError(null);
-    setVarDialog({ itemId, editId: v.id, form: { name: v.name, code: v.code, unit: v.unit, defaultQty: v.defaultQty, unitPrice: v.unitPrice, costPrice: v.costPrice } });
+    setVarDialog({ itemId, editId: v.id, form: { name: v.name, code: v.code, unit: v.unit, defaultQty: v.defaultQty, unitPrice: v.unitPrice, costPrice: v.costPrice, productId: v.productId || '' } });
   }
 
   async function handleVariationSubmit(e) {
@@ -308,7 +313,7 @@ export default function CatalogPage() {
   const below = liveVars.filter(belowCost);
   const noPrice = liveVars.filter((v) => !(v.unitPrice > 0));
   const noCost = liveVars.filter((v) => v.unitPrice > 0 && !(v.costPrice > 0));
-  const soldOut = liveVars.filter((v) => v.sold.qty > 0 && v.stockQty <= 0 && v.item.variations.some((x) => x.stockQty > 0 || x.sold.qty > 0));
+  const soldOut = liveVars.filter((v) => v.sold.qty > 0 && stockOf(v) <= 0 && v.item.variations.some((x) => stockOf(x) > 0 || x.sold.qty > 0));
   const margins = liveVars.map(margin).filter((m) => m !== null);
   const avgMargin = margins.length ? Math.round(margins.reduce((a, b) => a + b, 0) / margins.length) : null;
   const best = sold.slice().sort((a, b) => ghsSold(b) - ghsSold(a));
@@ -366,7 +371,8 @@ export default function CatalogPage() {
   }
   function varActions(it, v) {
     return [
-      canManage && { label: tr('Adjust stock'), onClick: () => openStockDialog(v) },
+      // A linked variation's stock is its product's, counted in Products & inventory.
+      canManage && !v.product && { label: tr('Adjust stock'), onClick: () => openStockDialog(v) },
       canManage && { label: tr('Edit'), onClick: () => openEditVariation(it.id, v) },
       canManage && { label: v.active ? tr('Archive') : tr('Unarchive'), onClick: () => toggleVariationActive(v), disabled: busyId === v.id },
       canManage && it.variations.length > 1 && { label: tr('Delete'), onClick: () => setDeleteVarTarget(v), danger: true }
@@ -437,7 +443,7 @@ export default function CatalogPage() {
               const st = stateOf(it);
               const live = it.variations.filter((v) => v.active || !it.active);
               const ms = live.map(margin).filter((m) => m !== null);
-              const stock = live.reduce((s, v) => s + v.stockQty, 0);
+              const stock = live.reduce((s, v) => s + stockOf(v), 0);
               return (
                 <article key={it.id} className={'tl-card' + (st.tone === 'bad' ? ' st-late' : '') + (!it.active ? ' st-retired' : '')}>
                   {showCovers && (
@@ -477,7 +483,7 @@ export default function CatalogPage() {
                       <td>{it.categoryId ? it.categoryName : '—'}</td>
                       <td className="is-num">{priceRange(it)}</td>
                       <td className={'is-num' + (live.some(belowCost) ? ' pk-owe' : '')}>{ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) + '%' : '—'}</td>
-                      <td className="is-num">{live.reduce((s, v) => s + v.stockQty, 0).toLocaleString()}</td>
+                      <td className="is-num">{live.reduce((s, v) => s + stockOf(v), 0).toLocaleString()}</td>
                       <td className="is-num">{sumSold(live).length ? moneyBreakdown(sumSold(live)) : '—'}</td>
                       <td className="tl-menu-cell"><RowMenu actions={itemActions(it)} /></td>
                     </tr>
@@ -528,7 +534,9 @@ export default function CatalogPage() {
                         <span className="dk-muted tl-small">
                           {tr('{price} per {unit}', { price: money(v.unitPrice), unit: v.unit })}
                           {v.costPrice > 0 ? ' · ' + tr('cost {cost}', { cost: money(v.costPrice) }) : ''}
-                          {' · '}{v.stockQty > 0 ? tr('{n} in stock', { n: v.stockQty.toLocaleString() }) : tr('none in stock')}
+                          {' · '}{v.product
+                            ? tr('takes stock from {name} ({n} in stock)', { name: v.product.name, n: v.product.stock.toLocaleString() })
+                            : v.stockQty > 0 ? tr('{n} in stock', { n: v.stockQty.toLocaleString() }) : tr('none in stock')}
                         </span>
                         <span className="dk-muted tl-small">{v.sold.qty > 0 ? tr('{n} sold on {k} invoices, last on {date}', { n: v.sold.qty.toLocaleString(), k: v.sold.invoices, date: fmtDate(v.sold.lastSoldOn) }) : tr('Not sold in 12 months')}</span>
                       </span>
@@ -656,6 +664,16 @@ export default function CatalogPage() {
               <label htmlFor="var-costprice">{tr('Cost price (GHS)')}</label>
               <input id="var-costprice" className="input" type="number" value={varDialog.form.costPrice} onChange={(e) => setVarDialog({ ...varDialog, form: { ...varDialog.form, costPrice: e.target.value } })} />
             </div>
+            {varDialog.editId && stockProducts && (
+              <div className="field catalog-dialog-span">
+                <label htmlFor="var-product">{tr('Takes stock from')}</label>
+                <select id="var-product" className="input" value={varDialog.form.productId || ''} onChange={(e) => setVarDialog({ ...varDialog, form: { ...varDialog.form, productId: e.target.value } })}>
+                  <option value="">{tr('Nothing — not a stock item')}</option>
+                  {stockProducts.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.sku} · {tr('{n} in stock', { n: Number(p.currentStock).toLocaleString() })}</option>)}
+                </select>
+                <small className="dk-muted">{tr('When this is on an invoice, the quantity comes off this product in Products & inventory — one of this takes one of that, so link items counted the same way (a bundle of 10 linked to single slats takes 1 slat, not 10).')}</small>
+              </div>
+            )}
             {!varDialog.editId && (
               <div className="field">
                 <label htmlFor="var-stockqty">{tr('Initial stock')}</label>

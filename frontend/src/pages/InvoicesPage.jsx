@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useStockProducts } from '../lib/stockProducts';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -91,6 +92,7 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  const stockProducts = useStockProducts(can('inventory.read'));
   const [orders, setOrders] = useState([]);
   const [currencies, setCurrencies] = useState(['GHS']);
   const [loading, setLoading] = useState(true);
@@ -178,11 +180,13 @@ export default function InvoicesPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      await api.post('/invoices', {
+      const made = await api.post('/invoices', {
         customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, notes: form.notes,
         currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       });
-      setToast(tr('Invoice created.'));
+      // Say what left stock with it (backend inventorySales.service.js).
+      const fromStock = (made.items || []).filter((it) => it.productId).length;
+      setToast(fromStock ? tr('{invoiceNo} created — {n} stock items taken off Products & inventory.', { invoiceNo: made.invoiceNo, n: fromStock }) : tr('Invoice created.'));
       setDialogOpen(false);
       await load();
     } catch (err) {
@@ -216,7 +220,7 @@ export default function InvoicesPage() {
     setError(null);
     try {
       await api.post('/invoices/' + inv.id + '/void', {});
-      setToast(tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
+      setToast((inv.items || []).some((it) => it.productId) ? tr('{invoiceNo} voided — its stock items are back in stock.', { invoiceNo: inv.invoiceNo }) : tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -595,7 +599,7 @@ export default function InvoicesPage() {
             </div>
           }
           message={form.notes} onMessageChange={(v) => setForm({ ...form, notes: v })} messageLabel={tr('Message to customer')}
-          items={items} onItemsChange={setItems} catalogOptions={catalog}
+          items={items} onItemsChange={setItems} catalogOptions={catalog} stockProducts={stockProducts}
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}

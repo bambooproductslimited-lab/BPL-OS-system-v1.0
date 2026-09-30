@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
@@ -458,7 +458,7 @@ export default function InventoryPage() {
                           <tr key={l.date}>
                             <td>{fmtDate(l.date)}</td>
                             <td className="is-num">{l.received ? '+' + n(l.received) : ''}</td>
-                            <td className="is-num">{l.sold + l.breakage + l.transferred ? '−' + n(l.sold + l.breakage + l.transferred) : ''}</td>
+                            <td className="is-num">{l.sold + (l.invoiced || 0) + l.breakage + l.transferred ? '−' + n(l.sold + (l.invoiced || 0) + l.breakage + l.transferred) : ''}</td>
                             <td className="is-num">{l.physical === null ? '' : n(l.physical)}{l.variance ? <span className={'inv-var' + (l.variance > 0 ? ' is-short' : '')}> ({l.variance > 0 ? '−' : '+'}{n(Math.abs(l.variance))})</span> : null}</td>
                             <td className="is-num"><strong>{n(l.closing)}</strong></td>
                             <td className="dk-muted inv-note">{[l.note, l.by].filter(Boolean).join(' · ')}</td>
@@ -466,6 +466,23 @@ export default function InventoryPage() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                {(detail.history.invoiced || []).length > 0 && (
+                  <div className="inv-invoiced">
+                    <h3 className="inv-h3">{tr('On invoices')}</h3>
+                    <ul>
+                      {detail.history.invoiced.slice(0, 8).map((m, i) => (
+                        <li key={i} className={m.qty < 0 ? 'is-back' : ''}>
+                          <span className="inv-invoiced-qty">{m.qty > 0 ? '−' + n(m.qty) : '+' + n(-m.qty)}</span>
+                          <span className="inv-invoiced-text">
+                            {m.invoiceId ? <Link to={'/invoices?open=' + m.invoiceId}>{m.invoiceNo}</Link> : <strong>{m.invoiceNo}</strong>}
+                            {m.customerName ? ' · ' + m.customerName : ''}
+                            <span className="dk-muted"> · {fmtDate(m.date)}{m.reason === 'voided' ? ' · ' + tr('back in stock, invoice voided') : m.reason === 'deleted' ? ' · ' + tr('back in stock, invoice deleted') : ''}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
                 {detail.history.production.length > 0 && (

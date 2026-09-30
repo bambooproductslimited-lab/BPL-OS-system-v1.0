@@ -67,6 +67,9 @@ export function applyCatalogItem(items, idx, item) {
   if (!item) return items;
   return items.map((it, i) => (i === idx ? {
     ...it, itemNo: item.code || '', description: item.name, unit: item.unit, unitPrice: item.unitPrice, qty: item.defaultQty || 1,
+    // The stock product it takes from, when the catalogue item has one (or
+    // it is a stock product itself) — see stockOptions below.
+    productId: item.productId || null,
     // Only prefills notes from the catalogue item's own description when the
     // line's notes field is still empty — never clobbers something the user
     // already typed by hand.
@@ -74,10 +77,63 @@ export function applyCatalogItem(items, idx, item) {
   } : it));
 }
 
+// Stock products (Products & inventory) offered in the same search as the
+// catalogue, so a line can be a stock item — an invoice then takes it off
+// stock when it is made (backend inventorySales.service.js).
+function stockOptions(stockProducts) {
+  return (stockProducts || []).map((p) => ({
+    kind: 'stock', id: 'stock:' + p.id, productId: p.id, name: p.name, code: p.sku, unit: p.unit,
+    unitPrice: p.sellingPrice || 0, defaultQty: 1, stock: p.currentStock, active: true
+  }));
+}
+function num(n) { return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+
+function BoxGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z" /><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" />
+    </svg>
+  );
+}
+
+// Under a line: which stock product it is, how many are in stock, and
+// whether this line asks for more than that — or a way to say it's one.
+// stockMode 'invoice': it leaves stock when the invoice is made; 'plan'
+// (quotation, estimate): it will, once invoiced.
+function StockLine({ item, stockProducts, stockMode, onLink }) {
+  const p = item.productId ? stockProducts.find((x) => x.id === item.productId) : null;
+  if (item.productId && !p) return null;
+  if (!p) {
+    return (
+      <label className="doc-items-stock">
+        <span className="doc-items-stock-icon is-off"><BoxGlyph /></span>
+        <select className="input doc-items-stock-select" value="" onChange={(e) => e.target.value && onLink(e.target.value)} aria-label={tr('Takes from stock')}>
+          <option value="">{tr('Not from stock — link a stock product…')}</option>
+          {stockProducts.map((x) => <option key={x.id} value={x.id}>{x.name} · {tr('{n} in stock', { n: num(x.currentStock) })}</option>)}
+        </select>
+      </label>
+    );
+  }
+  const qty = Number(item.qty) || 0;
+  const short = qty > (Number(p.currentStock) || 0);
+  return (
+    <div className={'doc-items-stock is-linked' + (short ? ' is-short' : '')}>
+      <span className="doc-items-stock-icon"><BoxGlyph /></span>
+      <span className="doc-items-stock-text">
+        <strong>{stockMode === 'invoice' ? tr('Takes {qty} from stock', { qty: num(qty) }) : tr('Stock item — leaves stock when invoiced')}</strong>
+        <span>{p.name} · {tr('{n} in stock', { n: num(p.currentStock) })}{short ? ' · ' + tr('only {n} left', { n: num(p.currentStock) }) : ''}</span>
+      </span>
+      <button type="button" className="doc-items-stock-unlink" onClick={() => onLink(null)} aria-label={tr('Not from stock')} title={tr('Not from stock')}>×</button>
+    </div>
+  );
+}
+
 export default function DocItemsEditor({
   items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
-  paymentSchedule, onPaymentScheduleChange
+  paymentSchedule, onPaymentScheduleChange, stockProducts, stockMode
 }) {
+  const stockList = stockProducts || null;
+  const pickerOptions = (catalogOptions || []).map((c) => ({ ...c, stock: c.product ? c.product.stock : undefined })).concat(stockOptions(stockList));
   const totals = computeDocTotals(items, docDiscount, docTaxRate);
   const cur = currency || 'GHS';
   const [discountOpen, setDiscountOpen] = useState(!!(docDiscount && docDiscount.value));
@@ -146,9 +202,9 @@ export default function DocItemsEditor({
                     value={it.description}
                     onChange={(text) => setField(idx, 'description', text)}
                     onPickOption={(c) => pickCatalog(idx, c)}
-                    options={catalogOptions || []}
-                    placeholder={tr('Search catalogue or type a custom item…')}
-                    renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur)}
+                    options={pickerOptions}
+                    placeholder={stockList ? tr('Search catalogue and stock, or type a custom item…') : tr('Search catalogue or type a custom item…')}
+                    renderOption={(c) => c.name + ' — ' + money(c.unitPrice, cur) + (c.stock !== undefined ? ' · ' + (c.kind === 'stock' ? tr('stock: {n}', { n: num(c.stock) }) : tr('{n} in stock', { n: num(c.stock) })) : '')}
                   />
                   <textarea
                     className="input doc-items-notes"
@@ -163,6 +219,9 @@ export default function DocItemsEditor({
                     placeholder={tr('Package name (optional) — groups with other lines under one price')}
                     onChange={(e) => setField(idx, 'packageLabel', e.target.value)}
                   />
+                  {stockList && stockList.length > 0 && (
+                    <StockLine item={it} stockProducts={stockList} stockMode={stockMode} onLink={(id) => setField(idx, 'productId', id)} />
+                  )}
                 </td>
                 <td><input className="input" type="number" value={it.qty} onChange={(e) => setField(idx, 'qty', e.target.value)} /></td>
                 <td><input className="input" value={it.unit} onChange={(e) => setField(idx, 'unit', e.target.value)} /></td>
