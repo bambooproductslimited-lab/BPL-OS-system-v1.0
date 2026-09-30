@@ -463,7 +463,7 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
   // row" found nothing to close and opened a second shift instead.
   //
   // A shift nobody clocked out of does not wait for this tap to close it:
-  // it is clocked out automatically once it has run its limit (11 hours —
+  // it is clocked out automatically once it has run its limit (15 hours —
   // see attendance.service.js's closeOverdueShifts). That normally happens
   // in the background, and is repeated here, as of the moment of the tap, so
   // the rule holds even for a tap the background check hasn't caught up

@@ -90,19 +90,27 @@ test('a third clock-in the same day is refused, and a one-shift person is refuse
   assert.equal((await rows(one)).length, 1);
 });
 
-test('a night shift on its own is the second shift, and its automatic clock-out follows its length', async function () {
+test('a night shift on its own is the second shift, closed at the 15-hour limit if forgotten', async function () {
   var id = await person('8704', true);
   var n = await tap('8704', at(-3, '17:57'));
   assert.equal(n.status, 'present');
   assert.equal((await rows(id))[0].shift_no, 2);
-  // 18:00–06:00 is 12 hours, so it stays open past the usual 11…
-  await attendance.closeOverdueShifts({ date: day(-2), time: '05:30' }, id);
+  await attendance.closeOverdueShifts({ date: day(-2), time: '08:30' }, id);
   assert.equal((await rows(id))[0].cout, null);
-  // …and is closed an hour after it should have ended.
-  await attendance.closeOverdueShifts({ date: day(-2), time: '07:00' }, id);
+  await attendance.closeOverdueShifts({ date: day(-2), time: '09:00' }, id);
   var r = (await rows(id))[0];
-  assert.equal(r.cout, '06:57');
+  assert.equal(r.cout, '08:57');
   assert.equal(r.auto_clocked_out, true);
+});
+
+test('a forgotten day shift closes when the second shift starts, so that clock-in starts the night', async function () {
+  var id = await person('8706', true);
+  await tap('8706', at(-9, '07:00'));                  // never taps out of the day shift
+  var night = await tap('8706', at(-9, '18:04'));      // back for the night shift
+  assert.equal(night.action, 'in');
+  var r = await rows(id);
+  assert.deepEqual(r.map(function (x) { return [x.shift_no, x.cin, x.cout, x.auto_clocked_out]; }),
+    [[1, '07:00', '18:00', true], [2, '18:04', null, false]]);
 });
 
 test('the day list and the report show both shifts', async function () {

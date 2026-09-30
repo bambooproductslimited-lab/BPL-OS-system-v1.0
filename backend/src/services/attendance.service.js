@@ -293,17 +293,22 @@ async function clockOutEmployee(employeeId, occurredAt, location) {
 // the next tap closed it — so someone who forgot on Monday closed Monday's
 // shift on Tuesday morning, recorded as 24 hours, and had to tap twice.
 //
-// The recorded clock-out is the limit itself (clock-in + 11 hours), not the
+// The recorded clock-out is the limit itself (clock-in + 15 hours), not the
 // moment the check happened to run, so the row reads the same whenever the
 // sweep got to it. It is flagged auto_clocked_out and noted on the row, so a
 // supervisor can see which times were the system's and correct them.
 //
 // One exception: an employee whose assigned shift is itself longer than the
-// limit — a 12-hour guard shift, 18:00 to 06:00 — gets their shift's length
-// plus LONG_SHIFT_GRACE_HOURS instead. Cutting them at 11 hours would close
-// every shift before they finished it, and their real tap-out an hour later
-// would then read as the start of the next shift.
-var AUTO_CLOCK_OUT_HOURS = 11;
+// limit gets their shift's length plus LONG_SHIFT_GRACE_HOURS instead.
+// Cutting them at the limit would close every shift before they finished it,
+// and their real tap-out an hour later would then read as the start of the
+// next shift. (The limit was 11 hours until staff asked for 15.)
+//
+// And one the other way: for someone on two shifts a day (migration 0112), a
+// first shift they forgot to clock out of closes when their second shift
+// starts, so the clock-in for the second shift is not taken as the first
+// one's clock-out.
+var AUTO_CLOCK_OUT_HOURS = 15;
 var LONG_SHIFT_GRACE_HOURS = 1;
 // How far back the clock-in notice looks. An older automatic clock-out —
 // the backlog of long-open rows closed the first time this ran — is marked
@@ -311,10 +316,17 @@ var LONG_SHIFT_GRACE_HOURS = 1;
 var AUTO_CLOCK_OUT_NOTICE_DAYS = 7;
 
 function shiftLimitHours(row) {
-  if (!row.shift_start || !row.shift_end) return AUTO_CLOCK_OUT_HOURS;
-  var minutes = hmToMinutes(String(row.shift_end).slice(0, 5)) - hmToMinutes(String(row.shift_start).slice(0, 5));
-  if (minutes <= 0) minutes += 1440; // crosses midnight
-  return Math.max(AUTO_CLOCK_OUT_HOURS, minutes / 60 + LONG_SHIFT_GRACE_HOURS);
+  var limit = AUTO_CLOCK_OUT_HOURS;
+  if (row.shift_start && row.shift_end) {
+    var minutes = hmToMinutes(String(row.shift_end).slice(0, 5)) - hmToMinutes(String(row.shift_start).slice(0, 5));
+    if (minutes <= 0) minutes += 1440; // crosses midnight
+    limit = Math.max(AUTO_CLOCK_OUT_HOURS, minutes / 60 + LONG_SHIFT_GRACE_HOURS);
+  }
+  if (Number(row.shift_no) === 1 && row.second_shift_start) {
+    var gap = (hmToMinutes(String(row.second_shift_start).slice(0, 5)) - hmToMinutes(String(row.clock_in).slice(0, 5)) + 1440) % 1440;
+    if (gap > 0) limit = Math.min(limit, gap / 60);
+  }
+  return limit;
 }
 
 // Wall-clock arithmetic on the naive date + time the attendance table
@@ -340,9 +352,9 @@ async function closeOverdueShifts(asOf, employeeId) {
   var where = 'a.clock_in IS NOT NULL AND a.clock_out IS NULL';
   if (employeeId) { params.push(employeeId); where += ' AND a.employee_id = $1'; }
   var res = await pool.query(
-    'SELECT a.id, a.employee_id, a.date, a.clock_in, a.note, ' +
-    '  CASE WHEN a.shift_no = 2 THEN e.second_shift_start ELSE s.start_time END AS shift_start, ' +
-    '  CASE WHEN a.shift_no = 2 THEN e.second_shift_end ELSE s.end_time END AS shift_end ' +
+    'SELECT a.id, a.employee_id, a.date, a.clock_in, a.note, a.shift_no, e.second_shift_start, ' +
+    '  CASE WHEN a.shift_no = 2 THEN e.second_shift_start ELSE COALESCE(s.start_time, e.shift_start) END AS shift_start, ' +
+    '  CASE WHEN a.shift_no = 2 THEN e.second_shift_end ELSE COALESCE(s.end_time, e.shift_end) END AS shift_end ' +
     'FROM attendance a JOIN employees e ON e.id = a.employee_id LEFT JOIN shifts s ON s.id = e.shift_id WHERE ' + where,
     params
   );

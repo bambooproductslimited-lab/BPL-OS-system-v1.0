@@ -157,7 +157,7 @@ var TOOLS = [
   {
     name: 'get_attendance',
     kind: 'read',
-    description: "Attendance for one day: each employee this person can see, with status (present, late, absent, leave, off), clock-in and clock-out times, and whether the clock-out was automatic (the kiosk clocks a forgotten shift out after 11 hours). Defaults to today.",
+    description: "Attendance for one day: each employee this person can see, with status (present, late, absent, leave, off), clock-in and clock-out times, and whether the clock-out was automatic (the kiosk clocks a forgotten shift out after 15 hours). Defaults to today.",
     input_schema: {
       type: 'object',
       properties: {

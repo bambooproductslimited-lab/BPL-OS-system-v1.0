@@ -3,7 +3,7 @@
  *
  * The rule the business wants: a tap closes whatever shift is open and
  * starts one if none is. A shift nobody clocks out of is clocked out
- * automatically 11 hours after it started — or, for someone whose own shift
+ * automatically 15 hours after it started — or, for someone whose own shift
  * is longer than that, an hour after it should have ended — and the next tap
  * starts the next shift, with the employee told what happened.
  *
@@ -161,8 +161,8 @@ test('an ordinary day shift is unchanged, including the third-tap refusal', asyn
     'a day shift records no clock-out date — it is the same day, as it always was');
 });
 
-test('a shift nobody clocks out of is closed after 11 hours, and the next tap starts a new one', async function () {
-  // Uses an employee with no shift template: the plain 11-hour rule.
+test('a shift nobody clocks out of is closed after 15 hours, and the next tap starts a new one', async function () {
+  // Uses an employee with no shift template: the plain 15-hour rule.
   var id = await guard(null, '8105');
 
   await tap('8105', at(-6, '08:00'));
@@ -171,9 +171,9 @@ test('a shift nobody clocks out of is closed after 11 hours, and the next tap st
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 2);
-  assert.equal(hm(rows[0].clock_out), '19:00', 'clocked out at clock-in + 11 hours, not when anyone noticed');
+  assert.equal(hm(rows[0].clock_out), '23:00', 'clocked out at clock-in + 15 hours, not when anyone noticed');
   assert.equal(rows[0].clock_out_date, null, 'the same day it started');
-  assert.match(rows[0].note, /clocked out automatically after 11 hours/i);
+  assert.match(rows[0].note, /clocked out automatically after 15 hours/i);
   assert.equal(hm(rows[1].clock_in), '04:00');
 });
 
@@ -248,7 +248,7 @@ test('lateness on a day shift and with no shift at all is unchanged', async func
   assert.deepEqual(attendance.judgeLateness(none, '07:30'), { status: 'late', minutesLate: 10 });
 });
 
-test('a forgotten clock-out is closed at 11 hours, not when the employee next appears', async function () {
+test('a forgotten clock-out is closed at 15 hours, not when the employee next appears', async function () {
   // The rule this file used to assert the opposite of: the shift used to
   // keep running until the next tap closed it — Friday to Monday read as a
   // 74-hour shift.
@@ -261,7 +261,7 @@ test('a forgotten clock-out is closed at 11 hours, not when the employee next ap
   var rows = await rowsFor(id);
   assert.equal(rows.length, 2);
   assert.equal(hm(rows[0].clock_in), '07:00');
-  assert.equal(hm(rows[0].clock_out), '18:00');
+  assert.equal(hm(rows[0].clock_out), '22:00');
   assert.equal(iso(rows[0].date), day(-3));
   var flagged = await pool.query('SELECT auto_clocked_out FROM attendance WHERE employee_id = $1 AND date = $2', [id, day(-3)]);
   assert.equal(flagged.rows[0].auto_clocked_out, true);
@@ -275,32 +275,42 @@ test('one tap on arrival after a forgotten clock-out, not two', async function (
   var a = await tap('8112', at(-1, '07:00'));
   assert.equal(a.action, 'in');
   var b = await tap('8112', at(0, '07:00'));
-  assert.equal(b.action, 'in', 'yesterday was closed at 18:00; this starts today');
+  assert.equal(b.action, 'in', 'yesterday was closed at 22:00; this starts today');
   var c = await tap('8112', at(0, '16:00'));
   assert.equal(c.action, 'out');
 
   var rows = await rowsFor(id);
   assert.equal(rows.length, 2);
-  assert.equal(hm(rows[0].clock_out), '18:00');
+  assert.equal(hm(rows[0].clock_out), '22:00');
   assert.equal(hm(rows[1].clock_in), '07:00');
   assert.equal(hm(rows[1].clock_out), '16:00');
 });
 
-test('a guard on a 12-hour night shift gets their shift plus an hour, not 11 hours', async function () {
-  // 18:00 to 06:00 is 12 hours. Cut at 11, every night would close at 05:00
-  // and the guard's real 06:00 tap would read as the start of a new shift.
+test('a guard on a 12-hour night shift is closed at the 15-hour limit, the next morning', async function () {
+  // 18:00 to 06:00 is 12 hours, well inside the limit: the guard's real
+  // 06:00 tap closes it, and a forgotten one is closed at 09:00.
   var id = await guard(nightShift, '8114');
   await tap('8114', at(-6, '18:00'));
 
-  var early = await attendance.closeOverdueShifts({ date: day(-5), time: '06:59' }, id);
-  assert.equal(early.length, 0, 'still open at 06:59 — within 12 hours + 1');
-  var due = await attendance.closeOverdueShifts({ date: day(-5), time: '07:00' }, id);
-  assert.equal(due.length, 1, 'closed at 07:00');
+  var early = await attendance.closeOverdueShifts({ date: day(-5), time: '08:59' }, id);
+  assert.equal(early.length, 0, 'still open at 08:59 — within 15 hours');
+  var due = await attendance.closeOverdueShifts({ date: day(-5), time: '09:00' }, id);
+  assert.equal(due.length, 1, 'closed at 09:00');
 
   var rows = await rowsFor(id);
-  assert.equal(hm(rows[0].clock_out), '07:00');
+  assert.equal(hm(rows[0].clock_out), '09:00');
   assert.equal(iso(rows[0].clock_out_date), day(-5), 'the next morning');
-  assert.match(rows[0].note, /after 13 hours/);
+  assert.match(rows[0].note, /after 15 hours/);
+});
+
+test('a shift longer than the limit still gets its length plus an hour', async function () {
+  // 06:00 to 22:00 is 16 hours: closed at 17, not cut at 15 before it ends.
+  var id = await guard(null, '8129');
+  await pool.query("UPDATE employees SET shift_start = '06:00', shift_end = '22:00' WHERE id = $1", [id]);
+  await tap('8129', at(-6, '06:00'));
+  assert.equal((await attendance.closeOverdueShifts({ date: day(-6), time: '22:59' }, id)).length, 0);
+  assert.equal((await attendance.closeOverdueShifts({ date: day(-6), time: '23:00' }, id)).length, 1);
+  assert.equal(hm((await rowsFor(id))[0].clock_out), '23:00');
 });
 
 test('a delayed tap from the offline queue replaces the automatic clock-out', async function () {
@@ -309,7 +319,7 @@ test('a delayed tap from the offline queue replaces the automatic clock-out', as
   // meantime, the replayed tap-out is still the real one.
   var id = await guard(null, '8115');
   await tap('8115', at(-6, '08:00'));
-  await attendance.closeOverdueShifts({ date: day(-5), time: '00:00' }, id); // closed at 19:00
+  await attendance.closeOverdueShifts({ date: day(-5), time: '00:00' }, id); // closed at 23:00
 
   var replayed = await tap('8115', at(-6, '17:05'));
   assert.equal(replayed.action, 'out');
@@ -324,8 +334,8 @@ test('a delayed tap from the offline queue replaces the automatic clock-out', as
 test('tapping again after an automatic clock-out the same day says what happened', async function () {
   var id = await guard(null, '8116');
   await tap('8116', at(-6, '06:00'));
-  await assert.rejects(function () { return tap('8116', at(-6, '17:30')); },
-    /clocked out automatically at 17:00/);
+  await assert.rejects(function () { return tap('8116', at(-6, '21:30')); },
+    /clocked out automatically at 21:00/);
   assert.equal((await rowsFor(id)).length, 1);
 });
 
@@ -342,7 +352,7 @@ test('the employee is told at their next clock-in, once, and only about recent s
   // A live tap: no occurredAt.
   var live = await kiosk.clock('8117', '10.0.1.17', null, null, null);
   assert.equal(live.action, 'in');
-  assert.deepEqual(live.autoClosedShifts, [{ date: yesterday, clockIn: '07:00', clockOut: '18:00', clockOutDate: yesterday }]);
+  assert.deepEqual(live.autoClosedShifts, [{ date: yesterday, clockIn: '07:00', clockOut: '22:00', clockOutDate: yesterday }]);
 
   assert.deepEqual(await attendance.takeAutoClockOutNotices(id), [], 'told once');
   var unseen = await pool.query('SELECT count(*)::int AS n FROM attendance WHERE employee_id = $1 AND auto_clocked_out AND auto_clock_out_seen_at IS NULL', [id]);
