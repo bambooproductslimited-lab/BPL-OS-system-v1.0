@@ -232,6 +232,10 @@ async function recordPayment(ctx, invoiceId, p) {
     return { paymentId: pay.id, receiptId: receiptRes.rows[0].id, invoiceId: i.id };
   });
 
+  // The customer's receipt by email, on its own when that is switched on
+  // (documentEmails.service.js). Not waited for: the payment stands either way.
+  setImmediate(function () { require('./documentEmails.service').afterPayment(result.receiptId); });
+
   var invRes = await pool.query('SELECT * FROM invoices WHERE id = $1', [result.invoiceId]);
   var payRes = await pool.query('SELECT * FROM payments WHERE id = $1', [result.paymentId]);
   var rctRes = await pool.query('SELECT * FROM receipts WHERE id = $1', [result.receiptId]);

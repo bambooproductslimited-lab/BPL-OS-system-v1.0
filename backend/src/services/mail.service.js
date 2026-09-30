@@ -42,18 +42,40 @@ function explain(err) {
   return 'The email wasn\'t sent: ' + said.replace(config.mail.pass || '\u0000', '•••').slice(0, 200);
 }
 
+var EMAIL = /^[^@\s,;<>]+@[^@\s,;<>]+\.[a-z]{2,}$/i;
+function isEmail(s) { return EMAIL.test(String(s || '').trim()); }
+// "a@x.com, b@y.com; c@z.com" → ['a@x.com', 'b@y.com', 'c@z.com'], or fails
+// naming the address that isn't one.
+function addressList(value, label) {
+  var list = String(value || '').split(/[,;\s]+/).map(function (a) { return a.trim(); }).filter(Boolean);
+  list.forEach(function (a) { if (!isEmail(a)) fail('invalid', (label || 'Email') + ': "' + a.slice(0, 80) + '" isn\'t an email address.'); });
+  if (list.length > 10) fail('invalid', (label || 'Email') + ': ten addresses at most.');
+  return list;
+}
+
 // Sends one email. Throws a plain-language error when it can't be sent.
+// opts: to, subject, text, html; optional cc (list), replyTo, fromName (the
+// name the email comes from, e.g. the issuing company), attachments
+// ([{ filename, content: Buffer, contentType }]).
 async function send(opts) {
   if (!configured()) fail('unavailable', 'Email isn\'t set up yet. An administrator adds SMTP_HOST, SMTP_USER and SMTP_PASS on the server (see Company settings → Email).');
   var to = String(opts.to || '').trim();
-  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(to)) fail('invalid', 'There is no email address to send to.');
+  if (!isEmail(to)) fail('invalid', 'There is no email address to send to.');
+  var from = config.mail.from || config.mail.user;
+  if (opts.fromName) {
+    var address = (/<([^>]+)>/.exec(from) || [null, from])[1];
+    from = { name: String(opts.fromName).replace(/[\r\n"<>]+/g, ' ').slice(0, 80), address: address };
+  }
   try {
     var info = await transport().sendMail({
-      from: config.mail.from || config.mail.user,
+      from: from,
       to: to,
+      cc: opts.cc && opts.cc.length ? opts.cc : undefined,
+      replyTo: opts.replyTo && isEmail(opts.replyTo) ? opts.replyTo : undefined,
       subject: String(opts.subject || '').replace(/[\r\n]+/g, ' ').slice(0, 200),
       text: opts.text,
-      html: opts.html
+      html: opts.html,
+      attachments: (opts.attachments || []).map(function (a) { return { filename: a.filename, content: a.content, contentType: a.contentType || 'application/pdf' }; })
     });
     return { messageId: info && info.messageId };
   } catch (e) {
@@ -109,4 +131,4 @@ async function sendTest(ctx) {
 // For the tests: send through this instead of SMTP (null to go back).
 function setTransportForTests(t) { testTransport = t; }
 
-module.exports = { configured: configured, send: send, codeEmail: codeEmail, status: status, sendTest: sendTest, setTransportForTests: setTransportForTests };
+module.exports = { configured: configured, send: send, isEmail: isEmail, addressList: addressList, escapeHtml: escapeHtml, codeEmail: codeEmail, status: status, sendTest: sendTest, setTransportForTests: setTransportForTests };

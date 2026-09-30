@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { tr } from '../lib/i18n.jsx';
-import { SetupSteps } from './SmsSettings';
+import { SetupSteps, Switch, Glyph } from './SmsSettings';
 import './SmsSettings.css';
 
 // Company settings → Email (backend mail.service.js). The mailbox is
 // connected on the server (SMTP_HOST, SMTP_USER, SMTP_PASS); this shows
-// whether it is, and sends a test email to whoever is looking. Only for
-// settings.manage. Same look as the Text messages section above it.
+// whether it is, sends a test email to whoever is looking, and switches the
+// emails that go to customers on their own (documentEmails.service.js).
+// Only for settings.manage. Same look as the Text messages section above it.
+
+const AUTOMATIC = [
+  {
+    key: 'autoReceipts', icon: 'send',
+    label: () => tr('Email customers their receipt when a payment is recorded'),
+    hint: () => tr('Straight away, with the receipt attached as a PDF and what is left to pay. Only customers and tenants with an email address on file.')
+  },
+  {
+    key: 'autoReminders', icon: 'bill',
+    label: () => tr('Email customers and tenants about their bills'),
+    hint: () => tr('3 days before the due date, on the day, then 7 and 30 days late — once each, with the bill attached. Only bills that fell due in the last 45 days.')
+  }
+];
 
 function MailGlyph() {
   return (
@@ -23,9 +37,19 @@ export default function EmailSettings() {
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const [auto, setAuto] = useState(null);
   const load = useCallback(async () => {
-    try { setData(await api.get('/mail')); } catch (err) { setError(err.message); }
+    try {
+      const d = await api.get('/mail');
+      setData(d);
+      if (d.configured) setAuto(await api.get('/document-emails/settings'));
+    } catch (err) { setError(err.message); }
   }, []);
+  async function toggle(key, value) {
+    setBusy(true);
+    setError(null);
+    try { setAuto(await api.put('/document-emails/settings', { [key]: value })); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
   useEffect(() => { load(); }, [load]);
 
   async function sendTest() {
@@ -53,7 +77,7 @@ export default function EmailSettings() {
           <div className="ms-hero-sub">
             {data.configured
               ? <>{tr('Sent from')} <span className="ms-chip">{data.from}</span> <span className="ms-muted">· {data.host}:{data.port}</span></>
-              : tr('Two-step sign-in codes by email, sent from one of the company\'s own mailboxes.')}
+              : tr('Invoices, quotations, receipts and payment reminders to customers, and sign-in codes to staff, sent from one of the company\'s own mailboxes.')}
           </div>
         </div>
         {data.configured && (
@@ -65,6 +89,38 @@ export default function EmailSettings() {
 
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="ms-notice" role="status">{notice}</div>}
+
+      {data.configured && auto && (
+        <>
+          <section className="ms-group">
+            <div className="ms-group-head">
+              <h3 className="ms-group-title">{tr('Emails to customers')}</h3>
+              <p className="ms-muted">
+                {tr('Invoices, quotations and estimates go only when someone presses Email on the document, after reading the message. These two go on their own; at most {n} automatic reminder emails a day.', { n: auto.dailyLimit })}
+              </p>
+            </div>
+            <ul className="ms-list">
+              {AUTOMATIC.map((a) => {
+                const on = !!auto.settings[a.key];
+                return (
+                  <li key={a.key} className={'ms-row' + (on ? ' is-on' : '')}>
+                    <span className="ms-row-icon"><Glyph name={a.icon} /></span>
+                    <label className="ms-row-text" htmlFor={'ms-mail-' + a.key}>
+                      <span className="ms-row-title" id={'ms-mail-' + a.key + '-t'}>{a.label()}</span>
+                      <span className="ms-row-sub">{a.hint()}</span>
+                    </label>
+                    <Switch id={'ms-mail-' + a.key} checked={on} disabled={busy} labelledBy={'ms-mail-' + a.key + '-t'} onChange={(v) => toggle(a.key, v)} />
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="ms-muted ms-mail-month">
+              {tr('This month: {n} emails to customers, {a} of them sent automatically.', { n: auto.thisMonth.total, a: auto.thisMonth.automatic })}
+              {!auto.appUrl && ' ' + tr('The OS doesn\'t know its own web address yet, so automatic emails can\'t link to documents. Add APP_URL on the server.')}
+            </p>
+          </section>
+        </>
+      )}
 
       {!data.configured && (
         <SetupSteps

@@ -26,6 +26,9 @@ router.post('/:invoiceId/whatsapp', async function (req, res, next) {
 router.post('/:invoiceId/sms', async function (req, res, next) {
   try { res.json(await remindersService.sendSms(req.ctx, req.params.invoiceId, req.body.origin)); } catch (e) { next(e); }
 });
+router.post('/:invoiceId/email', async function (req, res, next) {
+  try { res.json(await remindersService.sendEmail(req.ctx, req.params.invoiceId, req.body.origin)); } catch (e) { next(e); }
+});
 router.get('/:invoiceId/history', async function (req, res, next) {
   try { res.json(await remindersService.history(req.ctx, req.params.invoiceId)); } catch (e) { next(e); }
 });

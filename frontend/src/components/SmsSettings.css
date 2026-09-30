@@ -190,3 +190,4 @@
 @media (prefers-reduced-motion: reduce) {
   .ms-switch-track, .ms-switch-thumb, .ms-row-icon { transition: none; }
 }
+.ms-mail-month { margin: 0; font-size: 12.5px; }

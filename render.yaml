@@ -57,6 +57,11 @@ services:
       # the first time this had a literal value here.
       - key: CORS_ORIGIN
         sync: false
+      # Optional: the OS's own web address, for links in emails it sends on
+      # its own (payment reminders, receipts). Defaults to the first https
+      # address in CORS_ORIGIN, so it only needs setting if that isn't it.
+      - key: APP_URL
+        sync: false
       # Fill these in on the Render dashboard before the first deploy — the
       # build's `npm run bootstrap` step reads them to create your one real
       # admin account. They are never stored anywhere after that first run

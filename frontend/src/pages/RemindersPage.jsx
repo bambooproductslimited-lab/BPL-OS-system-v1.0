@@ -47,7 +47,10 @@ function agoText(at) {
   if (hours < 24) return tr('{n} h ago', { n: hours });
   return tr('{n} days ago', { n: Math.round(hours / 24) });
 }
-function howText(last) { return last.automatic ? tr('automatic text') : last.channel === 'sms' ? tr('by text') : tr('on WhatsApp'); }
+function howText(last) {
+  if (last.channel === 'email') return last.automatic ? tr('automatic email') : tr('by email');
+  return last.automatic ? tr('automatic text') : last.channel === 'sms' ? tr('by text') : tr('on WhatsApp');
+}
 function dueText(days) { return days > 0 ? tr('{n} days overdue', { n: days }) : days === 0 ? tr('Due today') : tr('Due in {n} days', { n: -days }); }
 function kindLabel(k) { return KINDS[k] ? tr(KINDS[k]) : codeLabel(k); }
 function chased(r) { return r.lastReminder && daysAgo(r.lastReminder.at) < CHASE_DAYS; }
@@ -65,17 +68,26 @@ function LastSent({ last, countLabel }) {
   return <>{tr('Reminded {when}', { when: agoText(last.at) })} · {howText(last)}{last.by ? ' · ' + last.by : ''}{last.count > 1 ? ' · ' + countLabel(last.count) : ''}</>;
 }
 
-// The buttons, or the reason there are none.
-function SendButtons({ row, smsAvailable, sending, onWhatsApp, onSms, noPhoneLink, cantSend }) {
-  if (!row.whatsapp) return <Link className="btn btn-secondary rm-btn" to={noPhoneLink}>{tr('Add phone number')}</Link>;
+// The buttons, or the reason there are none. Email is for bills (the bill
+// goes with it, attached); bookings have no email button.
+function SendButtons({ row, smsAvailable, emailAvailable, sending, onWhatsApp, onSms, onEmail, noPhoneLink, cantSend }) {
+  const canEmail = !!(onEmail && emailAvailable && row.email);
+  if (!row.whatsapp && !canEmail) return <Link className="btn btn-secondary rm-btn" to={noPhoneLink}>{tr('Add phone number')}</Link>;
   return (
     <div className="rm-buttons">
-      <button type="button" className="btn btn-primary rm-btn rm-wa" disabled={!row.canSend || !!sending} title={row.canSend ? undefined : cantSend} onClick={() => onWhatsApp(row)}>
-        {sending === row.key ? tr('Opening…') : tr('WhatsApp')}
-      </button>
-      {smsAvailable && (
+      {row.whatsapp && (
+        <button type="button" className="btn btn-primary rm-btn rm-wa" disabled={!row.canSend || !!sending} title={row.canSend ? undefined : cantSend} onClick={() => onWhatsApp(row)}>
+          {sending === row.key ? tr('Opening…') : tr('WhatsApp')}
+        </button>
+      )}
+      {row.whatsapp && smsAvailable && (
         <button type="button" className="btn btn-secondary rm-btn" disabled={!row.canSend || !!sending} title={row.canSend ? undefined : cantSend} onClick={() => onSms(row)}>
           {sending === row.key + ':sms' ? tr('Sending…') : tr('Send text')}
+        </button>
+      )}
+      {canEmail && (
+        <button type="button" className={'btn rm-btn ' + (row.whatsapp ? 'btn-secondary' : 'btn-primary')} disabled={!row.canSend || !!sending} title={row.canSend ? row.email : cantSend} onClick={() => onEmail(row)}>
+          {sending === row.key + ':email' ? tr('Sending…') : tr('Email')}
         </button>
       )}
     </div>
@@ -118,7 +130,21 @@ function useSender(reload, setError, setToast) {
       setSending(null);
     }
   }
-  return { sending, whatsapp, sms };
+  async function email(path, row) {
+    if (!window.confirm(tr('Email this reminder to {name} at {email} now, with the bill attached?', { name: row.customerName, email: row.email }))) return;
+    setSending(row.key + ':email');
+    setError(null);
+    try {
+      await api.post(path, { origin: window.location.origin });
+      setToast(tr('Email sent to {name}.', { name: row.customerName }));
+      await reload();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSending(null);
+    }
+  }
+  return { sending, whatsapp, sms, email };
 }
 
 export default function RemindersPage() {
@@ -174,12 +200,13 @@ export default function RemindersPage() {
   const soon = rows.filter((r) => r.daysOverdue <= 0);
   const notChased = overdue.filter((r) => !chased(r));
   const never = overdue.filter((r) => !r.lastReminder);
-  const noPhone = rows.filter((r) => !r.whatsapp);
+  const noPhone = rows.filter((r) => !r.whatsapp && !(bills && bills.emailAvailable && r.email));
   const longest = overdue.slice().sort((a, b) => b.daysOverdue - a.daysOverdue)[0];
   const endingWeek = brows.filter((r) => r.daysLeft <= 7);
   const companies = Array.from(new Set(rows.map((r) => r.company)));
   const smsAvailable = bills ? bills.smsAvailable : bookings ? bookings.smsAvailable : false;
-  const auto = (bills && bills.auto) || { payments: false, bookings: false };
+  const auto = (bills && bills.auto) || { payments: false, bookings: false, emails: false };
+  const emailAvailable = !!(bills && bills.emailAvailable);
 
   function showBillsChip(key) { setTab('bills'); setChip(chip === key ? 'all' : key); jump('rm-list'); }
   const stats = [
@@ -197,7 +224,7 @@ export default function RemindersPage() {
   if (noPhone.length) insights.push({ tone: 'warn', icon: 'phone', text: noPhone.length === 1 ? tr('{name} has no phone number, so they can\'t be reminded.', { name: noPhone[0].customerName }) : tr('{n} bills belong to people with no phone number, so they can\'t be reminded.', { n: noPhone.length }), action: { label: tr('Show them'), run: () => showBillsChip('nophone') } });
   if (endingWeek.length) insights.push({ tone: 'warn', icon: 'calendar', text: endingWeek.length === 1 ? tr('{name}\'s booking of {unit} ends on {date}.', { name: endingWeek[0].customerName, unit: endingWeek[0].unit, date: fmtDate(endingWeek[0].endDate) }) : tr('{n} bookings end this week.', { n: endingWeek.length }), action: { label: tr('Show them'), run: () => { setTab('bookings'); jump('rm-list'); } } });
   if (smsAvailable && !auto.payments && rows.length) insights.push({ tone: 'info', icon: 'info', text: tr('Automatic reminder texts are off, so every reminder has to be sent from here. They can be turned on in Company settings.'), action: can('settings.manage') ? { label: tr('Company settings'), run: () => navigate('/settings') } : null });
-  if (!smsAvailable) insights.push({ tone: 'info', icon: 'info', text: tr('Text messages aren\'t set up, so reminders go by WhatsApp only.'), action: null });
+  if (!smsAvailable) insights.push({ tone: 'info', icon: 'info', text: emailAvailable ? tr('Text messages aren\'t set up, so reminders go by WhatsApp and email.') : tr('Text messages aren\'t set up, so reminders go by WhatsApp only.'), action: null });
   if (!overdue.length && rows.length === 0 && showBills) insights.push({ tone: 'good', icon: 'check', text: tr('Nothing overdue or due soon.') });
 
   const chipTest = {
@@ -212,7 +239,7 @@ export default function RemindersPage() {
     ['never', tr('Never reminded'), never.length], ['chased', tr('Reminded this week'), rows.filter(chased).length], ['nophone', tr('No phone number'), noPhone.length]
   ].filter(([k, , c]) => c > 0 || k === 'all' || k === chip);
   const cur = detail ? rows.find((r) => r.invoiceId === detail) : null;
-  const sendBill = { whatsapp: (row) => sender.whatsapp('/reminders/' + row.invoiceId + '/whatsapp', row), sms: (row) => sender.sms('/reminders/' + row.invoiceId + '/sms', row) };
+  const sendBill = { whatsapp: (row) => sender.whatsapp('/reminders/' + row.invoiceId + '/whatsapp', row), sms: (row) => sender.sms('/reminders/' + row.invoiceId + '/sms', row), email: (row) => sender.email('/reminders/' + row.invoiceId + '/email', row) };
 
   return (
     <div className="dk tl pk cu rm">
@@ -221,11 +248,12 @@ export default function RemindersPage() {
       <Hero
         eyebrow={tr('Finance')}
         title={tr('Payment reminders')}
-        sub={tr('Everyone whose rent, utility bill or invoice is overdue or due soon. "WhatsApp" opens WhatsApp with a polite reminder and a link to the bill already written — you press send. "Send text" texts it straight away. Each reminder is recorded here, so nobody is chased twice in a morning.')}
+        sub={tr('Everyone whose rent, utility bill or invoice is overdue or due soon. "WhatsApp" opens WhatsApp with a polite reminder and a link to the bill already written — you press send. "Send text" texts it straight away, and "Email" emails it with the bill attached. Each reminder is recorded here, so nobody is chased twice in a morning.')}
         actions={(
           <>
             <Link className="btn btn-secondary" to="/invoices">{tr('Invoices')}</Link>
             <span className="rm-auto">{auto.payments ? <Status tone="good">{tr('Automatic texts on')}</Status> : smsAvailable ? <Status tone="muted">{tr('Automatic texts off')}</Status> : null}</span>
+            {emailAvailable && <span className="rm-auto">{auto.emails ? <Status tone="good">{tr('Automatic emails on')}</Status> : <Status tone="muted">{tr('Automatic emails off')}</Status>}</span>}
           </>
         )}
         stats={stats} />
@@ -299,7 +327,7 @@ export default function RemindersPage() {
                     <div className="tl-foot rm-foot">
                       <span className="es-total">{money(r.balanceDue, r.currency)}</span>
                       <SendButtons row={r} smsAvailable={smsAvailable} sending={sender.sending} noPhoneLink={r.company === 'poki' ? '/pokitenants' : '/customers'}
-                        cantSend={tr('Your role can see this bill but not send reminders for it.')} onWhatsApp={sendBill.whatsapp} onSms={sendBill.sms} />
+                        cantSend={tr('Your role can see this bill but not send reminders for it.')} onWhatsApp={sendBill.whatsapp} onSms={sendBill.sms} emailAvailable={emailAvailable} onEmail={sendBill.email} />
                     </div>
                   </article>
                 ))}
@@ -317,7 +345,7 @@ export default function RemindersPage() {
                         <td className={r.daysOverdue > 0 ? 'pk-owe' : ''}>{dueText(r.daysOverdue)}<div className="dk-muted tl-small">{fmtDate(r.dueDate)}</div></td>
                         <td className="tl-small dk-muted"><LastSent last={r.lastReminder} countLabel={(n) => tr('{n} reminders so far', { n })} /></td>
                         <td><SendButtons row={r} smsAvailable={smsAvailable} sending={sender.sending} noPhoneLink={r.company === 'poki' ? '/pokitenants' : '/customers'}
-                          cantSend={tr('Your role can see this bill but not send reminders for it.')} onWhatsApp={sendBill.whatsapp} onSms={sendBill.sms} /></td>
+                          cantSend={tr('Your role can see this bill but not send reminders for it.')} onWhatsApp={sendBill.whatsapp} onSms={sendBill.sms} emailAvailable={emailAvailable} onEmail={sendBill.email} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -377,6 +405,8 @@ export default function RemindersPage() {
       <Glossary items={[
         [tr('WhatsApp'), tr('Opens WhatsApp in the person\'s chat with the reminder and a link to the bill already typed. You press send.')],
         [tr('Send text'), tr('Sends the reminder as a text message straight away, on the company\'s SMS credit.')],
+        [tr('Email'), tr('Emails the reminder straight away, with the bill attached as a PDF and a link to view it online. Only for people with an email address on file.')],
+        [tr('Automatic emails'), tr('When on (Company settings → Email), the OS emails the same reminders itself before and after the due date, at most once per step.')],
         [tr('Automatic texts'), tr('When turned on in Company settings, the OS texts people itself before and after the due date, at most once per step.')],
         [tr('Not reminded this week'), tr('Overdue, and nobody has reminded them in the last seven days.')]
       ]} />
@@ -398,6 +428,7 @@ export default function RemindersPage() {
               <div><dt>{tr('Amount due')}</dt><dd><strong>{money(cur.balanceDue, cur.currency)}</strong></dd></div>
               <div><dt>{tr('Due')}</dt><dd>{fmtDate(cur.dueDate)}</dd></div>
               <div><dt>{tr('Phone')}</dt><dd>{cur.phone || '—'}</dd></div>
+              <div><dt>{tr('Email')}</dt><dd>{cur.email || '—'}</dd></div>
               {cur.contactPerson && <div><dt>{tr('Contact person')}</dt><dd>{cur.contactPerson}</dd></div>}
               {cur.unit && <div><dt>{tr('Unit')}</dt><dd>{cur.unit}</dd></div>}
             </dl>
@@ -419,7 +450,7 @@ export default function RemindersPage() {
             <div className="dialog-actions tl-actions">
               {cur.company !== 'poki' && <Link className="btn btn-secondary" to={'/invoices?open=' + cur.invoiceId}>{tr('Open {no}', { no: cur.invoiceNo })}</Link>}
               <SendButtons row={cur} smsAvailable={smsAvailable} sending={sender.sending} noPhoneLink={cur.company === 'poki' ? '/pokitenants' : '/customers'}
-                cantSend={tr('Your role can see this bill but not send reminders for it.')} onWhatsApp={sendBill.whatsapp} onSms={sendBill.sms} />
+                cantSend={tr('Your role can see this bill but not send reminders for it.')} onWhatsApp={sendBill.whatsapp} onSms={sendBill.sms} emailAvailable={emailAvailable} onEmail={sendBill.email} />
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { shareOrDownloadPdf } from '../lib/documentShare';
 import { api } from '../api/client';
 import './DocPreview.css';
 import PrintLayer from './PrintLayer';
+import EmailDocumentDialog from './EmailDocumentDialog';
 
 import { activeIntlLocale, docTr, tr, msg } from '../lib/i18n.jsx';
 // Shared print-style preview modal for Estimates/Quotations/Invoices,
@@ -32,6 +33,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
   const nodeRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
+  const [emailing, setEmailing] = useState(false);
 
   const [expiryDays, setExpiryDays] = useState('30');
   const [shareExpiresAt, setShareExpiresAt] = useState(null);
@@ -294,10 +296,15 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           <div className="doc-preview-actions no-print">
             <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button>
             <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
-            <button type="button" className="btn btn-primary" disabled={sharing} onClick={handleShare}>
+            <button type="button" className={'btn ' + (documentType && documentId ? 'btn-secondary' : 'btn-primary')} disabled={sharing} onClick={handleShare}>
               {sharing ? tr('Preparing…') : tr('Share')}
             </button>
+            {/* To the customer's inbox, with the PDF attached (EmailDocumentDialog). */}
+            {documentType && documentId && (
+              <button type="button" className="btn btn-primary" onClick={() => setEmailing(true)}>{tr('Email')}</button>
+            )}
           </div>
+          {emailing && <EmailDocumentDialog documentType={documentType} documentId={documentId} title={docLabel} onClose={() => setEmailing(false)} />}
         </div>
       </div>
     </PrintLayer>

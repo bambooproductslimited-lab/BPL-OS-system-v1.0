@@ -43,6 +43,20 @@ async function createShareLink(ctx, documentType, documentId, expiresInDays) {
   return { token: res.rows[0].token, expiresAt: res.rows[0].expires_at };
 }
 
+// A link made by the OS itself, for an email it is sending (a customer's
+// invoice in a reminder or with its preview). Whoever asked has already been
+// checked; employeeId is null when nobody asked (automatic emails).
+async function issueLink(documentType, documentId, days, employeeId) {
+  if (VALID_TYPES.indexOf(documentType) < 0) fail('invalid', 'Unknown document type.');
+  var token = crypto.randomBytes(24).toString('base64url');
+  var expiresAt = new Date(Date.now() + Math.min(SHARE_MAX_DAYS, Math.max(1, days || SHARE_DEFAULT_DAYS)) * 86400000);
+  await pool.query(
+    'INSERT INTO document_shares (token, document_type, document_id, expires_at, created_by) VALUES ($1,$2,$3,$4,$5)',
+    [token, documentType, documentId, expiresAt, employeeId || null]
+  );
+  return { token: token, expiresAt: expiresAt };
+}
+
 // Normalizes the three slightly different row shapes into one view model —
 // exactly what the public preview page (and nothing more) needs.
 async function getSharedDocument(token) {
@@ -50,7 +64,19 @@ async function getSharedDocument(token) {
   var share = shareRes.rows[0];
   if (!share) fail('notfound', 'This link is invalid or has been removed.');
   if (share.expires_at && new Date(share.expires_at) < new Date()) fail('notfound', 'This link has expired — ask for a new one.');
+  var view = await documentView(share.document_type, share.document_id);
+  // What the emailed PDF also needs (documentPdf.service.js) but the page
+  // behind the link has never shown.
+  delete view.companyId; delete view.bankInstructions; delete view.documentId;
+  return view;
+}
 
+// The customer's view of one document, by type and id: the page behind a
+// share link, and the PDF emailed to the customer (documentPdf.service.js).
+// companyId and bankInstructions are for the PDF.
+async function documentView(documentType, documentId) {
+  if (VALID_TYPES.indexOf(documentType) < 0) fail('invalid', 'Unknown document type.');
+  var share = { document_type: documentType, document_id: documentId };
   var docRes = await pool.query('SELECT * FROM ' + TABLE_BY_TYPE[share.document_type] + ' WHERE id = $1', [share.document_id]);
   var d = docRes.rows[0];
   if (!d) fail('notfound', 'This document no longer exists.');
@@ -83,6 +109,7 @@ async function getSharedDocument(token) {
   var notes = share.document_type === 'estimate' ? d.client_notes : d.notes;
 
   return {
+    documentId: d.id, companyId: d.company_id || null, bankInstructions: d.bank_instructions || '',
     documentType: share.document_type, docNo: docNo, title: d.title || '', status: d.status, currency: d.currency,
     dateValue: dateValue, validUntil: d.valid_until || null, dueDate: d.due_date || null,
     items: items, subtotal: Number(d.subtotal), discountTotal: Number(d.discount_total), taxTotal: Number(d.tax_total), grandTotal: Number(d.grand_total),
@@ -134,5 +161,5 @@ async function shareViaWhatsApp(ctx, documentType, documentId, url) {
   return { sent: true };
 }
 
-module.exports = { createShareLink: createShareLink, getSharedDocument: getSharedDocument, shareViaWhatsApp: shareViaWhatsApp,
+module.exports = { createShareLink: createShareLink, issueLink: issueLink, getSharedDocument: getSharedDocument, documentView: documentView, shareViaWhatsApp: shareViaWhatsApp,
   SHARE_DEFAULT_DAYS: SHARE_DEFAULT_DAYS, SHARE_MAX_DAYS: SHARE_MAX_DAYS };

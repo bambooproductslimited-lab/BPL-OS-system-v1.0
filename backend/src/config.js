@@ -75,6 +75,15 @@ module.exports = {
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || null,
   kioskPinPepper: (process.env.NODE_ENV === 'production') ? required('KIOSK_PIN_PEPPER') : required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
+  // Where the OS itself is served, for links in emails the server sends on
+  // its own (a customer's invoice link in a payment reminder). APP_URL, or
+  // the first https address in CORS_ORIGIN.
+  get appUrl() {
+    var set = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
+    if (set) return set;
+    var list = this.corsOrigin.filter(function (o) { return /^https:\/\//.test(o); });
+    return (list[0] || this.corsOrigin[0] || '').replace(/\/+$/, '');
+  },
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
   // Where this backend is reached from outside — the Claude connector's
   // sign-in addresses are built from it (src/mcp/). Render sets

@@ -65,7 +65,7 @@ async function due(ctx, opts) {
   var rows = (await pool.query(
     'SELECT i.id, i.invoice_no, i.doc_kind, i.company_id, i.currency, i.balance_due, i.due_date::text AS due_date, ' +
     '       i.period_start::text AS period_start, i.period_end::text AS period_end, ' +
-    '       c.id AS customer_id, c.name AS customer_name, c.phone, c.contact_person, ' +
+    '       c.id AS customer_id, c.name AS customer_name, c.phone, c.email, c.contact_person, ' +
     '       u.code AS unit_code, u.name AS unit_name, pp.name AS property_name, ' +
     '       r.sent_at AS last_sent_at, r.count AS reminder_count, r.channel AS last_channel, r.automatic AS last_automatic, ' +
     '       e.first_name AS last_by_first, e.last_name AS last_by_last ' +
@@ -89,13 +89,14 @@ async function due(ctx, opts) {
     today: today,
     windowDays: windowDays,
     smsAvailable: sms.configured(),
-    auto: { payments: !!m.autoPaymentReminders, bookings: !!m.autoBookingNotices },
+    emailAvailable: require('./mail.service').configured(),
+    auto: { payments: !!m.autoPaymentReminders, bookings: !!m.autoBookingNotices, emails: !!(await require('./documentEmails.service').settings()).autoReminders },
     rows: rows.map(function (r) {
       var isPoki = s.pokiId && r.company_id === s.pokiId;
       return {
         invoiceId: r.id, invoiceNo: r.invoice_no, company: isPoki ? 'poki' : 'bpl', kind: r.doc_kind,
         customerId: r.customer_id, customerName: r.customer_name, contactPerson: r.contact_person || '',
-        phone: r.phone || '', whatsapp: whatsappNumber(r.phone),
+        phone: r.phone || '', whatsapp: whatsappNumber(r.phone), email: r.email || '',
         currency: r.currency, balanceDue: Number(r.balance_due),
         dueDate: r.due_date, daysOverdue: daysBetween(r.due_date, today),
         periodStart: r.period_start, periodEnd: r.period_end,
@@ -154,6 +155,15 @@ async function remind(ctx, invoiceId, origin, channel) {
   var b = list.rows.filter(function (r) { return r.invoiceId === invoiceId; })[0];
   if (!b) fail('notfound', 'That bill is not due, or you can\'t see it.');
   if (!b.canSend) fail('forbidden', 'Your role does not allow sending reminders for this bill.');
+  // By email: the bill attached and linked (documentEmails.service.js).
+  if (channel === 'email') {
+    var mail = require('./mail.service');
+    if (!mail.configured()) fail('unavailable', 'Email isn\'t set up yet. An administrator connects a mailbox in Company settings → Email.');
+    if (!mail.isEmail(b.email)) fail('invalid', b.email ? 'The email address on file for ' + b.customerName + ' (' + b.email + ') isn\'t one an email can go to. Correct it on the customer.' : b.customerName + ' has no email address on file. Add one on the customer first.');
+    var emails = require('./documentEmails.service');
+    var sent = await emails.reminderEmail(b, { to: b.email.trim(), sentBy: ctx.employee ? ctx.employee.id : null, base: emails.shareBase(origin) });
+    return { invoiceId: b.invoiceId, channel: 'email', sent: true, to: sent.to, message: sent.message };
+  }
   if (!b.whatsapp) fail('invalid', b.phone ? 'The phone number on file for ' + b.customerName + ' (' + b.phone + ') isn\'t one a message can go to. Correct it on the customer.' : b.customerName + ' has no phone number on file. Add one on the customer first.');
   if (channel === 'sms' && !sms.configured()) fail('unavailable', 'Text messages aren\'t set up yet. An administrator adds the mNotify details on the server.');
 
@@ -182,16 +192,17 @@ async function remind(ctx, invoiceId, origin, channel) {
 
 function prepare(ctx, invoiceId, origin) { return remind(ctx, invoiceId, origin, 'whatsapp'); }
 function sendSms(ctx, invoiceId, origin) { return remind(ctx, invoiceId, origin, 'sms'); }
+function sendEmail(ctx, invoiceId, origin) { return remind(ctx, invoiceId, origin, 'email'); }
 
 async function history(ctx, invoiceId) {
   V.text(invoiceId, 'Invoice', 60);
   var list = await due(ctx, { windowDays: 60 });
   if (!list.rows.some(function (r) { return r.invoiceId === invoiceId; })) fail('notfound', 'That bill is not due, or you can\'t see it.');
   return (await pool.query(
-    'SELECT pr.sent_at, pr.message, pr.phone, pr.channel, pr.automatic, e.first_name, e.last_name FROM payment_reminders pr LEFT JOIN employees e ON e.id = pr.sent_by ' +
+    'SELECT pr.sent_at, pr.message, pr.phone, pr.email, pr.channel, pr.automatic, e.first_name, e.last_name FROM payment_reminders pr LEFT JOIN employees e ON e.id = pr.sent_by ' +
     'WHERE pr.invoice_id = $1 ORDER BY pr.sent_at DESC', [invoiceId]
   )).rows.map(function (r) {
-    return { at: r.sent_at, by: r.first_name ? r.first_name + ' ' + r.last_name : null, phone: r.phone, message: r.message, channel: r.channel, automatic: r.automatic };
+    return { at: r.sent_at, by: r.first_name ? r.first_name + ' ' + r.last_name : null, phone: r.phone, email: r.email, message: r.message, channel: r.channel, automatic: r.automatic };
   });
 }
 
@@ -413,6 +424,6 @@ async function autoTexts(opts) {
 }
 
 module.exports = {
-  due: due, prepare: prepare, sendSms: sendSms, history: history, whatsappNumber: whatsappNumber, composeMessage: composeMessage,
+  due: due, prepare: prepare, sendSms: sendSms, sendEmail: sendEmail, history: history, whatsappNumber: whatsappNumber, composeMessage: composeMessage,
   bookingsEnding: bookingsEnding, noticeBooking: noticeBooking, composeBookingNotice: composeBookingNotice, autoTexts: autoTexts
 };
