@@ -62,8 +62,8 @@
 
 .doc-preview-notes { margin-top: 24px; }
 .doc-preview-notes-label { font-weight: 700; font-size: 12px; margin-bottom: 4px; }
-.doc-preview-notes-body { margin: 0; font-size: 12px; }
-.doc-preview-terms-body { margin: 0; font-size: 12px; color: #666; }
+.doc-preview-notes-body { margin: 0; font-size: 12px; white-space: pre-line; }
+.doc-preview-terms-body { margin: 0; font-size: 12px; color: #666; white-space: pre-line; }
 .doc-preview-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 
 .doc-preview-communication { margin-top: 24px; padding-top: 16px; border-top: 1px solid #ccc; }

@@ -53,8 +53,12 @@ export default function SharePage() {
   const displayItems = groupPackageItems(doc.items, cur);
   const schedule = formatPaymentSchedule(doc.paymentSchedule, cur);
   const isInvoice = doc.documentType === 'invoice';
-  const dateLabel = docTr('Issue date');
-  const dateValue = fmtDate(doc.dateValue);
+  // A Poki letting offer reads as it does in the OS (PokiEstimatesPage.jsx).
+  const letting = doc.documentType === 'estimate' && doc.docKind === 'letting';
+  const unitLine = doc.unit ? [doc.unit.propertyName, doc.unit.code].filter(Boolean).join(' \u00b7 ') : '';
+  const co = doc.company;
+  const dateLabel = letting ? docTr('Valid until') : docTr('Issue date');
+  const dateValue = letting ? fmtDate(doc.validUntil) : fmtDate(doc.dateValue);
   const subHeadingText = isInvoice
     ? docTr('Due {date}', { date: fmtDate(doc.dueDate) })
     : docTr('Valid until {date}', { date: fmtDate(doc.validUntil) });
@@ -63,27 +67,64 @@ export default function SharePage() {
     <div className="share-page">
       <div className="doc-preview">
         <div className="doc-preview-head">
+          {/* The issuing company's letterhead: a sister company (Poki
+              Properties) heads its paperwork with its own wordmark, as in
+              DocPreview.jsx; the group's own documents carry its logo. */}
           <div className="doc-preview-brand">
-            <img src="/logo.png" alt="" className="doc-preview-logo" />
+            {!co && <img src="/logo.png" alt="" className="doc-preview-logo" />}
             <div>
-              <div className="doc-preview-brand-name">Bamboo Products Limited</div>
-              <div className="doc-preview-brand-address">
-                Poki House<br />
-                35 J K Siaw St, Community 9, Tema, Ghana<br />
-                GT-191-1859 (GhanaPostGPS)<br />
-                WhatsApp: 0591933925
-              </div>
+              {co ? (
+                <>
+                  <div className="doc-preview-wordmark">{co.name}</div>
+                  {co.subtitle && <div className="doc-preview-wordmark-sub">{co.subtitle}</div>}
+                  <div className="doc-preview-brand-address">
+                    {co.address && <>{co.address}<br /></>}
+                    {co.ghanaPostGps && <>{co.ghanaPostGps} (GhanaPostGPS)<br /></>}
+                    {co.phone && <>{docTr('WhatsApp:')} {co.phone}<br /></>}
+                    {co.email && <>{co.email}</>}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="doc-preview-brand-name">Bamboo Products Limited</div>
+                  <div className="doc-preview-brand-address">
+                    Poki House<br />
+                    35 J K Siaw St, Community 9, Tema, Ghana<br />
+                    GT-191-1859 (GhanaPostGPS)<br />
+                    WhatsApp: 0591933925
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <div className="doc-preview-headright">
-            <div className="doc-preview-docno">{DOC_LABEL[doc.documentType]} #{doc.docNo}</div>
+            <div className="doc-preview-docno">{letting ? docTr('Offer #{estimateNo}', { estimateNo: doc.docNo }) : DOC_LABEL[doc.documentType] + ' #' + doc.docNo}</div>
             <div className="doc-preview-datelabel">{dateLabel}</div>
             <div className="doc-preview-datevalue">{dateValue}</div>
           </div>
         </div>
         <div className="doc-preview-rule" />
-        <h1 className="doc-preview-heading">{doc.title || (docTr('{document} for {name}', { document: DOC_LABEL[doc.documentType], name: doc.customer.name }))}</h1>
-        <div className="doc-preview-subheading">{subHeadingText}</div>
+        <h1 className="doc-preview-heading">{letting ? docTr('Letting offer for {customerName}', { customerName: doc.customer.name }) : doc.title || (docTr('{document} for {name}', { document: DOC_LABEL[doc.documentType], name: doc.customer.name }))}</h1>
+        <div className="doc-preview-subheading">{letting && unitLine ? unitLine : subHeadingText}</div>
+        {letting ? (
+        <div className="doc-preview-blocks">
+          <div>
+            <div className="doc-preview-block-title">{docTr('Prospect')}</div>
+            <div className="doc-preview-block-line">{doc.customer.name}</div>
+            <div className="doc-preview-block-line">{doc.customer.email || doc.customer.phone}</div>
+          </div>
+          <div>
+            <div className="doc-preview-block-title">{docTr('Unit')}</div>
+            <div className="doc-preview-block-line">{doc.unit ? doc.unit.code : '—'}</div>
+            <div className="doc-preview-block-line">{doc.unit ? doc.unit.propertyName : ''}</div>
+          </div>
+          <div>
+            <div className="doc-preview-block-title">{docTr('Offer')}</div>
+            <div className="doc-preview-block-line">{subHeadingText}</div>
+            <div className="doc-preview-block-line">{money(doc.grandTotal, cur)}</div>
+          </div>
+        </div>
+        ) : (
         <div className="doc-preview-blocks">
           <div>
             <div className="doc-preview-block-title">{docTr('Customer')}</div>
@@ -101,6 +142,7 @@ export default function SharePage() {
             <div className="doc-preview-block-line">{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
           </div>
         </div>
+        )}
         <table className="doc-preview-table">
           <thead><tr><th>{docTr('Items')}</th><th className="doc-preview-num">{docTr('Quantity')}</th><th className="doc-preview-num">{docTr('Price')}</th><th className="doc-preview-num">{docTr('Amount')}</th></tr></thead>
           <tbody>
@@ -150,7 +192,7 @@ export default function SharePage() {
           </div>
         )}
         <div className="doc-preview-grand-row">
-          <div>{isInvoice ? docTr('Total Due') : docTr('Grand Total')}</div>
+          <div>{isInvoice ? docTr('Total Due') : letting ? docTr('Total') : docTr('Grand Total')}</div>
           <div>{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
         </div>
         {schedule.length > 0 && (

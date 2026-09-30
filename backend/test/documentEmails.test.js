@@ -25,7 +25,18 @@ function iso(days) { return new Date(Date.now() + days * 86400000).toISOString()
 function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 async function until(fn, ms) { var t = Date.now(); while (Date.now() - t < (ms || 3000)) { if (fn()) return true; await wait(25); } return false; }
 
+async function cleanupPoki() {
+  var est = "(SELECT id FROM estimates WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE 'Z7E%'))";
+  await pool.query('DELETE FROM document_emails WHERE document_id IN ' + est);
+  await pool.query('DELETE FROM document_shares WHERE document_id IN ' + est);
+  await pool.query('DELETE FROM document_line_items WHERE document_id IN ' + est);
+  await pool.query('DELETE FROM estimates WHERE id IN ' + est);
+  await pool.query("DELETE FROM poki_tenants WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE 'Z7E%')");
+  await pool.query("DELETE FROM poki_units WHERE code LIKE 'Z7E%'");
+  await pool.query("DELETE FROM poki_properties WHERE code LIKE 'Z7E%'");
+}
 async function cleanup() {
+  await cleanupPoki();
   var inv = "(SELECT id FROM invoices WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE 'Z7E%'))";
   var quo = "(SELECT id FROM quotations WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE 'Z7E%'))";
   await pool.query('DELETE FROM document_emails WHERE document_id IN ' + inv + ' OR document_id IN ' + quo +
@@ -214,4 +225,37 @@ test('the switches, for people who manage settings', async function () {
   assert.deepEqual(saved.settings, { autoReminders: false, autoReceipts: true });
   await assert.rejects(emails.saveSettings(ctxWith(['invoice.manage']), { autoReceipts: false }), /settings\.manage/);
   await emails.saveSettings(admin, { autoReminders: true });
+});
+
+test('a Poki letting offer goes as a letting offer: its words, the unit, Poki\'s letterhead', async function () {
+  var poki = require('../src/services/poki.service');
+  var offers = require('../src/services/pokiEstimates.service');
+  var prop = await poki.createProperty(admin, { name: 'Z7E Palm Court', code: 'Z7EPC', address: '1 Test Road' });
+  var unit = await poki.createUnit(admin, { propertyId: prop.id, code: 'Z7E-A3', name: 'Two-bedroom flat', unitType: 'apartment', baseRent: 2500, currency: 'GHS' });
+  var tenant = await poki.createTenant(admin, { name: 'Z7E Prospect Adwoa', email: 'z7e.prospect@example.com', phone: '0200000001' });
+  var offer = await offers.create(admin, { tenantId: tenant.id, unitId: unit.id, items: [{ description: 'Rent, 6 months', qty: 6, unitPrice: 2500 }, { description: 'Security deposit', qty: 1, unitPrice: 2500 }] });
+
+  var d = await emails.draft(admin, 'estimate', offer.id);
+  assert.equal(d.subject, 'Letting offer ' + offer.estimateNo + ' from Poki Properties');
+  assert.match(d.message, /our letting offer .* for Z7E-A3 at Z7E Palm Court: GHS 17,500\.00/);
+  assert.equal(d.attachment, 'Letting-offer-' + offer.estimateNo + '.pdf');
+  assert.equal(d.from, 'Poki Properties');
+
+  outbox.length = 0;
+  await emails.send(admin, 'estimate', offer.id, { to: d.to, subject: d.subject, message: d.message, origin: ORIGIN });
+  var m = outbox[0];
+  assert.equal(m.from.name, 'Poki Properties');
+  assert.equal(m.attachments[0].filename, 'Letting-offer-' + offer.estimateNo + '.pdf');
+  assert.match(m.html, /View the letting offer online/);
+  // The page behind the link: Poki's letterhead, and the unit.
+  var token = /\/share\/([A-Za-z0-9_-]+)/.exec(m.html)[1];
+  var shared = await shares.getSharedDocument(token);
+  assert.equal(shared.docKind, 'letting');
+  assert.equal(shared.unit.code, 'Z7E-A3');
+  assert.equal(shared.unit.propertyName, 'Z7E Palm Court');
+  assert.equal(shared.company.name, 'Poki Properties');
+  // The group's own documents keep the group's letterhead (company null).
+  var inv = await newInvoice(cust);
+  var own = await shares.issueLink('invoice', inv.id, 1, null);
+  assert.equal((await shares.getSharedDocument(own.token)).company, null);
 });

@@ -108,7 +108,27 @@ async function documentView(documentType, documentId) {
 
   var notes = share.document_type === 'estimate' ? d.client_notes : d.notes;
 
+  // A Poki letting offer names the unit on offer.
+  var unit = null;
+  if (d.poki_unit_id) {
+    var u = (await pool.query(
+      'SELECT u.code, u.name, p.name AS property_name FROM poki_units u LEFT JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
+      [d.poki_unit_id])).rows[0];
+    if (u) unit = { code: u.code, name: u.name || '', propertyName: u.property_name || '' };
+  }
+  // Who issued it: a sister company's own letterhead (Poki Properties), or
+  // null for the group's own documents.
+  var company = null;
+  if (d.company_id) {
+    var co = (await pool.query(
+      'SELECT code, name, legal_name, letterhead_subtitle, address, ghana_post_gps, phone, email FROM companies WHERE id = $1', [d.company_id])).rows[0];
+    if (co && co.code !== 'BPL') {
+      company = { name: co.legal_name || co.name, subtitle: co.letterhead_subtitle || '', address: co.address || '', ghanaPostGps: co.ghana_post_gps || '', phone: co.phone || '', email: co.email || '' };
+    }
+  }
+
   return {
+    docKind: d.doc_kind || 'sale', unit: unit, company: company,
     documentId: d.id, companyId: d.company_id || null, bankInstructions: d.bank_instructions || '',
     documentType: share.document_type, docNo: docNo, title: d.title || '', status: d.status, currency: d.currency,
     dateValue: dateValue, validUntil: d.valid_until || null, dueDate: d.due_date || null,

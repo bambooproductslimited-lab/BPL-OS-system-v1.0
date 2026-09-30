@@ -268,17 +268,31 @@ async function documentPdf(documentType, documentId) {
   var v = await shares.documentView(documentType, documentId);
   var lh = await letterheadFor(v.companyId);
   var cur = v.currency, isInvoice = v.documentType === 'invoice', label = LABEL[v.documentType];
-  var docLabel = label + ' #' + v.docNo;
+  // A Poki letting offer reads as one, the way its preview does
+  // (PokiEstimatesPage.jsx): Offer #…, valid until, prospect, unit.
+  var letting = v.documentType === 'estimate' && v.docKind === 'letting';
+  var docLabel = letting ? 'Offer #' + v.docNo : label + ' #' + v.docNo;
   var sub = isInvoice ? 'Due ' + docDate(v.dueDate) : 'Valid until ' + docDate(v.validUntil);
   var made = newDoc(docLabel), doc = made.doc;
 
-  header(doc, lh, docLabel, 'Issue date', docDate(v.dateValue));
-  headingBlock(doc, v.title || label + ' for ' + v.customer.name, sub);
-  blocks(doc, [
-    { title: 'Customer', lines: [v.customer.name, v.customer.email, v.customer.phone] },
-    { title: label + ' Details', lines: ['Issued ' + docDate(v.dateValue), money(v.grandTotal, cur)] },
-    { title: isInvoice ? 'Payment' : 'Validity', lines: [sub, money(isInvoice ? v.balanceDue : v.grandTotal, cur)] }
-  ]);
+  if (letting) {
+    var place = v.unit ? [v.unit.propertyName, v.unit.code].filter(Boolean).join(' · ') : '';
+    header(doc, lh, docLabel, 'Valid until', docDate(v.validUntil));
+    headingBlock(doc, 'Letting offer for ' + v.customer.name, place || sub);
+    blocks(doc, [
+      { title: 'Prospect', lines: [v.customer.name, v.customer.email || v.customer.phone] },
+      { title: 'Unit', lines: v.unit ? [v.unit.code + (v.unit.name && v.unit.name !== v.unit.code ? ' — ' + v.unit.name : ''), v.unit.propertyName] : ['—'] },
+      { title: 'Offer', lines: [sub, money(v.grandTotal, cur)] }
+    ]);
+  } else {
+    header(doc, lh, docLabel, 'Issue date', docDate(v.dateValue));
+    headingBlock(doc, v.title || label + ' for ' + v.customer.name, sub);
+    blocks(doc, [
+      { title: 'Customer', lines: [v.customer.name, v.customer.email, v.customer.phone] },
+      { title: label + ' Details', lines: ['Issued ' + docDate(v.dateValue), money(v.grandTotal, cur)] },
+      { title: isInvoice ? 'Payment' : 'Validity', lines: [sub, money(isInvoice ? v.balanceDue : v.grandTotal, cur)] }
+    ]);
+  }
   tableHead(doc);
   displayItems(v.items, cur).forEach(function (it) { tableRow(doc, it); });
   doc.y += 2;
@@ -290,7 +304,7 @@ async function documentPdf(documentType, documentId) {
     });
     if (v.amountPaid > 0 && v.balanceDue > 0 && !(v.payments || []).length) row(doc, 'Amount paid', money(v.amountPaid, cur));
   }
-  row(doc, isInvoice ? 'Total Due' : 'Grand Total', money(isInvoice ? v.balanceDue : v.grandTotal, cur), { grand: true });
+  row(doc, isInvoice ? 'Total Due' : letting ? 'Total' : 'Grand Total', money(isInvoice ? v.balanceDue : v.grandTotal, cur), { grand: true });
 
   if ((v.paymentSchedule || []).length) {
     room(doc, 40);
@@ -305,7 +319,7 @@ async function documentPdf(documentType, documentId) {
   footer(doc, lh.name + ' · ' + docLabel);
   doc.end();
   return {
-    buffer: await made.done, filename: label + '-' + String(v.docNo).replace(/[^A-Za-z0-9._-]+/g, '-') + '.pdf',
+    buffer: await made.done, filename: (letting ? 'Letting-offer' : label) + '-' + String(v.docNo).replace(/[^A-Za-z0-9._-]+/g, '-') + '.pdf',
     view: v, letterhead: lh
   };
 }

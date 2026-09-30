@@ -89,15 +89,22 @@ async function target(type, id) {
   var d = (await pool.query(
     'SELECT d.id, d.' + no + ' AS doc_no, d.company_id, d.currency, d.status, d.grand_total, ' +
     (type === 'invoice' ? 'd.balance_due, d.amount_paid, d.due_date::text AS due_date, d.doc_kind, NULL::text AS valid_until, ' : 'NULL::numeric AS balance_due, NULL::numeric AS amount_paid, NULL::text AS due_date, NULL::text AS doc_kind, d.valid_until::text AS valid_until, ') +
+    (type === 'estimate' ? 'd.doc_kind AS estimate_kind, u.code AS unit_code, u.name AS unit_name, pp.name AS property_name, ' : 'NULL::text AS estimate_kind, NULL::text AS unit_code, NULL::text AS unit_name, NULL::text AS property_name, ') +
     '       c.name AS customer_name, c.contact_person, c.email ' +
-    'FROM ' + TABLE[type] + ' d JOIN customers c ON c.id = d.customer_id WHERE d.id = $1', [id])).rows[0];
+    'FROM ' + TABLE[type] + ' d JOIN customers c ON c.id = d.customer_id ' +
+    (type === 'estimate' ? 'LEFT JOIN poki_units u ON u.id = d.poki_unit_id LEFT JOIN poki_properties pp ON pp.id = u.property_id ' : '') +
+    'WHERE d.id = $1', [id])).rows[0];
   if (!d) fail('notfound', 'Document not found.');
   return {
     type: type, id: d.id, docNo: d.doc_no, companyId: d.company_id, currency: d.currency, status: d.status,
     grandTotal: Number(d.grand_total), balanceDue: d.balance_due == null ? null : Number(d.balance_due), amountPaid: d.amount_paid == null ? null : Number(d.amount_paid),
     dueDate: d.due_date, validUntil: d.valid_until, kind: d.doc_kind,
+    // A Poki letting offer, and the unit on offer.
+    letting: type === 'estimate' && d.estimate_kind === 'letting',
+    unit: d.unit_code ? { code: d.unit_code, name: d.unit_name || '', propertyName: d.property_name || '' } : null,
     customerName: d.customer_name, contactPerson: d.contact_person || '', email: d.email || '',
-    linkType: type, linkId: d.id, filename: LABEL[type] + '-' + safeName(d.doc_no) + '.pdf'
+    linkType: type, linkId: d.id,
+    filename: (type === 'estimate' && d.estimate_kind === 'letting' ? 'Letting-offer' : LABEL[type]) + '-' + safeName(d.doc_no) + '.pdf'
   };
 }
 function safeName(s) { return String(s).replace(/[^A-Za-z0-9._-]+/g, '-'); }
@@ -119,6 +126,13 @@ function compose(t, lh) {
     if (t.amountPaid > 0 && t.balanceDue > 0) lines.push('Paid so far: ' + money(t, t.amountPaid) + '. Balance due: ' + money(t, t.balanceDue) + '.');
     if (t.balanceDue != null && t.balanceDue <= 0.005) lines.push('This invoice is paid in full. Thank you.');
     lines.push('', 'Thank you for your business.');
+  } else if (t.letting) {
+    var where = t.unit ? t.unit.code + (t.unit.propertyName ? ' at ' + t.unit.propertyName : '') : 'the unit';
+    subject = 'Letting offer ' + t.docNo + ' from ' + company;
+    lines = [hello(t), '',
+      'Thank you for your interest. Please find attached our letting offer ' + t.docNo + ' for ' + where + ': ' + money(t, t.grandTotal) +
+        (t.validUntil ? ', valid until ' + pdf.docDate(t.validUntil) : '') + '.',
+      'It sets out the rent, the deposit and how utilities are charged. We would be glad to answer any questions or arrange a viewing.'];
   } else if (t.type === 'quotation' || t.type === 'estimate') {
     var what = t.type === 'quotation' ? 'quotation' : 'estimate';
     subject = LABEL[t.type] + ' ' + t.docNo + ' from ' + company;
@@ -140,7 +154,7 @@ function compose(t, lh) {
 // and who it is from.
 function build(message, lh, t, link) {
   var esc = mail.escapeHtml;
-  var what = LABEL[t.linkType === 'invoice' && t.type === 'receipt' ? 'invoice' : t.type].toLowerCase();
+  var what = t.letting ? 'letting offer' : LABEL[t.linkType === 'invoice' && t.type === 'receipt' ? 'invoice' : t.type].toLowerCase();
   var linkText = t.type === 'receipt' ? 'View the invoice online' : 'View the ' + what + ' online';
   var until = pdf.docDate(link.expiresAt);
   var text = message.trim() + '\n\n' + linkText + ' (the PDF is attached): ' + link.url + '\nThe link works until ' + until + '.\n';
