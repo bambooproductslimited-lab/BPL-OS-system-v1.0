@@ -12,6 +12,8 @@ const PATHS = {
   link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>,
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  shrink: <><path d="M4 14h6v6M20 10h-6V4" /><path d="m4 20 6-6M20 4l-6 6" /></>,
+  grow: <><path d="M14 4h6v6M10 20H4v-6" /><path d="m20 4-6 6M4 20l6-6" /></>,
   people: <><circle cx="9" cy="8.5" r="3.2" /><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5" /><circle cx="17" cy="9.5" r="2.5" /><path d="M16.5 14.2c2.1.2 3.6 1.8 4 4.8" /></>
 };
 

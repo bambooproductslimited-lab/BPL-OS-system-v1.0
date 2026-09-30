@@ -13,6 +13,9 @@ import './Calls.css';
 // session: { url, token, kind, title, subtitle }
 // onHeartbeat(): resolves { ended } — every 20 s, so the OS knows we are here
 // onLeave(): after hanging up (or the call ending)
+// minimized, onMinimize(bool): staff calls can shrink to a small window in a
+//   corner so the OS can be used — and shown — during the call. Sharing your
+//   screen shrinks it by itself, so the others see your work, not the call.
 
 function initials(name) {
   const parts = String(name || '').replace(/\(guest\)/, '').trim().split(/\s+/).filter(Boolean);
@@ -34,6 +37,14 @@ function VideoView({ track, mirror }) {
   return <video ref={ref} autoPlay playsInline muted className={'call-video' + (mirror ? ' is-mirror' : '')} />;
 }
 
+// Each person keeps one colour for their avatar, from the OS's own palette.
+const ACCENTS = ['#2f7d4f', '#1f5a8a', '#7a4fa3', '#b3632f', '#2f8a86', '#a33f5c', '#5f7d2f'];
+function accentOf(id) {
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return ACCENTS[h % ACCENTS.length];
+}
+
 function Tile({ p, local, speaking, screen }) {
   const pub = p.getTrackPublication(screen ? Track.Source.ScreenShare : Track.Source.Camera);
   const video = pub && pub.track && !pub.isMuted ? pub.track : null;
@@ -41,19 +52,44 @@ function Tile({ p, local, speaking, screen }) {
   const muted = !micPub || micPub.isMuted;
   const name = p.name || p.identity;
   return (
-    <div className={'call-tile' + (speaking ? ' is-speaking' : '') + (screen ? ' is-screen' : '') + (video ? ' has-video' : '')}>
+    <div className={'call-tile' + (speaking ? ' is-speaking' : '') + (screen ? ' is-screen' : '') + (video ? ' has-video' : '') + (local && !screen ? ' is-self' : '')}
+      style={{ '--tile-accent': accentOf(p.identity) }}>
       {video ? <VideoView track={video} mirror={local && !screen} /> : (
-        <div className="call-tile-face"><span className="call-initials">{initials(name)}</span></div>
+        <div className="call-tile-face"><span className="call-avatar"><span className="call-initials">{initials(name)}</span></span></div>
       )}
       <span className="call-tile-name">
-        {!screen && muted && <CallIcon name="micOff" size={14} />}
-        {screen ? tr('{name} is sharing their screen', { name }) : local ? tr('You') : name}
+        {screen ? <CallIcon name="screen" size={14} />
+          : muted ? <span className="call-tile-muted" title={tr('Muted')}><CallIcon name="micOff" size={13} /></span>
+          : speaking ? <span className="call-bars" aria-hidden="true"><i /><i /><i /></span> : null}
+        <span className="call-tile-label">{screen ? tr('{name} is sharing their screen', { name }) : local ? tr('You') : name}</span>
       </span>
     </div>
   );
 }
 
-export default function CallScreen({ session, onHeartbeat, onLeave }) {
+// Where the small window sits, moved by dragging it; kept inside the window.
+function useDrag() {
+  const [pos, setPos] = useState(null); // null: the corner from Calls.css
+  const drag = useRef(null);
+  function onPointerDown(e) {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    drag.current = { dx: e.clientX - box.left, dy: e.clientY - box.top, w: box.width, h: box.height };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onPointerMove(e) {
+    const d = drag.current;
+    if (!d) return;
+    setPos({
+      left: Math.min(Math.max(8, e.clientX - d.dx), window.innerWidth - d.w - 8),
+      top: Math.min(Math.max(8, e.clientY - d.dy), window.innerHeight - d.h - 8)
+    });
+  }
+  function onPointerUp() { drag.current = null; }
+  return { style: pos ? { left: pos.left, top: pos.top, right: 'auto', bottom: 'auto' } : undefined, onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp };
+}
+
+export default function CallScreen({ session, onHeartbeat, onLeave, minimized = false, onMinimize }) {
   const roomRef = useRef(null);
   const audioBox = useRef(null);
   const [, setVersion] = useState(0);
@@ -163,52 +199,123 @@ export default function CallScreen({ session, onHeartbeat, onLeave }) {
     await room.switchActiveDevice('videoinput', devices[(i + 1) % devices.length].deviceId);
   }
 
+  async function toggleShare() {
+    if (!local || busy) return;
+    const start = !sharing;
+    setBusy(true); setError(null);
+    try {
+      await local.setScreenShareEnabled(start, {
+        // Offer this tab (the OS) as well as other tabs, windows and the whole
+        // screen, and let the sharer switch what they show mid-share. No tab
+        // sound: the call itself plays in this tab and would echo back.
+        selfBrowserSurface: 'include', surfaceSwitching: 'include', audio: false
+      });
+      if (start && onMinimize && local.isScreenShareEnabled) onMinimize(true);
+    } catch (e) {
+      // Closing the browser's "choose what to share" box is not an error.
+      if (!e || e.name !== 'NotAllowedError') setError(tr('Your screen could not be shared. Check that the browser may share your screen.'));
+    }
+    setBusy(false); bump();
+  }
+
+  const drag = useDrag();
   const alone = remotes.length === 0;
-  return (
-    <div className="call-screen" role="dialog" aria-modal="true" aria-label={session.title}>
-      <header className="call-head">
-        <div className="call-head-text">
-          <strong>{session.title}</strong>
-          <span>
-            {state === 'connecting' ? tr('Connecting…') : state === 'reconnecting' ? tr('Reconnecting…') : state === 'failed' ? tr('Not connected')
-              : clock(seconds) + ' · ' + (everyone.length === 1 ? tr('Only you') : tr('{n} in the call', { n: everyone.length }))}
-          </span>
+  const live = state === 'connected' || state === 'reconnecting';
+  const kindText = session.kind === 'video' ? tr('Video call') : tr('Voice call');
+  const status = state === 'connecting' ? tr('Connecting…') : state === 'reconnecting' ? tr('Reconnecting…') : state === 'failed' ? tr('Not connected')
+    : clock(seconds) + ' · ' + (everyone.length === 1 ? tr('Only you') : tr('{n} in the call', { n: everyone.length }));
+  const audio = <div ref={audioBox} hidden />;
+  const isPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  // One control: a round button, with what it does written under it on the
+  // full screen (the small window has room for the icons only).
+  const ctl = (small, { icon, label, hint, onClick, tone, pressed }) => (
+    <div className={'call-ctl' + (small ? ' is-small' : '')} key={icon + label}>
+      <button type="button" className={'call-btn' + (tone ? ' is-' + tone : '')} onClick={onClick} disabled={busy && tone !== 'hangup'}
+        aria-pressed={pressed} aria-label={hint || label} title={hint || label}>
+        <CallIcon name={icon} size={small ? 18 : 21} />
+      </button>
+      {!small && <span className="call-ctl-label" aria-hidden="true">{label}</span>}
+    </div>
+  );
+  const controls = (small) => [
+    ctl(small, { icon: micOn ? 'mic' : 'micOff', label: micOn ? tr('Mute') : tr('Unmute'), tone: micOn ? '' : 'off', pressed: !micOn,
+      onClick: () => toggle(() => local.setMicrophoneEnabled(!micOn)) }),
+    !small && ctl(small, { icon: camOn ? 'video' : 'videoOff', label: camOn ? tr('Stop video') : tr('Start video'), hint: camOn ? tr('Turn camera off') : tr('Turn camera on'),
+      tone: camOn ? '' : 'off', pressed: camOn, onClick: () => toggle(() => local.setCameraEnabled(!camOn)) }),
+    !small && camOn && isPhone && ctl(small, { icon: 'flip', label: tr('Flip'), hint: tr('Switch camera'), onClick: () => toggle(flipCamera) }),
+    canShare && ctl(small, { icon: 'screen', label: sharing ? tr('Stop sharing') : tr('Share screen'), hint: sharing ? tr('Stop sharing') : tr('Share your screen'),
+      tone: sharing ? 'on' : '', pressed: sharing, onClick: toggleShare }),
+    small && ctl(small, { icon: 'grow', label: tr('Back to the full call'), onClick: () => onMinimize(false) }),
+    ctl(small, { icon: 'hangup', label: tr('Leave'), hint: tr('Leave the call'), tone: 'hangup', onClick: hangUp })
+  ].filter(Boolean);
+  const tapToHear = needsTap && <button type="button" className="call-audio-tap" onClick={() => room.startAudio().then(() => setNeedsTap(false))}>{tr('Tap to hear the call')}</button>;
+
+  if (minimized) {
+    // Someone else's shared screen first, then whoever is talking, then the
+    // first of the others.
+    const remoteSharer = sharer && sharer !== local ? sharer : null;
+    const focus = remoteSharer || remotes.find((p) => speakers.includes(p.identity)) || remotes[0] || local;
+    return (
+      <>
+        {audio}
+        <div className="call-mini" role="dialog" aria-label={session.title} {...drag}>
+          <div className="call-mini-view">
+            {focus && <Tile p={focus} local={focus === local} screen={!!remoteSharer} speaking={!remoteSharer && speakers.includes(focus.identity)} />}
+            {sharing && <span className="call-mini-sharing"><span className="call-rec-dot" aria-hidden="true" />{tr('You are sharing your screen')}</span>}
+          </div>
+          <div className="call-mini-info">
+            <strong>{session.title}</strong>
+            <span>{live && <span className="call-live-dot" aria-hidden="true" />}{status}</span>
+          </div>
+          {error && <div className="call-mini-error" role="alert">{error}</div>}
+          {tapToHear}
+          <div className="call-mini-controls">{controls(true)}</div>
         </div>
-        <span className={'call-kind is-' + session.kind}><CallIcon name={session.kind === 'video' ? 'video' : 'phone'} size={15} /> {session.kind === 'video' ? tr('Video call') : tr('Voice call')}</span>
+      </>
+    );
+  }
+
+  const duo = !sharer && everyone.length === 2;
+  return (
+    <>
+    {audio}
+    <div className={'call-screen is-' + session.kind} role="dialog" aria-modal="true" aria-label={session.title}>
+      <header className="call-head">
+        <div className="call-head-main">
+          <span className={'call-head-icon is-' + session.kind}><CallIcon name={session.kind === 'video' ? 'video' : 'phone'} size={18} /></span>
+          <div className="call-head-text">
+            <strong>{session.title}</strong>
+            <span>{live && <span className="call-live-dot" aria-hidden="true" />}{kindText} · {status}</span>
+          </div>
+        </div>
+        <div className="call-head-side">
+          {sharing && <span className="call-chip is-sharing"><span className="call-rec-dot" aria-hidden="true" />{tr('You are sharing your screen')}</span>}
+          {onMinimize && (
+            <button type="button" className="call-chip is-button" onClick={() => onMinimize(true)} aria-label={tr('Minimise')} title={tr('Shrink the call to a corner and keep using the OS')}>
+              <CallIcon name="shrink" size={15} /> <span className="call-chip-text">{tr('Minimise')}</span>
+            </button>
+          )}
+        </div>
       </header>
 
       {error && <div className="call-error" role="alert">{error}</div>}
-      {needsTap && <button type="button" className="call-audio-tap" onClick={() => room.startAudio().then(() => setNeedsTap(false))}>{tr('Tap to hear the call')}</button>}
+      {tapToHear}
 
       <div className={'call-stage' + (sharer ? ' has-screen' : '')}>
         {sharer && <div className="call-screen-share"><Tile p={sharer} local={sharer === local} screen /></div>}
-        <div className={'call-grid n-' + Math.min(everyone.length, 9)}>
+        <div className={'call-grid n-' + Math.min(everyone.length, 9) + (duo ? ' is-duo' : '')}>
           {everyone.map((p) => <Tile key={p.identity} p={p} local={p === local} speaking={speakers.includes(p.identity)} />)}
         </div>
-        {alone && state === 'connected' && <p className="call-waiting">{session.subtitle || tr('Waiting for others to join…')}</p>}
+        {alone && state === 'connected' && (
+          <p className="call-waiting"><span className="call-dots" aria-hidden="true"><i /><i /><i /></span>{session.subtitle || tr('Waiting for others to join…')}</p>
+        )}
       </div>
 
-      <footer className="call-controls">
-        <button type="button" className={'call-btn' + (micOn ? '' : ' is-off')} onClick={() => toggle(() => local.setMicrophoneEnabled(!micOn))}
-          aria-pressed={!micOn} aria-label={micOn ? tr('Mute') : tr('Unmute')} title={micOn ? tr('Mute') : tr('Unmute')}>
-          <CallIcon name={micOn ? 'mic' : 'micOff'} />
-        </button>
-        <button type="button" className={'call-btn' + (camOn ? '' : ' is-off')} onClick={() => toggle(() => local.setCameraEnabled(!camOn))}
-          aria-pressed={camOn} aria-label={camOn ? tr('Turn camera off') : tr('Turn camera on')} title={camOn ? tr('Turn camera off') : tr('Turn camera on')}>
-          <CallIcon name={camOn ? 'video' : 'videoOff'} />
-        </button>
-        {camOn && /Android|iPhone|iPad/i.test(navigator.userAgent) && (
-          <button type="button" className="call-btn" onClick={() => toggle(flipCamera)} aria-label={tr('Switch camera')} title={tr('Switch camera')}><CallIcon name="flip" /></button>
-        )}
-        {canShare && (
-          <button type="button" className={'call-btn' + (sharing ? ' is-on' : '')} onClick={() => toggle(() => local.setScreenShareEnabled(!sharing))}
-            aria-pressed={sharing} aria-label={sharing ? tr('Stop sharing') : tr('Share your screen')} title={sharing ? tr('Stop sharing') : tr('Share your screen')}>
-            <CallIcon name="screen" />
-          </button>
-        )}
-        <button type="button" className="call-btn is-hangup" onClick={hangUp} aria-label={tr('Leave the call')} title={tr('Leave the call')}><CallIcon name="hangup" /></button>
+      <footer className="call-dock-wrap">
+        <div className="call-dock">{controls(false)}</div>
       </footer>
-      <div ref={audioBox} hidden />
     </div>
+    </>
   );
 }
