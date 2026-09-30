@@ -128,12 +128,31 @@ function StockLine({ item, stockProducts, stockMode, onLink }) {
   );
 }
 
+function CatalogStockLine({ item, cat, stockMode }) {
+  const qty = Number(item.qty) || 0;
+  const short = qty > cat.stockQty;
+  return (
+    <div className={'doc-items-stock is-linked' + (short ? ' is-short' : '')}>
+      <span className="doc-items-stock-icon"><BoxGlyph /></span>
+      <span className="doc-items-stock-text">
+        <strong>{stockMode === 'invoice' ? tr('Takes {qty} from Products & Services stock', { qty: num(qty) }) : tr('Products & Services item — its stock goes down when invoiced')}</strong>
+        <span>{tr('{n} in stock', { n: num(cat.stockQty) })}{short ? ' · ' + tr('only {n} left', { n: num(cat.stockQty) }) : ''}</span>
+      </span>
+    </div>
+  );
+}
+
 export default function DocItemsEditor({
   items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
   paymentSchedule, onPaymentScheduleChange, stockProducts, stockMode
 }) {
   const stockList = stockProducts || null;
-  const pickerOptions = (catalogOptions || []).map((c) => ({ ...c, stock: c.product ? c.product.stock : undefined })).concat(stockOptions(stockList));
+  // A catalogue item's stock: its linked product's, else its own (shown when it has any).
+  const pickerOptions = (catalogOptions || []).map((c) => ({ ...c, stock: c.product ? c.product.stock : c.stockQty > 0 ? c.stockQty : undefined })).concat(stockOptions(stockList));
+  function catalogItemOf(it) {
+    const code = String(it.itemNo || '').toUpperCase();
+    return code ? (catalogOptions || []).find((c) => String(c.code || '').toUpperCase() === code) : null;
+  }
   const totals = computeDocTotals(items, docDiscount, docTaxRate);
   const cur = currency || 'GHS';
   const [discountOpen, setDiscountOpen] = useState(!!(docDiscount && docDiscount.value));
@@ -219,9 +238,15 @@ export default function DocItemsEditor({
                     placeholder={tr('Package name (optional) — groups with other lines under one price')}
                     onChange={(e) => setField(idx, 'packageLabel', e.target.value)}
                   />
-                  {stockList && stockList.length > 0 && (
-                    <StockLine item={it} stockProducts={stockList} stockMode={stockMode} onLink={(id) => setField(idx, 'productId', id)} />
-                  )}
+                  {(() => {
+                    // A Products & Services item with its own stock (not a stock product):
+                    // the invoice takes it off that item's count.
+                    const cat = !it.productId ? catalogItemOf(it) : null;
+                    if (cat && !cat.productId && cat.stockQty > 0) return <CatalogStockLine item={it} cat={cat} stockMode={stockMode} />;
+                    return stockList && stockList.length > 0 && (
+                      <StockLine item={it} stockProducts={stockList} stockMode={stockMode} onLink={(id) => setField(idx, 'productId', id)} />
+                    );
+                  })()}
                 </td>
                 <td><input className="input" type="number" value={it.qty} onChange={(e) => setField(idx, 'qty', e.target.value)} /></td>
                 <td><input className="input" value={it.unit} onChange={(e) => setField(idx, 'unit', e.target.value)} /></td>

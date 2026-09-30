@@ -147,3 +147,38 @@ test('a product shows which invoices took from it; a vanished product is refused
   assert.ok(h.lines[0].invoiced > 0);
   await assert.rejects(invoice([{ description: 'Z8S ghost', qty: 1, unitPrice: 1, productId: '00000000-0000-4000-8000-000000000000' }]), /no longer exists/);
 });
+
+test('Products & Services: an invoice takes an item\'s own stock too, puts it back, and never below 0', async function () {
+  var item = (await pool.query("INSERT INTO catalog_items (name) VALUES ('Z8S Chair') RETURNING id")).rows[0].id;
+  var chair = (await pool.query("INSERT INTO catalog_item_variations (item_id, name, code, unit, unit_price, stock_qty) VALUES ($1, 'Regular', 'Z8S-CH', 'each', 450, 50) RETURNING id", [item])).rows[0].id;
+  var table = (await pool.query("INSERT INTO catalog_item_variations (item_id, name, code, unit, unit_price, stock_qty) VALUES ($1, 'Oak', 'Z8S-CH-OAK', 'each', 900, 5) RETURNING id", [item])).rows[0].id;
+  async function qtyOf(id) { return Number((await pool.query('SELECT stock_qty FROM catalog_item_variations WHERE id = $1', [id])).rows[0].stock_qty); }
+
+  // Picked from the catalogue (by code), and typed by its exact name.
+  var inv = await invoice([
+    { itemNo: 'Z8S-CH', description: 'Z8S Chair', qty: 8, unitPrice: 450 },
+    { description: 'Z8S Chair — Oak', qty: 2, unitPrice: 900 }
+  ]);
+  assert.equal(await qtyOf(chair), 42);
+  assert.equal(await qtyOf(table), 3);
+  await invoices.voidInvoice(admin, inv.id);
+  assert.equal(await qtyOf(chair), 50);
+  assert.equal(await qtyOf(table), 5);
+
+  // More than there is: down to 0, and only what was taken comes back.
+  var big = await invoice([{ itemNo: 'Z8S-CH-OAK', description: 'Z8S Chair — Oak', qty: 9, unitPrice: 900 }]);
+  assert.equal(await qtyOf(table), 0);
+  var m = (await pool.query("SELECT qty::float AS qty FROM catalog_stock_moves WHERE invoice_id = $1", [big.id])).rows;
+  assert.deepEqual(m.map(function (r) { return r.qty; }), [5]);
+  await invoices.remove(admin, big.id);
+  assert.equal(await qtyOf(table), 5);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM catalog_stock_moves WHERE invoice_no = $1 AND reason = 'deleted'", [big.invoiceNo])).rows[0].n, 1);
+
+  // Linked to a stock product: the product's stock goes down, the item's own count doesn't.
+  await pool.query('UPDATE catalog_item_variations SET product_id = $1 WHERE id = $2', [pole, chair]);
+  var p0 = await stock(pole);
+  await invoice([{ itemNo: 'Z8S-CH', description: 'Z8S Chair', qty: 3, unitPrice: 450 }]);
+  assert.equal(await stock(pole), p0 - 3);
+  assert.equal(await qtyOf(chair), 50);
+  await pool.query('DELETE FROM catalog_stock_moves WHERE variation_id IN ($1, $2)', [chair, table]);
+});

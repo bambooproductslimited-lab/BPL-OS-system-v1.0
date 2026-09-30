@@ -185,8 +185,8 @@ export default function InvoicesPage() {
         currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
       });
       // Say what left stock with it (backend inventorySales.service.js).
-      const fromStock = (made.items || []).filter((it) => it.productId).length;
-      setToast(fromStock ? tr('{invoiceNo} created — {n} stock items taken off Products & inventory.', { invoiceNo: made.invoiceNo, n: fromStock }) : tr('Invoice created.'));
+      const fromStock = (made.items || []).filter((it) => it.productId || (it.itemNo && catalog.some((c) => !c.productId && c.stockQty > 0 && String(c.code || '').toUpperCase() === String(it.itemNo).toUpperCase()))).length;
+      setToast(fromStock ? tr('{invoiceNo} created — {n} lines taken off stock.', { invoiceNo: made.invoiceNo, n: fromStock }) : tr('Invoice created.'));
       setDialogOpen(false);
       await load();
     } catch (err) {

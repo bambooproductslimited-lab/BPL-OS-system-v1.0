@@ -29,7 +29,10 @@ import './CatalogPage.css';
 //
 // Square's catalogue shape (migration 0027): an item has one or more
 // variations, each a priced, sellable row with its own code and stock.
-// Stock only changes through "Adjust stock", so every change is audited.
+// Stock changes through "Adjust stock" (every change audited), and goes down
+// by itself when an invoice sells the item — back up if the invoice is
+// voided or deleted (backend inventorySales.service.js). An item linked to a
+// stock product shows and uses that product's stock instead.
 // Tax rates come from /commercial-settings, which needs settings.manage;
 // without it the tax picker is left out rather than shown empty.
 
@@ -694,6 +697,7 @@ export default function CatalogPage() {
             <h2 className="catalog-dialog-title">{tr('Adjust stock —')} {stockDialog.name}</h2>
             {stockDialogError && <div className="error-banner">{stockDialogError}</div>}
             <p className="catalog-stock-current">{tr('Currently in stock:')} <strong>{stockDialog.stockQty.toLocaleString()}</strong></p>
+            <p className="dk-muted tl-small">{tr('Invoices take their quantity off this by themselves when they are made, and put it back if voided. Use this for deliveries, returns and stocktake corrections.')}</p>
             <div className="field">
               <label htmlFor="stock-delta">{tr('Change (use a negative number to remove stock)')}</label>
               <input id="stock-delta" className="input" type="number" value={stockDialog.delta} onChange={(e) => setStockDialog({ ...stockDialog, delta: e.target.value })} placeholder={tr('e.g. 20 or -5')} required autoFocus />
