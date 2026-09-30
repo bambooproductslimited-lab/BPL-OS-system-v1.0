@@ -170,3 +170,50 @@ test('without LiveKit set up, calls say so', async function () {
     assert.equal((await call('kelvin', 'GET', '/messages/calls/live')).data.configured, false);
   } finally { config.livekit.url = keep; }
 });
+
+test('a call nobody answers drops after 30 seconds, for the caller too, and shows as missed', async function () {
+  await pool.query('UPDATE calls SET ended_at = now() WHERE conversation_id = ANY($1) AND ended_at IS NULL', [[groupId, directId]]);
+  var c = (await call('kelvin', 'POST', '/messages/conversations/' + directId + '/calls', { kind: 'voice' })).data;
+  assert.equal(c.ringFor, calls.RING_MS);
+  assert.equal(calls.RING_MS, 30000);
+
+  // Too early: it keeps ringing.
+  var early = await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered');
+  assert.equal(early.status, 200); assert.equal(early.data.ended, false);
+  assert.ok((await call('brian', 'GET', '/messages/calls/live')).data.calls.find(function (x) { return x.id === c.id; }).ringing);
+
+  await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [c.id]);
+  // Only the caller can drop it; Brian no longer sees it ringing.
+  assert.equal((await call('brian', 'POST', '/messages/calls/' + c.id + '/unanswered')).status, 403);
+  var live = (await call('brian', 'GET', '/messages/calls/live')).data.calls.find(function (x) { return x.id === c.id; });
+  assert.ok(!live || !live.ringing);
+
+  var r = await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered');
+  assert.equal(r.data.ended, true);
+  var row = (await pool.query('SELECT ended_at FROM calls WHERE id = $1', [c.id])).rows[0];
+  assert.ok(row.ended_at);
+  var last = (await notes(directId)).pop();
+  assert.equal(last.type, 'callEnded'); assert.equal(last.missed, true);
+  // Joining it afterwards says it has ended.
+  assert.equal((await call('brian', 'POST', '/messages/calls/' + c.id + '/join')).status, 409);
+});
+
+test('someone who answers at the last moment keeps the call; the background job drops the rest', async function () {
+  var c = (await call('kelvin', 'POST', '/messages/conversations/' + groupId + '/calls', { kind: 'video' })).data;
+  await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [c.id]);
+  assert.equal((await call('faith', 'POST', '/messages/calls/' + c.id + '/join')).status, 200);
+  assert.equal((await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered')).data.ended, false);
+  await calls.sweep();
+  assert.equal((await pool.query('SELECT ended_at FROM calls WHERE id = $1', [c.id])).rows[0].ended_at, null);
+  await call('faith', 'POST', '/messages/calls/' + c.id + '/leave');
+  await call('kelvin', 'POST', '/messages/calls/' + c.id + '/leave');
+
+  // The caller closed the page while it rang: the job ends it as missed.
+  var d = (await call('kelvin', 'POST', '/messages/conversations/' + groupId + '/calls', { kind: 'voice' })).data;
+  await call('samuel', 'POST', '/messages/calls/' + d.id + '/decline');
+  await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [d.id]);
+  await calls.sweep();
+  assert.ok((await pool.query('SELECT ended_at FROM calls WHERE id = $1', [d.id])).rows[0].ended_at);
+  var last = (await notes(groupId)).pop();
+  assert.equal(last.type, 'callEnded'); assert.equal(last.missed, true);
+});

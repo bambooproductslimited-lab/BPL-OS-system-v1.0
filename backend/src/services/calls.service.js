@@ -23,7 +23,7 @@ var messages = require('./messages.service');
 // window. Everyone in the chat is reminded in the OS and by text 15 minutes
 // before (remindDue(), jobs/meetingReminders.js).
 
-var RING_MS = 60 * 1000;          // how long an unanswered call rings
+var RING_MS = 30 * 1000;          // how long a call rings before it drops unanswered
 var GONE_MS = 60 * 1000;          // a participant not heard from for this long has left
 var PASS_HOURS = 6;               // how long a pass to a room lasts
 var EARLY_MIN = 15;               // a meeting opens this long before it starts
@@ -86,13 +86,34 @@ async function endIfEmpty(db, call, ctx) {
   return true;
 }
 
-// Calls nobody is in any more (everyone closed the page) are ended here, from
-// the background job and before a chat is called again.
+// A call nobody answered in RING_MS drops for the caller too, and the chat
+// shows it as missed. "Answered" is anyone but the caller joining; a booked
+// meeting's call is never dropped this way, people join it when they're ready.
+async function dropIfUnanswered(db, call) {
+  if (call.meeting_id || call.ended_at) return false;
+  if (Date.now() - new Date(call.started_at).getTime() < RING_MS - 1000) return false;
+  var answered = (await db.query(
+    'SELECT 1 FROM call_participants WHERE call_id = $1 AND NOT declined AND (employee_id IS DISTINCT FROM $2) LIMIT 1',
+    [call.id, call.started_by])).rows[0];
+  if (answered) return false;
+  await db.query('UPDATE call_participants SET left_at = now() WHERE call_id = $1 AND left_at IS NULL', [call.id]);
+  return endIfEmpty(db, call);
+}
+
+// Calls nobody is in any more (everyone closed the page), and calls nobody
+// answered, are ended here, from the background job and before a chat is
+// called again.
 async function sweep() {
-  var open = (await pool.query('SELECT * FROM calls WHERE ended_at IS NULL AND started_at < now() - $1::interval', [GONE_MS / 1000 + ' seconds'])).rows;
+  var open = (await pool.query(
+    'SELECT * FROM calls WHERE ended_at IS NULL AND started_at < now() - $1::interval',
+    [Math.min(GONE_MS, RING_MS) / 1000 + ' seconds'])).rows;
   var n = 0;
   for (var i = 0; i < open.length; i++) {
-    await withTransaction(async function (client) { if (await endIfEmpty(client, open[i])) n++; });
+    await withTransaction(async function (client) {
+      var call = (await client.query('SELECT * FROM calls WHERE id = $1 FOR UPDATE', [open[i].id])).rows[0];
+      if (await dropIfUnanswered(client, call)) { n++; return; }
+      if (Date.now() - new Date(call.started_at).getTime() >= GONE_MS && await endIfEmpty(client, call)) n++;
+    });
   }
   return n;
 }
@@ -140,7 +161,7 @@ async function start(ctx, conversationId, kind) {
       await notify(client, others[i].id, (kind === 'video' ? 'Video call from ' : 'Call from ') + who,
         'Open Messages to answer.', '/messages?chat=' + conversationId);
     }
-    return joinAs(client, ctx, call);
+    return Object.assign(await joinAs(client, ctx, call), { ringFor: RING_MS });
   });
 }
 
@@ -185,6 +206,19 @@ async function decline(ctx, callId) {
     }
   });
   return { ok: true };
+}
+
+// POST /api/messages/calls/:id/unanswered — the caller's screen asks, once
+// the call has rung for RING_MS with nobody there. The server decides, so
+// someone who answered at the last moment keeps the call.
+async function unanswered(ctx, callId) {
+  var call = await callFor(ctx, callId);
+  if (call.started_by !== ctx.employee.id) fail('forbidden', 'Only the caller can drop an unanswered call.');
+  var dropped = await withTransaction(async function (client) {
+    var locked = (await client.query('SELECT * FROM calls WHERE id = $1 FOR UPDATE', [call.id])).rows[0];
+    return dropIfUnanswered(client, locked);
+  });
+  return { ended: dropped };
 }
 
 // POST /api/messages/calls/:id/heartbeat — still here (every 20 s from the call screen).
@@ -465,7 +499,8 @@ async function remindDue(sendSms) {
 
 module.exports = {
   configured: configured, pass: pass,
-  start: start, join: join, leave: leave, decline: decline, heartbeat: heartbeat, live: live, sweep: sweep,
+  start: start, join: join, leave: leave, decline: decline, unanswered: unanswered, heartbeat: heartbeat, live: live, sweep: sweep,
+  RING_MS: RING_MS,
   schedule: schedule, meeting: meeting, update: update, cancel: cancel, forConversation: forConversation, upcoming: upcoming, joinMeeting: joinMeeting,
   guestView: guestView, guestJoin: guestJoin, guestHeartbeat: guestHeartbeat, guestLeave: guestLeave,
   remindDue: remindDue, EARLY_MIN: EARLY_MIN, LATE_MIN: LATE_MIN

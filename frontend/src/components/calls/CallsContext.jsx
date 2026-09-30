@@ -84,6 +84,13 @@ export function CallsProvider({ children }) {
     return () => clearInterval(t);
   }, [refresh]);
 
+  // A message about a call (no answer, already in a call) goes by itself.
+  useEffect(() => {
+    if (!error) return undefined;
+    const t = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(t);
+  }, [error]);
+
   // Leaving the page mid-call still hangs up for the others.
   useEffect(() => {
     const bye = () => {
@@ -100,7 +107,7 @@ export function CallsProvider({ children }) {
   function open(r, title, subtitle) {
     setError(null); setMini(false);
     setDismissed((d) => ({ ...d, [r.id]: true }));
-    setActive({ callId: r.id, conversationId: r.conversationId, session: { url: r.url, token: r.token, kind: r.kind, title: title || tr('Call'), subtitle } });
+    setActive({ callId: r.id, conversationId: r.conversationId, ringFor: r.ringFor || 0, session: { url: r.url, token: r.token, kind: r.kind, title: title || tr('Call'), subtitle } });
   }
   // same(active): this is the call I'm already in — just bring it back up.
   async function run(fn, title, subtitle, same) {
@@ -138,10 +145,12 @@ export function CallsProvider({ children }) {
       {active && (
         <Suspense fallback={<div className="call-screen call-loading">{tr('Connecting…')}</div>}>
         <CallScreen session={active.session} minimized={mini} onMinimize={setMini}
+          ringFor={active.ringFor} onUnanswered={() => api.post('/messages/calls/' + active.callId + '/unanswered')}
           onHeartbeat={() => api.post('/messages/calls/' + active.callId + '/heartbeat')}
-          onLeave={async () => {
+          onLeave={async (reason) => {
             const id = active.callId;
             setActive(null); setMini(false);
+            if (reason === 'unanswered') { setError(tr('No answer. The call ended after 30 seconds.')); refresh(); return; }
             try { await api.post('/messages/calls/' + id + '/leave'); } catch { /* ended already */ }
             refresh();
           }} />

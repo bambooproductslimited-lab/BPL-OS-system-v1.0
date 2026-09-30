@@ -73,6 +73,7 @@ router.post('/conversations/:id/calls', wrap(async function (req, res) { res.jso
 router.post('/calls/:id/join', wrap(async function (req, res) { res.json(await calls.join(req.ctx, req.params.id)); }));
 router.post('/calls/:id/leave', wrap(async function (req, res) { res.json(await calls.leave(req.ctx, req.params.id)); }));
 router.post('/calls/:id/decline', wrap(async function (req, res) { res.json(await calls.decline(req.ctx, req.params.id)); }));
+router.post('/calls/:id/unanswered', wrap(async function (req, res) { res.json(await calls.unanswered(req.ctx, req.params.id)); }));
 router.post('/calls/:id/heartbeat', wrap(async function (req, res) { res.json(await calls.heartbeat(req.ctx, req.params.id)); }));
 router.get('/meetings/upcoming', wrap(async function (req, res) { res.json(await calls.upcoming(req.ctx)); }));
 router.get('/conversations/:id/meetings', wrap(async function (req, res) { res.json(await calls.forConversation(req.ctx, req.params.id)); }));

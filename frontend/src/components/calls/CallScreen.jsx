@@ -12,7 +12,10 @@ import './Calls.css';
 //
 // session: { url, token, kind, title, subtitle }
 // onHeartbeat(): resolves { ended } — every 20 s, so the OS knows we are here
-// onLeave(): after hanging up (or the call ending)
+// onLeave(reason): after hanging up (or the call ending); reason
+//   'unanswered' when nobody picked up
+// ringFor, onUnanswered(): a call I just started rings this long; if nobody
+//   has come by then, ask the server to drop it (it resolves { ended })
 // minimized, onMinimize(bool): staff calls can shrink to a small window in a
 //   corner so the OS can be used — and shown — during the call. Sharing your
 //   screen shrinks it by itself, so the others see your work, not the call.
@@ -89,7 +92,7 @@ function useDrag() {
   return { style: pos ? { left: pos.left, top: pos.top, right: 'auto', bottom: 'auto' } : undefined, onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp };
 }
 
-export default function CallScreen({ session, onHeartbeat, onLeave, minimized = false, onMinimize }) {
+export default function CallScreen({ session, onHeartbeat, onLeave, minimized = false, onMinimize, ringFor, onUnanswered }) {
   const roomRef = useRef(null);
   const audioBox = useRef(null);
   const [, setVersion] = useState(0);
@@ -101,6 +104,8 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
   const [busy, setBusy] = useState(false);
   const leftRef = useRef(false);
   const connectedRef = useRef(false);
+  const answeredRef = useRef(false); // anyone else has been in the call
+  const [ringLeft, setRingLeft] = useState(ringFor ? Math.round(ringFor / 1000) : 0);
   const bump = () => setVersion((v) => v + 1);
 
   async function hangUp() {
@@ -122,7 +127,7 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
     room
       .on(RoomEvent.TrackSubscribed, onTrack)
       .on(RoomEvent.TrackUnsubscribed, offTrack)
-      .on(RoomEvent.ParticipantConnected, bump)
+      .on(RoomEvent.ParticipantConnected, () => { answeredRef.current = true; bump(); })
       .on(RoomEvent.ParticipantDisconnected, bump)
       .on(RoomEvent.TrackMuted, bump)
       .on(RoomEvent.TrackUnmuted, bump)
@@ -161,6 +166,28 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
     })();
     return () => { stopped = true; room.disconnect(); };
   }, [session.url, session.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ringing out: count down, then drop it if still nobody has come.
+  useEffect(() => {
+    if (!ringFor || !onUnanswered) return undefined;
+    const startedAt = Date.now();
+    const t = setInterval(async () => {
+      if (answeredRef.current || leftRef.current) { clearInterval(t); return; }
+      const left = Math.max(0, Math.round((ringFor - (Date.now() - startedAt)) / 1000));
+      setRingLeft(left);
+      if (left > 0) return;
+      clearInterval(t);
+      try {
+        const r = await onUnanswered();
+        if (r && r.ended && !answeredRef.current && !leftRef.current) {
+          leftRef.current = true;
+          try { await roomRef.current?.disconnect(); } catch { /* already gone */ }
+          onLeave('unanswered');
+        }
+      } catch { /* the server's own check drops it */ }
+    }, 1000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Time in the call, and letting the OS know we are still here.
   useEffect(() => {
@@ -308,7 +335,9 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
           {everyone.map((p) => <Tile key={p.identity} p={p} local={p === local} speaking={speakers.includes(p.identity)} />)}
         </div>
         {alone && state === 'connected' && (
-          <p className="call-waiting"><span className="call-dots" aria-hidden="true"><i /><i /><i /></span>{session.subtitle || tr('Waiting for others to join…')}</p>
+          <p className="call-waiting"><span className="call-dots" aria-hidden="true"><i /><i /><i /></span>
+            {ringFor && !answeredRef.current && ringLeft > 0 ? tr('Ringing… ends in {n} s if nobody answers', { n: ringLeft }) : session.subtitle || tr('Waiting for others to join…')}
+          </p>
         )}
       </div>
 
