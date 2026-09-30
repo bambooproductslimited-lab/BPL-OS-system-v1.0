@@ -5,6 +5,7 @@ var { allowlistFilter } = require('../lib/uploadFilters');
 var fileStore = require('../lib/fileStore');
 var messagesService = require('../services/messages.service');
 var chatRecords = require('../services/chatRecords.service');
+var calls = require('../services/calls.service');
 
 // Chat attachments: photos, videos, audio and everyday documents — not
 // programs or archives. Each file up to 25 MB (15 MB when files are kept in
@@ -65,6 +66,22 @@ router.post('/conversations/:id/admins/:employeeId', wrap(async function (req, r
 }));
 // Live: typing, and what an open chat asks every few seconds; what was shared.
 router.post('/conversations/:id/typing', wrap(async function (req, res) { res.json(await messagesService.typing(req.ctx, req.params.id)); }));
+// Voice and video calls, and meetings (calls.service.js). Everything is
+// scoped to the chats the caller is in.
+router.get('/calls/live', wrap(async function (req, res) { res.json({ configured: calls.configured(), calls: await calls.live(req.ctx) }); }));
+router.post('/conversations/:id/calls', wrap(async function (req, res) { res.json(await calls.start(req.ctx, req.params.id, (req.body || {}).kind)); }));
+router.post('/calls/:id/join', wrap(async function (req, res) { res.json(await calls.join(req.ctx, req.params.id)); }));
+router.post('/calls/:id/leave', wrap(async function (req, res) { res.json(await calls.leave(req.ctx, req.params.id)); }));
+router.post('/calls/:id/decline', wrap(async function (req, res) { res.json(await calls.decline(req.ctx, req.params.id)); }));
+router.post('/calls/:id/heartbeat', wrap(async function (req, res) { res.json(await calls.heartbeat(req.ctx, req.params.id)); }));
+router.get('/meetings/upcoming', wrap(async function (req, res) { res.json(await calls.upcoming(req.ctx)); }));
+router.get('/conversations/:id/meetings', wrap(async function (req, res) { res.json(await calls.forConversation(req.ctx, req.params.id)); }));
+router.post('/conversations/:id/meetings', wrap(async function (req, res) { res.json(await calls.schedule(req.ctx, req.params.id, req.body || {})); }));
+router.get('/meetings/:id', wrap(async function (req, res) { res.json(await calls.meeting(req.ctx, req.params.id)); }));
+router.patch('/meetings/:id', wrap(async function (req, res) { res.json(await calls.update(req.ctx, req.params.id, req.body || {})); }));
+router.post('/meetings/:id/cancel', wrap(async function (req, res) { res.json(await calls.cancel(req.ctx, req.params.id)); }));
+router.post('/meetings/:id/join', wrap(async function (req, res) { res.json(await calls.joinMeeting(req.ctx, req.params.id)); }));
+
 router.get('/conversations/:id/pulse', wrap(async function (req, res) { res.json(await messagesService.pulse(req.ctx, req.params.id)); }));
 router.get('/conversations/:id/shared', wrap(async function (req, res) { res.json(await messagesService.shared(req.ctx, req.params.id)); }));
 

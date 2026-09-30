@@ -62,6 +62,7 @@ import PokiEstimatesPage from './pages/PokiEstimatesPage';
 import PokiBillingPage from './pages/PokiBillingPage';
 import PokiMaintenancePage from './pages/PokiMaintenancePage';
 import SharePage from './pages/SharePage';
+import MeetPage from './pages/MeetPage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
 import CrmOverviewPage from './pages/crm/CrmOverviewPage';
 import CrmLeadsPage from './pages/crm/CrmLeadsPage';
@@ -99,6 +100,7 @@ export default function App() {
       <Route path="/kiosk" element={<KioskPage />} />
       <Route path="/pos" element={<RestaurantPosPage />} />
       <Route path="/share/:token" element={<SharePage />} />
+      <Route path="/meet/:token" element={<MeetPage />} />
       <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />
 
       <Route element={<ProtectedRoute />}>

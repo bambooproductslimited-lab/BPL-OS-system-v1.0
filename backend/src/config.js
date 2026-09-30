@@ -195,6 +195,20 @@ module.exports = {
       get configured() { return !!(this.apiKey && this.senderId); }
     };
   }()),
+  // Voice and video calls (services/calls.service.js) go through LiveKit, a
+  // calling service: LiveKit Cloud (livekit.io, a free tier) or a LiveKit
+  // server of our own. From the project's Settings → Keys: the WebSocket URL
+  // (wss://….livekit.cloud), an API key and its secret. The OS signs each
+  // caller's short-lived pass itself; the secret never leaves the server.
+  livekit: (function () {
+    var url = (process.env.LIVEKIT_URL || '').trim().replace(/\/+$/, '');
+    var apiKey = (process.env.LIVEKIT_API_KEY || '').trim();
+    var apiSecret = (process.env.LIVEKIT_API_SECRET || '').trim();
+    return {
+      url: url, apiKey: apiKey, apiSecret: apiSecret,
+      get configured() { return !!(this.url && this.apiKey && this.apiSecret); }
+    };
+  }()),
   // Outgoing email over SMTP (services/mail.service.js) — two-step sign-in
   // codes by email. Any mailbox the company already has works: Hostinger
   // email (smtp.hostinger.com, port 465), Google Workspace or Gmail with an

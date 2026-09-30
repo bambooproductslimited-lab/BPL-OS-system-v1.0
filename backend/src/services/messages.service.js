@@ -809,6 +809,8 @@ module.exports = {
   createGroup: createGroup, updateGroup: updateGroup, addMembers: addMembers, removeMember: removeMember, setAdmin: setAdmin,
   attachment: attachment, setPersonPhoto: setPersonPhoto, personPhoto: personPhoto, setGroupPhoto: setGroupPhoto, groupPhoto: groupPhoto,
   unreadCount: unreadCount, fileKind: fileKind,
+  // For calls.service.js: the same membership rules and chat notes.
+  requireMember: requireMember, requireAdmin: requireAdmin, systemMessage: systemMessage, touch: touch,
   // Before group chats these were the API; kept for anything still calling them.
   thread: direct, send: function (ctx, toId, body) { return sendDirect(ctx, toId, body, []); }
 };

@@ -61,6 +61,7 @@ var marketingRoutes = require('./routes/marketing.routes');
 var oauthRoutes = require('./routes/oauth.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
+var meetRoutes = require('./routes/meet.routes');
 var pushRoutes = require('./routes/push.routes');
 var squareRoutes = require('./routes/square.routes');
 var timestationRoutes = require('./routes/timestation.routes');
@@ -129,6 +130,7 @@ app.use('/api/projects', projectsRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/meet', meetRoutes); // public: a meeting's guest link
 app.use('/api/warehouses', warehousesRoutes);
 app.use('/api/suppliers', suppliersRoutes);
 app.use('/api/raw-batches', rawBatchesRoutes);

@@ -81,7 +81,10 @@ export const api = {
   patch: function (path, body) { return request('PATCH', path, body === undefined ? {} : body); },
   put: function (path, body) { return request('PUT', path, body === undefined ? {} : body); },
   del: function (path) { return request('DELETE', path); },
-  upload: upload
+  upload: upload,
+  // For a request that must outlive the page (fetch keepalive on pagehide).
+  url: function (path) { return API_URL + path; },
+  authHeaders: function () { var t = getToken(); return t ? { Authorization: 'Bearer ' + t } : {}; }
 };
 
 // kernel.js: handlers['auth.login']

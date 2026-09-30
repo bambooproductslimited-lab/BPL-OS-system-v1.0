@@ -148,6 +148,8 @@ var ALLOWED = {
   'POST /api/messages/people/:id/photo': 'your own profile photo; anyone else\'s needs employee.write (messagesGroups.test.js)',
   'DELETE /api/messages/people/:id/photo': 'your own profile photo; anyone else\'s needs employee.write (messagesGroups.test.js)',
   'GET /api/messages/search': 'searches only the caller\'s own chats (messagesExtras.test.js)',
+  'GET /api/messages/calls/live': 'calls running in the caller\'s own chats only (calls.test.js)',
+  'GET /api/messages/meetings/upcoming': 'meetings in the caller\'s own chats only (calls.test.js)',
   'GET /api/messages/records': 'the record types the caller may share; each type needs its own read permission, and leave is the caller\'s own requests (messagesExtras.test.js)',
   'POST /oauth/login': "the Claude connector's sign-in form — public like the login screen; issues nothing without a signed /authorize request and the person's own email and password (claudeConnector.test.js)",
   'POST /api/ai/chat': "assistant; each of Claude's tools runs with the caller's own permissions, asserted below",

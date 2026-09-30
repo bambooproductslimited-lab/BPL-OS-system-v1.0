@@ -6,6 +6,7 @@ import Icon from './navIcons';
 import NotificationsBell from '../components/NotificationsBell';
 import LanguagePicker from '../components/LanguagePicker';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { CallsProvider } from '../components/calls/CallsContext';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import { installUnlock } from '../lib/notificationSound';
 import { tr } from '../lib/i18n.jsx';
@@ -81,6 +82,7 @@ export default function AppShell() {
   }
 
   return (
+    <CallsProvider>
     <div className="shell">
       <aside className="shell-sidebar">
         <div className="shell-brand">
@@ -160,5 +162,6 @@ export default function AppShell() {
         </div>
       </main>
     </div>
+    </CallsProvider>
   );
 }

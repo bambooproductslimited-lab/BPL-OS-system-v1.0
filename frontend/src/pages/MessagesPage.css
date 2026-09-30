@@ -755,3 +755,9 @@
   /* the paper clip takes photos too; this leaves the message box room */
   .chat-media-btn { display: none; }
 }
+
+/* Calls and meetings in the thread (components/calls). */
+.chat-meeting { display: flex; justify-content: center; margin: 10px 0; padding: 0 8px; }
+.chat-system span svg { vertical-align: -2px; margin-right: 5px; }
+.chat-system-join { margin-left: 8px; padding: 2px 10px; border: 0; border-radius: 999px; background: #2f9e5b; color: #fff; font: inherit; font-style: normal; font-weight: 700; cursor: pointer; }
+.chat-thread-head .chat-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }

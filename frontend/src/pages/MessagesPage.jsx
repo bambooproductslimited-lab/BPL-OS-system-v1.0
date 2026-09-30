@@ -13,6 +13,9 @@ import {
   Burst, ChatGlyph, ForwardDialog, MentionPopup, MessageMenu, ReactionChips, ReactionPicker, RecordCard, RecordPicker,
   ReplyQuote, RichText, SeenDialog, SeenTicks, TypingBubble, recordHref, recordLabel
 } from './chat/ChatParts';
+import { useCalls } from '../components/calls/CallsContext';
+import CallIcon from '../components/calls/CallIcon';
+import { MeetingCard, ScheduleMeetingDialog, UpcomingMeetings } from '../components/calls/Meetings';
 import './MessagesPage.css';
 
 // Chats: one-to-one and group conversations, with photos, videos, voice
@@ -94,9 +97,21 @@ function listTime(iso) {
 }
 function secs(n) { return Math.floor(n / 60) + ':' + String(Math.floor(n % 60)).padStart(2, '0'); }
 
-// A group event, in the reader's language.
-function systemText(meta) {
+// A group event, a call or a meeting, in the reader's language. by: who it
+// was (for calls and meetings, the sender of the note).
+function systemText(meta, by) {
   if (!meta) return '';
+  const video = meta.kind === 'video';
+  switch (meta.type) {
+    case 'call': return video ? tr('{by} started a video call', { by }) : tr('{by} started a voice call', { by });
+    case 'callEnded':
+      if (meta.missed) return video ? tr('Missed video call') : tr('Missed voice call');
+      if (!meta.minutes) return video ? tr('Video call · under a minute') : tr('Voice call · under a minute');
+      return video ? tr('Video call · {n} min', { n: meta.minutes }) : tr('Voice call · {n} min', { n: meta.minutes });
+    case 'meeting': return tr('{by} booked a meeting', { by });
+    case 'meetingCancelled': return tr('{by} cancelled the meeting "{title}"', { by, title: meta.title });
+    default: break;
+  }
   const names = (meta.names || []).join(', ');
   switch (meta.event) {
     case 'created': return tr('{by} created the group "{name}"', { by: meta.by, name: meta.name });
@@ -313,6 +328,9 @@ export default function MessagesPage() {
   const [forwardMsg, setForwardMsg] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState(null);
   const [seenFor, setSeenFor] = useState(null); // a message id
+  const calls = useCalls();
+  const [booking, setBooking] = useState(false);
+  const [meetingsKey, setMeetingsKey] = useState(0);
   const [recordPicker, setRecordPicker] = useState(false);
   const [notice, setNotice] = useState(null);
   const [hits, setHits] = useState([]);
@@ -726,13 +744,14 @@ export default function MessagesPage() {
   function preview(c) {
     const l = c.last;
     if (!l) return c.kind === 'group' ? tr('{n} members', { n: c.memberCount }) : '';
-    if (l.kind === 'system') return systemText(l.meta);
+    if (l.kind === 'system') return systemText(l.meta, l.fromMe ? tr('You') : l.fromName);
     if (l.deleted) return tr('This message was deleted');
     const who = l.fromMe ? tr('You') + ': ' : c.kind === 'group' ? l.fromName + ': ' : '';
     return who + (l.body || (l.record ? recordLabel(l.record.type) + ': ' + l.record.title : filesLabel(l.files, l.fileKind)));
   }
 
   const isGroup = conv && conv.kind === 'group';
+  const liveHere = conv ? calls.live.find((c) => c.conversationId === conv.id) : null;
   const amAdmin = isGroup && conv.myRole === 'admin';
   const peerOnline = conv && !isGroup && onlineIds.has(conv.peerId);
   const subtitle = conv ? (typingNames.length
@@ -776,6 +795,7 @@ export default function MessagesPage() {
               <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label}</button>
             ))}
           </div>
+          <UpcomingMeetings locale={activeIntlLocale()} onOpenChat={(id) => open({ type: 'conv', id })} refreshKey={meetingsKey} />
           <div className="chat-list-items">
             {visibleInbox.map((c, n) => {
               const on = active && ((active.type === 'conv' && active.id === c.id) || (active.type === 'peer' && active.id === c.peerId));
@@ -857,8 +877,23 @@ export default function MessagesPage() {
                     <span className={'chat-muted chat-thread-sub' + subtitleClass}>{subtitle}</span>
                   </span>
                 </button>
+                <button type="button" className="chat-icon-btn" disabled={!calls.configured} onClick={() => calls.startCall(conv.id, 'voice', conv.name)}
+                  aria-label={tr('Voice call')} title={calls.configured ? tr('Voice call') : tr('Calls aren\'t set up yet')}><CallIcon name="phone" /></button>
+                <button type="button" className="chat-icon-btn" disabled={!calls.configured} onClick={() => calls.startCall(conv.id, 'video', conv.name)}
+                  aria-label={tr('Video call')} title={calls.configured ? tr('Video call') : tr('Calls aren\'t set up yet')}><CallIcon name="video" /></button>
+                <button type="button" className="chat-icon-btn" onClick={() => setBooking(true)} aria-label={tr('Book a meeting')} title={tr('Book a meeting')}><CallIcon name="calendar" /></button>
                 <button type="button" className="chat-icon-btn" onClick={() => setInfoOpen((v) => !v)} aria-label={isGroup ? tr('Group info') : tr('Contact info')} title={isGroup ? tr('Group info') : tr('Contact info')}><Icon name="info" /></button>
               </header>
+              {liveHere && !liveHere.inCall && (
+                <div className="chat-call-bar" role="status">
+                  <span className="chat-call-bar-icon"><CallIcon name={liveHere.kind === 'video' ? 'video' : 'phone'} size={16} /></span>
+                  <span className="chat-call-bar-text">
+                    <strong>{liveHere.meetingTitle || (liveHere.kind === 'video' ? tr('Video call in progress') : tr('Voice call in progress'))}</strong>
+                    <span className="chat-muted">{liveHere.people === 1 ? tr('1 person in the call') : tr('{n} people in the call', { n: liveHere.people })}</span>
+                  </span>
+                  <button type="button" className="btn btn-primary" onClick={() => (liveHere.meetingId ? calls.joinMeeting(liveHere.meetingId, liveHere.meetingTitle || conv.name) : calls.joinCall(liveHere.id, conv.name))}>{tr('Join')}</button>
+                </div>
+              )}
 
               {pin && (
                 <div className="chat-pinned" key={pin.id}>
@@ -884,7 +919,20 @@ export default function MessagesPage() {
                 )}
                 {items.map((it) => {
                   if (it.type === 'day') return <div className="chat-day" key={it.key}><span>{it.label}</span></div>;
-                  if (it.type === 'system') return <div className="chat-system" key={it.key}><span>{systemText(it.message.meta)}</span></div>;
+                  if (it.type === 'system') {
+                    const sm = it.message, meta = sm.meta || {};
+                    if (meta.type === 'meeting') return <div className="chat-meeting" key={it.key}><MeetingCard meetingId={meta.meetingId} locale={activeIntlLocale()} /></div>;
+                    const running = meta.type === 'call' ? calls.live.find((c) => c.id === meta.callId && !c.inCall) : null;
+                    return (
+                      <div className="chat-system" key={it.key}>
+                        <span>
+                          {(meta.type === 'call' || meta.type === 'callEnded') && <CallIcon name={meta.kind === 'video' ? 'video' : 'phone'} size={14} />}
+                          {systemText(meta, sm.fromMe ? tr('You') : sm.fromName)}
+                          {running && <button type="button" className="chat-system-join" onClick={() => calls.joinCall(running.id, conv.name)}>{tr('Join')}</button>}
+                        </span>
+                      </div>
+                    );
+                  }
                   const m = it.message;
                   const sender = peopleById[m.fromId];
                   const hasFiles = m.attachments.length > 0;
@@ -1240,6 +1288,10 @@ export default function MessagesPage() {
         </div>
       )}
       {seenFor && <SeenDialog messageId={seenFor} locale={activeIntlLocale()} onClose={() => setSeenFor(null)} />}
+      {booking && conv && (
+        <ScheduleMeetingDialog conversationId={conv.id} onClose={() => setBooking(false)}
+          onSaved={() => { setBooking(false); setMeetingsKey((k) => k + 1); loadConv({ type: 'conv', id: conv.id }, true); loadInbox(); }} />
+      )}
       {notice && <div className="chat-notice" role="status" key={notice}>{notice}</div>}
     </div>
   );
