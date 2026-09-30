@@ -49,10 +49,11 @@
   # /pokileases or a share token would leak more than it needs to.
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
-  # The app asks for camera (kiosk face capture) and that is all. Geolocation
+  # The app asks for the camera (kiosk face capture, video calls), the
+  # microphone (voice notes, calls) and screen sharing (calls). Geolocation
   # is used by the kiosk clock-in, so it stays. Everything else is denied
   # outright rather than left to default.
-  Header always set Permissions-Policy "camera=(self), geolocation=(self), microphone=(), payment=(), usb=(self), interest-cohort=()"
+  Header always set Permissions-Policy "camera=(self), geolocation=(self), microphone=(self), display-capture=(self), payment=(), usb=(self), interest-cohort=()"
 
   # Cross-origin isolation. "allow-popups" rather than a bare "same-origin"
   # because the tenancy-agreement print view opens a blank popup and writes
@@ -79,10 +80,13 @@
   #   img-src     data: and blob: are required — html2canvas renders the
   #               invoice preview to a canvas, and menu-photo previews use
   #               createObjectURL before upload.
-  #   connect-src the API on Render, plus blob:/data: for the generated PDF.
+  #   connect-src the API on Render, plus blob:/data: for the generated PDF,
+  #               plus LiveKit Cloud for voice and video calls (the call's
+  #               connection is wss://, and the client asks https:// for
+  #               the nearest region).
   #   worker-src  the three service workers (app, POS, kiosk) register from
   #               same-origin files; blob: covers workers created at runtime.
   #   frame-ancestors  nothing may embed this app — clickjacking on a
   #               payroll and invoicing system is worth closing properly.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bamboo-os-backend.onrender.com blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bamboo-os-backend.onrender.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>

@@ -64,6 +64,7 @@ export default function CallScreen({ session, onHeartbeat, onLeave }) {
   const [seconds, setSeconds] = useState(0);
   const [busy, setBusy] = useState(false);
   const leftRef = useRef(false);
+  const connectedRef = useRef(false);
   const bump = () => setVersion((v) => v + 1);
 
   async function hangUp() {
@@ -97,12 +98,19 @@ export default function CallScreen({ session, onHeartbeat, onLeave }) {
         if (s === ConnectionState.Reconnecting) setState('reconnecting');
         if (s === ConnectionState.Connected) setState('connected');
       })
-      .on(RoomEvent.Disconnected, () => { if (!stopped && !leftRef.current) { leftRef.current = true; onLeave(); } });
+      .on(RoomEvent.Disconnected, () => {
+        if (stopped || leftRef.current) return;
+        // Never got in: stay on screen and say so (the catch below), rather
+        // than closing before anyone can see why.
+        if (!connectedRef.current) return;
+        leftRef.current = true; onLeave();
+      });
 
     (async () => {
       try {
         await room.connect(session.url, session.token);
         if (stopped) return;
+        connectedRef.current = true;
         setState('connected');
         try { await room.localParticipant.setMicrophoneEnabled(true); } catch { setError(tr('Your microphone could not be turned on. Allow it in the browser to be heard.')); }
         if (session.kind === 'video') {
@@ -110,7 +118,8 @@ export default function CallScreen({ session, onHeartbeat, onLeave }) {
         }
         setNeedsTap(!room.canPlaybackAudio);
         bump();
-      } catch {
+      } catch (e) {
+        console.error('Call could not connect:', e);
         if (!stopped) { setState('failed'); setError(tr('The call could not connect. Check the internet connection and try again.')); }
       }
     })();
