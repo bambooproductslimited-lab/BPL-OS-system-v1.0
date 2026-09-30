@@ -22,17 +22,26 @@ module.exports = {
   pool: pool,
   query: function (text, params) { return pool.query(text, params); },
   // Run a callback inside a transaction; commits on success, rolls back on throw.
+  // client.afterCommit collects work that must only happen once the
+  // transaction is really committed (a phone pop-up, utils/notify.js); it
+  // runs after COMMIT and is dropped on ROLLBACK.
   withTransaction: async function (fn) {
     var client = await pool.connect();
     try {
       await client.query('BEGIN');
+      client.afterCommit = [];
       var result = await fn(client);
       await client.query('COMMIT');
+      var jobs = client.afterCommit;
+      client.afterCommit = null;
+      jobs.forEach(function (job) { try { job(); } catch (e) { console.error('After-commit job failed:', e.message); } });
       return result;
     } catch (err) {
+      client.afterCommit = null;
       await client.query('ROLLBACK');
       throw err;
     } finally {
+      client.afterCommit = null;
       client.release();
     }
   }

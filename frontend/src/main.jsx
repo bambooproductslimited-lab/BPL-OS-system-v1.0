@@ -6,6 +6,7 @@ import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { I18nProvider } from './components/I18nProvider.jsx'
 import { AuthProvider } from './auth/AuthContext'
+import { API_URL } from './api/client'
 
 // Makes the app installable (PWA) and lets the app shell open instantly on
 // repeat visits — see public/sw.js. Registered at scope '/', which coexists
@@ -14,7 +15,9 @@ import { AuthProvider } from './auth/AuthContext'
 // and cache, unaffected by this one).
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    // The API's address rides along so the worker can decline a call
+    // straight from its pop-up (public/sw.js), with the OS closed.
+    navigator.serviceWorker.register('/sw.js?api=' + encodeURIComponent(API_URL), { scope: '/' }).catch(() => {});
   });
 }
 

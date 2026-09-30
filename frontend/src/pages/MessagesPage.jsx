@@ -16,6 +16,7 @@ import {
 import { useCalls } from '../components/calls/CallsContext';
 import CallIcon from '../components/calls/CallIcon';
 import { MeetingCard, ScheduleMeetingDialog, UpcomingMeetings } from '../components/calls/Meetings';
+import CallAlerts from '../components/calls/CallAlerts';
 import './MessagesPage.css';
 
 // Chats: one-to-one and group conversations, with photos, videos, voice
@@ -795,6 +796,7 @@ export default function MessagesPage() {
               <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label}</button>
             ))}
           </div>
+          <CallAlerts />
           <UpcomingMeetings locale={activeIntlLocale()} onOpenChat={(id) => open({ type: 'conv', id })} refreshKey={meetingsKey} />
           <div className="chat-list-items">
             {visibleInbox.map((c, n) => {

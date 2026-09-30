@@ -30,6 +30,32 @@ var EARLY_MIN = 15;               // a meeting opens this long before it starts
 var LATE_MIN = 60;                // and stays open this long after its planned end
 var UUID = /^[0-9a-f-]{36}$/i;
 
+// ── on the phone, with the OS closed ────────────────────────────────────
+// A call reaches a device as a Web Push pop-up (push.service.js), sent
+// urgently and only good for as long as the call rings. It carries Answer
+// and Decline (public/sw.js). Decline works straight from the pop-up,
+// without opening the OS: the pop-up holds a short-lived pass that can
+// decline this one call for this one person and do nothing else. It is
+// signed with a key derived from the session secret, so it can never pass
+// for a sign-in.
+var DECLINE_PURPOSE = 'call-decline';
+function declineKey() { return crypto.createHmac('sha256', config.jwt.secret).update(DECLINE_PURPOSE).digest(); }
+function declinePass(callId, employeeId) {
+  return jwt.sign({ p: DECLINE_PURPOSE, c: callId, e: employeeId }, declineKey(), { algorithm: 'HS256', expiresIn: '5m' });
+}
+function ringPush(call, title, body, employeeId) {
+  return {
+    data: { type: 'call', callId: call.id, kind: call.kind, declinePass: declinePass(call.id, employeeId) },
+    options: { ttl: Math.round(RING_MS / 1000), urgency: 'high', topic: call.id.replace(/-/g, '') }
+  };
+}
+function missedPush(call) {
+  return {
+    data: { type: 'call-missed', callId: call.id, kind: call.kind },
+    options: { ttl: 60 * 60 * 24, urgency: 'normal', topic: call.id.replace(/-/g, '') }
+  };
+}
+
 function configured() { return config.livekit.configured; }
 function needService() {
   if (!configured()) fail('unavailable', 'Calls aren\'t set up yet. An administrator adds LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET on the server.');
@@ -77,6 +103,7 @@ async function endIfEmpty(db, call, ctx) {
   var minutes = Math.max(0, Math.round((new Date(ended.ended_at) - new Date(ended.started_at)) / 60000));
   // Who ended it doesn't matter for the note; it is written as the caller
   // (a note needs someone's name on it, so none when there is nobody).
+  if (!call.meeting_id) await tellMissed(db, call);
   var author = ctx ? ctx.employee.id : call.started_by;
   if (author) {
     await messages.systemMessage(db, { employee: { id: author } }, call.conversation_id,
@@ -98,6 +125,25 @@ async function dropIfUnanswered(db, call) {
   if (answered) return false;
   await db.query('UPDATE call_participants SET left_at = now() WHERE call_id = $1 AND left_at IS NULL', [call.id]);
   return endIfEmpty(db, call);
+}
+
+// When a call ends, everyone in the chat who never picked up it and didn't
+// decline it gets "Missed call" — in the OS, and on their phone in place of
+// the ringing pop-up.
+async function tellMissed(db, call) {
+  var caller = call.started_by ? await employee(call.started_by) : null;
+  var who = caller ? nameOf(caller) : 'someone';
+  var conv = (await db.query('SELECT kind, name FROM conversations WHERE id = $1', [call.conversation_id])).rows[0];
+  var missed = (await db.query(
+    'SELECT cm.employee_id AS id FROM conversation_members cm WHERE cm.conversation_id = $1 AND cm.left_at IS NULL ' +
+    '  AND cm.employee_id IS DISTINCT FROM $2 ' +
+    '  AND NOT EXISTS (SELECT 1 FROM call_participants p WHERE p.call_id = $3 AND p.employee_id = cm.employee_id)',
+    [call.conversation_id, call.started_by, call.id])).rows;
+  var title = (call.kind === 'video' ? 'Missed video call from ' : 'Missed call from ') + who;
+  var body = conv && conv.kind === 'group' ? 'In ' + conv.name + '.' : 'Open the chat to call back.';
+  for (var i = 0; i < missed.length; i++) {
+    await notify(db, missed[i].id, title, body, 'chat:' + call.conversation_id, missedPush(call));
+  }
 }
 
 // Calls nobody is in any more (everyone closed the page), and calls nobody
@@ -156,10 +202,12 @@ async function start(ctx, conversationId, kind) {
     await messages.systemMessage(client, ctx, conversationId, { type: 'call', callId: call.id, kind: kind });
     await messages.touch(client, conversationId);
     var who = nameOf(ctx.employee);
+    var conv = (await client.query('SELECT kind, name FROM conversations WHERE id = $1', [conversationId])).rows[0];
     var others = (await members(client, conversationId)).filter(function (m) { return m.id !== ctx.employee.id; });
+    var title = (kind === 'video' ? 'Video call from ' : 'Call from ') + who;
+    var body = conv.kind === 'group' ? 'In ' + conv.name + '. Tap to answer.' : 'Tap to answer.';
     for (var i = 0; i < others.length; i++) {
-      await notify(client, others[i].id, (kind === 'video' ? 'Video call from ' : 'Call from ') + who,
-        'Open Messages to answer.', '/messages?chat=' + conversationId);
+      await notify(client, others[i].id, title, body, 'chat:' + conversationId, ringPush(call, title, body, others[i].id));
     }
     return Object.assign(await joinAs(client, ctx, call), { ringFor: RING_MS });
   });
@@ -219,6 +267,20 @@ async function unanswered(ctx, callId) {
     return dropIfUnanswered(client, locked);
   });
   return { ended: dropped };
+}
+
+// POST /api/meet/call-decline { pass } — Decline on the phone's pop-up.
+async function declineByPass(pass) {
+  var claims;
+  try { claims = jwt.verify(String(pass || ''), declineKey(), { algorithms: ['HS256'] }); } catch (e) { claims = null; }
+  if (!claims || claims.p !== DECLINE_PURPOSE || !UUID.test(String(claims.c)) || !UUID.test(String(claims.e))) {
+    fail('invalid', 'This call can no longer be declined from here.');
+  }
+  var me = await employee(claims.e);
+  if (!me) fail('invalid', 'This call can no longer be declined from here.');
+  var call = (await pool.query('SELECT * FROM calls WHERE id = $1', [claims.c])).rows[0];
+  if (!call || call.ended_at) return { ok: true, ended: true };
+  return decline({ employee: me }, call.id);
 }
 
 // POST /api/messages/calls/:id/heartbeat — still here (every 20 s from the call screen).
@@ -293,7 +355,7 @@ async function schedule(ctx, conversationId, p) {
     var who = nameOf(ctx.employee);
     var others = (await members(client, conversationId)).filter(function (x) { return x.id !== ctx.employee.id; });
     for (var i = 0; i < others.length; i++) {
-      await notify(client, others[i].id, 'Meeting: ' + m.title, who + ' booked a ' + m.kind + ' call. Open it in Messages.', '/messages?chat=' + conversationId);
+      await notify(client, others[i].id, 'Meeting: ' + m.title, who + ' booked a ' + m.kind + ' call. Open it in Messages.', 'chat:' + conversationId);
     }
     return meetingOut(row, { guestToken: row.guest_token || null });
   });
@@ -483,7 +545,7 @@ async function remindDue(sendSms) {
     var people = await members(pool, m.conversation_id);
     var at = new Date(m.starts_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Accra' });
     for (var j = 0; j < people.length; j++) {
-      await notify(pool, people[j].id, 'Starting soon: ' + m.title, (m.kind === 'video' ? 'Video' : 'Voice') + ' meeting at ' + at + '. Join it in Messages.', '/messages?chat=' + m.conversation_id);
+      await notify(pool, people[j].id, 'Starting soon: ' + m.title, (m.kind === 'video' ? 'Video' : 'Voice') + ' meeting at ' + at + '. Join it in Messages.', 'chat:' + m.conversation_id);
       sent++;
       if (sendSms && people[j].phone) {
         try {
@@ -499,8 +561,8 @@ async function remindDue(sendSms) {
 
 module.exports = {
   configured: configured, pass: pass,
-  start: start, join: join, leave: leave, decline: decline, unanswered: unanswered, heartbeat: heartbeat, live: live, sweep: sweep,
-  RING_MS: RING_MS,
+  start: start, join: join, leave: leave, decline: decline, declineByPass: declineByPass, unanswered: unanswered, heartbeat: heartbeat, live: live, sweep: sweep,
+  RING_MS: RING_MS, declinePass: declinePass,
   schedule: schedule, meeting: meeting, update: update, cancel: cancel, forConversation: forConversation, upcoming: upcoming, joinMeeting: joinMeeting,
   guestView: guestView, guestJoin: guestJoin, guestHeartbeat: guestHeartbeat, guestLeave: guestLeave,
   remindDue: remindDue, EARLY_MIN: EARLY_MIN, LATE_MIN: LATE_MIN

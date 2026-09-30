@@ -7,6 +7,9 @@ var calls = require('../services/calls.service');
 var router = express.Router();
 function wrap(fn) { return async function (req, res, next) { try { await fn(req, res); } catch (e) { next(e); } }; }
 
+// Decline on a phone's call pop-up (public/sw.js): the pass in the pop-up is
+// the only key, good for one call, one person, five minutes.
+router.post('/call-decline', wrap(async function (req, res) { res.json(await calls.declineByPass((req.body || {}).pass)); }));
 router.get('/:token', wrap(async function (req, res) { res.json(await calls.guestView(req.params.token)); }));
 router.post('/:token/join', wrap(async function (req, res) { res.json(await calls.guestJoin(req.params.token, (req.body || {}).name, req.ip)); }));
 router.post('/:token/heartbeat', wrap(async function (req, res) { res.json(await calls.guestHeartbeat(req.params.token, (req.body || {}).guestId)); }));

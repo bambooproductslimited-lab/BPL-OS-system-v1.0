@@ -99,7 +99,13 @@ async function unsubscribe(ctx, endpoint) {
 // Never throws: a push that cannot be delivered must not take down the
 // action that triggered it — somebody's leave request is approved whether
 // or not their phone was reachable.
-async function sendToEmployee(employeeId, payload) {
+//
+// opts (optional): ttl — seconds the push service keeps trying a device
+// that is offline (a call is worthless a minute later, a leave approval is
+// not); urgency — 'high' wakes a sleeping phone straight away; topic — a
+// later push with the same topic replaces an undelivered earlier one.
+async function sendToEmployee(employeeId, payload, opts) {
+  opts = opts || {};
   var keys;
   try { keys = await vapidKeys(); } catch { return { sent: 0, failed: 0, pruned: 0 }; }
 
@@ -108,7 +114,9 @@ async function sendToEmployee(employeeId, payload) {
   if (!subs.length) return { sent: 0, failed: 0, pruned: 0 };
 
   var body = JSON.stringify(payload);
-  var options = { vapidDetails: { subject: VAPID_SUBJECT, publicKey: keys.publicKey, privateKey: keys.privateKey }, TTL: 60 * 60 * 24 };
+  var options = { vapidDetails: { subject: VAPID_SUBJECT, publicKey: keys.publicKey, privateKey: keys.privateKey }, TTL: opts.ttl || 60 * 60 * 24 };
+  if (opts.urgency) options.urgency = opts.urgency;
+  if (opts.topic) options.topic = opts.topic;
 
   var sent = 0, failed = 0, pruned = 0;
   var stale = [];

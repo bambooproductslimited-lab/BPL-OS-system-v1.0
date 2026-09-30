@@ -153,7 +153,7 @@ test('15 minutes before, everyone in the chat is reminded once, in the OS and by
   var texts = [];
   var r = await calls.remindDue(async function (opts) { texts.push(opts); return {}; });
   assert.ok(r.meetings >= 1);
-  var told = (await pool.query("SELECT employee_id FROM notifications WHERE title = 'Starting soon: Zqc stand-up'")).rows.map(function (x) { return x.employee_id; }).sort();
+  var told = (await pool.query("SELECT employee_id FROM notifications WHERE title = 'Starting soon: Zqc stand-up' AND link = $1", ['chat:' + groupId])).rows.map(function (x) { return x.employee_id; }).sort();
   assert.deepEqual(told, [ids.kelvin, ids.faith, ids.samuel].sort());
   assert.ok(texts.some(function (t) { return t.refId === m.id && /Zqc stand-up/.test(t.message) && t.purpose === 'meeting'; }));
   var again = await calls.remindDue(async function (opts) { texts.push(opts); return {}; });
@@ -216,4 +216,56 @@ test('someone who answers at the last moment keeps the call; the background job 
   assert.ok((await pool.query('SELECT ended_at FROM calls WHERE id = $1', [d.id])).rows[0].ended_at);
   var last = (await notes(groupId)).pop();
   assert.equal(last.type, 'callEnded'); assert.equal(last.missed, true);
+});
+
+test('a call rings on phones with the OS closed: an urgent pop-up with Decline, then "Missed call" in its place', async function () {
+  var push = require('../src/services/push.service');
+  var real = push.sendToEmployee, sent = [];
+  push.sendToEmployee = async function (emp, payload, opts) { sent.push({ emp: emp, payload: payload, opts: opts || {} }); return { sent: 1 }; };
+  try {
+    await pool.query('UPDATE calls SET ended_at = now() WHERE conversation_id = ANY($1) AND ended_at IS NULL', [[groupId, directId]]);
+    var c = (await call('kelvin', 'POST', '/messages/conversations/' + groupId + '/calls', { kind: 'video' })).data;
+    await new Promise(function (r) { setTimeout(r, 150); });
+    var rings = sent.filter(function (s) { return s.payload.type === 'call'; });
+    assert.deepEqual(rings.map(function (s) { return s.emp; }).sort(), [ids.faith, ids.samuel].sort());
+    var ring = rings[0];
+    assert.equal(ring.payload.callId, c.id);
+    assert.equal(ring.payload.kind, 'video');
+    assert.match(ring.payload.title, /^Video call from /);
+    assert.equal(ring.payload.link, 'chat:' + groupId);
+    assert.equal(ring.opts.urgency, 'high');
+    assert.equal(ring.opts.ttl, 30);
+    assert.equal(ring.opts.topic, c.id.replace(/-/g, ''));
+
+    // Decline from the pop-up: works once for that person and call only.
+    var samuelRing = rings.find(function (s) { return s.emp === ids.samuel; });
+    assert.equal((await call(null, 'POST', '/meet/call-decline', { pass: 'nonsense' })).status, 400);
+    var forged = jwt.sign({ p: 'call-decline', c: c.id, e: ids.samuel }, config.jwt.secret, { expiresIn: '5m' });
+    assert.equal((await call(null, 'POST', '/meet/call-decline', { pass: forged })).status, 400, 'signed with the session secret: refused');
+    // …and the pass is not a sign-in.
+    assert.equal((await fetch(base + '/api/messages/calls/live', { headers: { Authorization: 'Bearer ' + samuelRing.payload.declinePass } })).status, 401);
+    var d = await call(null, 'POST', '/meet/call-decline', { pass: samuelRing.payload.declinePass });
+    assert.equal(d.status, 200, JSON.stringify(d.data));
+    var row = (await pool.query('SELECT declined FROM call_participants WHERE call_id = $1 AND employee_id = $2', [c.id, ids.samuel])).rows[0];
+    assert.equal(row.declined, true);
+    assert.ok(!(await call('samuel', 'GET', '/messages/calls/live')).data.calls.find(function (x) { return x.id === c.id; }).ringing);
+
+    // Nobody answers: Faith (who never picked up) gets "Missed", Samuel (who declined) doesn't.
+    sent.length = 0;
+    await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [c.id]);
+    assert.equal((await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered')).data.ended, true);
+    await new Promise(function (r) { setTimeout(r, 150); });
+    var missed = sent.filter(function (s) { return s.payload.type === 'call-missed'; });
+    assert.deepEqual(missed.map(function (s) { return s.emp; }), [ids.faith]);
+    assert.match(missed[0].payload.title, /^Missed video call from /);
+    assert.equal(missed[0].opts.topic, c.id.replace(/-/g, ''), 'replaces the undelivered ring');
+    var bell = (await pool.query('SELECT title, link FROM notifications WHERE employee_id = $1 ORDER BY at DESC LIMIT 1', [ids.faith])).rows[0];
+    assert.match(bell.title, /^Missed video call from /);
+    assert.equal(bell.link, 'chat:' + groupId);
+
+    // A pass for an ended call is harmless.
+    assert.equal((await call(null, 'POST', '/meet/call-decline', { pass: calls.declinePass(c.id, ids.faith) })).data.ended, true);
+  } finally {
+    push.sendToEmployee = real;
+  }
 });

@@ -15,6 +15,7 @@
 // Bump CACHE_NAME on any change here so old caches get cleared on
 // activate.
 //
+// v4: calls ring on the device with the OS closed (Answer / Decline).
 // v3: adds the Web Push handlers at the foot of this file.
 // v2: fixed a real bug — cache-first for the navigation itself
 // (this file's original behavior) could permanently strand an installed
@@ -22,7 +23,7 @@
 // from a build no longer on the server, once enough redeploys had
 // happened since that device last did a background refresh (see the
 // identical fix in kiosk-sw.js, where this was caught on a real device).
-var CACHE_NAME = 'bamboo-app-v3';
+var CACHE_NAME = 'bamboo-app-v4';
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -101,6 +102,8 @@ self.addEventListener('fetch', function (event) {
 self.addEventListener('push', function (event) {
   var data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
+  if (data.type === 'call') { event.waitUntil(ringCall(data)); return; }
+  if (data.type === 'call-missed') { event.waitUntil(showMissedCall(data)); return; }
   var title = data.title || 'Bamboo OS';
   var options = {
     body: data.body || '',
@@ -117,6 +120,102 @@ self.addEventListener('push', function (event) {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+// ---------------------------------------------------------------------------
+// Calls (calls.service.js). Someone calling rings this device even with the
+// OS closed, as long as it is online: a pop-up with Answer and Decline that
+// buzzes again every few seconds for as long as the call rings (30 s), the
+// nearest a web app can come to a phone's own call screen. If the OS is
+// open and on screen, its own ringing card shows instead. When the call
+// ends unanswered, "Missed call" replaces the pop-up (same tag).
+
+// The API's address, handed over when main.jsx registers this worker.
+var API_URL = new URL(self.location.href).searchParams.get('api') || '';
+var RING_FOR_MS = 30000, RING_EVERY_MS = 5000;
+
+function callWords() {
+  var lang = String((self.navigator && self.navigator.language) || 'en').slice(0, 2);
+  if (lang === 'fr') return { answer: 'Répondre', video: 'Répondre en vidéo', decline: 'Refuser' };
+  if (lang === 'zh') return { answer: '接听', video: '视频接听', decline: '拒绝' };
+  return { answer: 'Answer', video: 'Answer with video', decline: 'Decline' };
+}
+function callTag(id) { return 'bamboo-call-' + id; }
+function isAppWindow(w) {
+  var url = new URL(w.url);
+  return url.origin === self.location.origin && url.pathname.indexOf('/kiosk') !== 0 && url.pathname.indexOf('/pos') !== 0 && url.pathname.indexOf('/meet') !== 0;
+}
+function chatOf(link) { var p = String(link || '').split(':'); return p[0] === 'chat' ? p[1] : null; }
+function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
+function ringingNow(callId) {
+  return self.registration.getNotifications({ tag: callTag(callId) }).then(function (list) {
+    return list.filter(function (n) { return n.data && n.data.type === 'call'; });
+  });
+}
+
+function ringCall(data) {
+  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
+    var shown = windows.filter(function (w) { return isAppWindow(w) && w.visibilityState === 'visible'; });
+    shown.forEach(function (w) { try { w.postMessage({ type: 'bamboo-call' }); } catch { /* closing */ } });
+    // Apple's browsers take a push that shows nothing as abuse, so there the
+    // pop-up always shows; elsewhere an OS on screen rings by itself.
+    var ua = self.navigator.userAgent || '';
+    var apple = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox|OPR/.test(ua));
+    if (shown.length && !apple) return null;
+
+    var words = callWords();
+    var options = {
+      body: data.body || '',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: callTag(data.callId),
+      renotify: true,
+      requireInteraction: true,
+      silent: false,
+      vibrate: [900, 400, 900, 400, 900],
+      actions: [
+        { action: 'decline', title: words.decline },
+        { action: 'answer', title: data.kind === 'video' ? words.video : words.answer }
+      ],
+      data: { type: 'call', callId: data.callId, link: data.link || null, declinePass: data.declinePass || null }
+    };
+    var title = data.title || 'Bamboo OS';
+    var started = Date.now();
+    // Buzz again while it's still ringing here: stop as soon as the pop-up is
+    // gone (answered, declined, swiped away, or replaced by "Missed call").
+    function again() {
+      if (Date.now() - started >= RING_FOR_MS) {
+        return ringingNow(data.callId).then(function (list) { list.forEach(function (n) { n.close(); }); });
+      }
+      return wait(RING_EVERY_MS).then(function () { return ringingNow(data.callId); }).then(function (list) {
+        if (!list.length) return null;
+        if (Date.now() - started >= RING_FOR_MS) { list.forEach(function (n) { n.close(); }); return null; }
+        return self.registration.showNotification(title, options).then(again);
+      });
+    }
+    return self.registration.showNotification(title, options).then(again);
+  });
+}
+
+function showMissedCall(data) {
+  return self.registration.showNotification(data.title || 'Missed call', {
+    body: data.body || '',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: callTag(data.callId),
+    renotify: true,
+    silent: false,
+    data: { type: 'call-missed', link: data.link || null }
+  });
+}
+
+// Decline on the pop-up: tells the OS without opening it. The pop-up carries
+// a pass that can decline this one call for this one person, nothing else.
+function declineCall(d) {
+  if (!API_URL || !d.declinePass) return Promise.resolve();
+  return fetch(API_URL + '/meet/call-decline', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass: d.declinePass })
+  }).catch(function () { /* it stops ringing for the caller after 30 s anyway */ });
+}
+
 // Tapping the pop-up. The aim is to reuse a window that is already open
 // rather than piling up new ones: if any Bamboo OS window exists, focus it
 // and tell it where to go; only open a new one when there is none.
@@ -125,9 +224,13 @@ self.addEventListener('push', function (event) {
 // "message:<id>" for a conversation, otherwise a bare route name.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  var link = event.notification.data && event.notification.data.link;
+  var d = event.notification.data || {};
+  if (d.type === 'call' && event.action === 'decline') { event.waitUntil(declineCall(d)); return; }
+  var link = d.link;
   var path = '/';
-  if (link) {
+  // Answer, or a tap on the call pop-up itself: open the chat and join.
+  if (d.type === 'call' && chatOf(link)) path = '/messages?chat=' + chatOf(link) + '&answer=' + d.callId;
+  else if (link) {
     var parts = String(link).split(':');
     path = parts[0] === 'message' ? '/messages?peer=' + parts[1]
       : parts[0] === 'chat' ? '/messages?chat=' + parts[1]

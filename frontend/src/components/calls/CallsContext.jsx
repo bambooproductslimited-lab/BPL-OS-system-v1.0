@@ -1,4 +1,5 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { tr } from '../../lib/i18n.jsx';
 // The calling library is large: loaded when a call starts, not with the OS.
@@ -69,6 +70,8 @@ export function CallsProvider({ children }) {
   const [error, setError] = useState(null);
   const activeRef = useRef(null);
   activeRef.current = active;
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const refresh = useCallback(async () => {
     try {
@@ -82,6 +85,15 @@ export function CallsProvider({ children }) {
     refresh();
     const t = setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, POLL_MS);
     return () => clearInterval(t);
+  }, [refresh]);
+
+  // A call's pop-up arrived while the OS is on screen (public/sw.js): look
+  // now rather than at the next poll, so it rings straight away.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+    const onMessage = (e) => { if (e.data && e.data.type === 'bamboo-call') refresh(); };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, [refresh]);
 
   // A message about a call (no answer, already in a call) goes by itself.
@@ -123,6 +135,25 @@ export function CallsProvider({ children }) {
     joinMeeting: (meetingId, title) => run(() => api.post('/messages/meetings/' + meetingId + '/join'), title, tr('The meeting has started. Others will appear here as they join.')),
     refresh
   };
+
+  // Answer on the phone's pop-up opens the OS at ?answer=<call id>: join it.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    const id = q.get('answer');
+    if (!id) return;
+    q.delete('answer');
+    navigate({ pathname: location.pathname, search: q.toString() ? '?' + q.toString() : '' }, { replace: true });
+    (async () => {
+      let title = tr('Call');
+      try {
+        const r = await api.get('/messages/calls/live');
+        const c = (r.calls || []).find((x) => x.id === id);
+        if (!c) { setError(tr('This call has ended.')); return; }
+        title = c.group && c.chatName ? c.chatName : c.startedBy ? c.startedBy.name : title;
+      } catch { /* try to join anyway */ }
+      value.joinCall(id, title);
+    })();
+  }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ringing = !active && live.find((c) => c.ringing && !dismissed[c.id]);
   async function decline(c) {
