@@ -92,7 +92,7 @@ const EMPTY_EMPLOYEE_FORM = {
   code: '', firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '',
-  shiftStart: '', shiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: ''
+  shiftStart: '', shiftEnd: '', secondShiftStart: '', secondShiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: ''
 };
 // An employee's work week (employees.work_days); '' is the usual Monday to Saturday.
 const WORK_WEEKS = [
@@ -256,6 +256,7 @@ export default function EmployeesPage() {
       basicSalary: emp.basicSalary == null ? '' : emp.basicSalary, allowance: emp.allowance == null ? '' : emp.allowance,
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
+      secondShiftStart: emp.secondShiftStart || '', secondShiftEnd: emp.secondShiftEnd || '',
       ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || '', workDays: emp.workDays || ''
     });
     setDialog('employee');
@@ -271,7 +272,8 @@ export default function EmployeesPage() {
           code: form.code, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status,
-          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language, workDays: form.workDays
+          shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language, workDays: form.workDays,
+          secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd
         };
         if (canManagePayroll) {
           body.payCycle = form.payCycle;
@@ -290,6 +292,7 @@ export default function EmployeesPage() {
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           hireDate: form.hireDate, employmentType: form.employmentType,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null, workDays: form.workDays || null,
+          secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd,
           createAccount: !!form.roleId, roleId: form.roleId || null,
           ...(canManagePayroll ? { ssnitNumber: form.ssnitNumber, tin: form.tin } : {})
         });
@@ -863,7 +866,7 @@ export default function EmployeesPage() {
                 </span>
                 <span className="ppl-line-col ppl-line-shift">
                   <span>{p.phone || '—'}</span>
-                  <span className="dk-muted">{p.shift || '—'}</span>
+                  <span className="dk-muted">{p.shift || '—'}{p.secondShiftStart ? ' · ' + tr('2nd shift {start}–{end}', { start: p.secondShiftStart, end: p.secondShiftEnd }) : ''}</span>
                 </span>
                 <span className="ppl-line-tags">{tagsFor(p)}</span>
                 <span className="ppl-acts">{contactsFor(p)}<RowMenu actions={menuFor(p)} /></span>
@@ -987,6 +990,15 @@ export default function EmployeesPage() {
             </div>
             <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
               {tr('These are a manual override only — leave blank if the shift picked above already covers it. Attendance uses (in order) the assigned shift\'s start time, then this manual override, then the company default, with the grace period set in Company settings, to decide who\'s marked late.')}
+            </p>
+            <div className="field"><label htmlFor="emp-shift2-start">{tr('Second shift start')}</label>
+              <input id="emp-shift2-start" className="input" type="time" value={form.secondShiftStart} onChange={(e) => setForm({ ...form, secondShiftStart: e.target.value })} />
+            </div>
+            <div className="field"><label htmlFor="emp-shift2-end">{tr('Second shift end')}</label>
+              <input id="emp-shift2-end" className="input" type="time" value={form.secondShiftEnd} onChange={(e) => setForm({ ...form, secondShiftEnd: e.target.value })} />
+            </div>
+            <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+              {tr('Only for staff who work two shifts in a day, for example a night shift after their day shift. They clock out between the two, and each shift is recorded, checked for lateness against its own start, and paid as a day. Leave both empty for one shift a day.')}
             </p>
             <div className="field"><label htmlFor="emp-work-week">{tr('Work week')}</label>
               <select id="emp-work-week" className="input" value={form.workDays} onChange={(e) => setForm({ ...form, workDays: e.target.value })}>

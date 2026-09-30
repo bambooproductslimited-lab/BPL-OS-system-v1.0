@@ -93,7 +93,7 @@ router.get('/summary', requireAuth, async function (req, res, next) {
     var year = new Date().getFullYear();
 
     var attendanceRes = await pool.query(
-      'SELECT * FROM attendance WHERE employee_id = $1 AND date = $2',
+      'SELECT * FROM attendance WHERE employee_id = $1 AND date = $2 ORDER BY shift_no DESC LIMIT 1', // the latest of the day's shifts
       [ctx.employee.id, today]
     );
     var balancesRes = await pool.query(

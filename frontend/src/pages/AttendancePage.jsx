@@ -345,7 +345,7 @@ export default function AttendancePage() {
     setDialogError(null);
     setCorrection(row);
     setCorrForm({
-      clockIn: row.clockIn || '', clockOut: row.clockOut || '',
+      clockIn: row.clockIn ? String(row.clockIn).slice(0, 5) : '', clockOut: row.clockOut ? String(row.clockOut).slice(0, 5) : '',
       status: row.status === 'absent' ? 'present' : row.status, note: ''
     });
   }
@@ -356,7 +356,7 @@ export default function AttendancePage() {
     setDialogError(null);
     try {
       await api.post('/attendance/adjust', {
-        id: correction.id || undefined, employeeId: correction.employeeId, date: dateRange.from,
+        id: correction.id || undefined, employeeId: correction.employeeId, date: dateRange.from, shiftNo: correction.shiftNo || undefined,
         clockIn: corrForm.clockIn, clockOut: corrForm.clockOut, status: corrForm.status, note: corrForm.note
       });
       setToast(tr('Attendance corrected and logged.'));
@@ -753,22 +753,40 @@ export default function AttendancePage() {
                   </td>
                   <td>{r.company}</td>
                   <td>{r.department}</td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.clockIn ? String(r.clockIn).slice(0, 5) : '—'} <LocationLink loc={r.clockInLocation} /></td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {r.clockIn ? String(r.clockIn).slice(0, 5) : '—'} <LocationLink loc={r.clockInLocation} />
+                    {r.shiftNo === 2 && <div className="attendance-second">{tr('2nd shift')}</div>}
+                    {r.secondShift && <div className="attendance-second">{tr('2nd shift')} {r.secondShift.clockIn ? String(r.secondShift.clockIn).slice(0, 5) : '—'}</div>}
+                  </td>
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {r.clockOut ? String(r.clockOut).slice(0, 5) : '—'} <LocationLink loc={r.clockOutLocation} />
                     {r.autoClockedOut && (
                       <span className="tag tag-warning attendance-auto-tag" title={tr('Nobody clocked out, so the system did after the shift ran its limit. Correct it if you know the real time.')}>{tr('Auto')}</span>
                     )}
+                    {r.secondShift && (
+                      <div className="attendance-second">
+                        {tr('2nd shift')} {r.secondShift.clockOut ? String(r.secondShift.clockOut).slice(0, 5) : '—'}
+                        {r.secondShift.autoClockedOut && <span className="tag tag-warning attendance-auto-tag">{tr('Auto')}</span>}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span>
                     {r.status === 'late' && r.minutesLate != null && <span className="attendance-late-by">{tr('{n} min', { n: r.minutesLate })}</span>}
+                    {r.secondShift && (
+                      <div className="attendance-second">
+                        <span className={'tag ' + tagClass(r.secondShift.status)}>{codeLabel(r.secondShift.status)}</span>
+                        {r.secondShift.status === 'late' && r.secondShift.minutesLate != null && <span className="attendance-late-by">{tr('{n} min', { n: r.secondShift.minutesLate })}</span>}
+                      </div>
+                    )}
                   </td>
                   <td className="attendance-note">{r.note || '—'}</td>
                   <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                     <RowMenu actions={[
                       { label: tr('Correct'), onClick: () => openCorrection(r), hidden: !(canAdjust) },
+                      { label: tr('Correct the 2nd shift'), onClick: () => openCorrection(r.secondShift ? { ...r.secondShift, employeeId: r.employeeId, name: r.name, shiftNo: 2 } : { employeeId: r.employeeId, name: r.name, shiftNo: 2, status: 'present' }), hidden: !(canAdjust && r.secondShiftStart && r.shiftNo !== 2) },
                       { label: tr('Delete'), onClick: () => setDeleteTarget(r), danger: true, hidden: !(canAdjust && r.id) },
+                      { label: tr('Delete the 2nd shift'), onClick: () => setDeleteTarget({ ...r.secondShift, name: r.name }), danger: true, hidden: !(canAdjust && r.secondShift) },
                     ]} />
                   </td>
                 </tr>
@@ -835,7 +853,7 @@ export default function AttendancePage() {
         <div className="dialog-backdrop" onClick={() => setCorrection(null)}>
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmCorrection}>
             <h2>{tr('Correct attendance')}</h2>
-            <p className="dialog-body">{correction.name} · {fmtDate(dateRange.from)}</p>
+            <p className="dialog-body">{correction.name} · {fmtDate(dateRange.from)}{correction.shiftNo === 2 ? ' · ' + tr('2nd shift') : ''}</p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="attendance-correction-grid">
               <div className="field">
@@ -937,7 +955,7 @@ export default function AttendancePage() {
                         {syncPreview.rows.map((r, i) => (
                           <tr key={i} className={r.action === 'unchanged' || r.action === 'skip' ? 'itdevices-import-row-skip' : ''}>
                             <td style={{ fontWeight: 600 }}>{r.employeeName}</td>
-                            <td>{r.date || '—'}</td>
+                            <td>{r.date || '—'}{r.shiftNo === 2 ? ' · ' + tr('2nd shift') : ''}</td>
                             <td>{r.clockIn || '—'}</td>
                             <td>{r.clockOut || '—'}</td>
                             <td>{codeLabel(r.status) || '—'}</td>

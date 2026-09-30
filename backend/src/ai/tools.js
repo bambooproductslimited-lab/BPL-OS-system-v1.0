@@ -176,7 +176,13 @@ var TOOLS = [
         return {
           name: r.name, code: r.code, department: r.department, status: r.status,
           clockIn: r.clockIn ? String(r.clockIn).slice(0, 5) : null, clockOut: r.clockOut ? String(r.clockOut).slice(0, 5) : null,
-          autoClockedOut: r.autoClockedOut || undefined, note: r.note || undefined
+          autoClockedOut: r.autoClockedOut || undefined, note: r.note || undefined,
+          // Staff on two shifts a day: the second one, when worked.
+          secondShift: r.secondShift ? {
+            status: r.secondShift.status,
+            clockIn: r.secondShift.clockIn ? String(r.secondShift.clockIn).slice(0, 5) : null,
+            clockOut: r.secondShift.clockOut ? String(r.secondShift.clockOut).slice(0, 5) : null
+          } : undefined
         };
       }, 100));
     }

@@ -78,6 +78,14 @@ function salaryShare(monthly, paidDays, workingDays, monthWorkingDays) {
   return Math.round(Number(monthly) * Math.min(Number(paidDays), workingDays) / monthWorkingDays * 100) / 100;
 }
 function iso(d) { return d.toISOString().slice(0, 10); }
+// Second shifts worked (migration 0112): staff on two shifts a day are paid
+// each shift as a day, so these are days on top of the period's working days.
+async function secondShiftsWorked(db, employeeId, from, to) {
+  var r = await db.query(
+    "SELECT count(*)::int AS n FROM attendance WHERE employee_id = $1 AND shift_no = 2 AND status IN ('present','late') AND date BETWEEN $2 AND $3",
+    [employeeId, from, to]);
+  return r.rows[0].n;
+}
 async function holidaySet(db, companyId, from, to) {
   if (!companyId) return new Set();
   var r = await db.query("SELECT to_char(date, 'YYYY-MM-DD') AS d FROM holidays WHERE company_id = $1 AND date BETWEEN $2 AND $3", [companyId, from, to]);
@@ -303,6 +311,8 @@ async function create(ctx, p) {
         var workingDays = businessDays(periodStart, periodEnd, hol, rest);
         var monthWorkingDays = businessDays(month.start, month.end, hol, rest);
         daysWorked = await paidDaysFor(client, emp.id, periodStart, periodEnd, hol, rest);
+        // A second shift is another day's pay, over and above the working days.
+        workingDays += await secondShiftsWorked(client, emp.id, periodStart, periodEnd);
         basis = { basis: 'salary', monthlyBasic: Number(emp.basic_salary), monthlyAllowance: Number(emp.allowance || 0), workingDays: workingDays, monthWorkingDays: monthWorkingDays };
         pay = {
           basic: salaryShare(basis.monthlyBasic, daysWorked, workingDays, monthWorkingDays),
@@ -345,8 +355,10 @@ async function editSlip(ctx, payRunId, employeeId, daysWorked, amounts) {
 
   var days = daysWorked === undefined || daysWorked === null || daysWorked === '' ? Number(slip.days_worked) : Number(daysWorked);
   if (!(days >= 0)) fail('invalid', 'Days worked must be a non-negative number.');
-  var maxDays = periodDays(run.period_start, run.period_end);
-  if (days > maxDays) fail('invalid', 'This pay period only has ' + maxDays + ' days.');
+  var calendarDays = periodDays(run.period_start, run.period_end);
+  var extraShifts = await secondShiftsWorked(pool, employeeId, run.period_start, run.period_end);
+  var maxDays = calendarDays + extraShifts;
+  if (days > maxDays) fail('invalid', extraShifts ? 'This pay period only has ' + calendarDays + ' days and ' + extraShifts + ' second shifts.' : 'This pay period only has ' + maxDays + ' days.');
 
   // Salaried: basic and allowance typed for this run, or else worked out
   // again from the monthly amounts for the days. Daily: days x rate.

@@ -85,7 +85,9 @@ async function load(ctx, companyCode) {
     if (row.from <= t) { onLeave.push(row); onLeaveIds[e.id] = true; } else upcomingLeave.push(row);
   });
 
-  var late = inToday.filter(function (a) { return a.status === 'late'; }).map(function (a) {
+  // Someone on two shifts (migration 0112) who was late for both shows once.
+  var lateSeen = {};
+  var late = inToday.filter(function (a) { return a.status === 'late' && !lateSeen[a.employee_id] && (lateSeen[a.employee_id] = true); }).map(function (a) {
     var e = visibleById[a.employee_id];
     return { name: nameOf(e), department: deptName(e), clockIn: hhmm(a.clock_in), shiftStart: hhmm(e.shift_start) };
   }).sort(function (x, y) { return String(y.clockIn).localeCompare(String(x.clockIn)); });

@@ -518,8 +518,11 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 async function tapSummary(employeeId, rec, dateStr) {
   var shiftRow = (await pool.query(
-    'SELECT coalesce(s.start_time, e.shift_start) AS start, coalesce(s.end_time, e.shift_end) AS finish ' +
+    'SELECT coalesce(s.start_time, e.shift_start) AS start, coalesce(s.end_time, e.shift_end) AS finish, e.second_shift_start, e.second_shift_end ' +
     'FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1', [employeeId])).rows[0] || {};
+  // A second shift (migration 0112) shows its own times.
+  var second = Number(rec.shift_no) === 2 && shiftRow.second_shift_start;
+  if (second) { shiftRow.start = shiftRow.second_shift_start; shiftRow.finish = shiftRow.second_shift_end; }
   var day = new Date(dateStr + 'T00:00:00Z');
   var monday = new Date(day); monday.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
   var HOURS = "EXTRACT(EPOCH FROM ((coalesce(clock_out_date, date) + clock_out) - (date + clock_in))) / 3600";
@@ -537,7 +540,7 @@ async function tapSummary(employeeId, rec, dateStr) {
     worked = Math.max(0, Math.round((to - from) / 60000));
   }
   return {
-    shift: shiftRow.start ? { start: String(shiftRow.start).slice(0, 5), end: shiftRow.finish ? String(shiftRow.finish).slice(0, 5) : null } : null,
+    shift: shiftRow.start ? Object.assign({ start: String(shiftRow.start).slice(0, 5), end: shiftRow.finish ? String(shiftRow.finish).slice(0, 5) : null }, second ? { second: true } : {}) : null,
     workedMinutes: worked,
     week: { days: week.days, hours: Math.round(week.hours * 10) / 10 },
     lateThisMonth: late

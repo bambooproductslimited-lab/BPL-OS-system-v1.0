@@ -382,7 +382,10 @@ export default function KioskPage() {
     if (r.action === 'in') {
       if (r.status === 'late') out.push({ icon: 'warn', tone: 'warn', text: trIn(loc, '{time} late for your shift', { time: duration(r.minutesLate || 0, loc) }) });
       else if (r.status) out.push({ icon: 'checkCircle', tone: 'good', text: trIn(loc, 'On time') });
-      if (r.shift) out.push({ icon: 'clock', text: r.shift.end ? trIn(loc, 'Your shift: {start} to {end}', { start: r.shift.start, end: r.shift.end }) : trIn(loc, 'Your shift starts at {start}', { start: r.shift.start }) });
+      if (r.shift) {
+        out.push({ icon: 'clock', text: r.shift.second && r.shift.end ? trIn(loc, 'Your second shift today: {start} to {end}', { start: r.shift.start, end: r.shift.end })
+          : r.shift.end ? trIn(loc, 'Your shift: {start} to {end}', { start: r.shift.start, end: r.shift.end }) : trIn(loc, 'Your shift starts at {start}', { start: r.shift.start }) });
+      }
     } else if (r.workedMinutes != null) {
       out.push({ icon: 'clock', tone: 'good', text: trIn(loc, 'You worked {time} this shift', { time: duration(r.workedMinutes, loc) }) });
     }

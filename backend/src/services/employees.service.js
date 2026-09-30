@@ -28,6 +28,9 @@ function rowToEmployee(r, ctx) {
     employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location,
     shiftId: r.shift_id, shiftName: r.shift_tpl_name || null,
     shiftStart: shiftStart, shiftEnd: shiftEnd,
+    // A second shift the same day (migration 0112), or null.
+    secondShiftStart: r.second_shift_start ? String(r.second_shift_start).slice(0, 5) : null,
+    secondShiftEnd: r.second_shift_end ? String(r.second_shift_end).slice(0, 5) : null,
     // The language they read on the kiosk; null follows their account's.
     language: r.language || null,
     // Their work week: 'mon_fri', 'mon_sat', 'all', or null (the usual week).
@@ -65,6 +68,17 @@ async function idTaken(column, value, exceptId, label) {
   if (!value) return;
   var r = (await pool.query('SELECT first_name, last_name FROM employees WHERE upper(' + column + ') = $1 AND ($2::uuid IS NULL OR id <> $2)', [value, exceptId || null])).rows[0];
   if (r) fail('conflict', label + ' ' + value + ' is already on ' + r.first_name + ' ' + r.last_name + '\'s record.');
+}
+
+// A second shift in the day (migration 0112): start and end together, or
+// neither. Returns undefined when not given, null to clear.
+function secondShift(p) {
+  if (p.secondShiftStart === undefined && p.secondShiftEnd === undefined) return undefined;
+  var a = p.secondShiftStart ? V.time(p.secondShiftStart, 'Second shift start') : null;
+  var b = p.secondShiftEnd ? V.time(p.secondShiftEnd, 'Second shift end') : null;
+  if (!a !== !b) fail('invalid', 'Give the second shift a start and an end time, or leave both empty.');
+  if (a && a === b) fail('invalid', 'The second shift must end at a different time than it starts.');
+  return a ? { start: a, end: b } : null;
 }
 
 // kernel.js: handlers['employees.list']
@@ -175,17 +189,19 @@ async function create(ctx, p) {
   var code;
   if (p.code != null && String(p.code).trim()) { code = codes.normalize(p.code); await codes.mustBeFree(pool, code, null); }
   else code = await codes.next(pool);
+  var second = secondShift(p);
   var settingsRes = await pool.query('SELECT plants FROM settings WHERE id = 1');
   var defaultLocation = (settingsRes.rows[0] && settingsRes.rows[0].plants[0]) || '';
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days, second_shift_start, second_shift_end) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
         employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate,
         p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null, ssnitNumber, tin,
-        p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null]
+        p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null,
+        second ? second.start : null, second ? second.end : null]
     );
     var e = insertRes.rows[0];
 
@@ -301,6 +317,15 @@ async function update(ctx, id, p) {
     var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
     var curShiftEnd = e.shift_end ? e.shift_end.slice(0, 5) : null;
     if (shiftEnd !== curShiftEnd) { changed.push('shiftEnd'); values.push(shiftEnd); sets.push('shift_end = $' + values.length); }
+  }
+  var second = secondShift(p);
+  if (second !== undefined) {
+    var cur2 = e.second_shift_start ? String(e.second_shift_start).slice(0, 5) + '-' + String(e.second_shift_end).slice(0, 5) : null;
+    if ((second ? second.start + '-' + second.end : null) !== cur2) {
+      changed.push('secondShift');
+      values.push(second ? second.start : null); sets.push('second_shift_start = $' + values.length);
+      values.push(second ? second.end : null); sets.push('second_shift_end = $' + values.length);
+    }
   }
   if (p.workDays !== undefined) {
     var workDays = p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null;

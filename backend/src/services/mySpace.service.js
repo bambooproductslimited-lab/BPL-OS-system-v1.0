@@ -31,7 +31,7 @@ async function overview(ctx) {
   var start = profile.tpl_start || profile.shift_start || null;
   var end = profile.tpl_end || profile.shift_end || null;
 
-  var todayRow = (await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2', [emp, today])).rows[0];
+  var todayRow = (await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2 ORDER BY shift_no DESC LIMIT 1', [emp, today])).rows[0]; // the latest of the day's shifts
   var recent = (await pool.query('SELECT * FROM attendance WHERE employee_id = $1 AND date >= $2 ORDER BY date', [emp, since14])).rows;
   var month = (await pool.query(
     "SELECT count(*) FILTER (WHERE status IN ('present', 'late', 'half_day'))::int AS days, count(*) FILTER (WHERE status = 'late')::int AS late, " +

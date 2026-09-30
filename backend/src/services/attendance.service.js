@@ -72,13 +72,15 @@ async function resolveLateAfter(employeeId, dateISO) {
 //   company-wide to people who have no shift to be measured against.
 //
 // Only the first of those wraps.
-async function resolveLateRule(employeeId, dateISO) {
+async function resolveLateRule(employeeId, dateISO, shiftNo) {
   var empRes = await pool.query(
-    'SELECT e.shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
+    'SELECT e.shift_start, e.second_shift_start, s.start_time AS shift_tpl_start FROM employees e LEFT JOIN shifts s ON s.id = e.shift_id WHERE e.id = $1',
     [employeeId]
   );
   var row = empRes.rows[0];
-  var shiftStart = row && (row.shift_tpl_start || row.shift_start) ? String(row.shift_tpl_start || row.shift_start).slice(0, 5) : null;
+  // A second shift (migration 0112) is judged against its own start.
+  var first = row && (shiftNo === 2 && row.second_shift_start ? row.second_shift_start : row.shift_tpl_start || row.shift_start);
+  var shiftStart = first ? String(first).slice(0, 5) : null;
   if (shiftStart) {
     var grace = graceOn(await graceSchedule(), dateISO || todayISO());
     return { cutoff: addMinutesToHM(shiftStart, grace), shiftStart: shiftStart };
@@ -170,10 +172,34 @@ function sanitizeLocation(loc) {
 // attendance.self; kiosk.service.js's PIN match is its own gate). location
 // is only ever populated by the kiosk; clockIn/clockOut (the web "clock
 // myself in" handlers below) don't collect it, so it's simply null there.
+// Staff who work two shifts in a day (migration 0112) have a second shift
+// on their record. A clock-in goes to whichever of their two shifts starts
+// nearest the tap — a 17:55 tap is the night shift, 06:58 the day shift —
+// or to the other one if that shift is already recorded today. Everyone
+// else has one shift a day, as before.
+async function secondShiftOf(employeeId) {
+  var r = (await pool.query('SELECT second_shift_start, second_shift_end FROM employees WHERE id = $1', [employeeId])).rows[0];
+  return r && r.second_shift_start ? { start: String(r.second_shift_start).slice(0, 5), end: String(r.second_shift_end).slice(0, 5) } : null;
+}
+function minutesApart(a, b) {
+  var d = Math.abs(hmToMinutes(a) - hmToMinutes(b)) % 1440;
+  return Math.min(d, 1440 - d);
+}
+async function shiftOrder(employeeId, dateISO, tapHM) {
+  var second = await secondShiftOf(employeeId);
+  if (!second) return [1];
+  var first = (await resolveLateRule(employeeId, dateISO, 1)).shiftStart;
+  if (!first) return [1, 2];
+  return minutesApart(tapHM, second.start) < minutesApart(tapHM, first) ? [2, 1] : [1, 2];
+}
+
 async function clockInEmployee(employeeId, source, occurredAt, location) {
   var resolved = resolveOccurredAt(occurredAt);
-  var existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date]);
-  if (existing.rows[0]) fail('conflict', 'Already clocked in today.');
+  var taken = (await pool.query('SELECT shift_no FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, resolved.date])).rows
+    .map(function (r) { return Number(r.shift_no); });
+  var order = await shiftOrder(employeeId, resolved.date, resolved.time);
+  var shiftNo = order.filter(function (n) { return taken.indexOf(n) < 0; })[0];
+  if (!shiftNo) fail('conflict', order.length > 1 ? 'Both of your shifts today are already recorded.' : 'Already clocked in today.');
 
   // Minutes past the late cutoff itself (not the shift's raw start time) —
   // the same value that decides 'late' vs 'present', so "5 minutes late"
@@ -182,13 +208,13 @@ async function clockInEmployee(employeeId, source, occurredAt, location) {
   // settings.late_after fallback. Not persisted (attendance has no column
   // for it) — computed fresh for the kiosk's own result screen, which is
   // the only thing that currently reads it.
-  var judged = judgeLateness(await resolveLateRule(employeeId, resolved.date), resolved.time);
+  var judged = judgeLateness(await resolveLateRule(employeeId, resolved.date, shiftNo), resolved.time);
   var status = judged.status;
   var minutesLate = judged.minutesLate;
 
   var res = await pool.query(
-    'INSERT INTO attendance (employee_id, date, clock_in, status, source, clock_in_location) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-    [employeeId, resolved.date, resolved.time, status, source, sanitizeLocation(location)]
+    'INSERT INTO attendance (employee_id, date, clock_in, status, source, clock_in_location, shift_no) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+    [employeeId, resolved.date, resolved.time, status, source, sanitizeLocation(location), shiftNo]
   );
   return Object.assign(res.rows[0], { minutesLate: minutesLate });
 }
@@ -314,7 +340,9 @@ async function closeOverdueShifts(asOf, employeeId) {
   var where = 'a.clock_in IS NOT NULL AND a.clock_out IS NULL';
   if (employeeId) { params.push(employeeId); where += ' AND a.employee_id = $1'; }
   var res = await pool.query(
-    'SELECT a.id, a.employee_id, a.date, a.clock_in, a.note, s.start_time AS shift_start, s.end_time AS shift_end ' +
+    'SELECT a.id, a.employee_id, a.date, a.clock_in, a.note, ' +
+    '  CASE WHEN a.shift_no = 2 THEN e.second_shift_start ELSE s.start_time END AS shift_start, ' +
+    '  CASE WHEN a.shift_no = 2 THEN e.second_shift_end ELSE s.end_time END AS shift_end ' +
     'FROM attendance a JOIN employees e ON e.id = a.employee_id LEFT JOIN shifts s ON s.id = e.shift_id WHERE ' + where,
     params
   );
@@ -390,12 +418,15 @@ async function takeAutoClockOutNotices(employeeId) {
 // system closed it, say so — "you have already clocked in and out today"
 // would be baffling to someone who never tapped out.
 async function alreadyClosedMessage(employeeId, dateISO) {
-  var res = await pool.query('SELECT clock_out, auto_clocked_out FROM attendance WHERE employee_id = $1 AND date = $2', [employeeId, dateISO]);
-  var row = res.rows[0];
+  var res = await pool.query('SELECT clock_out, auto_clocked_out FROM attendance WHERE employee_id = $1 AND date = $2 ORDER BY (date + clock_in) NULLS FIRST', [employeeId, dateISO]);
+  var two = !!(await secondShiftOf(employeeId));
+  // Someone with two shifts can still clock in for the other one.
+  if (two && res.rows.length < 2) return null;
+  var row = res.rows[res.rows.length - 1];
   if (!row || !row.clock_out) return null;
   return row.auto_clocked_out
     ? 'Your shift today was already clocked out automatically at ' + String(row.clock_out).slice(0, 5) + ' because it ran over ' + AUTO_CLOCK_OUT_HOURS + ' hours. Ask your supervisor to correct the time if you left later.'
-    : 'You have already clocked in and out today.';
+    : two ? 'You have already worked both of your shifts today.' : 'You have already clocked in and out today.';
 }
 
 // kernel.js: handlers['attendance.clockIn']
@@ -434,7 +465,7 @@ async function scopedEmployees(ctx, filters) {
   var baseQuery =
     'SELECT e.id, e.department_id, e.manager_id, e.code, e.first_name, e.last_name, e.position_title, e.hourly_rate, e.work_days, ' +
     'd.name AS department_name, d.company_id, c.name AS company_name, c.code AS company_code, ' +
-    'coalesce(s.start_time, e.shift_start) AS shift_start_time ' +
+    'coalesce(s.start_time, e.shift_start) AS shift_start_time, e.second_shift_start ' +
     'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id LEFT JOIN shifts s ON s.id = e.shift_id ' +
     "WHERE e.status != 'terminated'";
   if (!canAll) {
@@ -457,9 +488,10 @@ async function list(ctx, params) {
   var date = (params && params.date) || todayISO();
   var scopeEmployees = await scopedEmployees(ctx, params);
 
-  var attRes = await pool.query('SELECT * FROM attendance WHERE date = $1', [date]);
-  var byEmp = {};
-  attRes.rows.forEach(function (r) { byEmp[r.employee_id] = r; });
+  var attRes = await pool.query('SELECT * FROM attendance WHERE date = $1 ORDER BY shift_no', [date]);
+  var byEmp = {}, secondByEmp = {};
+  // The first shift worked leads the row; a second one rides along with it.
+  attRes.rows.forEach(function (r) { if (!byEmp[r.employee_id]) byEmp[r.employee_id] = r; else secondByEmp[r.employee_id] = r; });
   var onLeave = await approvedLeaveDays(scopeEmployees.map(function (e) { return e.id; }), date, date);
 
   return {
@@ -467,13 +499,27 @@ async function list(ctx, params) {
     scopeSize: scopeEmployees.length,
     rows: scopeEmployees.map(function (e) {
       var r = byEmp[e.id];
-      var shiftStart = e.shift_start_time ? String(e.shift_start_time).slice(0, 5) : null;
-      var clockIn = r && r.clock_in ? String(r.clock_in).slice(0, 5) : null;
+      var startOf = function (row) {
+        var t = row && Number(row.shift_no) === 2 && e.second_shift_start ? e.second_shift_start : e.shift_start_time;
+        return t ? String(t).slice(0, 5) : null;
+      };
+      var lateBy = function (row) {
+        var st = startOf(row), ci = row && row.clock_in ? String(row.clock_in).slice(0, 5) : null;
+        return row && row.status === 'late' && st && ci ? ((hmToMinutes(ci) - hmToMinutes(st)) % 1440 + 1440) % 1440 : null;
+      };
+      var shiftStart = startOf(r);
+      var s2 = secondByEmp[e.id];
       return {
         companyCode: e.company_code, shiftStart: shiftStart,
+        secondShiftStart: e.second_shift_start ? String(e.second_shift_start).slice(0, 5) : null,
+        shiftNo: r ? Number(r.shift_no) : null,
         // How far after their shift start a late arrival was (overnight
         // shifts wrap), when there is a shift to measure against.
-        minutesLate: r && r.status === 'late' && shiftStart && clockIn ? ((hmToMinutes(clockIn) - hmToMinutes(shiftStart)) % 1440 + 1440) % 1440 : null,
+        minutesLate: lateBy(r),
+        secondShift: s2 ? {
+          id: s2.id, clockIn: s2.clock_in, clockOut: s2.clock_out, status: s2.status, note: s2.note,
+          autoClockedOut: !!s2.auto_clocked_out, minutesLate: lateBy(s2), shiftStart: startOf(s2)
+        } : null,
         id: r ? r.id : null, employeeId: e.id, name: e.first_name + ' ' + e.last_name, code: e.code,
         department: e.department_name || '—', company: e.company_name || '—',
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
@@ -534,7 +580,10 @@ async function report(ctx, from, to, filters) {
     [ids, from, to]
   );
   var recordByEmpDate = {};
-  attRes.rows.forEach(function (r) { recordByEmpDate[r.employee_id + '|' + r.date] = r; });
+  attRes.rows.forEach(function (r) {
+    var k = r.employee_id + '|' + r.date;
+    (recordByEmpDate[k] = recordByEmpDate[k] || []).push(r);
+  });
   var onLeave = await approvedLeaveDays(ids, from, to);
 
   var dates = [];
@@ -550,8 +599,11 @@ async function report(ctx, from, to, filters) {
   var rows = [];
   scopeEmployees.forEach(function (e) {
     dates.forEach(function (date) {
-      var r = recordByEmpDate[e.id + '|' + date];
+      // Someone who worked two shifts that day gets a row for each.
+      var recs = (recordByEmpDate[e.id + '|' + date] || [null]).sort(function (a, b) { return a && b ? a.shift_no - b.shift_no : 0; });
+      recs.forEach(function (r) {
       var row = {
+        shiftNo: r ? Number(r.shift_no) : 1,
         employeeId: e.id, code: e.code, name: e.first_name + ' ' + e.last_name, positionTitle: e.position_title || '',
         department: e.department_name || '—', company: e.company_name || '—',
         date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
@@ -561,6 +613,7 @@ async function report(ctx, from, to, filters) {
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
       rows.push(row);
+      });
     });
   });
 
@@ -637,7 +690,7 @@ async function latenessReport(ctx, from, to, filters) {
   var ids = employees.map(function (e) { return e.id; });
   var att = await pool.query(
     'SELECT a.employee_id, a.date, a.clock_in, a.status, ' +
-    '       COALESCE(s.start_time, e.shift_start) AS shift_start, s.name AS shift_name ' +
+    '       CASE WHEN a.shift_no = 2 AND e.second_shift_start IS NOT NULL THEN e.second_shift_start ELSE COALESCE(s.start_time, e.shift_start) END AS shift_start, s.name AS shift_name ' +
     'FROM attendance a JOIN employees e ON e.id = a.employee_id ' +
     'LEFT JOIN shifts s ON s.id = e.shift_id ' +
     'WHERE a.employee_id = ANY($1::uuid[]) AND a.date BETWEEN $2 AND $3 AND a.clock_in IS NOT NULL',
@@ -725,9 +778,13 @@ async function adjust(ctx, p) {
     var emp = await fetchEmployeeById(p.employeeId);
     if (!emp) fail('notfound', 'Employee not found.');
     var date = V.date(p.date, 'Date');
+    var shiftNo = Number(p.shiftNo) === 2 ? 2 : 1;
+    if (shiftNo === 2 && !(await secondShiftOf(emp.id))) fail('invalid', 'Give ' + emp.first_name + ' a second shift on their record first.');
+    var dupe = await pool.query('SELECT 1 FROM attendance WHERE employee_id = $1 AND date = $2 AND shift_no = $3', [emp.id, date, shiftNo]);
+    if (dupe.rows[0]) fail('conflict', 'That shift already has a record for ' + date + '. Correct that one instead.');
     var insertRes = await pool.query(
-      "INSERT INTO attendance (employee_id, date, status, source) VALUES ($1,$2,'present','adjustment') RETURNING *",
-      [emp.id, date]
+      "INSERT INTO attendance (employee_id, date, status, source, shift_no) VALUES ($1,$2,'present','adjustment',$3) RETURNING *",
+      [emp.id, date, shiftNo]
     );
     rec = insertRes.rows[0];
   }
@@ -766,7 +823,7 @@ function rowToAttendance(r) {
     clockIn: r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r.clock_out ? r.clock_out.slice(0, 5) : null,
     clockInLocation: r.clock_in_location, clockOutLocation: r.clock_out_location,
     status: r.status, source: r.source, note: r.note, adjustedBy: r.adjusted_by,
-    autoClockedOut: !!r.auto_clocked_out
+    autoClockedOut: !!r.auto_clocked_out, shiftNo: Number(r.shift_no || 1)
   };
 }
 
@@ -778,7 +835,7 @@ module.exports = {
   clockIn: clockIn, clockOut: clockOut, list: list, adjust: adjust, remove: remove, rowToAttendance: rowToAttendance,
   clockInEmployee: clockInEmployee, clockOutEmployee: clockOutEmployee, resolveOccurredAt: resolveOccurredAt,
   resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,
-  graceSchedule: graceSchedule, graceOn: graceOn,
+  graceSchedule: graceSchedule, graceOn: graceOn, secondShiftOf: secondShiftOf,
   unassignedShifts: unassignedShifts, latenessReport: latenessReport,
   report: report
 };

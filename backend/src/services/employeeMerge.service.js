@@ -65,7 +65,7 @@ async function load(db, id, label) {
 
 // Blanks on the kept record filled from the duplicate. Pairs move together.
 var FILL = [
-  ['phone'], ['position_title'], ['manager_id'], ['location'], ['shift_id'], ['shift_start', 'shift_end'],
+  ['phone'], ['position_title'], ['manager_id'], ['location'], ['shift_id'], ['shift_start', 'shift_end'], ['second_shift_start', 'second_shift_end'],
   ['timestation_employee_id'], ['kiosk_pin_hash', 'kiosk_pin_encrypted'], ['face_descriptor', 'face_enrolled_at', 'face_enrolled_by'],
   ['photo_key', 'photo_updated_at'], ['hourly_rate'], ['basic_salary', 'allowance'], ['ssnit_number'], ['tin'],
   ['language'], ['work_days'], ['leave_days_total']
@@ -82,7 +82,7 @@ function fills(keep, dup) {
 }
 var FIELD_LABEL = {
   phone: 'phone number', position_title: 'job title', manager_id: 'manager', location: 'location', shift_id: 'shift',
-  shift_start: 'shift times', timestation_employee_id: 'TimeStation link', kiosk_pin_hash: 'kiosk PIN', face_descriptor: 'kiosk face',
+  shift_start: 'shift times', second_shift_start: 'second shift', timestation_employee_id: 'TimeStation link', kiosk_pin_hash: 'kiosk PIN', face_descriptor: 'kiosk face',
   photo_key: 'photo', hourly_rate: 'hourly rate', basic_salary: 'basic salary and allowance', ssnit_number: 'SSNIT number', tin: 'TIN',
   language: 'kiosk language', work_days: 'work week', leave_days_total: 'leave days', daily_rate: 'daily rate and pay cycle'
 };
@@ -105,7 +105,7 @@ async function preview(ctx, keepId, dupId) {
   var keepLogin = logins.filter(function (u) { return u.employee_id === keep.id; })[0] || null;
   var dupLogin = logins.filter(function (u) { return u.employee_id === dup.id; })[0] || null;
   var clash = await blockers(pool, keep.id, dup.id);
-  var sameDays = (await pool.query('SELECT count(*)::int AS n FROM attendance a JOIN attendance b ON b.date = a.date AND b.employee_id = $2 WHERE a.employee_id = $1', [keep.id, dup.id])).rows[0].n;
+  var sameDays = (await pool.query('SELECT count(*)::int AS n FROM attendance a JOIN attendance b ON b.date = a.date AND b.shift_no = a.shift_no AND b.employee_id = $2 WHERE a.employee_id = $1', [keep.id, dup.id])).rows[0].n;
   var direct = (await pool.query("SELECT count(*)::int AS n FROM conversations WHERE kind = 'direct' AND direct_key = $1", [directKey(keep.id, dup.id)])).rows[0].n;
   return {
     keep: summary(keep), duplicate: summary(dup),
@@ -180,7 +180,7 @@ async function merge(ctx, keepId, dupId) {
 
     // Attendance: on a day both have, a day with clock times wins.
     await client.query(
-      'DELETE FROM attendance k USING attendance d WHERE k.employee_id = $1 AND d.employee_id = $2 AND d.date = k.date AND k.clock_in IS NULL AND d.clock_in IS NOT NULL', [K, D]);
+      'DELETE FROM attendance k USING attendance d WHERE k.employee_id = $1 AND d.employee_id = $2 AND d.date = k.date AND d.shift_no = k.shift_no AND k.clock_in IS NULL AND d.clock_in IS NOT NULL', [K, D]);
     // Leave balances: the days used add up.
     await client.query(
       'UPDATE leave_balances k SET used = k.used + d.used, entitled = greatest(k.entitled, d.entitled) FROM leave_balances d ' +

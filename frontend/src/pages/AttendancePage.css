@@ -82,7 +82,7 @@
 .attendance-status-filter { max-width: 200px; }
 
 /* ── avatar + name cell ─────────────────────────────────────────────── */
-.attendance-name-cell { display: flex; align-items: center; gap: 10px; }
+.attendance-name-cell { display: flex; align-items: center; gap: 10px; min-width: 150px; }
 .attendance-avatar {
   width: 28px;
   height: 28px;
@@ -178,4 +178,7 @@
 .att-group .dk-track span.is-low { background: var(--dk-bad); }
 .att-group-meta { font-size: 12px; }
 .att .attendance-filters { margin: 0; }
+/* The second of two shifts in a day (migration 0112), under the first. */
+.attendance-second { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--color-divider); font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; }
+.attendance-second .tag { font-size: 11px; }
 .attendance-late-by { margin-left: 6px; font-size: 11.5px; font-weight: 700; color: var(--color-warning); white-space: nowrap; }

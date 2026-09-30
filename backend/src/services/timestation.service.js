@@ -307,6 +307,12 @@ var MAX_ATTENDANCE_RANGE_DAYS = 20 * 365;
 // forgotten-checkout followed by a fresh clock-in), they're merged into a
 // single row (earliest clock-in, latest clock-out) and flagged in the
 // preview so it's not a silent surprise.
+//
+// Except for staff who work two shifts a day (a second shift on their
+// record, migration 0112): their first shift of the day is shift 1 and the
+// next is shift 2, each with its own row, so the break between them is not
+// counted as work and both shifts are paid. A day with only one shift goes
+// to whichever of their two shifts starts nearest its clock-in.
 async function fetchShiftsForEmployee(timestationEmployeeId, startDate, endDate) {
   var qs = 'employee_id=' + encodeURIComponent(timestationEmployeeId) + '&start_date=' + startDate + '&end_date=' + endDate;
   var data = await timestationRequest('/shifts?' + qs);
@@ -324,7 +330,7 @@ async function previewAttendance(ctx, startDate, endDate) {
   if (!config.timestation.configured) fail('invalid', 'TimeStation is not configured — set TIMESTATION_API_KEY on the server.');
 
   var empRes = await pool.query(
-    "SELECT id, first_name, last_name, shift_start, timestation_employee_id FROM employees WHERE status = 'active' AND timestation_employee_id IS NOT NULL"
+    "SELECT id, first_name, last_name, shift_start, second_shift_start, timestation_employee_id FROM employees WHERE status = 'active' AND timestation_employee_id IS NOT NULL"
   );
   if (!empRes.rows.length) fail('invalid', 'No employees are linked to TimeStation yet — run "Sync from TimeStation" on the Employees page first.');
 
@@ -350,27 +356,44 @@ async function previewAttendance(ctx, startDate, endDate) {
     shifts.forEach(function (s) {
       if (!s.in || !s.in.time) { skippedNoCheckIn++; return; }
       var date = s.in.time.slice(0, 10);
-      var clockIn = s.in.time.slice(11, 16);
-      var clockOut = (s.out && s.out.time) ? s.out.time.slice(11, 16) : null;
-      if (!byDate[date]) byDate[date] = { date: date, clockIn: clockIn, clockOut: clockOut, shiftCount: 1 };
-      else {
-        var g = byDate[date];
-        g.shiftCount++;
-        if (clockIn < g.clockIn) g.clockIn = clockIn;
-        if (clockOut === null || g.clockOut === null) g.clockOut = null;
-        else if (clockOut > g.clockOut) g.clockOut = clockOut;
-      }
+      (byDate[date] = byDate[date] || []).push({
+        clockIn: s.in.time.slice(11, 16),
+        clockOut: (s.out && s.out.time) ? s.out.time.slice(11, 16) : null
+      });
     });
+    // Earliest in, latest out (an open shift leaves the whole group open).
+    function merged(list) {
+      var g = { clockIn: list[0].clockIn, clockOut: list[0].clockOut, shiftCount: list.length };
+      list.slice(1).forEach(function (x) {
+        if (x.clockIn < g.clockIn) g.clockIn = x.clockIn;
+        if (x.clockOut === null || g.clockOut === null) g.clockOut = null;
+        else if (x.clockOut > g.clockOut) g.clockOut = x.clockOut;
+      });
+      return g;
+    }
+    var secondStart = emp.second_shift_start ? String(emp.second_shift_start).slice(0, 5) : null;
+    var groups = [];
+    for (var k = 0, keys = Object.keys(byDate).sort(); k < keys.length; k++) {
+      var list = byDate[keys[k]].sort(function (a, b) { return a.clockIn < b.clockIn ? -1 : 1; });
+      if (!secondStart) { groups.push(Object.assign(merged(list), { date: keys[k], shiftNo: 1 })); continue; }
+      if (list.length > 1) {
+        groups.push(Object.assign(merged(list.slice(0, 1)), { date: keys[k], shiftNo: 1 }));
+        groups.push(Object.assign(merged(list.slice(1)), { date: keys[k], shiftNo: 2 }));
+        continue;
+      }
+      var firstStart = (await attendanceService.resolveLateRule(emp.id, keys[k], 1)).shiftStart;
+      var near2 = firstStart && minutesApart(list[0].clockIn, secondStart) < minutesApart(list[0].clockIn, firstStart);
+      groups.push(Object.assign(merged(list), { date: keys[k], shiftNo: near2 ? 2 : 1 }));
+    }
 
     // The rule, not just the cutoff — a night shift's cutoff cannot be
     // compared against a clock-in time with a plain string comparison, see
     // judgeLateness. Per day, since the grace depends on the date.
-    var dates = Object.keys(byDate).sort();
-    for (var d = 0; d < dates.length; d++) {
-      var g = byDate[dates[d]];
-      var lateRule = await attendanceService.resolveLateRule(emp.id, g.date);
+    for (var d = 0; d < groups.length; d++) {
+      var g = groups[d];
+      var lateRule = await attendanceService.resolveLateRule(emp.id, g.date, g.shiftNo);
       var status = attendanceService.judgeLateness(lateRule, g.clockIn).status;
-      var existingRes = await pool.query('SELECT status, clock_in, clock_out, source FROM attendance WHERE employee_id = $1 AND date = $2', [emp.id, g.date]);
+      var existingRes = await pool.query('SELECT status, clock_in, clock_out, source FROM attendance WHERE employee_id = $1 AND date = $2 AND shift_no = $3', [emp.id, g.date, g.shiftNo]);
       var existing = existingRes.rows[0];
 
       var action, warnings = [];
@@ -386,9 +409,10 @@ async function previewAttendance(ctx, startDate, endDate) {
         action = 'update';
       }
       if (g.shiftCount > 1) warnings.push(g.shiftCount + ' separate shifts on this date were merged into one record (earliest in, latest out).');
+      if (g.shiftNo === 2) warnings.push('Second shift of the day.');
 
       out.push({
-        employeeId: emp.id, employeeName: emp.first_name + ' ' + emp.last_name, date: g.date,
+        employeeId: emp.id, employeeName: emp.first_name + ' ' + emp.last_name, date: g.date, shiftNo: g.shiftNo,
         clockIn: g.clockIn, clockOut: g.clockOut, status: status, action: action, warnings: warnings
       });
     }
@@ -413,18 +437,25 @@ async function previewAttendance(ctx, startDate, endDate) {
 // is the standard Postgres trick for telling INSERT and ON-CONFLICT-UPDATE
 // apart per row — more reliable than trusting the client's preview-time
 // action label, which could be stale by the time this actually runs.
+function shiftNoOf(r) { return Number(r.shiftNo) === 2 ? 2 : 1; }
+function minutesApart(a, b) {
+  var m = function (hm) { var p = hm.split(':').map(Number); return p[0] * 60 + p[1]; };
+  var d = Math.abs(m(a) - m(b)) % 1440;
+  return Math.min(d, 1440 - d);
+}
+
 async function bulkUpsertAttendance(rows) {
   if (!rows.length) return { created: 0, updated: 0, failed: [] };
   var placeholders = [], values = [];
   rows.forEach(function (r, i) {
-    var b = i * 5;
-    placeholders.push('($' + (b + 1) + ',$' + (b + 2) + ',$' + (b + 3) + ',$' + (b + 4) + ',$' + (b + 5) + ",'timestation','',NULL)");
-    values.push(r.employeeId, r.date, r.clockIn, r.clockOut, r.status);
+    var b = i * 6;
+    placeholders.push('($' + (b + 1) + ',$' + (b + 2) + ',$' + (b + 3) + ',$' + (b + 4) + ',$' + (b + 5) + ",'timestation','',NULL,$" + (b + 6) + ')');
+    values.push(r.employeeId, r.date, r.clockIn, r.clockOut, r.status, shiftNoOf(r));
   });
   try {
     var res = await pool.query(
-      'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) VALUES ' + placeholders.join(',') +
-      ' ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, status = EXCLUDED.status, ' +
+      'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by, shift_no) VALUES ' + placeholders.join(',') +
+      ' ON CONFLICT (employee_id, date, shift_no) DO UPDATE SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, status = EXCLUDED.status, ' +
       // A synced time is a real one, so it replaces an automatic clock-out.
       "source = 'timestation', note = '', adjusted_by = NULL, auto_clocked_out = false RETURNING (xmax = 0) AS inserted",
       values
@@ -442,11 +473,11 @@ async function bulkUpsertAttendance(rows) {
       var r = rows[i];
       try {
         var single = await pool.query(
-          'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by) ' +
-          "VALUES ($1,$2,$3,$4,$5,'timestation','',NULL) " +
-          'ON CONFLICT (employee_id, date) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL, auto_clocked_out = false ' +
+          'INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source, note, adjusted_by, shift_no) ' +
+          "VALUES ($1,$2,$3,$4,$5,'timestation','',NULL,$6) " +
+          'ON CONFLICT (employee_id, date, shift_no) DO UPDATE SET clock_in = $3, clock_out = $4, status = $5, source = \'timestation\', note = \'\', adjusted_by = NULL, auto_clocked_out = false ' +
           'RETURNING (xmax = 0) AS inserted',
-          [r.employeeId, r.date, r.clockIn, r.clockOut, r.status]
+          [r.employeeId, r.date, r.clockIn, r.clockOut, r.status, shiftNoOf(r)]
         );
         if (single.rows[0].inserted) created2++; else updated2++;
       } catch (rowErr) {
