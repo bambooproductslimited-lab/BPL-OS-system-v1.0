@@ -394,6 +394,17 @@ async function run() {
       }
     }
 
+    // Managers start out seeing their own department (as migration 0117
+    // ticks it for existing managers); HR can change it per manager.
+    await client.query(
+      'INSERT INTO employee_view_scopes (viewer_id, department_id) ' +
+      'SELECT DISTINCT e.id, e.department_id FROM employees e JOIN users u ON u.employee_id = e.id ' +
+      "WHERE e.department_id IS NOT NULL AND e.status <> 'terminated' " +
+      "AND EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE ur.user_id = u.id AND rp.permission_key IN ('attendance.read.all', 'leave.read.all', 'task.manage')) " +
+      "AND NOT EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE ur.user_id = u.id AND rp.permission_key = 'employee.read.all') " +
+      'ON CONFLICT DO NOTHING'
+    );
+
     // Demo pay rates so the Payroll screen has something realistic to show:
     // production/factory-floor staff paid biweekly (factory-floor
     // convention), everyone else monthly (paid on the 5th, per Company

@@ -7,6 +7,7 @@ var employeesService = require('../services/employees.service');
 var employeeDocumentsService = require('../services/employeeDocuments.service');
 var employeeImportService = require('../services/employeeImport.service');
 var kioskService = require('../services/kiosk.service');
+var viewScope = require('../services/viewScope.service');
 var { fail } = require('../utils/errors');
 var { allowlistFilter } = require('../lib/uploadFilters');
 
@@ -68,6 +69,16 @@ router.get('/codes/next', async function (req, res, next) {
     if (!req.ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
     res.json({ code: await employeeCodes.next() });
   } catch (e) { next(e); }
+});
+
+// Who someone can see (viewScope.service.js): GET for HR or yourself
+// (/me/view-scope), PUT { departmentIds, employeeIds } for HR.
+router.get('/:id/view-scope', async function (req, res, next) {
+  var id = req.params.id === 'me' ? req.ctx.employee.id : req.params.id;
+  try { res.json(await viewScope.get(req.ctx, id)); } catch (e) { next(e); }
+});
+router.put('/:id/view-scope', async function (req, res, next) {
+  try { res.json(await viewScope.set(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['employees.get'] -> GET /api/employees/:id

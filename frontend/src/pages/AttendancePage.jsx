@@ -7,6 +7,7 @@ import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
 import RowMenu from '../components/RowMenu';
+import { useMyViewScope, viewScopeInsight } from '../lib/viewScope';
 
 import { activeIntlLocale, tr, trNodes } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -197,6 +198,7 @@ function noMatchText(search, statusFilter) {
 
 export default function AttendancePage() {
   const { can } = useAuth();
+  const myScope = useMyViewScope(can('employee.read.all') || !can('attendance.read.all'));
   const canAdjust = can('attendance.adjust');
 
   const [dateRange, setDateRange] = useState({ from: todayISO(), to: todayISO(), presetKey: 'today', label: 'Today' });
@@ -599,6 +601,8 @@ export default function AttendancePage() {
   const showCompany = !companyFilter && companies.length > 1;
 
   const insights = [];
+  const scopeLine = viewScopeInsight(myScope);
+  if (scopeLine) insights.push(scopeLine);
   if (isSingleDay) {
     if (dayExpected > 0) {
       insights.push({ tone: dayRate >= 90 ? 'good' : dayRate < 70 ? 'warn' : 'info', icon: 'people', text: tr('{came} of {expected} people expected have clocked in ({rate}%).', { came: dayCounts.in, expected: dayExpected, rate: dayRate }) });

@@ -13,6 +13,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import './EmployeesPage.css';
 import RowMenu from '../components/RowMenu';
+import ViewScopeDialog from '../components/ViewScopeDialog';
+import { useMyViewScope, viewScopeInsight } from '../lib/viewScope';
 
 import { LOCALES, activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 // The employee directory. Same "explains itself" layout as the dashboards
@@ -116,6 +118,8 @@ export default function EmployeesPage() {
   const navigate = useNavigate();
   const myId = session && session.employee ? session.employee.id : null;
   const canWrite = can('employee.write');
+  const myScope = useMyViewScope(can('employee.read.all'));
+  const [scopeTarget, setScopeTarget] = useState(null);
   const canPurge = can('role.manage');
   const canManagePayroll = can('payroll.manage');
   const canSync = canWrite && can('department.manage');
@@ -652,6 +656,8 @@ export default function EmployeesPage() {
 
   // What stands out.
   const insights = [];
+  const scopeLine = viewScopeInsight(myScope);
+  if (scopeLine) insights.push(scopeLine);
   // Two current records with the same name: probably one person, entered twice.
   const dupGroups = (() => {
     const byName = new Map();
@@ -693,7 +699,7 @@ export default function EmployeesPage() {
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
   const footer = can('employee.read.all')
     ? tr('{n} record(s) visible to your role — company-wide access.', { n: employees.length })
-    : tr('{n} record(s) visible to your role — limited to your group and reporting line.', { n: employees.length });
+    : tr('{n} record(s) visible to you — your team and the departments and people HR lets you see.', { n: employees.length });
 
   const chips = [
     ['', tr('Everyone'), scoped.length],
@@ -713,6 +719,7 @@ export default function EmployeesPage() {
       canWrite && { label: tr('ID docs'), onClick: () => setIdDocsTarget(p) },
       canWrite && { label: tr('Kiosk PIN'), onClick: () => openKioskPin(p) },
       canWrite && { label: tr('Kiosk Face'), onClick: () => openKioskFace(p) },
+      canWrite && p.status !== 'terminated' && { label: tr('Who they can see'), onClick: () => setScopeTarget(p) },
       canMerge && { label: tr('Merge a duplicate into…'), onClick: () => setMergeTarget(p) },
       canDelete && { label: tr('Delete'), onClick: () => openTerminate(p), danger: true }
     ].filter(Boolean);
@@ -1445,6 +1452,11 @@ export default function EmployeesPage() {
           onDone={(text) => { setMergeTarget(null); setToast(text); load(); }} />
       )}
       {idsOpen && <SetEmployeeIdsDialog onClose={() => setIdsOpen(false)} onDone={(text) => { setIdsOpen(false); setToast(text); load(); }} />}
+      {scopeTarget && (
+        <ViewScopeDialog employee={scopeTarget} people={employees} departments={departments}
+          onClose={() => setScopeTarget(null)}
+          onSaved={(r) => { setScopeTarget(null); setToast(tr('{name} can now see {n} people.', { name: r.name, n: r.visibleCount })); }} />
+      )}
       {profileTarget && <EmployeeProfileDialog employeeId={profileTarget} onClose={() => setProfileTarget(null)} />}
       {photoTarget && (
         <PhotoDialog title={tr('Photo of {name}', { name: photoTarget.firstName + ' ' + photoTarget.lastName })} kind="person"
