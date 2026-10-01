@@ -319,5 +319,13 @@ test('readings: a bill raised by mistake is voided and everything on it can be b
   await ok('DELETE', '/api/poki/readings/' + r.id);
   var meter = (await ok('GET', '/api/poki/meters')).find(function (m) { return m.id === water.id; });
   assert.equal(meter.lastReading, 12);
+
+  // A reading left on a bill voided before voiding released it (as the old
+  // code did) can still be deleted.
+  var r2 = await ok('POST', '/api/poki/readings', { meterId: water.id, periodStart: today, periodEnd: today, currentReading: 30 });
+  var b2 = await ok('POST', '/api/poki/readings/bill', { readingIds: [r2.id] });
+  await pool.query("UPDATE invoices SET status = 'void' WHERE id = $1", [b2.invoices[0].invoiceId]);
+  await ok('DELETE', '/api/poki/readings/' + r2.id);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM poki_meter_readings WHERE id = $1', [r2.id])).rows[0].n, 0);
   await cleanupReadings();
 });

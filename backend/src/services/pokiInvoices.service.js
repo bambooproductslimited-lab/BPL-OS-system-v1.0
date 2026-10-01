@@ -138,24 +138,12 @@ async function recordPayment(ctx, id, p) {
 }
 
 // Voiding a bill raised from meter readings or recurring charges puts
-// them back: the readings to not billed, the charge periods to billable,
-// so a bill raised by mistake can be raised again properly.
+// them back to not billed (invoices.service voidInvoice does it, for every
+// void), so a bill raised by mistake can be raised again properly.
 async function voidInvoice(ctx, id) {
-  var out = await actingOnPokiInvoice(ctx, id, function (e) {
+  return actingOnPokiInvoice(ctx, id, function (e) {
     return invoicesService.voidInvoice(e, id);
   });
-  var { withTransaction } = require('../db/pool');
-  var { audit } = require('../utils/audit');
-  await withTransaction(async function (client) {
-    var readings = await billing.releaseReadings(client, id);
-    var periods = await require('./pokiRecurring.service').release(client, id);
-    if (readings || periods) {
-      await audit(client, ctx, 'poki.invoice.release', 'invoice', id, out.invoiceNo + ' voided: ' +
-        (readings ? readings + ' reading(s) back to not billed' : '') + (readings && periods ? ', ' : '') + (periods ? periods + ' recurring period(s) billable again' : '') + '.');
-    }
-    out.released = { readings: readings, periods: periods };
-  });
-  return out;
 }
 
 async function createShareLink(ctx, id, expiresInDays) {

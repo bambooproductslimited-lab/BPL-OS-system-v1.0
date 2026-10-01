@@ -245,12 +245,13 @@ async function deleteReading(ctx, id) {
   poki.canManage(ctx);
   var companyId = await poki.pokiCompanyId();
   var r = (await pool.query(
-    'SELECT r.*, m.utility_type, u.code AS unit_code, i.invoice_no FROM poki_meter_readings r JOIN poki_meters m ON m.id = r.meter_id ' +
+    'SELECT r.*, m.utility_type, u.code AS unit_code, i.invoice_no, i.status AS invoice_status FROM poki_meter_readings r JOIN poki_meters m ON m.id = r.meter_id ' +
     'JOIN poki_units u ON u.id = m.unit_id JOIN poki_properties p ON p.id = u.property_id LEFT JOIN invoices i ON i.id = r.invoice_id ' +
     'WHERE r.id = $1 AND p.company_id = $2', [id, companyId])).rows[0];
   if (!r) fail('notfound', 'Reading not found.');
-  if (r.invoice_id) fail('conflict', 'This reading is on invoice ' + r.invoice_no + '. Void that invoice first; its readings then go back to not billed.');
-  await pool.query('DELETE FROM poki_meter_readings WHERE id = $1 AND invoice_id IS NULL', [id]);
+  // On a bill that has since been voided, it isn't billed any more.
+  if (r.invoice_id && r.invoice_status !== 'void') fail('conflict', 'This reading is on invoice ' + r.invoice_no + '. Void that invoice first; its readings then go back to not billed.');
+  await pool.query("DELETE FROM poki_meter_readings r WHERE r.id = $1 AND (r.invoice_id IS NULL OR (SELECT status FROM invoices WHERE id = r.invoice_id) = 'void')", [id]);
   await audit(pool, ctx, 'poki.reading.delete', 'poki_meter_reading', id,
     'Deleted the ' + r.utility_type + ' reading for ' + r.unit_code + ' (' + Number(r.previous_reading) + ' to ' + Number(r.current_reading) + ').');
   return { ok: true };

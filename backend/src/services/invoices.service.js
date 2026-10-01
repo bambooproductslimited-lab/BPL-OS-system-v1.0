@@ -305,15 +305,26 @@ async function voidInvoice(ctx, id) {
   if (!i) fail('notfound', 'Invoice not found.');
   if (i.status === 'void') fail('conflict', 'This invoice has already been voided.');
   if (Number(i.amount_paid) > 0) fail('conflict', 'Cannot void an invoice that already has payments recorded against it.');
+  var released = { readings: 0, periods: 0 };
   var updated = await withTransaction(async function (client) {
     var u = await client.query("UPDATE invoices SET status = 'void' WHERE id = $1 AND status <> 'void' RETURNING *", [id]);
     if (!u.rows[0]) fail('conflict', 'This invoice has already been voided.');
     // What it took from stock goes back.
     await inventorySales.giveBack(client, ctx, i, 'voided');
-    await audit(client, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided.');
+    // A utility bill's meter readings and recurring-charge periods go back
+    // to not billed, whichever screen voided it — so a bill raised by
+    // mistake can be raised again, or a wrong reading deleted.
+    released = {
+      readings: (await client.query('UPDATE poki_meter_readings SET invoice_id = NULL WHERE invoice_id = $1', [id])).rowCount,
+      periods: await require('./pokiRecurring.service').release(client, id)
+    };
+    await audit(client, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided' +
+      (released.readings || released.periods ? ' (' + released.readings + ' reading(s), ' + released.periods + ' recurring period(s) back to not billed)' : '') + '.');
     return u;
   });
-  return rowToInvoice(pool, updated.rows[0]);
+  var out = await rowToInvoice(pool, updated.rows[0]);
+  out.released = released;
+  return out;
 }
 
 // kernel.js: handlers['invoices.markPaid']
