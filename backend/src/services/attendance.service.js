@@ -2,7 +2,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
+var { visibleEmployee, fetchEmployeeById, assertVisibleEmployee } = require('../middleware/rbac');
 var { restWeekdays } = require('../utils/workWeek');
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -768,18 +768,17 @@ async function latenessReport(ctx, from, to, filters) {
 
 // kernel.js: handlers['attendance.adjust']
 //
-// No visibleEmployee() scoping on the target employee here — a security
-// review confirmed this is intentional, not an oversight: attendance.adjust
-// is only ever granted to hr_manager/finance_hr_manager/general_manager
-// (see referenceData.js's ROLE_DEFS), all three explicitly company-wide
-// with no department restriction. department_manager — the one role that
-// IS restricted to one department — gets attendance.read.all but not
-// attendance.adjust. If that ever changes (attendance.adjust attached to a
-// narrower role), add a visibleEmployee(ctx, emp) check back in here —
-// without it, that would silently become the same class of IDOR already
-// fixed elsewhere (see documents.service.js/tasks.service.js).
+// Checks visibleEmployee (rbac.assertVisibleEmployee): HR-type roles can be
+// limited to some companies (viewScope.service.js), so someone outside them
+// can't be reached here either.
+async function employeeOfRecord(id) {
+  var r = (await pool.query('SELECT employee_id FROM attendance WHERE id = $1', [id])).rows[0];
+  return r ? r.employee_id : null;
+}
+
 async function adjust(ctx, p) {
   if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
+  await assertVisibleEmployee(ctx, p.id ? (await employeeOfRecord(p.id)) || p.employeeId : p.employeeId);
 
   var rec;
   if (p.id) {
@@ -817,10 +816,10 @@ async function adjust(ctx, p) {
 }
 
 // kernel.js: handlers['attendance.delete']
-// Same "no visibleEmployee() scoping — confirmed intentional, re-check if
-// attendance.adjust's role grants ever change" note as adjust() above.
+// Checks visibleEmployee, as adjust() does.
 async function remove(ctx, id) {
   if (!ctx.can('attendance.adjust')) fail('forbidden', 'Your role does not allow this action (attendance.adjust).');
+  await assertVisibleEmployee(ctx, await employeeOfRecord(id));
   var res = await pool.query('SELECT * FROM attendance WHERE id = $1', [id]);
   var rec = res.rows[0];
   if (!rec) fail('notfound', 'Attendance record not found.');

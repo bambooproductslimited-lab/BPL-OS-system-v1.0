@@ -1,4 +1,5 @@
 var crypto = require('crypto');
+var { assertVisibleEmployee } = require('../middleware/rbac');
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var config = require('../config');
@@ -52,19 +53,12 @@ function decryptPin(encrypted) {
 // employee.write gated there). Exported here since the hashing/uniqueness
 // concern belongs with the rest of the kiosk PIN logic.
 //
-// No visibleEmployee() check on the target employeeId, here or in
-// clearPin()/getPin()/enrollFace()/clearFace()/getFaceStatus() below — all
-// six gate on employee.write alone. A security review confirmed this is
-// intentional, not an oversight: employee.write is only ever granted to
-// hr_manager/finance_hr_manager/general_manager (see referenceData.js's
-// ROLE_DEFS), all three explicitly company-wide. getPin() in particular
-// reveals a plaintext PIN and enrollFace()/getFaceStatus() touch biometric
-// data, so this is worth extra care if employee.write's grants ever
-// change — add a visibleEmployee(ctx, emp) check back into all six
-// functions if a narrower, department-scoped role is ever given
-// employee.write.
+// Checks visibleEmployee (rbac.assertVisibleEmployee): HR-type roles can be
+// limited to some companies (viewScope.service.js), so someone outside them
+// can't be reached here either.
 async function setPin(ctx, employeeId, pin) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   if (!/^\d{4}$/.test(String(pin || ''))) fail('invalid', 'PIN must be exactly ' + PIN_LENGTH + ' digits.');
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
@@ -81,9 +75,10 @@ async function setPin(ctx, employeeId, pin) {
   return { ok: true };
 }
 
-// No visibleEmployee() check — see setPin()'s comment above.
+// Checks visibleEmployee, as setPin() does.
 async function clearPin(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
@@ -97,9 +92,10 @@ async function clearPin(ctx, employeeId) {
 // anyone new, only to people who could already learn any employee's PIN
 // by resetting it. Every reveal is audit-logged, same principle as viewing
 // an ID document — it's sensitive enough to leave a trail of who looked.
-// No visibleEmployee() check — see setPin()'s comment above.
+// Checks visibleEmployee, as setPin() does.
 async function getPin(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var empRes = await pool.query('SELECT id, first_name, last_name, kiosk_pin_hash, kiosk_pin_encrypted FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
@@ -187,9 +183,10 @@ function nearestDistance(enrolledSet, descriptor) {
   return min;
 }
 
-// No visibleEmployee() check — see setPin()'s comment above.
+// Checks visibleEmployee, as setPin() does.
 async function enrollFace(ctx, employeeId, descriptorSet) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   validateDescriptorSet(descriptorSet);
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
@@ -202,9 +199,10 @@ async function enrollFace(ctx, employeeId, descriptorSet) {
   return { ok: true };
 }
 
-// No visibleEmployee() check — see setPin()'s comment above.
+// Checks visibleEmployee, as setPin() does.
 async function clearFace(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var empRes = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
@@ -213,9 +211,10 @@ async function clearFace(ctx, employeeId) {
   return { ok: true };
 }
 
-// No visibleEmployee() check — see setPin()'s comment above.
+// Checks visibleEmployee, as setPin() does.
 async function getFaceStatus(ctx, employeeId) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var res = await pool.query('SELECT face_enrolled_at FROM employees WHERE id = $1', [employeeId]);
   if (!res.rows[0]) fail('notfound', 'Employee not found.');
   return { enrolled: !!res.rows[0].face_enrolled_at, enrolledAt: res.rows[0].face_enrolled_at };
@@ -233,9 +232,10 @@ async function getFaceStatus(ctx, employeeId) {
 var FACE_ENROLL_LINK_DEFAULT_DAYS = 3;
 var FACE_ENROLL_LINK_MAX_DAYS = 14;
 
-// No visibleEmployee() check — see setPin()'s comment above.
+// Checks visibleEmployee, as setPin() does.
 async function createFaceEnrollLink(ctx, employeeId, expiresInDays) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var empRes = await pool.query('SELECT id, first_name, last_name, status, kiosk_pin_hash FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');
@@ -329,11 +329,11 @@ async function enrollFaceViaLink(token, descriptorSet, pin, ip) {
 // Reuses the existing WhatsApp Business Cloud API integration — same
 // Ghana-specific "0" -> "233" normalization and same 24-hour customer-
 // service-window platform limitation as shares.service.js's
-// shareViaWhatsApp, which this mirrors. No visibleEmployee() check — see
-// setPin()'s comment above (employee.write is checked by
-// createFaceEnrollLink already having been called for this token to exist).
+// shareViaWhatsApp, which this mirrors.
+// Checks visibleEmployee, as setPin() does.
 async function sendFaceEnrollLinkViaWhatsApp(ctx, employeeId, url) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var empRes = await pool.query('SELECT first_name, last_name, phone FROM employees WHERE id = $1', [employeeId]);
   var emp = empRes.rows[0];
   if (!emp) fail('notfound', 'Employee not found.');

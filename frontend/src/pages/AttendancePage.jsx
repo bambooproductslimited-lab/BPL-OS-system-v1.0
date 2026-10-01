@@ -7,7 +7,7 @@ import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import './AttendancePage.css';
 import RowMenu from '../components/RowMenu';
-import { useMyViewScope, viewScopeInsight } from '../lib/viewScope';
+import { companiesInReach, useMyViewScope, viewScopeInsight } from '../lib/viewScope';
 
 import { activeIntlLocale, tr, trNodes } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -198,7 +198,7 @@ function noMatchText(search, statusFilter) {
 
 export default function AttendancePage() {
   const { can } = useAuth();
-  const myScope = useMyViewScope(can('employee.read.all') || !can('attendance.read.all'));
+  const myScope = useMyViewScope(!can('attendance.read.all'));
   const canAdjust = can('attendance.adjust');
 
   const [dateRange, setDateRange] = useState({ from: todayISO(), to: todayISO(), presetKey: 'today', label: 'Today' });
@@ -235,8 +235,8 @@ export default function AttendancePage() {
     const seen = new Map();
     departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName, code: d.companyCode || d.companyId }); });
     // Bamboo Products first, then the rest by name, as on the other dashboards.
-    return Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
-  }, [departments]);
+    return companiesInReach(Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name))), myScope);
+  }, [departments, myScope]);
 
   // The switcher works in company codes (?company=SB); the API in ids.
   useEffect(() => {

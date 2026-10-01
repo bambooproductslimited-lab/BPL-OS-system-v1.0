@@ -4,7 +4,7 @@ var config = require('../config');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
+var { visibleEmployee, fetchEmployeeById, assertVisibleEmployee } = require('../middleware/rbac');
 var { WORK_WEEKS } = require('../utils/workWeek');
 var codes = require('./employeeCodes.service');
 
@@ -154,6 +154,7 @@ async function create(ctx, p) {
   var departmentId = p.departmentId;
   var deptRes = await pool.query('SELECT id FROM departments WHERE id = $1', [departmentId]);
   if (!deptRes.rows[0]) fail('invalid', 'Department is not a valid option.');
+  await assertDepartmentInReach(ctx, departmentId);
   var positionTitle = V.text(p.positionTitle, 'Job title', 60);
   var employmentType = V.oneOf(p.employmentType || 'permanent', ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
   var hireDate = V.date(p.hireDate || new Date().toISOString().slice(0, 10), 'Hire date');
@@ -266,20 +267,24 @@ async function resolveShiftIdUpdate(p, e) {
   return p.shiftId;
 }
 
+// Someone limited to some companies (viewScope.service.js) can only put
+// people into departments of those companies — not add or move someone to
+// where they would no longer see them.
+async function assertDepartmentInReach(ctx, departmentId) {
+  if (!(await visibleEmployee(ctx, { id: null, department_id: departmentId, manager_id: null }))) {
+    fail('forbidden', 'That department belongs to a company outside the ones you can see.');
+  }
+}
+
 // kernel.js: handlers['employees.update']
 //
-// No visibleEmployee() scoping here (unlike get()/profile()) — a security
-// review confirmed this is intentional, not an oversight: employee.write is
-// only ever granted to hr_manager/finance_hr_manager/general_manager (see
-// referenceData.js's ROLE_DEFS), and all three are explicitly company-wide
-// roles with no department restriction anywhere else in their permission
-// set. If employee.write is ever attached to a narrower, department-scoped
-// role in the future, add a visibleEmployee(ctx, e) check back in here —
-// without it, that would silently become the same class of IDOR already
-// fixed elsewhere (see documents.service.js/tasks.service.js), just for
-// editing/terminating any employee company-wide.
+// Checks visibleEmployee (rbac.assertVisibleEmployee): HR-type roles can be
+// limited to some companies (viewScope.service.js), so someone outside them
+// can't be reached here either.
 async function update(ctx, id, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, id);
+  if (p.departmentId) await assertDepartmentInReach(ctx, p.departmentId);
   // Pay rate/cycle are compensation data — gated separately behind
   // payroll.manage so a department manager with plain employee.write
   // (who can otherwise edit this same record) can't set someone's pay.
@@ -403,10 +408,10 @@ async function update(ctx, id, p) {
 }
 
 // kernel.js: handlers['employees.terminate']
-// Same "no visibleEmployee() scoping — confirmed intentional, re-check if
-// employee.write's role grants ever change" note as update() above.
+// Checks visibleEmployee, as update() does.
 async function terminate(ctx, id, reason) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, id);
   if (id === ctx.employee.id) fail('forbidden', 'You cannot terminate your own employee record.');
 
   return withTransaction(async function (client) {

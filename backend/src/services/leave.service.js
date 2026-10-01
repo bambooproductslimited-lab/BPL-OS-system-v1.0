@@ -4,7 +4,7 @@ var { V, businessDays } = require('../utils/validate');
 var { restWeekdays } = require('../utils/workWeek');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
-var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
+var { visibleEmployee, fetchEmployeeById, assertVisibleEmployee } = require('../middleware/rbac');
 
 // kernel.js: handlers['leave.types']
 async function listTypes() {
@@ -85,21 +85,12 @@ async function resolveDaysPerYear(employeeId, leaveTypeId, typeDaysPerYear) {
 // override if set, otherwise the type's company-wide default), so the
 // admin screen can show what's actually being granted and which rows are
 // a deliberate customization vs. just following the type's default.
-// No visibleEmployee() check on the target employeeId here, nor in
-// setLeaveDaysTotal()/recalculateBalances()/setEntitlement()/
-// clearEntitlement()/getBalances()/setBalance() below (unlike decide()/
-// list() elsewhere in this file, which do check it) — a security review
-// confirmed this is intentional, not an oversight: employee.write is only
-// ever granted to hr_manager/finance_hr_manager/general_manager (see
-// referenceData.js's ROLE_DEFS), all three explicitly company-wide with no
-// department restriction. If employee.write is ever attached to a
-// narrower, department-scoped role in the future, add a
-// visibleEmployee(ctx, emp) check back into each of these — without it,
-// that would silently become the same class of IDOR already fixed
-// elsewhere (see documents.service.js/tasks.service.js), just for leave
-// entitlements/balances instead.
+// Checks visibleEmployee (rbac.assertVisibleEmployee): HR-type roles can be
+// limited to some companies (viewScope.service.js), so someone outside them
+// can't be reached here either.
 async function getEntitlements(ctx, employeeId, year) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   year = year ? Number(year) : new Date().getFullYear();
   if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
   var emp = await fetchEmployeeById(employeeId);
@@ -143,9 +134,10 @@ async function getEntitlements(ctx, employeeId, year) {
 // types below. Purely informational: never read by requestLeave(),
 // rollover(), or anything else that enforces a balance — each leave type
 // keeps its own independent entitlement regardless of this number.
-// No visibleEmployee() check — see getEntitlements()'s comment above.
+// Checks visibleEmployee, as getEntitlements() does.
 async function setLeaveDaysTotal(ctx, employeeId, leaveDaysTotal) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var emp = await fetchEmployeeById(employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
   var total = leaveDaysTotal === null || leaveDaysTotal === '' ? null : validateDaysPerYear(leaveDaysTotal);
@@ -198,9 +190,10 @@ async function syncBalanceForYear(employeeId, leaveType, year) {
 // they're left showing whatever was true at grant time. Only touches
 // rows that already exist (never creates one — that's rollover's/the
 // self-heal grant's job) and never touches "used".
-// No visibleEmployee() check — see getEntitlements()'s comment above.
+// Checks visibleEmployee, as getEntitlements() does.
 async function recalculateBalances(ctx, employeeId, year) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var emp = await fetchEmployeeById(employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
   year = Number(year);
@@ -220,9 +213,10 @@ async function recalculateBalances(ctx, employeeId, year) {
 }
 
 // kernel.js: handlers['leave.entitlements.set']
-// No visibleEmployee() check — see getEntitlements()'s comment above.
+// Checks visibleEmployee, as getEntitlements() does.
 async function setEntitlement(ctx, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, p.employeeId);
   var emp = await fetchEmployeeById(p.employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
   var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [p.leaveTypeId]);
@@ -243,9 +237,10 @@ async function setEntitlement(ctx, p) {
 // kernel.js: handlers['leave.entitlements.clear'] — removes the personal
 // override, reverting the employee to the leave type's company-wide
 // default going forward.
-// No visibleEmployee() check — see getEntitlements()'s comment above.
+// Checks visibleEmployee, as getEntitlements() does.
 async function clearEntitlement(ctx, employeeId, leaveTypeId, year) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   var res = await pool.query('DELETE FROM employee_leave_entitlements WHERE employee_id = $1 AND leave_type_id = $2 RETURNING id', [employeeId, leaveTypeId]);
   if (!res.rows[0]) fail('notfound', 'No custom entitlement set for that employee/leave type.');
   var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [leaveTypeId]);
@@ -261,9 +256,10 @@ async function clearEntitlement(ctx, employeeId, leaveTypeId, year) {
 // already exposes to an employee about their own balance). Synthesizes a
 // zero-entitled row for any active type with no leave_balances row yet
 // (nothing there to edit otherwise) rather than omitting it.
-// No visibleEmployee() check — see getEntitlements()'s comment above.
+// Checks visibleEmployee, as getEntitlements() does.
 async function getBalances(ctx, employeeId, year) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, employeeId);
   year = year ? Number(year) : new Date().getFullYear();
   if (!Number.isInteger(year)) fail('invalid', 'Invalid year.');
   var emp = await fetchEmployeeById(employeeId);
@@ -304,9 +300,10 @@ async function getBalances(ctx, employeeId, year) {
 // hire, a one-off correction, above/below the type's flat default. used
 // is never editable here — it only ever moves via an approved request
 // (decide() below), so it always reflects what's actually been taken.
-// No visibleEmployee() check — see getEntitlements()'s comment above.
+// Checks visibleEmployee, as getEntitlements() does.
 async function setBalance(ctx, p) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  await assertVisibleEmployee(ctx, p.employeeId);
   var emp = await fetchEmployeeById(p.employeeId);
   if (!emp) fail('notfound', 'Employee not found.');
   var typeRes = await pool.query('SELECT * FROM leave_types WHERE id = $1', [p.leaveTypeId]);

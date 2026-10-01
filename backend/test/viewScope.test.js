@@ -34,6 +34,8 @@ test.before(async function () {
 
 test.after(async function () {
   // Back to the seed's state: each manager sees their own department.
+  await pool.query('DELETE FROM employee_view_scopes WHERE company_id IS NOT NULL');
+  await pool.query("DELETE FROM employees WHERE code LIKE 'VST-%'");
   for (var e of [samuel, isreal]) {
     await pool.query('DELETE FROM employee_view_scopes WHERE viewer_id = $1', [e.employee.id]);
     await pool.query('INSERT INTO employee_view_scopes (viewer_id, department_id) VALUES ($1, $2)', [e.employee.id, e.employee.department_id]);
@@ -100,4 +102,68 @@ test('only HR changes it; anyone can look at their own', async function () {
   assert.equal(mine.visibleCount, 0);
   await assert.rejects(viewScope.set(hr, samuel.employee.id, { departmentIds: ['00000000-0000-0000-0000-000000000000'] }), /no longer exists/);
   await assert.rejects(viewScope.set(hr, samuel.employee.id, { employeeIds: 'x' }), /must be a list/);
+});
+
+
+// ---- By company -----------------------------------------------------------
+
+async function companyId(code) { return (await pool.query('SELECT id FROM companies WHERE code = $1', [code])).rows[0].id; }
+
+test('someone who sees everyone can be limited to one company, and to nothing outside it', async function () {
+  var admin = await ctxOf('kelvin.duho@bplghana.com');
+  var sbr = await companyId('SBR');
+  var dept = (await pool.query("SELECT id FROM departments WHERE company_id = $1 ORDER BY name LIMIT 1", [sbr])).rows[0].id;
+  var waiter = (await pool.query(
+    "INSERT INTO employees (code, first_name, last_name, email, department_id, position_title, employment_type, hire_date, status) " +
+    "VALUES ('VST-1', 'Vst', 'Waiter', 'vst.waiter@example.com', $1, 'Waiter', 'permanent', '2026-01-01', 'active') RETURNING id", [dept])).rows[0].id;
+
+  var s = await viewScope.set(hr, frank.employee.id, { companyIds: [sbr] });
+  assert.equal(s.seesAll, true);
+  assert.equal(s.companiesLimited, true);
+  assert.deepEqual(s.companies.map(function (c) { return c.name; }), ['Star Bar Restaurant']);
+
+  var gm = await ctxOf('frank.kampewu@bplghana.com');
+  var list = codes(await employees.list(gm, {}));
+  assert.ok(list.includes('VST-1'), 'Star Bar staff');
+  assert.ok(list.includes('BPL-005'), 'himself');
+  assert.ok(list.includes('BPL-007'), 'Faith reports to him');
+  assert.ok(!list.includes('BPL-018'), 'not Bamboo Products staff outside his team');
+  assert.equal(s.visibleCount, list.length - 1);
+  var att = await attendance.list(gm, {});
+  assert.ok(!att.rows.some(function (r) { return r.code === 'BPL-018'; }));
+  assert.ok(att.rows.some(function (r) { return r.code === 'VST-1'; }));
+
+  // Not just hidden: actions on people outside are refused too.
+  await assert.rejects(employees.update(gm, ids['BPL-018'], { phone: '0200000009' }), /outside the companies/);
+  await employees.update(gm, waiter, { phone: '0200000009' });
+
+  // An administrator can change it; nobody changes their own.
+  await assert.rejects(viewScope.set(hr, hr.employee.id, { companyIds: [sbr] }), /cannot change who you can see yourself/);
+  assert.equal((await viewScope.get(hr, hr.employee.id)).canEdit, false);
+  await viewScope.set(admin, frank.employee.id, { companyIds: [] });
+  gm = await ctxOf('frank.kampewu@bplghana.com');
+  assert.ok(codes(await employees.list(gm, {})).includes('BPL-018'), 'no companies ticked: every company again');
+});
+
+test('someone limited to a company cannot hand out more than they see', async function () {
+  var admin = await ctxOf('kelvin.duho@bplghana.com');
+  var sbr = await companyId('SBR'), bpl = await companyId('BPL');
+  await viewScope.set(admin, hr.employee.id, { companyIds: [sbr] });
+  var limitedHr = await ctxOf('albert.awini@bplghana.com');
+
+  var waiter = await idOf('VST-1');
+  await assert.rejects(viewScope.set(limitedHr, waiter, { companyIds: [bpl] }), /companies and departments you can see yourself/);
+  await assert.rejects(viewScope.set(limitedHr, waiter, { departmentIds: [await deptOf('FCTY')] }), /companies and departments you can see yourself/);
+  await assert.rejects(viewScope.set(limitedHr, waiter, { employeeIds: [ids['BPL-018']] }), /people you can see yourself/);
+  assert.equal((await viewScope.set(limitedHr, waiter, { companyIds: [sbr] })).companies.length, 1, 'within her own company is fine');
+  // Isreal is Bamboo Products — outside what she sees now.
+  await assert.rejects(viewScope.get(limitedHr, isreal.employee.id), /outside the companies/);
+  // A Star Bar manager whose role sees everyone: "nothing ticked" would
+  // mean every company, more than she can see.
+  var uid = (await pool.query(
+    "INSERT INTO users (employee_id, email, password_hash, status, must_change_password) VALUES ($1, 'vst.waiter@example.com', 'x', 'active', false) RETURNING id", [waiter])).rows[0].id;
+  await pool.query("INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE key = 'general_manager'", [uid]);
+  await assert.rejects(viewScope.set(limitedHr, waiter, { companyIds: [] }), /Tick the companies/);
+  await pool.query('DELETE FROM users WHERE id = $1', [uid]);
+  await viewScope.set(admin, hr.employee.id, { companyIds: [] });
 });

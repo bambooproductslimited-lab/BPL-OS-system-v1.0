@@ -14,7 +14,7 @@ import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, ju
 import './EmployeesPage.css';
 import RowMenu from '../components/RowMenu';
 import ViewScopeDialog from '../components/ViewScopeDialog';
-import { useMyViewScope, viewScopeInsight } from '../lib/viewScope';
+import { companiesInReach, useMyViewScope, viewScopeInsight } from '../lib/viewScope';
 
 import { LOCALES, activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 // The employee directory. Same "explains itself" layout as the dashboards
@@ -118,7 +118,8 @@ export default function EmployeesPage() {
   const navigate = useNavigate();
   const myId = session && session.employee ? session.employee.id : null;
   const canWrite = can('employee.write');
-  const myScope = useMyViewScope(can('employee.read.all'));
+  const myScope = useMyViewScope(false);
+  const canScope = canWrite || can('role.manage');
   const [scopeTarget, setScopeTarget] = useState(null);
   const canPurge = can('role.manage');
   const canManagePayroll = can('payroll.manage');
@@ -156,8 +157,8 @@ export default function EmployeesPage() {
     const seen = new Map();
     departments.forEach((d) => { if (!seen.has(d.companyId)) seen.set(d.companyId, { id: d.companyId, name: d.companyName, code: d.companyCode || d.companyId }); });
     // Bamboo Products first, then the rest by name, as on the dashboards.
-    return Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
-  }, [departments]);
+    return companiesInReach(Array.from(seen.values()).sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name))), myScope);
+  }, [departments, myScope]);
   const currentCompany = companies.find((c) => c.code === companyCode) || null;
   const companyFilter = currentCompany ? currentCompany.id : '';
   function pickCompany(code) {
@@ -697,7 +698,9 @@ export default function EmployeesPage() {
   }
 
   const terminatedCount = employees.filter((e) => e.status === 'terminated').length;
-  const footer = can('employee.read.all')
+  const footer = can('employee.read.all') && myScope && myScope.companiesLimited
+    ? tr('{n} record(s) visible to you — {companies}.', { n: employees.length, companies: myScope.companies.map((c) => c.name).join(', ') })
+    : can('employee.read.all')
     ? tr('{n} record(s) visible to your role — company-wide access.', { n: employees.length })
     : tr('{n} record(s) visible to you — your team and the departments and people HR lets you see.', { n: employees.length });
 
@@ -719,7 +722,7 @@ export default function EmployeesPage() {
       canWrite && { label: tr('ID docs'), onClick: () => setIdDocsTarget(p) },
       canWrite && { label: tr('Kiosk PIN'), onClick: () => openKioskPin(p) },
       canWrite && { label: tr('Kiosk Face'), onClick: () => openKioskFace(p) },
-      canWrite && p.status !== 'terminated' && { label: tr('Who they can see'), onClick: () => setScopeTarget(p) },
+      canScope && p.status !== 'terminated' && { label: tr('Who they can see'), onClick: () => setScopeTarget(p) },
       canMerge && { label: tr('Merge a duplicate into…'), onClick: () => setMergeTarget(p) },
       canDelete && { label: tr('Delete'), onClick: () => openTerminate(p), danger: true }
     ].filter(Boolean);
@@ -1453,7 +1456,7 @@ export default function EmployeesPage() {
       )}
       {idsOpen && <SetEmployeeIdsDialog onClose={() => setIdsOpen(false)} onDone={(text) => { setIdsOpen(false); setToast(text); load(); }} />}
       {scopeTarget && (
-        <ViewScopeDialog employee={scopeTarget} people={employees} departments={departments}
+        <ViewScopeDialog employee={scopeTarget} people={employees} departments={departments} mine={myScope}
           onClose={() => setScopeTarget(null)}
           onSaved={(r) => { setScopeTarget(null); setToast(tr('{name} can now see {n} people.', { name: r.name, n: r.visibleCount })); }} />
       )}

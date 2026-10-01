@@ -1,3 +1,4 @@
+var { assertVisibleEmployee } = require('../middleware/rbac');
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
@@ -14,22 +15,15 @@ var KINDS = ['id_front', 'id_back', 'passport'];
 var EXPIRING_KINDS = ['id_front', 'passport'];
 var MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB — these are photos/scans, not large files
 
-// No visibleEmployee() check on the target employeeId here — list()/
-// upload()/getDownloadUrl() below all gate on employee.write alone. A
-// security review confirmed this is intentional, not an oversight:
-// employee.write is only ever granted to hr_manager/finance_hr_manager/
-// general_manager (see referenceData.js's ROLE_DEFS), all three
-// explicitly company-wide. Since these are sensitive ID/passport scans,
-// this is worth extra care if employee.write's grants ever change — add
-// a visibleEmployee(ctx, emp) check back into all three functions above
-// if a narrower, department-scoped role is ever given employee.write;
-// without it, that would expose other departments' identity documents,
-// not just editing rights.
+// Checks visibleEmployee (rbac.assertVisibleEmployee): HR-type roles can be
+// limited to some companies (viewScope.service.js), so someone outside them
+// can't be reached here either.
 function requireManage(ctx) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
 }
 
-async function requireEmployee(employeeId) {
+async function requireEmployee(employeeId, ctx) {
+  if (ctx) await assertVisibleEmployee(ctx, employeeId);
   var res = await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [employeeId]);
   if (!res.rows[0]) fail('notfound', 'Employee not found.');
   return res.rows[0];
@@ -38,7 +32,7 @@ async function requireEmployee(employeeId) {
 // employeeDocuments.list — current status of all 3 slots (present or not).
 async function list(ctx, employeeId) {
   requireManage(ctx);
-  await requireEmployee(employeeId);
+  await requireEmployee(employeeId, ctx);
   var res = await pool.query('SELECT kind, file_name, uploaded_at, expires_on FROM employee_documents WHERE employee_id = $1', [employeeId]);
   var byKind = {};
   res.rows.forEach(function (r) { byKind[r.kind] = { fileName: r.file_name, uploadedAt: r.uploaded_at, expiresOn: r.expires_on ? String(r.expires_on).slice(0, 10) : null }; });
@@ -59,7 +53,7 @@ async function upload(ctx, employeeId, kind, file) {
   if (!file) fail('invalid', 'Choose a file to upload.');
   if (file.size > MAX_FILE_BYTES) fail('invalid', 'File is too large — the limit is 10MB.');
 
-  var emp = await requireEmployee(employeeId);
+  var emp = await requireEmployee(employeeId, ctx);
   var existing = await pool.query('SELECT object_key FROM employee_documents WHERE employee_id = $1 AND kind = $2', [employeeId, kind]);
   var objectKey = await storage.uploadFile(file.originalname, file.buffer, file.mimetype);
 
@@ -95,7 +89,7 @@ async function getDownloadUrl(ctx, employeeId, kind) {
 async function setExpiry(ctx, employeeId, kind, expiresOn) {
   requireManage(ctx);
   if (EXPIRING_KINDS.indexOf(kind) < 0) fail('invalid', 'Only the ID card (front) and the passport have an expiry date.');
-  var emp = await requireEmployee(employeeId);
+  var emp = await requireEmployee(employeeId, ctx);
   var d = require('./documents.service').expiryDate(expiresOn);
   var res = await pool.query('UPDATE employee_documents SET expires_on = $1 WHERE employee_id = $2 AND kind = $3 RETURNING id', [d, employeeId, kind]);
   if (!res.rowCount) fail('notfound', 'Upload the document first, then add when it expires.');
