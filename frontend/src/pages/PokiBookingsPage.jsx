@@ -65,10 +65,27 @@ function stateOf(b) {
 
 // Editing a booking: what happens to its invoice when it is saved
 // (poki.service.js syncBookingInvoice), shown before anyone presses Save.
-function InvoiceEffect({ inv, currency }) {
+function InvoiceEffect({ inv, currency, refund, onRefund }) {
   const m = (n) => money(n, inv.currency || currency);
   if (inv.action === 'overpaid') {
-    return <div className="poki-term-clash">{tr('The tenant has already paid {paid} on invoice {invoiceNo}, which is {over} more than this would cost. Agree a refund with them first, or keep the booking at {paid} or more.', { paid: m(inv.paid), invoiceNo: inv.invoiceNo, over: m(inv.overpaid) })}</div>;
+    // Saving refunds the difference, as a credit note on the invoice.
+    return (
+      <div className="poki-term-refund">
+        <p className="poki-refund-why">{tr('The tenant has already paid {paid} on invoice {invoiceNo}, which is {over} more than this would cost. Saving refunds them {over}, recorded as a credit note.', { paid: m(inv.paid), invoiceNo: inv.invoiceNo, over: m(inv.overpaid) })}</p>
+        <div className="poki-refund-fields">
+          <label className="field">
+            <span>{tr('Paid back by')}</span>
+            <select className="input" value={refund.method} onChange={(e) => onRefund({ ...refund, method: e.target.value })}>
+              {[['mobile_money', tr('Mobile money')], ['cash', tr('Cash')], ['bank_transfer', tr('Bank transfer')], ['card', tr('Card')], ['cheque', tr('Cheque')]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span>{tr('Reference (optional)')}</span>
+            <input className="input" value={refund.reference} onChange={(e) => onRefund({ ...refund, reference: e.target.value })} placeholder={tr('e.g. the MoMo transaction ID')} />
+          </label>
+        </div>
+      </div>
+    );
   }
   let text;
   if (inv.action === 'new') text = tr('Saving raises an invoice for {amount}.', { amount: m(inv.to) });
@@ -149,6 +166,8 @@ export default function PokiBookingsPage() {
   const [target, setTarget] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [quote, setQuote] = useState(null);
+  const [refund, setRefund] = useState({ method: 'mobile_money', reference: '' });
+  const overRefund = editId && quote && quote.invoice && quote.invoice.action === 'overpaid' ? quote.invoice.overpaid : 0;
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [agreementBody, setAgreementBody] = useState('');
@@ -258,9 +277,10 @@ export default function PokiBookingsPage() {
     setDialogError(null);
     try {
       if (editId) {
-        const saved = await api.patch('/poki/bookings/' + editId, form);
+        const saved = await api.patch('/poki/bookings/' + editId, overRefund ? { ...form, refund } : form);
         const ch = saved.invoiceChange;
-        setToast(ch && ch.action === 'update' ? tr('Booking updated — invoice {invoiceNo} now asks for {amount}.', { invoiceNo: ch.invoiceNo, amount: money(ch.to, ch.currency) })
+        setToast(ch && ch.refunded ? tr('Booking updated — {amount} refunded to the tenant ({creditNo}).', { amount: money(ch.refunded, ch.currency), creditNo: ch.creditNo })
+          : ch && ch.action === 'update' ? tr('Booking updated — invoice {invoiceNo} now asks for {amount}.', { invoiceNo: ch.invoiceNo, amount: money(ch.to, ch.currency) })
           : ch && ch.action === 'new' ? tr('Booking updated and invoiced as {invoiceNo}.', { invoiceNo: ch.invoiceNo }) : tr('Booking updated.'));
       } else {
         await api.post('/poki/bookings', form);
@@ -690,7 +710,7 @@ export default function PokiBookingsPage() {
                 )}
                 <div className="poki-term-row"><span>{tr('Deposit')}</span><strong>{money(quote.depositAmount, quote.currency)}</strong></div>
                 <div className="poki-term-row poki-term-grand"><span>{tr('Payable before occupation')}</span><strong>{money(quote.total, quote.currency)}</strong></div>
-                {editId && quote.invoice && <InvoiceEffect inv={quote.invoice} currency={quote.currency} />}
+                {editId && quote.invoice && <InvoiceEffect inv={quote.invoice} currency={quote.currency} refund={refund} onRefund={setRefund} />}
                 {!quote.available && (
                   <div className="poki-term-clash">{tr('Unavailable — {bookingNo} has this unit from {date} to {date2}.', { bookingNo: quote.clashesWith.bookingNo, date: fmtDate(quote.clashesWith.startDate), date2: fmtDate(quote.clashesWith.endDate) })}</div>
                 )}
@@ -700,7 +720,7 @@ export default function PokiBookingsPage() {
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)} disabled={saving}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving || (quote && (!quote.available || (quote.invoice && quote.invoice.action === 'overpaid')))}>{saving ? tr('Saving…') : editId ? tr('Save changes') : tr('Make the booking')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || (quote && !quote.available)}>{saving ? tr('Saving…') : overRefund ? tr('Save and refund {amount}', { amount: money(overRefund, quote.currency) }) : editId ? tr('Save changes') : tr('Make the booking')}</button>
             </div>
           </form>
         </div>

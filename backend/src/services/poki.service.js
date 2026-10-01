@@ -814,7 +814,7 @@ async function raiseBookingInvoice(client, ctx, booking, unit) {
 //
 // `plan` only works out what would happen (for the edit screen); `apply`
 // does it. Returns { action: 'none' | 'new' | 'update' | 'overpaid', ... }.
-async function syncBookingInvoice(client, before, after, unit, apply) {
+async function syncBookingInvoice(client, before, after, unit, apply, allowOverpaid) {
   var main = (await client.query(
     "SELECT * FROM invoices WHERE poki_booking_id = $1 AND doc_kind = 'rent' AND status <> 'void' " +
     'ORDER BY issued_at, invoice_no LIMIT 1' + (apply ? ' FOR UPDATE' : ''), [before.id])).rows[0];
@@ -835,8 +835,8 @@ async function syncBookingInvoice(client, before, after, unit, apply) {
     [main.id])).rows[0].n);
   var carried = Math.max(0, money(Number(before.deposit_amount) - billedDeposit));
   var raw = bookingInvoiceItems(after, unit, carried);
-  var from = Number(main.grand_total), paid = Number(main.amount_paid);
-  var base = { invoiceId: main.id, invoiceNo: main.invoice_no, from: from, paid: paid, currency: main.currency };
+  var from = Number(main.grand_total), paid = Number(main.amount_paid), credited = Number(main.credit_total || 0);
+  var base = { invoiceId: main.id, invoiceNo: main.invoice_no, from: from, paid: paid, credited: credited, currency: main.currency };
   if (!raw.length) return Object.assign(base, { action: paid > 0 ? 'overpaid' : 'none', to: 0, overpaid: paid });
   var items = buildLineItems(raw);
   var totals = computeDocTotals(items, null, 0);
@@ -844,22 +844,23 @@ async function syncBookingInvoice(client, before, after, unit, apply) {
   var samePeriod = String(main.period_start || '').slice(0, 10) === String(after.start_date).slice(0, 10) &&
     String(main.period_end || '').slice(0, 10) === String(after.end_date).slice(0, 10);
   if (Math.abs(to - from) < 0.005 && samePeriod) return Object.assign(base, { action: 'none', to: to });
-  if (to < paid - 0.005) return Object.assign(base, { action: 'overpaid', to: to, overpaid: money(paid - to) });
+  // Any credit note already on it still counts against what is owed.
+  var overpaid = money(paid - (to - credited));
+  if (overpaid > 0.005 && !(apply && allowOverpaid)) return Object.assign(base, { action: 'overpaid', to: to, overpaid: overpaid });
   if (!apply) return Object.assign(base, { action: 'update', to: to });
 
   await client.query("DELETE FROM document_line_items WHERE document_type = 'invoice' AND document_id = $1", [main.id]);
   await insertLineItems(client, 'invoice', main.id, items);
-  var balance = money(to - paid);
-  var status = balance <= 0.01 ? 'paid' : paid > 0 ? 'partially_paid' : 'unpaid';
+  // Balance and status follow from total, credits and payments (the
+  // invoices_follow_money trigger, migration 0119).
   await client.query(
-    'UPDATE invoices SET subtotal = $1, discount_total = $2, tax_total = $3, grand_total = $4, balance_due = $5, status = $6, ' +
-    "paid_at = CASE WHEN $6 = 'paid' THEN coalesce(paid_at, now()) ELSE NULL END, " +
-    'period_start = $7, period_end = $8, notes = $9, currency = $10, due_date = CASE WHEN amount_paid > 0 THEN due_date ELSE $11::date END ' +
-    'WHERE id = $12',
-    [totals.subtotal, totals.discountTotal, totals.taxTotal, to, Math.max(0, balance), status,
+    'UPDATE invoices SET subtotal = $1, discount_total = $2, tax_total = $3, grand_total = $4, ' +
+    'period_start = $5, period_end = $6, notes = $7, currency = $8, due_date = CASE WHEN amount_paid > 0 THEN due_date ELSE $9::date END ' +
+    'WHERE id = $10',
+    [totals.subtotal, totals.discountTotal, totals.taxTotal, to,
       String(after.start_date).slice(0, 10), String(after.end_date).slice(0, 10), bookingInvoiceNotes(after), after.currency,
       bookingDueDate(after), main.id]);
-  return Object.assign(base, { action: 'update', to: to });
+  return Object.assign(base, { action: 'update', to: to, overpaid: Math.max(0, overpaid) });
 }
 
 function describeDuration(months, days) {
@@ -911,14 +912,28 @@ async function updateBooking(ctx, id, p) {
       [cur.unit_id])).rows[0];
     change = await syncBookingInvoice(client, cur, updated.rows[0], unit, false);
     if (change.action === 'overpaid') {
-      fail('conflict', 'The tenant has already paid ' + change.currency + ' ' + change.paid.toFixed(2) + ' on invoice ' + change.invoiceNo +
-        ', which is ' + change.currency + ' ' + change.overpaid.toFixed(2) + ' more than the booking would now cost. ' +
-        'Agree a refund with the tenant first, or keep the booking at ' + change.currency + ' ' + change.paid.toFixed(2) + ' or more.');
+      // Cut below what the tenant already paid: only with the refund of the
+      // difference said how (p.refund), recorded as a credit note.
+      if (!p.refund || !p.refund.method) {
+        fail('conflict', 'The tenant has already paid ' + change.currency + ' ' + change.paid.toFixed(2) + ' on invoice ' + change.invoiceNo +
+          ', which is ' + change.currency + ' ' + change.overpaid.toFixed(2) + ' more than the booking would now cost. ' +
+          'Say how the difference is refunded, or keep the booking at the higher price.');
+      }
+      var owed = change.overpaid;
+      change = await syncBookingInvoice(client, cur, updated.rows[0], unit, true, true);
+      var refunded = await require('./creditNotes.service').applyCredit(client, ctx, change.invoiceId, {
+        amount: 0, refundAmount: owed, refundMethod: p.refund.method, refundReference: p.refund.reference,
+        reason: 'Booking ' + cur.booking_no + ' changed to ' + describeDuration(duration.months, duration.days) + '.'
+      });
+      change.refunded = owed;
+      change.creditNo = refunded.creditNo;
+    } else {
+      change = await syncBookingInvoice(client, cur, updated.rows[0], unit, true);
     }
-    change = await syncBookingInvoice(client, cur, updated.rows[0], unit, true);
     return updated;
   });
-  var said = change && change.action === 'update' ? ' Invoice ' + change.invoiceNo + ' changed from ' + change.from.toFixed(2) + ' to ' + change.to.toFixed(2) + '.'
+  var said = change && change.action === 'update' ? ' Invoice ' + change.invoiceNo + ' changed from ' + change.from.toFixed(2) + ' to ' + change.to.toFixed(2) + '.' +
+      (change.refunded ? ' Refunded ' + change.refunded.toFixed(2) + ' (' + change.creditNo + ').' : '')
     : change && change.action === 'new' ? ' Invoiced as ' + change.invoiceNo + '.' : '';
   await audit(pool, ctx, 'poki.booking.update', 'poki_booking', id, 'Updated booking ' + res.rows[0].booking_no + '.' + said);
   var out = await getBooking(ctx, id);

@@ -11,7 +11,7 @@ var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insert
 // when, not just the arithmetic result.
 async function loadPayments(db, invoiceId) {
   var res = await db.query(
-    'SELECT p.id, p.date, p.amount, p.method, p.reference, e.first_name, e.last_name ' +
+    'SELECT p.id, p.date, p.amount, p.method, p.reference, p.source, e.first_name, e.last_name ' +
     'FROM payments p LEFT JOIN employees e ON e.id = p.received_by ' +
     'WHERE p.invoice_id = $1 ORDER BY p.date, p.id',
     [invoiceId]);
@@ -19,6 +19,7 @@ async function loadPayments(db, invoiceId) {
     return {
       id: r.id, date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference || '',
       receivedByName: r.first_name ? r.first_name + ' ' + r.last_name : '',
+      refund: r.source === 'refund'
     };
   });
 }
@@ -28,11 +29,12 @@ async function rowToInvoice(db, r, extra) {
   // `payments` may be supplied by a caller that already loaded them in bulk
   // (see list(), which would otherwise run one query per invoice on top of
   // the one it already runs per invoice for line items).
-  var payments = (extra && extra.payments) || (Number(r.amount_paid) > 0 ? await loadPayments(db, r.id) : []);
+  var payments = (extra && extra.payments) || (Number(r.amount_paid) > 0 || Number(r.credit_total) > 0 ? await loadPayments(db, r.id) : []);
   return Object.assign({
     id: r.id, invoiceNo: r.invoice_no, salesOrderId: r.sales_order_id, quotationId: r.quotation_id, customerId: r.customer_id,
     items: items, currency: r.currency, subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total),
     grandTotal: Number(r.grand_total), amount: Number(r.grand_total), amountPaid: Number(r.amount_paid), balanceDue: Number(r.balance_due),
+    creditTotal: Number(r.credit_total || 0),
     poReference: r.po_reference, bankInstructions: r.bank_instructions, status: r.status, issuedAt: r.issued_at, dueDate: r.due_date, paidAt: r.paid_at,
     notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || [],
     payments: payments
@@ -59,13 +61,14 @@ async function list(ctx) {
   var byInvoice = {};
   if (ids.length) {
     var payRes = await pool.query(
-      'SELECT p.invoice_id, p.id, p.date, p.amount, p.method, p.reference, e.first_name, e.last_name ' +
+      'SELECT p.invoice_id, p.id, p.date, p.amount, p.method, p.reference, p.source, e.first_name, e.last_name ' +
       'FROM payments p LEFT JOIN employees e ON e.id = p.received_by ' +
       'WHERE p.invoice_id = ANY($1::uuid[]) ORDER BY p.date, p.id', [ids]);
     payRes.rows.forEach(function (x) {
       (byInvoice[x.invoice_id] = byInvoice[x.invoice_id] || []).push({
         id: x.id, date: x.date, amount: Number(x.amount), method: x.method, reference: x.reference || '',
         receivedByName: x.first_name ? x.first_name + ' ' + x.last_name : '',
+        refund: x.source === 'refund'
       });
     });
   }
@@ -229,12 +232,12 @@ async function recordPayment(ctx, invoiceId, p) {
     var receiptRes = await client.query(
       'INSERT INTO receipts (receipt_no, payment_id, invoice_id, customer_id, date, amount, method, reference, balance_after, received_by) ' +
       'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
-      [receiptNo, pay.id, i.id, i.customer_id, date, amount, method, pay.reference, balanceDue, ctx.employee.id]
+      [receiptNo, pay.id, i.id, i.customer_id, date, amount, method, pay.reference, Number(i.balance_due), ctx.employee.id]
     );
 
     var custRes = await client.query('SELECT name FROM customers WHERE id = $1', [i.customer_id]);
-    await audit(client, ctx, 'payment.record', 'invoice', i.id, 'Recorded ' + i.currency + ' ' + amount.toLocaleString() + ' payment on ' + i.invoice_no + ' (' + (custRes.rows[0] ? custRes.rows[0].name : '—') + '); balance ' + i.currency + ' ' + balanceDue.toLocaleString() + '.');
-    if (status === 'paid') await audit(client, ctx, 'invoice.paid', 'invoice', i.id, i.invoice_no + ' fully paid.');
+    await audit(client, ctx, 'payment.record', 'invoice', i.id, 'Recorded ' + i.currency + ' ' + amount.toLocaleString() + ' payment on ' + i.invoice_no + ' (' + (custRes.rows[0] ? custRes.rows[0].name : '—') + '); balance ' + i.currency + ' ' + Number(i.balance_due).toLocaleString() + '.');
+    if (i.status === 'paid') await audit(client, ctx, 'invoice.paid', 'invoice', i.id, i.invoice_no + ' fully paid.');
 
     return { paymentId: pay.id, receiptId: receiptRes.rows[0].id, invoiceId: i.id };
   });
@@ -254,7 +257,7 @@ async function recordPayment(ctx, invoiceId, p) {
 }
 
 function rowToPayment(r) {
-  return { id: r.id, invoiceId: r.invoice_id, customerId: r.customer_id, date: r.date, amount: Number(r.amount), currency: r.currency, method: r.method, reference: r.reference, receivedBy: r.received_by, notes: r.notes };
+  return { id: r.id, invoiceId: r.invoice_id, customerId: r.customer_id, date: r.date, amount: Number(r.amount), currency: r.currency, method: r.method, reference: r.reference, receivedBy: r.received_by, notes: r.notes, refund: r.source === 'refund' };
 }
 function rowToReceipt(r, currency) {
   return { id: r.id, receiptNo: r.receipt_no, paymentId: r.payment_id, invoiceId: r.invoice_id, customerId: r.customer_id, date: r.date, amount: Number(r.amount), currency: currency, method: r.method, reference: r.reference, balanceAfter: Number(r.balance_after), receivedBy: r.received_by };

@@ -1,6 +1,7 @@
 var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var invoicesService = require('../services/invoices.service');
+var creditNotes = require('../services/creditNotes.service');
 
 var router = express.Router();
 router.use(requireAuth);
@@ -46,6 +47,15 @@ router.post('/:id/mark-paid', async function (req, res, next) {
 });
 
 // kernel.js: handlers['invoices.recordPayment'] -> POST /api/invoices/:id/payments
+// Credit notes (creditNotes.service.js): take some of an invoice back, and
+// refund what the customer then overpaid.
+router.get('/:id/credit-notes', async function (req, res, next) {
+  try { res.json(await creditNotes.list(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/:id/credit-notes', async function (req, res, next) {
+  try { res.status(201).json(await creditNotes.create(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
 router.post('/:id/payments', async function (req, res, next) {
   try { res.status(201).json(await invoicesService.recordPayment(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });

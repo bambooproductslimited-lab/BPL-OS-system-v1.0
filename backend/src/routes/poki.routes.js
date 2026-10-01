@@ -213,6 +213,12 @@ router.get('/invoices/:id', async function (req, res, next) {
 router.post('/invoices/:id/payments', async function (req, res, next) {
   try { res.status(201).json(await pokiInvoices.recordPayment(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
+router.get('/invoices/:id/credit-notes', async function (req, res, next) {
+  try { res.json(await pokiInvoices.listCreditNotes(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/invoices/:id/credit-notes', async function (req, res, next) {
+  try { res.status(201).json(await pokiInvoices.createCreditNote(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
 router.post('/invoices/:id/void', async function (req, res, next) {
   try { res.json(await pokiInvoices.voidInvoice(req.ctx, req.params.id)); } catch (e) { next(e); }
 });

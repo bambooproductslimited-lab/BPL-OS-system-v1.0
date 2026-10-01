@@ -11,7 +11,8 @@ import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
-import { adjustmentRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
+import { adjustmentRows, creditRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
+import CreditNoteDialog from '../components/CreditNoteDialog';
 import { money, moneyBreakdown } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -115,6 +116,7 @@ export default function InvoicesPage() {
   const [orderBusy, setOrderBusy] = useState(false);
 
   const [payTarget, setPayTarget] = useState(null);
+  const [creditTarget, setCreditTarget] = useState(null);
   const [payForm, setPayForm] = useState(null);
   const [payError, setPayError] = useState(null);
   const [paying, setPaying] = useState(false);
@@ -364,6 +366,9 @@ export default function InvoicesPage() {
   }
   const canDelete = (inv) => canManage && inv.status === 'unpaid' && !(inv.amountPaid > 0);
   // Shared by the row menu and the window so the two cannot drift.
+  // Something left to take back, or money paid over what is owed.
+  const canCredit = (inv) => canManage && inv.status !== 'void' &&
+    (inv.grandTotal - (inv.creditTotal || 0) > 0.005 || inv.amountPaid > inv.grandTotal - (inv.creditTotal || 0) + 0.005);
   function actionsFor(inv) {
     return [
       { label: tr('Open'), onClick: () => setDetail(inv.id) },
@@ -371,6 +376,7 @@ export default function InvoicesPage() {
       canManage && isOwing(inv) && { label: tr('Record payment'), onClick: () => openPay(inv) },
       canManage && isOwing(inv) && inv.customerPhone && { label: tr('Remind on WhatsApp'), onClick: () => remind(inv) },
       canManage && inv.status !== 'void' && { label: tr('Change due date or PO'), onClick: () => openEdit(inv) },
+      canCredit(inv) && { label: tr('Credit note'), onClick: () => setCreditTarget(inv) },
       canManage && inv.status === 'unpaid' && { label: tr('Void'), onClick: () => voidInvoice(inv) },
       canDelete(inv) && { label: tr('Delete'), onClick: () => setDeleteTarget(inv), danger: true }
     ].filter(Boolean);
@@ -526,6 +532,7 @@ export default function InvoicesPage() {
               {cur.orderNo && <div><dt>{tr('From sales order')}</dt><dd>{cur.orderNo}</dd></div>}
               <div><dt>{tr('Reminders')}</dt><dd>{cur.reminders ? tr('{n} sent, the last on {date}', { n: cur.reminders, date: fmtDate(cur.lastRemindedAt) }) : tr('none sent')}</dd></div>
               <div><dt>{tr('Currency')}</dt><dd>{cur.currency}</dd></div>
+              {cur.creditTotal > 0 && <div><dt>{tr('Credit notes')}</dt><dd>− {money(cur.creditTotal, cur.currency)}</dd></div>}
             </dl>
             <h3 className="tl-h3">{tr('Payments received')}</h3>
             {cur.payments && cur.payments.length ? (
@@ -537,7 +544,7 @@ export default function InvoicesPage() {
                     <li key={p.id || i} className="tl-log-row is-restock">
                       <span className="tl-date" aria-hidden="true"><strong>{d.getDate()}</strong><span>{d.toLocaleDateString(activeIntlLocale(), { month: 'short' })}</span></span>
                       <span className="tl-log-main">
-                        <span className="tl-log-title">{shown.amount} · {codeLabel(p.method)}</span>
+                        <span className="tl-log-title">{shown.refund ? tr('Refunded {amount}', { amount: shown.amount }) : shown.amount} · {codeLabel(p.method)}</span>
                         <span className="dk-muted tl-small">{[p.reference && tr('ref {reference}', { reference: p.reference }), p.receivedByName && tr('taken by {name}', { name: p.receivedByName })].filter(Boolean).join(' · ') || fmtDate(p.date)}</span>
                       </span>
                     </li>
@@ -564,6 +571,7 @@ export default function InvoicesPage() {
               {canDelete(cur) && <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(cur)}>{tr('Delete')}</button>}
               {canManage && cur.status === 'unpaid' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => voidInvoice(cur)}>{tr('Void')}</button>}
               {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Change due date or PO')}</button>}
+              {canCredit(cur) && <button type="button" className="btn btn-secondary" onClick={() => setCreditTarget(cur)}>{tr('Credit note')}</button>}
               <button type="button" className="btn btn-secondary" onClick={() => openPreview(cur)}>{tr('Preview')}</button>
               {canManage && isOwing(cur) && cur.customerPhone && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => remind(cur)}>{tr('Remind on WhatsApp')}</button>}
               {canManage && isOwing(cur) && <button type="button" className="btn btn-primary" onClick={() => openPay(cur)}>{tr('Record payment')}</button>}
@@ -725,7 +733,7 @@ export default function InvoicesPage() {
           items={groupPackageItems(previewInv.items, previewInv.currency)}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
           discountRows={adjustmentRows(previewInv, previewInv.currency).discountRows}
-          taxRows={adjustmentRows(previewInv, previewInv.currency).taxRows}
+          taxRows={[...adjustmentRows(previewInv, previewInv.currency).taxRows, ...creditRows(previewInv, previewInv.currency)]}
           payments={paymentsForDocument(previewInv.payments, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
@@ -737,6 +745,8 @@ export default function InvoicesPage() {
           onClose={() => setPreviewInv(null)}
         />
       )}
+
+      {creditTarget && <CreditNoteDialog invoice={creditTarget} apiBase="/invoices" onClose={() => setCreditTarget(null)} onDone={() => load()} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

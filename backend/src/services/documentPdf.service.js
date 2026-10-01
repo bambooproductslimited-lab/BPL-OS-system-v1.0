@@ -299,8 +299,12 @@ async function documentPdf(documentType, documentId) {
   row(doc, 'Subtotal', money(v.subtotal, cur));
   adjustmentRows(v, cur).forEach(function (r) { row(doc, r.label, r.value); });
   if (isInvoice) {
+    if (v.creditTotal > 0) row(doc, 'Credit notes', '- ' + money(v.creditTotal, cur));
     (v.payments || []).forEach(function (p) {
-      row(doc, 'Payment received ' + docDate(p.date) + (p.method ? ' · ' + String(p.method).replace(/_/g, ' ') : '') + (p.reference ? ' · ref ' + p.reference : ''), '- ' + money(p.amount, cur));
+      var how = docDate(p.date) + (p.method ? ' · ' + String(p.method).replace(/_/g, ' ') : '') + (p.reference ? ' · ref ' + p.reference : '');
+      // A refund is money given back: it adds to what the total shows as paid off.
+      if (p.amount < 0) row(doc, 'Refunded ' + how, '+ ' + money(-p.amount, cur));
+      else row(doc, 'Payment received ' + how, '- ' + money(p.amount, cur));
     });
     if (v.amountPaid > 0 && v.balanceDue > 0 && !(v.payments || []).length) row(doc, 'Amount paid', money(v.amountPaid, cur));
   }

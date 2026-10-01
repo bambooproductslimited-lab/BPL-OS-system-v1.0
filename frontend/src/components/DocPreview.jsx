@@ -222,11 +222,11 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
           {(payments || []).map((pay, i) => (
             <div className="doc-preview-row" key={pay.id || i}>
               <div>
-                {docTr('Payment received')} {pay.date}
+                {pay.label || docTr('Payment received')} {pay.date}
                 {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
                 {pay.reference && <span className="doc-preview-pay-meta"> {docTr('· ref')} {pay.reference}</span>}
               </div>
-              <div>− {pay.amount}</div>
+              <div>{pay.sign || '−'} {pay.amount}</div>
             </div>
           ))}
           {isPartial && !(payments || []).length && (

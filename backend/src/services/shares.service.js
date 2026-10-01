@@ -99,10 +99,10 @@ async function documentView(documentType, documentId) {
   var payments = [];
   if (share.document_type === 'invoice') {
     var payRes = await pool.query(
-      'SELECT date, amount, method, reference FROM payments WHERE invoice_id = $1 ORDER BY date, id',
+      'SELECT date, amount, method, reference, source FROM payments WHERE invoice_id = $1 ORDER BY date, id',
       [share.document_id]);
     payments = payRes.rows.map(function (r) {
-      return { date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference || '' };
+      return { date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference || '', refund: r.source === 'refund' };
     });
   }
 
@@ -140,6 +140,8 @@ async function documentView(documentType, documentId) {
     // the printed one. All three document tables carry these columns.
     discount: { value: Number(d.discount_value) || 0, type: d.discount_type === 'percent' ? 'percent' : 'fixed' },
     taxRate: Number(d.tax_rate) || 0,
+    // Credit notes taken off an invoice (creditNotes.service.js).
+    creditTotal: Number(d.credit_total || 0),
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,
     notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || [],
     payments: payments

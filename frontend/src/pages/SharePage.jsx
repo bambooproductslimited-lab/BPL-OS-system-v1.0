@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
-import { adjustmentRows, paymentsForDocument } from '../lib/docItems';
+import { adjustmentRows, creditRows, paymentsForDocument } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import { docTr, DOCUMENT_INTL_LOCALE } from '../lib/i18n.jsx';
 import '../components/DocPreview.css';
@@ -176,14 +176,19 @@ export default function SharePage() {
             <div>{r.label}</div><div>{r.value}</div>
           </div>
         ))}
+        {isInvoice && creditRows(doc, cur).map((r) => (
+          <div className="doc-preview-row" key={r.label}>
+            <div>{r.label}</div><div>{r.value}</div>
+          </div>
+        ))}
         {isInvoice && paymentsForDocument(doc.payments, cur).map((pay, i) => (
           <div className="doc-preview-row" key={i}>
             <div>
-              {docTr('Payment received')} {pay.date}
+              {pay.label || docTr('Payment received')} {pay.date}
               {pay.methodLabel && <span className="doc-preview-pay-meta"> · {pay.methodLabel}</span>}
               {pay.reference && <span className="doc-preview-pay-meta"> {docTr('· ref')} {pay.reference}</span>}
             </div>
-            <div>− {pay.amount}</div>
+            <div>{pay.sign || '−'} {pay.amount}</div>
           </div>
         ))}
         {isInvoice && doc.amountPaid > 0 && doc.balanceDue > 0 && !(doc.payments || []).length && (

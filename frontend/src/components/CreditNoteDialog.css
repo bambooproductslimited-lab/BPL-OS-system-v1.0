@@ -1,0 +1,10 @@
+/* A credit note on an invoice (CreditNoteDialog.jsx). Shares the email
+   dialog's frame (.ed); these are its own parts. */
+.cn-now { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.cn-now > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--color-bg-subtle); border: 1px solid var(--color-divider); }
+.cn-now span { font-size: 12px; color: var(--color-text-muted); }
+.cn-now strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.cn-hint { font-size: 12px; color: var(--color-text-muted); }
+.cn-after { padding: 10px 12px; border-radius: 10px; font-size: 13.5px; font-weight: 600; border-left: 3px solid var(--color-accent); background: var(--color-accent-100); }
+.cn-after.is-over { border-left-color: #c77d12; background: color-mix(in srgb, #c77d12 12%, var(--color-bg)); }
+.cn-refund { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; border: 1px dashed var(--color-divider); }

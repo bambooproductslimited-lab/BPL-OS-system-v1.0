@@ -146,7 +146,9 @@ async function upsertInvoiceFromOrder(ctx, order, customerId, catalogByVariation
       "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, external_id, source) " +
       "VALUES ($1,$2,$3,0,0,$3,0,$3,'unpaid',$4,$4,$5,'square') " +
       "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
-      "customer_id = EXCLUDED.customer_id, subtotal = EXCLUDED.subtotal, grand_total = EXCLUDED.grand_total, issued_at = EXCLUDED.issued_at " +
+      "customer_id = EXCLUDED.customer_id, subtotal = EXCLUDED.subtotal, grand_total = EXCLUDED.grand_total, issued_at = EXCLUDED.issued_at, " +
+      // Never due before it was issued: the date can move on a re-import.
+      "due_date = GREATEST(invoices.due_date, EXCLUDED.issued_at) " +
       "RETURNING id",
       [invoiceNo, customerId, grandTotal, issuedAt, order.id]
     );

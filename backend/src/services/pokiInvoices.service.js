@@ -216,8 +216,22 @@ async function create(ctx, p) {
   return get(ctx, inv.id);
 }
 
+// Credit notes on a Poki bill (creditNotes.service.js): a booking cut
+// short, a charge agreed down, and refunding what the tenant then overpaid.
+async function listCreditNotes(ctx, id) {
+  poki.canRead(ctx);
+  await assertPokiInvoice(id);
+  return require('./creditNotes.service').listRaw(id);
+}
+async function createCreditNote(ctx, id, p) {
+  return actingOnPokiInvoice(ctx, id, function (e) {
+    return require('./creditNotes.service').create(e, id, p);
+  });
+}
+
 module.exports = {
   get: get, recordPayment: recordPayment, voidInvoice: voidInvoice,
+  listCreditNotes: listCreditNotes, createCreditNote: createCreditNote,
   createShareLink: createShareLink, shareViaWhatsApp: shareViaWhatsApp,
   create: create, MANUAL_KINDS: MANUAL_KINDS, letterhead: letterhead
 };

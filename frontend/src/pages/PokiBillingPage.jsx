@@ -7,6 +7,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { Glossary, Hero, Insights, Section, Status, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
+import CreditNoteDialog from '../components/CreditNoteDialog';
+import { creditRows } from '../lib/docItems';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import './EmployeesPage.css';
@@ -47,6 +49,7 @@ export default function PokiBillingPage() {
   const [busy, setBusy] = useState(false);
 
   const [previewInv, setPreviewInv] = useState(null);
+  const [creditFor, setCreditFor] = useState(null);
   const [payFor, setPayFor] = useState(null);
   const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', notes: '' });
   const [newInv, setNewInv] = useState(null);
@@ -416,6 +419,7 @@ export default function PokiBillingPage() {
                       {i.balanceDue > 0 && i.status !== 'void' && t && <ContactButtons name={i.customerName} phone={t.phone} email={t.email} />}
                       <RowMenu actions={[
                         { label: tr('Print'), onClick: () => openPreview(i) },
+                        { label: tr('Credit note'), onClick: () => setCreditFor(i), hidden: !(canManage && i.status !== 'void' && (i.grandTotal - (i.creditTotal || 0) > 0.005 || i.amountPaid > i.grandTotal - (i.creditTotal || 0) + 0.005)) },
                         { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) }
                       ]} />
                     </span>
@@ -981,6 +985,7 @@ export default function PokiBillingPage() {
           ]}
           items={groupPackageItems(previewInv.items, previewInv.currency)}
           subtotal={money(previewInv.subtotal, previewInv.currency)}
+          taxRows={creditRows(previewInv, previewInv.currency)}
           isPartial={previewInv.amountPaid > 0 && previewInv.balanceDue > 0}
           amountPaid={money(previewInv.amountPaid, previewInv.currency)}
           totalLabel={docTr('Total Due')}
@@ -991,6 +996,8 @@ export default function PokiBillingPage() {
           onClose={() => setPreviewInv(null)}
         />
       )}
+
+      {creditFor && <CreditNoteDialog invoice={creditFor} apiBase="/poki/invoices" onClose={() => setCreditFor(null)} onDone={() => load()} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

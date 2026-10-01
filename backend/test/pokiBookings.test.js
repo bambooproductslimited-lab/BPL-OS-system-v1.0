@@ -388,6 +388,31 @@ test('a part-paid invoice keeps its payment and asks for the new remainder; cutt
   var unchanged = await call('GET', '/api/poki/bookings/' + made.body.id);
   assert.equal(unchanged.body.durationMonths, 4, 'nothing changed');
   assert.equal((await invoiceOf(made.body.bookingNo)).grandTotal, 4000);
+
+  // Saying how the difference goes back: the booking is cut, the invoice
+  // follows, and the refund is a credit note.
+  var cut = await call('PATCH', '/api/poki/bookings/' + made.body.id, { durationMonths: 0, durationDays: 10, refund: { method: 'mobile_money', reference: MARK + '-REF' } });
+  assert.equal(cut.status, 200, JSON.stringify(cut.body));
+  assert.equal(cut.body.invoiceChange.refunded, 1166.7);
+  assert.match(cut.body.invoiceChange.creditNo, /^CN-/);
+  var after = await invoiceOf(made.body.bookingNo);
+  assert.equal(after.grandTotal, 333.3);
+  assert.equal(after.amountPaid, 333.3);
+  assert.equal(after.status, 'paid');
+  var notes = await call('GET', '/api/poki/invoices/' + after.id + '/credit-notes');
+  assert.equal(notes.body.length, 1);
+  assert.equal(notes.body[0].refundAmount, 1166.7);
+  await pool.query('DELETE FROM credit_notes WHERE invoice_id = $1', [after.id]);
+});
+
+test('a Poki bill takes a credit note too', async function () {
+  var f = await fixtures('P15', 1000, 0);
+  var made = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: '2036-05-01', durationMonths: 2 }));
+  var inv = await invoiceOf(made.body.bookingNo);
+  var r = await call('POST', '/api/poki/invoices/' + inv.id + '/credit-notes', { amount: 250, reason: MARK + ' goodwill' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.invoice.balanceDue, 1750);
+  await pool.query('DELETE FROM credit_notes WHERE invoice_id = $1', [inv.id]);
 });
 
 test('editing a renewal does not charge the carried-over deposit again', async function () {

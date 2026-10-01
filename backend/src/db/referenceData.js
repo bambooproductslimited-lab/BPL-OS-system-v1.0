@@ -134,6 +134,7 @@ function defaultCommercial() {
       waybill: { prefix: 'WB', padding: 4, includeYear: true, nextNumber: 1 },
       payrun: { prefix: 'PR', padding: 4, includeYear: true, nextNumber: 1 },
       booking: { prefix: 'BKG', padding: 4, includeYear: true, nextNumber: 1 },
+      creditNote: { prefix: 'CN', padding: 4, includeYear: true, nextNumber: 1 },
       salesOrder: { prefix: 'SO', padding: 4, includeYear: true, nextNumber: 1 }
     },
     templates: {

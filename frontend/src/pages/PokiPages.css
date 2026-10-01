@@ -226,6 +226,13 @@ textarea.poki-agreement-body {
   font-size: 13px;
 }
 
+/* Booking dialog — cut below what was paid: how the difference goes back. */
+.poki-term-refund { margin-top: 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; border-left: 3px solid #c77d12; background: color-mix(in srgb, #c77d12 12%, var(--color-bg)); }
+.poki-refund-why { margin: 0 0 8px; font-weight: 600; }
+.poki-refund-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; color: var(--color-text); }
+.poki-refund-fields .field { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 12.5px; font-weight: 600; }
+@media (max-width: 560px) { .poki-refund-fields { grid-template-columns: 1fr; } }
+
 /* Booking dialog, editing — what saving does to the booking's invoice. */
 .poki-term-invoice {
   margin-top: 8px;

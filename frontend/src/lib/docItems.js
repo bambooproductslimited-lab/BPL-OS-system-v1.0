@@ -100,11 +100,25 @@ export function adjustmentRows(doc, currency) {
 // reference — not just a total. A customer querying a balance asks "which
 // payment, and when", and a lump sum cannot answer that.
 export function paymentsForDocument(payments, currency) {
-  return (payments || []).map((p) => ({
-    id: p.id,
-    date: formatDocDate(p.date),
-    amount: money(p.amount, currency),
-    methodLabel: String(p.method || '').replace(/_/g, ' '),
-    reference: p.reference || '',
-  }));
+  return (payments || []).map((p) => {
+    // A refund (a credit note's money going back) is a negative payment:
+    // shown as money returned, adding back to what the total has to cover.
+    const refund = p.refund || Number(p.amount) < 0;
+    return {
+      id: p.id,
+      date: formatDocDate(p.date),
+      amount: money(Math.abs(Number(p.amount)), currency),
+      label: refund ? docTr('Refunded') : docTr('Payment received'),
+      sign: refund ? '+' : '−',
+      refund,
+      methodLabel: String(p.method || '').replace(/_/g, ' '),
+      reference: p.reference || '',
+    };
+  });
+}
+
+// What credit notes took off an invoice, as a row before its payments.
+export function creditRows(doc, currency) {
+  const n = Number(doc && doc.creditTotal) || 0;
+  return n > 0.005 ? [{ label: docTr('Credit notes'), value: '− ' + money(n, currency) }] : [];
 }
