@@ -1398,7 +1398,7 @@ export default {
   "Amount ({currency})": "Montant ({currency})",
   "Amount (GHS)": "Montant (GHS)",
   "Amount due": "Montant dû",
-  "Amount each time": "Montant à chaque fois",
+  "Amount each time ({currency})": "Montant à chaque fois ({currency})",
   "Amount paid": "Montant payé",
   "Amount received": "Montant reçu",
   "An accepted quotation turned into work to deliver: the same lines and total, with the date promised to the client.": "Un devis accepté transformé en travail à livrer : les mêmes lignes et le même total, avec la date promise au client.",

@@ -325,8 +325,8 @@ async function previewReadingsBill(ctx, p) {
           return { id: r.id, utilityType: r.utility_type, unitCode: r.unit_code, consumption: Number(r.consumption), measureUnit: r.measure_unit,
             periodStart: dateOnly(r.period_start), periodEnd: dateOnly(r.period_end), amount: Number(r.amount) };
         }),
-        // A recurring charge is priced in the booking's currency; only a
-        // GHS one can share the cedi utility bill.
+        // CAM and flat utility fees are in GHS; an 'other' charge of a
+        // USD booking is in USD and can't share the cedi utility bill.
         charges: (offers[bid] || []).filter(function (c) { return c.currency === UTILITY_CURRENCY; }),
         chargesInOtherCurrency: (offers[bid] || []).filter(function (c) { return c.currency !== UTILITY_CURRENCY; }).map(function (c) { return { description: c.description, currency: c.currency }; })
       };
@@ -357,7 +357,7 @@ async function billReadings(ctx, p) {
     var chargeBooking = {};
     if (chargeIds.length) {
       var chargeCurrency = {};
-      (await client.query('SELECT c.id, c.booking_id, b.currency FROM poki_recurring_charges c JOIN poki_bookings b ON b.id = c.booking_id WHERE c.id = ANY($1::uuid[])', [chargeIds])).rows
+      (await client.query('SELECT c.id, c.booking_id, ' + recurring.CURRENCY_SQL + ' AS currency FROM poki_recurring_charges c JOIN poki_bookings b ON b.id = c.booking_id WHERE c.id = ANY($1::uuid[])', [chargeIds])).rows
         .forEach(function (c) { chargeBooking[c.id] = c.booking_id; chargeCurrency[c.id] = c.currency || 'GHS'; });
       chargeIds.forEach(function (id) {
         if (!chargeBooking[id] || !g.byBooking[chargeBooking[id]]) fail('invalid', 'A recurring charge can only go on its own tenant\'s invoice. Reload and try again.');

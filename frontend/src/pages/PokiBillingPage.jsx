@@ -632,7 +632,8 @@ export default function PokiBillingPage() {
             </div>
             {chargeForm.kind === 'utility' && !chargeForm.id && <p className="dk-muted tl-small poki-dialog-span">{tr('If the unit\'s fixed utility fee was already included in the booking price, don\'t add it again here.')}</p>}
             <div className="field">
-              <label htmlFor="rc-amount">{tr('Amount each time')}</label>
+              {/* CAM and flat utility fees are in cedis; other charges follow the booking (backend pokiRecurring CURRENCY_SQL). */}
+              <label htmlFor="rc-amount">{tr('Amount each time ({currency})', { currency: ['cam', 'utility'].includes(chargeForm.kind) ? 'GHS' : ((bookings.find((b) => b.id === chargeForm.bookingId) || {}).currency || 'GHS') })}</label>
               <input id="rc-amount" className="input" type="number" min="0.01" step="0.01" required value={chargeForm.amount} onChange={(e) => setChargeForm({ ...chargeForm, amount: e.target.value })} />
             </div>
             <div className="field">

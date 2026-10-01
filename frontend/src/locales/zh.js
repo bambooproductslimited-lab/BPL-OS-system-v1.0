@@ -1398,7 +1398,7 @@ export default {
   "Amount ({currency})": "金额（{currency}）",
   "Amount (GHS)": "金额（GHS）",
   "Amount due": "应付金额",
-  "Amount each time": "每次金额",
+  "Amount each time ({currency})": "每次金额（{currency}）",
   "Amount paid": "已付金额",
   "Amount received": "收到金额",
   "An accepted quotation turned into work to deliver: the same lines and total, with the date promised to the client.": "已接受的报价转为待交付的工作：明细和总额相同，并附有向客户承诺的日期。",

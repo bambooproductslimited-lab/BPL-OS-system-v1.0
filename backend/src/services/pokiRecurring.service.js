@@ -25,6 +25,12 @@ var { periodWorking } = require('../utils/workings');
 // Until then a due charge waits, shown as due.
 
 var KINDS = ['cam', 'utility', 'other'];
+
+// The service charge (CAM) and flat utility fees are in cedis, like the
+// meter bills, whatever currency the booking's rent is in; anything else
+// follows the booking. CURRENCY_SQL gives a charge's currency in a query.
+var GHS_KINDS = ['cam', 'utility'];
+var CURRENCY_SQL = "CASE WHEN c.kind IN ('cam', 'utility') THEN 'GHS' ELSE COALESCE(b.currency, 'GHS') END";
 var FREQUENCIES = { monthly: 1, quarterly: 3, yearly: 12 };
 var DEFAULT_TEXT = { cam: 'Service charge (CAM)', utility: 'Utilities (flat fee)', other: 'Recurring charge' };
 var MAX_PERIODS_PER_RUN = 12;
@@ -46,7 +52,7 @@ function periodFor(charge, start, limit) {
 }
 
 var LIST_SQL =
-  'SELECT c.*, b.booking_no, b.status AS booking_status, b.start_date AS booking_start, b.end_date AS booking_end, b.currency, ' +
+  'SELECT c.*, b.booking_no, b.status AS booking_status, b.start_date AS booking_start, b.end_date AS booking_end, ' + CURRENCY_SQL + ' AS currency, ' +
   '  u.code AS unit_code, pr.name AS property_name, cu.id AS customer_id, cu.name AS tenant_name, cu.phone AS tenant_phone, ' +
   '  (SELECT count(*) FROM poki_recurring_charge_runs r WHERE r.charge_id = c.id)::int AS periods_billed, ' +
   '  (SELECT COALESCE(sum(r.amount), 0) FROM poki_recurring_charge_runs r WHERE r.charge_id = c.id)::float AS billed_total, ' +
@@ -217,7 +223,7 @@ async function attachRuns(client, claimed, invoiceId) {
 }
 
 var DUE_SQL =
-  'SELECT c.*, b.booking_no, b.status AS booking_status, b.end_date AS booking_end, b.currency, u.code AS unit_code, pr.name AS property_name, ' +
+  'SELECT c.*, b.booking_no, b.status AS booking_status, b.end_date AS booking_end, ' + CURRENCY_SQL + ' AS currency, u.code AS unit_code, pr.name AS property_name, ' +
   '  t.customer_id, cu.name AS tenant_name ' +
   'FROM poki_recurring_charges c JOIN poki_bookings b ON b.id = c.booking_id JOIN poki_units u ON u.id = b.unit_id ' +
   'JOIN poki_properties pr ON pr.id = u.property_id JOIN poki_tenants t ON t.id = b.tenant_id JOIN customers cu ON cu.id = t.customer_id ';
@@ -312,7 +318,10 @@ async function run(ctx, opts) {
         continue;
       }
       var plan = periodsToBill(c, asOf, !!opts.chargeId);
-      if (plan.periods.length) (byBooking[c.booking_id] = byBooking[c.booking_id] || []).push({ charge: c, periods: plan.periods, next: plan.next });
+      // One invoice per booking and currency: a USD booking's CAM (GHS)
+      // and a USD 'other' charge can't share a total.
+      var key = c.booking_id + '|' + c.currency;
+      if (plan.periods.length) (byBooking[key] = byBooking[key] || []).push({ charge: c, periods: plan.periods, next: plan.next });
       if (await moveOn(client, c, plan)) ended++;
     }
 
@@ -352,5 +361,5 @@ async function run(ctx, opts) {
   });
 }
 
-module.exports = { list: list, create: create, update: update, setStatus: setStatus, remove: remove, run: run, periodFor: periodFor,
+module.exports = { GHS_KINDS: GHS_KINDS, CURRENCY_SQL: CURRENCY_SQL, list: list, create: create, update: update, setStatus: setStatus, remove: remove, run: run, periodFor: periodFor,
   offerFor: offerFor, billAlong: billAlong, attachRuns: attachRuns, release: release };
