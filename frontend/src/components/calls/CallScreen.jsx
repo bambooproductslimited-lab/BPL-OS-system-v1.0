@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track, ConnectionState } from 'livekit-client';
 import { tr } from '../../lib/i18n.jsx';
 import CallIcon from './CallIcon';
+import { startCallTone } from './callTones';
 import './Calls.css';
 
 // The call itself (calls.service.js hands out the pass): everyone in it as a
@@ -108,11 +109,11 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
   const [ringLeft, setRingLeft] = useState(ringFor ? Math.round(ringFor / 1000) : 0);
   const bump = () => setVersion((v) => v + 1);
 
-  async function hangUp() {
+  async function hangUp(reason) {
     if (leftRef.current) return;
     leftRef.current = true;
     try { await roomRef.current?.disconnect(); } catch { /* already gone */ }
-    onLeave();
+    onLeave(reason);
   }
 
   useEffect(() => {
@@ -166,6 +167,10 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
     })();
     return () => { stopped = true; room.disconnect(); };
   }, [session.url, session.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ringing out: the ring-ring in my ear until someone answers or it stops.
+  const ringingOut = !!ringFor && !answeredRef.current && ringLeft > 0 && !leftRef.current;
+  useEffect(() => (ringingOut ? startCallTone('ringback') : undefined), [ringingOut]);
 
   // Ringing out: count down, then drop it if still nobody has come.
   useEffect(() => {
@@ -274,7 +279,7 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
     canShare && ctl(small, { icon: 'screen', label: sharing ? tr('Stop sharing') : tr('Share screen'), hint: sharing ? tr('Stop sharing') : tr('Share your screen'),
       tone: sharing ? 'on' : '', pressed: sharing, onClick: toggleShare }),
     small && ctl(small, { icon: 'grow', label: tr('Back to the full call'), onClick: () => onMinimize(false) }),
-    ctl(small, { icon: 'hangup', label: tr('Leave'), hint: tr('Leave the call'), tone: 'hangup', onClick: hangUp })
+    ctl(small, { icon: 'hangup', label: tr('Leave'), hint: tr('Leave the call'), tone: 'hangup', onClick: () => hangUp() })
   ].filter(Boolean);
   const tapToHear = needsTap && <button type="button" className="call-audio-tap" onClick={() => room.startAudio().then(() => setNeedsTap(false))}>{tr('Tap to hear the call')}</button>;
 
@@ -338,6 +343,11 @@ export default function CallScreen({ session, onHeartbeat, onLeave, minimized = 
           <p className="call-waiting"><span className="call-dots" aria-hidden="true"><i /><i /><i /></span>
             {ringFor && !answeredRef.current && ringLeft > 0 ? tr('Ringing… ends in {n} s if nobody answers', { n: ringLeft }) : session.subtitle || tr('Waiting for others to join…')}
           </p>
+        )}
+        {ringingOut && session.conversationId && (
+          <button type="button" className="call-chip is-button call-leave-note" onClick={() => hangUp('voicenote')}>
+            <CallIcon name="mic" size={15} /> {tr('Leave a voice note instead')}
+          </button>
         )}
       </div>
 

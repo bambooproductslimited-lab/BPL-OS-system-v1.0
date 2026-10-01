@@ -22,7 +22,9 @@ const MUTE_KEY = 'bamboo-os-notification-sound-muted';
 let audioCtx = null;
 let unlocked = false;
 
-function getContext() {
+// Also used by calls/callTones.js, so a call can ring through the context
+// the first tap in the OS already unlocked.
+export function getContext() {
   if (audioCtx) return audioCtx;
   const Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) return null;

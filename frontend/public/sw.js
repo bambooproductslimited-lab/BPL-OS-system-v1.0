@@ -123,14 +123,14 @@ self.addEventListener('push', function (event) {
 // ---------------------------------------------------------------------------
 // Calls (calls.service.js). Someone calling rings this device even with the
 // OS closed, as long as it is online: a pop-up with Answer and Decline that
-// buzzes again every few seconds for as long as the call rings (30 s), the
+// buzzes again every few seconds for as long as the call rings (a minute), the
 // nearest a web app can come to a phone's own call screen. If the OS is
 // open and on screen, its own ringing card shows instead. When the call
 // ends unanswered, "Missed call" replaces the pop-up (same tag).
 
 // The API's address, handed over when main.jsx registers this worker.
 var API_URL = new URL(self.location.href).searchParams.get('api') || '';
-var RING_FOR_MS = 30000, RING_EVERY_MS = 5000;
+var RING_FOR_MS = 60000, RING_EVERY_MS = 5000;
 
 function callWords() {
   var lang = String((self.navigator && self.navigator.language) || 'en').slice(0, 2);
@@ -213,7 +213,7 @@ function declineCall(d) {
   if (!API_URL || !d.declinePass) return Promise.resolve();
   return fetch(API_URL + '/meet/call-decline', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass: d.declinePass })
-  }).catch(function () { /* it stops ringing for the caller after 30 s anyway */ });
+  }).catch(function () { /* it stops ringing for the caller after a minute anyway */ });
 }
 
 // Tapping the pop-up. The aim is to reuse a window that is already open

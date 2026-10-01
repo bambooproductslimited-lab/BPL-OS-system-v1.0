@@ -2,7 +2,7 @@
    screen is always dark, like a phone's, whatever the OS theme: a deep night
    backdrop lit by the OS's green and blue, glass for everything that floats
    over the video, and one bar of labelled controls at the bottom. */
-.call-screen, .call-mini, .call-incoming, .call-toast {
+.call-screen, .call-mini, .call-incoming, .call-toast, .call-voicenote {
   --call-bg: #070c11;
   --call-glass: rgba(20, 30, 40, 0.62);
   --call-glass-line: rgba(255, 255, 255, 0.09);
@@ -188,6 +188,18 @@
 .call-round.is-accept { background: linear-gradient(135deg, #2f9e5b, #3fc27a); box-shadow: 0 8px 20px rgba(52,196,122,0.4); animation: call-accept 1.6s ease-in-out infinite; }
 @keyframes call-accept { 0%, 100% { box-shadow: 0 0 0 0 rgba(52,196,122,0.5); } 60% { box-shadow: 0 0 0 10px rgba(52,196,122,0); } }
 .call-toast { position: fixed; z-index: 1210; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); padding: 11px 12px 11px 16px; border-radius: 14px; background: rgba(12,18,25,0.96); color: var(--call-text); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 14px 34px rgba(0,0,0,0.35); font-size: 14px; }
+.call-voicenote { position: fixed; z-index: 1215; left: 50%; bottom: 20px; transform: translateX(-50%); width: min(520px, calc(100vw - 32px)); display: grid; grid-template-columns: auto 1fr; gap: 12px 14px; align-items: center; padding: 16px; border-radius: 18px; background: rgba(12,18,25,0.97); color: var(--call-text); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 18px 44px rgba(0,0,0,0.4); animation: call-pop 220ms cubic-bezier(.2,.8,.2,1); }
+.call-voicenote-icon { width: 46px; height: 46px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.08); color: #fff; }
+.call-voicenote-icon.is-rec { background: #e5484d; animation: call-pulse 1.4s ease-in-out infinite; }
+.call-voicenote-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.call-voicenote-text strong { font-size: 15.5px; overflow-wrap: anywhere; }
+.call-voicenote-text span { font-size: 13px; color: var(--call-muted, rgba(255,255,255,0.7)); }
+.call-voicenote-error { color: #ff9b9e !important; }
+.call-voicenote-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.call-leave-note { position: absolute; left: 50%; top: 72px; transform: translateX(-50%); z-index: 3; white-space: nowrap; }
+@keyframes call-pop { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes call-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0.55); } 50% { box-shadow: 0 0 0 10px rgba(229,72,77,0); } }
+@media (prefers-reduced-motion: reduce) { .call-voicenote, .call-voicenote-icon.is-rec { animation: none; } }
 .call-toast button { border: 0; background: transparent; color: inherit; cursor: pointer; display: inline-flex; }
 
 /* In a chat: the running call, and meeting cards. */

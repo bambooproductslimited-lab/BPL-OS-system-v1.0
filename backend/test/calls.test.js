@@ -171,18 +171,18 @@ test('without LiveKit set up, calls say so', async function () {
   } finally { config.livekit.url = keep; }
 });
 
-test('a call nobody answers drops after 30 seconds, for the caller too, and shows as missed', async function () {
+test('a call nobody answers drops after a minute, for the caller too, and shows as missed', async function () {
   await pool.query('UPDATE calls SET ended_at = now() WHERE conversation_id = ANY($1) AND ended_at IS NULL', [[groupId, directId]]);
   var c = (await call('kelvin', 'POST', '/messages/conversations/' + directId + '/calls', { kind: 'voice' })).data;
   assert.equal(c.ringFor, calls.RING_MS);
-  assert.equal(calls.RING_MS, 30000);
+  assert.equal(calls.RING_MS, 60000);
 
   // Too early: it keeps ringing.
   var early = await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered');
   assert.equal(early.status, 200); assert.equal(early.data.ended, false);
   assert.ok((await call('brian', 'GET', '/messages/calls/live')).data.calls.find(function (x) { return x.id === c.id; }).ringing);
 
-  await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [c.id]);
+  await pool.query("UPDATE calls SET started_at = now() - interval '61 seconds' WHERE id = $1", [c.id]);
   // Only the caller can drop it; Brian no longer sees it ringing.
   assert.equal((await call('brian', 'POST', '/messages/calls/' + c.id + '/unanswered')).status, 403);
   var live = (await call('brian', 'GET', '/messages/calls/live')).data.calls.find(function (x) { return x.id === c.id; });
@@ -200,7 +200,7 @@ test('a call nobody answers drops after 30 seconds, for the caller too, and show
 
 test('someone who answers at the last moment keeps the call; the background job drops the rest', async function () {
   var c = (await call('kelvin', 'POST', '/messages/conversations/' + groupId + '/calls', { kind: 'video' })).data;
-  await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [c.id]);
+  await pool.query("UPDATE calls SET started_at = now() - interval '61 seconds' WHERE id = $1", [c.id]);
   assert.equal((await call('faith', 'POST', '/messages/calls/' + c.id + '/join')).status, 200);
   assert.equal((await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered')).data.ended, false);
   await calls.sweep();
@@ -211,7 +211,7 @@ test('someone who answers at the last moment keeps the call; the background job 
   // The caller closed the page while it rang: the job ends it as missed.
   var d = (await call('kelvin', 'POST', '/messages/conversations/' + groupId + '/calls', { kind: 'voice' })).data;
   await call('samuel', 'POST', '/messages/calls/' + d.id + '/decline');
-  await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [d.id]);
+  await pool.query("UPDATE calls SET started_at = now() - interval '61 seconds' WHERE id = $1", [d.id]);
   await calls.sweep();
   assert.ok((await pool.query('SELECT ended_at FROM calls WHERE id = $1', [d.id])).rows[0].ended_at);
   var last = (await notes(groupId)).pop();
@@ -234,7 +234,7 @@ test('a call rings on phones with the OS closed: an urgent pop-up with Decline, 
     assert.match(ring.payload.title, /^Video call from /);
     assert.equal(ring.payload.link, 'chat:' + groupId);
     assert.equal(ring.opts.urgency, 'high');
-    assert.equal(ring.opts.ttl, 30);
+    assert.equal(ring.opts.ttl, 60);
     assert.equal(ring.opts.topic, c.id.replace(/-/g, ''));
 
     // Decline from the pop-up: works once for that person and call only.
@@ -252,7 +252,7 @@ test('a call rings on phones with the OS closed: an urgent pop-up with Decline, 
 
     // Nobody answers: Faith (who never picked up) gets "Missed", Samuel (who declined) doesn't.
     sent.length = 0;
-    await pool.query("UPDATE calls SET started_at = now() - interval '31 seconds' WHERE id = $1", [c.id]);
+    await pool.query("UPDATE calls SET started_at = now() - interval '61 seconds' WHERE id = $1", [c.id]);
     assert.equal((await call('kelvin', 'POST', '/messages/calls/' + c.id + '/unanswered')).data.ended, true);
     await new Promise(function (r) { setTimeout(r, 150); });
     var missed = sent.filter(function (s) { return s.payload.type === 'call-missed'; });

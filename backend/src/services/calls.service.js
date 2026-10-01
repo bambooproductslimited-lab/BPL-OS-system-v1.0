@@ -23,7 +23,7 @@ var messages = require('./messages.service');
 // window. Everyone in the chat is reminded in the OS and by text 15 minutes
 // before (remindDue(), jobs/meetingReminders.js).
 
-var RING_MS = 30 * 1000;          // how long a call rings before it drops unanswered
+var RING_MS = 60 * 1000;          // how long a call rings before it drops unanswered
 var GONE_MS = 60 * 1000;          // a participant not heard from for this long has left
 var PASS_HOURS = 6;               // how long a pass to a room lasts
 var EARLY_MIN = 15;               // a meeting opens this long before it starts

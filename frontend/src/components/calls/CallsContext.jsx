@@ -5,6 +5,8 @@ import { tr } from '../../lib/i18n.jsx';
 // The calling library is large: loaded when a call starts, not with the OS.
 const CallScreen = lazy(() => import('./CallScreen'));
 import CallIcon from './CallIcon';
+import { startCallTone } from './callTones';
+import VoiceNote from './VoiceNote';
 import './Calls.css';
 
 // Calls across the whole OS (calls.service.js): which calls are running in
@@ -17,32 +19,9 @@ export function useCalls() { return useContext(CallsCtx); }
 
 const POLL_MS = 4000;
 
-// A soft two-note ring, made in the browser (no sound file to load), and a
-// buzz on phones that can.
+// Someone calling me: the loud ring (callTones.js) while the card shows.
 function useRingtone(on) {
-  useEffect(() => {
-    if (!on) return undefined;
-    let ctx = null, stopped = false;
-    const ring = () => {
-      if (stopped) return;
-      try {
-        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
-        [[660, 0], [880, 0.22], [660, 0.9], [880, 1.12]].forEach(([f, at]) => {
-          const o = ctx.createOscillator(), g = ctx.createGain();
-          o.frequency.value = f; o.type = 'sine';
-          g.gain.setValueAtTime(0.0001, ctx.currentTime + at);
-          g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + at + 0.03);
-          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.2);
-          o.connect(g).connect(ctx.destination);
-          o.start(ctx.currentTime + at); o.stop(ctx.currentTime + at + 0.22);
-        });
-      } catch { /* no sound allowed yet — the card still shows */ }
-      try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch { /* not a phone */ }
-    };
-    ring();
-    const t = setInterval(ring, 2600);
-    return () => { stopped = true; clearInterval(t); try { if (ctx) ctx.close(); } catch { /* closed */ } };
-  }, [on]);
+  useEffect(() => (on ? startCallTone('incoming') : undefined), [on]);
 }
 
 function IncomingCall({ call, onAccept, onDecline }) {
@@ -68,6 +47,7 @@ export function CallsProvider({ children }) {
   const [mini, setMini] = useState(false);     // the call shrunk to a corner
   const [dismissed, setDismissed] = useState({});
   const [error, setError] = useState(null);
+  const [voiceNote, setVoiceNote] = useState(null); // { conversationId, name, missed, startNow }
   const activeRef = useRef(null);
   activeRef.current = active;
   const location = useLocation();
@@ -119,7 +99,7 @@ export function CallsProvider({ children }) {
   function open(r, title, subtitle) {
     setError(null); setMini(false);
     setDismissed((d) => ({ ...d, [r.id]: true }));
-    setActive({ callId: r.id, conversationId: r.conversationId, ringFor: r.ringFor || 0, session: { url: r.url, token: r.token, kind: r.kind, title: title || tr('Call'), subtitle } });
+    setActive({ callId: r.id, conversationId: r.conversationId, ringFor: r.ringFor || 0, session: { url: r.url, token: r.token, kind: r.kind, title: title || tr('Call'), subtitle, conversationId: r.ringFor ? r.conversationId : null } });
   }
   // same(active): this is the call I'm already in — just bring it back up.
   async function run(fn, title, subtitle, same) {
@@ -170,6 +150,7 @@ export function CallsProvider({ children }) {
           onAccept={() => value.joinCall(ringing.id, ringing.group && ringing.chatName ? ringing.chatName : ringing.startedBy ? ringing.startedBy.name : tr('Call'))}
           onDecline={() => decline(ringing)} />
       )}
+      {voiceNote && !active && <VoiceNote {...voiceNote} onClose={() => setVoiceNote(null)} />}
       {error && (!active || mini) && (
         <div className="call-toast" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label={tr('Close')}><CallIcon name="close" size={16} /></button></div>
       )}
@@ -179,10 +160,16 @@ export function CallsProvider({ children }) {
           ringFor={active.ringFor} onUnanswered={() => api.post('/messages/calls/' + active.callId + '/unanswered')}
           onHeartbeat={() => api.post('/messages/calls/' + active.callId + '/heartbeat')}
           onLeave={async (reason) => {
-            const id = active.callId;
+            const id = active.callId, conv = active.session.conversationId, name = active.session.title;
             setActive(null); setMini(false);
-            if (reason === 'unanswered') { setError(tr('No answer. The call ended after 30 seconds.')); refresh(); return; }
+            // Nobody answered: offer a voice note, like voicemail.
+            if (reason === 'unanswered') {
+              if (conv) setVoiceNote({ conversationId: conv, name, missed: true, startNow: false });
+              else setError(tr('No answer. The call ended after a minute.'));
+              refresh(); return;
+            }
             try { await api.post('/messages/calls/' + id + '/leave'); } catch { /* ended already */ }
+            if (reason === 'voicenote' && conv) setVoiceNote({ conversationId: conv, name, missed: false, startNow: true });
             refresh();
           }} />
         </Suspense>
