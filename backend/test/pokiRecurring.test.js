@@ -320,6 +320,27 @@ test('readings: a bill raised by mistake is voided and everything on it can be b
   var meter = (await ok('GET', '/api/poki/meters')).find(function (m) { return m.id === water.id; });
   assert.equal(meter.lastReading, 12);
 
+  // A USD booking: its meters are still billed in GHS, and its USD CAM is
+  // not put on the cedi bill.
+  var usdUnit = await ok('POST', '/api/poki/units', { code: RB + '-9D', name: 'Shop 9D', unitType: 'shop', baseRent: 300, currency: 'USD', fxRate: 12, propertyId: (await pool.query("SELECT id FROM poki_properties WHERE name = $1", [RB + ' Court'])).rows[0].id });
+  var usdTenant = await ok('POST', '/api/poki/tenants', { name: RB + ' Dollar Shop', email: 'usd@example.com', phone: '0200000099' });
+  var usdBk = await ok('POST', '/api/poki/bookings', { unitId: usdUnit.id, tenantId: usdTenant.id, startDate: addDays(today, -20), durationMonths: 6, durationDays: 0, depositAmount: 0, status: 'active', currency: 'USD', fxRate: 12, notes: RB });
+  assert.equal(usdBk.currency, 'USD');
+  var usdCam = await ok('POST', '/api/poki/recurring-charges', { bookingId: usdBk.id, kind: 'cam', amount: 30, frequency: 'monthly', startDate: addDays(today, -5) });
+  var usdMeter = await ok('POST', '/api/poki/meters', { unitId: usdUnit.id, utilityType: 'electricity', measureUnit: 'kWh', rate: 3.42 });
+  var ur = await ok('POST', '/api/poki/readings', { meterId: usdMeter.id, periodStart: addDays(today, -30), periodEnd: today, previousReading: 27463, currentReading: 27615 });
+  var upv = await ok('POST', '/api/poki/readings/bill/preview', { readingIds: [ur.id] });
+  assert.equal(upv.groups[0].currency, 'GHS');
+  assert.equal(upv.groups[0].charges.length, 0, 'the USD CAM is not offered');
+  assert.equal(upv.groups[0].chargesInOtherCurrency[0].currency, 'USD');
+  var mixed = await call('POST', '/api/poki/readings/bill', { readingIds: [ur.id], chargeIds: [usdCam.id] });
+  assert.equal(mixed.status, 400);
+  assert.match(JSON.stringify(mixed.body), /billed in GHS/);
+  var ub = await ok('POST', '/api/poki/readings/bill', { readingIds: [ur.id] });
+  var urow = (await pool.query('SELECT currency, grand_total FROM invoices WHERE id = $1', [ub.invoices[0].invoiceId])).rows[0];
+  assert.equal(urow.currency, 'GHS', 'a USD booking\'s meter bill is in cedis');
+  assert.equal(Number(urow.grand_total), 519.84);
+
   // A reading left on a bill voided before voiding released it (as the old
   // code did) can still be deleted.
   var r2 = await ok('POST', '/api/poki/readings', { meterId: water.id, periodStart: today, periodEnd: today, currentReading: 30 });

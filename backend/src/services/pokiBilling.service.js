@@ -43,6 +43,11 @@ function daysInclusive(fromISO, toISO) {
 // longer a "rent day" for a utility bill to align to.
 var UTILITY_NET_DAYS = 14;
 
+// Utilities are billed in cedis, whatever currency the booking is in: the
+// meter rates and the ECG / Ghana Water bills behind them are in GHS. (A
+// USD booking's meter bill once went out as "USD 519.84" for GHS 519.84.)
+var UTILITY_CURRENCY = 'GHS';
+
 function dueDateFor(issuedISO, netDays) {
   var days = Number(netDays);
   return addDays(String(issuedISO).slice(0, 10), days > 0 ? days : UTILITY_NET_DAYS);
@@ -292,7 +297,7 @@ function groupByBooking(rows) {
 function readingLine(r) {
   return {
     description: r.utility_type.charAt(0).toUpperCase() + r.utility_type.slice(1) + ' — ' + r.unit_code,
-    notes: W.meterWorking(r, r.currency),
+    notes: W.meterWorking(r, UTILITY_CURRENCY),
     qty: Number(r.consumption), unit: r.measure_unit, unitPrice: Number(r.rate)
   };
 }
@@ -315,12 +320,15 @@ async function previewReadingsBill(ctx, p) {
       var rs = g.byBooking[bid], first = rs[0];
       return {
         bookingId: bid, bookingNo: first.booking_no, tenantName: first.tenant_name, phone: first.tenant_phone || '', email: first.tenant_email || '',
-        propertyName: first.property_name, unitCode: first.unit_code, currency: first.currency || 'GHS',
+        propertyName: first.property_name, unitCode: first.unit_code, currency: UTILITY_CURRENCY,
         readings: rs.map(function (r) {
           return { id: r.id, utilityType: r.utility_type, unitCode: r.unit_code, consumption: Number(r.consumption), measureUnit: r.measure_unit,
             periodStart: dateOnly(r.period_start), periodEnd: dateOnly(r.period_end), amount: Number(r.amount) };
         }),
-        charges: offers[bid] || []
+        // A recurring charge is priced in the booking's currency; only a
+        // GHS one can share the cedi utility bill.
+        charges: (offers[bid] || []).filter(function (c) { return c.currency === UTILITY_CURRENCY; }),
+        chargesInOtherCurrency: (offers[bid] || []).filter(function (c) { return c.currency !== UTILITY_CURRENCY; }).map(function (c) { return { description: c.description, currency: c.currency }; })
       };
     }),
     skippedUnits: g.skipped
@@ -348,10 +356,12 @@ async function billReadings(ctx, p) {
 
     var chargeBooking = {};
     if (chargeIds.length) {
-      (await client.query('SELECT id, booking_id FROM poki_recurring_charges WHERE id = ANY($1::uuid[])', [chargeIds])).rows
-        .forEach(function (c) { chargeBooking[c.id] = c.booking_id; });
+      var chargeCurrency = {};
+      (await client.query('SELECT c.id, c.booking_id, b.currency FROM poki_recurring_charges c JOIN poki_bookings b ON b.id = c.booking_id WHERE c.id = ANY($1::uuid[])', [chargeIds])).rows
+        .forEach(function (c) { chargeBooking[c.id] = c.booking_id; chargeCurrency[c.id] = c.currency || 'GHS'; });
       chargeIds.forEach(function (id) {
         if (!chargeBooking[id] || !g.byBooking[chargeBooking[id]]) fail('invalid', 'A recurring charge can only go on its own tenant\'s invoice. Reload and try again.');
+        if (chargeCurrency[id] !== UTILITY_CURRENCY) fail('invalid', 'That recurring charge is in ' + chargeCurrency[id] + ', and utilities are billed in ' + UTILITY_CURRENCY + '. Bill it on its own invoice.');
       });
     }
 
@@ -380,7 +390,7 @@ async function billReadings(ctx, p) {
         customerId: first.customer_id, companyId: companyId, docKind: kinds.length === 1 ? 'utility' : 'other', bookingId: bid,
         periodStart: starts[0], periodEnd: ends[ends.length - 1],
         items: buildLineItems(items), dueDate: dueDateFor(todayISO(), netDays),
-        currency: first.currency || 'GHS', instructions: instructions,
+        currency: UTILITY_CURRENCY, instructions: instructions,
         notes: (along.lines.length ? 'Utilities and charges for ' : 'Utility charges for ') + first.property_name + ' · ' + first.unit_code + '.'
       });
       for (var j = 0; j < rows.length; j++) {
@@ -482,7 +492,7 @@ async function masterBillSplit(ctx, id) {
     var share = weightSum > 0 ? weights[i] / weightSum : 1 / units.rows.length;
     return {
       unitId: u.id, unitCode: u.code, bookingId: u.booking_id, customerId: u.customer_id,
-      tenantName: u.tenant_name, currency: u.currency || 'GHS',
+      tenantName: u.tenant_name, currency: UTILITY_CURRENCY,
       weight: weights[i], sharePercent: Math.round(share * 1000) / 10, amount: money(total * share),
       billable: !!u.booking_id
     };

@@ -236,7 +236,7 @@ async function offerFor(bookingIds, asOf) {
     var plan = periodsToBill(c, asOf, !due);
     if (!plan.periods.length) return;
     (out[c.booking_id] = out[c.booking_id] || []).push({
-      id: c.id, kind: c.kind, description: c.description, frequency: c.frequency, due: due, nextDate: dateOnly(c.next_date),
+      id: c.id, kind: c.kind, description: c.description, frequency: c.frequency, due: due, nextDate: dateOnly(c.next_date), currency: c.currency || 'GHS',
       periods: plan.periods.map(function (pd) { return { start: pd.start, end: pd.end, amount: pd.amount, part: pd.part }; }),
       amount: round2(plan.periods.reduce(function (t, pd) { return t + pd.amount; }, 0))
     });

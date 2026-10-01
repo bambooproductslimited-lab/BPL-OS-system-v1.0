@@ -113,6 +113,9 @@ export default function BillReadingsDialog({ readingIds, onClose, onBilled, onSe
                       </li>
                     ))}
                   </ul>
+                  {(g.chargesInOtherCurrency || []).length > 0 && (
+                    <div className="ed-note">{tr('Utilities are billed in GHS. {what} is in {currency}, so it stays on its own invoice (Recurring charges).', { what: g.chargesInOtherCurrency.map((c) => c.description).join(', '), currency: g.chargesInOtherCurrency[0].currency })}</div>
+                  )}
                   {g.charges.length > 0 && (
                     <div className="brd-charges">
                       <div className="brd-charges-title">{tr('Put on the same invoice')}</div>

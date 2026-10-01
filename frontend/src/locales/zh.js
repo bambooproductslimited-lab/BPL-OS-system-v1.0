@@ -6579,6 +6579,7 @@ export default {
   "Usual week (Monday to Saturday)": "通常工作周（周一至周六）",
   "Utilities": "公用事业费",
   "Utilities (flat fee)": "水电费（固定费用）",
+  "Utilities are billed in GHS. {what} is in {currency}, so it stays on its own invoice (Recurring charges).": "水电费以 GHS 计费。{what} 以 {currency} 计价，因此单独开票（定期费用）。",
   "Utility": "公用事业",
   "Utility bill": "水电费账单",
   "vacant": "空置",

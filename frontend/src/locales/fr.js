@@ -6579,6 +6579,7 @@ export default {
   "Usual week (Monday to Saturday)": "Semaine habituelle (du lundi au samedi)",
   "Utilities": "Charges",
   "Utilities (flat fee)": "Charges de services (forfait)",
+  "Utilities are billed in GHS. {what} is in {currency}, so it stays on its own invoice (Recurring charges).": "Les charges de services publics sont facturées en GHS. {what} est en {currency} : elle reste sur sa propre facture (Frais récurrents).",
   "Utility": "Charge",
   "Utility bill": "Facture de services",
   "vacant": "vacant",
