@@ -196,6 +196,8 @@
 .call-voicenote-text span { font-size: 13px; color: var(--call-muted, rgba(255,255,255,0.7)); }
 .call-voicenote-error { color: #ff9b9e !important; }
 .call-voicenote-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.call-voicenote .btn-secondary { background: rgba(255,255,255,0.08); color: var(--call-text); border-color: rgba(255,255,255,0.22); }
+.call-voicenote .btn-secondary:hover { background: rgba(255,255,255,0.14); }
 .call-leave-note { position: absolute; left: 50%; top: 72px; transform: translateX(-50%); z-index: 3; white-space: nowrap; }
 @keyframes call-pop { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes call-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0.55); } 50% { box-shadow: 0 0 0 10px rgba(229,72,77,0); } }
