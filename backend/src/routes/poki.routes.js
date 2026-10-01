@@ -5,6 +5,7 @@ var billing = require('../services/pokiBilling.service');
 var estimates = require('../services/pokiEstimates.service');
 var reminders = require('../services/pokiReminders.service');
 var pokiInvoices = require('../services/pokiInvoices.service');
+var rentSideMove = require('../services/rentSideMove.service');
 var recurring = require('../services/pokiRecurring.service');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
@@ -212,6 +213,14 @@ router.get('/invoices/:id', async function (req, res, next) {
 });
 router.post('/invoices/:id/payments', async function (req, res, next) {
   try { res.status(201).json(await pokiInvoices.recordPayment(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+// Rent-side invoices sitting in Bamboo Products' invoices, and moving the
+// ticked ones to Poki (rentSideMove.service.js).
+router.get('/rent-side-invoices', async function (req, res, next) {
+  try { res.json(await rentSideMove.candidates(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/rent-side-invoices/move', async function (req, res, next) {
+  try { res.json(await rentSideMove.move(req.ctx, req.body)); } catch (e) { next(e); }
 });
 router.get('/invoices/:id/credit-notes', async function (req, res, next) {
   try { res.json(await pokiInvoices.listCreditNotes(req.ctx, req.params.id)); } catch (e) { next(e); }

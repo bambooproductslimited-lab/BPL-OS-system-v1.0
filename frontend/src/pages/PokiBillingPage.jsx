@@ -8,6 +8,7 @@ import { Glossary, Hero, Insights, Section, Status, jump } from '../components/D
 import { money, moneyBreakdown } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
 import CreditNoteDialog from '../components/CreditNoteDialog';
+import RentSideMoveDialog from '../components/RentSideMoveDialog';
 import { creditRows } from '../lib/docItems';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -42,6 +43,9 @@ function fmtDate(iso) {
 export default function PokiBillingPage() {
   const { can } = useAuth();
   const canManage = can('poki.manage');
+  const canMoveIn = canManage && can('invoice.manage');
+  const [rentSide, setRentSide] = useState(null); // rent-side invoices still in Bamboo Products' list
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -100,12 +104,13 @@ export default function PokiBillingPage() {
       setProperties(await api.get('/poki/properties'));
       api.get('/poki/recurring-charges').then(setCharges).catch(() => {});
       api.get('/poki/overview').then(setOverview).catch(() => {});
+      if (canMoveIn) api.get('/poki/rent-side-invoices').then(setRentSide).catch(() => {});
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canMoveIn]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -325,6 +330,8 @@ export default function PokiBillingPage() {
     const w = overdue[0];
     insights.push({ tone: 'bad', icon: 'owed', text: overdue.length === 1 ? tr('{name} has owed {amount} on {no} for {days} days.', { name: w.customerName, amount: money(w.balanceDue, w.currency), no: w.invoiceNo, days: daysSince(w.dueDate) }) : tr('{n} invoices are overdue; the oldest is {name}\'s {no}, {days} days.', { n: overdue.length, name: w.customerName, no: w.invoiceNo, days: daysSince(w.dueDate) }), action: canManage && overdue.length === 1 ? { label: tr('Record payment'), run: () => openPay(w) } : { label: tr('Show them'), run: () => showInvoices('overdue') } });
   }
+  const rentSideCount = (rentSide || []).reduce((n, g) => n + g.invoices.length, 0);
+  if (rentSideCount) insights.push({ tone: 'warn', icon: 'doc', text: tr('{n} rent-side invoices (CAM, water & power…) for {c} customers are in Bamboo Products\' invoices instead of here.', { n: rentSideCount, c: rentSide.length }), action: { label: tr('Review and bring over'), run: () => setMoveOpen(true) } });
   if (unbilled.length) insights.push({ tone: 'warn', icon: 'clock', text: unbilled.length === 1 ? tr('A reading of {amount} on {unit} has not been billed yet.', { amount: money(unbilled[0].amount), unit: unbilled[0].unitCode }) : tr('{n} meter readings worth {amount} have not been billed yet.', { n: unbilled.length, amount: money(unbilledTotal) }), action: { label: tr('Bill them'), run: () => { setView('utilities'); setTimeout(() => jump('pk-desk'), 0); } } });
   if (masterOpen.length) insights.push({ tone: 'warn', icon: 'doc', text: masterOpen.length === 1 ? tr('The {utility} bill for {property} has not been charged to the tenants.', { utility: codeLabel(masterOpen[0].utilityType).toLowerCase(), property: masterOpen[0].propertyName }) : tr('{n} shared bills have not been charged to the tenants.', { n: masterOpen.length }), action: { label: tr('Review & bill'), run: () => showSplit(masterOpen[0]) } });
   if (noMeter.length) insights.push({ tone: 'info', icon: 'warn', text: noMeter.length === 1 ? tr('{unit} is set to sub-metered utilities but has no meter, so its usage can\'t be billed.', { unit: noMeter[0].code }) : tr('{n} sub-metered units have no meter, so their usage can\'t be billed.', { n: noMeter.length }), action: canManage ? { label: tr('Add meter'), run: () => { setForm({ unitId: noMeter[0].id, utilityType: 'electricity', measureUnit: 'kWh', rate: '' }); setDialogError(null); setDialog('meter'); } } : null });
@@ -386,7 +393,8 @@ export default function PokiBillingPage() {
       </div>
 
       {view === 'invoices' && (
-        <Section title={tr('Invoices')} sub={tr('Rent, utility and repair invoices for Poki tenants, oldest due first.')}>
+        <Section title={tr('Invoices')} sub={tr('Rent, utility and repair invoices for Poki tenants, oldest due first.')}
+          action={canMoveIn && <button type="button" className="btn btn-secondary" onClick={() => setMoveOpen(true)}>{tr('Bring over from Bamboo Products')}{rentSideCount ? ' (' + rentSideCount + ')' : ''}</button>}>
           <div className="tl-tools"><div className="tl-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search invoice, tenant, unit…')} /></div></div>
           <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
             {chips.map(([key, label, c]) => (
@@ -997,6 +1005,7 @@ export default function PokiBillingPage() {
         />
       )}
 
+      {moveOpen && <RentSideMoveDialog tenants={tenants} onClose={() => setMoveOpen(false)} onDone={() => load()} />}
       {creditFor && <CreditNoteDialog invoice={creditFor} apiBase="/poki/invoices" onClose={() => setCreditFor(null)} onDone={() => load()} />}
 
       {toast && <div className="toast">{toast}</div>}
