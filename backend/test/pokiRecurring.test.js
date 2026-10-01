@@ -57,7 +57,7 @@ test('charges due together go on one invoice, missed periods are caught up, and 
   assert.equal(cam.body.description, 'Service charge (CAM)');
   var water = await recurring.create(kelvin, { bookingId: booking.id, kind: 'utility', description: 'Water (flat)', amount: 100, frequency: 'monthly', startDate: '2035-01-01' });
 
-  var r = await recurring.run(null, { asOf: '2035-03-15' });
+  var r = await recurring.run(kelvin, { asOf: '2035-03-15' });
   var mine = r.invoices.filter(function (i) { return i.bookingNo === booking.bookingNo; });
   assert.equal(mine.length, 1);
   assert.equal(mine[0].amount, 1200); // Jan–Mar of 300 and 100
@@ -67,7 +67,7 @@ test('charges due together go on one invoice, missed periods are caught up, and 
   assert.equal(String(inv.period_end).slice(0, 10), '2035-03-31');
   assert.equal((await linesOf(inv.id)).length, 6);
 
-  var again = await recurring.run(null, { asOf: '2035-03-15' });
+  var again = await recurring.run(kelvin, { asOf: '2035-03-15' });
   assert.equal(again.invoices.filter(function (i) { return i.bookingNo === booking.bookingNo; }).length, 0);
   var list = (await call('GET', '/api/poki/recurring-charges')).body.filter(function (c) { return c.bookingId === booking.id; });
   var camRow = list.find(function (c) { return c.kind === 'cam'; });
@@ -92,7 +92,7 @@ test('charges due together go on one invoice, missed periods are caught up, and 
 
 test('the last period is cut at the end date and charged pro rata; the booking end stops a charge', async function () {
   var c = await recurring.create(kelvin, { bookingId: booking.id, kind: 'cam', description: RC('Car park'), amount: 310, frequency: 'monthly', startDate: '2035-04-01', endDate: '2035-05-15' });
-  var r = await recurring.run(null, { asOf: '2035-05-20' });
+  var r = await recurring.run(kelvin, { asOf: '2035-05-20' });
   var inv = r.invoices.find(function (i) { return i.bookingNo === booking.bookingNo; });
   var lines = (await linesOf(inv.invoiceId)).filter(function (l) { return /Car park/.test(l.description); });
   assert.deepEqual(lines.map(function (l) { return l.price; }), [310, 150]); // May 1–15: 310 × 15/31
@@ -101,7 +101,7 @@ test('the last period is cut at the end date and charged pro rata; the booking e
   assert.equal(row.status, 'ended');
 
   // The CAM charge runs to the booking's end (30 June) and then stops.
-  await recurring.run(null, { asOf: '2035-07-10' });
+  await recurring.run(kelvin, { asOf: '2035-07-10' });
   var cam = (await recurring.list(kelvin)).find(function (x) { return x.bookingId === booking.id && x.description === 'Service charge (CAM)'; });
   assert.equal(cam.status, 'ended');
   assert.equal(cam.lastPeriod.end, '2035-06-30');
@@ -121,3 +121,12 @@ test('pause skips what passed; checks and permissions', async function () {
 });
 
 function RC(s) { return s + ' ' + MARK; }
+
+test('nothing is billed by itself: the morning job leaves due charges for a person to bill', async function () {
+  var job = require('../src/jobs/dailyAlerts');
+  var before = (await pool.query('SELECT count(*)::int AS n FROM poki_recurring_charge_runs')).rows[0].n;
+  var out = await job.runOnce(new Date(Date.UTC(2035, 11, 31, 9, 0)));
+  assert.equal(out.recurring, undefined, 'the job has no recurring billing any more');
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM poki_recurring_charge_runs')).rows[0].n, before, 'no period billed');
+  await assert.rejects(recurring.run(null, {}), /billed by a person, never automatically/);
+});

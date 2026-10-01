@@ -322,6 +322,7 @@ async function autoReminders(opts) {
       "WHERE i.status IN ('unpaid', 'partially_paid') AND i.balance_due > 0 AND i.due_date IS NOT NULL " +
       '  AND i.due_date <= ($1::date + 3) AND i.due_date >= ($1::date - $2::integer) ' +
       '  AND (' + bplScopeClause('i') + ' OR i.company_id = $3) ' +
+      '  AND ' + reminders.personStartedRecurring('i') + ' ' +
       "  AND coalesce(c.email, '') <> '' AND ($4::uuid[] IS NULL OR c.id = ANY($4)) ORDER BY i.due_date",
       [today, AUTO_BILL_MAX_OVERDUE, pokiId, only])).rows;
     for (var i = 0; i < bills.length && budget > 0; i++) {

@@ -334,7 +334,7 @@ export default function PokiBillingPage() {
   const dueCharges = activeCharges.filter((c) => c.nextDate <= todayIso);
   const withCam = new Set(charges.filter((c) => c.kind === 'cam' && c.status !== 'ended').map((c) => c.bookingId));
   const noCam = bookings.filter((b) => b.status === 'active' && !withCam.has(b.id));
-  if (dueCharges.length) insights.push({ tone: 'info', icon: 'calendar', text: dueCharges.length === 1 ? tr('{what} for {name} is due to be invoiced today. It goes out with the morning run, or bill it now.', { what: dueCharges[0].description, name: dueCharges[0].tenantName }) : tr('{n} recurring charges are due to be invoiced today. They go out with the morning run, or bill them now.', { n: dueCharges.length }), action: canManage ? { label: tr('Bill now'), run: () => chargeAction(() => api.post('/poki/recurring-charges/run'), billedText) } : null });
+  if (dueCharges.length) insights.push({ tone: 'info', icon: 'calendar', text: dueCharges.length === 1 ? tr('{what} for {name} is due to be invoiced. Nothing is billed until you press Bill now.', { what: dueCharges[0].description, name: dueCharges[0].tenantName }) : tr('{n} recurring charges are due to be invoiced. Nothing is billed until you press Bill now.', { n: dueCharges.length }), action: canManage ? { label: tr('Bill now'), run: () => chargeAction(() => api.post('/poki/recurring-charges/run'), billedText) } : null });
   if (canManage && noCam.length && charges.length) insights.push({ tone: 'info', icon: 'doc', text: noCam.length === 1 ? tr('{name}\'s booking {no} has no service charge (CAM) set up.', { name: noCam[0].tenantName, no: noCam[0].bookingNo }) : tr('{n} active bookings have no service charge (CAM) set up.', { n: noCam.length }), action: { label: tr('Set it up'), run: () => { setView('recurring'); openCharge(null, noCam[0].id); } } });
   if (!insights.length && invoices.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything billed is paid or in date, and every reading has been billed.') });
 
@@ -432,7 +432,7 @@ export default function PokiBillingPage() {
       )}
 
       {view === 'recurring' && (
-        <Section id="pk-recurring" title={tr('Recurring charges')} sub={tr('Service charge (CAM) and flat utility fees billed automatically every month, quarter or year for as long as the booking runs. Each is invoiced in advance on its date, and charges due the same day go on one invoice.')}
+        <Section id="pk-recurring" title={tr('Recurring charges')} sub={tr('Service charge (CAM) and flat utility fees, every month, quarter or year for as long as the booking runs. When one falls due it waits here: nothing is invoiced or sent until someone bills it. Charges billed together go on one invoice.')}
           action={canManage && (
             <div className="pk-actions">
               <button type="button" className="btn btn-secondary" disabled={busy || !dueCharges.length} onClick={() => chargeAction(() => api.post('/poki/recurring-charges/run'), billedText)}>{tr('Bill what is due')}</button>
@@ -459,7 +459,7 @@ export default function PokiBillingPage() {
                     </div>
                     <div className="pk-rc-side">
                       <Status tone={c.status === 'ended' ? 'muted' : c.status === 'paused' ? 'warn' : due ? 'info' : 'good'}>
-                        {c.status === 'ended' ? tr('Ended') : c.status === 'paused' ? tr('Paused') : due ? tr('Due today') : tr('Next {date}', { date: fmtDate(c.nextDate) })}
+                        {c.status === 'ended' ? tr('Ended') : c.status === 'paused' ? tr('Paused') : due ? (c.nextDate < todayIso ? tr('Due since {date}, waiting to be billed', { date: fmtDate(c.nextDate) }) : tr('Due today, waiting to be billed')) : tr('Next {date}', { date: fmtDate(c.nextDate) })}
                       </Status>
                       {canManage && c.status !== 'ended' && (
                         <RowMenu actions={[

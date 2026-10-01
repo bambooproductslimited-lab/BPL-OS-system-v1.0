@@ -18,9 +18,10 @@ var billing = require('./pokiBilling.service');
 // A period can only ever be billed once (poki_recurring_charge_runs' key),
 // so the daily run, a repeated run and a manual "bill now" can't double up.
 //
-// The daily job (jobs/dailyAlerts.js) calls run() with no person; a person
-// can also bill one charge's next period early from the Rent & utilities
-// page.
+// Nothing is billed by itself: a recurring invoice only goes out when a
+// person bills it from the Rent & utilities page — everything that has come
+// due (run()), or one charge's next period, early if need be (bill-now).
+// Until then a due charge waits, shown as due.
 
 var KINDS = ['cam', 'utility', 'other'];
 var FREQUENCIES = { monthly: 1, quarterly: 3, yearly: 12 };
@@ -164,10 +165,11 @@ async function remove(ctx, id) {
 
 // Raises the invoices that have come due. opts.asOf (default today) is the
 // billing date; opts.chargeId bills that one charge's next period now, even
-// if its date hasn't come yet. ctx may be null (the daily job).
+// if its date hasn't come yet. Always a person's doing (ctx required).
 async function run(ctx, opts) {
   opts = opts || {};
-  if (ctx) poki.canManage(ctx);
+  if (!ctx) fail('forbidden', 'Recurring charges are billed by a person, never automatically.');
+  poki.canManage(ctx);
   var asOf = opts.asOf ? V.date(opts.asOf, 'Date') : todayISO();
   var companyId = await poki.pokiCompanyId();
   var instructions = await billing.pokiPaymentInstructions();
@@ -227,8 +229,8 @@ async function run(ctx, opts) {
           var pd = group[gi].periods[pi];
           // Claim the period first: if it was billed already, skip it.
           var got = (await client.query(
-            'INSERT INTO poki_recurring_charge_runs (charge_id, period_start, period_end, amount) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING charge_id',
-            [ch.id, pd.start, pd.end, pd.amount])).rows[0];
+            'INSERT INTO poki_recurring_charge_runs (charge_id, period_start, period_end, amount, billed_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING charge_id',
+            [ch.id, pd.start, pd.end, pd.amount, ctx.employee ? ctx.employee.id : null])).rows[0];
           if (!got) continue;
           claimed.push({ chargeId: ch.id, start: pd.start });
           lines.push({

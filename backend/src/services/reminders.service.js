@@ -326,6 +326,17 @@ async function unclaim(kind, refId, milestone, refDate) {
 // Returns how many texts went out. Never throws. opts (for the tests):
 // settings — use these instead of the saved ones; customerIds — only these
 // customers.
+// Recurring invoices — Poki's recurring charges and Square's repeat invoices
+// ("…-R-0012") — are never sent automatically until a person has started
+// them: billed it themselves, or sent it or a reminder for it by hand.
+// After that, the automatic reminders treat it like any other invoice.
+function personStartedRecurring(a) {
+  return '(NOT (' + a + ".invoice_no ~ '-R-[0-9]+$' OR EXISTS (SELECT 1 FROM poki_recurring_charge_runs rr WHERE rr.invoice_id = " + a + '.id)) ' +
+    'OR EXISTS (SELECT 1 FROM poki_recurring_charge_runs rr WHERE rr.invoice_id = ' + a + '.id AND rr.billed_by IS NOT NULL) ' +
+    'OR EXISTS (SELECT 1 FROM payment_reminders pr WHERE pr.invoice_id = ' + a + '.id AND NOT pr.automatic) ' +
+    "OR EXISTS (SELECT 1 FROM document_emails de WHERE de.document_type = 'invoice' AND de.document_id = " + a + '.id AND NOT de.automatic))';
+}
+
 async function autoTexts(opts) {
   opts = opts || {};
   var sent = 0;
@@ -348,6 +359,7 @@ async function autoTexts(opts) {
         "WHERE i.status IN ('unpaid', 'partially_paid') AND i.balance_due > 0 AND i.due_date IS NOT NULL " +
         '  AND i.due_date <= ($1::date + 3) AND i.due_date >= ($1::date - $2::integer) ' +
         '  AND (' + bplScopeClause('i') + ' OR i.company_id = $3) ' +
+        '  AND ' + personStartedRecurring('i') + ' ' +
         "  AND coalesce(c.phone, '') <> '' AND ($4::uuid[] IS NULL OR c.id = ANY($4)) ORDER BY i.due_date",
         [today, AUTO_BILL_MAX_OVERDUE, pokiId, only]
       )).rows;
@@ -424,6 +436,7 @@ async function autoTexts(opts) {
 }
 
 module.exports = {
+  personStartedRecurring: personStartedRecurring,
   due: due, prepare: prepare, sendSms: sendSms, sendEmail: sendEmail, history: history, whatsappNumber: whatsappNumber, composeMessage: composeMessage,
   bookingsEnding: bookingsEnding, noticeBooking: noticeBooking, composeBookingNotice: composeBookingNotice, autoTexts: autoTexts
 };

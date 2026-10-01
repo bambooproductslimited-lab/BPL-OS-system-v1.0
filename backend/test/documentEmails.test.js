@@ -218,6 +218,24 @@ test('payment reminders by email on their own: once per point, only with an addr
   assert.equal(outbox.filter(function (m) { return m.text.indexOf(late.invoiceNo) >= 0; }).length, 0, 'not again at the same point');
 });
 
+test('a recurring invoice is not chased automatically until a person has started it', async function () {
+  var rec = await newInvoice(cust);
+  // A Square repeat invoice, as imported: nobody in the OS sent it.
+  await pool.query("UPDATE invoices SET invoice_no = $1, due_date = $2 WHERE id = $3", ['Z7E-SQ-000553-R-0011', iso(-8), rec.id]);
+  var only = { customerIds: [cust] };
+  outbox.length = 0;
+  await emails.autoReminders(only);
+  assert.equal(outbox.filter(function (m) { return m.text.indexOf('Z7E-SQ-000553-R-0011') >= 0; }).length, 0, 'left alone');
+  var sms = await reminders.autoTexts(only);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM payment_reminders WHERE invoice_id = $1', [rec.id])).rows[0].n, 0, 'no text either');
+
+  // Someone sends a reminder by hand: from then on it is followed up like any other.
+  await pool.query("INSERT INTO payment_reminders (invoice_id, customer_id, channel, message, sent_by, automatic) VALUES ($1, $2, 'whatsapp', 'Z7E by hand', $3, false)", [rec.id, cust, admin.employee.id]);
+  outbox.length = 0;
+  await emails.autoReminders(only);
+  assert.equal(outbox.filter(function (m) { return m.text.indexOf('Z7E-SQ-000553-R-0011') >= 0; }).length, 1, 'now reminded');
+});
+
 test('the switches, for people who manage settings', async function () {
   var s = await emails.status(admin);
   assert.deepEqual(s.settings, { autoReminders: true, autoReceipts: true });
