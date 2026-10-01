@@ -121,10 +121,15 @@ async function recordPayment(ctx, id, p) {
   // showing nothing held, and the end-of-tenancy refund calculated against
   // zero. Only on full settlement: a part payment cannot be assumed to have
   // covered the deposit line rather than the rent.
+  // Only the booking's own (rent) invoice carries the deposit — a utility
+  // bill settled says nothing about it — and only once every rent invoice
+  // of the booking is settled.
   var inv = await pool.query(
-    'SELECT poki_booking_id, balance_due FROM invoices WHERE id = $1', [id]);
+    "SELECT poki_booking_id, balance_due, doc_kind, " +
+    "  (SELECT count(*)::int FROM invoices o WHERE o.poki_booking_id = i.poki_booking_id AND o.doc_kind = 'rent' AND o.status <> 'void' AND o.balance_due > 0) AS open_rent " +
+    'FROM invoices i WHERE id = $1', [id]);
   var row = inv.rows[0];
-  if (row && row.poki_booking_id && Number(row.balance_due) <= 0) {
+  if (row && row.poki_booking_id && row.doc_kind === 'rent' && Number(row.balance_due) <= 0 && row.open_rent === 0) {
     await pool.query(
       'UPDATE poki_bookings SET deposit_held = deposit_amount, updated_at = now() ' +
       'WHERE id = $1 AND deposit_held < deposit_amount', [row.poki_booking_id]);

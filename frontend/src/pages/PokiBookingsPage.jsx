@@ -63,6 +63,21 @@ function stateOf(b) {
   return { tone: 'muted', text: codeLabel(b.status) };
 }
 
+// Editing a booking: what happens to its invoice when it is saved
+// (poki.service.js syncBookingInvoice), shown before anyone presses Save.
+function InvoiceEffect({ inv, currency }) {
+  const m = (n) => money(n, inv.currency || currency);
+  if (inv.action === 'overpaid') {
+    return <div className="poki-term-clash">{tr('The tenant has already paid {paid} on invoice {invoiceNo}, which is {over} more than this would cost. Agree a refund with them first, or keep the booking at {paid} or more.', { paid: m(inv.paid), invoiceNo: inv.invoiceNo, over: m(inv.overpaid) })}</div>;
+  }
+  let text;
+  if (inv.action === 'new') text = tr('Saving raises an invoice for {amount}.', { amount: m(inv.to) });
+  else if (inv.action === 'none') text = tr('Invoice {invoiceNo} stays as it is.', { invoiceNo: inv.invoiceNo });
+  else if (inv.paid > 0) text = tr('Saving changes invoice {invoiceNo} from {from} to {to}. The {paid} already paid stays paid, leaving {left} to pay.', { invoiceNo: inv.invoiceNo, from: m(inv.from), to: m(inv.to), paid: m(inv.paid), left: m(Math.max(0, inv.to - inv.paid)) });
+  else text = tr('Saving changes invoice {invoiceNo} from {from} to {to}.', { invoiceNo: inv.invoiceNo, from: m(inv.from), to: m(inv.to) });
+  return <div className={'poki-term-invoice' + (inv.action === 'update' ? ' is-change' : '')}>{text}</div>;
+}
+
 // every unit against the months: past two, this one and the next six
 function Timeline({ units, bookings, onOpen }) {
   const start = new Date(); start.setDate(1); start.setMonth(start.getMonth() - 2); start.setHours(0, 0, 0, 0);
@@ -222,7 +237,7 @@ export default function PokiBookingsPage() {
     setEditId(l ? l.id : null);
     setQuote(null);
     if (l) {
-      setForm({ ...EMPTY, ...l, startDate: String(l.startDate).slice(0, 10), depositMonths: monthsFromDeposit(l.depositAmount, l.monthlyRate) });
+      setForm({ ...EMPTY, ...l, dailyRate: Number(l.dailyRate) > 0 ? l.dailyRate : '', startDate: String(l.startDate).slice(0, 10), depositMonths: monthsFromDeposit(l.depositAmount, l.monthlyRate) });
     } else {
       let f = { ...EMPTY, startDate: iso(new Date()) };
       if (preset && preset.tenantId) f.tenantId = preset.tenantId;
@@ -242,9 +257,15 @@ export default function PokiBookingsPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      if (editId) await api.patch('/poki/bookings/' + editId, form);
-      else await api.post('/poki/bookings', form);
-      setToast(editId ? tr('Booking updated.') : tr('Booking created.'));
+      if (editId) {
+        const saved = await api.patch('/poki/bookings/' + editId, form);
+        const ch = saved.invoiceChange;
+        setToast(ch && ch.action === 'update' ? tr('Booking updated — invoice {invoiceNo} now asks for {amount}.', { invoiceNo: ch.invoiceNo, amount: money(ch.to, ch.currency) })
+          : ch && ch.action === 'new' ? tr('Booking updated and invoiced as {invoiceNo}.', { invoiceNo: ch.invoiceNo }) : tr('Booking updated.'));
+      } else {
+        await api.post('/poki/bookings', form);
+        setToast(tr('Booking created.'));
+      }
       setDialog(null);
       await load();
     } catch (err) {
@@ -559,6 +580,12 @@ export default function PokiBookingsPage() {
               {cur.terminatedOn && <div><dt>{tr('Ended')}</dt><dd>{fmtDate(cur.terminatedOn)}{cur.terminationReason ? ' · ' + cur.terminationReason : ''}</dd></div>}
               {curTenant && curTenant.idNumber && <div><dt>{tr('ID')}</dt><dd>{curTenant.idType} · {curTenant.idNumber}</dd></div>}
             </dl>
+            {cur.freeDays && (
+              <p className="pk-fix">{tr('The {n} extra days are priced at nothing: this booking was made before extra days were always charged. Press Edit, then Save, to charge them at {rate} a day.', { n: cur.durationDays, rate: money(Math.round((cur.monthlyRate / 30) * 100) / 100, cur.currency) })}</p>
+            )}
+            {cur.rentInvoiced !== undefined && (cur.status === 'draft' || cur.status === 'active') && (cur.rentInvoiced < cur.rentTotal - 0.01 || cur.rentInvoiced > cur.rentTotal + cur.depositAmount + 0.01) && (
+              <p className="pk-fix">{tr('Its invoice asks for {invoiced}, but the booking\'s rent is {rent}: the booking was changed before invoices followed changes. Press Edit, then Save, to bring the invoice up to date.', { invoiced: money(cur.rentInvoiced, cur.currency), rent: money(cur.rentTotal, cur.currency) })}</p>
+            )}
             {cur.notes && <p className="tl-notes">{cur.notes}</p>}
             <div className="dialog-actions tl-actions">
               <button type="button" className="btn btn-secondary" onClick={() => openAgreement(cur)}>{tr('Agreement')}</button>
@@ -621,7 +648,7 @@ export default function PokiBookingsPage() {
               <div className="field">
                 <label htmlFor="pl-daily">{tr('Rent per day')}</label>
                 <input id="pl-daily" className="input" type="number" min="0" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder={tr('from the unit')} />
-                <span className="dk-muted tl-small">{tr('Blank uses a thirtieth of the monthly rate.')}</span>
+                <span className="dk-muted tl-small">{tr('Blank or 0 uses a thirtieth of the monthly rate, so extra days are never free.')}</span>
               </div>
               <div className="field">
                 <label htmlFor="pl-dep-months">{tr('Deposit (months of rent)')}</label>
@@ -663,6 +690,7 @@ export default function PokiBookingsPage() {
                 )}
                 <div className="poki-term-row"><span>{tr('Deposit')}</span><strong>{money(quote.depositAmount, quote.currency)}</strong></div>
                 <div className="poki-term-row poki-term-grand"><span>{tr('Payable before occupation')}</span><strong>{money(quote.total, quote.currency)}</strong></div>
+                {editId && quote.invoice && <InvoiceEffect inv={quote.invoice} currency={quote.currency} />}
                 {!quote.available && (
                   <div className="poki-term-clash">{tr('Unavailable — {bookingNo} has this unit from {date} to {date2}.', { bookingNo: quote.clashesWith.bookingNo, date: fmtDate(quote.clashesWith.startDate), date2: fmtDate(quote.clashesWith.endDate) })}</div>
                 )}
@@ -672,7 +700,7 @@ export default function PokiBookingsPage() {
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)} disabled={saving}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving || (quote && !quote.available)}>{saving ? tr('Saving…') : editId ? tr('Save changes') : tr('Make the booking')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || (quote && (!quote.available || (quote.invoice && quote.invoice.action === 'overpaid')))}>{saving ? tr('Saving…') : editId ? tr('Save changes') : tr('Make the booking')}</button>
             </div>
           </form>
         </div>

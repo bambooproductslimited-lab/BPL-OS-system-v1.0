@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { nextDocNumber, todayISO, buildLineItems } = require('../utils/documents');
+var { nextDocNumber, todayISO, buildLineItems, computeDocTotals, insertLineItems } = require('../utils/documents');
 
 // Poki — the group's property-rental business (migration 0056). Properties
 // hold units; units are let to tenants under bookings; bookings drive rent and
@@ -541,6 +541,15 @@ function dailyRateFor(monthlyRate, unitDailyRate) {
   return money((Number(monthlyRate) || 0) / 30);
 }
 
+// The rate the leftover days are charged at. Never nothing: a booking of
+// "1 month and 26 days" with no daily rate once priced the 26 days at 0 and
+// invoiced only the month. No rate, or 0, means a thirtieth of the monthly
+// rate — the same as a unit with no daily rate of its own.
+function dayRate(monthlyRate, dailyRate) {
+  var d = money(dailyRate);
+  return d > 0 ? d : money((Number(monthlyRate) || 0) / 30);
+}
+
 function priceBooking(monthlyRate, dailyRate, months, days) {
   var m = money((Number(monthlyRate) || 0) * months);
   var d = money((Number(dailyRate) || 0) * days);
@@ -594,6 +603,11 @@ function rowToBooking(r) {
     agreementBody: r.agreement_body, agreementGeneratedAt: r.agreement_generated_at,
     renewedFromId: r.renewed_from_id, notes: r.notes, createdAt: r.created_at,
     invoicedTotal: r.invoiced_total != null ? Number(r.invoiced_total) : undefined,
+    // What the booking's own invoice asks for (rent and deposit), apart from
+    // utility and other bills — to spot a booking edited before its invoice
+    // followed edits, and leftover days priced at nothing.
+    rentInvoiced: r.rent_invoiced_total != null ? Number(r.rent_invoiced_total) : undefined,
+    freeDays: Number(r.duration_days) > 0 && !(Number(r.daily_rate) > 0),
     paidTotal: r.paid_total != null ? Number(r.paid_total) : undefined,
     balanceTotal: r.balance_total != null ? Number(r.balance_total) : undefined
   };
@@ -606,6 +620,7 @@ var BOOKING_SELECT =
   'SELECT l.*, u.code AS unit_code, u.unit_type, p.id AS property_id, p.name AS property_name, ' +
   '       c.name AS tenant_name, c.email AS tenant_email, c.phone AS tenant_phone, ' +
   "       COALESCE(SUM(i.grand_total) FILTER (WHERE i.status <> 'void'), 0) AS invoiced_total, " +
+  "       COALESCE(SUM(i.grand_total) FILTER (WHERE i.status <> 'void' AND i.doc_kind = 'rent'), 0) AS rent_invoiced_total, " +
   "       COALESCE(SUM(i.amount_paid) FILTER (WHERE i.status <> 'void'), 0) AS paid_total, " +
   "       COALESCE(SUM(i.balance_due) FILTER (WHERE i.status <> 'void'), 0) AS balance_total " +
   'FROM poki_bookings l ' +
@@ -660,7 +675,7 @@ async function createBooking(ctx, p) {
   var endDate = bookingEndDate(startDate, duration.months, duration.days);
 
   var monthlyRate = money(p.monthlyRate !== undefined ? num(p.monthlyRate) : Number(unit.rows[0].base_rent));
-  var dailyRate = money(p.dailyRate !== undefined ? num(p.dailyRate) : dailyRateFor(monthlyRate, unit.rows[0].daily_rate));
+  var dailyRate = dayRate(monthlyRate, p.dailyRate !== undefined && p.dailyRate !== '' ? num(p.dailyRate) : dailyRateFor(monthlyRate, unit.rows[0].daily_rate));
   var priced = priceBooking(monthlyRate, dailyRate, duration.months, duration.days);
   var status = V.oneOf(p.status || 'draft', ['draft', 'active'], 'Status');
   var depositAmount = num(p.depositAmount);
@@ -710,7 +725,10 @@ async function createBooking(ctx, p) {
 // tenant makes one payment for one figure — the same figure the booking
 // screen quoted. Split across two documents they would be asked to pay a
 // number neither document showed.
-async function raiseBookingInvoice(client, ctx, booking, unit) {
+// The lines a booking's invoice carries: its rent, and whatever of the
+// deposit the tenant has not already handed over (`carried` — a renewal
+// carries the previous deposit over, so only a raise is charged).
+function bookingInvoiceItems(booking, unit, carried) {
   var items = [];
   var label = unit.property_name + ' \u00b7 ' + unit.code;
 
@@ -734,42 +752,114 @@ async function raiseBookingInvoice(client, ctx, booking, unit) {
   // is charged; and a renewal that raises the deposit charges only the
   // difference. Re-charging a deposit the tenant already paid is the kind
   // of error that gets noticed by the tenant rather than by us.
-  var depositOwing = money(Number(booking.deposit_amount) - Number(booking.deposit_held));
+  var depositOwing = money(Number(booking.deposit_amount) - Number(carried));
   if (depositOwing > 0) {
     items.push({
       description: 'Security deposit \u2014 ' + label,
       qty: 1, unit: 'each', unitPrice: depositOwing,
-      notes: Number(booking.deposit_held) > 0
+      notes: Number(carried) > 0
         ? 'The balance of the deposit; the rest carried over from the previous booking.'
         : 'Refundable at the end of the tenancy, less any arrears or damage.'
     });
   }
+  return items;
+}
+
+function bookingDueDate(booking) {
+  // Due before occupation — but never dated in the past, which would show a
+  // booking backdated into the system as instantly overdue.
+  var start = String(booking.start_date).slice(0, 10);
+  var today = new Date().toISOString().slice(0, 10);
+  return start < today ? today : start;
+}
+
+function bookingInvoiceNotes(booking) {
+  return 'Booking ' + booking.booking_no + ' \u2014 ' + describeDuration(booking.duration_months, booking.duration_days) + '.';
+}
+
+async function raiseBookingInvoice(client, ctx, booking, unit) {
+  var items = bookingInvoiceItems(booking, unit, booking.deposit_held);
   if (!items.length) return null;
 
   var billing = require('./pokiBilling.service');
   var tenant = await client.query(
     'SELECT t.customer_id FROM poki_tenants t WHERE t.id = $1', [booking.tenant_id]);
 
-  // Due before occupation — but never dated in the past, which would show a
-  // booking backdated into the system as instantly overdue.
-  var start = String(booking.start_date).slice(0, 10);
-  var today = new Date().toISOString().slice(0, 10);
-  var dueDate = start < today ? today : start;
-
   return billing.insertPokiInvoice(client, {
     customerId: tenant.rows[0].customer_id,
     companyId: unit.company_id,
     docKind: 'rent',
     bookingId: booking.id,
-    periodStart: start,
+    periodStart: String(booking.start_date).slice(0, 10),
     periodEnd: String(booking.end_date).slice(0, 10),
     items: buildLineItems(items),
-    dueDate: dueDate,
+    dueDate: bookingDueDate(booking),
     currency: booking.currency,
     instructions: await billing.pokiPaymentInstructions(),
-    notes: 'Booking ' + booking.booking_no + ' \u2014 ' +
-      describeDuration(booking.duration_months, booking.duration_days) + '.'
+    notes: bookingInvoiceNotes(booking)
   });
+}
+
+// Editing a booking brings its invoice along, so the invoice never asks for
+// a figure the booking no longer says. Before this, an edit changed the
+// booking and left its invoice as it was made (a booking edited from GHS
+// 355 to 645.30 a month still asked for 355).
+//
+// The booking's invoice is rewritten to the new terms — the same lines a new
+// booking would get. Whatever was already paid stays paid: the balance is
+// the new total less it, so a part-paid invoice asks for the new remainder
+// and a paid one asks for any increase. A booking cut below what the tenant
+// has already paid is refused: that money has to be refunded or agreed
+// first, and the OS won't decide which.
+//
+// `plan` only works out what would happen (for the edit screen); `apply`
+// does it. Returns { action: 'none' | 'new' | 'update' | 'overpaid', ... }.
+async function syncBookingInvoice(client, before, after, unit, apply) {
+  var main = (await client.query(
+    "SELECT * FROM invoices WHERE poki_booking_id = $1 AND doc_kind = 'rent' AND status <> 'void' " +
+    'ORDER BY issued_at, invoice_no LIMIT 1' + (apply ? ' FOR UPDATE' : ''), [before.id])).rows[0];
+
+  if (!main) {
+    var fresh = bookingInvoiceItems(after, unit, after.deposit_held);
+    if (!fresh.length) return { action: 'none' };
+    var t0 = computeDocTotals(buildLineItems(fresh), null, 0);
+    if (!apply) return { action: 'new', to: t0.grandTotal, paid: 0 };
+    var inv = await raiseBookingInvoice(client, null, after, unit);
+    return { action: 'new', invoiceNo: inv.invoice_no, to: t0.grandTotal, paid: 0 };
+  }
+
+  // What of the deposit came from a previous booking rather than this
+  // invoice: the booking's deposit less what the invoice charged for it.
+  var billedDeposit = Number((await client.query(
+    "SELECT coalesce(sum(qty * unit_price), 0) AS n FROM document_line_items WHERE document_type = 'invoice' AND document_id = $1 AND description LIKE 'Security deposit%'",
+    [main.id])).rows[0].n);
+  var carried = Math.max(0, money(Number(before.deposit_amount) - billedDeposit));
+  var raw = bookingInvoiceItems(after, unit, carried);
+  var from = Number(main.grand_total), paid = Number(main.amount_paid);
+  var base = { invoiceId: main.id, invoiceNo: main.invoice_no, from: from, paid: paid, currency: main.currency };
+  if (!raw.length) return Object.assign(base, { action: paid > 0 ? 'overpaid' : 'none', to: 0, overpaid: paid });
+  var items = buildLineItems(raw);
+  var totals = computeDocTotals(items, null, 0);
+  var to = totals.grandTotal;
+  var samePeriod = String(main.period_start || '').slice(0, 10) === String(after.start_date).slice(0, 10) &&
+    String(main.period_end || '').slice(0, 10) === String(after.end_date).slice(0, 10);
+  if (Math.abs(to - from) < 0.005 && samePeriod) return Object.assign(base, { action: 'none', to: to });
+  if (to < paid - 0.005) return Object.assign(base, { action: 'overpaid', to: to, overpaid: money(paid - to) });
+  if (!apply) return Object.assign(base, { action: 'update', to: to });
+
+  await client.query("DELETE FROM document_line_items WHERE document_type = 'invoice' AND document_id = $1", [main.id]);
+  await insertLineItems(client, 'invoice', main.id, items);
+  var balance = money(to - paid);
+  var status = balance <= 0.01 ? 'paid' : paid > 0 ? 'partially_paid' : 'unpaid';
+  await client.query(
+    'UPDATE invoices SET subtotal = $1, discount_total = $2, tax_total = $3, grand_total = $4, balance_due = $5, status = $6, ' +
+    "paid_at = CASE WHEN $6 = 'paid' THEN coalesce(paid_at, now()) ELSE NULL END, " +
+    'period_start = $7, period_end = $8, notes = $9, currency = $10, due_date = CASE WHEN amount_paid > 0 THEN due_date ELSE $11::date END ' +
+    'WHERE id = $12',
+    [totals.subtotal, totals.discountTotal, totals.taxTotal, to, Math.max(0, balance), status,
+      String(after.start_date).slice(0, 10), String(after.end_date).slice(0, 10), bookingInvoiceNotes(after), after.currency,
+      bookingDueDate(after), main.id]);
+  return Object.assign(base, { action: 'update', to: to });
 }
 
 function describeDuration(months, days) {
@@ -793,12 +883,13 @@ async function updateBooking(ctx, id, p) {
   var endDate = bookingEndDate(startDate, duration.months, duration.days);
 
   var monthlyRate = money(p.monthlyRate !== undefined ? num(p.monthlyRate) : Number(cur.monthly_rate));
-  var dailyRate = money(p.dailyRate !== undefined ? num(p.dailyRate) : Number(cur.daily_rate));
+  var dailyRate = dayRate(monthlyRate, p.dailyRate !== undefined && p.dailyRate !== '' ? num(p.dailyRate) : Number(cur.daily_rate));
   var priced = priceBooking(monthlyRate, dailyRate, duration.months, duration.days);
 
+  var change = null;
   var res = await withTransaction(async function (client) {
     await assertUnitFree(client, cur.unit_id, startDate, endDate, id);
-    return client.query(
+    var updated = await client.query(
       'UPDATE poki_bookings SET start_date = $1, end_date = $2, duration_months = $3, duration_days = $4, ' +
       'monthly_rate = $5, daily_rate = $6, rent_total = $7, currency = $8, deposit_amount = $9, ' +
       'escalation_percent = $10, signed_on = $11, notes = $12, updated_at = now() ' +
@@ -814,9 +905,25 @@ async function updateBooking(ctx, id, p) {
         id
       ]
     );
+    // The invoice follows (syncBookingInvoice).
+    var unit = (await client.query(
+      'SELECT u.*, p.company_id, p.name AS property_name FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
+      [cur.unit_id])).rows[0];
+    change = await syncBookingInvoice(client, cur, updated.rows[0], unit, false);
+    if (change.action === 'overpaid') {
+      fail('conflict', 'The tenant has already paid ' + change.currency + ' ' + change.paid.toFixed(2) + ' on invoice ' + change.invoiceNo +
+        ', which is ' + change.currency + ' ' + change.overpaid.toFixed(2) + ' more than the booking would now cost. ' +
+        'Agree a refund with the tenant first, or keep the booking at ' + change.currency + ' ' + change.paid.toFixed(2) + ' or more.');
+    }
+    change = await syncBookingInvoice(client, cur, updated.rows[0], unit, true);
+    return updated;
   });
-  await audit(pool, ctx, 'poki.booking.update', 'poki_booking', id, 'Updated booking ' + res.rows[0].booking_no + '.');
-  return getBooking(ctx, id);
+  var said = change && change.action === 'update' ? ' Invoice ' + change.invoiceNo + ' changed from ' + change.from.toFixed(2) + ' to ' + change.to.toFixed(2) + '.'
+    : change && change.action === 'new' ? ' Invoiced as ' + change.invoiceNo + '.' : '';
+  await audit(pool, ctx, 'poki.booking.update', 'poki_booking', id, 'Updated booking ' + res.rows[0].booking_no + '.' + said);
+  var out = await getBooking(ctx, id);
+  out.invoiceChange = change;
+  return out;
 }
 
 // Quotes a booking without saving it, so the screen can show the price and
@@ -831,7 +938,7 @@ async function quoteBooking(ctx, p) {
   var duration = readDuration(p, null);
   var endDate = bookingEndDate(startDate, duration.months, duration.days);
   var monthlyRate = money(p.monthlyRate !== undefined ? num(p.monthlyRate) : Number(unit.rows[0].base_rent));
-  var dailyRate = money(p.dailyRate !== undefined ? num(p.dailyRate) : dailyRateFor(monthlyRate, unit.rows[0].daily_rate));
+  var dailyRate = dayRate(monthlyRate, p.dailyRate !== undefined && p.dailyRate !== '' ? num(p.dailyRate) : dailyRateFor(monthlyRate, unit.rows[0].daily_rate));
   var priced = priceBooking(monthlyRate, dailyRate, duration.months, duration.days);
   var deposit = num(p.depositAmount);
 
@@ -843,7 +950,25 @@ async function quoteBooking(ctx, p) {
     p.exceptId ? [p.unitId, startDate, endDate, p.exceptId] : [p.unitId, startDate, endDate]
   );
 
+  // Editing: what the booking's invoice would become.
+  var invoice = null;
+  if (p.exceptId) {
+    var cur = (await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [p.exceptId])).rows[0];
+    if (cur && cur.unit_id === p.unitId) {
+      var unitFull = (await pool.query(
+        'SELECT u.*, p.company_id, p.name AS property_name FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
+        [cur.unit_id])).rows[0];
+      var after = Object.assign({}, cur, {
+        start_date: startDate, end_date: endDate, duration_months: duration.months, duration_days: duration.days,
+        monthly_rate: monthlyRate, daily_rate: dailyRate, rent_total: priced.rentTotal, deposit_amount: deposit,
+        currency: (p.currency || cur.currency || 'GHS').toUpperCase()
+      });
+      invoice = await syncBookingInvoice(pool, cur, after, unitFull, false);
+    }
+  }
+
   return {
+    invoice: invoice,
     startDate: startDate, endDate: endDate,
     durationMonths: duration.months, durationDays: duration.days,
     durationLabel: describeDuration(duration.months, duration.days),
@@ -934,7 +1059,7 @@ async function renewBooking(ctx, id, p) {
   var escalation = (p && p.escalationPercent !== undefined) ? num(p.escalationPercent) : Number(prev.escalation_percent);
   var factor = 1 + escalation / 100;
   var monthlyRate = (p && p.monthlyRate !== undefined) ? money(num(p.monthlyRate)) : money(Number(prev.monthly_rate) * factor);
-  var dailyRate = (p && p.dailyRate !== undefined) ? money(num(p.dailyRate)) : money(Number(prev.daily_rate) * factor);
+  var dailyRate = dayRate(monthlyRate, (p && p.dailyRate !== undefined) ? num(p.dailyRate) : Number(prev.daily_rate) * factor);
   var priced = priceBooking(monthlyRate, dailyRate, duration.months, duration.days);
 
   var newId = await withTransaction(async function (client) {

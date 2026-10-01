@@ -226,6 +226,26 @@ textarea.poki-agreement-body {
   font-size: 13px;
 }
 
+/* Booking dialog, editing — what saving does to the booking's invoice. */
+.poki-term-invoice {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.poki-term-invoice.is-change { color: var(--color-text); font-weight: 600; }
+
+/* Booking panel — something about this booking needs putting right. */
+.pk-fix {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  border-left: 3px solid #c77d12;
+  background: color-mix(in srgb, #c77d12 12%, var(--color-bg));
+}
+
 /* The GHS equivalent of an amount held in another currency — shown beside the
    real figure, never instead of it. */
 .poki-fx-hint { font-size: 11.5px; color: var(--color-text-muted); margin-top: 3px; }

@@ -310,3 +310,101 @@ test('reading and managing bookings are separately permissioned', async function
   });
   assert.equal(quote.status, 403, 'pricing a unit is not public either');
 });
+
+// ---------------------------------------------------------------------------
+// Leftover days are never free, and an edited booking's invoice follows it.
+
+async function invoiceOf(bookingNo) {
+  var list = await call('GET', '/api/poki/invoices');
+  var inv = list.body.find(function (i) { return i.bookingNo === bookingNo; });
+  return inv ? (await call('GET', '/api/poki/invoices/' + inv.id)).body : null;
+}
+
+test('a daily rate of 0 does not make the leftover days free', async function () {
+  var f = await fixtures('P11', 600, 0);
+  var q = await call('POST', '/api/poki/bookings/quote', {
+    unitId: f.unitId, startDate: '2035-03-01', durationMonths: 1, durationDays: 26, dailyRate: 0
+  });
+  assert.equal(q.body.dailyRate, 20, '600 / 30, not 0');
+  assert.equal(q.body.rentTotal, 600 + 26 * 20);
+  var made = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: '2035-03-01', durationMonths: 1, durationDays: 26, dailyRate: 0 }));
+  assert.equal(made.status, 201);
+  assert.equal(made.body.rentTotal, 1120);
+  assert.equal(made.body.freeDays, false);
+});
+
+test('editing an unpaid booking rewrites its invoice to the new terms', async function () {
+  var f = await fixtures('P12', 355, 0);
+  var made = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: '2035-07-01', durationMonths: 1, status: 'draft' }));
+  assert.equal(made.status, 201);
+  var before = await invoiceOf(made.body.bookingNo);
+  assert.equal(before.grandTotal, 355);
+
+  var edit = { unitId: f.unitId, startDate: '2035-07-01', durationMonths: 1, durationDays: 26, monthlyRate: 645.30, dailyRate: 0, depositAmount: 500, exceptId: made.body.id };
+  var q = await call('POST', '/api/poki/bookings/quote', edit);
+  assert.equal(q.body.invoice.action, 'update');
+  assert.equal(q.body.invoice.from, 355);
+  assert.equal(q.body.invoice.to, q.body.total, 'the edit screen shows the invoice becoming the new total');
+
+  var saved = await call('PATCH', '/api/poki/bookings/' + made.body.id, edit);
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.invoiceChange.action, 'update');
+  var after = await invoiceOf(made.body.bookingNo);
+  assert.equal(after.id, before.id, 'the same invoice, not a second one');
+  assert.equal(after.invoiceNo, before.invoiceNo);
+  assert.equal(after.grandTotal, q.body.total);
+  assert.equal(after.grandTotal, Math.round((645.30 + 26 * 21.51 + 500) * 100) / 100);
+  assert.equal(after.balanceDue, after.grandTotal);
+  assert.equal(after.status, 'unpaid');
+  assert.equal(after.items.length, 3, 'month, days, deposit');
+  assert.equal(saved.body.rentInvoiced, after.grandTotal);
+  assert.equal(String(after.periodEnd).slice(0, 10), '2035-08-26');
+
+  // Saving again without a change leaves it alone.
+  var again = await call('PATCH', '/api/poki/bookings/' + made.body.id, edit);
+  assert.equal(again.body.invoiceChange.action, 'none');
+});
+
+test('a part-paid invoice keeps its payment and asks for the new remainder; cutting below what was paid is refused', async function () {
+  var f = await fixtures('P13', 1000, 0);
+  var made = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: '2035-09-01', durationMonths: 3 }));
+  var inv = await invoiceOf(made.body.bookingNo);
+  await call('POST', '/api/poki/invoices/' + inv.id + '/payments', { amount: 1500, method: 'cash', reference: MARK + '-P13' });
+
+  var longer = await call('PATCH', '/api/poki/bookings/' + made.body.id, { durationMonths: 4 });
+  assert.equal(longer.status, 200, JSON.stringify(longer.body));
+  var after = await invoiceOf(made.body.bookingNo);
+  assert.equal(after.grandTotal, 4000);
+  assert.equal(after.amountPaid, 1500);
+  assert.equal(after.balanceDue, 2500);
+  assert.equal(after.status, 'partially_paid');
+
+  var q = await call('POST', '/api/poki/bookings/quote', { unitId: f.unitId, startDate: '2035-09-01', durationMonths: 0, durationDays: 10, exceptId: made.body.id });
+  assert.equal(q.body.invoice.action, 'overpaid');
+  assert.equal(q.body.invoice.overpaid, 1500 - 333.3);
+  var shorter = await call('PATCH', '/api/poki/bookings/' + made.body.id, { durationMonths: 0, durationDays: 10 });
+  assert.equal(shorter.status, 409);
+  assert.match(shorter.body.error.message, /more than the booking would now cost/);
+  var unchanged = await call('GET', '/api/poki/bookings/' + made.body.id);
+  assert.equal(unchanged.body.durationMonths, 4, 'nothing changed');
+  assert.equal((await invoiceOf(made.body.bookingNo)).grandTotal, 4000);
+});
+
+test('editing a renewal does not charge the carried-over deposit again', async function () {
+  var f = await fixtures('P14', 2000, 0);
+  var made = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: '2036-01-01', durationMonths: 2, depositAmount: 4000 }));
+  var first = await invoiceOf(made.body.bookingNo);
+  await call('POST', '/api/poki/invoices/' + first.id + '/payments', { amount: first.grandTotal, method: 'cash', reference: MARK + '-P14' });
+  var renewed = await call('POST', '/api/poki/bookings/' + made.body.id + '/renew', { notes: MARK });
+  assert.equal(renewed.status, 201);
+
+  var edited = await call('PATCH', '/api/poki/bookings/' + renewed.body.id, { durationMonths: 3 });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  var inv = await invoiceOf(renewed.body.bookingNo);
+  assert.equal(inv.grandTotal, 6000, '3 x 2000, no deposit');
+  assert.doesNotMatch(inv.items.map(function (i) { return i.description; }).join(' | '), /deposit/i);
+
+  // Raising the deposit charges only the raise.
+  await call('PATCH', '/api/poki/bookings/' + renewed.body.id, { depositAmount: 5000 });
+  assert.equal((await invoiceOf(renewed.body.bookingNo)).grandTotal, 7000);
+});
