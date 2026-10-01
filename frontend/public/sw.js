@@ -16,6 +16,8 @@
 // activate.
 //
 // v4: calls ring on the device with the OS closed (Answer / Decline).
+// v5: a call buzzes harder and more often (every 3 s, long pulses) for the
+//     minute it rings.
 // v3: adds the Web Push handlers at the foot of this file.
 // v2: fixed a real bug — cache-first for the navigation itself
 // (this file's original behavior) could permanently strand an installed
@@ -23,7 +25,7 @@
 // from a build no longer on the server, once enough redeploys had
 // happened since that device last did a background refresh (see the
 // identical fix in kiosk-sw.js, where this was caught on a real device).
-var CACHE_NAME = 'bamboo-app-v4';
+var CACHE_NAME = 'bamboo-app-v5';
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -123,14 +125,18 @@ self.addEventListener('push', function (event) {
 // ---------------------------------------------------------------------------
 // Calls (calls.service.js). Someone calling rings this device even with the
 // OS closed, as long as it is online: a pop-up with Answer and Decline that
-// buzzes again every few seconds for as long as the call rings (a minute), the
+// buzzes hard again every 3 seconds for as long as the call rings (a minute), the
 // nearest a web app can come to a phone's own call screen. If the OS is
 // open and on screen, its own ringing card shows instead. When the call
 // ends unanswered, "Missed call" replaces the pop-up (same tag).
 
 // The API's address, handed over when main.jsx registers this worker.
 var API_URL = new URL(self.location.href).searchParams.get('api') || '';
-var RING_FOR_MS = 60000, RING_EVERY_MS = 5000;
+// A closed web app cannot play a ringtone (no browser lets a closed site make
+// sound), so the alert is made hard to miss instead: long vibration pulses,
+// repeated every 3 seconds, each with the phone's notification sound.
+var RING_FOR_MS = 60000, RING_EVERY_MS = 3000;
+var RING_VIBRATE = [1200, 300, 1200, 300, 1200];
 
 function callWords() {
   var lang = String((self.navigator && self.navigator.language) || 'en').slice(0, 2);
@@ -170,7 +176,7 @@ function ringCall(data) {
       renotify: true,
       requireInteraction: true,
       silent: false,
-      vibrate: [900, 400, 900, 400, 900],
+      vibrate: RING_VIBRATE,
       actions: [
         { action: 'decline', title: words.decline },
         { action: 'answer', title: data.kind === 'video' ? words.video : words.answer }
