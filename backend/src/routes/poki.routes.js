@@ -158,6 +158,12 @@ router.get('/readings', async function (req, res, next) {
 router.post('/readings', async function (req, res, next) {
   try { res.status(201).json(await billing.recordReading(req.ctx, req.body)); } catch (e) { next(e); }
 });
+router.delete('/readings/:id', async function (req, res, next) {
+  try { res.json(await billing.deleteReading(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/readings/bill/preview', async function (req, res, next) {
+  try { res.json(await billing.previewReadingsBill(req.ctx, req.body)); } catch (e) { next(e); }
+});
 router.post('/readings/bill', async function (req, res, next) {
   try { res.json(await billing.billReadings(req.ctx, req.body)); } catch (e) { next(e); }
 });
@@ -210,6 +216,9 @@ router.post('/invoices', async function (req, res, next) {
 });
 router.get('/invoices/:id', async function (req, res, next) {
   try { res.json(await pokiInvoices.get(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.put('/invoices/:id', async function (req, res, next) {
+  try { res.json(await pokiInvoices.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 router.post('/invoices/:id/payments', async function (req, res, next) {
   try { res.status(201).json(await pokiInvoices.recordPayment(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }

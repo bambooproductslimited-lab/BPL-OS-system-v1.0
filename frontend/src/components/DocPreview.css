@@ -42,7 +42,7 @@
    beside a description, so the table scrolls sideways rather than running
    off the page. Nothing is lost: print and the PDF both render at the full
    document width, where there is no scroll and nothing to scroll to. */
-.doc-preview-table-wrap { overflow-x: auto; }
+.doc-preview-table-wrap { overflow-x: auto; flex-shrink: 0; } /* in the scrolling column it must keep its height, or long lines are cut off inside it */
 .doc-preview-table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 12px; }
 .doc-preview-table thead tr { border-bottom: 2px solid #ccc; }
 .doc-preview-table th { text-align: left; padding: 6px 0; font-weight: 700; }

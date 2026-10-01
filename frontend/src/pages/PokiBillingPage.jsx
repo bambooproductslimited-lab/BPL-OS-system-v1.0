@@ -9,6 +9,8 @@ import { money, moneyBreakdown } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
 import CreditNoteDialog from '../components/CreditNoteDialog';
 import RentSideMoveDialog from '../components/RentSideMoveDialog';
+import BillReadingsDialog from '../components/BillReadingsDialog';
+import EditPokiInvoiceDialog from '../components/EditPokiInvoiceDialog';
 import { creditRows } from '../lib/docItems';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -40,6 +42,10 @@ function fmtDate(iso) {
   return d.toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Kinds whose invoice can be changed after it is raised; rent and deposit
+// follow their booking (backend pokiInvoices.update).
+const EDITABLE = ['utility', 'cam', 'other', 'maintenance', 'sale'];
+
 export default function PokiBillingPage() {
   const { can } = useAuth();
   const canManage = can('poki.manage');
@@ -54,6 +60,8 @@ export default function PokiBillingPage() {
 
   const [previewInv, setPreviewInv] = useState(null);
   const [creditFor, setCreditFor] = useState(null);
+  const [billIds, setBillIds] = useState(null); // readings being billed (BillReadingsDialog)
+  const [editId, setEditId] = useState(null); // invoice being changed (EditPokiInvoiceDialog)
   const [payFor, setPayFor] = useState(null);
   const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', notes: '' });
   const [newInv, setNewInv] = useState(null);
@@ -153,11 +161,15 @@ export default function PokiBillingPage() {
   }
 
   async function voidInvoice(inv) {
-    if (!window.confirm(tr('Void {invoiceNo}? The number stays used, but the charge is cancelled.', { invoiceNo: inv.invoiceNo }))) return;
+    const releases = ['utility', 'cam', 'other'].includes(inv.docKind);
+    if (!window.confirm(releases
+      ? tr('Void {invoiceNo}? The number stays used, but the charge is cancelled. Its meter readings and recurring charges go back to not billed, so you can bill them again or delete a wrong reading.', { invoiceNo: inv.invoiceNo })
+      : tr('Void {invoiceNo}? The number stays used, but the charge is cancelled.', { invoiceNo: inv.invoiceNo }))) return;
     setBusy(true);
     try {
-      await api.post('/poki/invoices/' + inv.id + '/void', {});
-      setToast(tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
+      const r = await api.post('/poki/invoices/' + inv.id + '/void', {});
+      const back = r.released ? r.released.readings + r.released.periods : 0;
+      setToast(back ? tr('{invoiceNo} voided. Its readings and charges are back to not billed.', { invoiceNo: inv.invoiceNo }) : tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
       await load();
     } catch (err) {
       setError(err.message);
@@ -220,23 +232,23 @@ export default function PokiBillingPage() {
     }
   }
 
-  async function billSelectedReadings() {
+  function billSelectedReadings() {
     const ids = readings.filter((r) => !r.invoiceId && selected['r_' + r.id]).map((r) => r.id);
     if (!ids.length) { setError(tr('Select at least one unbilled reading.')); return; }
-    setBusy(true);
     setError(null);
+    setBillIds(ids);
+  }
+
+  // A reading entered by mistake (not billed yet).
+  async function deleteReading(r) {
+    if (!window.confirm(tr('Delete the {utility} reading for {unit} ({from} to {to})? The meter goes back to its reading before this one.', { utility: codeLabel(r.utilityType).toLowerCase(), unit: r.unitCode, from: r.previousReading, to: r.currentReading }))) return;
+    setBusy(true);
     try {
-      const res = await api.post('/poki/readings/bill', { readingIds: ids });
-      setToast(res.skippedUnits && res.skippedUnits.length
-        ? tr('Raised {n} utility invoice(s). Skipped {units} — no active booking.', { n: res.created, units: res.skippedUnits.join(', ') })
-        : tr('Raised {n} utility invoice(s).', { n: res.created }));
-      setSelected({});
+      await api.del('/poki/readings/' + r.id);
+      setToast(tr('Reading deleted.'));
+      setSelected((sel) => { const n = { ...sel }; delete n['r_' + r.id]; return n; });
       await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
 
   async function showSplit(bill) {
@@ -427,6 +439,7 @@ export default function PokiBillingPage() {
                       {i.balanceDue > 0 && i.status !== 'void' && t && <ContactButtons name={i.customerName} phone={t.phone} email={t.email} />}
                       <RowMenu actions={[
                         { label: tr('Print'), onClick: () => openPreview(i) },
+                        { label: tr('Change'), onClick: () => setEditId(i.id), hidden: !(canManage && i.status !== 'void' && EDITABLE.includes(i.docKind)) },
                         { label: tr('Credit note'), onClick: () => setCreditFor(i), hidden: !(canManage && i.status !== 'void' && (i.grandTotal - (i.creditTotal || 0) > 0.005 || i.amountPaid > i.grandTotal - (i.creditTotal || 0) + 0.005)) },
                         { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) }
                       ]} />
@@ -526,7 +539,7 @@ export default function PokiBillingPage() {
           </Section>
 
           {readings.length > 0 && (
-            <Section title={tr('Readings')} sub={tr('Tick the ones to bill; each tenant gets one invoice for theirs.')}
+            <Section title={tr('Readings')} sub={tr('Tick the ones to bill. Each tenant gets one invoice with all their meters on it, and you can add their service charge (CAM) to the same invoice. A wrong reading can be deleted while it is not billed.')}
               action={canManage && unbilled.length > 0 && (
                 <span className="rs-actions">
                   <button type="button" className="btn btn-secondary tl-btn" onClick={() => setSelected(Object.fromEntries(unbilled.map((r) => ['r_' + r.id, true])))}>{tr('Tick all not billed')}</button>
@@ -549,6 +562,7 @@ export default function PokiBillingPage() {
                         {r.invoiceId ? <Status tone="good">{r.invoiceNo}</Status> : <Status tone="warn">{tr('unbilled')}</Status>}
                       </span>
                     </label>
+                    {!r.invoiceId && canManage && <RowMenu actions={[{ label: tr('Delete reading'), onClick: () => deleteReading(r), danger: true, disabled: busy }]} />}
                   </li>
                 ))}
               </ul>
@@ -959,6 +973,22 @@ export default function PokiBillingPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {billIds && (
+        <BillReadingsDialog readingIds={billIds} onClose={() => setBillIds(null)}
+          onBilled={() => { setSelected({}); load(); }}
+          onSend={(i) => openPreview({ id: i.invoiceId })}
+          onEdit={(i) => setEditId(i.invoiceId)} />
+      )}
+      {editId && (
+        <EditPokiInvoiceDialog invoiceId={editId} onClose={() => setEditId(null)}
+          onSaved={(saved) => {
+            setEditId(null);
+            setToast(tr('{invoiceNo} changed. Send it again if the tenant already has it.', { invoiceNo: saved.invoiceNo }));
+            if (previewInv && previewInv.id === saved.id) setPreviewInv(saved);
+            load();
+          }} />
       )}
 
       {previewInv && (

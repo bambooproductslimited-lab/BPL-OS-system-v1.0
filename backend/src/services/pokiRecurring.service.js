@@ -5,6 +5,7 @@ var { audit } = require('../utils/audit');
 var { buildLineItems, todayISO } = require('../utils/documents');
 var poki = require('./poki.service');
 var billing = require('./pokiBilling.service');
+var { periodWorking } = require('../utils/workings');
 
 // Recurring charges for Poki tenants: the service charge (CAM — common area
 // maintenance) and flat utility fees, billed every month, quarter or year
@@ -163,6 +164,122 @@ async function remove(ctx, id) {
   return { ok: true };
 }
 
+// The periods of a charge to bill now: everything that has come due by
+// asOf, or — early — just its next one, even if its date hasn't come. Cut at
+// the charge's own end date or the booking's.
+function periodsToBill(c, asOf, early) {
+  var limit = minDate(dateOnly(c.end_date), dateOnly(c.booking_end));
+  var next = dateOnly(c.next_date);
+  var until = early ? next : asOf;
+  var periods = [];
+  while (next <= until && next <= limit && periods.length < MAX_PERIODS_PER_RUN) {
+    var per = periodFor(c, next, limit);
+    periods.push(per);
+    next = per.nextStart;
+  }
+  return { periods: periods, next: next, limit: limit };
+}
+
+// Moves the charge's next date past what is being billed; past its last
+// date it ends. True when it ended.
+async function moveOn(client, c, plan) {
+  if (plan.next > plan.limit) {
+    await client.query("UPDATE poki_recurring_charges SET status = 'ended', next_date = $2, updated_at = now() WHERE id = $1", [c.id, plan.next]);
+    return true;
+  }
+  if (plan.periods.length) await client.query('UPDATE poki_recurring_charges SET next_date = $2, updated_at = now() WHERE id = $1', [c.id, plan.next]);
+  return false;
+}
+
+// Claims each period (a period already billed is skipped) and returns its
+// invoice lines; attachRuns() then points the claims at the invoice.
+async function claimPeriods(client, ctx, ch, periods) {
+  var lines = [], claimed = [];
+  for (var pi = 0; pi < periods.length; pi++) {
+    var pd = periods[pi];
+    var got = (await client.query(
+      'INSERT INTO poki_recurring_charge_runs (charge_id, period_start, period_end, amount, billed_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING charge_id',
+      [ch.id, pd.start, pd.end, pd.amount, ctx.employee ? ctx.employee.id : null])).rows[0];
+    if (!got) continue;
+    claimed.push({ chargeId: ch.id, start: pd.start });
+    lines.push({
+      description: ch.description + ' — ' + ch.unit_code,
+      notes: periodWorking(ch, pd, ch.currency),
+      qty: 1, unitPrice: pd.amount, kind: ch.kind, netDays: ch.net_days, start: pd.start, end: pd.end
+    });
+  }
+  return { lines: lines, claimed: claimed };
+}
+async function attachRuns(client, claimed, invoiceId) {
+  for (var k = 0; k < claimed.length; k++) {
+    await client.query('UPDATE poki_recurring_charge_runs SET invoice_id = $1 WHERE charge_id = $2 AND period_start = $3', [invoiceId, claimed[k].chargeId, claimed[k].start]);
+  }
+}
+
+var DUE_SQL =
+  'SELECT c.*, b.booking_no, b.status AS booking_status, b.end_date AS booking_end, b.currency, u.code AS unit_code, pr.name AS property_name, ' +
+  '  t.customer_id, cu.name AS tenant_name ' +
+  'FROM poki_recurring_charges c JOIN poki_bookings b ON b.id = c.booking_id JOIN poki_units u ON u.id = b.unit_id ' +
+  'JOIN poki_properties pr ON pr.id = u.property_id JOIN poki_tenants t ON t.id = b.tenant_id JOIN customers cu ON cu.id = t.customer_id ';
+
+// What a tenant's active charges would add to an invoice raised today,
+// for "put this month's CAM on the same invoice" when billing meter
+// readings. A charge that has come due bills what is due; one that hasn't
+// offers its next period, early.
+async function offerFor(bookingIds, asOf) {
+  if (!bookingIds.length) return {};
+  asOf = asOf || todayISO();
+  var rows = (await pool.query(DUE_SQL + "WHERE c.booking_id = ANY($1::uuid[]) AND c.status = 'active' AND b.status = 'active' ORDER BY c.next_date, c.kind", [bookingIds])).rows;
+  var out = {};
+  rows.forEach(function (c) {
+    var due = dateOnly(c.next_date) <= asOf;
+    var plan = periodsToBill(c, asOf, !due);
+    if (!plan.periods.length) return;
+    (out[c.booking_id] = out[c.booking_id] || []).push({
+      id: c.id, kind: c.kind, description: c.description, frequency: c.frequency, due: due, nextDate: dateOnly(c.next_date),
+      periods: plan.periods.map(function (pd) { return { start: pd.start, end: pd.end, amount: pd.amount, part: pd.part }; }),
+      amount: round2(plan.periods.reduce(function (t, pd) { return t + pd.amount; }, 0))
+    });
+  });
+  return out;
+}
+
+// Bills the chosen charges of one booking inside someone else's invoice
+// (the meter-readings bill): same periods as offerFor(), claimed so "Bill
+// what is due" can't bill them again. Returns the lines and the claims.
+async function billAlong(client, ctx, bookingId, chargeIds, asOf) {
+  asOf = asOf || todayISO();
+  var rows = (await client.query(DUE_SQL + "WHERE c.id = ANY($1::uuid[]) AND c.booking_id = $2 AND c.status = 'active' AND b.status = 'active' ORDER BY c.next_date FOR UPDATE OF c", [chargeIds, bookingId])).rows;
+  if (rows.length !== chargeIds.length) fail('conflict', 'One of those recurring charges has changed — billed, paused or ended. Reload and try again.');
+  var lines = [], claimed = [];
+  for (var i = 0; i < rows.length; i++) {
+    var c = rows[i];
+    var plan = periodsToBill(c, asOf, dateOnly(c.next_date) > asOf);
+    await moveOn(client, c, plan);
+    var got = await claimPeriods(client, ctx, c, plan.periods);
+    lines = lines.concat(got.lines);
+    claimed = claimed.concat(got.claimed);
+  }
+  return { lines: lines, claimed: claimed };
+}
+
+// A bill cancelled (voided): the recurring periods on it are billable
+// again — their claims go, and each charge's next date steps back to the
+// first of them (an ended charge whose booking still runs picks up again).
+async function release(client, invoiceId) {
+  var runs = (await client.query('DELETE FROM poki_recurring_charge_runs WHERE invoice_id = $1 RETURNING charge_id, period_start', [invoiceId])).rows;
+  var first = {};
+  runs.forEach(function (r) { var d = dateOnly(r.period_start); if (!first[r.charge_id] || d < first[r.charge_id]) first[r.charge_id] = d; });
+  var ids = Object.keys(first);
+  for (var i = 0; i < ids.length; i++) {
+    await client.query(
+      "UPDATE poki_recurring_charges c SET next_date = LEAST(c.next_date, $2::date), " +
+      "  status = CASE WHEN c.status = 'ended' AND (SELECT status FROM poki_bookings WHERE id = c.booking_id) = 'active' THEN 'active' ELSE c.status END, updated_at = now() " +
+      'WHERE c.id = $1', [ids[i], first[ids[i]]]);
+  }
+  return runs.length;
+}
+
 // Raises the invoices that have come due. opts.asOf (default today) is the
 // billing date; opts.chargeId bills that one charge's next period now, even
 // if its date hasn't come yet. Always a person's doing (ctx required).
@@ -179,11 +296,7 @@ async function run(ctx, opts) {
     var where = "c.status = 'active' AND c.next_date <= $1";
     if (opts.chargeId) { args = [opts.chargeId]; where = "c.id = $1 AND c.status = 'active'"; }
     var due = (await client.query(
-      'SELECT c.*, b.booking_no, b.status AS booking_status, b.end_date AS booking_end, b.currency, u.code AS unit_code, pr.name AS property_name, ' +
-      '  t.customer_id, cu.name AS tenant_name ' +
-      'FROM poki_recurring_charges c JOIN poki_bookings b ON b.id = c.booking_id JOIN poki_units u ON u.id = b.unit_id ' +
-      'JOIN poki_properties pr ON pr.id = u.property_id JOIN poki_tenants t ON t.id = b.tenant_id JOIN customers cu ON cu.id = t.customer_id ' +
-      'WHERE ' + where + ' ORDER BY b.id, c.next_date FOR UPDATE OF c', args)).rows;
+      DUE_SQL + 'WHERE ' + where + ' ORDER BY b.id, c.next_date FOR UPDATE OF c', args)).rows;
     if (opts.chargeId && !due.length) fail('conflict', 'That charge is paused or has ended, so there is nothing to bill.');
 
     var byBooking = {};
@@ -198,22 +311,9 @@ async function run(ctx, opts) {
         }
         continue;
       }
-      var limit = minDate(dateOnly(c.end_date), dateOnly(c.booking_end));
-      var next = dateOnly(c.next_date);
-      var until = opts.chargeId ? next : asOf;
-      var periods = [];
-      while (next <= until && next <= limit && periods.length < MAX_PERIODS_PER_RUN) {
-        var per = periodFor(c, next, limit);
-        periods.push(per);
-        next = per.nextStart;
-      }
-      if (periods.length) (byBooking[c.booking_id] = byBooking[c.booking_id] || []).push({ charge: c, periods: periods, next: next });
-      if (next > limit) {
-        await client.query("UPDATE poki_recurring_charges SET status = 'ended', next_date = $2, updated_at = now() WHERE id = $1", [c.id, next]);
-        ended++;
-      } else if (periods.length) {
-        await client.query('UPDATE poki_recurring_charges SET next_date = $2, updated_at = now() WHERE id = $1', [c.id, next]);
-      }
+      var plan = periodsToBill(c, asOf, !!opts.chargeId);
+      if (plan.periods.length) (byBooking[c.booking_id] = byBooking[c.booking_id] || []).push({ charge: c, periods: plan.periods, next: plan.next });
+      if (await moveOn(client, c, plan)) ended++;
     }
 
     var out = [];
@@ -224,21 +324,9 @@ async function run(ctx, opts) {
       var lines = [];
       var claimed = [];
       for (var gi = 0; gi < group.length; gi++) {
-        var ch = group[gi].charge;
-        for (var pi = 0; pi < group[gi].periods.length; pi++) {
-          var pd = group[gi].periods[pi];
-          // Claim the period first: if it was billed already, skip it.
-          var got = (await client.query(
-            'INSERT INTO poki_recurring_charge_runs (charge_id, period_start, period_end, amount, billed_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING charge_id',
-            [ch.id, pd.start, pd.end, pd.amount, ctx.employee ? ctx.employee.id : null])).rows[0];
-          if (!got) continue;
-          claimed.push({ chargeId: ch.id, start: pd.start });
-          lines.push({
-            description: ch.description + ' — ' + ch.unit_code,
-            notes: pd.start + ' to ' + pd.end + (pd.part ? ' (part period: ' + pd.daysUsed + ' of ' + pd.daysFull + ' days)' : ''),
-            qty: 1, unitPrice: pd.amount, kind: ch.kind, netDays: ch.net_days
-          });
-        }
+        var got = await claimPeriods(client, ctx, group[gi].charge, group[gi].periods);
+        lines = lines.concat(got.lines);
+        claimed = claimed.concat(got.claimed);
       }
       if (!lines.length) continue;
       var kinds = lines.map(function (l) { return l.kind; }).filter(function (k, i2, a) { return a.indexOf(k) === i2; });
@@ -253,9 +341,7 @@ async function run(ctx, opts) {
         issuedAt: todayISO(), dueDate: addDays(todayISO(), netDays), currency: first.currency || 'GHS', instructions: instructions,
         notes: 'Recurring charges for ' + first.property_name + ' · ' + first.unit_code + ' (booking ' + first.booking_no + ').'
       });
-      for (var k = 0; k < claimed.length; k++) {
-        await client.query('UPDATE poki_recurring_charge_runs SET invoice_id = $1 WHERE charge_id = $2 AND period_start = $3', [inv.id, claimed[k].chargeId, claimed[k].start]);
-      }
+      await attachRuns(client, claimed, inv.id);
       out.push({ invoiceId: inv.id, invoiceNo: inv.invoice_no, tenantName: first.tenant_name, bookingNo: first.booking_no, amount: Number(inv.grand_total), currency: inv.currency, lines: lines.length });
     }
     if (out.length || ended) {
@@ -266,4 +352,5 @@ async function run(ctx, opts) {
   });
 }
 
-module.exports = { list: list, create: create, update: update, setStatus: setStatus, remove: remove, run: run, periodFor: periodFor };
+module.exports = { list: list, create: create, update: update, setStatus: setStatus, remove: remove, run: run, periodFor: periodFor,
+  offerFor: offerFor, billAlong: billAlong, attachRuns: attachRuns, release: release };

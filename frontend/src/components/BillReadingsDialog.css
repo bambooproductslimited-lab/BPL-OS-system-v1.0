@@ -1,0 +1,25 @@
+/* Billing meter readings with the tenant's recurring charges (BillReadingsDialog.jsx). */
+.dialog.ed.brd { max-width: 680px; }
+.brd-list, .brd-lines, .brd-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.brd-group { border: 1px solid var(--color-divider); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.brd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.brd-head > span, .brd-line-main, .brd-done-main { display: flex; flex-direction: column; min-width: 0; }
+.brd-head strong, .brd-line-main strong, .brd-done-main strong { overflow-wrap: anywhere; }
+.brd-head small, .brd-line-main small, .brd-done-main small { font-size: 12.5px; color: var(--color-text-muted); }
+.brd-amt { font-size: 16px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.brd-lines { gap: 6px; }
+.brd-lines li, .brd-charge { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; font-size: 13.5px; }
+.brd-line-amt { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.brd-icon { width: 10px; height: 10px; border-radius: 50%; background: #c77d12; margin: 0 4px; }
+.brd-icon.is-water { background: #2f7fd1; }
+.brd-charges { border-top: 1px dashed var(--color-divider); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.brd-charges-title { font-size: 11.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+.brd-charge { padding: 7px 8px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+.brd-charge input { accent-color: var(--color-accent); width: 16px; height: 16px; }
+.brd-charge.is-on { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 6%, var(--color-bg)); }
+.brd-done li:not(.ed-note) { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--color-divider); border-radius: 12px; }
+.brd-done-acts { display: flex; gap: 6px; }
+@media (max-width: 560px) {
+  .brd-done li:not(.ed-note) { grid-template-columns: 1fr auto; }
+  .brd-done-acts { grid-column: 1 / -1; justify-content: flex-end; }
+}

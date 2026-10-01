@@ -137,10 +137,25 @@ async function recordPayment(ctx, id, p) {
   return result;
 }
 
+// Voiding a bill raised from meter readings or recurring charges puts
+// them back: the readings to not billed, the charge periods to billable,
+// so a bill raised by mistake can be raised again properly.
 async function voidInvoice(ctx, id) {
-  return actingOnPokiInvoice(ctx, id, function (e) {
+  var out = await actingOnPokiInvoice(ctx, id, function (e) {
     return invoicesService.voidInvoice(e, id);
   });
+  var { withTransaction } = require('../db/pool');
+  var { audit } = require('../utils/audit');
+  await withTransaction(async function (client) {
+    var readings = await billing.releaseReadings(client, id);
+    var periods = await require('./pokiRecurring.service').release(client, id);
+    if (readings || periods) {
+      await audit(client, ctx, 'poki.invoice.release', 'invoice', id, out.invoiceNo + ' voided: ' +
+        (readings ? readings + ' reading(s) back to not billed' : '') + (readings && periods ? ', ' : '') + (periods ? periods + ' recurring period(s) billable again' : '') + '.');
+    }
+    out.released = { readings: readings, periods: periods };
+  });
+  return out;
 }
 
 async function createShareLink(ctx, id, expiresInDays) {
@@ -216,6 +231,54 @@ async function create(ctx, p) {
   return get(ctx, inv.id);
 }
 
+// Changing a bill after it was raised: its lines (wording, the working
+// under them, quantity, rate; adding or taking one away), its due date and
+// its note. The invoice keeps its number; balance and status follow the new
+// total (the invoice_follows_money trigger). Not below what has been paid
+// or credited on it — that is a credit note. Rent and deposit invoices
+// follow their booking, so they are changed by changing the booking.
+var EDITABLE_KINDS = ['utility', 'cam', 'other', 'maintenance', 'sale'];
+
+async function update(ctx, id, p) {
+  poki.canManage(ctx);
+  var inv = await assertPokiInvoice(id);
+  if (inv.status === 'void') fail('conflict', 'This invoice has been voided.');
+  if (EDITABLE_KINDS.indexOf(inv.doc_kind) < 0) fail('conflict', 'A ' + inv.doc_kind + ' invoice follows its booking. Change the booking instead, and its invoice is updated with it.');
+  var { withTransaction } = require('../db/pool');
+  var { audit } = require('../utils/audit');
+  var docs = require('../utils/documents');
+
+  var items = p.items !== undefined ? buildLineItems(p.items) : null;
+  var dueDate = p.dueDate ? V.date(p.dueDate, 'Due date') : String(inv.due_date).slice(0, 10);
+  if (dueDate < String(inv.issued_at).slice(0, 10)) fail('invalid', 'The due date cannot be before the issue date.');
+  var notes = p.notes !== undefined ? String(p.notes || '').trim() : inv.notes;
+
+  await withTransaction(async function (client) {
+    var cur = (await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    var before = Number(cur.grand_total);
+    var totals = null;
+    if (items) {
+      totals = docs.computeDocTotals(items, null, 0);
+      var floor = Number(cur.amount_paid) + Number(cur.credit_total || 0);
+      if (totals.grandTotal + 0.005 < floor) {
+        fail('invalid', 'The new total (' + cur.currency + ' ' + totals.grandTotal.toFixed(2) + ') is less than what has been paid or credited on this invoice (' +
+          cur.currency + ' ' + floor.toFixed(2) + '). Lower it with a credit note instead, so the refund is on record.');
+      }
+      await client.query("DELETE FROM document_line_items WHERE document_type = 'invoice' AND document_id = $1", [id]);
+      await docs.insertLineItems(client, 'invoice', id, items);
+      await client.query('UPDATE invoices SET subtotal = $2, discount_total = $3, tax_total = $4, grand_total = $5 WHERE id = $1',
+        [id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal]);
+    }
+    await client.query('UPDATE invoices SET due_date = $2, notes = $3 WHERE id = $1', [id, dueDate, notes]);
+    var what = [];
+    if (totals) what.push(totals.grandTotal !== before ? 'total ' + before.toFixed(2) + ' to ' + totals.grandTotal.toFixed(2) : 'lines');
+    if (dueDate !== String(cur.due_date).slice(0, 10)) what.push('due ' + dueDate);
+    if (notes !== cur.notes) what.push('note');
+    await audit(client, ctx, 'poki.invoice.update', 'invoice', id, 'Changed ' + cur.invoice_no + (what.length ? ': ' + what.join(', ') : '') + '.');
+  });
+  return get(ctx, id);
+}
+
 // Credit notes on a Poki bill (creditNotes.service.js): a booking cut
 // short, a charge agreed down, and refunding what the tenant then overpaid.
 async function listCreditNotes(ctx, id) {
@@ -233,5 +296,5 @@ module.exports = {
   get: get, recordPayment: recordPayment, voidInvoice: voidInvoice,
   listCreditNotes: listCreditNotes, createCreditNote: createCreditNote,
   createShareLink: createShareLink, shareViaWhatsApp: shareViaWhatsApp,
-  create: create, MANUAL_KINDS: MANUAL_KINDS, letterhead: letterhead
+  create: create, update: update, MANUAL_KINDS: MANUAL_KINDS, letterhead: letterhead
 };

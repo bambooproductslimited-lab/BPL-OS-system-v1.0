@@ -4,6 +4,7 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { buildLineItems, computeDocTotals, nextDocNumber, todayISO, insertLineItems } = require('../utils/documents');
 var poki = require('./poki.service');
+var W = require('../utils/workings');
 
 // Poki's billing: rent runs, utility bills, maintenance recharges and booking
 // agreements.
@@ -237,73 +238,160 @@ async function recordReading(ctx, p) {
   return rowToReading(full.rows[0]);
 }
 
-// Bills every unbilled reading belonging to a unit that currently has an
-// active booking, one invoice per booking. Readings on vacant units are left
-// alone — there's nobody to bill, and silently writing them off would hide
-// consumption the landlord is absorbing.
+// A reading entered by mistake: deleted, as long as it hasn't been billed
+// (cancel its bill first — voiding the invoice puts its readings back).
+// The meter's last reading is worked out from what is left.
+async function deleteReading(ctx, id) {
+  poki.canManage(ctx);
+  var companyId = await poki.pokiCompanyId();
+  var r = (await pool.query(
+    'SELECT r.*, m.utility_type, u.code AS unit_code, i.invoice_no FROM poki_meter_readings r JOIN poki_meters m ON m.id = r.meter_id ' +
+    'JOIN poki_units u ON u.id = m.unit_id JOIN poki_properties p ON p.id = u.property_id LEFT JOIN invoices i ON i.id = r.invoice_id ' +
+    'WHERE r.id = $1 AND p.company_id = $2', [id, companyId])).rows[0];
+  if (!r) fail('notfound', 'Reading not found.');
+  if (r.invoice_id) fail('conflict', 'This reading is on invoice ' + r.invoice_no + '. Void that invoice first; its readings then go back to not billed.');
+  await pool.query('DELETE FROM poki_meter_readings WHERE id = $1 AND invoice_id IS NULL', [id]);
+  await audit(pool, ctx, 'poki.reading.delete', 'poki_meter_reading', id,
+    'Deleted the ' + r.utility_type + ' reading for ' + r.unit_code + ' (' + Number(r.previous_reading) + ' to ' + Number(r.current_reading) + ').');
+  return { ok: true };
+}
+
+// A bill cancelled (voided): its readings go back to not billed, so they
+// can be billed again or deleted.
+async function releaseReadings(client, invoiceId) {
+  return (await client.query('UPDATE poki_meter_readings SET invoice_id = NULL WHERE invoice_id = $1', [invoiceId])).rowCount;
+}
+
+// The ticked readings with who they'd bill: the tenant of the unit's active
+// booking. Readings on vacant units are left alone — there's nobody to
+// bill, and silently writing them off would hide consumption the landlord
+// is absorbing.
+var READINGS_TO_BILL =
+  'SELECT r.*, m.utility_type, m.measure_unit, m.meter_number, u.code AS unit_code, u.id AS unit_id, pr.name AS property_name, ' +
+  '       l.id AS booking_id, l.booking_no, l.currency, c.id AS customer_id, c.name AS tenant_name, c.phone AS tenant_phone, c.email AS tenant_email ' +
+  'FROM poki_meter_readings r ' +
+  'JOIN poki_meters m ON m.id = r.meter_id ' +
+  'JOIN poki_units u ON u.id = m.unit_id ' +
+  'JOIN poki_properties pr ON pr.id = u.property_id ' +
+  "LEFT JOIN poki_bookings l ON l.unit_id = u.id AND l.status = 'active' " +
+  'LEFT JOIN poki_tenants t ON t.id = l.tenant_id ' +
+  'LEFT JOIN customers c ON c.id = t.customer_id ' +
+  'WHERE r.id = ANY($1::uuid[]) AND r.invoice_id IS NULL AND pr.company_id = $2 ';
+
+function groupByBooking(rows) {
+  var byBooking = {}, order = [], skipped = [];
+  rows.forEach(function (r) {
+    if (!r.booking_id) { if (skipped.indexOf(r.unit_code) < 0) skipped.push(r.unit_code); return; }
+    if (!byBooking[r.booking_id]) { byBooking[r.booking_id] = []; order.push(r.booking_id); }
+    byBooking[r.booking_id].push(r);
+  });
+  return { byBooking: byBooking, order: order, skipped: skipped };
+}
+
+function readingLine(r) {
+  return {
+    description: r.utility_type.charAt(0).toUpperCase() + r.utility_type.slice(1) + ' — ' + r.unit_code,
+    notes: W.meterWorking(r, r.currency),
+    qty: Number(r.consumption), unit: r.measure_unit, unitPrice: Number(r.rate)
+  };
+}
+function dateOnly(d) { return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10); }
+
+// Before billing: one invoice per tenant, what goes on it, and the
+// tenant's recurring charges (the month's CAM…) that could go on the same
+// invoice. Nothing is written.
+async function previewReadingsBill(ctx, p) {
+  poki.canManage(ctx);
+  var companyId = await poki.pokiCompanyId();
+  var ids = (p && Array.isArray(p.readingIds)) ? p.readingIds : [];
+  if (!ids.length) fail('invalid', 'Select at least one reading to bill.');
+  var rows = (await pool.query(READINGS_TO_BILL + 'ORDER BY u.code, m.utility_type', [ids, companyId])).rows;
+  if (!rows.length) fail('conflict', 'Those readings have already been billed, or no longer exist.');
+  var g = groupByBooking(rows);
+  var offers = await require('./pokiRecurring.service').offerFor(g.order);
+  return {
+    groups: g.order.map(function (bid) {
+      var rs = g.byBooking[bid], first = rs[0];
+      return {
+        bookingId: bid, bookingNo: first.booking_no, tenantName: first.tenant_name, phone: first.tenant_phone || '', email: first.tenant_email || '',
+        propertyName: first.property_name, unitCode: first.unit_code, currency: first.currency || 'GHS',
+        readings: rs.map(function (r) {
+          return { id: r.id, utilityType: r.utility_type, unitCode: r.unit_code, consumption: Number(r.consumption), measureUnit: r.measure_unit,
+            periodStart: dateOnly(r.period_start), periodEnd: dateOnly(r.period_end), amount: Number(r.amount) };
+        }),
+        charges: offers[bid] || []
+      };
+    }),
+    skippedUnits: g.skipped
+  };
+}
+
+// Bills the ticked readings, one invoice per tenant (booking). chargeIds:
+// the tenant's recurring charges (CAM, flat fees) to put on the same
+// invoice — what has come due, or the next period early — so a tenant gets
+// one bill for the month instead of two.
 async function billReadings(ctx, p) {
   poki.canManage(ctx);
   var companyId = await poki.pokiCompanyId();
   var ids = (p && Array.isArray(p.readingIds)) ? p.readingIds : [];
   if (!ids.length) fail('invalid', 'Select at least one reading to bill.');
+  var chargeIds = (p && Array.isArray(p.chargeIds)) ? p.chargeIds.filter(Boolean) : [];
+  var recurring = require('./pokiRecurring.service');
 
   var instructions = await pokiPaymentInstructions();
 
   var result = await withTransaction(async function (client) {
-    var res = await client.query(
-      'SELECT r.*, m.utility_type, m.measure_unit, u.code AS unit_code, u.id AS unit_id, pr.name AS property_name, ' +
-      '       l.id AS booking_id, l.currency, c.id AS customer_id, c.name AS tenant_name ' +
-      'FROM poki_meter_readings r ' +
-      'JOIN poki_meters m ON m.id = r.meter_id ' +
-      'JOIN poki_units u ON u.id = m.unit_id ' +
-      'JOIN poki_properties pr ON pr.id = u.property_id ' +
-      "LEFT JOIN poki_bookings l ON l.unit_id = u.id AND l.status = 'active' " +
-      'LEFT JOIN poki_tenants t ON t.id = l.tenant_id ' +
-      'LEFT JOIN customers c ON c.id = t.customer_id ' +
-      'WHERE r.id = ANY($1::uuid[]) AND r.invoice_id IS NULL AND pr.company_id = $2 FOR UPDATE OF r',
-      [ids, companyId]
-    );
+    var res = await client.query(READINGS_TO_BILL + 'ORDER BY u.code, m.utility_type FOR UPDATE OF r', [ids, companyId]);
     if (!res.rows.length) fail('conflict', 'Those readings have already been billed, or no longer exist.');
+    var g = groupByBooking(res.rows);
 
-    var byBooking = {};
-    var skipped = [];
-    res.rows.forEach(function (r) {
-      if (!r.booking_id) { skipped.push(r.unit_code); return; }
-      if (!byBooking[r.booking_id]) byBooking[r.booking_id] = [];
-      byBooking[r.booking_id].push(r);
-    });
+    var chargeBooking = {};
+    if (chargeIds.length) {
+      (await client.query('SELECT id, booking_id FROM poki_recurring_charges WHERE id = ANY($1::uuid[])', [chargeIds])).rows
+        .forEach(function (c) { chargeBooking[c.id] = c.booking_id; });
+      chargeIds.forEach(function (id) {
+        if (!chargeBooking[id] || !g.byBooking[chargeBooking[id]]) fail('invalid', 'A recurring charge can only go on its own tenant\'s invoice. Reload and try again.');
+      });
+    }
 
     var out = [];
-    var bookingIds = Object.keys(byBooking);
-    for (var i = 0; i < bookingIds.length; i++) {
-      var rows = byBooking[bookingIds[i]];
+    for (var i = 0; i < g.order.length; i++) {
+      var bid = g.order[i];
+      var rows = g.byBooking[bid];
       var first = rows[0];
-      var items = rows.map(function (r) {
-        return {
-          description: r.utility_type.charAt(0).toUpperCase() + r.utility_type.slice(1) + ' — ' + r.unit_code,
-          notes: r.period_start + ' to ' + r.period_end + ': ' + Number(r.consumption) + ' ' + r.measure_unit +
-                 ' @ ' + Number(r.rate) + '/' + r.measure_unit,
-          qty: Number(r.consumption), unit: r.measure_unit, unitPrice: Number(r.rate)
-        };
+      var items = rows.map(readingLine);
+      var starts = rows.map(function (r) { return dateOnly(r.period_start); });
+      var ends = rows.map(function (r) { return dateOnly(r.period_end); });
+      var netDays = UTILITY_NET_DAYS;
+      var kinds = ['utility'];
+
+      var mine = chargeIds.filter(function (id) { return chargeBooking[id] === bid; });
+      var along = mine.length ? await recurring.billAlong(client, ctx, bid, mine) : { lines: [], claimed: [] };
+      along.lines.forEach(function (l) {
+        items.push({ description: l.description, notes: l.notes, qty: l.qty, unitPrice: l.unitPrice });
+        starts.push(l.start); ends.push(l.end);
+        netDays = Math.min(netDays, l.netDays);
+        if (kinds.indexOf(l.kind) < 0) kinds.push(l.kind);
       });
-      var periodStart = rows.map(function (r) { return String(r.period_start).slice(0, 10); }).sort()[0];
-      var periodEnd = rows.map(function (r) { return String(r.period_end).slice(0, 10); }).sort().reverse()[0];
+      starts.sort(); ends.sort();
 
       var inv = await insertPokiInvoice(client, {
-        customerId: first.customer_id, companyId: companyId, docKind: 'utility', bookingId: first.booking_id,
-        periodStart: periodStart, periodEnd: periodEnd,
-        items: buildLineItems(items), dueDate: dueDateFor(todayISO(), UTILITY_NET_DAYS),
+        customerId: first.customer_id, companyId: companyId, docKind: kinds.length === 1 ? 'utility' : 'other', bookingId: bid,
+        periodStart: starts[0], periodEnd: ends[ends.length - 1],
+        items: buildLineItems(items), dueDate: dueDateFor(todayISO(), netDays),
         currency: first.currency || 'GHS', instructions: instructions,
-        notes: 'Utility charges for ' + first.property_name + ' · ' + first.unit_code + '.'
+        notes: (along.lines.length ? 'Utilities and charges for ' : 'Utility charges for ') + first.property_name + ' · ' + first.unit_code + '.'
       });
       for (var j = 0; j < rows.length; j++) {
         await client.query('UPDATE poki_meter_readings SET invoice_id = $1 WHERE id = $2', [inv.id, rows[j].id]);
       }
-      out.push({ invoiceId: inv.id, invoiceNo: inv.invoice_no, tenantName: first.tenant_name, amount: Number(inv.grand_total) });
+      await recurring.attachRuns(client, along.claimed, inv.id);
+      out.push({ invoiceId: inv.id, invoiceNo: inv.invoice_no, tenantName: first.tenant_name, amount: Number(inv.grand_total), currency: inv.currency, lines: items.length, charges: along.lines.length });
     }
     if (!out.length) fail('conflict', 'None of those readings belong to a unit with an active booking, so there is nobody to bill.');
-    await audit(client, ctx, 'poki.utility.bill', 'invoice', out[0].invoiceId, 'Billed utilities: ' + out.length + ' invoice(s).');
-    return { invoices: out, skippedUnits: skipped };
+    await audit(client, ctx, 'poki.utility.bill', 'invoice', out[0].invoiceId, 'Billed utilities: ' + out.length + ' invoice(s)' +
+      (chargeIds.length ? ', with ' + chargeIds.length + ' recurring charge(s) on the same invoice' : '') + '.');
+    return { invoices: out, skippedUnits: g.skipped };
   });
 
   return { created: result.invoices.length, invoices: result.invoices, skippedUnits: result.skippedUnits };
@@ -425,8 +513,10 @@ async function billMasterBill(ctx, id) {
       var items = buildLineItems([{
         description: split.utilityType.charAt(0).toUpperCase() + split.utilityType.slice(1) +
           ' (shared) — ' + line.unitCode,
-        notes: split.periodStart + ' to ' + split.periodEnd + ': ' + line.sharePercent + '% share of ' +
-               split.propertyName + ' master bill',
+        notes: W.day(split.periodStart) + ' – ' + W.day(split.periodEnd) + ' · ' + split.propertyName + ' building bill\n' +
+               W.cash(split.totalAmount, line.currency) + ' × ' + line.sharePercent + '% (' +
+               (split.splitMethod === 'equal' ? 'split equally' : split.splitMethod === 'sqm' ? 'by floor area' : 'unit share') +
+               ') = ' + W.cash(line.amount, line.currency),
         qty: 1, unit: 'each', unitPrice: line.amount
       }]);
       var inv = await insertPokiInvoice(client, {
@@ -880,7 +970,7 @@ async function saveAgreement(ctx, bookingId, body) {
 
 module.exports = {
   listMeters: listMeters, createMeter: createMeter, updateMeter: updateMeter,
-  listReadings: listReadings, recordReading: recordReading, billReadings: billReadings,
+  listReadings: listReadings, recordReading: recordReading, billReadings: billReadings, previewReadingsBill: previewReadingsBill, deleteReading: deleteReading, releaseReadings: releaseReadings,
   listMasterBills: listMasterBills, createMasterBill: createMasterBill, masterBillSplit: masterBillSplit, billMasterBill: billMasterBill,
   arrears: arrears, listInvoices: listInvoices,
   listRequests: listRequests, createRequest: createRequest, updateRequest: updateRequest, chargeRequestToTenant: chargeRequestToTenant,
