@@ -24,8 +24,24 @@ manage.get('/:id/deliveries', wrap(function (req) { return feeds.deliveries(req.
 
 var read = express.Router();
 read.use(function (req, res, next) { res.set('Cache-Control', 'no-store'); next(); });
-read.get('/changes', wrap(function (req) { return feeds.changesFor(req.get('authorization'), req.query); }));
-read.get('/records', wrap(function (req) { return feeds.recordsFor(req.get('authorization'), req.query); }));
-read.get('/staff', wrap(function (req) { return feeds.staffFor(req.get('authorization')); }));
+read.get('/changes', wrap(function (req) { return feeds.changesFor(req.get('authorization'), req.query, req.get('origin')); }));
+read.get('/records', wrap(function (req) { return feeds.recordsFor(req.get('authorization'), req.query, req.get('origin')); }));
+read.get('/staff', wrap(function (req) { return feeds.staffFor(req.get('authorization'), req.get('origin')); }));
+read.get('/days', wrap(function (req) { return feeds.daysFor(req.get('authorization'), req.query, req.get('origin')); }));
 
-module.exports = { manage: manage, read: read };
+// Browsers: only a website some feed allows may read (its key still has to
+// match that feed — feedForKey). Mounted before the app's own CORS rule.
+async function browsers(req, res, next) {
+  var origin = req.get('origin');
+  if (!origin) return next();
+  try {
+    if ((await feeds.allowedOrigins()).has(origin)) {
+      res.set({ 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Authorization',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Max-Age': '600' });
+    }
+  } catch (e) { return next(e); }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+}
+
+module.exports = { manage: manage, read: read, browsers: browsers };

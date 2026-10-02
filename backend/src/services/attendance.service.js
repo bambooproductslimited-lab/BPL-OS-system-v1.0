@@ -848,5 +848,5 @@ module.exports = {
   resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,
   graceSchedule: graceSchedule, graceOn: graceOn, secondShiftOf: secondShiftOf,
   unassignedShifts: unassignedShifts, latenessReport: latenessReport,
-  report: report
+  report: report, isRestDay: isRestDay, approvedLeaveDays: approvedLeaveDays
 };

@@ -57,9 +57,11 @@ function guideSections(feed) {
     { title: tr('Kinds of event'), text: tr('attendance.recorded: a clock-in, a clock-out or a change by HR; it always carries the whole record as it is now, so save it over what you have with the same attendance id. attendance.removed: HR deleted the record; delete yours. feed.test: sent by the Send a test button; just answer 2xx. status is present, late, absent or half_day; shift is 1 or 2 (a second shift the same day); clockOut is empty while they are still at work; autoClockedOut means nobody clocked out and the OS closed the shift at its limit.') },
     { title: tr('2. Checking the signature'), text: tr('Every post is signed with the feed\'s signing secret (it starts with bfs_). Work out HMAC-SHA256 of "<t>.<the raw body>" with the secret and compare it with v1; refuse the post if they differ or if t is more than 5 minutes old. Use the body exactly as received, before parsing it.'),
       code: '// PHP\n$body = file_get_contents(\'php://input\');\nparse_str(str_replace(\',\', \'&\', $_SERVER[\'HTTP_X_BAMBOO_SIGNATURE\'] ?? \'\'), $sig);\n$want = hash_hmac(\'sha256\', ($sig[\'t\'] ?? \'\') . \'.\' . $body, getenv(\'BAMBOO_FEED_SECRET\'));\nif (!hash_equals($want, $sig[\'v1\'] ?? \'\') || abs(time() - (int)($sig[\'t\'] ?? 0)) > 300) { http_response_code(401); exit; }\n$data = json_decode($body, true);\nforeach ($data[\'events\'] as $e) { /* save $e[\'attendance\'] by its id */ }\nhttp_response_code(200);\n\n// Node (Express): use express.raw({ type: \'application/json\' }) on this route\nconst [t, v1] = req.get(\'X-Bamboo-Signature\').split(\',\').map((p) => p.split(\'=\')[1]);\nconst want = crypto.createHmac(\'sha256\', process.env.BAMBOO_FEED_SECRET).update(t + \'.\' + req.body).digest(\'hex\');\nconst ok = want.length === v1.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(v1)) && Math.abs(Date.now() / 1000 - t) < 300;' },
-    { title: tr('3. Reading (you ask Bamboo OS)'), text: tr('With the read key (it starts with bfk_), from your server, never from a web page. Ask for changes every few minutes: start with after=0, then send back the next value you were given; more=true means ask again straight away. Changes are kept 35 days; if gap=true, fetch those days with records. A day range is at most 93 days.'),
-      code: 'GET ' + read + '/changes?after=0&limit=100\nGET ' + read + '/records?from=2026-10-01&to=2026-10-31\nGET ' + read + '/staff\nAuthorization: Bearer bfk_…\n\n→ { "events": [ …same as above… ], "next": "10234", "more": false, "gap": false }' },
-    { title: tr('Keeping the secret and key safe'), text: tr('Keep both on your server only (e.g. in its settings), never in a web page or in code shared with others. If one is ever seen by someone it shouldn\'t be, ask for a new one: the old one stops working at once.') }
+    { title: tr('3. Reading (you ask Bamboo OS)'), text: tr('With the read key (it starts with bfk_). days gives every day you ask for, for every staff member: status present, late, absent (no clock-in on a working day), leave (approved leave), off (their day off) or half_day, with the clock-in and clock-out. Any range: a long one comes a month at a time, so ask again with next until it is null. Days before someone was hired and days still to come are left out. changes gives what changed since you last asked (start with after=0, then send back next); staff lists everyone in the feed.'),
+      code: 'GET ' + read + '/days?from=2026-01-01&to=2026-10-31\nAuthorization: Bearer bfk_…\n\n→ { "days": [ { "date": "2026-10-02", "status": "late", "shift": 1, "clockIn": "08:14", "clockOut": "17:02",\n               "hoursWorked": 8.8, "employee": { "code": "SBR-004", "name": "Ama Mensah", "department": "Bar", "position": "Bartender" } },\n             { "date": "2026-10-02", "status": "absent", "clockIn": null, "clockOut": null, … } ],\n    "next": "2026-02-01" }      ← ask again with from=next; null when done\n\nGET ' + read + '/changes?after=0\nGET ' + read + '/staff' },
+    { title: tr('4. Showing it on your web page (e.g. #board)'), text: tr('A page can read the feed straight from the browser, with no server of its own, once its website is set on the feed in Bamboo OS (Edit → Website that may read it). This loads the days chosen on the page and refreshes every minute while it is open.'),
+      code: "// On the board page\nconst BAMBOO = '" + read + "';\nconst KEY = 'bfk_…'; // the feed's read key\n\nasync function bambooDays(from, to) {\n  const days = [];\n  for (let next = from; next; ) {\n    const r = await fetch(BAMBOO + '/days?from=' + next + '&to=' + to, { headers: { Authorization: 'Bearer ' + KEY } });\n    const page = await r.json();\n    if (!r.ok) throw new Error(page.error.message);\n    days.push(...page.days);\n    next = page.next;\n  }\n  return days; // one entry per person per day (two for a second shift)\n}\n\nasync function refresh() {\n  const days = await bambooDays(fromInput.value, toInput.value); // the days chosen on the board\n  showOnBoard(days); // match people by days[i].employee.code\n}\nrefresh();\nsetInterval(refresh, 60 * 1000);" },
+    { title: tr('Keeping the secret and key safe'), text: tr('Keep the signing secret on your server only. The read key too, unless your web page reads the feed itself: then anyone who looks at the page\'s code can see it and read the same names and clock times, so share the page only with people who may see them. If either is ever seen by someone it shouldn\'t be, ask for a new one: the old one stops working at once.') }
   ];
 }
 
@@ -94,12 +96,12 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
 
   function openNew() {
     const first = data.companies.find((c) => /star bar/i.test(c.name)) || data.companies[0];
-    setForm({ name: '', companyId: first ? first.id : '', departmentIds: [], pushUrl: '', readKey: true });
+    setForm({ name: '', companyId: first ? first.id : '', departmentIds: [], pushUrl: '', readKey: true, allowedOrigin: '' });
     setFormError(null);
     setEditing({});
   }
   function openEdit(f) {
-    setForm({ name: f.name, companyId: f.companyId, departmentIds: f.departmentIds, pushUrl: f.pushUrl || '', readKey: !!f.readKey });
+    setForm({ name: f.name, companyId: f.companyId, departmentIds: f.departmentIds, pushUrl: f.pushUrl || '', readKey: !!f.readKey, allowedOrigin: f.allowedOrigin || '' });
     setFormError(null);
     setEditing(f);
   }
@@ -109,7 +111,7 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
     setFormError(null);
     try {
       if (editing.id) {
-        await api.put('/attendance-feeds/' + editing.id, { name: form.name, departmentIds: form.departmentIds, pushUrl: form.pushUrl });
+        await api.put('/attendance-feeds/' + editing.id, { name: form.name, departmentIds: form.departmentIds, pushUrl: form.pushUrl, allowedOrigin: form.allowedOrigin });
         if (form.readKey && !editing.readKey) {
           const k = await api.post('/attendance-feeds/' + editing.id + '/read-key', {});
           setReveal({ feed: { ...editing, name: form.name, pushUrl: form.pushUrl }, key: k.readKeyValue });
@@ -263,6 +265,7 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
                         <span><strong>{f.readKey.reads.toLocaleString()}</strong><small>{tr('times read')}</small></span>
                       </span>
                       <span className="dk-muted tl-small">{f.readKey.lastReadAt ? tr('Last read {when}', { when: fmtWhen(f.readKey.lastReadAt) }) : tr('Not read yet.')}</span>
+                      {f.allowedOrigin && <span className="af-web"><Status tone="info">{tr('Browser')}</Status> {tr('Pages on {site} may read it', { site: hostOf(f.allowedOrigin) })}</span>}
                     </> : <span className="dk-muted tl-small">{tr('Off: no read key. Use the menu to make one.')}</span>}
                   </section>
                 </div>
@@ -326,8 +329,13 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
               <input id="af-url" className="input" type="url" inputMode="url" value={form.pushUrl} placeholder="https://publicfigah.com/api/bamboo-attendance" onChange={(e) => setForm({ ...form, pushUrl: e.target.value })} />
               <small className="dk-muted">{tr('Where their system receives the clock-ins. Their developer gives you this; it must start with https://. Leave it empty if their system will only read with a key.')}</small>
             </div>
+            <div className="field">
+              <label htmlFor="af-web">{tr('Website that may read it in the browser (optional)')}</label>
+              <input id="af-web" className="input" inputMode="url" value={form.allowedOrigin} placeholder="publicfigah.com" onChange={(e) => setForm({ ...form, allowedOrigin: e.target.value, readKey: e.target.value.trim() ? true : form.readKey })} />
+              <small className="dk-muted">{tr('For a page with no server of its own, like publicfigah.com/#board: its pages may then read this feed with the read key. Anyone who looks at that page\'s code can see the key and read the same names and clock times, so only for a page shared with people who may see them.')}</small>
+            </div>
             <label className="af-check">
-              <input type="checkbox" checked={form.readKey} onChange={(e) => setForm({ ...form, readKey: e.target.checked })} />
+              <input type="checkbox" checked={form.readKey || !!form.allowedOrigin.trim()} disabled={!!form.allowedOrigin.trim()} onChange={(e) => setForm({ ...form, readKey: e.target.checked })} />
               <span><strong>{tr('Let their system read with a key')}</strong><small className="dk-muted">{tr('Also useful for catching up: their system can ask for any days again.')}</small></span>
             </label>
             {formError && <div className="error-banner">{formError}</div>}

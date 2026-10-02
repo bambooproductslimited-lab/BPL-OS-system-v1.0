@@ -80,7 +80,11 @@ var app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet());
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+// An attendance feed's own website may read it from the browser
+// (attendanceFeeds.routes.js); everything else keeps the app's CORS rule.
+app.use('/api/feeds/attendance', attendanceFeedsRoutes.browsers);
+var appCors = cors({ origin: config.corsOrigin, credentials: true });
+app.use(function (req, res, next) { return req.path.indexOf('/api/feeds/attendance') === 0 ? next() : appCors(req, res, next); });
 // verify captures the raw request bytes onto req.rawBody before JSON
 // parsing discards them — whatsapp.routes.js's webhook needs the exact
 // raw bytes (not a re-serialized object) to check Meta's HMAC signature.

@@ -24,6 +24,7 @@ async function cleanup() {
   await pool.query("DELETE FROM attendance_feeds WHERE name LIKE 'ZAF%'");
   await pool.query("DELETE FROM attendance WHERE employee_id IN (SELECT id FROM employees WHERE code LIKE 'ZAF-%')");
   await pool.query("DELETE FROM attendance_changes WHERE employee_id IN (SELECT id FROM employees WHERE code LIKE 'ZAF-%')");
+  await pool.query("DELETE FROM leave_requests WHERE employee_id IN (SELECT id FROM employees WHERE code LIKE 'ZAF-%')");
   await pool.query("DELETE FROM employees WHERE code LIKE 'ZAF-%'");
   await pool.query("DELETE FROM departments WHERE code LIKE 'ZAF-%'");
 }
@@ -193,6 +194,73 @@ test('reading with the key: changes since, days, staff — this feed\'s only', a
   feed.readKeyValue = fresh;
 });
 
+test('days: present, late, absent, leave and off for any range, a month a page; nothing before hiring or after today', async function () {
+  // Mon 2 – Sun 8 March 2026; ZAF-1 works Monday to Friday.
+  await pool.query("UPDATE employees SET work_days = 'mon_fri' WHERE id = $1", [empSbr]);
+  await pool.query("INSERT INTO employees (code, first_name, last_name, email, department_id, hire_date) VALUES ('ZAF-3', 'Zq', 'Newcomer', 'zaf3@example.com', $1, '2026-03-05')", [depSbr]);
+  await pool.query("INSERT INTO attendance (employee_id, date, clock_in, clock_out, status, source) VALUES ($1, '2026-03-02', '08:00', '16:00', 'present', 'kiosk'), ($1, '2026-03-03', '09:10', NULL, 'late', 'kiosk')", [empSbr]);
+  var lt = (await pool.query('SELECT id FROM leave_types WHERE active ORDER BY name LIMIT 1')).rows[0].id;
+  await pool.query("INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, days, reason, status) VALUES ($1, $2, '2026-03-05', '2026-03-05', 1, 'ZAF', 'approved')", [empSbr, lt]);
+
+  var week = await pull('/days?from=2026-03-02&to=2026-03-08', feed.readKeyValue);
+  assert.equal(week.status, 200);
+  var mine = week.body.days.filter(function (d) { return d.employee.code === 'ZAF-1'; }).map(function (d) { return d.date.slice(8) + ' ' + d.status + (d.clockIn ? ' ' + d.clockIn + '-' + (d.clockOut || '') : ''); });
+  assert.deepEqual(mine, ['02 present 08:00-16:00', '03 late 09:10-', '04 absent', '05 leave', '06 absent', '07 off', '08 off']);
+  var newcomer = week.body.days.filter(function (d) { return d.employee.code === 'ZAF-3'; }).map(function (d) { return d.date.slice(8); });
+  assert.deepEqual(newcomer, ['05', '06', '07', '08'], 'nothing before they were hired');
+  assert.ok(!week.body.days.some(function (d) { return d.employee.code === 'ZAF-2'; }), 'another company\'s staff never');
+  assert.equal(week.body.next, null);
+
+  // A long range comes a month at a time; asking with next until it is null gets every day once.
+  var seen = [], next = '2026-01-01', pages = 0;
+  while (next) {
+    var page = (await pull('/days?from=' + next + '&to=2026-03-08', feed.readKeyValue)).body;
+    page.days.filter(function (d) { return d.employee.code === 'ZAF-1'; }).forEach(function (d) { seen.push(d.date); });
+    next = page.next; pages++;
+  }
+  assert.equal(pages, 3);
+  assert.equal(seen.length, 67);
+  assert.equal(new Set(seen).size, 67);
+
+  // Nothing after today.
+  var today = new Date().toISOString().slice(0, 10);
+  var future = (await pull('/days?from=' + today + '&to=2030-12-31', feed.readKeyValue)).body;
+  assert.ok(future.days.every(function (d) { return d.date <= today; }));
+  assert.equal(future.next, null);
+  assert.equal((await pull('/days?from=2026-03-08&to=2026-03-02', feed.readKeyValue)).status, 400);
+  await pool.query("UPDATE employees SET work_days = NULL WHERE id = $1", [empSbr]);
+});
+
+test('from a browser: only the feed\'s own website may read it, and it can be given as publicfigah.com/#board', async function () {
+  var saved = await feeds.update(admin, feed.id, { allowedOrigin: 'publicfigah.example/#board' });
+  assert.equal(saved.allowedOrigin, 'https://publicfigah.example');
+  async function ask(method, path, origin, key) {
+    var h = { Origin: origin };
+    if (key) h.Authorization = 'Bearer ' + key;
+    if (method === 'OPTIONS') { h['Access-Control-Request-Method'] = 'GET'; h['Access-Control-Request-Headers'] = 'authorization'; }
+    var r = await fetch(base + '/api/feeds/attendance' + path, { method: method, headers: h });
+    return { status: r.status, allow: r.headers.get('access-control-allow-origin') };
+  }
+  var pre = await ask('OPTIONS', '/days', 'https://publicfigah.example');
+  assert.deepEqual([pre.status, pre.allow], [204, 'https://publicfigah.example']);
+  var preOther = await ask('OPTIONS', '/days', 'https://elsewhere.example');
+  assert.equal(preOther.allow, null, 'another website gets no permission');
+  var ok = await ask('GET', '/days?from=2026-03-02&to=2026-03-02', 'https://publicfigah.example', feed.readKeyValue);
+  assert.deepEqual([ok.status, ok.allow], [200, 'https://publicfigah.example']);
+  var other = await ask('GET', '/staff', 'https://elsewhere.example', feed.readKeyValue);
+  assert.equal(other.status, 403, 'the key from another website is refused');
+  assert.equal((await pull('/staff', feed.readKeyValue)).status, 200, 'a server (no Origin) still reads');
+  // The OS's own screens keep their own rule.
+  var app = await fetch(base + '/api/health', { headers: { Origin: 'https://publicfigah.example' } });
+  assert.equal(app.headers.get('access-control-allow-origin'), null);
+  feeds.setAllowLocalForTests(false);
+  try {
+    await assert.rejects(feeds.update(admin, feed.id, { allowedOrigin: 'http://publicfigah.example' }), /https/);
+  } finally {
+    feeds.setAllowLocalForTests(true);
+  }
+});
+
 test('send again, the test button, and the address rules', async function () {
   got = [];
   var r = await feeds.resend(admin, feed.id, { from: '2030-05-01', to: '2030-05-31' });
@@ -216,6 +284,7 @@ test('send again, the test button, and the address rules', async function () {
     assert.throws(function () { feeds.checkUrl('https://localhost/x'); }, /not a number or localhost/);
     assert.throws(function () { feeds.checkUrl('https://10.0.0.5/x'); }, /not a number or localhost/);
     assert.throws(function () { feeds.checkUrl('https://user:pw@publicfigah.com/x'); }, /password/);
+    assert.throws(function () { feeds.checkUrl('https://publicfigah.com/#board'); }, /part after #/);
     assert.equal(feeds.checkUrl('https://publicfigah.com/api/attendance').hostname, 'publicfigah.com');
     ['10.1.2.3', '127.0.0.1', '192.168.0.4', '172.20.0.1', '169.254.169.254', '::1', 'fd00::1', '::ffff:10.0.0.1', '100.64.0.1'].forEach(function (ip) { assert.equal(feeds.privateAddress(ip), true, ip); });
     ['8.8.8.8', '41.66.1.1', '2606:4700::1111'].forEach(function (ip) { assert.equal(feeds.privateAddress(ip), false, ip); });

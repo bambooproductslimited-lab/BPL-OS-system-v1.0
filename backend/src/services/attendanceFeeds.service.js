@@ -84,6 +84,9 @@ function checkUrl(raw) {
   try { u = new URL(String(raw || '').trim()); } catch (e) { fail('invalid', 'That address isn\'t a web address. It should look like https://their-site.com/path.'); }
   if (u.protocol !== 'https:' && !(allowLocalForTests && u.protocol === 'http:')) fail('invalid', 'The address must start with https:// so the attendance is sent encrypted.');
   if (u.username || u.password) fail('invalid', 'Leave the user name and password out of the address.');
+  // A page like publicfigah.com/#board: the part after # never reaches their
+  // server, so everything would land on their homepage and be thrown away.
+  if (String(raw).indexOf('#') >= 0) fail('invalid', 'The part after # never reaches their server, so this would send everything to their homepage. Use the address of the code that receives the clock-ins, or leave it empty and let their page read the feed (Website that may read it).');
   if (u.port && u.port !== '443' && !allowLocalForTests) fail('invalid', 'Use the normal https port (no :number in the address).');
   if (!allowLocalForTests && (u.hostname === 'localhost' || net.isIP(u.hostname))) fail('invalid', 'Use the site\'s name (like their-site.com), not a number or localhost.');
   return u;
@@ -318,12 +321,35 @@ function cleanPushUrl(url) {
   return checkUrl(s).toString();
 }
 
+// The website whose pages may read the feed from the browser: kept as its
+// origin only (https://publicfigah.com), so "publicfigah.com/#board" works.
+function cleanOrigin(raw) {
+  var s = String(raw || '').trim();
+  if (!s) return null;
+  if (!/^[a-z]+:\/\//i.test(s)) s = 'https://' + s;
+  var u;
+  try { u = new URL(s); } catch (e) { fail('invalid', 'That website isn\'t a web address. It should look like https://their-site.com.'); }
+  if (u.protocol !== 'https:' && !(allowLocalForTests && u.protocol === 'http:')) fail('invalid', 'The website must use https://.');
+  if (!allowLocalForTests && (u.hostname === 'localhost' || net.isIP(u.hostname))) fail('invalid', 'Use the website\'s name (like their-site.com), not a number or localhost.');
+  return u.origin;
+}
+
+var originsCache = null;
+async function allowedOrigins() {
+  if (originsCache && originsCache.until > Date.now()) return originsCache.set;
+  var rows = (await pool.query('SELECT DISTINCT allowed_origin FROM attendance_feeds WHERE active AND allowed_origin IS NOT NULL AND read_key_hash IS NOT NULL')).rows;
+  originsCache = { set: new Set(rows.map(function (r) { return r.allowed_origin; })), until: Date.now() + 30000 };
+  return originsCache.set;
+}
+function forgetOrigins() { originsCache = null; }
+
 function view(f, extra) {
   return Object.assign({
     id: f.id, name: f.name, companyId: f.company_id, departmentIds: f.department_ids || [], active: f.active,
     pushUrl: f.push_url, failures: f.failures, failingSince: f.failing_since, nextAttemptAt: f.next_attempt_at,
     lastError: f.last_error, lastSuccessAt: f.last_success_at,
     readKey: f.read_key_hash ? { hint: f.read_key_hint, lastReadAt: f.last_read_at, reads: Number(f.reads) } : null,
+    allowedOrigin: f.allowed_origin || null,
     createdAt: f.created_at
   }, extra || {});
 }
@@ -372,16 +398,18 @@ async function create(ctx, p) {
   var name = cleanName(p.name);
   var scope = await cleanScope(p.companyId, p.departmentIds);
   var pushUrl = cleanPushUrl(p.pushUrl);
-  var withKey = p.readKey !== false;
+  var origin = cleanOrigin(p.allowedOrigin);
+  var withKey = p.readKey !== false || !!origin;
   if (!pushUrl && !withKey) fail('invalid', 'Give their address, or let their system read with a key — or both.');
   var secret = newSecret();
   var key = withKey ? newReadKey() : null;
   // Starts from now: earlier days can be sent with "Send again".
   var f = (await pool.query(
-    'INSERT INTO attendance_feeds (name, company_id, department_ids, push_url, signing_secret, cursor_seq, read_key_hash, read_key_hint, created_by) ' +
-    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
-    [name, scope.company.id, scope.departmentIds, pushUrl, seal(secret), await latestSeq(), key ? hashKey(key) : null, key ? key.slice(0, 10) : null, ctx.employee ? ctx.employee.id : null])).rows[0];
-  await audit(pool, ctx, 'attendance_feed.create', 'attendance_feed', f.id, 'Set up the attendance feed "' + name + '" for ' + scope.company.name + (pushUrl ? ', sending to ' + new URL(pushUrl).hostname : '') + (key ? ', with a read key' : '') + '.');
+    'INSERT INTO attendance_feeds (name, company_id, department_ids, push_url, signing_secret, cursor_seq, read_key_hash, read_key_hint, created_by, allowed_origin) ' +
+    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
+    [name, scope.company.id, scope.departmentIds, pushUrl, seal(secret), await latestSeq(), key ? hashKey(key) : null, key ? key.slice(0, 10) : null, ctx.employee ? ctx.employee.id : null, origin])).rows[0];
+  forgetOrigins();
+  await audit(pool, ctx, 'attendance_feed.create', 'attendance_feed', f.id, 'Set up the attendance feed "' + name + '" for ' + scope.company.name + (pushUrl ? ', sending to ' + new URL(pushUrl).hostname : '') + (key ? ', with a read key' : '') + (origin ? ', readable from ' + origin + ' in the browser' : '') + '.');
   return view(f, { company: scope.company.name, signingSecret: secret, readKeyValue: key });
 }
 
@@ -393,18 +421,22 @@ async function update(ctx, id, p) {
   var pushUrl = p.pushUrl !== undefined ? cleanPushUrl(p.pushUrl) : f.push_url;
   if (!pushUrl && !f.read_key_hash) fail('invalid', 'This feed has no read key, so it needs their address.');
   var active = p.active !== undefined ? !!p.active : f.active;
+  var origin = p.allowedOrigin !== undefined ? cleanOrigin(p.allowedOrigin) : f.allowed_origin;
   // A new address starts afresh rather than retrying the old one's failures.
   var urlChanged = pushUrl !== f.push_url;
+  var params = [id, name, scope.departmentIds, pushUrl, active, origin];
   var u = (await pool.query(
-    'UPDATE attendance_feeds SET name = $2, department_ids = $3, push_url = $4, active = $5, updated_at = now()' +
+    'UPDATE attendance_feeds SET name = $2, department_ids = $3, push_url = $4, active = $5, allowed_origin = $6, updated_at = now()' +
     (urlChanged || (active && !f.active) ? ', failures = 0, next_attempt_at = NULL, failing_since = NULL, last_error = NULL' : '') +
-    (urlChanged && !f.push_url ? ', cursor_seq = GREATEST(cursor_seq, $6)' : '') + ' WHERE id = $1 RETURNING *',
-    urlChanged && !f.push_url ? [id, name, scope.departmentIds, pushUrl, active, await latestSeq()] : [id, name, scope.departmentIds, pushUrl, active])).rows[0];
+    (urlChanged && !f.push_url ? ', cursor_seq = GREATEST(cursor_seq, $' + params.push(await latestSeq()) + ')' : '') + ' WHERE id = $1 RETURNING *',
+    params)).rows[0];
   var what = [];
   if (name !== f.name) what.push('renamed');
   if (String(scope.departmentIds) !== String(f.department_ids)) what.push('departments changed');
   if (urlChanged) what.push(pushUrl ? 'sends to ' + new URL(pushUrl).hostname : 'stopped sending');
   if (active !== f.active) what.push(active ? 'resumed' : 'paused');
+  if ((origin || null) !== (f.allowed_origin || null)) what.push(origin ? 'readable from ' + origin + ' in the browser' : 'no longer readable in the browser');
+  forgetOrigins();
   await audit(pool, ctx, 'attendance_feed.update', 'attendance_feed', id, 'Attendance feed "' + name + '": ' + (what.join(', ') || 'saved') + '.');
   return view(u);
 }
@@ -498,18 +530,20 @@ async function resend(ctx, id, p) {
 }
 
 // ── reading with the key (their system) ───────────────────────────────
-async function feedForKey(authHeader) {
+async function feedForKey(authHeader, origin) {
   var m = /^Bearer\s+(bfk_[A-Za-z0-9_-]{20,})$/.exec(String(authHeader || '').trim());
   if (!m) fail('auth', 'Send the feed\'s read key as "Authorization: Bearer bfk_…".');
   var f = (await pool.query('SELECT * FROM attendance_feeds WHERE read_key_hash = $1', [hashKey(m[1])])).rows[0];
   if (!f) fail('auth', 'That read key is not valid (it may have been replaced).');
   if (!f.active) fail('forbidden', 'This feed is paused in Bamboo OS.');
+  // From a browser, only the feed's own website may use its key.
+  if (origin && origin !== f.allowed_origin) fail('forbidden', 'This feed can\'t be read from ' + origin + '. In Bamboo OS, give the feed this website so its pages may read it.');
   await pool.query('UPDATE attendance_feeds SET last_read_at = now(), reads = reads + 1 WHERE id = $1', [f.id]);
   return f;
 }
 
-async function changesFor(authHeader, q) {
-  var f = await feedForKey(authHeader);
+async function changesFor(authHeader, q, origin) {
+  var f = await feedForKey(authHeader, origin);
   var after = /^\d+$/.test(String(q.after || '')) ? Number(q.after) : 0;
   var limit = Math.min(500, Math.max(1, Number(q.limit) || BATCH));
   var oldest = Number((await pool.query('SELECT COALESCE(MIN(seq), 0) AS s FROM attendance_changes')).rows[0].s);
@@ -525,13 +559,13 @@ async function changesFor(authHeader, q) {
   };
 }
 
-async function recordsFor(authHeader, q) {
-  var f = await feedForKey(authHeader);
+async function recordsFor(authHeader, q, origin) {
+  var f = await feedForKey(authHeader, origin);
   return { feed: { id: f.id, name: f.name }, from: q.from, to: q.to, records: await recordsIn(f, cleanRange(q.from, q.to)) };
 }
 
-async function staffFor(authHeader) {
-  var f = await feedForKey(authHeader);
+async function staffFor(authHeader, origin) {
+  var f = await feedForKey(authHeader, origin);
   var rows = (await pool.query(
     "SELECT e.id, e.code, e.first_name, e.last_name, e.position_title, d.name AS department FROM employees e JOIN departments d ON d.id = e.department_id " +
     "WHERE e.status = 'active' AND d.company_id = $1 AND (cardinality($2::uuid[]) = 0 OR e.department_id = ANY($2)) ORDER BY e.code",
@@ -539,10 +573,70 @@ async function staffFor(authHeader) {
   return { feed: { id: f.id, name: f.name }, staff: rows.map(function (e) { return { id: e.id, code: e.code, name: e.first_name + ' ' + e.last_name, department: e.department, position: e.position_title || '' }; }) };
 }
 
+// Every day in a range, for each of the feed's staff: what the attendance
+// screens show — present or late (with the clock-in and clock-out), or, with
+// no clock-in, on leave, a day off, or absent. Any range: long ones come a
+// month at a time, with `next` to ask for the rest. Days before someone was
+// hired, and days still to come, are left out.
+var DAYS_PER_PAGE = 31;
+var MAX_DAYS = 5 * 366;
+function addDays(dateISO, n) { var d = new Date(dateISO + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+
+async function daysFor(authHeader, q, origin) {
+  var f = await feedForKey(authHeader, origin);
+  var re = /^\d{4}-\d{2}-\d{2}$/;
+  var from = String(q.from || ''), to = String(q.to || '');
+  if (!re.test(from) || !re.test(to) || isNaN(new Date(from)) || isNaN(new Date(to))) fail('invalid', 'Give from and to as YYYY-MM-DD.');
+  if (from > to) fail('invalid', 'from is after to.');
+  if ((new Date(to) - new Date(from)) / 86400000 + 1 > MAX_DAYS) fail('invalid', 'That range is over 5 years; check the dates.');
+  var today = new Date().toISOString().slice(0, 10);
+  var end = to < today ? to : today;
+  var out = { feed: { id: f.id, name: f.name }, from: from, to: to, days: [], next: null };
+  if (from > end) return out;
+  var pageEnd = addDays(from, DAYS_PER_PAGE - 1) < end ? addDays(from, DAYS_PER_PAGE - 1) : end;
+  out.pageTo = pageEnd;
+  out.next = pageEnd < end ? addDays(pageEnd, 1) : null;
+
+  var staff = (await pool.query(
+    "SELECT e.id, e.code, e.first_name, e.last_name, e.position_title, e.work_days, e.hire_date, e.status, d.name AS department, c.name AS company " +
+    'FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id ' +
+    'WHERE d.company_id = $1 AND (cardinality($2::uuid[]) = 0 OR e.department_id = ANY($2)) ' +
+    "AND (e.status = 'active' OR e.id IN (SELECT employee_id FROM attendance WHERE date BETWEEN $3 AND $4)) ORDER BY e.code",
+    [f.company_id, f.department_ids || [], from, pageEnd])).rows;
+  if (!staff.length) return out;
+  var ids = staff.map(function (e) { return e.id; });
+  var recs = {};
+  (await pool.query('SELECT * FROM attendance WHERE employee_id = ANY($1) AND date BETWEEN $2 AND $3 ORDER BY shift_no', [ids, from, pageEnd])).rows
+    .forEach(function (r) { var k = r.employee_id + '|' + day(r.date); (recs[k] = recs[k] || []).push(r); });
+  var leave = await attendanceRules().approvedLeaveDays(ids, from, pageEnd);
+  for (var date = from; date <= pageEnd; date = addDays(date, 1)) {
+    staff.forEach(function (e) {
+      var who = { id: e.id, code: e.code, name: e.first_name + ' ' + e.last_name, department: e.department, position: e.position_title || '' };
+      var rows = recs[e.id + '|' + date];
+      if (rows) {
+        rows.forEach(function (r) {
+          var rec = recordOf(Object.assign({}, r, { code: e.code, first_name: e.first_name, last_name: e.last_name, position_title: e.position_title, department: e.department }));
+          out.days.push({ date: date, status: r.status, shift: rec.shift, clockIn: rec.clockIn, clockOut: rec.clockOut, clockOutDate: rec.clockOutDate,
+            hoursWorked: rec.hoursWorked, autoClockedOut: rec.autoClockedOut, editedByHR: rec.editedByHR, source: rec.source, attendanceId: r.id, employee: who });
+        });
+        return;
+      }
+      if (e.status !== 'active' || (e.hire_date && date < day(e.hire_date))) return;
+      var status = leave[e.id + '|' + date] ? 'leave' : attendanceRules().isRestDay(e.company, e.department, date, e.work_days) ? 'off' : 'absent';
+      out.days.push({ date: date, status: status, shift: 1, clockIn: null, clockOut: null, clockOutDate: null, hoursWorked: null,
+        autoClockedOut: false, editedByHR: false, source: null, attendanceId: null, employee: who });
+    });
+  }
+  return out;
+}
+// Loaded when first used: attendance.service.js loads a lot, and this file
+// is also loaded by the job at start.
+function attendanceRules() { return require('./attendance.service'); }
+
 module.exports = {
   list: list, create: create, update: update, rotateSecret: rotateSecret, rotateReadKey: rotateReadKey, removeReadKey: removeReadKey,
   remove: remove, deliveries: deliveries, sendTest: sendTest, resend: resend,
-  changesFor: changesFor, recordsFor: recordsFor, staffFor: staffFor,
+  changesFor: changesFor, recordsFor: recordsFor, staffFor: staffFor, daysFor: daysFor, allowedOrigins: allowedOrigins,
   deliverDue: deliverDue, prune: prune, sign: sign, checkUrl: checkUrl, privateAddress: privateAddress,
   setAllowLocalForTests: setAllowLocalForTests, setSettleMsForTests: setSettleMsForTests, backoffSeconds: backoffSeconds
 };
