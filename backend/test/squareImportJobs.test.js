@@ -24,6 +24,7 @@ function fakeClient(opts) {
   opts = opts || {};
   return {
     listAllCustomers: async function () {
+      if (opts.hold) await opts.hold;
       return [
         { id: 'ZQSQ-CUST-1', given_name: 'Zq Ama', family_name: 'Owusu', email_address: 'zq.ama@example.com' },
         { id: 'ZQSQ-CUST-2', company_name: 'Zq Crafts Ltd' }
@@ -41,6 +42,7 @@ function fakeClient(opts) {
     },
     downloadImage: async function (url) {
       downloads.push(url);
+      if (opts.onDownload) await opts.onDownload(downloads.length);
       return { buffer: Buffer.from('zq-picture:' + url), contentType: 'image/jpeg' };
     },
     listLocations: async function () { return [{ id: 'ZQSQ-LOC' }]; },
@@ -80,7 +82,7 @@ test.before(async function () {
   await cleanup();
   kelvin = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'kelvin.duho@bplghana.com'")).rows[0].id);
 });
-test.after(async function () { imp.setClientFactoryForTests(null); await cleanup(); await pool.end(); });
+test.after(async function () { imp.setClientFactoryForTests(null); imp.setBeatForTests(null); await cleanup(); await pool.end(); });
 async function count(sql) { return (await pool.query(sql)).rows[0].n; }
 
 test('runs in the background, records its progress, and running it again duplicates nothing', async function () {
@@ -183,4 +185,34 @@ test('running the import again keeps the catalogue: photos added here, stock and
   imp.setClientFactoryForTests(function () { return fakeClient(); });
   await imp.startImport(kelvin, { wait: true });
   assert.equal((await pool.query("SELECT active FROM catalog_items WHERE external_id = 'ZQSQ-ITEM-2'")).rows[0].active, true);
+});
+
+test('a long step keeps saving its progress, and a second import is refused while one really runs', async function () {
+  // Pictures downloading slowly: progress is saved between them, so the job
+  // never looks stopped (it used to save only every 100 items).
+  imp.setBeatForTests(0);
+  await pool.query("DELETE FROM catalog_item_photos WHERE item_id IN (SELECT id FROM catalog_items WHERE external_id = 'ZQSQ-ITEM-1')");
+  var seen = [];
+  imp.setClientFactoryForTests(function () {
+    return fakeClient({ onDownload: async function (n) {
+      var j = (await pool.query('SELECT phase, photos_imported FROM square_import_jobs ORDER BY started_at DESC LIMIT 1')).rows[0];
+      seen.push([n, j.phase, j.photos_imported]);
+    } });
+  });
+  await imp.startImport(kelvin, { wait: true });
+  assert.deepEqual(seen.map(function (x) { return x[1]; }), ['catalog', 'catalog', 'catalog']);
+  assert.equal(seen[2][2], 2, 'the two pictures already in were saved before the third was fetched');
+  imp.setBeatForTests(null);
+
+  // A job running on this server is running, however old its last save.
+  var release;
+  var hold = new Promise(function (r) { release = r; });
+  imp.setClientFactoryForTests(function () { return fakeClient({ hold: hold }); });
+  var started = await imp.startImport(kelvin, {});
+  await pool.query("UPDATE square_import_jobs SET heartbeat_at = now() - interval '10 minutes' WHERE id = $1", [started.id]);
+  assert.equal((await imp.jobStatus(kelvin)).status, 'running', 'not mistaken for a restart');
+  await assert.rejects(imp.startImport(kelvin, {}), /already running/);
+  release();
+  for (var i = 0; i < 100 && (await imp.jobStatus(kelvin)).status === 'running'; i++) await new Promise(function (r) { setTimeout(r, 50); });
+  assert.equal((await imp.jobStatus(kelvin)).status, 'done');
 });

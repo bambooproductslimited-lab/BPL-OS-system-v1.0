@@ -129,7 +129,7 @@ async function upsertVariation(itemRowId, v) {
 // picture is the cover when the item has no photos yet; otherwise they go
 // after the ones already there. Up to the catalogue's 12 photos an item.
 var MAX_PHOTOS = 12;
-async function importItemImages(client, itemRowId, itemName, pictures, imageById, summary) {
+async function importItemImages(client, itemRowId, itemName, pictures, imageById, summary, beat) {
   if (!pictures.length) return;
   var have = (await pool.query(
     'SELECT count(*)::int AS n, coalesce(max(position), -1) AS top, coalesce(array_agg(square_image_id) FILTER (WHERE square_image_id IS NOT NULL), ARRAY[]::text[]) AS sq ' +
@@ -157,6 +157,7 @@ async function importItemImages(client, itemRowId, itemName, pictures, imageById
       summary.photos.skipped++;
       summary.errors.push({ type: 'catalogImage', externalId: pic.imageId, message: e.message });
     }
+    if (beat) await beat();
   }
 }
 
@@ -310,7 +311,13 @@ async function reconcileSquareInvoiceBalances() {
 // progress(phase, summary) is called as it goes, so a background job can
 // record how far it has got and show it's still alive.
 async function doImport(ctx, client, progress) {
-  progress = progress || async function () {};
+  var report = progress || async function () {};
+  // Progress is saved at least every BEAT_MS, not only every 100 records:
+  // a step that runs long (downloading Square's pictures) must keep showing
+  // it is alive, or the page takes it for a job stopped by a restart.
+  var lastBeat = 0;
+  progress = function (phase, s) { lastBeat = Date.now(); return report(phase, s); };
+  function beat(phase) { return Date.now() - lastBeat >= BEAT_MS ? progress(phase, summary) : null; }
   var summary = {
     customers: { imported: 0, skipped: 0 }, catalogItems: { imported: 0, skipped: 0 }, photos: { imported: 0, skipped: 0 },
     invoices: { imported: 0, skipped: 0 }, payments: { imported: 0, skipped: 0 }, retired: 0, errors: []
@@ -330,7 +337,7 @@ async function doImport(ctx, client, progress) {
       summary.customers.skipped++;
       summary.errors.push({ type: 'customer', externalId: sc.id, message: e.message });
     }
-    if (ci % 100 === 99) await progress('customers', summary);
+    if (ci % 100 === 99) await progress('customers', summary); else await beat('customers');
   }
 
   await progress('catalog', summary);
@@ -372,12 +379,12 @@ async function doImport(ctx, client, progress) {
           summary.errors.push({ type: 'catalogVariation', externalId: v.id, message: e.message });
         }
       }
-      if (client.downloadImage) await importItemImages(client, itemRowId, item.item_data.name, pictures, imageById, summary);
+      if (client.downloadImage) await importItemImages(client, itemRowId, item.item_data.name, pictures, imageById, summary, function () { return beat('catalog'); });
     } catch (e) {
       summary.catalogItems.skipped += variations.length;
       summary.errors.push({ type: 'catalogItem', externalId: item.id, message: e.message });
     }
-    if (it % 100 === 99) await progress('catalog', summary);
+    if (it % 100 === 99) await progress('catalog', summary); else await beat('catalog');
   }
   summary.retired = await retireMissingSquareCatalog(seenItems, seenVariations);
 
@@ -403,6 +410,7 @@ async function doImport(ctx, client, progress) {
         summary.invoices.skipped++;
         summary.errors.push({ type: 'order', externalId: order.id, message: e.message });
       }
+      await beat('invoices');
     }
     summary.pages = (summary.pages || 0) + 1;
     await progress('invoices', summary);
@@ -447,7 +455,7 @@ async function doImport(ctx, client, progress) {
     } catch (e) {
       summary.errors.push({ type: 'paymentGroup', externalId: invoiceIds[pgi], message: e.message });
     }
-    if (pgi % 100 === 99) await progress('payments', summary);
+    if (pgi % 100 === 99) await progress('payments', summary); else await beat('payments');
   }
 
   await reconcileSquareInvoiceBalances();
@@ -463,14 +471,19 @@ async function doImport(ctx, client, progress) {
 // stopped by a server restart is simply run again.
 
 var STALE_MS = 3 * 60 * 1000;
+var BEAT_MS = 10 * 1000;
+// The job this server is running right now. While it runs, it is running —
+// however old its last saved progress — and a second one can't start.
+var activeJobId = null;
 var MAX_ERRORS_KEPT = 50;
 var clientFactory = function () { return square; };
 // Tests hand in a fake Square client instead of the real API.
 function setClientFactoryForTests(fn) { clientFactory = fn || function () { return square; }; }
+function setBeatForTests(ms) { BEAT_MS = ms == null ? 10 * 1000 : ms; }
 
 function rowToJob(r) {
   if (!r) return null;
-  var stale = r.status === 'running' && Date.now() - new Date(r.heartbeat_at).getTime() > STALE_MS;
+  var stale = r.status === 'running' && r.id !== activeJobId && Date.now() - new Date(r.heartbeat_at).getTime() > STALE_MS;
   return {
     id: r.id, status: stale ? 'interrupted' : r.status, phase: r.phase,
     customers: { imported: r.customers_imported, skipped: r.customers_skipped },
@@ -498,7 +511,7 @@ async function startImport(ctx, opts) {
   var client = clientFactory();
   if (client === square && !config.square.configured) fail('invalid', 'Square is not configured — set SQUARE_ACCESS_TOKEN on the server.');
   var last = await latestJob();
-  if (last && rowToJob(last).status === 'running') fail('conflict', 'A Square import is already running. It carries on in the background — watch its progress here.');
+  if (activeJobId || (last && rowToJob(last).status === 'running')) fail('conflict', 'A Square import is already running. It carries on in the background — watch its progress here.');
   if (last && last.status === 'running') {
     await pool.query("UPDATE square_import_jobs SET status = 'failed', message = 'Stopped when the server restarted.', finished_at = now() WHERE id = $1", [last.id]);
   }
@@ -511,6 +524,10 @@ async function startImport(ctx, opts) {
 }
 
 async function runJob(ctx, jobId, client) {
+  activeJobId = jobId;
+  try { await runJobInner(ctx, jobId, client); } finally { if (activeJobId === jobId) activeJobId = null; }
+}
+async function runJobInner(ctx, jobId, client) {
   async function save(phase, s, extra) {
     await pool.query(
       'UPDATE square_import_jobs SET phase = $2, customers_imported = $3, customers_skipped = $4, catalog_imported = $5, catalog_skipped = $6, ' +
@@ -539,7 +556,7 @@ async function runJob(ctx, jobId, client) {
 }
 
 module.exports = {
-  startImport: startImport, jobStatus: jobStatus, setClientFactoryForTests: setClientFactoryForTests, STALE_MS: STALE_MS,
+  startImport: startImport, jobStatus: jobStatus, setClientFactoryForTests: setClientFactoryForTests, setBeatForTests: setBeatForTests, STALE_MS: STALE_MS,
   // Exported for unit testing pure mapping logic without hitting Square's
   // real API — see test/squareImport.test.js.
   minorToMajor: minorToMajor, squareCustomerName: squareCustomerName, squareAddressLine: squareAddressLine,
