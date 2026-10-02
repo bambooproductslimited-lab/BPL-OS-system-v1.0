@@ -4,6 +4,7 @@ var { requireAuth } = require('../middleware/auth');
 var { allowlistFilter } = require('../lib/uploadFilters');
 var fileStore = require('../lib/fileStore');
 var catalogService = require('../services/catalog.service');
+var photoRecovery = require('../services/catalogPhotoRecovery.service');
 
 var photoUpload = multer({
   storage: multer.memoryStorage(),
@@ -58,6 +59,17 @@ router.delete('/variations/:id', async function (req, res, next) {
 // one, tag it to a variation or caption it, make it the cover, remove it.
 router.post('/items/:id/photos', photoUpload.array('photos', 12), async function (req, res, next) {
   try { res.status(201).json(await catalogService.addPhotos(req.ctx, req.params.id, req.files, req.body && req.body.variationId)); } catch (e) { next(e); }
+});
+// Photos lost when the Square import used to re-create its items
+// (catalogPhotoRecovery.service.js): list them, see one, put them back.
+router.get('/lost-photos', async function (req, res, next) {
+  try { res.json(await photoRecovery.list(req.ctx)); } catch (e) { next(e); }
+});
+router.get('/lost-photos/preview', async function (req, res, next) {
+  try { await fileStore.send(res, await photoRecovery.preview(req.ctx, String(req.query.ref || '')), 'photo.jpg', true); } catch (e) { next(e); }
+});
+router.post('/lost-photos/restore', async function (req, res, next) {
+  try { res.json(await photoRecovery.restore(req.ctx, req.body)); } catch (e) { next(e); }
 });
 router.get('/photos/:id', async function (req, res, next) {
   try { await fileStore.send(res, await catalogService.photoFor(req.ctx, req.params.id), 'photo.jpg', true); } catch (e) { next(e); }

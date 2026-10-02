@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var { insertLineItems, todayISO } = require('../utils/documents');
 var square = require('./square.service');
+var fileStore = require('../lib/fileStore');
 var config = require('../config');
 
 // One-time historical import from Square into Customers, Catalog and
@@ -65,15 +66,19 @@ async function upsertCustomer(sc) {
   return res.rows[0].id;
 }
 
-// Every previously-imported Square catalog item/variation is wiped and
-// re-inserted fresh on each run, unlike customers/invoices/payments (which
-// are upserted and never deleted): a catalogue is just a current listing,
-// not a financial history, so a full resync is both simpler and the only
-// way to correctly pick up renamed/removed/regrouped variations on the
-// Square side. Manually-created (source='manual') items are untouched.
-async function wipeSquareCatalog() {
-  await pool.query("DELETE FROM catalog_item_variations WHERE item_id IN (SELECT id FROM catalog_items WHERE source = 'square')");
-  await pool.query("DELETE FROM catalog_items WHERE source = 'square'");
+// The catalogue is updated in place, keyed by Square's ids: an item or
+// variation already here is updated (name, price, category…), a new one is
+// added, and one no longer in Square is made inactive — never deleted. It
+// used to be wiped and re-created on every run, which threw away
+// everything added to it in Bamboo OS: photos, stock links, stock counts.
+// What only Bamboo OS knows about an item (its photos, cost price, stock,
+// the stock product it is linked to, its tax rate) is left alone.
+async function retireMissingSquareCatalog(itemIds, variationIds) {
+  var items = (await pool.query(
+    "UPDATE catalog_items SET active = false WHERE source = 'square' AND active AND NOT (external_id = ANY($1::text[])) RETURNING id", [itemIds])).rowCount;
+  var vars = (await pool.query(
+    "UPDATE catalog_item_variations SET active = false WHERE source = 'square' AND active AND NOT (external_id = ANY($1::text[])) RETURNING id", [variationIds])).rowCount;
+  return items + vars;
 }
 
 async function upsertCategory(cat) {
@@ -93,7 +98,10 @@ async function upsertCatalogItem(item, categoryIdByExternal) {
   var active = !item.is_deleted;
   var res = await pool.query(
     "INSERT INTO catalog_items (name, description, category_id, tax_rate_id, active, external_id, source) " +
-    "VALUES ($1,$2,$3,'tx_zero',$4,$5,'square') RETURNING id",
+    "VALUES ($1,$2,$3,'tx_zero',$4,$5,'square') " +
+    "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
+    "name = EXCLUDED.name, description = EXCLUDED.description, category_id = EXCLUDED.category_id, active = EXCLUDED.active, source = 'square' " +
+    "RETURNING id",
     [item.item_data.name, (item.item_data.description || '').trim(), categoryId, active, item.id]
   );
   return res.rows[0].id;
@@ -107,10 +115,49 @@ async function upsertVariation(itemRowId, v) {
   var active = !v.is_deleted;
   var res = await pool.query(
     "INSERT INTO catalog_item_variations (item_id, name, code, unit, default_qty, unit_price, cost_price, active, external_id, source) " +
-    "VALUES ($1,$2,$3,'each',1,$4,0,$5,$6,'square') RETURNING id, code",
+    "VALUES ($1,$2,$3,'each',1,$4,0,$5,$6,'square') " +
+    "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
+    "item_id = EXCLUDED.item_id, name = EXCLUDED.name, code = EXCLUDED.code, unit_price = EXCLUDED.unit_price, active = EXCLUDED.active, source = 'square' " +
+    "RETURNING id, code",
     [itemRowId, name, code, unitPrice, active, v.id]
   );
   return res.rows[0];
+}
+
+// The item's Square pictures (and its variations'), each once: a picture
+// already brought in is known by its Square image id. Square's first
+// picture is the cover when the item has no photos yet; otherwise they go
+// after the ones already there. Up to the catalogue's 12 photos an item.
+var MAX_PHOTOS = 12;
+async function importItemImages(client, itemRowId, itemName, pictures, imageById, summary) {
+  if (!pictures.length) return;
+  var have = (await pool.query(
+    'SELECT count(*)::int AS n, coalesce(max(position), -1) AS top, coalesce(array_agg(square_image_id) FILTER (WHERE square_image_id IS NOT NULL), ARRAY[]::text[]) AS sq ' +
+    'FROM catalog_item_photos WHERE item_id = $1', [itemRowId])).rows[0];
+  var count = have.n, top = have.top, known = have.sq;
+  var slug = String(itemName || 'item').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'item';
+  for (var i = 0; i < pictures.length; i++) {
+    var pic = pictures[i];
+    if (known.indexOf(pic.imageId) >= 0) continue;
+    var img = imageById[pic.imageId];
+    var url = img && img.image_data && img.image_data.url;
+    if (!url) continue;
+    if (count >= MAX_PHOTOS) { summary.photos.skipped++; continue; }
+    try {
+      var file = await client.downloadImage(url);
+      var key = await fileStore.put('catalog-' + slug + '.jpg', file.buffer, file.contentType);
+      try {
+        await pool.query(
+          'INSERT INTO catalog_item_photos (item_id, variation_id, photo_key, caption, position, square_image_id) VALUES ($1,$2,$3,$4,$5,$6)',
+          [itemRowId, pic.variationRowId || null, key, String((img.image_data && img.image_data.caption) || '').slice(0, 200), top + 1, pic.imageId]);
+      } catch (err) { await fileStore.del(key); throw err; }
+      top++; count++; known.push(pic.imageId);
+      summary.photos.imported++;
+    } catch (e) {
+      summary.photos.skipped++;
+      summary.errors.push({ type: 'catalogImage', externalId: pic.imageId, message: e.message });
+    }
+  }
 }
 
 function buildOrderLineItems(order, catalogByVariationId) {
@@ -265,8 +312,8 @@ async function reconcileSquareInvoiceBalances() {
 async function doImport(ctx, client, progress) {
   progress = progress || async function () {};
   var summary = {
-    customers: { imported: 0, skipped: 0 }, catalogItems: { imported: 0, skipped: 0 },
-    invoices: { imported: 0, skipped: 0 }, payments: { imported: 0, skipped: 0 }, errors: []
+    customers: { imported: 0, skipped: 0 }, catalogItems: { imported: 0, skipped: 0 }, photos: { imported: 0, skipped: 0 },
+    invoices: { imported: 0, skipped: 0 }, payments: { imported: 0, skipped: 0 }, retired: 0, errors: []
   };
 
   var walkinId = await ensureWalkinCustomer();
@@ -290,6 +337,8 @@ async function doImport(ctx, client, progress) {
   var squareObjects = await client.listAllCatalogItems();
   var squareCategories = squareObjects.filter(function (o) { return o.type === 'CATEGORY'; });
   var squareItems = squareObjects.filter(function (o) { return o.type === 'ITEM'; });
+  var imageById = {};
+  squareObjects.forEach(function (o) { if (o.type === 'IMAGE') imageById[o.id] = o; });
 
   var categoryIdByExternal = {};
   for (var cati = 0; cati < squareCategories.length; cati++) {
@@ -301,30 +350,36 @@ async function doImport(ctx, client, progress) {
     }
   }
 
-  await wipeSquareCatalog();
   var catalogByVariationId = {};
+  var seenItems = [], seenVariations = [];
   for (var it = 0; it < squareItems.length; it++) {
     var item = squareItems[it];
     var variations = (item.item_data && item.item_data.variations) || [];
     if (!variations.length) continue; // an item with no variations isn't sellable — nothing to import
+    seenItems.push(item.id);
+    variations.forEach(function (v0) { seenVariations.push(v0.id); });
     try {
       var itemRowId = await upsertCatalogItem(item, categoryIdByExternal);
+      var pictures = ((item.item_data && item.item_data.image_ids) || []).map(function (id) { return { imageId: id, variationRowId: null }; });
       for (var vi = 0; vi < variations.length; vi++) {
         var v = variations[vi];
         try {
-          catalogByVariationId[v.id] = await upsertVariation(itemRowId, v);
+          var vr = catalogByVariationId[v.id] = await upsertVariation(itemRowId, v);
           summary.catalogItems.imported++;
+          ((v.item_variation_data && v.item_variation_data.image_ids) || []).forEach(function (id) { pictures.push({ imageId: id, variationRowId: vr.id }); });
         } catch (e) {
           summary.catalogItems.skipped++;
           summary.errors.push({ type: 'catalogVariation', externalId: v.id, message: e.message });
         }
       }
+      if (client.downloadImage) await importItemImages(client, itemRowId, item.item_data.name, pictures, imageById, summary);
     } catch (e) {
       summary.catalogItems.skipped += variations.length;
       summary.errors.push({ type: 'catalogItem', externalId: item.id, message: e.message });
     }
     if (it % 100 === 99) await progress('catalog', summary);
   }
+  summary.retired = await retireMissingSquareCatalog(seenItems, seenVariations);
 
   var locations = await client.listLocations();
   var locationIds = locations.map(function (l) { return l.id; });
@@ -420,6 +475,7 @@ function rowToJob(r) {
     id: r.id, status: stale ? 'interrupted' : r.status, phase: r.phase,
     customers: { imported: r.customers_imported, skipped: r.customers_skipped },
     catalogItems: { imported: r.catalog_imported, skipped: r.catalog_skipped },
+    photos: { imported: r.photos_imported || 0, skipped: r.photos_skipped || 0 },
     invoices: { imported: r.invoices_imported, skipped: r.invoices_skipped },
     payments: { imported: r.payments_imported, skipped: r.payments_skipped },
     pagesDone: r.pages_done, errorCount: r.error_count, errors: r.errors || [], message: r.message || null,
@@ -458,17 +514,19 @@ async function runJob(ctx, jobId, client) {
   async function save(phase, s, extra) {
     await pool.query(
       'UPDATE square_import_jobs SET phase = $2, customers_imported = $3, customers_skipped = $4, catalog_imported = $5, catalog_skipped = $6, ' +
-      'invoices_imported = $7, invoices_skipped = $8, payments_imported = $9, payments_skipped = $10, pages_done = $11, error_count = $12, errors = $13, heartbeat_at = now()' +
+      'invoices_imported = $7, invoices_skipped = $8, payments_imported = $9, payments_skipped = $10, pages_done = $11, error_count = $12, errors = $13, ' +
+      'photos_imported = $14, photos_skipped = $15, heartbeat_at = now()' +
       (extra || '') + ' WHERE id = $1',
       [jobId, phase, s.customers.imported, s.customers.skipped, s.catalogItems.imported, s.catalogItems.skipped,
-        s.invoices.imported, s.invoices.skipped, s.payments.imported, s.payments.skipped, s.pages || 0, s.errors.length, JSON.stringify(s.errors.slice(0, MAX_ERRORS_KEPT))]);
+        s.invoices.imported, s.invoices.skipped, s.payments.imported, s.payments.skipped, s.pages || 0, s.errors.length, JSON.stringify(s.errors.slice(0, MAX_ERRORS_KEPT)),
+        s.photos ? s.photos.imported : 0, s.photos ? s.photos.skipped : 0]);
   }
   var last = null;
   try {
     var summary = await doImport(ctx, client, function (phase, s) { last = s; return save(phase, s); });
     await save('done', summary, ", status = 'done', finished_at = now()");
     await audit(pool, ctx, 'square.import', 'square_import_job', jobId,
-      'Square import: ' + summary.customers.imported + ' customer(s), ' + summary.catalogItems.imported + ' catalogue item(s), ' +
+      'Square import: ' + summary.customers.imported + ' customer(s), ' + summary.catalogItems.imported + ' catalogue item(s), ' + summary.photos.imported + ' picture(s), ' +
       summary.invoices.imported + ' invoice(s) and ' + summary.payments.imported + ' payment(s) saved' + (summary.errors.length ? ', ' + summary.errors.length + ' with errors' : '') + '.');
   } catch (e) {
     console.error('[square import] failed:', e);

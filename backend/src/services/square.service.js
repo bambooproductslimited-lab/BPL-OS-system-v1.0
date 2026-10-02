@@ -93,8 +93,24 @@ function createClient(creds) {
   // CATEGORY objects come back in the same flat list (ListCatalog doesn't
   // nest unrelated types the way SearchCatalogObjects's related_objects
   // does), so the caller separates them by `.type`.
+  // IMAGE objects too: each item (and variation) lists its pictures by id
+  // (item_data.image_ids), and the IMAGE object carries the picture's URL.
   function listAllCatalogItems() {
-    return paginateGet('/v2/catalog/list', { types: 'ITEM,CATEGORY' }, 'objects');
+    return paginateGet('/v2/catalog/list', { types: 'ITEM,CATEGORY,IMAGE' }, 'objects');
+  }
+
+  // A catalogue picture, from the public link Square gives it. Only https,
+  // only images, at most 10 MB.
+  async function downloadImage(url) {
+    if (!/^https:\/\//i.test(String(url || ''))) fail('invalid', 'Square gave a picture without a secure link.');
+    var res;
+    try { res = await fetch(url); } catch (e) { fail('invalid', 'Could not download a picture from Square — the connection failed.'); }
+    if (!res.ok) fail('invalid', 'Could not download a picture from Square (' + res.status + ').');
+    var type = (res.headers.get('content-type') || '').split(';')[0].trim();
+    if (!/^image\//.test(type)) fail('invalid', 'Square gave something that is not a picture (' + (type || 'unknown') + ').');
+    var buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > 10 * 1024 * 1024) fail('invalid', 'A Square picture is over 10 MB; it was left out.');
+    return { buffer: buffer, contentType: type };
   }
 
   // OPEN as well as COMPLETED: an order stays OPEN until its invoice is paid
@@ -138,6 +154,7 @@ function createClient(creds) {
     listLocations: listLocations,
     listAllCustomers: listAllCustomers,
     listAllCatalogItems: listAllCatalogItems,
+    downloadImage: downloadImage,
     searchAllOrders: searchAllOrders,
     searchOrdersPage: searchOrdersPage,
     listAllInvoices: listAllInvoices,

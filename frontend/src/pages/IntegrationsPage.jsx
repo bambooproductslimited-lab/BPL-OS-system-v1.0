@@ -51,7 +51,7 @@ const SERVICE_TEXT = {
 // (backend/src/services/squareImport.service.js).
 const SQUARE_STAGES = [
   ['customers', 'customers', msg('Customers'), msg('Square customers become customers here, matched by their Square id.')],
-  ['catalog', 'catalogItems', msg('Catalogue'), msg('Items and their variations, refreshed from Square each time.')],
+  ['catalog', 'catalogItems', msg('Catalogue'), msg('Items, their variations and their Square pictures, updated in place. Photos, stock and links added here are kept; an item gone from Square is made inactive.')],
   ['invoices', 'invoices', msg('Invoices'), msg('Every Square sale becomes an invoice, a page of 200 at a time.')],
   ['payments', 'payments', msg('Payments'), msg('Payments with receipts, so each invoice shows what is still owed.')]
 ];
@@ -236,6 +236,8 @@ export default function IntegrationsPage() {
                     <span className="dk-flow-value">
                       {state === 'done' ? tr('done') : state === 'now' ? (key === 'invoices' ? tr('saving page {n}…', { n: j.pagesDone + 1 }) : tr('saving…')) : state === 'stopped' ? tr('stopped here') : tr('waiting')}
                       {c.skipped > 0 && <> · {tr('{n} skipped', { n: c.skipped })}</>}
+                      {key === 'catalog' && j.photos && j.photos.imported > 0 && <> · {tr('{n} new pictures', { n: j.photos.imported })}</>}
+                      {key === 'catalog' && j.photos && j.photos.skipped > 0 && <> · {tr('{n} pictures left out', { n: j.photos.skipped })}</>}
                     </span>
                     <span className="dk-flow-help">{tr(help)}</span>
                   </li>

@@ -4,7 +4,7 @@
 // R2_* env vars are set; callers check that and fail with a clear message
 // instead of the SDK throwing a confusing one.
 var crypto = require('crypto');
-var { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+var { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 var { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 var config = require('../config');
 
@@ -63,8 +63,19 @@ async function getObjectStream(key) {
   var res = await client.send(new GetObjectCommand({ Bucket: r2.bucket, Key: key }));
   return { stream: res.Body, contentType: res.ContentType };
 }
+// Every object under a prefix: [{ key, lastModified }] (catalogue photo
+// recovery looks for photo files no item points to any more).
+async function listKeys(prefix) {
+  var out = [], token;
+  do {
+    var res = await client.send(new ListObjectsV2Command({ Bucket: r2.bucket, Prefix: prefix, ContinuationToken: token }));
+    (res.Contents || []).forEach(function (o) { out.push({ key: o.Key, lastModified: o.LastModified }); });
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}
 
 module.exports = {
   configured: r2.configured, uploadFile: uploadFile, getDownloadUrl: getDownloadUrl,
-  deleteFile: deleteFile, getObjectStream: getObjectStream
+  deleteFile: deleteFile, getObjectStream: getObjectStream, listKeys: listKeys
 };

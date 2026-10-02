@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import { CameraIcon, CatalogImage, ItemGallery } from '../components/CatalogPhotos';
+import LostPhotosDialog from '../components/LostPhotosDialog';
 import { Glossary, Hero, Insights, RankList, Section, Status, avatarColor, fmtDate, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr } from '../lib/i18n.jsx';
@@ -116,6 +117,8 @@ export default function CatalogPage() {
 
   const [stockDialog, setStockDialog] = useState(null); // { variationId, name, stockQty, delta, note }
   const [stockDialogError, setStockDialogError] = useState(null);
+  const [lostPhotos, setLostPhotos] = useState([]); // photos the old Square import cut off (LostPhotosDialog)
+  const [lostOpen, setLostOpen] = useState(false);
   const [savingStock, setSavingStock] = useState(false);
 
   const load = useCallback(async () => {
@@ -124,6 +127,7 @@ export default function CatalogPage() {
       const [itemsRes, categoriesRes] = await Promise.all([api.get('/catalog/items'), api.get('/catalog/categories')]);
       setItems(itemsRes);
       setCategories(categoriesRes);
+      if (canManage) api.get('/catalog/lost-photos').then(setLostPhotos).catch(() => {});
       if (canSeeTaxRates) {
         const settings = await api.get('/commercial-settings');
         setTaxRates(settings.taxRates || []);
@@ -133,7 +137,7 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [canSeeTaxRates]);
+  }, [canSeeTaxRates, canManage]);
 
   useEffect(() => { load(); }, [load]);
   const setPhotos = (itemId, photos) => setItems((list) => list.map((it) => (it.id === itemId ? { ...it, photos } : it)));
@@ -332,6 +336,7 @@ export default function CatalogPage() {
   ];
 
   const insights = [];
+  if (lostPhotos.length && canManage) insights.push({ tone: 'warn', icon: 'warn', text: lostPhotos.length === 1 ? tr('A photo of {name} lost its item when the Square import re-made it. The picture was kept — put it back.', { name: lostPhotos[0].itemName }) : tr('{n} photos lost their items when the Square import re-made them. The pictures were kept — put them back.', { n: lostPhotos.length }), action: { label: tr('Review and put back'), run: () => setLostOpen(true) } });
   if (below.length) insights.push({ tone: 'bad', icon: 'down', text: below.length === 1 ? tr('{name} sells for {price} but costs {cost}.', { name: fullName(below[0], below[0].item), price: money(below[0].unitPrice), cost: money(below[0].costPrice) }) : tr('{n} products sell for less than they cost.', { n: below.length }), action: { label: tr('Show them'), run: () => showOnly('below') } });
   if (noPrice.length) insights.push({ tone: 'warn', icon: 'warn', text: noPrice.length === 1 ? tr('{name} has no price, so it goes on quotations at zero.', { name: fullName(noPrice[0], noPrice[0].item) }) : tr('{n} products on sale have no price, so they go on quotations at zero.', { n: noPrice.length }), action: { label: tr('Show them'), run: () => showOnly('noprice') } });
   if (soldOut.length) insights.push({ tone: 'warn', icon: 'bag', text: soldOut.length === 1 ? tr('{name} sold recently and has none in stock.', { name: fullName(soldOut[0], soldOut[0].item) }) : tr('{n} products sold recently and have none in stock.', { n: soldOut.length }), action: { label: tr('Show them'), run: () => showOnly('soldout') } });
@@ -740,6 +745,7 @@ export default function CatalogPage() {
         </div>
       )}
 
+      {lostOpen && <LostPhotosDialog lost={lostPhotos} items={items} onClose={() => setLostOpen(false)} onDone={() => load()} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

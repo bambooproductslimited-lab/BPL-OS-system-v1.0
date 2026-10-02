@@ -54,8 +54,10 @@ test('a clock-in says the shift, the week so far and the lates this month; the c
   assert.equal(tapIn.firstName, 'Zq Yaw');
   assert.deepEqual(tapIn.shift, { start: '08:00', end: '17:00' });
   assert.equal(tapIn.workedMinutes, null);
-  assert.equal(tapIn.week.days, (earlierThisWeek ? 1 : 0) + 1);
-  assert.equal(tapIn.week.hours, earlierThisWeek ? 8 : 0);           // today's shift is still open
+  // The month's late day counts in the week too when the 1st falls in it.
+  var lateInWeek = earlierLate && firstOfMonth >= iso(monday);
+  assert.equal(tapIn.week.days, (earlierThisWeek ? 1 : 0) + (lateInWeek ? 1 : 0) + 1);
+  assert.equal(tapIn.week.hours, (earlierThisWeek ? 8 : 0) + (lateInWeek ? 8.5 : 0)); // today's shift is still open
   var lateBefore = earlierLate ? 1 : 0;
   assert.equal(tapIn.lateThisMonth, lateBefore + (tapIn.status === 'late' ? 1 : 0));
 
