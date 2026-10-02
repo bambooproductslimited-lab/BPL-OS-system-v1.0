@@ -60,6 +60,7 @@ var reportsRoutes = require('./routes/reports.routes');
 var aiRoutes = require('./routes/ai.routes');
 var marketingRoutes = require('./routes/marketing.routes');
 var oauthRoutes = require('./routes/oauth.routes');
+var attendanceFeedsRoutes = require('./routes/attendanceFeeds.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
 var meetRoutes = require('./routes/meet.routes');
@@ -180,6 +181,9 @@ app.use('/api/kiosk', kioskRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/poki', pokiRoutes);
 app.use('/api/square', squareRoutes);
+app.use('/api/attendance-feeds', attendanceFeedsRoutes.manage);
+// Public, but only with a feed's read-only key (attendanceFeeds.service.js).
+app.use('/api/feeds/attendance', attendanceFeedsRoutes.read);
 
 // The Claude connector (src/mcp/): OAuth sign-in at the root, where OAuth
 // clients look for it, and the MCP endpoint at /mcp.

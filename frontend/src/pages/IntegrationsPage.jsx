@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import AttendanceFeeds from '../components/AttendanceFeeds';
 import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
@@ -22,8 +23,11 @@ import './IntegrationsPage.css';
 //             here (WhatsApp, Google Analytics, Square, TimeStation);
 //   planned — listed but not built yet, so no key is asked for: a key
 //             pasted here would sit unused.
-// No key or secret is ever shown or typed on this page. Everything here
-// needs settings.manage, like the nav gate.
+// No key or secret of ours for an outside platform is ever shown or typed
+// on this page. The one exception goes the other way: an attendance feed's
+// own signing secret and read key (AttendanceFeeds.jsx), made here for an
+// outside system and shown once to hand over. Everything here needs
+// settings.manage, like the nav gate.
 
 const OAUTH_LABEL = { facebook: 'Facebook', instagram: 'Facebook', tiktok: 'TikTok', youtube: 'YouTube', twitch: 'Twitch' };
 const HOW = {
@@ -78,6 +82,7 @@ export default function IntegrationsPage() {
   const [squareJob, setSquareJob] = useState(null);
   const [squareStarting, setSquareStarting] = useState(false);
   const [squareError, setSquareError] = useState(null);
+  const [feeds, setFeeds] = useState([]);
   const squareRunning = !!(squareJob && squareJob.status === 'running');
 
   const load = useCallback(async () => {
@@ -179,6 +184,10 @@ export default function IntegrationsPage() {
   if (planned.length) insights.push({ tone: 'info', icon: 'info', text: tr('{names} are listed but not built yet, so there is nothing to connect. Ask for them if the company needs them.', { names: planned.map((i) => i.name).join(', ') }), action: null });
   if (squareJob && (squareJob.status === 'failed' || squareJob.status === 'interrupted')) insights.unshift({ tone: 'bad', icon: 'warn', text: squareJob.status === 'failed' ? tr('The last Square import stopped with an error on {date}.', { date: fmtDate(squareJob.finishedAt || squareJob.heartbeatAt) }) : tr('The last Square import was stopped by a server restart. Run it again to finish — nothing is imported twice.'), action: { label: tr('Show'), run: () => jump('in-square') } });
   if (squareRunning) insights.unshift({ tone: 'info', icon: 'info', text: tr('A Square import is running on the server.'), action: { label: tr('Show'), run: () => jump('in-square') } });
+  const failingFeeds = feeds.filter((f) => f.active && f.pushUrl && f.failingSince);
+  if (failingFeeds.length) insights.unshift({ tone: 'bad', icon: 'warn', text: failingFeeds.length === 1 ? tr('The attendance feed "{name}" can\'t reach {host}: {why} Clock-ins wait and are sent when it answers.', { name: failingFeeds[0].name, host: (() => { try { return new URL(failingFeeds[0].pushUrl).hostname; } catch { return failingFeeds[0].pushUrl; } })(), why: failingFeeds[0].lastError }) : tr('{n} attendance feeds can\'t reach their site. Clock-ins wait and are sent when they answer.', { n: failingFeeds.length }), action: { label: tr('Show'), run: () => jump('in-feeds') } });
+  const pausedFeeds = feeds.filter((f) => !f.active);
+  if (pausedFeeds.length) insights.push({ tone: 'info', icon: 'info', text: tr('{names}: paused, so no clock-ins are sent or read. What changes meanwhile is sent when resumed.', { names: pausedFeeds.map((f) => f.name).join(', ') }), action: { label: tr('Show'), run: () => jump('in-feeds') } });
   if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything the company relies on is connected.') });
 
   const chipTest = { all: () => true, connected: (i) => i.connected, cant: (i) => i.how === 'oauth' && !i.connected && !i.ready, oauth: (i) => i.how === 'oauth', server: (i) => i.how === 'server', planned: (i) => i.how === 'planned' };
@@ -266,7 +275,7 @@ export default function IntegrationsPage() {
       <Hero
         eyebrow={tr('Governance')}
         title={tr('Integrations')}
-        sub={tr('The outside systems Bamboo OS works with: accounts connected here, and services set up in the server\'s settings. No key or password is ever shown or typed on this page.')}
+        sub={tr('The outside systems Bamboo OS works with: accounts connected here, services set up in the server\'s settings, and attendance sent to other systems. No password of ours is ever shown or typed on this page.')}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
@@ -317,6 +326,8 @@ export default function IntegrationsPage() {
 
       {squareSection}
 
+      <AttendanceFeeds onToast={setToast} onSummary={setFeeds} />
+
       <Section id="in-services" title={tr('Services set up on the server')} sub={tr('These are switched on by adding settings in Render → bamboo-os-backend → Environment, then redeploying. Only whether each is ready is shown here, never the values.')}>
         <ul className="in-services">
           {services.map((s) => (
@@ -337,7 +348,10 @@ export default function IntegrationsPage() {
         [tr('Set up on the server'), tr('Keys added in Render → Environment by whoever looks after the server. They never pass through this page or chat.')],
         [tr('App keys'), tr('The keys that identify Bamboo OS to a platform. Without them, that platform\'s Connect button can\'t work.')],
         [tr('Not available yet'), tr('Listed so it can be asked for, but nothing in the OS uses it yet.')],
-        [tr('Disconnect'), tr('Stops the OS using that account straight away and forgets its access. Connecting again means signing in again.')]
+        [tr('Disconnect'), tr('Stops the OS using that account straight away and forgets its access. Connecting again means signing in again.')],
+        [tr('Attendance feed'), tr('One company\'s clock-ins and attendance, for another system. Sent to their address as it happens, read by their system with a key, or both.')],
+        [tr('Signing secret'), tr('Starts with bfs_. Every post to their site carries a signature made with it, so their system can tell it really came from Bamboo OS. Shown once.')],
+        [tr('Read key'), tr('Starts with bfk_. Lets their system read that one feed, nothing else in the OS. Shown once; a new one stops the old one at once.')]
       ]} />
 
       {toast && <div className="toast" role="status">{toast}</div>}
