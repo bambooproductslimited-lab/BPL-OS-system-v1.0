@@ -682,6 +682,8 @@ TOOLS.push({
     var r = await productImport.previewDayRows(ctx, input.date, input.rows);
     r.newProducts = capped(r.newProducts, function (x) { return x; }, 60);
     r.movements = capped(r.movements, function (x) { return x; }, 60);
+    r.stockChanges = capped(r.stockChanges, function (x) { return x; }, 60);
+    if (r.clashes.length) r.note = 'Some rows land on the same product (clashes): fill_stock_sheet_day would refuse the day until each is its own product.';
     return r;
   }
 });
@@ -709,7 +711,8 @@ TOOLS.push({
     return {
       summary: 'Fill in the daily stock sheet for ' + r.date + ': ' + r.rows + ' products (' + r.matched + ' in the OS' +
         (newOnes.length ? ', ' + newOnes.length + ' new: ' + newOnes.slice(0, 5).map(function (x) { return x.name; }).join(', ') + (newOnes.length > 5 ? '…' : '') : '') + '), ' +
-        r.counted + ' counted, ' + r.differences.length + ' different from expected, ' + r.movements.length + ' with stock moving in or out' +
+        r.counted + ' counted, ' + r.differences.length + ' different from expected, ' + r.movements.length + ' with stock moving in or out, ' +
+        r.stockChanges.length + ' stock figure(s) changed' +
         (r.alreadyOnSheet ? '; replaces the ' + r.alreadyOnSheet + ' lines already on that day' : '') + '.',
       payload: { date: r.date, rows: input.rows, matches: matches }
     };

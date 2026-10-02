@@ -97,7 +97,9 @@ function splitCode(item) {
 function splitCategory(raw) {
   var s = clean(raw);
   var note = '';
-  var m = s.match(/^(.*?)\s*\[(.+?)\]\s*$/);
+  // "Bamboo [from 104]" — and "Bamboo [from 104" with its bracket never
+  // closed, which the October sheet has.
+  var m = s.match(/^(.*?)\s*\[([^\]]+?)\]?\s*$/);
   if (m) { s = m[1].trim(); note = m[2].trim(); }
   var fixed = CATEGORY_SPELLING[s.toLowerCase()];
   return { category: fixed || s, note: note };
@@ -976,10 +978,19 @@ async function previewDayRows(ctx, date, rowsInput) {
   var lines = dayLines(rowsFromInput(rowsInput));
   var existing = await loadExisting(pool);
   var items = lines.filter(function (l) { return l.action !== 'skip'; });
-  var unmatched = [], matched = 0, stockChanges = 0;
+  var unmatched = [], matched = 0, stockChanges = [], usedBy = {}, clashes = [];
+  // A product with its own line on a later day keeps its stock (commitCountLines).
+  var later = {};
+  (await pool.query('SELECT DISTINCT product_id FROM stock_sheet_lines WHERE date > $1', [d])).rows.forEach(function (r) { later[r.product_id] = true; });
   items.forEach(function (l) {
     var m = matchExisting(existing, l);
-    if (m) { matched++; if (Number(m.current_stock) !== l.stock) stockChanges++; return; }
+    if (m) {
+      matched++;
+      if (usedBy[m.id]) clashes.push({ rows: [usedBy[m.id].sheetRow, l.sheetRow], names: [usedBy[m.id].name, l.name], product: m.name });
+      usedBy[m.id] = l;
+      if (!later[m.id] && Number(m.current_stock) !== l.stock) stockChanges.push({ name: m.name, from: Number(m.current_stock), to: l.stock });
+      return;
+    }
     var code = (l.code || l.sku.split('-')[0]).toUpperCase();
     unmatched.push({
       line_sku: l.sku, name: l.name, sheet_row: l.sheetRow,
@@ -999,7 +1010,9 @@ async function previewDayRows(ctx, date, rowsInput) {
       .map(function (l) { return { name: l.name, received: l.movements.received, transferred: l.movements.transferred, breakage: l.movements.breakage, sold: l.movements.sold }; }),
     alreadyOnSheet: already,
     laterDayInOs: laterInOs,
-    stockChanges: laterInOs ? 0 : stockChanges
+    // Two rows that land on one product: filling in would be refused.
+    clashes: clashes,
+    stockChanges: stockChanges
   };
 }
 

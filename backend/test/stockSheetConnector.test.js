@@ -43,6 +43,8 @@ test('preview, then fill in a day: counts, movements, new and matched products',
   assert.equal(pv.counted, 2);
   assert.deepEqual(pv.differences, [{ name: 'Zqss Bamboo Tray — Large', counted: 45, expected: 48 }]);
   assert.equal(pv.movements.total, 2);
+  assert.deepEqual(pv.stockChanges.items, [{ name: 'Zqss Bamboo Tray — Large', from: 40, to: 45 }], 'which stock changes, by name');
+  assert.deepEqual(pv.clashes, []);
   var stool = pv.newProducts.items.find(function (x) { return /Stool/.test(x.name); });
   assert.ok(stool, 'the renamed stool is not matched by itself');
 
@@ -64,6 +66,15 @@ test('preview, then fill in a day: counts, movements, new and matched products',
   var again = await tools.get('preview_stock_sheet_day').run(kelvin, { date: DAY, rows: ROWS });
   assert.equal(again.alreadyOnSheet, 3);
   assert.equal(again.newProducts.total, 0, 'the stool is remembered by its alias');
+});
+
+test('two rows landing on one product are named in the preview; an unclosed [note is still a note', async function () {
+  var import_ = require('../src/services/productImport.service');
+  assert.deepEqual(import_.splitCategory('Bamboo [from 104'), { category: 'Bamboo', note: 'from 104' });
+  var twice = [ROWS[0], Object.assign({}, ROWS[0], { uom: '25/bundle' })];
+  var pv = await tools.get('preview_stock_sheet_day').run(kelvin, { date: DAY, rows: twice });
+  assert.equal(pv.clashes.length, 1);
+  assert.match(pv.note, /same product/);
 });
 
 test('only inventory.manage; no future days', async function () {
