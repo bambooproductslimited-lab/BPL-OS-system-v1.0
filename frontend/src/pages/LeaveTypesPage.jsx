@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import Photo from '../components/Photo';
+import LeavePool from '../components/LeavePool';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Empty, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
@@ -19,13 +20,16 @@ import './LeaveTypesPage.css';
 //    Adjust window per person for their agreed total, their own figure per
 //    type (persists year to year) and the year's stored balance (a one-off
 //    correction). "Used" only ever moves through approved requests.
-//  - Public holidays per company: not subtracted from anyone's entitlement;
-//    a holiday inside an approved request is simply not charged, like a
-//    Sunday (leave.service.js#requestLeave).
+//  - The yearly total (leavePool.service.js): each person's agreed days, or
+//    their company's default, less that year's company holidays; annual,
+//    compassionate and sick leave come out of it, and more can be taken —
+//    owed, and settled here (Owed days).
+//  - Public holidays per company, per year: taken off everyone's yearly
+//    total on 1 January; a holiday inside a request isn't charged again.
 //  - New year: grant everyone the year's balances ahead of time
 //    (idempotent; never overwrites an existing balance).
 
-const EMPTY_TYPE_FORM = { name: '', daysPerYear: '', paid: true, active: true };
+const EMPTY_TYPE_FORM = { name: '', daysPerYear: '', paid: true, active: true, inPool: true };
 const EMPTY_HOLIDAY_FORM = { date: '', name: '' };
 const LOW_DAYS = 2;
 
@@ -76,6 +80,7 @@ function AdjustDialog({ employee, year, onClose, onChanged }) {
     return n;
   }
 
+  const pool = ent && ent.pool && ent.pool.inEffect ? ent.pool : null;
   const allocated = ent ? ent.types.reduce((sum, t) => sum + (Number(ownDrafts[t.leaveTypeId] ?? t.daysPerYear) || 0), 0) : 0;
   const balByType = Object.fromEntries((bal || []).map((b) => [b.leaveTypeId, b]));
 
@@ -94,23 +99,26 @@ function AdjustDialog({ employee, year, onClose, onChanged }) {
           <>
             <div className="lt-adjust-total">
               <div className="field">
-                <label htmlFor="lt-days-total">{tr('Total leave days agreed with this employee')}</label>
+                <label htmlFor="lt-days-total">{tr('Yearly leave total agreed with this employee')}</label>
                 <div className="lt-inline">
-                  <input id="lt-days-total" className="input lt-num" inputMode="numeric" placeholder={tr('e.g. 20')} value={totalDraft} onChange={(e) => setTotalDraft(e.target.value)} />
+                  <input id="lt-days-total" className="input lt-num" inputMode="numeric" placeholder={pool && pool.totalFrom === 'company' ? String(pool.total) : tr('e.g. 20')} value={totalDraft} onChange={(e) => setTotalDraft(e.target.value)} />
                   <button type="button" className="btn btn-secondary lt-btn" disabled={busy === 'total' || totalDraft === (ent.leaveDaysTotal === null ? '' : String(ent.leaveDaysTotal))}
                     onClick={() => run('total', () => api.post('/leave/entitlements/total', { employeeId: employee.id, leaveDaysTotal: totalDraft === '' ? null : Number(totalDraft) }))}>
                     {busy === 'total' ? tr('Saving…') : tr('Save total')}
                   </button>
-                  {ent.leaveDaysTotal !== null && (
+                  {!pool && ent.leaveDaysTotal !== null && (
                     <Status tone={allocated === ent.leaveDaysTotal ? 'good' : 'bad'}>{tr('Allocated {allocatedSum} of {leaveDaysTotal}', { allocatedSum: allocated, leaveDaysTotal: ent.leaveDaysTotal })}</Status>
                   )}
                 </div>
               </div>
               <p className="dk-muted lt-small">
-                {ent.leaveDaysTotal !== null
-                  ? tr("{usableLeaveDays} usable in {year} — {leaveDaysTotal} total days already include that year's {holidaysThisYear} company holiday(s), so {holidaysThisYear} of the {leaveDaysTotal} are the public holidays themselves, not extra leave on top.", { usableLeaveDays: ent.usableLeaveDays, year: ent.year, leaveDaysTotal: ent.leaveDaysTotal, holidaysThisYear: ent.holidaysThisYear })
-                  : tr('Optional. A record of the total agreed with this person, checked against how it is split across the leave types below. It does not limit any request.')}
+                {pool
+                  ? (pool.totalFrom === 'company'
+                    ? tr('Empty: they have their company\'s yearly total, {n} days. Type a number to give them their own.', { n: pool.total })
+                    : tr('Their own yearly total. Empty it to give them their company\'s default instead.'))
+                  : tr('No yearly total yet: type one here, or give their company a default under Yearly leave total. Until then their leave types keep their own allowances below.')}
               </p>
+              {pool && <LeavePool pool={pool} />}
             </div>
 
             <div className="lt-adjust-table" role="table">
@@ -123,6 +131,17 @@ function AdjustDialog({ employee, year, onClose, onChanged }) {
               </div>
               {ent.types.map((t) => {
                 const b = balByType[t.leaveTypeId];
+                if (pool && t.inPool) {
+                  return (
+                    <div key={t.leaveTypeId} className="lt-adjust-row" role="row">
+                      <span role="cell" className="lt-adjust-type"><strong>{t.name}</strong><span className="dk-muted">{tr('From the yearly total')}</span></span>
+                      <span role="cell" className="dk-muted" data-label={tr('Their days a year')}>{tr('Shared total')}</span>
+                      <span role="cell" className="dk-muted" data-label={tr('{year} balance', { year })}>{tr('Shared total')}</span>
+                      <span role="cell" className="lt-figure" data-label={tr('Used')}>{pool.usedByType[t.leaveTypeId] || 0}</span>
+                      <span role="cell" className="lt-figure dk-muted" data-label={tr('Left')}>—</span>
+                    </div>
+                  );
+                }
                 if (b && b.paid === false) {
                   return (
                     <div key={t.leaveTypeId} className="lt-adjust-row" role="row">
@@ -174,7 +193,9 @@ function AdjustDialog({ employee, year, onClose, onChanged }) {
                 );
               })}
             </div>
-            <p className="dk-muted lt-small">{tr('"Their days a year" carries over to every year until changed. The {year} balance is what they can take this year; change it only for a one-off correction. Used days only change when leave is approved.', { year })}</p>
+            <p className="dk-muted lt-small">{pool
+              ? tr('Leave types in the yearly total share it; the others keep their own days a year. Used days only change when leave is approved.')
+              : tr('"Their days a year" carries over to every year until changed. The {year} balance is what they can take this year; change it only for a one-off correction. Used days only change when leave is approved.', { year })}</p>
 
             {recalc && <p className="lt-ok">{tr('Checked {checked} leave type(s), updated {updated} to match the current company default/personal entitlement.', { checked: recalc.checked, updated: recalc.updated })}</p>}
             <div className="dialog-actions lt-adjust-actions">
@@ -187,6 +208,55 @@ function AdjustDialog({ employee, year, onClose, onChanged }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// How owed leave days were settled (leavePool.service.js settle).
+function HOW_TEXT() {
+  return { pay: tr('deducted from pay'), next_year: tr('taken from next year\'s leave'), waived: tr('waived'), other: tr('settled another way') };
+}
+
+function SettleDialog({ person, year, onClose, onDone }) {
+  const [days, setDays] = useState(String(person.owedOutstanding));
+  const [how, setHow] = useState('pay');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      await api.post('/leave/owed/settle', { employeeId: person.employeeId, year: Number(year), days: Number(days), how, note });
+      onDone(person.name);
+    } catch (err) { setError(errText(err, tr('Could not save that.'))); } finally { setSaving(false); }
+  }
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <form className="dialog lt-settle" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2>{tr('Settle {name}\'s owed days', { name: person.name })}</h2>
+        <p className="dk-muted">{tr('{name} took {used} day(s) of leave in {year} against {avail} available ({total} yearly total − {h} company holidays), so they owe {n} day(s).', { name: person.name, used: person.used, year, avail: Math.max(0, person.available), total: person.total, h: person.holidays, n: person.owedOutstanding })}</p>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="field">
+          <label htmlFor="lt-settle-days">{tr('Days settled')}</label>
+          <input id="lt-settle-days" className="input lt-num" inputMode="decimal" value={days} onChange={(e) => setDays(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label htmlFor="lt-settle-how">{tr('How')}</label>
+          <select id="lt-settle-how" className="input" value={how} onChange={(e) => setHow(e.target.value)}>
+            {Object.entries(HOW_TEXT()).map(([k, v]) => <option key={k} value={k}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="lt-settle-note">{tr('Note')}</label>
+          <input id="lt-settle-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder={how === 'other' ? tr('Say how it was settled') : tr('e.g. October payroll')} required={how === 'other'} maxLength={300} />
+        </div>
+        <p className="dk-muted lt-small">{tr('This only records the decision. A deduction from pay or from next year\'s leave is made where it belongs (payroll, or that person\'s total).')}</p>
+        <div className="dialog-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Record it')}</button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -222,10 +292,20 @@ export default function LeaveTypesPage() {
   const [rolloverError, setRolloverError] = useState('');
 
   const [adjust, setAdjust] = useState(null);
+  const [owed, setOwed] = useState({ people: [] }); // who owes leave days (leavePool.service.js owedList)
+  const [settleFor, setSettleFor] = useState(null);
+  const [totalDrafts, setTotalDrafts] = useState({}); // companyId -> draft of its yearly total
+  const [savingTotal, setSavingTotal] = useState('');
 
   const loadOverview = useCallback(async (y) => {
     try {
-      setOverview(await api.get('/leave/overview?year=' + encodeURIComponent(y)));
+      const [ov, ow] = await Promise.all([
+        api.get('/leave/overview?year=' + encodeURIComponent(y)),
+        api.get('/leave/owed?year=' + encodeURIComponent(y)).catch(() => ({ people: [] }))
+      ]);
+      setOverview(ov);
+      setOwed(ow);
+      setTotalDrafts(Object.fromEntries((ov.companyTotals || []).map((c) => [c.companyId, c.leaveDaysDefault === null ? '' : String(c.leaveDaysDefault)])));
       setError('');
     } catch (err) { setError(errText(err, tr('Could not load balances.'))); }
   }, []);
@@ -264,9 +344,20 @@ export default function LeaveTypesPage() {
   }
 
   // ── leave types ──────────────────────────────────────────────────────
+  async function saveCompanyTotal(c) {
+    const v = (totalDrafts[c.companyId] || '').trim();
+    if (v !== '' && (!/^\d+$/.test(v) || Number(v) > 366)) { setError(tr('The yearly total must be a whole number of days, 0 to 366.')); return; }
+    setSavingTotal(c.companyId);
+    try {
+      await api.put('/leave/company-totals/' + c.companyId, { leaveDaysDefault: v === '' ? null : Number(v) });
+      setToast(v === '' ? tr('{company} has no default yearly total now.', { company: c.name }) : tr('{company}: {n} days a year, less that year\'s company holidays.', { company: c.name, n: v }));
+      await loadOverview(year);
+    } catch (err) { setError(errText(err, tr('Could not save that.'))); } finally { setSavingTotal(''); }
+  }
+
   function openNewType() { setTypeForm(EMPTY_TYPE_FORM); setTypeError(''); setTypeDialog({ mode: 'new' }); }
   function openEditType(t) {
-    setTypeForm({ name: t.name, daysPerYear: String(t.daysPerYear), paid: t.paid, active: t.active });
+    setTypeForm({ name: t.name, daysPerYear: String(t.daysPerYear), paid: t.paid, active: t.active, inPool: !!t.inPool });
     setTypeError('');
     setTypeDialog({ mode: 'edit', id: t.id });
   }
@@ -275,7 +366,7 @@ export default function LeaveTypesPage() {
     setTypeSaving(true);
     setTypeError('');
     try {
-      const body = { name: typeForm.name, daysPerYear: Number(typeForm.daysPerYear), paid: typeForm.paid, active: typeForm.active };
+      const body = { name: typeForm.name, daysPerYear: Number(typeForm.daysPerYear), paid: typeForm.paid, active: typeForm.active, inPool: typeForm.paid && typeForm.inPool };
       if (typeDialog.mode === 'new') await api.post('/leave/types', body);
       else await api.patch('/leave/types/' + typeDialog.id, body);
       setTypeDialog(null);
@@ -324,20 +415,31 @@ export default function LeaveTypesPage() {
 
   // ── what the page shows ────────────────────────────────────────────
   const types = overview.types; // active
+  // The yearly total: types in it share one balance per person.
+  const poolTypes = types.filter((t) => t.inPool);
+  const ownTypes = poolTypes.length ? types.filter((t) => !t.inPool) : types;
+  const companyTotals = (overview.companyTotals || []).filter((c) => c.people > 0 && (!currentCompany || c.companyId === currentCompany.id));
   const paidTypes = types.filter((t) => t.paid);
   const people = overview.employees.filter((e) => !currentCompany || e.companyCode === currentCompany.code);
   const typeById = Object.fromEntries(types.map((t) => [t.id, t]));
   const leftOf = (b) => b.entitled - b.used;
   const lowIn = (e) => e.balances.filter((b) => typeById[b.leaveTypeId] && typeById[b.leaveTypeId].paid && b.hasRow && b.entitled > LOW_DAYS && leftOf(b) <= LOW_DAYS);
-  const mismatch = (e) => e.leaveDaysTotal !== null && e.allocated !== e.leaveDaysTotal;
-  const chipTest = { notgranted: (e) => !e.granted, low: (e) => lowIn(e).length > 0, custom: (e) => e.customCount > 0, mismatch };
+  const inPool = (e) => !!(e.pool && e.pool.inEffect);
+  const mismatch = (e) => !inPool(e) && e.leaveDaysTotal !== null && e.allocated !== e.leaveDaysTotal;
+  const poolLow = (e) => inPool(e) && e.pool.owed === 0 && e.pool.left <= LOW_DAYS;
+  const chipTest = {
+    notgranted: (e) => !inPool(e) && !e.granted, low: (e) => poolLow(e) || lowIn(e).filter((b) => !(inPool(e) && typeById[b.leaveTypeId].inPool)).length > 0,
+    custom: (e) => e.customCount > 0, mismatch, owing: (e) => inPool(e) && e.pool.owedOutstanding > 0, nototal: (e) => poolTypes.length > 0 && !inPool(e)
+  };
+  const owing = people.filter(chipTest.owing);
+  const noTotal = people.filter(chipTest.nototal);
   const notGranted = people.filter(chipTest.notgranted);
   const low = people.filter(chipTest.low);
   const withOwn = people.filter(chipTest.custom);
   const mismatched = people.filter(mismatch);
-  const paidRows = people.flatMap((e) => e.balances.filter((b) => typeById[b.leaveTypeId] && typeById[b.leaveTypeId].paid && b.hasRow));
-  const usedDays = paidRows.reduce((n, b) => n + b.used, 0);
-  const grantedDays = paidRows.reduce((n, b) => n + b.entitled, 0);
+  const paidRows = people.flatMap((e) => e.balances.filter((b) => typeById[b.leaveTypeId] && typeById[b.leaveTypeId].paid && b.hasRow && !(inPool(e) && typeById[b.leaveTypeId].inPool)));
+  const usedDays = paidRows.reduce((n, b) => n + b.used, 0) + people.filter(inPool).reduce((n, e) => n + e.pool.used, 0);
+  const grantedDays = paidRows.reduce((n, b) => n + b.entitled, 0) + people.filter(inPool).reduce((n, e) => n + Math.max(0, e.pool.available), 0);
   const holidays = overview.holidays.filter((h) => !currentCompany || h.companyId === currentCompany.id);
   const companiesWithStaff = sortedCompanies.filter((c) => overview.employees.some((e) => e.companyId === c.id) && (!currentCompany || c.id === currentCompany.id));
   const noHolidays = companiesWithStaff.filter((c) => !overview.holidays.some((h) => h.companyId === c.id));
@@ -346,13 +448,22 @@ export default function LeaveTypesPage() {
 
   const stats = [
     { icon: 'doc', value: String(types.length), label: tr('leave types'), note: tr('{p} paid · {u} unpaid', { p: paidTypes.length, u: types.length - paidTypes.length }), onClick: () => jump('lt-types') },
-    { icon: 'warn', value: String(notGranted.length), label: tr('without {year} balances', { year }), note: tr('of {n} people', { n: people.length }), tone: notGranted.length ? 'alert' : '', onClick: () => showOnly('notgranted') },
+    poolTypes.length
+      ? { icon: 'warn', value: String(owing.length), label: tr('owe leave days'), note: owing.length ? tr('{n} day(s) to settle', { n: owing.reduce((t, e) => t + e.pool.owedOutstanding, 0) }) : tr('nobody owes days'), tone: owing.length ? 'alert' : '', onClick: () => jump('lt-owed') }
+      : { icon: 'warn', value: String(notGranted.length), label: tr('without {year} balances', { year }), note: tr('of {n} people', { n: people.length }), tone: notGranted.length ? 'alert' : '', onClick: () => showOnly('notgranted') },
     { icon: 'check', value: String(usedDays), label: tr('days taken in {year}', { year }), note: tr('of {n} granted', { n: grantedDays }), onClick: () => { setChip(''); jump('lt-balances'); } },
     { icon: 'calendar', value: String(holidays.length), label: tr('public holidays'), note: currentCompany ? tr('in {year}', { year }) : tr('in {year}, all companies', { year }), onClick: () => jump('lt-holidays') }
   ];
 
   const insights = [];
-  if (notGranted.length) {
+  if (owing.length) insights.push({ tone: 'warn', icon: 'warn', text: owing.length === 1 ? tr('{name} has taken {n} day(s) more leave than their {year} balance. Settle it under Owed days.', { name: owing[0].name, n: owing[0].pool.owedOutstanding, year }) : tr('{n} people have taken more leave than their {year} balance. Settle each under Owed days.', { n: owing.length, year }), action: { label: tr('Show them'), run: () => jump('lt-owed') } });
+  // Holidays are part of everyone's total: a year with none entered yet shows the full total.
+  const missingHol = companyTotals.filter((c) => c.holidays === 0 && (c.leaveDaysDefault !== null || c.withoutOwnTotal < c.people));
+  if (poolTypes.length && missingHol.length) insights.push({ tone: 'bad', icon: 'calendar', text: tr('{companies}: no company holidays entered for {year} yet, so everyone\'s balance shows the full yearly total until they are.', { companies: missingHol.map((c) => c.name).join(', '), year }), action: { label: tr('Add holidays'), run: () => { setHolidayCompanyId(missingHol[0].companyId); jump('lt-holidays'); } } });
+  const nextMissing = new Date().getMonth() >= 10 && year === String(thisYear) ? companyTotals.filter((c) => c.nextYearHolidays === 0) : [];
+  if (poolTypes.length && nextMissing.length) insights.push({ tone: 'info', icon: 'calendar', text: tr('{companies}: {next} company holidays are not entered yet. Enter them before 1 January, when they come off everyone\'s yearly total.', { companies: nextMissing.map((c) => c.name).join(', '), next: thisYear + 1 }), action: { label: tr('Go there'), run: () => { setYear(String(thisYear + 1)); jump('lt-holidays'); } } });
+  if (poolTypes.length && noTotal.length) insights.push({ tone: 'warn', icon: 'people', text: noTotal.length === 1 ? tr('{name} has no yearly leave total: give them one, or give their company a default.', { name: noTotal[0].name }) : tr('{n} people have no yearly leave total: give their company a default under Yearly leave total.', { n: noTotal.length }), action: { label: tr('Set it'), run: () => jump('lt-total') } });
+  if (notGranted.length && !poolTypes.length) {
     insights.push({ tone: 'warn', icon: 'warn', text: notGranted.length === 1 ? tr('{name} has no {year} balances yet, so the leave page shows them 0 days left until they first ask for leave. Grant them now.', { name: notGranted[0].name, year }) : tr('{n} people have no {year} balances yet, so the leave page shows them 0 days left until they first ask for leave. Grant everyone\'s in one go.', { n: notGranted.length, year }), action: { label: tr('Grant now'), run: () => { if (window.confirm(tr('Grant {year} balances to everyone who does not have them yet? Existing balances are not changed.', { year }))) runRollover(year); } } });
   }
   const month = new Date().getMonth();
@@ -372,18 +483,20 @@ export default function LeaveTypesPage() {
 
   const chips = [
     ['', tr('Everyone'), people.length],
-    ['notgranted', tr('Not granted'), notGranted.length],
+    poolTypes.length ? ['owing', tr('Owe days'), owing.length] : ['notgranted', tr('Not granted'), notGranted.length],
     ['low', tr('Almost out'), low.length],
-    ['mismatch', tr('Total does not add up'), mismatched.length],
+    poolTypes.length ? ['nototal', tr('No yearly total'), noTotal.length] : ['mismatch', tr('Total does not add up'), mismatched.length],
     ['custom', tr('Own figures'), withOwn.length]
-  ];
+  ].filter((c) => c[0] === '' || c[2] > 0 || c[0] === 'low');
   const departments = Array.from(new Map(people.map((e) => [e.departmentId, { id: e.departmentId, name: e.department, company: e.companyName }])).values()).sort((a, b) => a.name.localeCompare(b.name));
   const rows = people
     .filter((e) => !deptFilter || e.departmentId === deptFilter)
     .filter((e) => !chip || chipTest[chip](e))
     .filter((e) => matchesQuery(search, e.name, e.code, e.department, e.companyName));
   const showCompany = !currentCompany && sortedCompanies.length > 1;
-  const gridCols = { gridTemplateColumns: 'minmax(190px, 1.6fr) repeat(' + types.length + ', minmax(76px, 1fr)) minmax(130px, 0.9fr) auto' };
+  const gridCols = poolTypes.length
+    ? { gridTemplateColumns: 'minmax(190px, 1.6fr) minmax(170px, 1.4fr) repeat(' + ownTypes.length + ', minmax(76px, 1fr)) auto' }
+    : { gridTemplateColumns: 'minmax(190px, 1.6fr) repeat(' + types.length + ', minmax(76px, 1fr)) minmax(130px, 0.9fr) auto' };
 
   const holidayList = overview.holidays.filter((h) => h.companyId === holidayCompanyId);
   const today = todayIso();
@@ -419,6 +532,37 @@ export default function LeaveTypesPage() {
 
       <Insights items={insights.slice(0, 6)} />
 
+      {poolTypes.length > 0 && (
+        <Section id="lt-total" title={tr('Yearly leave total')}
+          sub={tr('Each person\'s days a year — their own if they have one, else their company\'s — less that year\'s company holidays, taken off on 1 January. {types} all come out of it. Taking more than is left is allowed; the extra is owed and settled by HR.', { types: poolTypes.map((t) => t.name).join(', ') })}>
+          <ul className="lt-totals">
+            {companyTotals.map((c) => {
+              const draft = totalDrafts[c.companyId] ?? '';
+              const saved = c.leaveDaysDefault === null ? '' : String(c.leaveDaysDefault);
+              return (
+                <li key={c.companyId} className="lt-total-row">
+                  <span className="lt-total-who">
+                    <strong>{c.name}</strong>
+                    <span className="dk-muted">{tr('{n} people', { n: c.people })} · {c.people - c.withoutOwnTotal > 0 ? tr('{n} with their own total', { n: c.people - c.withoutOwnTotal }) : tr('none with their own total')}</span>
+                  </span>
+                  <span className="lt-inline">
+                    <input className="input lt-num" inputMode="numeric" placeholder={tr('e.g. 14')} value={draft} aria-label={tr('Yearly leave total for {company}', { company: c.name })}
+                      onChange={(e) => setTotalDrafts({ ...totalDrafts, [c.companyId]: e.target.value })} />
+                    <button type="button" className="btn btn-secondary lt-btn" disabled={savingTotal === c.companyId || draft === saved} onClick={() => saveCompanyTotal(c)}>{tr('Save')}</button>
+                  </span>
+                  <span className="lt-total-math">
+                    {c.leaveDaysDefault === null
+                      ? <span className="dk-muted">{tr('No default: only people with their own total have one.')}</span>
+                      : <><strong>{c.leaveDaysDefault}</strong> − <strong>{c.holidays}</strong> {tr('company holidays in {year}', { year })} = <strong className="lt-total-key">{Math.max(0, c.leaveDaysDefault - c.holidays)}</strong> {tr('days to take')}</>}
+                    {c.holidays === 0 && <Status tone="bad">{tr('no {year} holidays yet', { year })}</Status>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
+
       <Section id="lt-types" title={tr('Leave types')} sub={tr('The company-wide days a year for each type. A person can have their own figure instead (Adjust, below).')}
         action={<button type="button" className="btn btn-secondary lt-btn" onClick={openNewType}>{tr('+ New leave type')}</button>}>
         {allTypes.length ? (
@@ -435,10 +579,11 @@ export default function LeaveTypesPage() {
                     <RowMenu actions={[{ label: tr('Edit'), onClick: () => openEditType(t) }]} />
                   </div>
                   <span className="lt-type-days">
-                    {t.paid ? <><strong>{t.daysPerYear}</strong> <span className="dk-muted">{tr('days a year')}</span></> : <><strong>{tr('No limit')}</strong> <span className="dk-muted">{tr('unpaid')}</span></>}
+                    {t.inPool && t.paid ? <><strong>{tr('Yearly total')}</strong> <span className="dk-muted">{tr('shared')}</span></> : t.paid ? <><strong>{t.daysPerYear}</strong> <span className="dk-muted">{tr('days a year')}</span></> : <><strong>{tr('No limit')}</strong> <span className="dk-muted">{tr('unpaid')}</span></>}
                   </span>
                   <span className="lt-type-tags">
                     <Status tone={t.paid ? 'good' : 'muted'}>{t.paid ? tr('Paid') : tr('Unpaid')}</Status>
+                    {t.inPool && t.paid && <Status tone="info">{tr('In the yearly total')}</Status>}
                     {!t.active && <Status tone="muted">{tr('Inactive')}</Status>}
                     {own > 0 && <Status tone="info">{own === 1 ? tr('1 own figure') : tr('{n} own figures', { n: own })}</Status>}
                   </span>
@@ -457,7 +602,9 @@ export default function LeaveTypesPage() {
       </Section>
 
       <Section id="lt-balances" title={tr('Balances for {year}', { year })}
-        sub={tr('Days left out of each person\'s {year} balance. Grey figures are not granted yet (what they would get). Press Adjust to change someone\'s days.', { year })}>
+        sub={poolTypes.length
+          ? tr('Yearly leave: what each person has left of their total less the {year} company holidays, and what they owe. The other columns are leave types with their own days. Press Adjust to change someone\'s total.', { year })
+          : tr('Days left out of each person\'s {year} balance. Grey figures are not granted yet (what they would get). Press Adjust to change someone\'s days.', { year })}>
         <div className="lt-tools">
           <div className="lt-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search name, code, department…')} /></div>
           <select className="input lt-select" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} aria-label={tr('Filter by department')}>
@@ -477,8 +624,9 @@ export default function LeaveTypesPage() {
           <div className="lt-grid" role="table" aria-label={tr('Balances for {year}', { year })}>
             <div className="lt-row is-head" role="row" style={gridCols}>
               <span role="columnheader">{tr('Employee')}</span>
-              {types.map((t) => <span key={t.id} role="columnheader" className="lt-cell" title={t.name}>{t.name}</span>)}
-              <span role="columnheader">{tr('Agreed total')}</span>
+              {poolTypes.length > 0 && <span role="columnheader" className="lt-cell">{tr('Yearly leave')}</span>}
+              {ownTypes.map((t) => <span key={t.id} role="columnheader" className="lt-cell" title={t.name}>{t.name}</span>)}
+              {!poolTypes.length && <span role="columnheader">{tr('Agreed total')}</span>}
               <span />
             </div>
             {rows.map((e) => (
@@ -490,7 +638,18 @@ export default function LeaveTypesPage() {
                     <span className="dk-muted">{e.department}{showCompany ? ' · ' + e.companyCode : ''}{!e.granted ? ' · ' + tr('not granted') : ''}</span>
                   </span>
                 </span>
-                {e.balances.map((b) => {
+                {poolTypes.length > 0 && (inPool(e) ? (
+                  <span role="cell" className={'lt-cell lt-pool' + (e.pool.owedOutstanding > 0 ? ' is-owing' : '')}
+                    title={tr('{total} yearly total − {h} company holidays = {a} to take; {u} taken', { total: e.pool.total, h: e.pool.holidays, a: e.pool.available, u: e.pool.used })}>
+                    <span className="lt-bal-type">{tr('Yearly leave')}</span>
+                    <span className="lt-pool-line">
+                      <strong>{e.pool.left}</strong><small>/{Math.max(0, e.pool.available)} {tr('left')}</small>
+                      {e.pool.owedOutstanding > 0 && <Status tone="bad">{tr('owes {n}', { n: e.pool.owedOutstanding })}</Status>}
+                    </span>
+                    <span className="lt-pool-sum dk-muted">{tr('{total} − {h} holidays', { total: e.pool.total, h: e.pool.holidays })}{e.pool.totalFrom === 'company' ? ' · ' + tr('company total') : ''}</span>
+                  </span>
+                ) : <span role="cell" className="lt-cell dk-muted">{tr('No yearly total')}</span>)}
+                {e.balances.filter((b) => !poolTypes.length || !typeById[b.leaveTypeId].inPool).map((b) => {
                   const t = typeById[b.leaveTypeId];
                   const left = leftOf(b);
                   const cls = !b.hasRow ? ' is-preview' : !t.paid ? '' : left <= 0 && b.entitled > 0 ? ' is-out' : b.entitled > LOW_DAYS && left <= LOW_DAYS ? ' is-low' : '';
@@ -502,11 +661,13 @@ export default function LeaveTypesPage() {
                     </span>
                   );
                 })}
-                <span role="cell" className="lt-agreed">
-                  {e.leaveDaysTotal === null ? <span className="dk-muted">—</span> : (
-                    <Status tone={mismatch(e) ? 'bad' : 'good'}>{mismatch(e) ? tr('{a} of {t} split', { a: e.allocated, t: e.leaveDaysTotal }) : tr('{t} days', { t: e.leaveDaysTotal })}</Status>
-                  )}
-                </span>
+                {!poolTypes.length && (
+                  <span role="cell" className="lt-agreed">
+                    {e.leaveDaysTotal === null ? <span className="dk-muted">—</span> : (
+                      <Status tone={mismatch(e) ? 'bad' : 'good'}>{mismatch(e) ? tr('{a} of {t} split', { a: e.allocated, t: e.leaveDaysTotal }) : tr('{t} days', { t: e.leaveDaysTotal })}</Status>
+                    )}
+                  </span>
+                )}
                 <span role="cell" className="lt-row-action">
                   <button type="button" className="btn btn-secondary lt-btn" onClick={() => setAdjust(e)}>{tr('Adjust')}</button>
                 </span>
@@ -521,8 +682,32 @@ export default function LeaveTypesPage() {
         )}
       </Section>
 
+      {owed.people.length > 0 && (
+        <Section id="lt-owed" title={tr('Owed days in {year}', { year })}
+          sub={tr('People who took more leave than their yearly balance. Nothing is deducted by itself: decide how each is settled and record it.')}>
+          <ul className="lt-owed">
+            {owed.people.filter((x) => !currentCompany || x.company === currentCompany.name).map((x) => (
+              <li key={x.employeeId} className={'lt-owed-row' + (x.owedOutstanding > 0 ? ' is-open' : '')}>
+                <span className="lt-total-who">
+                  <strong>{x.name}</strong>
+                  <span className="dk-muted">{x.code} · {x.department}{showCompany ? ' · ' + x.company : ''}</span>
+                </span>
+                <span className="lt-owed-math dk-muted">{tr('{used} taken of {avail} ({total} − {h} holidays)', { used: x.used, avail: Math.max(0, x.available), total: x.total, h: x.holidays })}</span>
+                <span className="lt-owed-n">
+                  {x.owedOutstanding > 0 ? <Status tone="bad">{tr('owes {n} day(s)', { n: x.owedOutstanding })}</Status> : <Status tone="good">{tr('settled')}</Status>}
+                  {x.settlements.map((st) => <span key={st.id} className="dk-muted lt-small">{tr('{n} {how}', { n: st.days, how: HOW_TEXT()[st.how] })}{st.note ? ' — ' + st.note : ''} · {fmtDate(st.at)}{st.by ? ' · ' + st.by : ''}</span>)}
+                </span>
+                {x.owedOutstanding > 0 && <button type="button" className="btn btn-primary lt-btn" onClick={() => setSettleFor(x)}>{tr('Mark settled')}</button>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       <Section id="lt-holidays" title={tr('Public holidays in {year}', { year })}
-        sub={tr('Each company keeps its own list. These aren\'t subtracted from anyone\'s entitlement — a holiday that falls inside an approved leave request simply isn\'t charged against the balance, the same way Sundays aren\'t.')}>
+        sub={poolTypes.length
+          ? tr('Each company keeps its own list for each year, and the number can differ from year to year. A year\'s holidays come off everyone\'s yearly total on 1 January; adding or removing one changes the balances at once. A holiday inside someone\'s leave is not charged again.')
+          : tr('Each company keeps its own list. These aren\'t subtracted from anyone\'s entitlement — a holiday that falls inside an approved leave request simply isn\'t charged against the balance, the same way Sundays aren\'t.')}>
         <div className="ppl-chips" role="radiogroup" aria-label={tr('Company')}>
           {sortedCompanies.map((c) => {
             const n = overview.holidays.filter((h) => h.companyId === c.id).length;
@@ -590,12 +775,16 @@ export default function LeaveTypesPage() {
         [tr('Own figure'), tr('A person\'s own days a year for a type (seniority, a negotiated offer). It carries over to every year until changed.')],
         [tr('Balance'), tr('What a person can take in one year for a type. It is granted at the start of the year (or at their first request) from their days a year.')],
         [tr('Used and left'), tr('Used goes up only when leave is approved. Left is the balance less what has been used.')],
-        [tr('Agreed total'), tr('An optional record of the total days agreed with a person, checked against how it is split across the types. It does not limit any request.')],
+        poolTypes.length
+          ? [tr('Yearly leave total'), tr('The days a year agreed with a person, or their company\'s default. That year\'s company holidays come off it on 1 January; annual, compassionate and sick leave are taken from what remains.')]
+          : [tr('Agreed total'), tr('An optional record of the total days agreed with a person, checked against how it is split across the types. It does not limit any request.')],
+        poolTypes.length && [tr('Owed days'), tr('Leave taken beyond what was left. It is allowed, recorded against the person, and settled by HR: from pay, from next year\'s leave, waived, or another way.')],
         [tr('Paid and unpaid'), tr('Paid types have a limit and come off the balance. Unpaid leave has no limit.')],
         [tr('Public holidays'), tr('Days a company is closed. A holiday inside a leave request is not charged, like a Sunday.')]
-      ]} />
+      ].filter(Boolean)} />
 
       {adjust && <AdjustDialog employee={adjust} year={year} onClose={() => setAdjust(null)} onChanged={() => loadOverview(year)} />}
+      {settleFor && <SettleDialog person={settleFor} year={year} onClose={() => setSettleFor(null)} onDone={(name) => { setSettleFor(null); setToast(tr('Recorded how {name}\'s owed days were settled.', { name })); loadOverview(year); }} />}
 
       {typeDialog && (
         <div className="dialog-backdrop" onClick={() => setTypeDialog(null)}>
@@ -615,6 +804,12 @@ export default function LeaveTypesPage() {
               <input type="checkbox" checked={typeForm.paid} onChange={(e) => setTypeForm({ ...typeForm, paid: e.target.checked })} />
               {tr('Paid leave')}
             </label>
+            {typeForm.paid && (
+              <label className="lt-check">
+                <input type="checkbox" checked={typeForm.inPool} onChange={(e) => setTypeForm({ ...typeForm, inPool: e.target.checked })} />
+                {tr('Comes out of the yearly leave total (like annual, compassionate and sick leave)')}
+              </label>
+            )}
             {typeDialog.mode === 'edit' && (
               <label className="lt-check">
                 <input type="checkbox" checked={typeForm.active} onChange={(e) => setTypeForm({ ...typeForm, active: e.target.checked })} />

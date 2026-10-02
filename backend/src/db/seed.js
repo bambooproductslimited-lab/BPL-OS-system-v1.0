@@ -423,7 +423,9 @@ async function run() {
     var leaveTypeIds = {}; LEAVE_TYPE_DEFS.forEach(function (t) { leaveTypeIds[t.key] = uuid(); });
     for (i = 0; i < LEAVE_TYPE_DEFS.length; i++) {
       var t = LEAVE_TYPE_DEFS[i];
-      await client.query('INSERT INTO leave_types (id, name, days_per_year, paid) VALUES ($1,$2,$3,$4)', [leaveTypeIds[t.key], t.name, t.daysPerYear, t.paid]);
+      // Unpaid and maternity/paternity stay outside the yearly total (migration 0123).
+      await client.query('INSERT INTO leave_types (id, name, days_per_year, paid, in_pool) VALUES ($1,$2,$3,$4,$5)',
+        [leaveTypeIds[t.key], t.name, t.daysPerYear, t.paid, t.paid && t.key !== 'lt_mat']);
     }
     var year = new Date().getFullYear();
     for (i = 0; i < E.length; i++) {

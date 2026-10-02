@@ -130,3 +130,24 @@
   .lt-tools .lt-select { flex: 1 1 160px; max-width: none; }
   .lt-holidays { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The yearly leave total, per company, and owed days (leavePool.service.js). */
+.lt-totals, .lt-owed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lt-total-row, .lt-owed-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) auto minmax(220px, 1.6fr); align-items: center; gap: 10px 16px; padding: 10px 12px; border: 1px solid var(--color-divider); border-radius: 12px; }
+.lt-owed-row { grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1.2fr) minmax(160px, 1fr) auto; }
+.lt-owed-row.is-open { border-color: color-mix(in srgb, #c77d12 55%, var(--color-divider)); }
+.lt-total-who { display: flex; flex-direction: column; min-width: 0; }
+.lt-total-who strong { overflow-wrap: anywhere; }
+.lt-total-who .dk-muted { font-size: 12.5px; }
+.lt-total-math { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: 13.5px; }
+.lt-total-key { color: var(--color-accent); font-size: 16px; }
+.lt-owed-math { font-size: 12.5px; }
+.lt-owed-n { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.lt-cell.lt-pool { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
+.lt-pool-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; }
+.lt-pool-line strong { font-size: 16px; }
+.lt-pool-sum { font-size: 11.5px; }
+.dialog.lt-settle { max-width: 520px; }
+@media (max-width: 760px) {
+  .lt-total-row, .lt-owed-row { grid-template-columns: 1fr; }
+}

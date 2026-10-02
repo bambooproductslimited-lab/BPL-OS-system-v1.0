@@ -41,6 +41,20 @@ function baseEntry(a, e) {
   };
 }
 
+async function poolFacts(lr, year) {
+  var t = (await pool.query('SELECT in_pool FROM leave_types WHERE id = $1', [lr.leave_type_id])).rows[0];
+  if (!t || !t.in_pool) return null;
+  var lp = require('./leavePool.service');
+  var p = await lp.poolFor(lr.employee_id, year);
+  if (!p || !p.inEffect) return null;
+  // This request is among the pending ones if it is still waiting.
+  var others = lr.status === 'pending' ? p.pending - lr.days : p.pending;
+  return {
+    total: p.total, holidays: p.holidays, available: p.available, used: p.used, pending: others, left: p.left,
+    leftAfter: Math.max(0, p.available - p.used - others - lr.days), wouldOwe: lp.owedAfter(p, others + lr.days), owedNow: p.owedOutstanding
+  };
+}
+
 async function leaveFacts(entry, e, id) {
   var lr = (await pool.query(
     'SELECT lr.*, lt.name AS type_name, lt.paid FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id WHERE lr.id = $1', [id])).rows[0];
@@ -57,6 +71,9 @@ async function leaveFacts(entry, e, id) {
   entry.facts = {
     days: lr.days, leaveType: lr.type_name, paid: lr.paid, startDate: lr.start_date, endDate: lr.end_date,
     balance: bal ? { entitled: Number(bal.entitled), used: Number(bal.used), leftAfter: Number(bal.entitled) - Number(bal.used) - lr.days } : null,
+    // The yearly total (leavePool.service.js): what is left, and what they
+    // would owe if this is approved — pending requests included.
+    pool: await poolFacts(lr, year),
     awayThen: clash.map(function (c) { return { name: c.name, status: c.status, startDate: c.start_date, endDate: c.end_date }; })
   };
 }

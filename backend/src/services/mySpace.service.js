@@ -40,7 +40,7 @@ async function overview(ctx) {
     'FROM attendance WHERE employee_id = $1 AND date >= $2', [emp, monthStart])).rows[0];
 
   var balances = (await pool.query(
-    'SELECT lb.entitled, lb.used, lt.id AS leave_type_id, lt.name, lt.paid, ' +
+    'SELECT lb.entitled, lb.used, lt.id AS leave_type_id, lt.name, lt.paid, lt.in_pool, ' +
     "  COALESCE((SELECT sum(days) FROM leave_requests r WHERE r.employee_id = $1 AND r.leave_type_id = lt.id AND r.status = 'pending' AND extract(year from r.start_date) = $2), 0)::int AS pending " +
     'FROM leave_balances lb JOIN leave_types lt ON lt.id = lb.leave_type_id WHERE lb.employee_id = $1 AND lb.year = $2 AND lt.active ORDER BY lt.name', [emp, year])).rows;
   var leave = (await pool.query(
@@ -91,8 +91,11 @@ async function overview(ctx) {
     recent: recent.map(rowToAttendance),
     month: { days: month.days, late: month.late, absent: month.absent, autoOut: month.auto_out, hours: Math.round(month.hours * 10) / 10 },
     balances: balances.map(function (b) {
-      return { leaveTypeId: b.leave_type_id, name: b.name, paid: b.paid, entitled: Number(b.entitled), used: Number(b.used), pending: b.pending, left: Number(b.entitled) - Number(b.used) };
+      return { leaveTypeId: b.leave_type_id, name: b.name, paid: b.paid, inPool: b.in_pool, entitled: Number(b.entitled), used: Number(b.used), pending: b.pending, left: Number(b.entitled) - Number(b.used) };
     }),
+    // The yearly total (leavePool.service.js): when it is in effect, the
+    // types marked inPool are counted here, not in their own balances.
+    leavePool: await require('./leavePool.service').poolFor(emp, year),
     leave: leave.map(function (r) { return Object.assign(rowToLeaveRequest(r), { typeName: r.type_name }); }),
     tasks: tasks.map(function (t) { return { id: t.id, title: t.title, priority: t.priority, dueDate: t.due_date, status: t.status, project: t.project_name || null }; }),
     tasksDoneThisMonth: doneMonth,

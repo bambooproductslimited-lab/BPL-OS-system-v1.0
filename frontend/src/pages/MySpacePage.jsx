@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import LeavePool from '../components/LeavePool';
 import { useAuth } from '../auth/AuthContext';
 import TwoStepSettings from '../components/TwoStepSettings';
 import Photo from '../components/Photo';
@@ -156,10 +157,13 @@ export default function MySpacePage() {
   const att = data.todayAttendance;
   const onDuty = !!(att && !att.clockOut);
   const shiftText = data.shift.start ? (data.shift.name ? data.shift.name + ' · ' : '') + data.shift.start + '–' + (data.shift.end || '?') : ((session && session.employee && session.employee.shift) || tr('No shift set'));
-  const paid = data.balances.filter((b) => b.paid);
-  const leftDays = paid.reduce((s, b) => s + b.left, 0);
-  const pendingDays = data.balances.reduce((s, b) => s + b.pending, 0);
-  const entitled = paid.reduce((s, b) => s + b.entitled, 0);
+  // With a yearly total (LeavePool.jsx), the types in it are counted there.
+  const lpool = data.leavePool && data.leavePool.inEffect ? data.leavePool : null;
+  const ownBalances = lpool ? data.balances.filter((b) => !b.inPool) : data.balances;
+  const paid = ownBalances.filter((b) => b.paid);
+  const leftDays = lpool ? lpool.left : paid.reduce((s, b) => s + b.left, 0);
+  const pendingDays = lpool ? lpool.pending + ownBalances.reduce((s, b) => s + b.pending, 0) : data.balances.reduce((s, b) => s + b.pending, 0);
+  const entitled = lpool ? Math.max(0, lpool.available) : paid.reduce((s, b) => s + b.entitled, 0);
   const onTime = data.month.days ? Math.round(((data.month.days - data.month.late) / data.month.days) * 100) : null;
   const overdue = data.tasks.filter((t) => t.dueDate && dayNum(t.dueDate) < todayNum());
   const dueSoon = data.tasks.filter((t) => t.dueDate && dayNum(t.dueDate) >= todayNum() && dayNum(t.dueDate) - todayNum() <= 7);
@@ -196,6 +200,7 @@ export default function MySpacePage() {
   if (pendingLeave.length) insights.push({ tone: 'info', icon: 'calendar', text: pendingLeave.length === 1 ? tr('Your {type} request for {date} is waiting for a decision.', { type: pendingLeave[0].typeName.toLowerCase(), date: fmtDate(pendingLeave[0].startDate) }) : tr('{n} of your leave requests are waiting for a decision.', { n: pendingLeave.length }), action: { label: tr('Show'), run: () => jump('msp-leave') } });
   if (recentNo.length) insights.push({ tone: 'info', icon: 'calendar', text: tr('Your {type} request was turned down: "{note}"', { type: recentNo[0].typeName.toLowerCase(), note: recentNo[0].decisionNote }), action: null });
   if (owedTotal) insights.push({ tone: 'good', icon: 'cash', text: tr('{amount} of your claims is approved and waiting to be paid out.', { amount: money(owedTotal, 'GHS') }), action: { label: tr('Show'), run: () => jump('msp-money') } });
+  if (lpool && lpool.owedOutstanding > 0) insights.push({ tone: 'warn', icon: 'warn', text: tr('You have taken {n} day(s) more than your leave for {year}. They are owed to the company; HR will settle them with you.', { n: lpool.owedOutstanding, year: lpool.year }), action: { label: tr('Show'), run: () => jump('msp-leave') } });
   if (yearEnd) insights.push({ tone: 'info', icon: 'calendar', text: tr('You still have {n} days of paid leave this year. Plan them before 31 December.', { n: leftDays }), action: { label: tr('Request leave'), run: () => navigate('/leave') } });
   if (!twoStepOn) insights.push({ tone: 'warn', icon: 'warn', text: tr('Two-step sign-in is off. Turn it on so a stolen password alone can\'t open your account.'), action: { label: tr('Turn it on'), run: () => jump('msp-account') } });
   if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Nothing needs you right now.') });
@@ -268,8 +273,9 @@ export default function MySpacePage() {
       </Section>
 
       <Section id="msp-leave" title={tr('Leave')} sub={tr('What you have left this year and what you asked for.')} action={<Link className="btn btn-secondary" to="/leave">{tr('Request leave')}</Link>}>
+        {lpool && <LeavePool pool={lpool} mine />}
         <div className="myspace-balance-grid">
-          {data.balances.map((b) => {
+          {ownBalances.map((b) => {
             const pct = b.entitled > 0 ? Math.min(100, Math.round((b.used / b.entitled) * 100)) : 0;
             return (
               <div className="myspace-balance-card" key={b.leaveTypeId}>
@@ -281,7 +287,7 @@ export default function MySpacePage() {
             );
           })}
         </div>
-        {!data.balances.length && <p className="dk-muted">{tr('No leave balances set up yet.')}</p>}
+        {!data.balances.length && !lpool && <p className="dk-muted">{tr('No leave balances set up yet.')}</p>}
         {data.leave.length > 0 && (
           <ul className="msp-list">
             {data.leave.slice(0, 8).map((l) => (

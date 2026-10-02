@@ -8,12 +8,12 @@ var { visibleEmployee, fetchEmployeeById, assertVisibleEmployee } = require('../
 
 // kernel.js: handlers['leave.types']
 async function listTypes() {
-  var res = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active ORDER BY name');
+  var res = await pool.query('SELECT id, name, days_per_year, paid, in_pool FROM leave_types WHERE active ORDER BY name');
   return res.rows;
 }
 
 function rowToLeaveType(r) {
-  return { id: r.id, name: r.name, daysPerYear: r.days_per_year, paid: r.paid, active: r.active };
+  return { id: r.id, name: r.name, daysPerYear: r.days_per_year, paid: r.paid, active: r.active, inPool: r.in_pool };
 }
 
 // kernel.js: handlers['leave.types.all'] — the admin management list:
@@ -23,7 +23,7 @@ function rowToLeaveType(r) {
 // one is a deliberate "Active" toggle, not just editing its other fields.
 async function listAllTypes(ctx) {
   if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
-  var res = await pool.query('SELECT id, name, days_per_year, paid, active FROM leave_types ORDER BY active DESC, name');
+  var res = await pool.query('SELECT id, name, days_per_year, paid, active, in_pool FROM leave_types ORDER BY active DESC, name');
   return res.rows.map(rowToLeaveType);
 }
 
@@ -39,7 +39,9 @@ async function createType(ctx, p) {
   var name = V.text(p.name, 'Name', 60);
   var daysPerYear = validateDaysPerYear(p.daysPerYear);
   var paid = !!p.paid;
-  var res = await pool.query('INSERT INTO leave_types (name, days_per_year, paid) VALUES ($1,$2,$3) RETURNING *', [name, daysPerYear, paid]);
+  // Paid types count toward the yearly total unless said otherwise.
+  var inPool = p.inPool !== undefined ? !!p.inPool && paid : paid;
+  var res = await pool.query('INSERT INTO leave_types (name, days_per_year, paid, in_pool) VALUES ($1,$2,$3,$4) RETURNING *', [name, daysPerYear, paid, inPool]);
   await audit(pool, ctx, 'leave.type.create', 'leave_type', res.rows[0].id, 'Created leave type "' + name + '" (' + daysPerYear + ' day(s)/year).');
   return rowToLeaveType(res.rows[0]);
 }
@@ -57,10 +59,12 @@ async function updateType(ctx, id, p) {
   var daysPerYear = p.daysPerYear !== undefined ? validateDaysPerYear(p.daysPerYear) : type.days_per_year;
   var paid = p.paid !== undefined ? !!p.paid : type.paid;
   var active = p.active !== undefined ? !!p.active : type.active;
+  // Unpaid leave never counts toward the yearly total.
+  var inPool = (p.inPool !== undefined ? !!p.inPool : type.in_pool) && paid;
 
   var updated = await pool.query(
-    'UPDATE leave_types SET name = $1, days_per_year = $2, paid = $3, active = $4 WHERE id = $5 RETURNING *',
-    [name, daysPerYear, paid, active, id]
+    'UPDATE leave_types SET name = $1, days_per_year = $2, paid = $3, active = $4, in_pool = $5 WHERE id = $6 RETURNING *',
+    [name, daysPerYear, paid, active, inPool, id]
   );
   await audit(pool, ctx, 'leave.type.update', 'leave_type', id, 'Updated leave type "' + name + '".');
   return rowToLeaveType(updated.rows[0]);
@@ -109,7 +113,7 @@ async function getEntitlements(ctx, employeeId, year) {
   // per-type balance.
   var usableLeaveDays = leaveDaysTotal === null ? null : Math.max(0, leaveDaysTotal - holidaysThisYear);
 
-  var typesRes = await pool.query('SELECT id, name, days_per_year FROM leave_types WHERE active ORDER BY name');
+  var typesRes = await pool.query('SELECT id, name, days_per_year, in_pool FROM leave_types WHERE active ORDER BY name');
   var overridesRes = await pool.query('SELECT leave_type_id, days_per_year FROM employee_leave_entitlements WHERE employee_id = $1', [employeeId]);
   var overrideByType = {};
   overridesRes.rows.forEach(function (r) { overrideByType[r.leave_type_id] = r.days_per_year; });
@@ -117,13 +121,14 @@ async function getEntitlements(ctx, employeeId, year) {
   var types = typesRes.rows.map(function (t) {
     var override = overrideByType[t.id];
     return {
-      leaveTypeId: t.id, name: t.name, companyDefault: t.days_per_year,
+      leaveTypeId: t.id, name: t.name, companyDefault: t.days_per_year, inPool: t.in_pool,
       daysPerYear: override !== undefined ? override : t.days_per_year, isCustom: override !== undefined
     };
   });
   return {
     leaveDaysTotal: leaveDaysTotal, year: year, holidaysThisYear: holidaysThisYear,
-    usableLeaveDays: usableLeaveDays, types: types
+    usableLeaveDays: usableLeaveDays, types: types,
+    pool: await require('./leavePool.service').poolFor(employeeId, year)
   };
 }
 
@@ -526,6 +531,14 @@ async function requestLeave(ctx, p) {
   );
   if (overlapRes.rows.length) fail('conflict', 'You already have a leave request covering those dates.');
 
+  // The yearly total (leavePool.service.js): a type in the pool is never
+  // refused for want of days — what goes over is owed, said here and to
+  // the approver, and settled by HR.
+  var poolSvc = require('./leavePool.service');
+  var poolNow = type.in_pool ? await poolSvc.poolFor(ctx.employee.id, Number(start.slice(0, 4))) : null;
+  var usePool = !!(poolNow && poolNow.inEffect);
+  var wouldOwe = usePool ? poolSvc.owedAfter(poolNow, days + poolNow.pending) : 0;
+
   var year = new Date().getFullYear();
   var balRes = await pool.query(
     'SELECT * FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3',
@@ -540,7 +553,7 @@ async function requestLeave(ctx, p) {
   // altogether. Using the flat default here used to mean an employee
   // with, say, a 4-day Maternity override could take unlimited days —
   // the enforcement check below never even ran.
-  if (type.paid) {
+  if (type.paid && !usePool) {
     if (!bal) {
       // No balance row for this year yet — a new year started since this
       // employee last got one (see rollover() below, the proactive bulk
@@ -587,13 +600,17 @@ async function requestLeave(ctx, p) {
     if (ctx.employee.manager_id) {
       await notify(
         client, ctx.employee.manager_id, 'Leave request to approve',
-        ctx.employee.first_name + ' ' + ctx.employee.last_name + ' requested ' + days + ' day(s) of ' + type.name.toLowerCase() + '.',
+        ctx.employee.first_name + ' ' + ctx.employee.last_name + ' requested ' + days + ' day(s) of ' + type.name.toLowerCase() + '.' +
+          (wouldOwe ? ' This is more than their leave left: they would owe ' + wouldOwe + ' day(s).' : ''),
         'approvals'
       );
     }
-    await audit(client, ctx, 'leave.request', 'leave_request', req.id, 'Requested ' + days + ' day(s) of ' + type.name.toLowerCase() + ' (' + start + ' → ' + end + ').');
+    await audit(client, ctx, 'leave.request', 'leave_request', req.id, 'Requested ' + days + ' day(s) of ' + type.name.toLowerCase() + ' (' + start + ' → ' + end + ')' +
+      (wouldOwe ? '; would owe ' + wouldOwe + ' day(s)' : '') + '.');
 
-    return rowToLeaveRequest(req);
+    var out = rowToLeaveRequest(req);
+    if (usePool) { out.pool = poolNow; out.wouldOwe = wouldOwe; }
+    return out;
   });
 }
 
@@ -683,7 +700,7 @@ async function overview(ctx, year) {
   year = year ? Number(year) : new Date().getFullYear();
   if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('invalid', 'Invalid year.');
 
-  var typesRes = await pool.query('SELECT id, name, days_per_year, paid FROM leave_types WHERE active ORDER BY name');
+  var typesRes = await pool.query('SELECT id, name, days_per_year, paid, in_pool FROM leave_types WHERE active ORDER BY name');
   var empRes = await pool.query(
     'SELECT e.id, e.code, e.first_name, e.last_name, e.department_id, e.photo_key, e.photo_updated_at, e.leave_days_total, ' +
     'd.name AS department_name, d.company_id, c.name AS company_name, c.code AS company_code ' +
@@ -702,6 +719,9 @@ async function overview(ctx, year) {
   );
 
   var types = typesRes.rows;
+  // The yearly total (leavePool.service.js) for everyone at once.
+  var lp = require('./leavePool.service');
+  var pools = await lp.poolsFor(empRes.rows.map(function (e) { return e.id; }), year);
   var employees = empRes.rows.map(function (e) {
     var allocated = 0, customCount = 0, granted = false;
     var balances = types.map(function (t) {
@@ -723,14 +743,15 @@ async function overview(ctx, year) {
       companyId: e.company_id, companyName: e.company_name, companyCode: e.company_code,
       photo: e.photo_key && e.photo_updated_at ? new Date(e.photo_updated_at).getTime() : null,
       leaveDaysTotal: e.leave_days_total, allocated: allocated, customCount: customCount, granted: granted,
-      balances: balances
+      balances: balances, pool: pools[e.id] || null
     };
   });
   return {
     year: year,
-    types: types.map(function (t) { return { id: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid }; }),
+    types: types.map(function (t) { return { id: t.id, name: t.name, daysPerYear: t.days_per_year, paid: t.paid, inPool: t.in_pool }; }),
     employees: employees,
-    holidays: holRes.rows.map(rowToHoliday)
+    holidays: holRes.rows.map(rowToHoliday),
+    companyTotals: await lp.companyDefaults(ctx, year)
   };
 }
 

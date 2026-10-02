@@ -1,0 +1,23 @@
+/* The yearly leave total (LeavePool.jsx). */
+.lpl { border: 1px solid var(--color-divider); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; background: var(--color-bg); }
+.lpl.is-owing { border-color: color-mix(in srgb, #c77d12 55%, var(--color-divider)); }
+.lpl-sum { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px 14px; }
+.lpl-term { display: flex; flex-direction: column; min-width: 0; }
+.lpl-term strong { font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.lpl-term small { font-size: 12px; color: var(--color-text-muted); }
+.lpl-term.is-key strong { color: var(--color-accent); }
+.lpl-op { font-size: 22px; color: var(--color-text-muted); padding-bottom: 14px; }
+.lpl-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--color-text-muted); }
+.lpl-facts strong { color: var(--color-text); font-variant-numeric: tabular-nums; }
+.lpl-left strong { color: var(--color-accent); }
+.lpl-owed { color: #9a5b00; font-weight: 600; }
+.lpl-owed strong { color: #9a5b00; }
+.lpl-settled { color: var(--color-text-muted); }
+.lpl-note { margin: 0; font-size: 12.5px; color: var(--color-text-muted); line-height: 1.5; }
+.lpl.is-compact { padding: 10px 12px; gap: 6px; }
+.lpl.is-compact .lpl-term strong { font-size: 20px; }
+.lpl.is-compact .lpl-op { font-size: 18px; padding-bottom: 12px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .lpl-owed, :root:not([data-theme="light"]) .lpl-owed strong { color: #f0b04a; }
+}
+:root[data-theme="dark"] .lpl-owed, :root[data-theme="dark"] .lpl-owed strong { color: #f0b04a; }

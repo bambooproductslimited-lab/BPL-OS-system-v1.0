@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import LeavePool, { poolLeftNow } from '../components/LeavePool';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -62,6 +63,9 @@ export default function LeavePage() {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [requests, setRequests] = useState([]);
   const [balances, setBalances] = useState([]);
+  const [leavePool, setLeavePool] = useState(null); // the yearly total (LeavePool.jsx)
+  const [poolPreview, setPoolPreview] = useState(null); // the server's word on the request being written
+  const [decisionPool, setDecisionPool] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -97,6 +101,7 @@ export default function LeavePage() {
       setLeaveTypes(types);
       setRequests(list);
       setBalances(me.balances || []);
+      setLeavePool(me.leavePool && me.leavePool.inEffect ? me.leavePool : null);
       setDepartments(depts);
     } catch (err) {
       setError(err.message);
@@ -106,6 +111,22 @@ export default function LeavePage() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // The request form asks the server what the request would do: its
+  // working days (holidays out) and, from the yearly total, what is left or
+  // owed. Only for a type in the total.
+  useEffect(() => {
+    setPoolPreview(null);
+    if (!formOpen || !form.leaveTypeId || !form.startDate || !form.endDate || form.endDate < form.startDate) return undefined;
+    const type = leaveTypes.find((t) => t.id === form.leaveTypeId);
+    if (!type || !type.in_pool || !leavePool) return undefined;
+    let alive = true;
+    const t = setTimeout(() => {
+      api.post('/leave/preview', { leaveTypeId: form.leaveTypeId, startDate: form.startDate, endDate: form.endDate })
+        .then((r) => { if (alive && r.inPool) setPoolPreview(r); }).catch(() => {});
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [formOpen, form.leaveTypeId, form.startDate, form.endDate, leaveTypes, leavePool]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -138,7 +159,9 @@ export default function LeavePage() {
     setFormError(null);
     try {
       const created = await api.post('/leave', form);
-      setToast(tr('Request submitted for approval ({days} day(s)).', { days: created.days }));
+      setToast(created.wouldOwe
+        ? tr('Request submitted for approval ({days} day(s)). If approved, you will owe the company {owe} day(s).', { days: created.days, owe: created.wouldOwe })
+        : tr('Request submitted for approval ({days} day(s)).', { days: created.days }));
       setFormOpen(false);
       setForm({ ...EMPTY_FORM, leaveTypeId: form.leaveTypeId });
       await loadAll();
@@ -156,6 +179,17 @@ export default function LeavePage() {
       id: row.id, decision, employeeName: row.employeeName, typeName: row.typeName,
       days: row.days, startDate: row.startDate, endDate: row.endDate
     });
+    // What approving would leave them, or have them owe (the yearly total).
+    setDecisionPool(null);
+    const type = leaveTypes.find((t) => t.id === row.leaveTypeId);
+    if (decision === 'approved' && type && type.in_pool) {
+      api.get('/leave/pool/' + row.employeeId + '?year=' + String(row.startDate).slice(0, 4)).then((p) => {
+        if (!p || !p.inEffect) return;
+        const others = row.status === 'pending' ? p.pending - row.days : p.pending;
+        const after = p.available - p.used - others - row.days;
+        setDecisionPool({ pool: p, leftNow: Math.max(0, p.available - p.used - others), wouldOwe: Math.max(0, Math.max(0, -after) - p.settled) });
+      }).catch(() => {});
+    }
   }
 
   async function confirmDecision(e) {
@@ -236,8 +270,10 @@ export default function LeavePage() {
       return String(b.startDate).localeCompare(String(a.startDate));
     });
 
-  const paidBalances = balances.filter((b) => b.paid !== false);
-  const daysLeft = paidBalances.reduce((n, b) => n + Math.max(0, b.left), 0);
+  // With a yearly total, the types in it are counted there, not one by one.
+  const ownBalances = leavePool ? balances.filter((b) => !b.inPool) : balances;
+  const paidBalances = ownBalances.filter((b) => b.paid !== false);
+  const daysLeft = leavePool ? leavePool.left : paidBalances.reduce((n, b) => n + Math.max(0, b.left), 0);
 
   const stats = canSeeAll ? [
     { icon: 'clock', value: String(pending.length), label: tr('waiting for a decision'), note: pending.length ? tr('oldest asked {n} days ago', { n: Math.max(...pending.map(waitedDays)) }) : tr('nothing to decide'), tone: toDecide.length ? 'alert' : '', onClick: () => showOnly('pending') },
@@ -274,6 +310,8 @@ export default function LeavePage() {
   if (myNext) insights.push({ tone: 'good', icon: 'check', text: tr('Your {type} from {dates} is approved.', { type: myNext.typeName.toLowerCase(), dates: shortRange(myNext.startDate, myNext.endDate) }) });
   const myWaiting = requests.filter((r) => r.employeeId === myId && r.status === 'pending');
   if (myWaiting.length) insights.push({ tone: 'info', icon: 'clock', text: tr('Your request for {dates} is waiting for your manager.', { dates: shortRange(myWaiting[0].startDate, myWaiting[0].endDate) }) });
+  if (canRequest && leavePool && leavePool.owedOutstanding > 0) insights.push({ tone: 'warn', icon: 'warn', text: tr('You have taken {n} day(s) more than your leave for {year}. They are owed to the company; HR will settle them with you.', { n: leavePool.owedOutstanding, year: leavePool.year }), action: { label: tr('Show'), run: () => jump('leave-balances') } });
+  else if (canRequest && leavePool && leavePool.left <= 2) insights.push({ tone: 'warn', icon: 'warn', text: leavePool.left === 1 ? tr('You have 1 day of leave left in {year}, after the {h} company holidays.', { year: leavePool.year, h: leavePool.holidays }) : tr('You have {n} days of leave left in {year}, after the {h} company holidays.', { n: leavePool.left, year: leavePool.year, h: leavePool.holidays }), action: { label: tr('Show'), run: () => jump('leave-balances') } });
   const low = paidBalances.filter((b) => b.entitled > 0 && b.left <= 2);
   if (canRequest && low.length) insights.push({ tone: 'warn', icon: 'warn', text: low.length === 1 ? tr('You have {n} days of {type} left this year.', { n: Math.max(0, low[0].left), type: low[0].name.toLowerCase() }) : tr('You are almost out of {types}.', { types: low.map((b) => b.name.toLowerCase()).join(', ') }) });
 
@@ -302,7 +340,9 @@ export default function LeavePage() {
   const myWorkDays = session && session.employee ? session.employee.workDays : null;
   const previewDays = countDays(form.startDate, form.endDate, myWorkDays);
   const unlimited = selectedType && selectedType.paid === false;
-  const over = !unlimited && selectedBalance && previewDays > selectedBalance.left;
+  const inTotal = !!(leavePool && selectedType && selectedType.in_pool);
+  const over = !inTotal && !unlimited && selectedBalance && previewDays > selectedBalance.left;
+  const owe = inTotal && poolPreview ? poolPreview.wouldOwe : 0;
 
   return (
     <div className="dk lv">
@@ -328,10 +368,12 @@ export default function LeavePage() {
 
       <Insights items={insights.slice(0, 6)} />
 
-      {canRequest && balances.length > 0 && (
-        <Section id="leave-balances" title={tr('Your days in {year}', { year })} sub={tr('What you are entitled to, what you have taken and what is left.')}>
+      {canRequest && (balances.length > 0 || leavePool) && (
+        <Section id="leave-balances" title={tr('Your days in {year}', { year })} sub={leavePool ? tr('Your yearly leave total, less this year\'s company holidays, is what you can take. Annual, compassionate and sick leave all come out of it.') : tr('What you are entitled to, what you have taken and what is left.')}>
+          {leavePool && <LeavePool pool={leavePool} mine />}
+          {ownBalances.length > 0 && leavePool && <h3 className="lv-sub-h">{tr('Outside the yearly total')}</h3>}
           <div className="lv-balances">
-            {balances.map((b) => {
+            {ownBalances.map((b) => {
               const pct = b.entitled ? Math.min(100, Math.round((b.used / b.entitled) * 100)) : 0;
               return (
                 <button key={b.name} type="button" className={'lv-balance' + (b.paid !== false && b.entitled > 0 && b.left <= 2 ? ' is-low' : '')}
@@ -480,6 +522,7 @@ export default function LeavePage() {
               <select id="leave-type" className="input" value={form.leaveTypeId} onChange={(e) => setForm({ ...form, leaveTypeId: e.target.value })} required>
                 {leaveTypes.map((t) => {
                   const b = balances.find((x) => x.leaveTypeId === t.id || x.name === t.name);
+                  if (leavePool && t.in_pool) return <option key={t.id} value={t.id}>{t.name} — {tr('from your yearly total ({n} left)', { n: Math.max(0, poolLeftNow(leavePool)) })}</option>;
                   return <option key={t.id} value={t.id}>{t.name}{t.paid === false ? ' — ' + tr('no limit') : b ? ' — ' + tr('{n} days left', { n: Math.max(0, b.left) }) : ''}</option>;
                 })}
               </select>
@@ -496,10 +539,15 @@ export default function LeavePage() {
               </div>
             </div>
             {form.startDate && form.endDate && (
-              <div className={'lv-preview' + (over ? ' is-over' : '')}>
-                <strong>{previewDays === 1 ? tr('1 working day') : tr('{n} working days', { n: previewDays })}</strong>
+              <div className={'lv-preview' + (over || owe ? ' is-over' : '')}>
+                <strong>{(inTotal && poolPreview ? poolPreview.days : previewDays) === 1 ? tr('1 working day') : tr('{n} working days', { n: inTotal && poolPreview ? poolPreview.days : previewDays })}</strong>
                 <span>
-                  {unlimited
+                  {inTotal ? (poolPreview
+                    ? (owe
+                      ? tr('You have {left} day(s) left. This request is {days} day(s), so if it is approved you will owe the company {owe} day(s). You can still send it.', { left: Math.max(0, poolLeftNow(poolPreview.pool)), days: poolPreview.days, owe })
+                      : tr('You will have {left} of your {avail} days left.', { left: poolLeftNow(poolPreview.pool) - poolPreview.days, avail: Math.max(0, poolPreview.pool.available) }))
+                    : tr('Working it out…'))
+                  : unlimited
                     ? tr('Unpaid leave has no limit.')
                     : selectedBalance
                       ? (over
@@ -534,6 +582,9 @@ export default function LeavePage() {
             <p className="dialog-body">
               {tr('{employeeName} · {typeName} · {days} day(s), {date} → {date2}', { employeeName: decisionDialog.employeeName, typeName: decisionDialog.typeName, days: decisionDialog.days, date: fmtDate(decisionDialog.startDate), date2: fmtDate(decisionDialog.endDate) })}
             </p>
+            {decisionPool && (decisionPool.wouldOwe > 0
+              ? <div className="lv-owe-warn" role="status">{tr('{name} has {left} day(s) left of their yearly leave. Approving this {days}-day request means they will owe the company {owe} day(s), for HR to settle.', { name: decisionDialog.employeeName, left: decisionPool.leftNow, days: decisionDialog.days, owe: decisionPool.wouldOwe })}</div>
+              : <p className="dk-muted tl-small">{tr('{name} will have {n} day(s) of leave left after this.', { name: decisionDialog.employeeName, n: decisionPool.leftNow - decisionDialog.days })}</p>)}
             <div className="field">
               <label htmlFor="decision-note">{tr('Note for the record')}</label>
               <textarea id="decision-note" className="input" value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)}

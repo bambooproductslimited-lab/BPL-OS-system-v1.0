@@ -60,13 +60,22 @@ function factLine(a) {
   if (a.subjectType === 'procurement_request') return tr('{qty} × {item} · about {amount}', { qty: f.quantity, item: f.item, amount: money(f.estimatedPrice, 'GHS') });
   return tr('{category} · {amount} · spent {date}', { category: f.category, amount: money(f.amount, 'GHS'), date: fmtDate(f.date) });
 }
+// Days a leave request goes past what is left: with the yearly total
+// (facts.pool), what they would owe; otherwise past that type's balance.
+function overBy(f) {
+  if (!f) return 0;
+  if (f.pool) return f.pool.wouldOwe;
+  return f.balance && f.balance.leftAfter < 0 ? -f.balance.leftAfter : 0;
+}
+
 // What an approver should look at twice.
 function flagsOf(a) {
   const f = a.facts || {};
   const out = [];
   if (daysWaiting(a) > LONG_WAIT_DAYS) out.push({ tone: 'warn', text: waitedText(a) });
   if (a.subjectType === 'leave_request') {
-    if (f.balance && f.balance.leftAfter < 0) out.push({ tone: 'bad', text: tr('{n} days past the balance', { n: -f.balance.leftAfter }) });
+    if (f.pool && f.pool.wouldOwe > 0) out.push({ tone: 'bad', text: tr('Would owe {n} day(s)', { n: f.pool.wouldOwe }) });
+    else if (!f.pool && f.balance && f.balance.leftAfter < 0) out.push({ tone: 'bad', text: tr('{n} days past the balance', { n: -f.balance.leftAfter }) });
     if (f.awayThen && f.awayThen.length) out.push({ tone: 'warn', text: f.awayThen.length === 1 ? tr('{name} is also away then', { name: f.awayThen[0].name }) : tr('{n} others in the team away then', { n: f.awayThen.length }) });
   }
   if (a.subjectType === 'expense' && !f.receipt) out.push({ tone: 'warn', text: tr('No receipt') });
@@ -167,7 +176,7 @@ export default function ApprovalsPage() {
   const claims = approvals.filter((a) => a.subjectType === 'expense');
   const purchases = approvals.filter((a) => a.subjectType === 'procurement_request');
   const leaves = approvals.filter((a) => a.subjectType === 'leave_request');
-  const overBalance = leaves.filter((a) => a.facts && a.facts.balance && a.facts.balance.leftAfter < 0);
+  const overBalance = leaves.filter((a) => overBy(a.facts) > 0);
   const clashes = leaves.filter((a) => a.facts && a.facts.awayThen && a.facts.awayThen.length);
   const noReceipt = claims.filter((a) => a.facts && !a.facts.receipt);
   const neededSoon = purchases.filter((a) => a.facts && a.facts.requiredDate && dayNum(a.facts.requiredDate) - todayNum() <= SOON_DAYS);
@@ -190,7 +199,9 @@ export default function ApprovalsPage() {
 
   const insights = [];
   if (longWait.length) insights.push({ tone: 'bad', icon: 'clock', text: longWait.length === 1 ? tr('{name}\'s {what} has been {wait}.', { name: longWait[0].requesterName, what: tr(KINDS[longWait[0].subjectType].label).toLowerCase(), wait: waitedText(longWait[0]) }) : tr('{n} requests have waited more than {d} days; the oldest is from {name}.', { n: longWait.length, d: LONG_WAIT_DAYS, name: longWait[0].requesterName }), action: { label: longWait.length === 1 ? tr('Open') : tr('Show them'), run: () => (longWait.length === 1 ? openDetail(longWait[0]) : showOnly('long')) } });
-  if (overBalance.length) insights.push({ tone: 'bad', icon: 'calendar', text: tr('{name} asks for {days} days of {type}, {over} more than they have left.', { name: overBalance[0].requesterName, days: overBalance[0].facts.days, type: overBalance[0].facts.leaveType.toLowerCase(), over: -overBalance[0].facts.balance.leftAfter }), action: { label: tr('Open'), run: () => openDetail(overBalance[0]) } });
+  if (overBalance.length) insights.push({ tone: 'bad', icon: 'calendar', text: overBalance[0].facts.pool
+    ? tr('{name} asks for {days} days of {type}; approving it means they owe the company {over} day(s) of leave.', { name: overBalance[0].requesterName, days: overBalance[0].facts.days, type: overBalance[0].facts.leaveType.toLowerCase(), over: overBy(overBalance[0].facts) })
+    : tr('{name} asks for {days} days of {type}, {over} more than they have left.', { name: overBalance[0].requesterName, days: overBalance[0].facts.days, type: overBalance[0].facts.leaveType.toLowerCase(), over: overBy(overBalance[0].facts) }), action: { label: tr('Open'), run: () => openDetail(overBalance[0]) } });
   if (clashes.length) insights.push({ tone: 'warn', icon: 'people', text: tr('{name}\'s leave overlaps with {others} from the same team.', { name: clashes[0].requesterName, others: clashes[0].facts.awayThen.map((x) => x.name).join(', ') }), action: { label: tr('Open'), run: () => openDetail(clashes[0]) } });
   if (noReceipt.length) insights.push({ tone: 'warn', icon: 'receipt', text: noReceipt.length === 1 ? tr('{name}\'s {amount} claim has no receipt attached.', { name: noReceipt[0].requesterName, amount: money(noReceipt[0].amount, 'GHS') }) : tr('{n} expense claims have no receipt attached.', { n: noReceipt.length }), action: { label: noReceipt.length === 1 ? tr('Open') : tr('Show them'), run: () => (noReceipt.length === 1 ? openDetail(noReceipt[0]) : showOnly('look')) } });
   if (neededSoon.length) insights.push({ tone: 'warn', icon: 'bag', text: tr('{item} for {name} is needed by {date}.', { item: neededSoon[0].facts.item, name: neededSoon[0].requesterName, date: fmtDate(neededSoon[0].facts.requiredDate) }), action: { label: tr('Open'), run: () => openDetail(neededSoon[0]) } });
@@ -338,7 +349,13 @@ export default function ApprovalsPage() {
               <div><dt>{tr('Asked')}</dt><dd>{fmtDate(cur.createdAt)}</dd></div>
               {cur.subjectType === 'leave_request' && <>
                 <div><dt>{tr('Leave type')}</dt><dd>{cf.leaveType}{cf.paid === false ? ' · ' + tr('unpaid') : ''}</dd></div>
-                <div><dt>{tr('Balance left')}</dt><dd className={cf.balance && cf.balance.leftAfter < 0 ? 'pk-owe' : ''}>{cf.balance ? tr('{n} days after this (of {total})', { n: cf.balance.leftAfter, total: cf.balance.entitled }) : '—'}</dd></div>
+                {cf.pool ? (
+                  <div><dt>{tr('Leave left')}</dt><dd className={cf.pool.wouldOwe > 0 ? 'pk-owe' : ''}>{cf.pool.wouldOwe > 0
+                    ? tr('{left} day(s) left; approving means owing {owe} day(s)', { left: Math.max(0, cf.pool.available - cf.pool.used - cf.pool.pending), owe: cf.pool.wouldOwe })
+                    : tr('{n} day(s) after this, of {avail} ({total} yearly total − {h} company holidays)', { n: cf.pool.leftAfter, avail: Math.max(0, cf.pool.available), total: cf.pool.total, h: cf.pool.holidays })}</dd></div>
+                ) : (
+                  <div><dt>{tr('Balance left')}</dt><dd className={cf.balance && cf.balance.leftAfter < 0 ? 'pk-owe' : ''}>{cf.balance ? tr('{n} days after this (of {total})', { n: cf.balance.leftAfter, total: cf.balance.entitled }) : '—'}</dd></div>
+                )}
               </>}
               {cur.subjectType === 'procurement_request' && <>
                 <div><dt>{tr('Priority')}</dt><dd>{tr(cf.priority === 'high' ? 'High' : cf.priority === 'low' ? 'Low' : 'Medium')}</dd></div>

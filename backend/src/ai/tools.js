@@ -346,7 +346,11 @@ var TOOLS = [
     run: async function (ctx, input) {
       var list = await leaveService.list(ctx, {});
       var types = await leaveService.listTypes();
-      return Object.assign({ leaveTypes: types.map(function (x) { return x.name + ' (' + x.days_per_year + ' days/year' + (x.paid ? '' : ', unpaid') + ')'; }) },
+      var myPool = await require('../services/leavePool.service').poolFor(ctx.employee.id, new Date().getFullYear());
+      return Object.assign({
+        leaveTypes: types.map(function (x) { return x.name + (x.in_pool && myPool && myPool.inEffect ? ' (from the yearly total)' : ' (' + x.days_per_year + ' days/year' + (x.paid ? '' : ', unpaid') + ')'); }),
+        myYearlyLeave: myPool && myPool.inEffect ? { year: myPool.year, total: myPool.total, companyHolidays: myPool.holidays, available: myPool.available, used: myPool.used, pending: myPool.pending, left: myPool.left, owed: myPool.owedOutstanding } : undefined
+      },
         capped(list.filter(function (l) { return !input.status || l.status === input.status; }), function (l) {
           return { employee: l.employeeName, type: l.typeName, from: l.startDate, to: l.endDate, days: l.days, status: l.status, reason: l.reason || undefined };
         }));
@@ -459,14 +463,19 @@ var TOOLS = [
       if (hits.length !== 1) {
         fail('invalid', (hits.length ? 'Several leave types match' : 'No leave type matches') + ' "' + input.leave_type + '". Types: ' + types.map(function (t) { return t.name; }).join(', ') + '.');
       }
+      // The yearly total: say what would be left, or owed, before asking.
+      var pv = await require('../services/leavePool.service').previewRequest(ctx, { leaveTypeId: hits[0].id, startDate: start, endDate: end });
+      var poolNote = pv.inPool ? (pv.wouldOwe
+        ? ' That is more than the leave left (' + Math.max(0, pv.pool.available - pv.pool.used - pv.pool.pending) + ' day(s)): you would owe the company ' + pv.wouldOwe + ' day(s).'
+        : ' Leave left after it: ' + (pv.pool.available - pv.pool.used - pv.pool.pending - pv.days) + ' day(s).') : '';
       return {
-        summary: 'Request ' + hits[0].name + ' from ' + start + ' to ' + end + (input.reason ? ' — "' + String(input.reason).slice(0, 120) + '"' : '') + '.',
+        summary: 'Request ' + hits[0].name + ' from ' + start + ' to ' + end + ' (' + pv.days + ' working day(s))' + (input.reason ? ' — "' + String(input.reason).slice(0, 120) + '"' : '') + '.' + poolNote,
         payload: { leaveTypeId: hits[0].id, startDate: start, endDate: end, reason: String(input.reason || '').slice(0, 500) }
       };
     },
     execute: async function (ctx, p) {
       var r = await leaveService.requestLeave(ctx, p);
-      return { message: 'Leave request submitted for approval (' + r.days + ' working day(s)).' };
+      return { message: 'Leave request submitted for approval (' + r.days + ' working day(s))' + (r.wouldOwe ? '; if approved, ' + r.wouldOwe + ' day(s) will be owed to the company' : '') + '.' };
     }
   },
   {

@@ -1,6 +1,8 @@
 var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var leaveService = require('../services/leave.service');
+var leavePool = require('../services/leavePool.service');
+var { assertVisibleEmployee } = require('../middleware/rbac');
 
 var router = express.Router();
 
@@ -87,6 +89,35 @@ router.post('/holidays', async function (req, res, next) {
 // kernel.js: handlers['leave.holidays.remove'] -> DELETE /api/leave/holidays/:id
 router.delete('/holidays/:id', async function (req, res, next) {
   try { res.json(await leaveService.removeHoliday(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+// The yearly total (leavePool.service.js): one person's pool — their own,
+// or anyone's for HR — what a request would leave or owe, the people who
+// owe days and settling them, and each company's default total.
+router.get('/pool/:employeeId', async function (req, res, next) {
+  try {
+    var id = req.params.employeeId === 'me' ? req.ctx.employee.id : req.params.employeeId;
+    if (id !== req.ctx.employee.id) {
+      if (!req.ctx.can('employee.write') && !req.ctx.can('leave.approve')) return res.status(403).json({ error: { code: 'forbidden', message: 'Your role does not allow this action (employee.write).' } });
+      await assertVisibleEmployee(req.ctx, id);
+    }
+    res.json(await leavePool.poolFor(id, Number(req.query.year) || new Date().getFullYear()));
+  } catch (e) { next(e); }
+});
+router.post('/preview', async function (req, res, next) {
+  try { res.json(await leavePool.previewRequest(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.get('/owed', async function (req, res, next) {
+  try { res.json(await leavePool.owedList(req.ctx, req.query.year)); } catch (e) { next(e); }
+});
+router.post('/owed/settle', async function (req, res, next) {
+  try { res.json(await leavePool.settle(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.get('/company-totals', async function (req, res, next) {
+  try { res.json(await leavePool.companyDefaults(req.ctx, req.query.year)); } catch (e) { next(e); }
+});
+router.put('/company-totals/:companyId', async function (req, res, next) {
+  try { res.json(await leavePool.setCompanyDefault(req.ctx, req.params.companyId, req.body.leaveDaysDefault)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['leave.list'] -> GET /api/leave?status=&companyId=&departmentId=
