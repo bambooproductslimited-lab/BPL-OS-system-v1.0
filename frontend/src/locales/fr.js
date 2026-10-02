@@ -722,6 +722,7 @@ export default {
   "{name} does not report to anyone yet, so their leave and expense requests have no manager to approve them.": "{name} n'a pas encore de responsable : aucun manager ne peut approuver ses demandes de congé et de dépenses.",
   "{name} expects to supply {qty} but has not delivered yet.": "{name} prévoit de fournir {qty} mais n'a encore rien livré.",
   "{name} expires {date}; use it first.": "{name} périme le {date} ; utilisez-le en premier.",
+  "{name} has {n} day(s) of their {year} yearly leave left.": "Il reste à {name} {n} jour(s) de congés annuels pour {year}.",
   "{name} has {n} or fewer days of {type} left.": "Il reste à {name} {n} jours ou moins de {type}.",
   "{name} has {n} overdue tasks.": "{name} a {n} tâches en retard.",
   "{name} has {n} records. If they are the same person, merge them into one.": "{name} a {n} fiches. S'il s'agit de la même personne, fusionnez-les en une seule.",

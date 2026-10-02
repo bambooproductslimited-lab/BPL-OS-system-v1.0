@@ -428,8 +428,10 @@ export default function LeaveTypesPage() {
   const inPool = (e) => !!(e.pool && e.pool.inEffect);
   const mismatch = (e) => !inPool(e) && e.leaveDaysTotal !== null && e.allocated !== e.leaveDaysTotal;
   const poolLow = (e) => inPool(e) && e.pool.owed === 0 && e.pool.left <= LOW_DAYS;
+  // Low on a type that is not counted in their yearly total.
+  const lowOutside = (e) => lowIn(e).filter((b) => !(inPool(e) && typeById[b.leaveTypeId].inPool));
   const chipTest = {
-    notgranted: (e) => !inPool(e) && !e.granted, low: (e) => poolLow(e) || lowIn(e).filter((b) => !(inPool(e) && typeById[b.leaveTypeId].inPool)).length > 0,
+    notgranted: (e) => !inPool(e) && !e.granted, low: (e) => poolLow(e) || lowOutside(e).length > 0,
     custom: (e) => e.customCount > 0, mismatch, owing: (e) => inPool(e) && e.pool.owedOutstanding > 0, nototal: (e) => poolTypes.length > 0 && !inPool(e)
   };
   const owing = people.filter(chipTest.owing);
@@ -472,7 +474,10 @@ export default function LeaveTypesPage() {
     insights.push({ tone: 'info', icon: 'calendar', text: tr('The year is nearly over. Grant {next} balances before January so everyone starts the year with their days.', { next: thisYear + 1 }), action: { label: tr('Go there'), run: () => { setRolloverYear(String(thisYear + 1)); jump('lt-newyear'); } } });
   }
   if (low.length) {
-    insights.push({ tone: 'warn', icon: 'people', text: low.length === 1 ? tr('{name} has {n} or fewer days of {type} left.', { name: low[0].name, n: LOW_DAYS, type: typeById[lowIn(low[0])[0].leaveTypeId].name.toLowerCase() }) : tr('{names} have {n} or fewer days left of a leave type.', { names: nameList(low), n: LOW_DAYS }), action: { label: tr('Show them'), run: () => showOnly('low') } });
+    insights.push({ tone: 'warn', icon: 'people', text: low.length === 1
+      ? (poolLow(low[0])
+        ? tr('{name} has {n} day(s) of their {year} yearly leave left.', { name: low[0].name, n: low[0].pool.left, year })
+        : tr('{name} has {n} or fewer days of {type} left.', { name: low[0].name, n: LOW_DAYS, type: typeById[lowOutside(low[0])[0].leaveTypeId].name.toLowerCase() })) : tr('{names} have {n} or fewer days left of a leave type.', { names: nameList(low), n: LOW_DAYS }), action: { label: tr('Show them'), run: () => showOnly('low') } });
   }
   if (mismatched.length) {
     insights.push({ tone: 'warn', icon: 'scale', text: mismatched.length === 1 ? tr('{name}\'s days split across leave types ({a}) do not add up to the {t} agreed with them.', { name: mismatched[0].name, a: mismatched[0].allocated, t: mismatched[0].leaveDaysTotal }) : tr('{n} people\'s days split across leave types do not add up to the total agreed with them.', { n: mismatched.length }), action: { label: tr('Show them'), run: () => showOnly('mismatch') } });
@@ -658,7 +663,7 @@ export default function LeaveTypesPage() {
                     <span className="lt-pool-sum dk-muted">{tr('{total} − {h} holidays', { total: e.pool.total, h: e.pool.holidays })}{e.pool.totalFrom === 'company' ? ' · ' + tr('company total') : ''}</span>
                   </span>
                 ) : <span role="cell" className="lt-cell dk-muted">{tr('No yearly total')}</span>)}
-                {e.balances.filter((b) => !poolTypes.length || !typeById[b.leaveTypeId].inPool).map((b) => {
+                {e.balances.filter((b) => typeById[b.leaveTypeId] && (!poolTypes.length || !typeById[b.leaveTypeId].inPool)).map((b) => {
                   const t = typeById[b.leaveTypeId];
                   const left = leftOf(b);
                   const cls = !b.hasRow ? ' is-preview' : !t.paid ? '' : left <= 0 && b.entitled > 0 ? ' is-out' : b.entitled > LOW_DAYS && left <= LOW_DAYS ? ' is-low' : '';

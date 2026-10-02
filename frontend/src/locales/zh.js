@@ -722,6 +722,7 @@ export default {
   "{name} does not report to anyone yet, so their leave and expense requests have no manager to approve them.": "{name} 还没有上级，其休假和报销申请没有人审批。",
   "{name} expects to supply {qty} but has not delivered yet.": "{name} 预计供货 {qty}，但尚未交货。",
   "{name} expires {date}; use it first.": "{name} 于 {date} 过期，请优先使用。",
+  "{name} has {n} day(s) of their {year} yearly leave left.": "{name} 的 {year} 年度假期还剩 {n} 天。",
   "{name} has {n} or fewer days of {type} left.": "{name} 的{type}只剩 {n} 天或更少。",
   "{name} has {n} overdue tasks.": "{name} 有 {n} 个逾期任务。",
   "{name} has {n} records. If they are the same person, merge them into one.": "{name} 有 {n} 条记录。如果是同一个人，请合并为一条。",
