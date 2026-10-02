@@ -41,13 +41,20 @@
 .af-lane.is-off { border-style: dashed; background: transparent; }
 .af-lane-h { font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
 .af-url { max-width: 100%; font-size: 13px; padding: 3px 9px; border-radius: 8px; background: var(--color-bg); border: 1px solid var(--color-divider); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.af-figs { display: flex; gap: 18px; }
+.af-figs { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .af-figs > span { display: flex; flex-direction: column; line-height: 1.1; }
 .af-figs strong { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .af-figs small { font-size: 11.5px; color: var(--color-text-muted); }
 .af-figs .is-wait strong { color: var(--color-warning); }
 .af-warn { margin: 0; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.45; color: var(--color-danger); background: var(--color-danger-100); overflow-wrap: anywhere; }
 .af-ok { color: var(--color-accent); font-weight: 600; }
+.af-amber { color: var(--color-warning); font-weight: 600; }
+.af-warn.is-amber { color: var(--color-text); background: var(--color-warning-100); border: 1px solid color-mix(in srgb, var(--color-warning) 40%, var(--color-divider)); }
+/* Their site's reply: the start of it, on one or two lines. */
+.af-reply { display: flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; font-size: 12px; }
+.af-reply small { flex: none; color: var(--color-text-muted); }
+.af-reply code { min-width: 0; font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.af-log li .af-reply { grid-column: 2 / -1; }
 .af-bad { color: var(--color-danger); font-weight: 600; overflow-wrap: anywhere; }
 .af-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .af-btn { font-size: 12.5px; padding: 6px 12px; white-space: nowrap; }

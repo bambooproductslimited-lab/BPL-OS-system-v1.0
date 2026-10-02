@@ -17,6 +17,7 @@ var feeds = require('../src/services/attendanceFeeds.service');
 var server, base, site, siteUrl, admin, alice;
 var got = [];          // what "their site" received
 var answer = 200;      // what it answers
+var reply = { type: 'application/json', body: '{"received":true}' };
 var sbr, bpl, depSbr, depBpl, empSbr, empBpl, feed;
 
 async function cleanup() {
@@ -33,7 +34,7 @@ test.before(async function () {
     site = http.createServer(function (req, res) {
       var chunks = [];
       req.on('data', function (c) { chunks.push(c); });
-      req.on('end', function () { got.push({ headers: req.headers, body: Buffer.concat(chunks).toString('utf8') }); res.statusCode = answer; res.end('ok'); });
+      req.on('end', function () { got.push({ headers: req.headers, body: Buffer.concat(chunks).toString('utf8') }); res.statusCode = answer; res.setHeader('Content-Type', reply.type); res.end(reply.body); });
     }).listen(0, function () { siteUrl = 'http://127.0.0.1:' + site.address().port + '/bamboo-attendance'; r(); });
   });
   feeds.setAllowLocalForTests(true);
@@ -133,6 +134,22 @@ test('their site down: tried again later, nothing skipped; a removal is sent too
   assert.deepEqual([ev.type, ev.attendance.id, ev.attendance.date, ev.attendance.employee.code], ['attendance.removed', b, '2030-05-07', 'ZAF-1']);
   assert.equal(feeds.backoffSeconds(1), 30);
   assert.equal(feeds.backoffSeconds(20), 3600);
+});
+
+test('the log keeps the start of their answer, flags a web page, and counts what was sent again', async function () {
+  reply = { type: 'text/html; charset=utf-8', body: '<!DOCTYPE html>\n<html><head><title>Public Figah</title></head><body>' + 'x'.repeat(5000) + '</body></html>' };
+  var t = await feeds.sendTest(admin, feed.id);
+  assert.equal(t.ok, true);
+  assert.equal(t.page, true, 'a whole web page is flagged');
+  assert.match(t.answer, /^<!DOCTYPE html> <html><head><title>Public Figah/);
+  assert.ok(t.answer.length <= 300, 'only the start is kept');
+  reply = { type: 'application/json', body: '{"received":true}' };
+  await feeds.resend(admin, feed.id, { from: '2030-05-01', to: '2030-05-31' });
+  var listed = (await feeds.list(admin)).feeds.find(function (f) { return f.id === feed.id; });
+  assert.equal(listed.resentLast24h, 1);
+  var d = listed.deliveries;
+  assert.deepEqual([d[0].kind, d[0].answer, d[0].page], ['resend', '{"received":true}', false]);
+  assert.deepEqual([d[1].kind, d[1].page, d[1].answerType], ['test', true, 'text/html; charset=utf-8']);
 });
 
 test('a real kiosk clock-in reaches the feed, once it has settled', async function () {

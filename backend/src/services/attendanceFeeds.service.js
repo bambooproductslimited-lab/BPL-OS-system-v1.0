@@ -102,6 +102,19 @@ function resolveSafe(hostname) {
   });
 }
 
+// Their answer as one short line of plain text.
+var ANSWER_BYTES = 2048;
+var ANSWER_CHARS = 300;
+function answerText(buf) {
+  var t = buf.toString('utf8').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t ? t.slice(0, ANSWER_CHARS) : null;
+}
+// A whole web page (a homepage or a framework's catch-all) rather than a
+// short reply from code written to receive the feed.
+function looksLikePage(answer, type) {
+  return /text\/html/i.test(type || '') || /^<(!doctype|html|head|body)\b/i.test(answer || '');
+}
+
 async function post(urlString, body, headers) {
   var u = checkUrl(urlString);
   var addr = await resolveSafe(u.hostname);
@@ -114,10 +127,13 @@ async function post(urlString, body, headers) {
       lookup: function (h, o, cb) { if (o && o.all) cb(null, [addr]); else cb(null, addr.address, addr.family); },
       timeout: TIMEOUT_MS
     }, function (res) {
-      res.resume(); // their answer's body isn't read
+      // Only the start of their answer is kept, for the log.
+      var chunks = [], kept = 0;
+      res.on('data', function (c) { if (kept < ANSWER_BYTES) { chunks.push(c); kept += c.length; } });
       res.on('end', function () {
         var ok = res.statusCode >= 200 && res.statusCode < 300;
         resolve({ ok: ok, status: res.statusCode, ms: Date.now() - started,
+          answer: answerText(Buffer.concat(chunks).subarray(0, ANSWER_BYTES)), answerType: String(res.headers['content-type'] || '').slice(0, 100) || null,
           error: ok ? null : res.statusCode >= 300 && res.statusCode < 400 ? 'Their site answered with a redirect (' + res.statusCode + '); use the final address.' : 'Their site answered ' + res.statusCode + '.' });
       });
     });
@@ -202,8 +218,8 @@ function bodyOf(feed, events) {
 }
 
 async function logDelivery(feedId, kind, events, r) {
-  await pool.query('INSERT INTO attendance_feed_deliveries (feed_id, kind, events, status_code, ok, error, ms) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-    [feedId, kind, events, r.status, r.ok, r.error, r.ms]);
+  await pool.query('INSERT INTO attendance_feed_deliveries (feed_id, kind, events, status_code, ok, error, ms, answer, answer_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [feedId, kind, events, r.status, r.ok, r.error, r.ms, r.answer || null, r.answerType || null]);
 }
 
 async function send(feed, kind, events) {
@@ -320,19 +336,25 @@ async function pendingFor(f) {
     [f.cursor_seq, f.company_id, f.department_ids || []])).rows[0].n);
 }
 
+function deliveryView(d) {
+  return { id: Number(d.id), kind: d.kind, at: d.at, events: d.events, statusCode: d.status_code, ok: d.ok, error: d.error, ms: d.ms,
+    answer: d.answer, answerType: d.answer_type, page: looksLikePage(d.answer, d.answer_type) };
+}
+
 async function list(ctx) {
   mustManage(ctx);
   var feeds = (await pool.query('SELECT f.*, c.name AS company FROM attendance_feeds f JOIN companies c ON c.id = f.company_id ORDER BY f.created_at')).rows;
   var out = [];
   for (var f of feeds) {
-    var deliveries = (await pool.query('SELECT id, kind, at, events, status_code, ok, error, ms FROM attendance_feed_deliveries WHERE feed_id = $1 ORDER BY id DESC LIMIT 20', [f.id])).rows;
+    var deliveries = (await pool.query('SELECT id, kind, at, events, status_code, ok, error, ms, answer, answer_type FROM attendance_feed_deliveries WHERE feed_id = $1 ORDER BY id DESC LIMIT 20', [f.id])).rows;
     var staff = Number((await pool.query(
       "SELECT count(*) AS n FROM employees e JOIN departments d ON d.id = e.department_id WHERE e.status = 'active' AND d.company_id = $1 AND (cardinality($2::uuid[]) = 0 OR e.department_id = ANY($2))",
       [f.company_id, f.department_ids || []])).rows[0].n);
-    var sent24 = Number((await pool.query("SELECT COALESCE(SUM(events), 0) AS n FROM attendance_feed_deliveries WHERE feed_id = $1 AND ok AND kind = 'live' AND at > now() - interval '24 hours'", [f.id])).rows[0].n);
+    var day = (await pool.query("SELECT COALESCE(SUM(events) FILTER (WHERE kind = 'live'), 0) AS live, COALESCE(SUM(events) FILTER (WHERE kind = 'resend'), 0) AS resent " +
+      "FROM attendance_feed_deliveries WHERE feed_id = $1 AND ok AND at > now() - interval '24 hours'", [f.id])).rows[0];
     out.push(view(f, {
-      company: f.company, staff: staff, pending: await pendingFor(f), sentLast24h: sent24,
-      deliveries: deliveries.map(function (d) { return { id: Number(d.id), kind: d.kind, at: d.at, events: d.events, statusCode: d.status_code, ok: d.ok, error: d.error, ms: d.ms }; })
+      company: f.company, staff: staff, pending: await pendingFor(f), sentLast24h: Number(day.live), resentLast24h: Number(day.resent),
+      deliveries: deliveries.map(deliveryView)
     }));
   }
   var companies = (await pool.query('SELECT c.id, c.name, c.code FROM companies c ORDER BY c.name')).rows;
@@ -425,8 +447,8 @@ async function remove(ctx, id) {
 async function deliveries(ctx, id) {
   mustManage(ctx);
   await loadFeed(id);
-  return (await pool.query('SELECT id, kind, at, events, status_code, ok, error, ms FROM attendance_feed_deliveries WHERE feed_id = $1 ORDER BY id DESC LIMIT 100', [id])).rows
-    .map(function (d) { return { id: Number(d.id), kind: d.kind, at: d.at, events: d.events, statusCode: d.status_code, ok: d.ok, error: d.error, ms: d.ms }; });
+  return (await pool.query('SELECT id, kind, at, events, status_code, ok, error, ms, answer, answer_type FROM attendance_feed_deliveries WHERE feed_id = $1 ORDER BY id DESC LIMIT 100', [id])).rows
+    .map(deliveryView);
 }
 
 // A test POST with one "feed.test" event: shows whether their side answers.
@@ -435,7 +457,7 @@ async function sendTest(ctx, id) {
   var f = await loadFeed(id);
   if (!f.push_url) fail('invalid', 'This feed has no address to send to.');
   var r = await send(f, 'test', [{ id: 'evt_test_' + Date.now(), type: 'feed.test', occurredAt: new Date().toISOString(), message: 'A test from Bamboo OS. Nothing to record.' }]);
-  return { ok: r.ok, statusCode: r.status, ms: r.ms, error: r.error };
+  return { ok: r.ok, statusCode: r.status, ms: r.ms, error: r.error, answer: r.answer || null, page: looksLikePage(r.answer, r.answerType) };
 }
 
 function cleanRange(from, to) {

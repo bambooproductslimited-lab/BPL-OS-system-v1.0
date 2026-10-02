@@ -45,7 +45,7 @@ function guideSections(feed) {
   const read = API_URL.replace(/\/$/, '') + '/feeds/attendance';
   return [
     { title: tr('What this is'), text: tr('Bamboo OS sends the clock-ins and attendance of {company} staff to your system. Times are Ghana time (GMT, the same as UTC). GPS locations, photos, notes and pay are never sent.', { company: feed.company }) },
-    { title: tr('1. Receiving (Bamboo OS posts to you)'), text: tr('Each change is sent as a POST with a JSON body to the address you gave, within about half a minute. Answer with any 2xx status to accept it. Anything else, or no answer within 10 seconds, and it is sent again later (30 seconds, then longer, up to every hour) until you accept it; nothing is skipped and the order is kept. Use each event\'s id to ignore one you already have.'),
+    { title: tr('1. Receiving (Bamboo OS posts to you)'), text: tr('Each change is sent as a POST with a JSON body to the address you gave, within about half a minute. Answer with any 2xx status and a short reply such as {"received":true} to accept it, only after the records are saved (not a web page: Bamboo OS shows the reply on its log). Anything else, or no answer within 10 seconds, and it is sent again later (30 seconds, then longer, up to every hour) until you accept it; nothing is skipped and the order is kept. Use each event\'s id to ignore one you already have.'),
       code: 'POST ' + (feed.pushUrl || 'https://your-site/your-path') + '\nContent-Type: application/json\nUser-Agent: BambooOS-AttendanceFeed/1\nX-Bamboo-Feed: ' + feed.id + '\nX-Bamboo-Delivery: <a new id for each post>\nX-Bamboo-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256>\n\n' + JSON.stringify({
         feed: { id: feed.id, name: feed.name }, sentAt: '2026-10-02T08:01:21Z',
         events: [{ id: 'evt_10234', type: 'attendance.recorded', occurredAt: '2026-10-02T08:01:20Z', attendance: {
@@ -209,6 +209,7 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
               ? (data.companies.find((c) => c.id === f.companyId)?.departments || []).filter((d) => f.departmentIds.includes(d.id)).map((d) => d.name).join(', ')
               : tr('the whole company');
             const t = lastTest[f.id];
+            const lastOk = f.deliveries.find((d) => d.ok && d.kind !== 'test');
             return (
               <article key={f.id} className={'af-card is-' + st.key}>
                 <header className="af-head">
@@ -237,12 +238,17 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
                       <code className="af-url" title={f.pushUrl}>{hostOf(f.pushUrl)}</code>
                       <span className="af-figs">
                         <span><strong>{f.sentLast24h}</strong><small>{tr('sent in 24 h')}</small></span>
+                        <span><strong>{f.resentLast24h || 0}</strong><small>{tr('sent again in 24 h')}</small></span>
                         <span className={f.pending ? 'is-wait' : ''}><strong>{f.pending}</strong><small>{tr('waiting')}</small></span>
                       </span>
+                      {!f.failingSince && lastOk && lastOk.page && (
+                        <p className="af-warn is-amber">{tr('Their site said OK, but with a whole web page instead of a short reply. That is usually its homepage answering, not the code that receives the clock-ins, so the records may not be saved. Ask their developer to check the address and the receiving code (see the reply under Recent sends).')}</p>
+                      )}
                       {f.failingSince
                         ? <p className="af-warn">{tr('Not answering since {when}: {why} Trying again {next}.', { when: fmtWhen(f.failingSince), why: f.lastError, next: fmtWhen(f.nextAttemptAt) })}</p>
                         : <span className="dk-muted tl-small">{f.lastSuccessAt ? tr('Last sent {when}', { when: fmtWhen(f.lastSuccessAt) }) : tr('Nothing to send yet: new clock-ins go as they happen.')}</span>}
-                      {t && <span className={'tl-small ' + (t.ok ? 'af-ok' : 'af-bad')}>{t.ok ? tr('Test answered {code} in {ms} ms', { code: t.statusCode, ms: t.ms }) : tr('Test failed: {why}', { why: t.error })}</span>}
+                      {t && <span className={'tl-small ' + (t.ok && !t.page ? 'af-ok' : t.ok ? 'af-amber' : 'af-bad')}>{t.ok ? tr('Test answered {code} in {ms} ms', { code: t.statusCode, ms: t.ms }) : tr('Test failed: {why}', { why: t.error })}</span>}
+                      {t && t.answer && <span className="af-reply" title={t.answer}><small>{t.page ? tr('Their reply (a web page):') : tr('Their reply:')}</small> <code>{t.answer}</code></span>}
                       <span className="af-actions">
                         <button type="button" className="btn btn-secondary af-btn" disabled={!!busy || !f.active} onClick={() => act(f, 'test')}>{busy === f.id + 'test' ? tr('Sending…') : tr('Send a test')}</button>
                         <button type="button" className="btn btn-secondary af-btn" disabled={!f.active} onClick={() => { setRange({ from: daysAgo(7), to: todayISO() }); setFormError(null); setResendFor(f); }}>{tr('Send days again')}</button>
@@ -272,6 +278,12 @@ export default function AttendanceFeeds({ onToast, onSummary }) {
                           <span>{d.kind === 'test' ? tr('test') : d.kind === 'resend' ? tr('{n} sent again', { n: d.events }) : tr('{n} change(s)', { n: d.events })}</span>
                           <span className="dk-muted">{d.ok ? tr('accepted {code}', { code: d.statusCode }) : d.error}</span>
                           <span className="dk-muted">{d.ms != null ? d.ms + ' ms' : ''}</span>
+                          {d.answer && (
+                            <span className="af-reply" title={d.answer}>
+                              {d.page && <Status tone="warn">{tr('web page')}</Status>}
+                              <code>{d.answer}</code>
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
