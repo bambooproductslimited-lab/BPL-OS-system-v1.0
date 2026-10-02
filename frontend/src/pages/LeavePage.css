@@ -101,14 +101,16 @@
 .lv-form h2 { font-size: 20px; }
 .lv-form-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lv-preview {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 12px; border-radius: var(--dk-r);
-  background: var(--color-accent-100); font-size: 13px;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; border-radius: 14px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, var(--color-divider));
+  background: linear-gradient(140deg, color-mix(in srgb, var(--color-accent) 9%, var(--color-bg)), var(--color-bg) 75%);
 }
-.lv-preview strong { font-size: 15px; }
+.lv-preview > strong { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .lv-preview small { font-size: 11.5px; }
-.lv-preview.is-over { background: var(--color-danger-100); }
-.lv-preview.is-over span { color: var(--color-danger); font-weight: 700; }
+.lv-preview.is-pool { background: transparent; border: 0; padding: 0; }
+.lv-preview.is-over { border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-divider)); background: linear-gradient(140deg, var(--color-danger-100), var(--color-bg) 80%); }
+.lv-preview.is-over .lv-preview-say { color: var(--color-danger); font-weight: 700; }
 
 @media (max-width: 1100px) {
   .lv-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr) 180px; }

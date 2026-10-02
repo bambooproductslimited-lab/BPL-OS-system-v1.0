@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import Photo from '../components/Photo';
-import LeavePool from '../components/LeavePool';
+import LeavePool, { PoolBar } from '../components/LeavePool';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Empty, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
@@ -422,6 +422,7 @@ export default function LeaveTypesPage() {
   const paidTypes = types.filter((t) => t.paid);
   const people = overview.employees.filter((e) => !currentCompany || e.companyCode === currentCompany.code);
   const typeById = Object.fromEntries(types.map((t) => [t.id, t]));
+  const photoById = Object.fromEntries(overview.employees.map((e) => [e.id, e]));
   const leftOf = (b) => b.entitled - b.used;
   const lowIn = (e) => e.balances.filter((b) => typeById[b.leaveTypeId] && typeById[b.leaveTypeId].paid && b.hasRow && b.entitled > LOW_DAYS && leftOf(b) <= LOW_DAYS);
   const inPool = (e) => !!(e.pool && e.pool.inEffect);
@@ -542,6 +543,7 @@ export default function LeaveTypesPage() {
               return (
                 <li key={c.companyId} className="lt-total-row">
                   <span className="lt-total-who">
+                    <span className="lt-mono" aria-hidden="true">{c.name.slice(0, 1)}</span>
                     <strong>{c.name}</strong>
                     <span className="dk-muted">{tr('{n} people', { n: c.people })} · {c.people - c.withoutOwnTotal > 0 ? tr('{n} with their own total', { n: c.people - c.withoutOwnTotal }) : tr('none with their own total')}</span>
                   </span>
@@ -553,7 +555,13 @@ export default function LeaveTypesPage() {
                   <span className="lt-total-math">
                     {c.leaveDaysDefault === null
                       ? <span className="dk-muted">{tr('No default: only people with their own total have one.')}</span>
-                      : <><strong>{c.leaveDaysDefault}</strong> − <strong>{c.holidays}</strong> {tr('company holidays in {year}', { year })} = <strong className="lt-total-key">{Math.max(0, c.leaveDaysDefault - c.holidays)}</strong> {tr('days to take')}</>}
+                      : <span className="lpl-eq">
+                          <span className="lpl-chip"><strong>{c.leaveDaysDefault}</strong><small>{tr('yearly total')}</small></span>
+                          <span className="lpl-op" aria-hidden="true">−</span>
+                          <span className="lpl-chip is-holidays"><strong>{c.holidays}</strong><small>{tr('company holidays in {year}', { year })}</small></span>
+                          <span className="lpl-op" aria-hidden="true">=</span>
+                          <span className="lpl-chip is-key"><strong>{Math.max(0, c.leaveDaysDefault - c.holidays)}</strong><small>{tr('days to take')}</small></span>
+                        </span>}
                     {c.holidays === 0 && <Status tone="bad">{tr('no {year} holidays yet', { year })}</Status>}
                   </span>
                 </li>
@@ -646,6 +654,7 @@ export default function LeaveTypesPage() {
                       <strong>{e.pool.left}</strong><small>/{Math.max(0, e.pool.available)} {tr('left')}</small>
                       {e.pool.owedOutstanding > 0 && <Status tone="bad">{tr('owes {n}', { n: e.pool.owedOutstanding })}</Status>}
                     </span>
+                    <PoolBar pool={e.pool} slim />
                     <span className="lt-pool-sum dk-muted">{tr('{total} − {h} holidays', { total: e.pool.total, h: e.pool.holidays })}{e.pool.totalFrom === 'company' ? ' · ' + tr('company total') : ''}</span>
                   </span>
                 ) : <span role="cell" className="lt-cell dk-muted">{tr('No yearly total')}</span>)}
@@ -688,11 +697,17 @@ export default function LeaveTypesPage() {
           <ul className="lt-owed">
             {owed.people.filter((x) => !currentCompany || x.company === currentCompany.name).map((x) => (
               <li key={x.employeeId} className={'lt-owed-row' + (x.owedOutstanding > 0 ? ' is-open' : '')}>
-                <span className="lt-total-who">
-                  <strong>{x.name}</strong>
-                  <span className="dk-muted">{x.code} · {x.department}{showCompany ? ' · ' + x.company : ''}</span>
+                <span className="lt-who">
+                  <Photo id={x.employeeId} name={x.name} photo={(photoById[x.employeeId] || {}).photo} size={40} />
+                  <span className="lt-who-text">
+                    <strong>{x.name}</strong>
+                    <span className="dk-muted">{x.code} · {x.department}{showCompany ? ' · ' + x.company : ''}</span>
+                  </span>
                 </span>
-                <span className="lt-owed-math dk-muted">{tr('{used} taken of {avail} ({total} − {h} holidays)', { used: x.used, avail: Math.max(0, x.available), total: x.total, h: x.holidays })}</span>
+                <span className="lt-owed-math">
+                  <PoolBar pool={x} slim />
+                  <span className="dk-muted">{tr('{used} taken of {avail} ({total} − {h} holidays)', { used: x.used, avail: Math.max(0, x.available), total: x.total, h: x.holidays })}</span>
+                </span>
                 <span className="lt-owed-n">
                   {x.owedOutstanding > 0 ? <Status tone="bad">{tr('owes {n} day(s)', { n: x.owedOutstanding })}</Status> : <Status tone="good">{tr('settled')}</Status>}
                   {x.settlements.map((st) => <span key={st.id} className="dk-muted lt-small">{tr('{n} {how}', { n: st.days, how: HOW_TEXT()[st.how] })}{st.note ? ' — ' + st.note : ''} · {fmtDate(st.at)}{st.by ? ' · ' + st.by : ''}</span>)}

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import Photo, { fetchBlobUrl, useBlobUrl } from '../components/Photo';
+import { PoolBar, PoolVerdict } from '../components/LeavePool';
 import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
 import { tr, msg } from '../lib/i18n.jsx';
@@ -363,6 +364,12 @@ export default function ApprovalsPage() {
               </>}
               {cur.subjectType === 'expense' && <div><dt>{tr('Receipt')}</dt><dd>{cf.receipt ? <button type="button" className="ap-link" onClick={() => openReceipt(cur)}>{tr('Open the receipt')}</button> : tr('None attached')}</dd></div>}
             </dl>
+            {cur.subjectType === 'leave_request' && cf.pool && (
+              <div className="ap-pool">
+                <PoolVerdict days={cf.days} left={Math.max(0, cf.pool.available - cf.pool.used - cf.pool.pending)} owe={cf.pool.wouldOwe} who={cur.requesterName} />
+                <PoolBar pool={{ ...cf.pool, pending: cf.pool.pending + cf.days }} />
+              </div>
+            )}
             {cur.subjectType === 'leave_request' && cf.awayThen && cf.awayThen.length > 0 && (
               <>
                 <h3 className="tl-h3">{tr('Also away then')}</h3>

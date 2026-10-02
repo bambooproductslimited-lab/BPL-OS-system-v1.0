@@ -132,21 +132,46 @@
 }
 
 /* The yearly leave total, per company, and owed days (leavePool.service.js). */
-.lt-totals, .lt-owed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.lt-total-row, .lt-owed-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) auto minmax(220px, 1.6fr); align-items: center; gap: 10px 16px; padding: 10px 12px; border: 1px solid var(--color-divider); border-radius: 12px; }
-.lt-owed-row { grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1.2fr) minmax(160px, 1fr) auto; }
-.lt-owed-row.is-open { border-color: color-mix(in srgb, #c77d12 55%, var(--color-divider)); }
-.lt-total-who { display: flex; flex-direction: column; min-width: 0; }
-.lt-total-who strong { overflow-wrap: anywhere; }
-.lt-total-who .dk-muted { font-size: 12.5px; }
-.lt-total-math { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: 13.5px; }
-.lt-total-key { color: var(--color-accent); font-size: 16px; }
-.lt-owed-math { font-size: 12.5px; }
+.lt-totals, .lt-owed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.lt-total-row, .lt-owed-row {
+  position: relative; overflow: hidden;
+  display: grid; grid-template-columns: minmax(200px, 1fr) auto minmax(300px, 1.7fr); align-items: center; gap: 12px 20px;
+  padding: 14px 16px; border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-divider));
+  background: linear-gradient(120deg, color-mix(in srgb, var(--color-accent) 6%, var(--color-bg)), var(--color-bg) 60%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 24px -20px color-mix(in srgb, var(--color-accent) 70%, transparent);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+.lt-total-row:hover, .lt-owed-row:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 14px 28px -18px color-mix(in srgb, var(--color-accent) 70%, transparent); }
+.lt-owed-row { grid-template-columns: minmax(200px, 1.1fr) minmax(200px, 1.3fr) minmax(160px, 1fr) auto; }
+.lt-owed-row.is-open {
+  border-color: color-mix(in srgb, var(--color-warning) 50%, var(--color-divider));
+  background: linear-gradient(120deg, color-mix(in srgb, var(--color-warning) 10%, var(--color-bg)), var(--color-bg) 60%);
+}
+.lt-owed-row.is-open::before, .lt-total-row::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--color-accent); }
+.lt-owed-row.is-open::before { background: var(--color-warning); }
+.lt-total-who { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; min-width: 0; }
+.lt-total-who strong { overflow-wrap: anywhere; font-size: 15px; }
+.lt-total-who .dk-muted { grid-column: 2; font-size: 12.5px; }
+.lt-mono {
+  grid-row: span 2; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  font-weight: 800; font-size: 17px; color: #fff;
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 60%, #000));
+  box-shadow: 0 6px 14px -8px var(--color-accent);
+}
+.lt-total-math { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13.5px; }
+.lt-total-math .lpl-chip { padding: 5px 11px; }
+.lt-total-math .lpl-chip strong { font-size: 17px; }
+.lt-owed-math { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; min-width: 0; }
 .lt-owed-n { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
-.lt-cell.lt-pool { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
+.lt-cell.lt-pool { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 4px; min-width: 120px; }
 .lt-pool-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; }
-.lt-pool-line strong { font-size: 16px; }
+.lt-pool-line strong { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .lt-pool-sum { font-size: 11.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .lt-total-row, .lt-owed-row { transition: none; }
+  .lt-total-row:hover, .lt-owed-row:hover { transform: none; }
+}
 .dialog.lt-settle { max-width: 520px; }
 @media (max-width: 760px) {
   .lt-total-row, .lt-owed-row { grid-template-columns: 1fr; }

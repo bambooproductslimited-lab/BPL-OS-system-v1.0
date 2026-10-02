@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import LeavePool, { poolLeftNow } from '../components/LeavePool';
+import LeavePool, { poolLeftNow, PoolVerdict } from '../components/LeavePool';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -539,13 +539,11 @@ export default function LeavePage() {
               </div>
             </div>
             {form.startDate && form.endDate && (
-              <div className={'lv-preview' + (over || owe ? ' is-over' : '')}>
+              <div className={'lv-preview' + (over ? ' is-over' : '') + (inTotal ? ' is-pool' : '')}>
                 <strong>{(inTotal && poolPreview ? poolPreview.days : previewDays) === 1 ? tr('1 working day') : tr('{n} working days', { n: inTotal && poolPreview ? poolPreview.days : previewDays })}</strong>
-                <span>
+                <div className="lv-preview-say">
                   {inTotal ? (poolPreview
-                    ? (owe
-                      ? tr('You have {left} day(s) left. This request is {days} day(s), so if it is approved you will owe the company {owe} day(s). You can still send it.', { left: Math.max(0, poolLeftNow(poolPreview.pool)), days: poolPreview.days, owe })
-                      : tr('You will have {left} of your {avail} days left.', { left: poolLeftNow(poolPreview.pool) - poolPreview.days, avail: Math.max(0, poolPreview.pool.available) }))
+                    ? <PoolVerdict days={poolPreview.days} left={Math.max(0, poolLeftNow(poolPreview.pool))} owe={owe} />
                     : tr('Working it out…'))
                   : unlimited
                     ? tr('Unpaid leave has no limit.')
@@ -554,7 +552,7 @@ export default function LeavePage() {
                         ? tr('That is more than the {n} days you have left.', { n: Math.max(0, selectedBalance.left) })
                         : tr('You will have {left} of {total} days left.', { left: selectedBalance.left - previewDays, total: selectedBalance.entitled }))
                       : tr('Your balance for this type is set when you send the request.')}
-                </span>
+                </div>
                 <small className="dk-muted">{myWorkDays === 'mon_fri'
                   ? tr('Saturdays and Sundays are not counted. Public holidays in these dates are taken off when you send it.')
                   : myWorkDays === 'all'
@@ -582,9 +580,9 @@ export default function LeavePage() {
             <p className="dialog-body">
               {tr('{employeeName} · {typeName} · {days} day(s), {date} → {date2}', { employeeName: decisionDialog.employeeName, typeName: decisionDialog.typeName, days: decisionDialog.days, date: fmtDate(decisionDialog.startDate), date2: fmtDate(decisionDialog.endDate) })}
             </p>
-            {decisionPool && (decisionPool.wouldOwe > 0
-              ? <div className="lv-owe-warn" role="status">{tr('{name} has {left} day(s) left of their yearly leave. Approving this {days}-day request means they will owe the company {owe} day(s), for HR to settle.', { name: decisionDialog.employeeName, left: decisionPool.leftNow, days: decisionDialog.days, owe: decisionPool.wouldOwe })}</div>
-              : <p className="dk-muted tl-small">{tr('{name} will have {n} day(s) of leave left after this.', { name: decisionDialog.employeeName, n: decisionPool.leftNow - decisionDialog.days })}</p>)}
+            {decisionPool && decisionDialog.decision === 'approved' && (
+              <PoolVerdict days={decisionDialog.days} left={Math.max(0, decisionPool.leftNow)} owe={decisionPool.wouldOwe} who={decisionDialog.employeeName} />
+            )}
             <div className="field">
               <label htmlFor="decision-note">{tr('Note for the record')}</label>
               <textarea id="decision-note" className="input" value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)}

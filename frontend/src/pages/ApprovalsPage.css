@@ -42,3 +42,6 @@
   .ap-h-main { flex-basis: calc(100% - 44px); }
   .ap-history li > :last-child { margin-left: 44px; }
 }
+
+/* The yearly leave total under a leave request (LeavePool.jsx). */
+.ap-pool { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 12px; }

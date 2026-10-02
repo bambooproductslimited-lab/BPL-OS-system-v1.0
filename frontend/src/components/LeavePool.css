@@ -1,23 +1,127 @@
-/* The yearly leave total (LeavePool.jsx). */
-.lpl { border: 1px solid var(--color-divider); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; background: var(--color-bg); }
-.lpl.is-owing { border-color: color-mix(in srgb, #c77d12 55%, var(--color-divider)); }
-.lpl-sum { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px 14px; }
-.lpl-term { display: flex; flex-direction: column; min-width: 0; }
-.lpl-term strong { font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.lpl-term small { font-size: 12px; color: var(--color-text-muted); }
-.lpl-term.is-key strong { color: var(--color-accent); }
-.lpl-op { font-size: 22px; color: var(--color-text-muted); padding-bottom: 14px; }
-.lpl-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--color-text-muted); }
-.lpl-facts strong { color: var(--color-text); font-variant-numeric: tabular-nums; }
-.lpl-left strong { color: var(--color-accent); }
-.lpl-owed { color: #9a5b00; font-weight: 600; }
-.lpl-owed strong { color: #9a5b00; }
-.lpl-settled { color: var(--color-text-muted); }
-.lpl-note { margin: 0; font-size: 12.5px; color: var(--color-text-muted); line-height: 1.5; }
-.lpl.is-compact { padding: 10px 12px; gap: 6px; }
-.lpl.is-compact .lpl-term strong { font-size: 20px; }
-.lpl.is-compact .lpl-op { font-size: 18px; padding-bottom: 12px; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .lpl-owed, :root:not([data-theme="light"]) .lpl-owed strong { color: #f0b04a; }
+/* The yearly leave total (LeavePool.jsx): ring, sum as chips, the year as
+   one bar. Theme tokens only, light and dark. */
+/* The colours, on every piece, as the bar and verdict are also used alone. */
+.lpl, .lpl-bar, .lpl-legend, .lpl-verdict {
+  --lpl-hol: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  --lpl-taken: var(--color-accent);
+  --lpl-left: color-mix(in srgb, var(--color-accent) 22%, var(--color-bg));
+  --lpl-over: var(--color-warning);
 }
-:root[data-theme="dark"] .lpl-owed, :root[data-theme="dark"] .lpl-owed strong { color: #f0b04a; }
+.lpl {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-divider));
+  border-radius: 16px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--color-accent) 10%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--color-accent) 4%, var(--color-bg)) 0%, var(--color-bg) 70%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -16px color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+.lpl.is-owing {
+  border-color: color-mix(in srgb, var(--lpl-over) 45%, var(--color-divider));
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--lpl-over) 12%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--lpl-over) 5%, var(--color-bg)) 0%, var(--color-bg) 70%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -16px color-mix(in srgb, var(--lpl-over) 70%, transparent);
+}
+.lpl-top { display: flex; align-items: center; gap: 22px; }
+.lpl-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.lpl-eyebrow { font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+
+/* ring */
+.lpl-ring { position: relative; flex: none; display: inline-grid; place-items: center; }
+.lpl-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.lpl-ring circle { fill: none; stroke-width: 9; }
+.lpl-ring-track { stroke: color-mix(in srgb, var(--color-accent) 14%, var(--color-divider)); }
+.lpl-ring-fill { stroke: var(--color-accent); stroke-linecap: round; transition: stroke-dashoffset 700ms cubic-bezier(.2, .8, .2, 1); }
+.lpl-ring.is-empty .lpl-ring-track { stroke: var(--color-divider); }
+.lpl-ring.is-owing .lpl-ring-track { stroke: color-mix(in srgb, var(--lpl-over) 20%, var(--color-divider)); }
+.lpl-ring.is-owing .lpl-ring-fill { stroke: var(--lpl-over); }
+.lpl-ring-text { position: relative; display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.lpl-ring-text strong { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--color-text); }
+.lpl-ring.is-owing .lpl-ring-text strong { color: var(--lpl-over); }
+.lpl-ring-text small { margin-top: 4px; font-size: 11.5px; font-weight: 600; color: var(--color-text-muted); }
+
+/* the sum as chips */
+.lpl-eq { display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px; }
+.lpl-chip {
+  display: flex; flex-direction: column; justify-content: center; min-width: 0;
+  padding: 7px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  border: 1px solid var(--color-divider);
+  backdrop-filter: blur(6px);
+}
+.lpl-chip strong { font-size: 20px; line-height: 1.1; font-weight: 800; font-variant-numeric: tabular-nums; }
+.lpl-chip small { font-size: 11.5px; color: var(--color-text-muted); white-space: nowrap; }
+.lpl-chip.is-holidays strong { color: var(--color-text-muted); }
+.lpl-chip.is-key { background: var(--color-accent); border-color: var(--color-accent); }
+.lpl-chip.is-key strong, .lpl-chip.is-key small { color: #fff; }
+.lpl-op { align-self: center; font-size: 18px; font-weight: 700; color: var(--color-text-muted); }
+
+/* the year as one bar */
+.lpl-bar { position: relative; display: flex; height: 12px; border-radius: 999px; background: var(--color-divider); overflow: visible; gap: 2px; }
+.lpl-bar.is-slim { height: 6px; gap: 1px; }
+.lpl-seg { display: block; height: 100%; min-width: 0; transition: width 600ms cubic-bezier(.2, .8, .2, 1); }
+.lpl-seg[style*="width: 0%"] { display: none; }
+.lpl-seg:first-child, .lpl-seg:first-of-type { border-radius: 999px 0 0 999px; }
+.lpl-seg:last-of-type { border-radius: 0 999px 999px 0; }
+.lpl-seg.is-holidays { background: repeating-linear-gradient(135deg, var(--lpl-hol) 0 4px, color-mix(in srgb, var(--lpl-hol) 50%, transparent) 4px 8px); border-radius: 999px 0 0 999px; }
+.lpl-seg.is-taken { background: var(--lpl-taken); }
+.lpl-seg.is-waiting { background: repeating-linear-gradient(135deg, var(--lpl-taken) 0 4px, color-mix(in srgb, var(--lpl-taken) 45%, transparent) 4px 8px); }
+.lpl-seg.is-left { background: var(--lpl-left); border-radius: 0 999px 999px 0; }
+.lpl-seg.is-over { background: repeating-linear-gradient(135deg, var(--lpl-over) 0 4px, color-mix(in srgb, var(--lpl-over) 55%, transparent) 4px 8px); border-radius: 0 999px 999px 0; }
+.lpl-bar-end { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--color-text); border-radius: 2px; }
+
+/* legend */
+.lpl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--color-text-muted); }
+.lpl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lpl-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.lpl-dot.is-holidays { background: var(--lpl-hol); }
+.lpl-dot.is-taken { background: var(--lpl-taken); }
+.lpl-dot.is-waiting { background: repeating-linear-gradient(135deg, var(--lpl-taken) 0 2px, color-mix(in srgb, var(--lpl-taken) 45%, transparent) 2px 4px); }
+.lpl-dot.is-left { background: var(--lpl-left); border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent); }
+.lpl-dot.is-over { background: var(--lpl-over); }
+.lpl-dot.is-settled { background: var(--color-text-muted); }
+.lpl-owed { color: color-mix(in srgb, var(--lpl-over) 70%, var(--color-text)); font-weight: 700; }
+.lpl-note { margin: 0; padding-top: 10px; border-top: 1px dashed var(--color-divider); font-size: 12.5px; color: var(--color-text-muted); line-height: 1.55; }
+
+.lpl.is-compact { padding: 14px 16px; }
+.lpl.is-compact .lpl-ring-text strong { font-size: 28px; }
+.lpl.is-compact .lpl-chip strong { font-size: 17px; }
+
+/* the request's verdict */
+.lpl-verdict {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 12px;
+  padding: 12px 14px; border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, var(--color-divider));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 10%, var(--color-bg)), var(--color-bg));
+}
+.lpl-verdict.is-owing {
+  border-color: color-mix(in srgb, var(--lpl-over) 55%, var(--color-divider));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-warning) 16%, var(--color-bg)), var(--color-bg));
+}
+.lpl-verdict-icon { grid-row: span 2; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: var(--color-accent); box-shadow: 0 6px 16px -8px var(--color-accent); }
+.lpl-verdict.is-owing .lpl-verdict-icon { background: var(--color-warning); box-shadow: 0 6px 16px -8px var(--color-warning); }
+.lpl-verdict-icon svg { width: 20px; height: 20px; }
+.lpl-verdict-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.lpl-mini { display: inline-flex; align-items: baseline; gap: 5px; padding: 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--color-bg) 75%, transparent); border: 1px solid var(--color-divider); }
+.lpl-mini strong { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.lpl-mini small { font-size: 11.5px; color: var(--color-text-muted); }
+.lpl-mini.is-result { background: var(--color-accent); border-color: var(--color-accent); }
+.lpl-mini.is-result strong, .lpl-mini.is-result small { color: #fff; }
+.lpl-mini.is-result.is-owing { background: var(--color-warning); border-color: var(--color-warning); }
+.lpl-verdict-text { font-size: 13px; line-height: 1.45; }
+.lpl-verdict .lpl-op { font-size: 14px; }
+
+@media (max-width: 560px) {
+  .lpl-top { flex-direction: column; align-items: stretch; gap: 14px; }
+  .lpl-ring { align-self: center; }
+  .lpl-chip small { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lpl-ring-fill, .lpl-seg { transition: none; }
+}
