@@ -640,6 +640,86 @@ TOOLS.push({
   }
 });
 
+// A day of the daily stock sheet, from the Finish Inventory workbook's day
+// tab (productImport.service.js previewDayRows / commitDayRows — the same
+// reading and matching as Products & inventory → Import).
+var STOCK_ROW_SCHEMA = {
+  type: 'object',
+  properties: {
+    item: { type: 'string', description: 'The Item cell, e.g. "001 Bamboo Slats".' },
+    category: { type: 'string' },
+    variation: { type: 'string', description: 'e.g. "4\' A - pcs".' },
+    uom: { type: 'string', description: 'e.g. "25/bundle".' },
+    opening: { type: ['number', 'null'] },
+    received: { type: ['number', 'null'] },
+    transferred: { type: ['number', 'null'] },
+    breakage: { type: ['number', 'null'] },
+    sold: { type: ['number', 'null'] },
+    expected: { type: ['number', 'null'], description: 'Expected Closing.' },
+    physical: { type: ['number', 'null'], description: 'Physical Count.' },
+    counted: { type: 'boolean', description: 'True when the Physical Count was typed in; false when the cell is the sheet\'s formula copying Expected Closing.' }
+  },
+  required: ['item'],
+  additionalProperties: false
+};
+var productImport = require('../services/productImport.service');
+
+TOOLS.push({
+  name: 'preview_stock_sheet_day',
+  kind: 'read',
+  perm: 'inventory.manage',
+  description: 'Check a day of the daily stock sheet before filling it in from the Finish Inventory workbook\'s day tab: which rows match products in the OS and which would be new, how many were counted, counts that differ from expected, received/transferred/breakage/sold, and whether the day is already on the sheet. Nothing changes.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'The day, YYYY-MM-DD (tab "1" of the October 2026 workbook is 2026-10-01).' },
+      rows: { type: 'array', minItems: 1, maxItems: 1500, items: STOCK_ROW_SCHEMA }
+    },
+    required: ['date', 'rows'],
+    additionalProperties: false
+  },
+  run: async function (ctx, input) {
+    var r = await productImport.previewDayRows(ctx, input.date, input.rows);
+    r.newProducts = capped(r.newProducts, function (x) { return x; }, 60);
+    r.movements = capped(r.movements, function (x) { return x; }, 60);
+    return r;
+  }
+});
+
+TOOLS.push({
+  name: 'fill_stock_sheet_day',
+  kind: 'action',
+  destructive: true, // replaces that day's lines and sets stock from the count
+  perm: 'inventory.manage',
+  description: 'Fill in one day of the daily stock sheet from the Finish Inventory workbook\'s day tab — the same as uploading it on Products & inventory → Import: each row becomes that day\'s line (opening, received, transferred, breakage, sold, physical count), stock is set from the count unless a later day is already in the OS, and rows no product matches become new products unless matched. Run preview_stock_sheet_day first. All rows or none.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'The day, YYYY-MM-DD.' },
+      rows: { type: 'array', minItems: 1, maxItems: 1500, items: STOCK_ROW_SCHEMA },
+      matches: { type: 'object', additionalProperties: { type: 'string' }, description: 'Optional: { line_sku from the preview: SKU of the existing product it is }.' }
+    },
+    required: ['date', 'rows'],
+    additionalProperties: false
+  },
+  prepare: async function (ctx, input) {
+    var r = await productImport.previewDayRows(ctx, input.date, input.rows);
+    var matches = input.matches && typeof input.matches === 'object' ? input.matches : {};
+    var newOnes = r.newProducts.filter(function (x) { return !matches[x.line_sku]; });
+    return {
+      summary: 'Fill in the daily stock sheet for ' + r.date + ': ' + r.rows + ' products (' + r.matched + ' in the OS' +
+        (newOnes.length ? ', ' + newOnes.length + ' new: ' + newOnes.slice(0, 5).map(function (x) { return x.name; }).join(', ') + (newOnes.length > 5 ? '…' : '') : '') + '), ' +
+        r.counted + ' counted, ' + r.differences.length + ' different from expected, ' + r.movements.length + ' with stock moving in or out' +
+        (r.alreadyOnSheet ? '; replaces the ' + r.alreadyOnSheet + ' lines already on that day' : '') + '.',
+      payload: { date: r.date, rows: input.rows, matches: matches }
+    };
+  },
+  execute: async function (ctx, payload) {
+    var c = await productImport.commitDayRows(ctx, payload.date, payload.rows, payload.matches);
+    return { message: 'The daily stock sheet for ' + c.date + ' is filled in: ' + c.created + ' product(s) added, ' + c.updated + ' stock figure(s) changed, ' + c.unchanged + ' unchanged.' };
+  }
+});
+
 var BY_NAME = {};
 TOOLS.forEach(function (t) { BY_NAME[t.name] = t; });
 

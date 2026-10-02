@@ -938,7 +938,104 @@ async function commitWorkbook(ctx, buffer, fileName, monthArg, mappingsArg) {
   return totals;
 }
 
+// ---- one day given as rows (the Claude connector) --------------------------
+// The same day tab, sent as rows instead of a file: Claude reads the
+// workbook and hands over each row's cells. They go through the very same
+// reading, matching and saving as an uploaded day tab — only the transport
+// differs. Each row: { item, category, variation, uom, opening, received,
+// transferred, breakage, sold, expected, physical, counted } — counted says
+// the physical count was typed in (not the sheet's copy of Expected).
+
+var DAY_MAX_ROWS = 1500;
+
+function rowsFromInput(input) {
+  if (!Array.isArray(input) || !input.length) fail('invalid', 'Give the day\'s rows.');
+  if (input.length > DAY_MAX_ROWS) fail('invalid', 'At most ' + DAY_MAX_ROWS + ' rows a day.');
+  function txt(v) { return v === null || v === undefined ? '' : String(v).trim(); }
+  return input.map(function (r) {
+    r = r || {};
+    var norm = {
+      item: txt(r.item), category: txt(r.category), variation: txt(r.variation), uom: txt(r.uom),
+      openingstock: txt(r.opening), received: txt(r.received), transferred: txt(r.transferred),
+      breakage: txt(r.breakage), soldsquare: txt(r.sold), expectedclosing: txt(r.expected), physicalcount: txt(r.physical)
+    };
+    return { raw: { Item: norm.item }, norm: norm, typedPhysical: !!r.counted && norm.physicalcount !== '' };
+  });
+}
+
+function dayDate(date) {
+  var d = V.date(date, 'Date');
+  if (d > new Date().toISOString().slice(0, 10)) fail('invalid', 'That day has not come yet.');
+  return d;
+}
+
+// What filling in the day would do, without doing it.
+async function previewDayRows(ctx, date, rowsInput) {
+  if (!ctx.can('inventory.manage')) fail('forbidden', 'Your role does not allow this action (inventory.manage).');
+  var d = dayDate(date);
+  var lines = dayLines(rowsFromInput(rowsInput));
+  var existing = await loadExisting(pool);
+  var items = lines.filter(function (l) { return l.action !== 'skip'; });
+  var unmatched = [], matched = 0, stockChanges = 0;
+  items.forEach(function (l) {
+    var m = matchExisting(existing, l);
+    if (m) { matched++; if (Number(m.current_stock) !== l.stock) stockChanges++; return; }
+    var code = (l.code || l.sku.split('-')[0]).toUpperCase();
+    unmatched.push({
+      line_sku: l.sku, name: l.name, sheet_row: l.sheetRow,
+      maybe: existing.all.filter(function (p) { return p.sku.split('-')[0].toUpperCase() === code; }).slice(0, 6).map(function (p) { return { sku: p.sku, name: p.name }; })
+    });
+  });
+  var already = (await pool.query('SELECT count(*)::int AS n FROM stock_sheet_lines WHERE date = $1', [d])).rows[0].n;
+  var laterInOs = (await pool.query('SELECT max(date)::text AS d FROM stock_sheet_lines WHERE date > $1', [d])).rows[0].d;
+  return {
+    date: d, rows: items.length, matched: matched, newProducts: unmatched,
+    counted: items.filter(function (l) { return l.movements.physical !== null; }).length,
+    differences: items.filter(function (l) { return l.movements.physical !== null; }).map(function (l) {
+      var w = l.warnings.filter(function (x) { return x.code === 'variance'; })[0];
+      return w ? { name: l.name, counted: w.counted, expected: w.expected } : null;
+    }).filter(Boolean),
+    movements: items.filter(function (l) { return ['received', 'transferred', 'breakage', 'sold'].some(function (k) { return l.movements[k]; }); })
+      .map(function (l) { return { name: l.name, received: l.movements.received, transferred: l.movements.transferred, breakage: l.movements.breakage, sold: l.movements.sold }; }),
+    alreadyOnSheet: already,
+    laterDayInOs: laterInOs,
+    stockChanges: laterInOs ? 0 : stockChanges
+  };
+}
+
+// Fills in the day: every row or none. matches: { lineSku: productSku } —
+// rows the preview couldn't match, said to be an existing product; kept as
+// aliases, as the Import screen does.
+async function commitDayRows(ctx, date, rowsInput, matches) {
+  if (!ctx.can('inventory.manage')) fail('forbidden', 'Your role does not allow this action (inventory.manage).');
+  var d = dayDate(date);
+  var lines = dayLines(rowsFromInput(rowsInput));
+  var client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    var keys = Object.keys(matches || {});
+    if (keys.length > 500) fail('invalid', 'Too many product matches.');
+    for (var i = 0; i < keys.length; i++) {
+      var target = (await client.query('SELECT id FROM products WHERE upper(sku) = upper($1)', [String(matches[keys[i]] || '')])).rows[0];
+      if (!target) fail('invalid', 'No product has the SKU ' + matches[keys[i]] + '.');
+      await client.query(
+        'INSERT INTO product_aliases (alias, product_id, created_by) VALUES ($1,$2,$3) ON CONFLICT (alias) DO UPDATE SET product_id = EXCLUDED.product_id, created_by = EXCLUDED.created_by, created_at = now()',
+        [keys[i].toUpperCase().slice(0, 30), target.id, ctx.employee ? ctx.employee.id : null]);
+    }
+    var counts = await commitCountLines(client, ctx, lines, d);
+    await client.query('COMMIT');
+    return Object.assign({ date: d }, counts);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
+  previewDayRows: previewDayRows,
+  commitDayRows: commitDayRows,
   preview: preview,
   commit: commit,
   // exported for the tests
