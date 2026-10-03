@@ -86,7 +86,11 @@
   #               the nearest region).
   #   worker-src  the three service workers (app, POS, kiosk) register from
   #               same-origin files; blob: covers workers created at runtime.
+  #   frame-src   the document viewer shows a PDF in an iframe from a blob:
+  #               URL made in the page (DocumentsPage); without blob: here
+  #               Chrome shows "This content is blocked". Nothing from
+  #               another site may be framed.
   #   frame-ancestors  nothing may embed this app — clickjacking on a
   #               payroll and invoicing system is worth closing properly.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bamboo-os-backend.onrender.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bamboo-os-backend.onrender.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>
