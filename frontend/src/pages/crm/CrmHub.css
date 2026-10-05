@@ -356,3 +356,8 @@ button.hub-tl-text.is-doc:hover { text-decoration: underline; }
   .hub-side-facts { grid-template-columns: minmax(0, 1fr); }
   .hub-welcome-list { max-height: 48vh; }
 }
+
+/* the WhatsApp card's lines (coexistence) */
+.hub-chan-extra { display: flex; flex-direction: column; gap: 3px; }
+.hub-wa-line { display: block; overflow-wrap: anywhere; }
+.hub-chan-extra .hub-err .dk-icon { width: 13px; height: 13px; vertical-align: -2px; }

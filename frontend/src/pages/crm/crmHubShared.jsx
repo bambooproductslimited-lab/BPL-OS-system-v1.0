@@ -175,3 +175,12 @@ export function downloadCsv(fileName, rows) {
   a.href = URL.createObjectURL(blob); a.download = fileName; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
+
+// Who sent one of our messages: the person in the OS, or the WhatsApp
+// Business app on the company phone (coexistence), stored as PHONE_AUTHOR
+// in backend/src/services/whatsapp.service.js.
+export function ourAuthor(sentByName, author) {
+  if (sentByName) return sentByName;
+  if (author === 'Bamboo Products (phone)') return tr('Sent from the company phone');
+  return author || tr('Us');
+}

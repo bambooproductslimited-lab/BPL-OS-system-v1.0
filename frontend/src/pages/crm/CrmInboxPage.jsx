@@ -6,7 +6,7 @@ import { Empty, Glossary, Hero, Icon, Section, fmtDate } from '../../components/
 import SearchInput from '../../components/SearchInput';
 import { tr } from '../../lib/i18n.jsx';
 import CustomerProfile from './CustomerProfile';
-import { CHANNELS, ChannelDot, CustMark, ago, channelLabel, timeOf, useReps } from './crmHubShared';
+import { CHANNELS, ChannelDot, CustMark, ago, channelLabel, ourAuthor, timeOf, useReps } from './crmHubShared';
 import { Toast } from './crmShared';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
@@ -201,7 +201,7 @@ function ConversationView({ id, canManage, onChanged, onProfile, onToast, onClos
             <li key={m.id} className={'hub-msg hub-from-' + (m.direction === 'in' ? 'them' : 'us')}>
               {sep && <span className="hub-msg-day">{fmtDate(m.sentAt)}</span>}
               <div className="hub-bubble">
-                {m.direction === 'out' && <span className="hub-msg-who">{m.sentBy ? m.sentBy.name : m.author || tr('Us')}</span>}
+                {m.direction === 'out' && <span className="hub-msg-who">{ourAuthor(m.sentBy && m.sentBy.name, m.author)}</span>}
                 <p>{m.body || '—'}</p>
                 {m.attachments.length > 0 && <span className="hub-msg-att"><Icon name="doc" /> {m.attachments.map((a) => a.name).join(', ')}</span>}
                 <time className="hub-msg-time">{timeOf(m.sentAt)}</time>

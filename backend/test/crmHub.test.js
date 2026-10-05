@@ -38,7 +38,8 @@ async function cleanup() {
   await pool.query("DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'zcrm.%')");
   await pool.query("DELETE FROM users WHERE email LIKE 'zcrm.%'");
   await pool.query("DELETE FROM employees WHERE code LIKE 'ZCRM-%'");
-  await pool.query("DELETE FROM crm_channel_state WHERE key IN ('coverage_alert', 'facebook', 'instagram') OR key LIKE 'email:%'");
+  await pool.query("DELETE FROM crm_channel_state WHERE key IN ('coverage_alert', 'facebook', 'instagram') OR key LIKE 'email:%' OR key LIKE 'whatsapp:%'");
+  await pool.query("DELETE FROM crm_contact_names WHERE value LIKE '23320555%'");
   await pool.query("DELETE FROM marketing_oauth_tokens WHERE channel_key IN ('facebook', 'instagram') AND open_id LIKE 'zcrm-%'");
 }
 async function makeRep(code, first) {
@@ -339,3 +340,56 @@ test('profiles list: the summary and the filters', async function () {
   assert.equal(byPhone.profiles[0].name, 'Zcrm Yaw Boakye', 'found by any form of the number');
   await assert.rejects(profiles.addIdentity(admin, byPhone.profiles[0].id, { kind: 'phone', value: '0205550300' }), /already belongs to Zcrm Kojo Badu/);
 });
+
+test('coexistence: names saved on the phone, replies typed on the phone, and the chats from before', async function () {
+  function change(value) { return { entry: [{ changes: [{ field: 'x', value: Object.assign({ messaging_product: 'whatsapp', metadata: { display_phone_number: '233205550000', phone_number_id: 'zcrm-pn' } }, value) }] }] }; }
+  var ts = function (msAgo) { return String(Math.floor((Date.now() - msAgo) / 1000)); };
+  // The phone's contacts arrive first: kept for when the chats come.
+  await whatsapp.handleWebhookEvent(change({ state_sync: [
+    { type: 'contact', action: 'add', contact: { full_name: 'Zcrm Esi Tema Juice', first_name: 'Esi', phone_number: '233205550901' }, metadata: { timestamp: ts(0) } },
+    { type: 'contact', action: 'add', contact: { full_name: 'Zcrm Yaw Carpenter', phone_number: '233205550902' }, metadata: { timestamp: ts(0) } }] }));
+
+  // Past chats: one that ended long ago, one where the customer wrote yesterday.
+  await whatsapp.handleWebhookEvent(change({ history: [{ metadata: { phase: 0, chunk_order: 1, progress: 55 }, threads: [
+    { id: '233205550901', messages: [
+      { from: '233205550901', id: 'wamid.zcrm.h1', timestamp: ts(40 * 86400000), type: 'text', text: { body: 'Zcrm how much are the straws?' }, history_context: { status: 'READ' } },
+      { from: '233205550000', to: '233205550901', id: 'wamid.zcrm.h2', timestamp: ts(40 * 86400000 - 600000), type: 'text', text: { body: 'GHS 60 per pack.' }, history_context: { status: 'READ' } },
+      { from: '233205550901', id: 'wamid.zcrm.h3', timestamp: ts(39 * 86400000), type: 'text', text: { body: 'Thanks, I will come by.' } }] },
+    { id: '233205550902', messages: [
+      { from: '233205550902', id: 'wamid.zcrm.h4', timestamp: ts(86400000), type: 'image', image: { caption: 'Zcrm can you make this door?', mime_type: 'image/jpeg' } }] },
+    { id: '120363000000000000@g.us', messages: [{ from: '233205550903', id: 'wamid.zcrm.g1', timestamp: ts(5000), type: 'text', text: { body: 'a group' } }] }] }] }));
+
+  var esi = (await pool.query("SELECT * FROM customers WHERE name = 'Zcrm Esi Tema Juice'")).rows[0];
+  assert.ok(esi, 'profile named as saved on the phone');
+  var old = (await pool.query("SELECT * FROM crm_conversations WHERE channel = 'whatsapp' AND external_thread_id = '233205550901'")).rows[0];
+  assert.deepEqual([old.imported, old.status, old.message_count, old.customer_id], [true, 'closed', 3, esi.id], 'an old chat is filed, not waiting');
+  var dirs = (await pool.query('SELECT direction, author_name FROM crm_messages WHERE conversation_id = $1 ORDER BY sent_at', [old.id])).rows;
+  assert.deepEqual(dirs.map(function (d) { return d.direction; }), ['in', 'out', 'in'], 'our side told apart from theirs');
+  assert.equal(dirs[1].author_name, 'Bamboo Products (phone)');
+  var yaw = (await pool.query("SELECT * FROM crm_conversations WHERE channel = 'whatsapp' AND external_thread_id = '233205550902'")).rows[0];
+  assert.deepEqual([yaw.status, yaw.last_direction, yaw.contact_name], ['open', 'in', 'Zcrm Yaw Carpenter'], 'a recent one still waits');
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM crm_conversations WHERE external_thread_id LIKE '%@g.us'")).rows[0].n, 0, 'group chats left out');
+  var notes = (await pool.query("SELECT count(*)::int AS n FROM notifications WHERE (title LIKE '%Esi Tema%' OR title LIKE '%Yaw Carpenter%') AND at > now() - interval '1 minute'")).rows[0].n;
+  assert.equal(notes, 0, 'nobody is notified about old chats');
+
+  // A reply typed on the phone: the customer is answered.
+  await whatsapp.handleWebhookEvent(change({ message_echoes: [{ from: '233205550000', to: '233205550902', id: 'wamid.zcrm.e1', timestamp: ts(1000), type: 'text', text: { body: 'Yes we can, come Monday.' } }] }));
+  yaw = (await pool.query('SELECT * FROM crm_conversations WHERE id = $1', [yaw.id])).rows[0];
+  assert.deepEqual([yaw.last_direction, yaw.message_count], ['out', 2]);
+  // Delivered twice: kept once.
+  await whatsapp.handleWebhookEvent(change({ message_echoes: [{ from: '233205550000', to: '233205550902', id: 'wamid.zcrm.e1', timestamp: ts(1000), type: 'text', text: { body: 'Yes we can, come Monday.' } }] }));
+  assert.equal((await pool.query('SELECT message_count FROM crm_conversations WHERE id = $1', [yaw.id])).rows[0].message_count, 2);
+
+  // A contact renamed on the phone renames a profile that only had the number.
+  var bare = (await pool.query("INSERT INTO customers (name, phone, category) VALUES ('+233 20 555 0904', '+233 20 555 0904', 'lead') RETURNING id")).rows[0].id;
+  await inbox.addIdentities(pool, bare, [inbox.normIdentity({ kind: 'phone', value: '+233 20 555 0904' })]);
+  await whatsapp.handleWebhookEvent(change({ state_sync: [{ type: 'contact', action: 'add', contact: { full_name: 'Zcrm Kofi Site Manager', phone_number: '233205550904' } }] }));
+  assert.equal((await pool.query('SELECT name FROM customers WHERE id = $1', [bare])).rows[0].name, 'Zcrm Kofi Site Manager');
+
+  var st = await whatsapp.status();
+  assert.deepEqual([st.history.progress, st.history.items >= 4, st.phoneReplies.items >= 1], [55, true, true], 'Data health sees it');
+  // History the business declined to share: the reason is shown.
+  await whatsapp.handleWebhookEvent(change({ history: [{ errors: [{ code: 2593109, title: 'History sync is turned off by the business' }] }] }));
+  assert.match((await whatsapp.status()).history.error, /turned off/);
+});
+

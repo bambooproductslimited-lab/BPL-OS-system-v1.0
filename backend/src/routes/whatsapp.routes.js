@@ -23,12 +23,15 @@ router.post('/webhook', async function (req, res) {
   // doesn't return 2xx promptly, so a bad/duplicate event should be
   // swallowed here, not surfaced as an HTTP error.
   if (!whatsappService.isValidSignature(req.rawBody, req.get('x-hub-signature-256'))) return res.sendStatus(403);
+  // Answered first: a chunk of past chats (coexistence history) can take
+  // longer to file than Meta waits. Failures are logged, not retried —
+  // every message carries its id, so a resent chunk adds only what's new.
+  res.sendStatus(200);
   try {
     await whatsappService.handleWebhookEvent(req.body);
   } catch (e) {
     console.error('WhatsApp webhook handling failed:', e);
   }
-  res.sendStatus(200);
 });
 
 module.exports = router;

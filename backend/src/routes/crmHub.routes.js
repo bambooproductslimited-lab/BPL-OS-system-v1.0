@@ -43,8 +43,7 @@ router.post('/import/whatsapp', chatUpload.single('file'), wrap(function (req) {
 }));
 router.get('/channels', wrap(async function (req) {
   if (!req.ctx.can('crm.read')) { var { fail } = require('../utils/errors'); fail('forbidden', 'Your role does not allow this action (crm.read).'); }
-  var config = require('../config');
-  return { whatsapp: { configured: !!(config.whatsapp && config.whatsapp.configured) }, email: await email.status(), meta: await meta.status() };
+  return { whatsapp: await require('../services/whatsapp.service').status(), email: await email.status(), meta: await meta.status() };
 }));
 
 // follow-ups

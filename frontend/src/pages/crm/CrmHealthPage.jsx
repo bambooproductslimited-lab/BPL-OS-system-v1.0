@@ -185,9 +185,9 @@ export default function CrmHealthPage() {
       <Section id="channels" title={tr('Channels')} sub={tr('Where customer messages come from. New messages are read every 3 minutes.')}>
         {channels && (
           <div className="hub-channels">
-            <ChannelCard channel="whatsapp" ok={channels.whatsapp.configured}
+            <ChannelCard channel="whatsapp" ok={channels.whatsapp.configured} err={channels.whatsapp.history && channels.whatsapp.history.error}
               detail={channels.whatsapp.configured ? tr('Messages to the business WhatsApp number come in as they arrive, and replies go out from the inbox.') : tr('Not connected. The WhatsApp Business settings go on the server (Render), the same ones the OS uses for WhatsApp notifications.')}
-              extra={tr('Older chats: use "Import a WhatsApp chat" in the inbox.')} />
+              extra={<WhatsAppDetail w={channels.whatsapp} />} />
             <ChannelCard channel="email" ok={channels.email.configured} last={channels.email.lastOkAt} err={channels.email.lastError} items={channels.email.items}
               detail={channels.email.configured ? tr('Reading {box}. Newsletters, notices and mail between staff are left out.', { box: channels.email.mailbox || '' }) : tr('Not connected. On Render, set CRM_IMAP_USER and CRM_IMAP_PASS (for Gmail: an app password) for the sales mailbox, then deploy.')} />
             <ChannelCard channel="facebook" ok={channels.meta.facebook.connected && channels.meta.facebook.messages} last={channels.meta.facebook.lastOkAt} err={channels.meta.facebook.lastError} items={channels.meta.facebook.items}
@@ -214,12 +214,28 @@ export default function CrmHealthPage() {
   );
 }
 
+// What has come in from WhatsApp, and — for a number also used in the
+// WhatsApp Business app on the company phone — the replies typed on the
+// phone and the past chats Meta shares.
+function WhatsAppDetail({ w }) {
+  return (
+    <>
+      {w.configured && !w.signed && <span className="hub-err"><Icon name="warn" /> {tr('META_APP_SECRET is missing on Render, so incoming messages are refused.')}</span>}
+      {w.lastInAt ? <span className="hub-wa-line">{tr('Last customer message {time}', { time: ago(w.lastInAt) })}</span> : w.configured && <span className="hub-wa-line">{tr('No customer message received yet. Send a test from a personal phone.')}</span>}
+      {w.phoneReplies && <span className="hub-wa-line">{tr('{n} replies typed on the company phone kept', { n: w.phoneReplies.items })}</span>}
+      {w.history && !w.history.error && <span className="hub-wa-line">{w.history.progress != null && w.history.progress < 100 ? tr('Past chats from the phone: {pct}% received ({n} messages)', { pct: w.history.progress, n: w.history.items }) : tr('Past chats from the phone received ({n} messages)', { n: w.history.items })}</span>}
+      {w.configured && <span className="hub-wa-line dk-muted">{tr('In Meta, the webhook must subscribe to: {fields}', { fields: 'messages, smb_message_echoes, history, smb_app_state_sync' })}</span>}
+      <span className="hub-wa-line dk-muted">{tr('Older chats: use "Import a WhatsApp chat" in the inbox.')}</span>
+    </>
+  );
+}
+
 function ChannelCard({ channel, ok, detail, extra, last, err, items, action }) {
   return (
     <article className={'hub-chan' + (ok ? ' is-ok' : ' is-off')}>
       <header><ChannelDot channel={channel} withLabel /><Status tone={ok ? 'good' : 'muted'}>{ok ? tr('Connected') : tr('Not connected')}</Status></header>
       <p className="tl-small">{detail}</p>
-      {extra && <p className="dk-muted tl-small">{extra}</p>}
+      {extra && <div className="dk-muted tl-small hub-chan-extra">{extra}</div>}
       {(last || items > 0) && <p className="dk-muted tl-small">{last ? tr('Last read {time}', { time: ago(last) }) : ''}{items > 0 ? ' · ' + tr('{n} messages brought in', { n: items }) : ''}</p>}
       {err && <p className="hub-err tl-small"><Icon name="warn" /> {err}</p>}
       {action && <button type="button" className="dk-link" onClick={action.run}>{action.label} <Icon name="arrow" /></button>}

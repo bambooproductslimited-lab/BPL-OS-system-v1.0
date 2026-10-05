@@ -6,7 +6,7 @@ import ContactButtons from '../../components/ContactButtons';
 import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
 import { StageTag, addDays, followUpClass, followUpText, todayISO } from './crmShared';
-import { CATEGORIES, CHANNELS, CategoryTag, ChannelDot, CustMark, REASONS, RepSelect, ago, channelLabel, ghsOr, nextStepText, reasonText, timeOf } from './crmHubShared';
+import { CATEGORIES, CHANNELS, CategoryTag, ChannelDot, CustMark, REASONS, RepSelect, ago, channelLabel, ghsOr, nextStepText, ourAuthor, reasonText, timeOf } from './crmHubShared';
 
 // One customer, whole (GET /api/crm/profiles/:id): who they are and every
 // way to reach them, their rep, why they need a follow-up, every
@@ -340,7 +340,7 @@ function TimelineItem({ t, go }) {
       <li className={'hub-tl is-msg hub-from-' + (t.direction === 'in' ? 'them' : 'us')}>
         <ChannelDot channel={t.channel} />
         <div className="hub-tl-body">
-          <p className="hub-tl-meta"><strong>{t.direction === 'in' ? t.author || tr('Customer') : t.sentBy || t.author || tr('Us')}</strong> · {channelLabel(t.channel)} · <time>{timeOf(t.at)}</time></p>
+          <p className="hub-tl-meta"><strong>{t.direction === 'in' ? t.author || tr('Customer') : ourAuthor(t.sentBy, t.author)}</strong> · {channelLabel(t.channel)} · <time>{timeOf(t.at)}</time></p>
           <button type="button" className="hub-tl-text" onClick={() => go('/crminbox?c=' + t.conversationId)}>{t.body || '—'}</button>
         </div>
       </li>
