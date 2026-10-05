@@ -35,11 +35,13 @@ test.before(async function () {
   config.meta.appId = 'zq-app'; config.meta.appSecret = 'zq-secret'; config.meta.waConfigId = 'zq-config';
   config.whatsapp.verifyToken = 'zq-phrase'; config.whatsapp.phoneNumberId = ''; config.whatsapp.accessToken = '';
   await pool.query('DELETE FROM whatsapp_connection');
+  await pool.query('DELETE FROM whatsapp_alerts');
   await access.load();
 });
 test.after(async function () {
   connect.setFetchForTests(null); whatsapp.setFetchForTests(null);
   await pool.query('DELETE FROM whatsapp_connection');
+  await pool.query('DELETE FROM whatsapp_alerts');
   config.meta.appId = saved.appId; config.meta.appSecret = saved.appSecret; config.meta.waConfigId = saved.waConfigId;
   config.whatsapp.verifyToken = saved.verify; config.whatsapp.phoneNumberId = saved.pn; config.whatsapp.accessToken = saved.tk;
   await access.load();
@@ -111,4 +113,36 @@ test('a new number is registered; a bad code is refused; disconnecting falls bac
 test('Meta\'s webhook handshake needs only the verify phrase', function () {
   assert.equal(whatsapp.verifyWebhookChallenge({ 'hub.mode': 'subscribe', 'hub.verify_token': 'zq-phrase', 'hub.challenge': '4711' }), '4711');
   assert.equal(whatsapp.verifyWebhookChallenge({ 'hub.mode': 'subscribe', 'hub.verify_token': 'wrong', 'hub.challenge': '4711' }), null);
+});
+
+test('Meta\'s notices become Data health warnings: quality, sending limit, account, templates', async function () {
+  var alerts = require('../src/services/whatsappAlerts.service');
+  function notice(field, value) { return { entry: [{ id: 'zq-waba', changes: [{ field: field, value: value }] }] }; }
+  var since = new Date();
+  await whatsapp.handleWebhookEvent(notice('phone_number_quality_update', { display_phone_number: '233205550700', event: 'FLAGGED', current_limit: 'TIER_1K' }));
+  await whatsapp.handleWebhookEvent(notice('phone_number_quality_update', { display_phone_number: '233205550700', event: 'DOWNGRADE', current_limit: 'TIER_250', old_limit: 'TIER_1K' }));
+  await whatsapp.handleWebhookEvent(notice('account_update', { phone_number: '233205550700', event: 'ACCOUNT_RESTRICTION', restriction_info: [{ restriction_type: 'RESTRICTED_BIZ_INITIATED_MESSAGING', expiration: String(Math.floor(Date.now() / 1000) + 86400) }] }));
+  await whatsapp.handleWebhookEvent(notice('message_template_status_update', { event: 'REJECTED', message_template_id: 1, message_template_name: 'zq_payment_reminder', message_template_language: 'en', reason: 'INCORRECT_CATEGORY' }));
+  var s = await alerts.summary();
+  assert.equal(s.open.length, 4);
+  assert.equal(s.limit, '250');
+  assert.equal(s.quality.flagged, false, 'the latest quality word is the downgrade');
+  assert.deepEqual([s.account.event, s.account.details.restriction], ['ACCOUNT_RESTRICTION', 'RESTRICTED_BIZ_INITIATED_MESSAGING']);
+  assert.deepEqual([s.templates[0].details.name, s.templates[0].details.reason], ['zq_payment_reminder', 'INCORRECT_CATEGORY']);
+  // The serious ones reach the people who manage the settings.
+  var n = (await pool.query("SELECT count(*)::int AS n FROM notifications WHERE title LIKE 'WhatsApp:%' AND at >= $1 AND employee_id = $2", [since, admin.employee.id])).rows[0].n;
+  assert.ok(n >= 4, 'notified');
+  // Good news clears the warnings of its kind; the template approved clears its rejection.
+  await whatsapp.handleWebhookEvent(notice('phone_number_quality_update', { display_phone_number: '233205550700', event: 'UPGRADE', current_limit: 'TIER_10K' }));
+  await whatsapp.handleWebhookEvent(notice('message_template_status_update', { event: 'APPROVED', message_template_name: 'zq_payment_reminder', message_template_language: 'en', reason: 'NONE' }));
+  s = await alerts.summary();
+  assert.deepEqual(s.open.map(function (a) { return a.kind; }), ['account']);
+  assert.equal(s.limit, '10000');
+  // Dismissed by hand; and a notice is not mistaken for a message.
+  await alerts.dismiss(admin, s.open[0].id);
+  assert.equal((await alerts.summary()).open.length, 0);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM crm_conversations WHERE external_thread_id = '233205550700'")).rows[0].n, 0);
+  var nobody = { can: function () { return false; }, employee: null };
+  await assert.rejects(alerts.dismiss(nobody, s.open[0].id), /settings.manage/);
+  assert.ok((await whatsapp.status()).alerts, 'Data health gets them');
 });

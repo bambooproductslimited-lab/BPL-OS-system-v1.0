@@ -102,6 +102,8 @@ async function handleWebhookEvent(payload) {
     var changes = entries[i].changes || [];
     for (var j = 0; j < changes.length; j++) {
       var value = changes[j].value || {};
+      // Meta's word on the account, the number's quality, the templates.
+      try { if (await require('./whatsappAlerts.service').take(changes[j].field, value)) continue; } catch (e) { console.error('[whatsapp] notice not kept:', e.message); }
       // Coexistence (the number also in the WhatsApp Business app on the
       // company phone): names saved on the phone, replies typed on the
       // phone, and the chats from before the number was connected.
@@ -251,7 +253,8 @@ async function status() {
     number: access.get() ? { source: access.get().source, displayPhone: access.get().displayPhone, coexistence: access.get().coexistence } : null,
     lastInAt: last ? last.last_in : null,
     phoneReplies: by['whatsapp:echoes'] ? { items: by['whatsapp:echoes'].items, lastAt: by['whatsapp:echoes'].last_ok_at } : null,
-    history: h ? { items: h.items, progress: cur && cur.progress != null ? Number(cur.progress) : null, lastAt: h.last_ok_at, error: h.last_error } : null
+    history: h ? { items: h.items, progress: cur && cur.progress != null ? Number(cur.progress) : null, lastAt: h.last_ok_at, error: h.last_error } : null,
+    alerts: await require('./whatsappAlerts.service').summary()
   };
 }
 

@@ -46,6 +46,8 @@ router.get('/channels', wrap(async function (req) {
   return { whatsapp: await require('../services/whatsapp.service').status(), email: await email.status(), meta: await meta.status() };
 }));
 
+router.post('/whatsapp-alerts/:id/dismiss', wrap(function (req) { return require('../services/whatsappAlerts.service').dismiss(req.ctx, req.params.id); }));
+
 // follow-ups
 router.get('/follow-ups/mine', wrap(function (req) { return followUps.mine(req.ctx); }));
 router.get('/follow-ups/team', wrap(function (req) { return followUps.team(req.ctx, req.query); }));

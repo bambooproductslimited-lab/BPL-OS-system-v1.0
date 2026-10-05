@@ -86,6 +86,9 @@ export default function CrmHealthPage() {
   if (waitingNoRep) insights.push({ tone: 'bad', icon: 'send', text: tr('{n} customers with no rep are waiting for a reply. Nobody will answer them until they have one.', { n: waitingNoRep }), action: { label: tr('Give them reps'), run: () => jump('reps') } });
   if (cover.length) insights.push({ tone: 'warn', icon: 'people', text: tr('{n} customers have no sales rep. The OS has suggested one for each.', { n: cover.length }), action: canAssign ? { label: tr('Give each to the suggested rep'), run: () => act('all', () => api.post('/crm/coverage/assign-suggested', {}), tr('Customers given to their suggested reps.')) } : null });
   if (merges) insights.push({ tone: 'info', icon: 'layers', text: tr('{n} pairs of profiles look like one customer.', { n: merges }), action: { label: tr('Check them'), run: () => jump('dups') } });
+  const KIND_ORDER = { account: 0, quality: 1, template: 2 };
+  const waBad = channels && channels.whatsapp.alerts ? channels.whatsapp.alerts.open.filter((x) => x.tone === 'bad').sort((x, y) => KIND_ORDER[x.kind] - KIND_ORDER[y.kind]) : [];
+  if (waBad.length) insights.unshift({ tone: 'bad', icon: 'warn', text: noticeText(waBad[0]), action: { label: tr('What to do'), run: () => jump('wa-notices') } });
   if (channels && conn.some((c) => !c.ok)) insights.push({ tone: 'info', icon: 'phone', text: tr('{n} of 4 channels are connected. Messages on the others don\'t reach the CRM yet.', { n: conn.filter((c) => c.ok).length }), action: { label: tr('See how'), run: () => jump('channels') } });
 
   return (
@@ -199,6 +202,7 @@ export default function CrmHealthPage() {
             <ChannelCard channel="call" ok detail={tr('Calls, visits and texts from a personal phone: write them down on the customer\'s profile ("Log a call or visit").')} />
           </div>
         )}
+        {channels && channels.whatsapp.alerts && <WhatsAppNotices a={channels.whatsapp.alerts} canDismiss={canAssign || can('settings.manage')} onDismiss={(id) => act('wa-' + id, () => api.post('/crm/whatsapp-alerts/' + id + '/dismiss'), tr('Warning dismissed.'))} busy={!!busy} />}
       </Section>
 
       <Glossary items={[
@@ -214,6 +218,81 @@ export default function CrmHealthPage() {
   );
 }
 
+// ── Meta's notices about the WhatsApp account (whatsappAlerts.service.js) ──
+function limitText(l) { return l === 'unlimited' ? tr('unlimited') : Number(l) ? Number(l).toLocaleString() : l; }
+function codeText(c) { return String(c || '').toLowerCase().replace(/_/g, ' '); }
+function restrictionText(t) {
+  switch (t) {
+    case 'RESTRICTED_BIZ_INITIATED_MESSAGING': return tr('starting conversations with customers');
+    case 'RESTRICTED_CUSTOMER_INITIATED_MESSAGING': return tr('replying to customers');
+    case 'RESTRICTED_ADD_PHONE_NUMBER_ACTION': return tr('adding phone numbers');
+    default: return codeText(t);
+  }
+}
+function noticeText(n) {
+  const d = n.details || {};
+  if (n.kind === 'quality') {
+    switch (n.event) {
+      case 'FLAGGED': return tr('Meta flagged the number\'s quality as low: customers have been blocking or reporting its messages.');
+      case 'UNFLAGGED': return tr('The number\'s quality is back to normal.');
+      case 'DOWNGRADE': return tr('Meta lowered the daily limit of new conversations the business can start, from {old} to {limit}.', { old: limitText(d.oldLimit || '—'), limit: limitText(d.limit || '—') });
+      case 'UPGRADE': return tr('Meta raised the daily limit of new conversations the business can start to {limit}.', { limit: limitText(d.limit || '—') });
+      default: return tr('Daily limit of new conversations the business starts: {n}', { n: limitText(d.limit || '—') });
+    }
+  }
+  if (n.kind === 'account') {
+    switch (n.event) {
+      case 'ACCOUNT_RESTRICTION': return d.until ? tr('Meta restricted the WhatsApp account from {what} until {date}.', { what: restrictionText(d.restriction), date: fmtDate(d.until) }) : tr('Meta restricted the WhatsApp account from {what}.', { what: restrictionText(d.restriction) });
+      case 'ACCOUNT_VIOLATION': return tr('Meta found a policy violation on the WhatsApp account ({type}).', { type: codeText(d.violation) });
+      case 'DISABLED_UPDATE': return tr('Meta disabled the WhatsApp account.');
+      case 'ACCOUNT_DELETED': return tr('The WhatsApp account was deleted.');
+      case 'VERIFIED_ACCOUNT': return tr('Meta verified the WhatsApp account.');
+      default: return tr('Meta: {event}', { event: codeText(n.event) });
+    }
+  }
+  switch (n.event) {
+    case 'APPROVED': return tr('Message template “{name}” ({lang}) was approved.', { name: d.name, lang: d.language });
+    case 'REJECTED': return d.reason ? tr('Message template “{name}” ({lang}) was rejected: {reason}.', { name: d.name, lang: d.language, reason: codeText(d.reason) }) : tr('Message template “{name}” ({lang}) was rejected.', { name: d.name, lang: d.language });
+    case 'PAUSED': return tr('Meta paused the message template “{name}” for low quality.', { name: d.name });
+    case 'DISABLED': return tr('Meta disabled the message template “{name}”.', { name: d.name });
+    case 'FLAGGED': return tr('Meta flagged the message template “{name}” for low quality; it may be paused.', { name: d.name });
+    case 'REINSTATED': return tr('The message template “{name}” is active again.', { name: d.name });
+    default: return tr('Message template “{name}”: {event}', { name: d.name, event: codeText(n.event) });
+  }
+}
+function noticeAdvice(n) {
+  if (n.kind === 'quality') return tr('Message only people who wrote to you or agreed to hear from you, and send fewer messages they didn\'t ask for. The limit goes back up when the quality improves.');
+  if (n.kind === 'account') return tr('The reason and an appeal are in Meta Business Support Home (business.facebook.com/business-support-home). Replies within 24 hours of a customer\'s message may still work.');
+  return tr('Edit the template in WhatsApp Manager and submit it again.');
+}
+
+function WhatsAppNotices({ a, canDismiss, onDismiss, busy }) {
+  const shown = a.open.length ? a.open : [];
+  const recentTpl = a.templates.filter((t) => t.tone === 'good').slice(0, 3);
+  if (!shown.length && !a.account && !recentTpl.length) return null;
+  return (
+    <div id="wa-notices" className="hub-wa-notices">
+      <h4 className="hub-subhead"><ChannelDot channel="whatsapp" /> {tr('What Meta says about the WhatsApp account')}</h4>
+      {shown.length ? (
+        <ul className="hub-notices">
+          {shown.map((n) => (
+            <li key={n.id} className={'is-' + n.tone}>
+              <Icon name="warn" />
+              <div>
+                <p className="hub-notice-text">{noticeText(n)}</p>
+                <p className="dk-muted tl-small">{noticeAdvice(n)} · {ago(n.at)}</p>
+              </div>
+              {canDismiss && <button type="button" className="dk-link" disabled={busy} onClick={() => onDismiss(n.id)}>{tr('Dismiss')}</button>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="tl-small hub-notice-ok"><Icon name="check" /> {tr('No warnings from Meta.')}</p>}
+      {(a.account && a.account.tone === 'good') && <p className="dk-muted tl-small">{noticeText(a.account)} · {ago(a.account.at)}</p>}
+      {recentTpl.map((t) => <p key={t.id} className="dk-muted tl-small">{noticeText(t)} · {ago(t.at)}</p>)}
+    </div>
+  );
+}
+
 // What has come in from WhatsApp, and — for a number also used in the
 // WhatsApp Business app on the company phone — the replies typed on the
 // phone and the past chats Meta shares.
@@ -224,6 +303,8 @@ function WhatsAppDetail({ w }) {
       {w.lastInAt ? <span className="hub-wa-line">{tr('Last customer message {time}', { time: ago(w.lastInAt) })}</span> : w.configured && <span className="hub-wa-line">{tr('No customer message received yet. Send a test from a personal phone.')}</span>}
       {w.phoneReplies && <span className="hub-wa-line">{tr('{n} replies typed on the company phone kept', { n: w.phoneReplies.items })}</span>}
       {w.history && !w.history.error && <span className="hub-wa-line">{w.history.progress != null && w.history.progress < 100 ? tr('Past chats from the phone: {pct}% received ({n} messages)', { pct: w.history.progress, n: w.history.items }) : tr('Past chats from the phone received ({n} messages)', { n: w.history.items })}</span>}
+      {w.alerts && w.alerts.limit && <span className="hub-wa-line">{tr('Daily limit of new conversations the business starts: {n}', { n: limitText(w.alerts.limit) })}</span>}
+      {w.alerts && w.alerts.quality && w.alerts.quality.flagged && <span className="hub-err"><Icon name="warn" /> {tr('Meta has flagged the number\'s quality as low.')}</span>}
       {w.configured && <span className="hub-wa-line dk-muted">{tr('In Meta, the webhook must subscribe to: {fields}', { fields: 'messages, smb_message_echoes, history, smb_app_state_sync' })}</span>}
       <span className="hub-wa-line dk-muted">{tr('Older chats: use "Import a WhatsApp chat" in the inbox.')}</span>
     </>
