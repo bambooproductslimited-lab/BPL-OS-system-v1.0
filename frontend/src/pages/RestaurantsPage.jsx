@@ -442,7 +442,7 @@ export default function RestaurantsPage() {
   if (ov && ov.stock.wasted30 > 0) insights.push({ tone: 'info', icon: 'cash', text: tr('{amount} of stock was thrown away in the last 30 days.', { amount: money(ov.stock.wasted30) }), action: { label: tr('Show stock'), run: () => pickView('stock') } });
   if (best) insights.push({ tone: 'good', icon: 'spark', text: tr('Best seller over 30 days: {name}, {qty} sold for {amount}.', { name: best.name, qty: qtyText(best.qty), amount: money(best.revenue) }), action: { label: tr('Show the menu'), run: () => pickView('menu') } });
   if (unsold.length) insights.push({ tone: 'info', icon: 'bag', text: unsold.length === 1 ? tr('{name} is on the menu but has not sold in 30 days.', { name: unsold[0].name }) : tr('{n} items on the menu have not sold in 30 days.', { n: unsold.length }), action: { label: tr('Show them'), run: () => { setMenuChip('unsold'); pickView('menu'); } } });
-  if (noPhoto.length && noPhoto.length < activeMenu.length) insights.push({ tone: 'info', icon: 'info', text: noPhoto.length === 1 ? tr('{name} has no photo, so the till shows it as a plain tile.', { name: noPhoto[0].name }) : tr('{n} menu items have no photo, so the till shows them as plain tiles.', { n: noPhoto.length }), action: { label: tr('Show them'), run: () => { setMenuChip('nophoto'); pickView('menu'); } } });
+  if (noPhoto.length && noPhoto.length < activeMenu.length) insights.push({ tone: 'info', icon: 'info', text: noPhoto.length === 1 ? tr('{name} has no photo, so the till shows it as a plain tile.', { name: noPhoto[0].name }) : tr('{n} menu items have no photo, so the till shows them as plain tiles. Import from Square brings any picture they have there.', { n: noPhoto.length }), action: { label: tr('Show them'), run: () => { setMenuChip('nophoto'); pickView('menu'); } } });
   if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Nothing needs attention: stock is fine and the drawers add up.') });
 
   const menuCategories = Array.from(new Set(menuItems.map((m) => m.category))).sort();
@@ -536,12 +536,14 @@ export default function RestaurantsPage() {
             </strong>
             <span className="dk-muted tl-small">
               {squareRunning
-                ? (squareJob.phase === 'menu' || squareJob.phase === 'starting' ? tr('Reading the menu…') : tr('Saving orders, page {n}…', { n: squareJob.pagesDone + 1 }))
+                ? (squareJob.phase === 'menu' || squareJob.phase === 'starting' ? tr('Reading the menu and its pictures…') : tr('Saving orders, page {n}…', { n: squareJob.pagesDone + 1 }))
                 : fmtDateTime(squareJob.finishedAt || squareJob.heartbeatAt)}
             </span>
           </div>
           <div className="rs-square-nums">
-            {tr('Menu items {imported} imported ({skipped} skipped)', squareJob.menuItems)} · {tr('Orders {imported} imported ({skipped} skipped)', squareJob.orders)}
+            {tr('Menu items {imported} imported ({skipped} skipped)', squareJob.menuItems)}
+            {squareJob.photos && (squareJob.photos.imported > 0 || squareJob.photos.skipped > 0) && <> · {squareJob.photos.skipped ? tr('{n} new pictures ({skipped} could not be downloaded)', { n: squareJob.photos.imported, skipped: squareJob.photos.skipped }) : tr('{n} new pictures', { n: squareJob.photos.imported })}</>}
+            {' · '}{tr('Orders {imported} imported ({skipped} skipped)', squareJob.orders)}
             {squareJob.lastOrderAt && <> · {tr('up to {date}', { date: fmtDate(squareJob.lastOrderAt) })}</>}
             {squareJob.ordersSince && <> · {tr('only orders from {date} on', { date: fmtDate(squareJob.ordersSince) })}</>}
           </div>
@@ -900,6 +902,9 @@ export default function RestaurantsPage() {
                     {photo.preview && <button type="button" className="btn btn-secondary tl-btn" onClick={() => setPhoto({ file: null, preview: null, removed: true })}>{tr('Remove photo')}</button>}
                   </span>
                 </div>
+                <span className="dk-muted tl-small">{editingItem && editingItem.photoFromSquare && photo.preview && !photo.file
+                  ? tr('This picture comes from Square; Import from Square updates it if it changes there. Upload your own to keep it instead.')
+                  : tr('Import from Square fills in the pictures set there. A photo uploaded here is kept; one removed here isn\'t brought back.')}</span>
               </div>
               {menuDialog.id ? (
                 <div className="field tl-span">

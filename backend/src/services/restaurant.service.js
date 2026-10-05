@@ -32,6 +32,8 @@ function rowToMenuItem(r) {
     id: r.id, companyId: r.company_id, name: r.name, category: r.category,
     price: Number(r.price), active: r.active, source: r.source,
     photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null,
+    // The picture came from Square (the import may update it) rather than being uploaded here.
+    photoFromSquare: !!(r.photo_object_key && r.photo_square_image_id),
     variations: []
   };
 }
@@ -183,7 +185,9 @@ async function setMenuItemPhoto(ctx, id, file) {
 
   var key = await fileStore.put(file.originalname, file.buffer, file.mimetype);
   var res = await pool.query(
-    'UPDATE restaurant_menu_items SET photo_object_key = $1, photo_file_name = $2, updated_at = now() WHERE id = $3 RETURNING *',
+    // photo_square_image_id cleared: a photo uploaded here is never replaced
+    // by the Square import (restaurantSquareImport.service.js).
+    'UPDATE restaurant_menu_items SET photo_object_key = $1, photo_file_name = $2, photo_square_image_id = NULL, updated_at = now() WHERE id = $3 RETURNING *',
     [key, file.originalname, id]
   );
   await fileStore.del(existing.rows[0].photo_object_key);
@@ -198,7 +202,11 @@ async function removeMenuItemPhoto(ctx, id) {
   if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
   await fileStore.del(existing.rows[0].photo_object_key);
   var res = await pool.query(
-    'UPDATE restaurant_menu_items SET photo_object_key = NULL, photo_file_name = NULL, updated_at = now() WHERE id = $1 RETURNING *',
+    // A Square picture taken off stays off: the import skips that picture
+    // ("-<its id>"), and only brings one again if it changes in Square.
+    "UPDATE restaurant_menu_items SET photo_object_key = NULL, photo_file_name = NULL, " +
+    "photo_square_image_id = CASE WHEN photo_square_image_id IS NOT NULL AND photo_square_image_id NOT LIKE '-%' THEN '-' || photo_square_image_id ELSE photo_square_image_id END, " +
+    'updated_at = now() WHERE id = $1 RETURNING *',
     [id]
   );
   var item = res.rows[0];

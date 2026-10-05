@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var config = require('../config');
 var square = require('./square.service');
+var fileStore = require('../lib/fileStore');
 
 // Restaurant module, Phase 4: one-time historical Square import, run
 // separately per restaurant. Star Bar Restaurant and Bamboo Garden turned
@@ -168,6 +169,46 @@ async function upsertGroupedMenuItem(company, item, variations, categoryNameByEx
   return { menuItemId: menuItemId, variationRowIdByExternalId: variationRowIdByExternalId };
 }
 
+// The menu item's picture from Square: the item's own first picture, or else
+// the first one of a variation sold here. A photo uploaded in the OS is never
+// replaced; one that came from Square is replaced when the picture changed
+// there, and left alone (not downloaded again) when it didn't.
+function squarePictureId(item, variations) {
+  var own = (item.item_data && item.item_data.image_ids) || [];
+  if (own.length) return own[0];
+  for (var i = 0; i < variations.length; i++) {
+    var ids = (variations[i].item_variation_data && variations[i].item_variation_data.image_ids) || [];
+    if (ids.length) return ids[0];
+  }
+  return null;
+}
+
+// Returns 'imported', 'kept' (theirs, or the same picture) or 'none'.
+async function importMenuPhoto(client, menuItemId, imageId, imageById) {
+  var img = imageById[imageId];
+  var url = img && img.image_data && img.image_data.url;
+  if (!url) return 'none';
+  var cur = (await pool.query('SELECT name, photo_object_key, photo_square_image_id FROM restaurant_menu_items WHERE id = $1', [menuItemId])).rows[0];
+  if (!cur) return 'none';
+  if (cur.photo_object_key && !cur.photo_square_image_id) return 'kept'; // uploaded here
+  if (cur.photo_object_key && cur.photo_square_image_id === imageId) return 'kept'; // already this picture
+  if (!cur.photo_object_key && cur.photo_square_image_id === '-' + imageId) return 'kept'; // taken off here on purpose
+  var file = await client.downloadImage(url);
+  var slug = String(cur.name || 'menu').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'menu';
+  var type = /^image\/(jpeg|png|webp|gif)$/.test(file.contentType || '') ? file.contentType : 'image/jpeg';
+  var key = await fileStore.put('menu-' + slug + (type === 'image/png' ? '.png' : type === 'image/webp' ? '.webp' : type === 'image/gif' ? '.gif' : '.jpg'), file.buffer, type);
+  try {
+    // Only if nobody uploaded one meanwhile.
+    var res = await pool.query(
+      'UPDATE restaurant_menu_items SET photo_object_key = $2, photo_file_name = $3, photo_square_image_id = $4, updated_at = now() ' +
+      'WHERE id = $1 AND (photo_object_key IS NULL OR photo_square_image_id IS NOT NULL) RETURNING id',
+      [menuItemId, key, 'square-' + slug, imageId]);
+    if (!res.rows[0]) { await fileStore.del(key); return 'kept'; }
+  } catch (e) { await fileStore.del(key); throw e; }
+  if (cur.photo_object_key) await fileStore.del(cur.photo_object_key); // Square's previous picture
+  return 'imported';
+}
+
 // Square Orders don't reliably carry a payment method on the order object
 // itself (tenders is a legacy field, absent on most modern orders) — where
 // present it's mapped onto restaurant_orders' CHECK constraint values the
@@ -268,6 +309,7 @@ function rowToJob(r) {
   return {
     id: r.id, companyId: r.company_id, status: stale ? 'interrupted' : r.status, phase: r.phase, fullImport: r.full_import,
     ordersSince: r.orders_since, menuItems: { imported: r.menu_imported, skipped: r.menu_skipped },
+    photos: { imported: r.photos_imported || 0, skipped: r.photos_skipped || 0 },
     orders: { imported: r.orders_imported, skipped: r.orders_skipped }, pagesDone: r.pages_done, lastOrderAt: r.last_order_at,
     errorCount: r.error_count, errors: r.errors || [], message: r.message || null,
     startedAt: r.started_at, heartbeatAt: r.heartbeat_at, finishedAt: r.finished_at
@@ -311,13 +353,15 @@ async function startImport(ctx, companyId, opts) {
 
 async function runJob(ctx, jobId, company, creds, client, full) {
   var errors = [];
-  var counts = { menuImported: 0, menuSkipped: 0, ordersImported: 0, ordersSkipped: 0, pages: 0, errorCount: 0, lastOrderAt: null };
+  var counts = { menuImported: 0, menuSkipped: 0, photosImported: 0, photosSkipped: 0, ordersImported: 0, ordersSkipped: 0, pages: 0, errorCount: 0, lastOrderAt: null };
+  var lastSave = Date.now();
   function keepError(e) { counts.errorCount++; if (errors.length < MAX_ERRORS_KEPT) errors.push(e); }
   async function save(phase, extra) {
     await pool.query(
       'UPDATE restaurant_import_jobs SET phase = $2, menu_imported = $3, menu_skipped = $4, orders_imported = $5, orders_skipped = $6, pages_done = $7, ' +
-      'last_order_at = COALESCE($8, last_order_at), error_count = $9, errors = $10, heartbeat_at = now()' + (extra || '') + ' WHERE id = $1',
-      [jobId, phase, counts.menuImported, counts.menuSkipped, counts.ordersImported, counts.ordersSkipped, counts.pages, counts.lastOrderAt, counts.errorCount, JSON.stringify(errors)]);
+      'last_order_at = COALESCE($8, last_order_at), error_count = $9, errors = $10, photos_imported = $11, photos_skipped = $12, heartbeat_at = now()' + (extra || '') + ' WHERE id = $1',
+      [jobId, phase, counts.menuImported, counts.menuSkipped, counts.ordersImported, counts.ordersSkipped, counts.pages, counts.lastOrderAt, counts.errorCount, JSON.stringify(errors), counts.photosImported, counts.photosSkipped]);
+    lastSave = Date.now();
   }
   try {
     var cashierId = await ensureImportCashier(company);
@@ -326,6 +370,8 @@ async function runJob(ctx, jobId, company, creds, client, full) {
     var categoryNameByExternal = {};
     squareObjects.filter(function (o) { return o.type === 'CATEGORY'; }).forEach(function (c) { categoryNameByExternal[c.id] = c.category_data.name; });
     var squareItems = squareObjects.filter(function (o) { return o.type === 'ITEM'; });
+    var imageById = {};
+    squareObjects.forEach(function (o) { if (o.type === 'IMAGE') imageById[o.id] = o; });
 
     var locations = await client.listLocations();
     var allLocationIds = locations.map(function (l) { return l.id; });
@@ -355,6 +401,18 @@ async function runJob(ctx, jobId, company, creds, client, full) {
       } catch (e) {
         counts.menuSkipped += qualifying.length;
         keepError({ type: 'menuItem', externalId: item.id, message: e.message });
+        grouped = null;
+      }
+      var pictureId = grouped && client.downloadImage ? squarePictureId(item, qualifying) : null;
+      if (pictureId) {
+        try {
+          if ((await importMenuPhoto(client, grouped.menuItemId, pictureId, imageById)) === 'imported') counts.photosImported++;
+        } catch (e) {
+          counts.photosSkipped++;
+          keepError({ type: 'menuPhoto', externalId: pictureId, message: 'Picture for ' + ((item.item_data && item.item_data.name) || 'an item') + ': ' + e.message });
+        }
+        // Downloading pictures takes a while: keep showing the job is alive.
+        if (Date.now() - lastSave > 10000) await save('menu');
       }
       if (it % 100 === 99) await save('menu');
     }
@@ -390,7 +448,7 @@ async function runJob(ctx, jobId, company, creds, client, full) {
 
     await save('done', ", status = 'done', finished_at = now()");
     await audit(pool, ctx, 'restaurant.square_import', 'restaurant_import_job', jobId,
-      'Square import for ' + company.name + ': ' + counts.menuImported + ' menu item(s) and ' + counts.ordersImported + ' order(s) saved' +
+      'Square import for ' + company.name + ': ' + counts.menuImported + ' menu item(s), ' + counts.photosImported + ' new picture(s) and ' + counts.ordersImported + ' order(s) saved' +
       (counts.menuSkipped + counts.ordersSkipped ? ', ' + (counts.menuSkipped + counts.ordersSkipped) + ' skipped' : '') + '.');
   } catch (e) {
     console.error('[restaurant import] ' + company.name + ' failed:', e);
@@ -414,5 +472,5 @@ module.exports = {
   minorToMajor: minorToMajor, menuItemName: menuItemName, mapTenderType: mapTenderType,
   requireCompany: requireCompany, ensureImportCashier: ensureImportCashier,
   upsertMenuItem: upsertMenuItem, upsertGroupedMenuItem: upsertGroupedMenuItem,
-  upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation
+  upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation, squarePictureId: squarePictureId
 };
