@@ -178,6 +178,152 @@ export default function WhatsAppConnect({ onToast }) {
           <p className="dk-muted tl-small">{tr('Meta must also send messages to the OS: in the app\'s WhatsApp → Configuration, the webhook is {url}, with the verify phrase from Render (WHATSAPP_VERIFY_TOKEN), subscribed to messages, smb_message_echoes, history and smb_app_state_sync.', { url: info.webhookUrl })}</p>
         </div>
       )}
+      {info.sending && <WhatsAppTools sending={info.sending} onToast={onToast} />}
     </Section>
+  );
+}
+
+// ── a test message, and message templates ────────────────────────────
+// What Meta's App Review asks to see (the app sending a WhatsApp message;
+// a template created through the API) — and the templates the OS will use
+// for messages to customers who haven't written in the last 24 hours.
+const STATUS_TONE = { APPROVED: 'good', PENDING: 'info', IN_APPEAL: 'info', REJECTED: 'bad', PAUSED: 'warn', DISABLED: 'bad' };
+function statusText(st) {
+  switch (st) {
+    case 'APPROVED': return tr('Approved');
+    case 'PENDING': return tr('Waiting for Meta');
+    case 'REJECTED': return tr('Rejected');
+    case 'PAUSED': return tr('Paused');
+    case 'DISABLED': return tr('Disabled');
+    default: return st;
+  }
+}
+function blanks(text) { const n = (String(text).match(/\{\{(\d+)\}\}/g) || []).map((x) => Number(x.replace(/\D/g, ''))); return n.length ? Math.max(...n) : 0; }
+
+function WhatsAppTools({ sending, onToast }) {
+  const [templates, setTemplates] = useState(null);
+  const [tplError, setTplError] = useState(null);
+  const [test, setTest] = useState({ to: '', template: 'hello_world', language: 'en_US', params: [] });
+  const [result, setResult] = useState(null);
+  const [form, setForm] = useState({ name: '', category: 'UTILITY', language: 'en', body: '', examples: [] });
+  const [busy, setBusy] = useState(null);
+
+  const loadTemplates = useCallback(async () => {
+    if (!sending.templates) return;
+    try { setTemplates(await api.get('/whatsapp-connect/templates')); setTplError(null); } catch (err) { setTplError(err.message); setTemplates([]); }
+  }, [sending.templates]);
+  useEffect(() => { loadTemplates(); }, [loadTemplates]);
+
+  const approved = (templates || []).filter((t) => t.status === 'APPROVED');
+  const chosen = approved.find((t) => t.name === test.template && t.language === test.language) || null;
+  const testBlanks = chosen ? chosen.variables : 0;
+  const formBlanks = blanks(form.body);
+
+  async function send(e) {
+    e.preventDefault();
+    setBusy('send'); setResult(null);
+    try {
+      const out = await api.post('/whatsapp-connect/test-message', { to: test.to, template: test.template, language: test.language, params: test.params.slice(0, testBlanks) });
+      setResult({ ok: true, text: tr('Sent “{template}” to {to}. Check WhatsApp on that phone.', { template: out.template, to: out.to }) });
+    } catch (err) { setResult({ ok: false, text: err.message }); } finally { setBusy(null); }
+  }
+  async function create(e) {
+    e.preventDefault();
+    setBusy('create'); setTplError(null);
+    try {
+      const out = await api.post('/whatsapp-connect/templates', { ...form, examples: form.examples.slice(0, formBlanks) });
+      if (onToast) onToast(tr('Template “{name}” sent to Meta for review.', { name: out.name }));
+      setForm({ name: '', category: form.category, language: form.language, body: '', examples: [] });
+      await loadTemplates();
+    } catch (err) { setTplError(err.message); } finally { setBusy(null); }
+  }
+  async function remove(t) {
+    if (!window.confirm(tr('Delete the template “{name}” from WhatsApp?', { name: t.name }))) return;
+    setBusy('del-' + t.name);
+    try { await api.del('/whatsapp-connect/templates/' + encodeURIComponent(t.name)); await loadTemplates(); } catch (err) { setTplError(err.message); } finally { setBusy(null); }
+  }
+
+  return (
+    <div className="wac-tools">
+      <form className="wac-card wac-tool" onSubmit={send}>
+        <div className="wac-tool-head">
+          <h4>{tr('Send a test message')}</h4>
+          <span className="dk-muted tl-small">{sending.source === 'env' ? tr('From the number set on Render (Meta\'s test number while you record the App Review videos).') : tr('From {number}.', { number: sending.displayPhone || sending.phoneNumberId })}</span>
+        </div>
+        <div className="wac-row">
+          <div className="field"><label htmlFor="wac-to">{tr('To (WhatsApp number)')}</label><input id="wac-to" className="input" value={test.to} onChange={(e) => setTest({ ...test, to: e.target.value })} placeholder="024 000 0000" required /></div>
+          <div className="field">
+            <label htmlFor="wac-tpl">{tr('Template')}</label>
+            <select id="wac-tpl" className="input" value={test.template + '|' + test.language} onChange={(e) => { const [template, language] = e.target.value.split('|'); setTest({ ...test, template, language, params: [] }); }}>
+              {!approved.some((t) => t.name === 'hello_world') && <option value="hello_world|en_US">hello_world (en_US)</option>}
+              {approved.map((t) => <option key={t.id} value={t.name + '|' + t.language}>{t.name} ({t.language})</option>)}
+            </select>
+          </div>
+        </div>
+        {chosen && <p className="wac-preview">{chosen.body}</p>}
+        {Array.from({ length: testBlanks }, (_, i) => (
+          <div className="field" key={i}><label htmlFor={'wac-p' + i}>{tr('Blank {n}', { n: '{{' + (i + 1) + '}}' })}</label><input id={'wac-p' + i} className="input" value={test.params[i] || ''} onChange={(e) => { const params = [...test.params]; params[i] = e.target.value; setTest({ ...test, params }); }} required /></div>
+        ))}
+        <div className="wac-acts">
+          <button type="submit" className="btn btn-primary" disabled={busy === 'send'}><Icon name="send" /> {busy === 'send' ? tr('Sending…') : tr('Send')}</button>
+          {result && <span className={result.ok ? 'wac-ok' : 'wac-err'}><Icon name={result.ok ? 'check' : 'warn'} /> {result.text}</span>}
+        </div>
+        <p className="dk-muted tl-small">{tr('Messages to people who haven\'t written in the last 24 hours must use an approved template. Meta\'s test number only sends to the phones on its recipient list (Meta → Connect on WhatsApp → Step 1. Try it out).')}</p>
+      </form>
+
+      <div className="wac-card wac-tool">
+        <div className="wac-tool-head">
+          <h4>{tr('Message templates')}</h4>
+          <span className="dk-muted tl-small">{tr('Ready-made messages Meta approves in advance — for reminders and notices to customers who haven\'t written recently. Write {{1}}, {{2}} … where a name, an amount or a date goes.')}</span>
+        </div>
+        {tplError && <p className="wac-err"><Icon name="warn" /> {tplError}</p>}
+        {!sending.templates ? <p className="dk-muted tl-small">{tr('Set WHATSAPP_BUSINESS_ACCOUNT_ID on Render, or connect the number above, to see and create templates.')}</p> : (
+          <>
+            {templates === null ? <p className="eyebrow">{tr('Loading…')}</p> : templates.length ? (
+              <ul className="wac-tpls">
+                {templates.map((t) => (
+                  <li key={t.id}>
+                    <div className="wac-tpl-main">
+                      <span className="wac-tpl-name"><strong>{t.name}</strong> <span className="dk-muted tl-small">{t.language} · {t.category === 'MARKETING' ? tr('Marketing') : t.category === 'UTILITY' ? tr('Utility') : t.category}</span></span>
+                      <span className="tl-small wac-tpl-body">{t.body}</span>
+                      {t.rejectedReason && <span className="wac-err tl-small">{tr('Meta\'s reason: {why}', { why: t.rejectedReason.toLowerCase().replace(/_/g, ' ') })}</span>}
+                    </div>
+                    <Status tone={STATUS_TONE[t.status] || 'muted'}>{statusText(t.status)}</Status>
+                    {t.name !== 'hello_world' && <button type="button" className="dk-link" disabled={busy === 'del-' + t.name} onClick={() => remove(t)}>{tr('Delete')}</button>}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="dk-muted tl-small">{tr('No templates yet.')}</p>}
+            <form className="wac-new" onSubmit={create}>
+              <h5>{tr('New template')}</h5>
+              <div className="wac-row">
+                <div className="field"><label htmlFor="wac-name">{tr('Name')}</label><input id="wac-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="order_ready" required /></div>
+                <div className="field">
+                  <label htmlFor="wac-cat">{tr('Kind')}</label>
+                  <select id="wac-cat" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                    <option value="UTILITY">{tr('Utility — orders, payments, appointments')}</option>
+                    <option value="MARKETING">{tr('Marketing — offers and news')}</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="wac-lang">{tr('Language')}</label>
+                  <select id="wac-lang" className="input" value={form.language} onChange={(e) => setForm({ ...form, language: e.target.value })}>
+                    <option value="en">English</option>
+                    <option value="en_US">English (US)</option>
+                    <option value="fr">Français</option>
+                    <option value="zh_CN">中文</option>
+                  </select>
+                </div>
+              </div>
+              <div className="field"><label htmlFor="wac-body">{tr('Message')}</label><textarea id="wac-body" className="input" rows={3} maxLength={1024} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder={tr('Hello {{1}}, your order {{2}} is ready for pickup at Bamboo Products.')} required /></div>
+              {Array.from({ length: formBlanks }, (_, i) => (
+                <div className="field" key={i}><label htmlFor={'wac-ex' + i}>{tr('Example for {n}', { n: '{{' + (i + 1) + '}}' })}</label><input id={'wac-ex' + i} className="input" value={form.examples[i] || ''} onChange={(e) => { const examples = [...form.examples]; examples[i] = e.target.value; setForm({ ...form, examples }); }} required /></div>
+              ))}
+              <div className="wac-acts"><button type="submit" className="btn btn-secondary" disabled={busy === 'create'}>{busy === 'create' ? tr('Sending to Meta…') : tr('Create and send to Meta for review')}</button></div>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

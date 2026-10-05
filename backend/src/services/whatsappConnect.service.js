@@ -70,8 +70,104 @@ async function info(ctx) {
     missing: [!config.meta.appId && 'META_APP_ID', !config.meta.appSecret && 'META_APP_SECRET', !config.meta.waConfigId && 'META_WA_CONFIG_ID', !config.whatsapp.verifyToken && 'WHATSAPP_VERIFY_TOKEN'].filter(Boolean),
     webhookUrl: 'https://bamboo-os-backend.onrender.com/api/marketing/whatsapp/webhook',
     connection: rowOut(await current()),
-    fromEnv: a && a.source === 'env' ? { phoneNumberId: a.phoneNumberId } : null
+    fromEnv: a && a.source === 'env' ? { phoneNumberId: a.phoneNumberId } : null,
+    // What the test message and the templates screen can use.
+    sending: a ? { source: a.source, phoneNumberId: a.phoneNumberId, displayPhone: a.displayPhone || '', templates: !!a.wabaId } : null
   };
+}
+
+// ── a test message, and message templates ────────────────────────────
+// For Meta's App Review videos (sending from the app; creating a
+// template through the API) — and for later: templates are how the OS will
+// message customers who haven't written in the last 24 hours (reminders).
+function sender() {
+  var a = access.get();
+  if (!a) fail('invalid', 'No WhatsApp number is set up: connect one above, or put the test number\'s ids and a token on Render.');
+  return a;
+}
+function waTo(v) {
+  var d = String(v || '').replace(/\D/g, '');
+  if (d.length === 10 && d.charAt(0) === '0') d = '233' + d.slice(1);
+  if (d.length < 8 || d.length > 15) fail('invalid', 'That phone number isn\'t right. Use the full number, e.g. 024 000 0000 or +233 24 000 0000.');
+  return d;
+}
+
+// p: { to, template (default hello_world), language (default en_US), params: [..] }
+async function sendTest(ctx, p) {
+  need(ctx);
+  var a = sender();
+  var to = waTo(p && p.to);
+  var name = String((p && p.template) || 'hello_world').trim();
+  var lang = String((p && p.language) || 'en_US').trim();
+  var params = ((p && p.params) || []).map(function (x) { return String(x || '').slice(0, 300); });
+  var template = { name: name, language: { code: lang } };
+  if (params.length) template.components = [{ type: 'body', parameters: params.map(function (t) { return { type: 'text', text: t }; }) }];
+  var out;
+  try {
+    out = await graph('/' + a.phoneNumberId + '/messages', a.token, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: to, type: 'template', template: template }) });
+  } catch (e) {
+    if (e.metaCode === 131030) fail('invalid', 'Meta only lets the test number message phones on its recipient list. Add this number in Meta → Connect on WhatsApp → Step 1. Try it out → Recipient.');
+    fail('invalid', 'WhatsApp did not send it: ' + e.message);
+  }
+  await audit(pool, ctx, 'whatsapp.test_message', 'whatsapp_connection', a.phoneNumberId, 'Sent the WhatsApp template "' + name + '" to +' + to + '.');
+  return { sent: true, to: '+' + to, template: name, messageId: out.messages && out.messages[0] && out.messages[0].id };
+}
+
+var CATEGORIES = ['UTILITY', 'MARKETING'];
+function templateOut(t) {
+  var body = (t.components || []).find(function (c) { return c.type === 'BODY'; });
+  var text = body ? body.text : '';
+  var vars = (text.match(/\{\{\d+\}\}/g) || []).length;
+  return { id: t.id, name: t.name, status: t.status, category: t.category, language: t.language, body: text, variables: vars, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : null };
+}
+async function listTemplates(ctx) {
+  need(ctx);
+  var a = sender();
+  if (!a.wabaId) fail('invalid', 'The WhatsApp Business Account ID isn\'t known: connect the number above, or set WHATSAPP_BUSINESS_ACCOUNT_ID on Render.');
+  try {
+    var r = await graph('/' + a.wabaId + '/message_templates?limit=100&fields=' + encodeURIComponent('id,name,status,category,language,components,rejected_reason'), a.token);
+    return (r.data || []).map(templateOut);
+  } catch (e) { fail('invalid', 'Meta did not list the templates: ' + e.message); }
+}
+// p: { name, category, language, body, examples: [..] } — a text template;
+// {{1}}, {{2}} … in the body are filled in when it is sent.
+async function createTemplate(ctx, p) {
+  need(ctx);
+  var a = sender();
+  if (!a.wabaId) fail('invalid', 'The WhatsApp Business Account ID isn\'t known: connect the number above, or set WHATSAPP_BUSINESS_ACCOUNT_ID on Render.');
+  var name = String((p && p.name) || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!/^[a-z0-9_]{1,512}$/.test(name)) fail('invalid', 'A template name uses only small letters, numbers and _ (e.g. order_ready).');
+  var category = String((p && p.category) || 'UTILITY').toUpperCase();
+  if (CATEGORIES.indexOf(category) < 0) fail('invalid', 'Choose Utility or Marketing.');
+  var language = String((p && p.language) || 'en').trim();
+  var body = String((p && p.body) || '').trim();
+  if (!body) fail('invalid', 'Write the message.');
+  if (body.length > 1024) fail('invalid', 'The message can be at most 1,024 characters.');
+  var nums = (body.match(/\{\{(\d+)\}\}/g) || []).map(function (x) { return Number(x.replace(/\D/g, '')); });
+  var count = nums.length ? Math.max.apply(null, nums) : 0;
+  for (var i = 1; i <= count; i++) if (nums.indexOf(i) < 0) fail('invalid', 'Number the blanks in order: {{1}}, {{2}}, {{3}}…');
+  var examples = ((p && p.examples) || []).map(function (x) { return String(x || '').trim(); });
+  if (examples.length < count || examples.slice(0, count).some(function (x) { return !x; })) fail('invalid', 'Give an example for every blank — Meta needs them to review the template.');
+  var comp = { type: 'BODY', text: body };
+  if (count) comp.example = { body_text: [examples.slice(0, count)] };
+  var out;
+  try {
+    out = await graph('/' + a.wabaId + '/message_templates', a.token, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, category: category, language: language, components: [comp] }) });
+  } catch (e) { fail('invalid', 'Meta did not accept the template: ' + e.message); }
+  await audit(pool, ctx, 'whatsapp.template.create', 'whatsapp_connection', a.wabaId, 'Created the WhatsApp template "' + name + '" (' + category.toLowerCase() + ', ' + language + ').');
+  return { id: out.id, name: name, status: out.status || 'PENDING', category: out.category || category };
+}
+async function deleteTemplate(ctx, name) {
+  need(ctx);
+  var a = sender();
+  if (!a.wabaId) fail('invalid', 'The WhatsApp Business Account ID isn\'t known.');
+  name = String(name || '').trim();
+  if (!/^[a-z0-9_]{1,512}$/.test(name)) fail('invalid', 'Unknown template.');
+  try { await graph('/' + a.wabaId + '/message_templates?name=' + encodeURIComponent(name), a.token, { method: 'DELETE' }); } catch (e) { fail('invalid', 'Meta did not delete it: ' + e.message); }
+  await audit(pool, ctx, 'whatsapp.template.delete', 'whatsapp_connection', a.wabaId, 'Deleted the WhatsApp template "' + name + '".');
+  return { deleted: true };
 }
 
 // Ask Meta to send the contacts saved in the app, then the past chats.
@@ -156,4 +252,4 @@ async function disconnect(ctx) {
   return info(ctx);
 }
 
-module.exports = { info: info, finish: finish, resync: resync, disconnect: disconnect, setFetchForTests: setFetchForTests };
+module.exports = { info: info, finish: finish, resync: resync, disconnect: disconnect, sendTest: sendTest, listTemplates: listTemplates, createTemplate: createTemplate, deleteTemplate: deleteTemplate, setFetchForTests: setFetchForTests };

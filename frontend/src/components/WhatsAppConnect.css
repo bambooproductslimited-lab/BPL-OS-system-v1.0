@@ -20,3 +20,22 @@
 .wac-note { color: var(--color-text-muted); }
 .wac-err .dk-icon, .wac-note .dk-icon { flex: none; width: 15px; height: 15px; margin-top: 1px; }
 .wac-card p { margin: 0; }
+
+/* the test message and the templates */
+.wac-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; margin-top: 12px; align-items: start; }
+.wac-tool h4 { margin: 0; font-size: 15px; }
+.wac-tool h5 { margin: 4px 0 0; font-size: 13.5px; }
+.wac-tool-head { display: flex; flex-direction: column; gap: 2px; }
+.wac-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.wac-row .field, .wac-tool .field { margin: 0; }
+.wac-preview { padding: 8px 12px; font-size: 13px; background: color-mix(in srgb, #1f9d55 9%, var(--color-bg)); border-radius: 4px 12px 12px 12px; white-space: pre-wrap; }
+.wac-ok { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 700; color: var(--color-accent-700); }
+:root[data-theme='dark'] .wac-ok { color: var(--color-accent); }
+.wac-ok .dk-icon { width: 15px; height: 15px; }
+.wac-tpls { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wac-tpls li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--color-divider, var(--color-border)); flex-wrap: wrap; }
+.wac-tpls li:first-child { border-top: 0; }
+.wac-tpl-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 200px; }
+.wac-tpl-body { color: var(--color-text-muted); overflow-wrap: anywhere; }
+.wac-new { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--color-divider, var(--color-border)); }
+@media (max-width: 520px) { .wac-tools { grid-template-columns: minmax(0, 1fr); } }

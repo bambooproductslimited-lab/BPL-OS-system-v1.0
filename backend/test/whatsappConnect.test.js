@@ -24,14 +24,22 @@ function fakeMeta(opts) {
     if (/\/register$/.test(url)) return reply(200, { success: true });
     if (/\/smb_app_data$/.test(url)) return opts.syncRefused ? reply(400, { error: { message: 'Onboarding was more than 24 hours ago.' } }) : reply(200, { success: true });
     if (/fields=display_phone_number/.test(url)) return reply(200, { display_phone_number: '+233 20 555 0700', verified_name: 'Zq Bamboo Test' });
-    if (/\/messages$/.test(url)) return reply(200, { messages: [{ id: 'wamid.zq.out.1' }] });
+    if (/\/messages$/.test(url)) {
+      if (opts.notRecipient) return reply(400, { error: { message: 'Recipient phone number not in allowed list', code: 131030 } });
+      return reply(200, { messages: [{ id: 'wamid.zq.out.1' }] });
+    }
+    if (/\/message_templates\?limit=/.test(url)) return reply(200, { data: [
+      { id: 't1', name: 'hello_world', status: 'APPROVED', category: 'UTILITY', language: 'en_US', components: [{ type: 'BODY', text: 'Hello World!' }] },
+      { id: 't2', name: 'zq_order_ready', status: 'REJECTED', category: 'UTILITY', language: 'en', rejected_reason: 'INVALID_FORMAT', components: [{ type: 'BODY', text: 'Hi {{1}}, order {{2}} is ready.' }] }] });
+    if (/\/message_templates\?name=/.test(url)) return reply(200, { success: true });
+    if (/\/message_templates$/.test(url)) return reply(200, { id: 't3', status: 'PENDING', category: 'UTILITY' });
     return reply(404, { error: { message: 'not faked: ' + url } });
   };
 }
 
 test.before(async function () {
   admin = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'kelvin.duho@bplghana.com'")).rows[0].id);
-  saved = { appId: config.meta.appId, appSecret: config.meta.appSecret, waConfigId: config.meta.waConfigId, verify: config.whatsapp.verifyToken, pn: config.whatsapp.phoneNumberId, tk: config.whatsapp.accessToken };
+  saved = { appId: config.meta.appId, appSecret: config.meta.appSecret, waConfigId: config.meta.waConfigId, verify: config.whatsapp.verifyToken, pn: config.whatsapp.phoneNumberId, tk: config.whatsapp.accessToken, waba: config.whatsapp.businessAccountId };
   config.meta.appId = 'zq-app'; config.meta.appSecret = 'zq-secret'; config.meta.waConfigId = 'zq-config';
   config.whatsapp.verifyToken = 'zq-phrase'; config.whatsapp.phoneNumberId = ''; config.whatsapp.accessToken = '';
   await pool.query('DELETE FROM whatsapp_connection');
@@ -43,7 +51,7 @@ test.after(async function () {
   await pool.query('DELETE FROM whatsapp_connection');
   await pool.query('DELETE FROM whatsapp_alerts');
   config.meta.appId = saved.appId; config.meta.appSecret = saved.appSecret; config.meta.waConfigId = saved.waConfigId;
-  config.whatsapp.verifyToken = saved.verify; config.whatsapp.phoneNumberId = saved.pn; config.whatsapp.accessToken = saved.tk;
+  config.whatsapp.verifyToken = saved.verify; config.whatsapp.phoneNumberId = saved.pn; config.whatsapp.accessToken = saved.tk; config.whatsapp.businessAccountId = saved.waba;
   await access.load();
   await pool.end();
 });
@@ -145,4 +153,47 @@ test('Meta\'s notices become Data health warnings: quality, sending limit, accou
   var nobody = { can: function () { return false; }, employee: null };
   await assert.rejects(alerts.dismiss(nobody, s.open[0].id), /settings.manage/);
   assert.ok((await whatsapp.status()).alerts, 'Data health gets them');
+});
+
+test('a test message (a template, so any phone works) and message templates, for Meta\'s App Review videos', async function () {
+  config.whatsapp.phoneNumberId = 'zq-test-number'; config.whatsapp.accessToken = 'zq-temp-token'; config.whatsapp.businessAccountId = 'zq-test-waba';
+  await pool.query('DELETE FROM whatsapp_connection'); await access.load();
+  connect.setFetchForTests(fakeMeta()); calls = [];
+  var i = await connect.info(admin);
+  assert.deepEqual([i.sending.source, i.sending.templates], ['env', true]);
+
+  var sent = await connect.sendTest(admin, { to: '020 555 0711' });
+  assert.equal(sent.to, '+233205550711');
+  var call = calls.find(function (c) { return /zq-test-number\/messages$/.test(c.url); });
+  var body = JSON.parse(call.body);
+  assert.deepEqual([body.to, body.type, body.template.name, body.template.language.code], ['233205550711', 'template', 'hello_world', 'en_US']);
+  assert.equal(call.auth, 'Bearer zq-temp-token');
+  calls = [];
+  await connect.sendTest(admin, { to: '+233205550711', template: 'zq_order_ready', language: 'en', params: ['Ama', 'SO-0088'] });
+  assert.deepEqual(JSON.parse(calls[0].body).template.components[0].parameters.map(function (x) { return x.text; }), ['Ama', 'SO-0088']);
+  await assert.rejects(connect.sendTest(admin, { to: '12' }), /isn't right/);
+  connect.setFetchForTests(fakeMeta({ notRecipient: true }));
+  await assert.rejects(connect.sendTest(admin, { to: '0205550799' }), /recipient list/);
+  connect.setFetchForTests(fakeMeta());
+
+  var list = await connect.listTemplates(admin);
+  assert.deepEqual(list.map(function (t) { return [t.name, t.status, t.variables]; }), [['hello_world', 'APPROVED', 0], ['zq_order_ready', 'REJECTED', 2]]);
+  assert.equal(list[1].rejectedReason, 'INVALID_FORMAT');
+
+  calls = [];
+  var made = await connect.createTemplate(admin, { name: 'Zq Order Ready', category: 'utility', language: 'en', body: 'Hi {{1}}, your order {{2}} is ready for pickup.', examples: ['Ama', 'SO-0088'] });
+  assert.deepEqual([made.name, made.status], ['zq_order_ready', 'PENDING']);
+  var tb = JSON.parse(calls.find(function (c) { return /message_templates$/.test(c.url); }).body);
+  assert.deepEqual([tb.category, tb.components[0].example.body_text[0]], ['UTILITY', ['Ama', 'SO-0088']]);
+  await assert.rejects(connect.createTemplate(admin, { name: 'x', body: 'Hi {{1}}', examples: [] }), /example for every blank/);
+  await assert.rejects(connect.createTemplate(admin, { name: 'x', body: 'Hi {{2}}', examples: ['a', 'b'] }), /in order/);
+  await assert.rejects(connect.createTemplate(admin, { name: 'Bad name!', body: 'Hi' }), /small letters/);
+  await connect.deleteTemplate(admin, 'zq_order_ready');
+  assert.ok(calls.some(function (c) { return c.method === 'DELETE' && /name=zq_order_ready/.test(c.url); }));
+  var nobody = { can: function () { return false; }, employee: null };
+  await assert.rejects(connect.sendTest(nobody, { to: '0205550711' }), /settings.manage/);
+
+  config.whatsapp.phoneNumberId = ''; config.whatsapp.accessToken = ''; config.whatsapp.businessAccountId = '';
+  await access.load();
+  await assert.rejects(connect.sendTest(admin, { to: '0205550711' }), /No WhatsApp number is set up/);
 });
