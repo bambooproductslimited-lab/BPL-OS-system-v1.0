@@ -81,7 +81,9 @@ test('whatsapp webhook: POST logs an inbox item, and re-delivery of the same mes
     method: 'POST', headers: signedWebhookHeaders(body), body: body
   });
   assert.equal(post1.status, 200);
-  var afterFirst = await countInbox();
+  // The webhook answers Meta first and files the message just after.
+  var afterFirst = before;
+  for (var i = 0; i < 40 && afterFirst === before; i++) { await new Promise(function (r) { setTimeout(r, 50); }); afterFirst = await countInbox(); }
   assert.equal(afterFirst, before + 1);
 
   // Meta retries undelivered webhooks — the same message id arriving twice
@@ -90,6 +92,7 @@ test('whatsapp webhook: POST logs an inbox item, and re-delivery of the same mes
     method: 'POST', headers: signedWebhookHeaders(body), body: body
   });
   assert.equal(post2.status, 200);
+  await new Promise(function (r) { setTimeout(r, 500); });
   var afterSecond = await countInbox();
   assert.equal(afterSecond, afterFirst);
 });

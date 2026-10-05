@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import AttendanceFeeds from '../components/AttendanceFeeds';
+import WhatsAppConnect from '../components/WhatsAppConnect';
 import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
@@ -325,6 +326,8 @@ export default function IntegrationsPage() {
       </Section>
 
       {squareSection}
+
+      <WhatsAppConnect onToast={setToast} />
 
       <AttendanceFeeds onToast={setToast} onSummary={setFeeds} />
 

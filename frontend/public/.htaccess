@@ -74,6 +74,10 @@
   # uses, established by reading the build rather than guessed:
   #   script-src  the bundle is same-origin ES modules; there are no inline
   #               scripts in index.html, so no 'unsafe-inline' is needed.
+  #               connect.facebook.net is Facebook's SDK, loaded only on
+  #               Integrations to open Meta's WhatsApp sign-up window
+  #               (components/WhatsAppConnect.jsx); its frames, pictures and
+  #               calls are on *.facebook.com and *.fbcdn.net below.
   #   style-src   React sets inline style props and the Google Fonts
   #               stylesheet is remote, so both are allowed. 'unsafe-inline'
   #               for styles is not the risk it is for scripts.
@@ -88,9 +92,10 @@
   #               same-origin files; blob: covers workers created at runtime.
   #   frame-src   the document viewer shows a PDF in an iframe from a blob:
   #               URL made in the page (DocumentsPage); without blob: here
-  #               Chrome shows "This content is blocked". Nothing from
+  #               Chrome shows "This content is blocked". Apart from
+  #               Facebook's sign-in frames (WhatsApp sign-up), nothing from
   #               another site may be framed.
   #   frame-ancestors  nothing may embed this app — clickjacking on a
   #               payroll and invoicing system is worth closing properly.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bamboo-os-backend.onrender.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://*.facebook.com https://*.fbcdn.net; connect-src 'self' https://bamboo-os-backend.onrender.com https://*.facebook.com https://graph.facebook.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob: https://*.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>

@@ -298,7 +298,7 @@ async function getConversation(ctx, id) {
 // can't from the OS (the channel isn't set up, or it is a logged call).
 async function replyChannel(conv) {
   var config = require('../config');
-  if (conv.channel === 'whatsapp') return config.whatsapp && config.whatsapp.configured ? 'whatsapp' : null;
+  if (conv.channel === 'whatsapp') return require('./whatsappAccess').configured() ? 'whatsapp' : null;
   if (conv.channel === 'email') return require('./mail.service').configured() && isEmail(conv.contact_key || conv.contact_label) ? 'email' : null;
   if (conv.channel === 'facebook' || conv.channel === 'instagram') return (await require('./crmMeta.service').canSend(conv.channel)) ? conv.channel : null;
   return null;

@@ -2,6 +2,7 @@ var crypto = require('crypto');
 var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var config = require('../config');
+var access = require('./whatsappAccess');
 
 // Real WhatsApp Business Cloud API for the social tracker's Inbox — unlike
 // every other platform in this app, there's no "Connect" button: the phone
@@ -16,6 +17,8 @@ var config = require('../config');
 //      (sendMessage)
 
 var GRAPH = 'https://graph.facebook.com/v21.0';
+var fetchImpl = null; // tests replace Meta
+function setFetchForTests(f) { fetchImpl = f; }
 
 // whatsapp.sendMessage — posts a free-form text reply to a customer's
 // WhatsApp number. WhatsApp only allows free-form replies within a rolling
@@ -23,10 +26,11 @@ var GRAPH = 'https://graph.facebook.com/v21.0';
 // window Meta rejects the send (requiring a pre-approved template message
 // instead), and this surfaces as a normal Graph API error here.
 async function sendMessage(to, body) {
-  if (!config.whatsapp.configured) fail('invalid', 'WhatsApp Business is not configured on the server yet — set WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN and WHATSAPP_VERIFY_TOKEN on Render.');
-  var res = await fetch(GRAPH + '/' + config.whatsapp.phoneNumberId + '/messages', {
+  var a = access.get();
+  if (!a) fail('invalid', 'WhatsApp Business is not configured yet — connect it on Integrations, or set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN on Render.');
+  var res = await (fetchImpl || fetch)(GRAPH + '/' + a.phoneNumberId + '/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.whatsapp.accessToken },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + a.token },
     body: JSON.stringify({ messaging_product: 'whatsapp', to: to, type: 'text', text: { body: body } })
   });
   var data = await res.json();
@@ -40,7 +44,7 @@ async function sendMessage(to, body) {
 // configured. Returns the challenge string, or null if the request doesn't
 // check out (the route then responds 403).
 function verifyWebhookChallenge(query) {
-  if (query['hub.mode'] === 'subscribe' && config.whatsapp.configured && query['hub.verify_token'] === config.whatsapp.verifyToken) {
+  if (query['hub.mode'] === 'subscribe' && config.whatsapp.verifyToken && query['hub.verify_token'] === config.whatsapp.verifyToken) {
     return query['hub.challenge'];
   }
   return null;
@@ -243,11 +247,12 @@ async function status() {
   var cur = null;
   try { cur = h && h.cursor ? JSON.parse(h.cursor) : null; } catch (e) { cur = null; }
   return {
-    configured: !!config.whatsapp.configured, signed: !!config.meta.appSecret,
+    configured: access.configured(), signed: !!config.meta.appSecret, verifyToken: !!config.whatsapp.verifyToken,
+    number: access.get() ? { source: access.get().source, displayPhone: access.get().displayPhone, coexistence: access.get().coexistence } : null,
     lastInAt: last ? last.last_in : null,
     phoneReplies: by['whatsapp:echoes'] ? { items: by['whatsapp:echoes'].items, lastAt: by['whatsapp:echoes'].last_ok_at } : null,
     history: h ? { items: h.items, progress: cur && cur.progress != null ? Number(cur.progress) : null, lastAt: h.last_ok_at, error: h.last_error } : null
   };
 }
 
-module.exports = { sendMessage: sendMessage, verifyWebhookChallenge: verifyWebhookChallenge, isValidSignature: isValidSignature, handleWebhookEvent: handleWebhookEvent, status: status };
+module.exports = { sendMessage: sendMessage, verifyWebhookChallenge: verifyWebhookChallenge, isValidSignature: isValidSignature, handleWebhookEvent: handleWebhookEvent, status: status, setFetchForTests: setFetchForTests };

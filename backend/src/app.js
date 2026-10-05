@@ -162,6 +162,7 @@ app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/customers', customersRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/crm', crmHubRoutes); // profiles, inbox, follow-ups, data health, marketing
+app.use('/api/whatsapp-connect', require('./routes/whatsappConnect.routes'));
 app.use('/api/catalog', catalogRoutes);
 app.use('/api/quotations', quotationsRoutes);
 app.use('/api/estimates', estimatesRoutes);

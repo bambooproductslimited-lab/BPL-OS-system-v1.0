@@ -9,7 +9,7 @@ var config = require('../config');
 // channel cards, which independently look up the same settings.integrations
 // row) so both agree on the same live state instead of drifting.
 var ENV_CONFIGURED_INTEGRATIONS = {
-  whatsappbusiness: function () { return config.whatsapp.configured; },
+  whatsappbusiness: function () { return require('./whatsappAccess').configured(); },
   googleanalytics: function () { return config.website.configured; },
   squareup: function () { return config.square.configured; },
   timestation: function () { return config.timestation.configured; }

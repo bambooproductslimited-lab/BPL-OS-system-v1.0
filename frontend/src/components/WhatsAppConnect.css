@@ -1,0 +1,22 @@
+/* Integrations → WhatsApp (WhatsAppConnect.jsx), in the OS's tokens. */
+.wac-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 16px 22px; background: var(--color-bg); border: 1px solid var(--color-divider, var(--color-border)); border-radius: var(--dk-r, 10px); overflow: hidden; }
+.wac-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--color-border); }
+.wac-card.is-on::before { background: #1f9d55; }
+:root[data-theme='dark'] .wac-card.is-on::before { background: #4cc985; }
+.wac-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.wac-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: #1f9d55; background: color-mix(in srgb, #1f9d55 13%, var(--color-bg)); }
+:root[data-theme='dark'] .wac-icon { color: #4cc985; }
+.wac-icon .dk-icon { width: 20px; height: 20px; }
+.wac-who { display: flex; flex-direction: column; flex: 1; min-width: 160px; }
+.wac-who strong { font-size: 16px; }
+.wac-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px; margin: 0; }
+.wac-facts dt { font-size: 11.5px; font-weight: 700; color: var(--color-text-muted); }
+.wac-facts dd { margin: 2px 0 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.wac-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.wac-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.wac-acts .btn .dk-icon { width: 16px; height: 16px; }
+.wac-err, .wac-note { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.wac-err { color: var(--dk-bad, var(--color-danger)); }
+.wac-note { color: var(--color-text-muted); }
+.wac-err .dk-icon, .wac-note .dk-icon { flex: none; width: 15px; height: 15px; margin-top: 1px; }
+.wac-card p { margin: 0; }

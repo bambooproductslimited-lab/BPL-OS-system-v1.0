@@ -15,4 +15,5 @@ app.listen(config.port, function () {
   dailyAlerts.start();
   attendanceFeeds.start();
   crmJobs.start();
+  require('./services/whatsappAccess').load();
 });

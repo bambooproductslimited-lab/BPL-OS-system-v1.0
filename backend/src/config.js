@@ -139,6 +139,10 @@ module.exports = {
       appId: appId,
       appSecret: appSecret,
       redirectUri: process.env.META_REDIRECT_URI || 'https://bamboo-os-backend.onrender.com/api/marketing/oauth/meta/callback',
+      // The Embedded Signup configuration for WhatsApp (Facebook Login for
+      // Business → Configurations), used by Integrations → WhatsApp. Not a
+      // secret: it is sent to the browser to open Meta's sign-up window.
+      waConfigId: (process.env.META_WA_CONFIG_ID || '').trim(),
       configured: !!(appId && appSecret)
     };
   }()),

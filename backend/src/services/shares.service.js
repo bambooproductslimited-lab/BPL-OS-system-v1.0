@@ -175,7 +175,7 @@ async function shareViaWhatsApp(ctx, documentType, documentId, url) {
   // Without the WhatsApp Business API set up, the OS can't send by itself:
   // hand back a WhatsApp link with the message filled in, for the person to
   // open and send from their own WhatsApp.
-  if (!config.whatsapp.configured) {
+  if (!require('./whatsappAccess').configured()) {
     return { sent: false, whatsappUrl: 'https://wa.me/' + digits + '?text=' + encodeURIComponent(text) };
   }
   var whatsapp = require('./whatsapp.service');
