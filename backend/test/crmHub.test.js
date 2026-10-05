@@ -164,6 +164,7 @@ test('coverage: customers with no rep get a suggested rep, managers are told onc
   var list = await health.unassigned(admin);
   var k = list.find(function (c) { return c.id === kojo; });
   assert.deepEqual([k.suggested.id, k.suggested.why], [repB.employeeId, 'works their lead']);
+  assert.equal(k.suggested.whyKey, 'lead', 'the reason as a key, for the page to word');
   var a = list.find(function (c) { return c.id === kept; });
   assert.ok(a.suggested && a.suggested.id, 'a suggestion for everyone');
 
@@ -196,6 +197,7 @@ test('follow-ups at sign-in: waiting, planned, overdue, quotation, quiet — wit
   var types = item.reasons.map(function (r) { return r.type; });
   assert.deepEqual(types.slice(0, 4), ['waiting', 'planned', 'overdue', 'quote'], JSON.stringify(item.reasons));
   assert.match(item.reasons[0].text, /WhatsApp 3 hours ago.*500 by Friday/);
+  assert.deepEqual([item.reasons[0].channel, item.reasons[0].hours, /500 by Friday/.test(item.reasons[0].preview)], ['whatsapp', 3, true], 'the numbers behind the words');
   assert.equal(item.nextStep, 'Reply on WhatsApp — they are waiting.');
   assert.ok(item.customer.identities.length && item.customer.interests[0] === 'Zcrm Bamboo straws (pack of 50)');
   assert.equal(item.customer.outstanding, 300);
@@ -298,6 +300,7 @@ test('marketing: what customers ask about, posts to make, and who to tell about 
   var ideas = await marketing.contentIdeas(admin, { days: 30 });
   assert.equal(ideas.source, 'rules');
   assert.ok(ideas.ideas.length >= 1 && ideas.ideas.every(function (i) { return i.title && i.why && i.platform; }));
+  assert.ok(ideas.ideas.every(function (i) { return i.kind && i.vars; }), 'every rule idea has its kind and numbers');
 
   var lantern = (await pool.query("SELECT id FROM products WHERE sku = 'ZCRM-2'")).rows[0].id;
   var aud = await marketing.audience(admin, { productId: lantern });
@@ -317,6 +320,7 @@ test('marketing: what customers ask about, posts to make, and who to tell about 
   await pool.query("UPDATE customers SET marketing_opt_out = false WHERE name = 'Zcrm Mensah Ama'");
   var kin = await marketing.audience(admin, { productId: cups });
   assert.ok(kin.people.some(function (p) { return p.name === 'Zcrm Mensah Ama' && /Buys other Zcrm Tableware/.test(p.reasons[0]); }), 'buys the same kind of thing');
+  assert.ok(kin.people.every(function (p) { return p.why.length === p.reasons.length && p.why.every(function (w) { return w && w.type; }); }), 'each reason also as data');
 
   var handed = await marketing.handToReps(admin, { customerIds: aud.people.map(function (p) { return p.id; }), what: 'Zcrm Bamboo lantern' });
   assert.ok(handed.customers >= 2);

@@ -33,6 +33,7 @@ var QUESTIONS = {
   bulk: { label: 'Bulk orders', re: /\b(bulk|wholesale|dozen|pieces|pcs|carton|cartons|large order)\b/i },
   quality: { label: 'Quality and care', re: /\b(durable|durability|last long|quality|termite|treated|waterproof|water ?proof|warranty|guarantee)\b/i }
 };
+var LANGS = { fr: 'French', zh: 'Simplified Chinese' };
 var CHANNEL_PLATFORM = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp Status', email: 'email newsletter' };
 
 function need(ctx, any) {
@@ -127,6 +128,7 @@ async function topics(ctx, q) {
   };
 }
 
+function topChannelKey(ch) { return Object.keys(ch || {}).filter(function (k) { return CHANNEL_PLATFORM[k]; }).sort(function (a, b) { return ch[b] - ch[a]; })[0] || 'instagram'; }
 function topChannel(ch) {
   var k = Object.keys(ch || {}).sort(function (a, b) { return ch[b] - ch[a]; })[0];
   return CHANNEL_PLATFORM[k] || 'Instagram';
@@ -137,35 +139,37 @@ function ruleIdeas(t) {
   var ideas = [];
   var q = {};
   t.questions.forEach(function (x) { q[x.key] = x; });
+  // The numbers each idea is built from, so the page can word it in the reader's language.
+  function v(p, more) { return Object.assign({ product: p.name, customers: p.customers, days: t.days, trend: p.trend, platform: topChannelKey(p.channels) }, more || {}); }
   t.products.slice(0, 6).forEach(function (p, i) {
     if (!p.customers) return;
     var why = p.customers + ' customer(s) asked about ' + p.name + ' in the last ' + t.days + ' days' + (p.trend > 0 ? ' (' + p.trend + '% more than before)' : '');
     if ((p.questions.price || 0) >= Math.max(2, p.asks / 3)) {
-      ideas.push({ product: p.name, title: p.name + ': prices and sizes', format: 'Carousel post and Status', platform: topChannel(p.channels),
+      ideas.push({ kind: 'price', vars: v(p, { asks: p.questions.price }), product: p.name, title: p.name + ': prices and sizes', format: 'Carousel post and Status', platform: topChannel(p.channels),
         why: why + '; ' + p.questions.price + ' of the messages asked the price.', hook: 'How much is ' + p.name + '? Here is the full price list.',
         points: ['Every size with its price', 'What is included and how long it lasts', 'How to order: WhatsApp number and payment'] });
     } else if (p.asks >= 3 && p.sold < p.customers) {
-      ideas.push({ product: p.name, title: p.name + ' in real homes and businesses', format: 'Short video (Reel) or customer photos', platform: topChannel(p.channels),
+      ideas.push({ kind: 'inUse', vars: v(p), product: p.name, title: p.name + ' in real homes and businesses', format: 'Short video (Reel) or customer photos', platform: topChannel(p.channels),
         why: why + ', but few went on to buy — show it in use to win them over.', hook: 'See ' + p.name + ' after a year of use.',
         points: ['A customer showing it in their space', 'Close-ups of the finish', 'A short testimonial'] });
     } else if (p.trend !== null && p.trend >= 50) {
-      ideas.push({ product: p.name, title: 'Trending now: ' + p.name, format: 'Story / Status', platform: topChannel(p.channels),
+      ideas.push({ kind: 'trending', vars: v(p), product: p.name, title: 'Trending now: ' + p.name, format: 'Story / Status', platform: topChannel(p.channels),
         why: why + '.', hook: 'Everyone is asking about ' + p.name + ' — here is why.', points: ['What it is for', 'Price from', 'Order today'] });
     } else if (i < 3) {
-      ideas.push({ product: p.name, title: 'Why choose ' + p.name, format: 'Post', platform: topChannel(p.channels), why: why + '.',
+      ideas.push({ kind: 'why', vars: v(p), product: p.name, title: 'Why choose ' + p.name, format: 'Post', platform: topChannel(p.channels), why: why + '.',
         hook: p.name + ', made from Ghanaian bamboo.', points: ['What makes it different', 'Who it is for', 'How to order'] });
     }
   });
   var best = t.products.filter(function (p) { return p.sold; }).sort(function (a, b) { return b.buyers - a.buyers; })[0];
-  if (best) ideas.push({ product: best.name, title: 'Customer showcase: ' + best.name, format: 'Photo post', platform: 'Instagram and Facebook',
+  if (best) ideas.push({ kind: 'showcase', vars: { product: best.name, buyers: best.buyers, days: t.days }, product: best.name, title: 'Customer showcase: ' + best.name, format: 'Photo post', platform: 'Instagram and Facebook',
     why: best.buyers + ' customer(s) bought ' + best.name + ' in the last ' + t.days + ' days — your best seller.', hook: 'From our workshop to your space.', points: ['Installed photos (with the customer\'s permission)', 'A thank-you', 'Order link'] });
-  if (q.delivery && q.delivery.customers >= 2) ideas.push({ product: null, title: 'How ordering and delivery work', format: 'Short video, pinned post and WhatsApp Status', platform: 'All channels',
+  if (q.delivery && q.delivery.customers >= 2) ideas.push({ kind: 'delivery', vars: { customers: q.delivery.customers }, product: null, title: 'How ordering and delivery work', format: 'Short video, pinned post and WhatsApp Status', platform: 'All channels',
     why: q.delivery.customers + ' customers asked about delivery or where you are.', hook: 'Ordering from Bamboo Products in 3 steps.', points: ['Where the workshop and showroom are', 'Delivery areas and how long it takes', 'How to pay'] });
-  if (q.custom && q.custom.customers >= 2) ideas.push({ product: null, title: 'Made to your size: behind the scenes', format: 'Reel', platform: 'Instagram and TikTok',
+  if (q.custom && q.custom.customers >= 2) ideas.push({ kind: 'custom', vars: { customers: q.custom.customers }, product: null, title: 'Made to your size: behind the scenes', format: 'Reel', platform: 'Instagram and TikTok',
     why: q.custom.customers + ' customers asked about custom sizes or designs.', hook: 'Your idea, our bamboo.', points: ['Measuring', 'Building in the workshop', 'The finished piece'] });
-  if (q.payment && q.payment.customers >= 2) ideas.push({ product: null, title: 'Ways to pay', format: 'Story highlight and Status', platform: 'Instagram and WhatsApp Status',
+  if (q.payment && q.payment.customers >= 2) ideas.push({ kind: 'payment', vars: { customers: q.payment.customers }, product: null, title: 'Ways to pay', format: 'Story highlight and Status', platform: 'Instagram and WhatsApp Status',
     why: q.payment.customers + ' customers asked how to pay.', hook: 'Pay by MoMo, bank or cash.', points: ['MoMo number', 'Bank details', 'Deposit and balance terms'] });
-  if (q.quality && q.quality.customers >= 2) ideas.push({ product: null, title: 'How long bamboo lasts (and how we treat it)', format: 'Carousel', platform: 'Instagram and Facebook',
+  if (q.quality && q.quality.customers >= 2) ideas.push({ kind: 'quality', vars: { customers: q.quality.customers }, product: null, title: 'How long bamboo lasts (and how we treat it)', format: 'Carousel', platform: 'Instagram and Facebook',
     why: q.quality.customers + ' customers asked about durability or treatment.', hook: 'Does bamboo last? Yes — here is how.', points: ['Treatment against termites and water', 'Care tips', 'Warranty'] });
   return ideas.slice(0, 10);
 }
@@ -183,7 +187,7 @@ async function contentIdeas(ctx, q) {
         questions: t.questions.map(function (x) { return { topic: x.label, customers: x.customers, examples: x.examples }; }), channels: t.channels };
       var text = await claude.complete(
         'You are the marketing lead of Bamboo Products Limited, a Ghanaian maker of bamboo furniture, decor and everyday bamboo products. ' +
-        'From what customers asked in the last weeks, suggest content to make. Answer with JSON only: an array of up to 8 objects ' +
+        'From what customers asked in the last weeks, suggest content to make.' + (LANGS[q.lang] ? ' Write every text field in ' + LANGS[q.lang] + '.' : '') + ' Answer with JSON only: an array of up to 8 objects ' +
         '{ "product": string or null, "title": string, "format": string, "platform": string, "why": string (cite the numbers), "hook": string, "points": [3 short strings] }.',
         [{ role: 'user', content: JSON.stringify(facts) }], 3000);
       var m = /\[[\s\S]*\]/.exec(text || '');
@@ -235,18 +239,19 @@ async function audience(ctx, q) {
     }
   }
   var score = {};
-  function add(id, pts, reason) { var s = score[id] || (score[id] = { points: 0, reasons: [] }); s.points += pts; if (reason) s.reasons.push(reason); }
+  function add(id, pts, reason, why) { var s = score[id] || (score[id] = { points: 0, reasons: [], why: [] }); s.points += pts; if (reason) { s.reasons.push(reason); s.why.push(why); } }
   var CH = { whatsapp: 'WhatsApp', email: 'email', instagram: 'Instagram', facebook: 'Facebook', sms: 'SMS', call: 'a call', visit: 'a visit', other: 'a message' };
   asked.forEach(function (a) {
     var recent = Date.now() - new Date(a.sent_at).getTime() < 90 * 86400000;
-    add(a.customer_id, recent ? 50 : 40, 'Asked about it on ' + CH[a.channel] + ' on ' + day(a.sent_at) + ': "' + clean(a.body).slice(0, 90) + '"');
+    add(a.customer_id, recent ? 50 : 40, 'Asked about it on ' + CH[a.channel] + ' on ' + day(a.sent_at) + ': "' + clean(a.body).slice(0, 90) + '"',
+      { type: 'asked', channel: a.channel, on: day(a.sent_at), excerpt: clean(a.body).slice(0, 90) });
   });
   var bought = {}, quoted = {};
   docs.forEach(function (d) { if (d.t === 'invoice') { if (!bought[d.customer_id]) bought[d.customer_id] = d; } else if (!quoted[d.customer_id]) quoted[d.customer_id] = d; });
-  Object.keys(quoted).forEach(function (id) { if (!bought[id]) add(id, 45, 'Was quoted ' + quoted[id].description + ' (' + quoted[id].ref + ', ' + day(quoted[id].at) + ') and didn\'t buy'); });
-  Object.keys(bought).forEach(function (id) { add(id, 30, 'Bought ' + bought[id].description + ' (' + bought[id].ref + ', ' + day(bought[id].at) + ')'); });
-  leads.forEach(function (l) { add(l.customer_id, 35, 'Lead ' + l.ref + ' is for ' + l.item); });
-  sameKind.forEach(function (s) { if (!score[s.customer_id]) add(s.customer_id, 15, 'Buys other ' + product.category + ' (' + s.description + ')'); });
+  Object.keys(quoted).forEach(function (id) { if (!bought[id]) add(id, 45, 'Was quoted ' + quoted[id].description + ' (' + quoted[id].ref + ', ' + day(quoted[id].at) + ') and didn\'t buy', { type: 'quoted', item: quoted[id].description, ref: quoted[id].ref, on: day(quoted[id].at) }); });
+  Object.keys(bought).forEach(function (id) { add(id, 30, 'Bought ' + bought[id].description + ' (' + bought[id].ref + ', ' + day(bought[id].at) + ')', { type: 'bought', item: bought[id].description, ref: bought[id].ref, on: day(bought[id].at) }); });
+  leads.forEach(function (l) { add(l.customer_id, 35, 'Lead ' + l.ref + ' is for ' + l.item, { type: 'lead', ref: l.ref, item: l.item }); });
+  sameKind.forEach(function (s) { if (!score[s.customer_id]) add(s.customer_id, 15, 'Buys other ' + product.category + ' (' + s.description + ')', { type: 'kind', category: product.category, item: s.description }); });
   var ids = Object.keys(score);
   if (!ids.length) return { product: product ? { id: product.id, name: product.name } : null, terms: terms, people: [], left: { optedOut: 0, unreachable: 0 }, message: draft(product, q.text) };
   var cust = (await pool.query(
@@ -264,7 +269,7 @@ async function audience(ctx, q) {
     var s = score[c.id];
     if (c.last_contact_at && Date.now() - new Date(c.last_contact_at).getTime() < 60 * 86400000) s.points += 5;
     people.push({ id: c.id, name: c.name, phone: c.phone, email: c.email, category: c.category, via: via, lastContactAt: c.last_contact_at,
-      rep: c.account_manager_id ? { id: c.account_manager_id, name: c.rep_name } : null, score: Math.min(100, s.points), reasons: s.reasons });
+      rep: c.account_manager_id ? { id: c.account_manager_id, name: c.rep_name } : null, score: Math.min(100, s.points), reasons: s.reasons, why: s.why });
   });
   people.sort(function (a, b) { return b.score - a.score || String(a.name).localeCompare(b.name); });
   return { product: product ? { id: product.id, name: product.name, category: product.category } : null, terms: terms, people: people.slice(0, 300),

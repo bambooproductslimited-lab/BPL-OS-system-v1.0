@@ -6,6 +6,7 @@ import Icon from './navIcons';
 import NotificationsBell from '../components/NotificationsBell';
 import LanguagePicker from '../components/LanguagePicker';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { FollowUpsAtSignIn } from '../pages/crm/FollowUps';
 import { CallsProvider } from '../components/calls/CallsContext';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import { installUnlock } from '../lib/notificationSound';
@@ -160,6 +161,8 @@ export default function AppShell() {
             <Outlet />
           </ErrorBoundary>
         </div>
+        {/* A sales rep's customers to follow up, once per sign-in. */}
+        <FollowUpsAtSignIn />
       </main>
     </div>
     </CallsProvider>

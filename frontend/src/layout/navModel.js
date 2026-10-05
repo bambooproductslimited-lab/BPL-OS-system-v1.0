@@ -56,10 +56,15 @@ export const NAV_GROUPS = [
   ] },
   { label: msg('Sales & CRM'), items: [
     { key: 'crm', label: msg('Overview'), perm: 'crm.read', icon: 'chart' },
+    { key: 'crmfollowups', label: msg('My follow-ups'), perm: 'crm.read', icon: 'bell' },
+    { key: 'crminbox', label: msg('Inbox'), perm: 'crm.read', icon: 'chat' },
+    { key: 'crmcustomers', label: msg('Customers'), perm: 'crm.read', icon: 'user' },
     { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
     { key: 'crmprospects', label: msg('Prospects'), perm: 'crm.read', icon: 'megaphone' },
     { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
-    { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' }
+    { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
+    { key: 'crmmarketing', label: msg('Marketing ideas'), perm: 'crm.read', icon: 'sparkle' },
+    { key: 'crmhealth', label: msg('Data health'), perm: 'crm.read', icon: 'shield' }
   ] },
   { label: msg('Quotations & Invoicing'), items: [
     { key: 'qioverview', label: msg('Overview'), perm: 'report.read', icon: 'chart' },

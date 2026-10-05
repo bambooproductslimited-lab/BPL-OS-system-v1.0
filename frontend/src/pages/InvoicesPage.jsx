@@ -529,7 +529,8 @@ export default function InvoicesPage() {
               <div><dt>{tr('Due')}</dt><dd className={cur.overdue ? 'pk-owe' : ''}>{cur.dueDate ? fmtDate(cur.dueDate) : '—'}</dd></div>
               {cur.poReference && <div><dt>{tr('PO reference')}</dt><dd>{cur.poReference}</dd></div>}
               {cur.quoteNo && <div><dt>{tr('From quotation')}</dt><dd><Link to={'/quotations?open=' + cur.quotationId}>{cur.quoteNo}</Link></dd></div>}
-              {cur.orderNo && <div><dt>{tr('From sales order')}</dt><dd>{cur.orderNo}</dd></div>}
+              {cur.orderNo && <div><dt>{tr('From sales order')}</dt><dd>{cur.salesOrderId ? <Link to={'/salesorders?open=' + cur.salesOrderId}>{cur.orderNo}</Link> : cur.orderNo}</dd></div>}
+              <div><dt>{tr('Sales rep')}</dt><dd>{cur.rep ? cur.rep.name : '—'}</dd></div>
               <div><dt>{tr('Reminders')}</dt><dd>{cur.reminders ? tr('{n} sent, the last on {date}', { n: cur.reminders, date: fmtDate(cur.lastRemindedAt) }) : tr('none sent')}</dd></div>
               <div><dt>{tr('Currency')}</dt><dd>{cur.currency}</dd></div>
               {cur.creditTotal > 0 && <div><dt>{tr('Credit notes')}</dt><dd>− {money(cur.creditTotal, cur.currency)}</dd></div>}

@@ -67,29 +67,30 @@ async function reasonsWhere(where, args) {
     var reasons = [];
     (waiting[c.id] || []).forEach(function (w) {
       var h = hoursSince(w.last_message_at);
-      reasons.push({ type: 'waiting', at: w.last_message_at, conversationId: w.id, channel: w.channel,
+      reasons.push({ type: 'waiting', at: w.last_message_at, conversationId: w.id, channel: w.channel, hours: h, preview: w.last_preview,
         text: 'Wrote on ' + CHANNEL_NAME[w.channel] + ' ' + (h < 48 ? h + ' hours' : Math.floor(h / 24) + ' days') + ' ago and is waiting for a reply: "' + w.last_preview + '"' });
     });
     if (c.follow_up_on && day(c.follow_up_on) <= new Date().toISOString().slice(0, 10)) {
       var late = daysSince(c.follow_up_on);
-      reasons.push({ type: 'planned', at: c.follow_up_on, text: (late ? 'Follow-up was planned for ' + day(c.follow_up_on) + ' (' + late + ' days ago)' : 'Follow-up planned for today') + (c.follow_up_note ? ': ' + c.follow_up_note : '') });
+      reasons.push({ type: 'planned', at: c.follow_up_on, on: day(c.follow_up_on), late: late, note: c.follow_up_note || '', text: (late ? 'Follow-up was planned for ' + day(c.follow_up_on) + ' (' + late + ' days ago)' : 'Follow-up planned for today') + (c.follow_up_note ? ': ' + c.follow_up_note : '') });
     }
     (overdue[c.id] || []).forEach(function (i) {
-      reasons.push({ type: 'overdue', at: i.due_date, invoiceId: i.id, text: 'Invoice ' + i.invoice_no + ': ' + money(i.balance_due, i.currency) + ' overdue by ' + daysSince(i.due_date) + ' days' });
+      reasons.push({ type: 'overdue', at: i.due_date, invoiceId: i.id, ref: i.invoice_no, amount: Number(i.balance_due), currency: i.currency, days: daysSince(i.due_date), text: 'Invoice ' + i.invoice_no + ': ' + money(i.balance_due, i.currency) + ' overdue by ' + daysSince(i.due_date) + ' days' });
     });
     (quotes[c.id] || []).forEach(function (x) {
       var exp = x.valid_until && day(x.valid_until) <= new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-      reasons.push({ type: 'quote', at: x.sent_at, quotationId: x.id,
+      reasons.push({ type: 'quote', at: x.sent_at, quotationId: x.id, ref: x.quote_no, amount: Number(x.grand_total), currency: x.currency,
+        sentDays: x.sent_at ? daysSince(x.sent_at) : null, expires: exp ? day(x.valid_until) : null,
         text: 'Quotation ' + x.quote_no + ' (' + money(x.grand_total, x.currency) + ')' + (x.sent_at ? ' sent ' + daysSince(x.sent_at) + ' days ago' : '') + ', no answer yet' + (exp ? '; it expires on ' + day(x.valid_until) : '') });
     });
     (leads[c.id] || []).forEach(function (l) {
-      reasons.push({ type: 'lead', at: l.next_follow_up, leadId: l.id, text: 'Lead ' + l.ref + (l.item ? ' (' + l.item + ')' : '') + ': follow-up due ' + day(l.next_follow_up) });
+      reasons.push({ type: 'lead', at: l.next_follow_up, leadId: l.id, ref: l.ref, item: l.item || '', due: day(l.next_follow_up), text: 'Lead ' + l.ref + (l.item ? ' (' + l.item + ')' : '') + ': follow-up due ' + day(l.next_follow_up) });
     });
     if ((c.category === 'active' || c.category === 'vip') && !reasons.length) {
       var lastTouch = [c.last_contact_at, lastInv[c.id] && lastInv[c.id][0].at].filter(Boolean).map(function (d) { return new Date(d).getTime(); });
       var last = lastTouch.length ? Math.max.apply(null, lastTouch) : null;
       if (last && Date.now() - last > QUIET_DAYS * 86400000) {
-        reasons.push({ type: 'quiet', at: new Date(last), text: 'No contact for ' + daysSince(last) + ' days' + (lastInv[c.id] ? ' — last bought on ' + day(lastInv[c.id][0].at) : '') });
+        reasons.push({ type: 'quiet', at: new Date(last), days: daysSince(last), lastBought: lastInv[c.id] ? day(lastInv[c.id][0].at) : null, text: 'No contact for ' + daysSince(last) + ' days' + (lastInv[c.id] ? ' — last bought on ' + day(lastInv[c.id][0].at) : '') });
       }
     }
     if (!reasons.length) return;
@@ -131,7 +132,7 @@ async function looseLeads(repId) {
     return {
       customer: null,
       lead: { id: l.id, ref: l.ref, name: l.name, company: l.company, phone: l.phone, email: l.email, item: l.item, stage: l.stage, location: l.location, comments: l.comments },
-      reasons: [{ type: 'lead', at: l.next_follow_up, leadId: l.id, text: 'Lead ' + l.ref + (l.item ? ' (' + l.item + ')' : '') + ': follow-up due ' + day(l.next_follow_up) }],
+      reasons: [{ type: 'lead', at: l.next_follow_up, leadId: l.id, ref: l.ref, item: l.item || '', due: day(l.next_follow_up), text: 'Lead ' + l.ref + (l.item ? ' (' + l.item + ')' : '') + ': follow-up due ' + day(l.next_follow_up) }],
       top: 'lead', nextStep: 'Move the lead on: call, then update its stage.'
     };
   });

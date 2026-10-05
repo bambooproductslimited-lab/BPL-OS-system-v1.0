@@ -298,18 +298,18 @@ async function unassigned(ctx) {
   if (!plain.length) plain = reps;
   return rows.map(function (c) {
     var s = null;
-    if (c.lead_rep && byId[c.lead_rep]) s = { rep: byId[c.lead_rep], why: 'works their lead' };
-    else if (c.doc_rep && byId[c.doc_rep]) s = { rep: byId[c.doc_rep], why: 'made their last quotation or order' };
-    else if (c.reply_rep && byId[c.reply_rep]) s = { rep: byId[c.reply_rep], why: 'has been answering them' };
+    if (c.lead_rep && byId[c.lead_rep]) s = { rep: byId[c.lead_rep], key: 'lead', why: 'works their lead' };
+    else if (c.doc_rep && byId[c.doc_rep]) s = { rep: byId[c.doc_rep], key: 'documents', why: 'made their last quotation or order' };
+    else if (c.reply_rep && byId[c.reply_rep]) s = { rep: byId[c.reply_rep], key: 'replies', why: 'has been answering them' };
     else if (plain.length) {
       var least = plain.slice().sort(function (a, b) { return load[a.id] - load[b.id] || a.name.localeCompare(b.name); })[0];
-      s = { rep: least, why: 'has the fewest customers (' + load[least.id] + ')' };
+      s = { rep: least, key: 'least', load: load[least.id], why: 'has the fewest customers (' + load[least.id] + ')' };
       load[least.id]++; // spread a batch across reps
     }
     return {
       id: c.id, name: c.name, phone: c.phone, email: c.email, category: c.category, origin: c.origin_channel, createdAt: c.created_at,
       lastContactAt: c.last_contact_at, lastInboundAt: c.last_inbound_at, waiting: c.waiting,
-      suggested: s ? { id: s.rep.id, name: s.rep.name, why: s.why } : null
+      suggested: s ? { id: s.rep.id, name: s.rep.name, why: s.why, whyKey: s.key, load: s.load != null ? s.load : null } : null
     };
   });
 }

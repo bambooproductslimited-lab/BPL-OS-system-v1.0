@@ -41,7 +41,7 @@ const STAGES = [
 const SOON_DAYS = 7;
 const IDLE_DAYS = 7;
 const RECENT_DAYS = 90;
-const EMPTY_NEW = { quotationId: '', promisedDate: '', notes: '' };
+const EMPTY_NEW = { quotationId: '', promisedDate: '', notes: '', repId: '' };
 
 function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
 function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
@@ -70,6 +70,9 @@ function Mark({ o, size = 44 }) {
 
 export default function SalesOrdersPage() {
   const { can } = useAuth();
+  // The people who can be a sales order's rep (the CRM's reps).
+  const [reps, setReps] = useState([]);
+  useEffect(() => { if (can('crm.read')) api.get('/crm/reps').then(setReps).catch(() => {}); }, [can]);
   const canManage = can('sales.manage');
   const canInvoice = can('invoice.manage');
   const canSeeQuotations = can('quotation.read');
@@ -148,7 +151,7 @@ export default function SalesOrdersPage() {
     setSaving(true);
     setDialogError(null);
     try {
-      const o = await api.post('/sales-orders', newForm);
+      const o = await api.post('/sales-orders', { ...newForm, repId: newForm.repId || undefined });
       setToast(tr('{orderNo} created.', { orderNo: o.orderNo }));
       setNewOpen(false);
       await load();
@@ -326,6 +329,7 @@ export default function SalesOrdersPage() {
                     <span className="tl-card-head">
                       <span className="dk-muted tl-small">{o.orderNo} · {fmtDate(o.createdAt)}</span>
                       <span className="tl-name">{o.customerName}</span>
+                      <span className="dk-muted tl-small">{o.repName ? tr('Rep: {name}', { name: o.repName }) : tr('No sales rep')}</span>
                     </span>
                   </button>
                   <span className="tl-menu"><RowMenu disabled={busyId === o.id} actions={actionsFor(o)} /></span>
@@ -399,6 +403,15 @@ export default function SalesOrdersPage() {
                   <label htmlFor="so-edit-date">{tr('Promised for')}</label>
                   <input id="so-edit-date" className="input" type="date" value={edit.promisedDate} onChange={(e) => setEdit({ ...edit, promisedDate: e.target.value })} />
                 </div>
+                {reps.length > 0 && (
+                  <div className="field">
+                    <label htmlFor="so-edit-rep">{tr('Sales rep')}</label>
+                    <select id="so-edit-rep" className="input" value={edit.repId || ''} onChange={(e) => setEdit({ ...edit, repId: e.target.value || null })}>
+                      <option value="">{tr('Nobody yet')}</option>
+                      {reps.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="field so-edit-notes">
                   <label htmlFor="so-edit-notes">{tr('Notes')}</label>
                   <textarea id="so-edit-notes" className="input" rows={3} maxLength={1000} value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} placeholder={tr('Delivery address, who to call, anything the team should know')} />
@@ -413,6 +426,7 @@ export default function SalesOrdersPage() {
               <>
                 <dl className="tl-facts">
                   <div><dt>{tr('Ordered')}</dt><dd>{fmtDate(cur.createdAt)}{cur.createdByName ? ' · ' + cur.createdByName : ''}</dd></div>
+                  <div><dt>{tr('Sales rep')}</dt><dd>{cur.repName || '—'}</dd></div>
                   <div><dt>{tr('Promised for')}</dt><dd className={isLate(cur) ? 'pk-owe' : ''}>{cur.promisedDate ? fmtDate(cur.promisedDate) : '—'}</dd></div>
                   <div><dt>{tr('Delivered')}</dt><dd>{cur.deliveredAt ? fmtDate(cur.deliveredAt) : '—'}</dd></div>
                   {cur.quotationId && <div><dt>{tr('From quotation')}</dt><dd><Link to={'/quotations?open=' + cur.quotationId}>{cur.quoteNo}</Link></dd></div>}
@@ -432,7 +446,7 @@ export default function SalesOrdersPage() {
                 {canManage && isOpen(cur) && !curInv && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'cancelled')}>{tr('Cancel order')}</button>}
                 {canManage && cur.status === 'cancelled' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'pending')}>{tr('Reopen')}</button>}
                 {canManage && cur.status === 'delivered' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'processing')}>{tr('Not delivered after all')}</button>}
-                {canManage && isOpen(cur) && <button type="button" className="btn btn-secondary" onClick={() => { setDialogError(null); setEdit({ promisedDate: cur.promisedDate || '', notes: cur.notes || '' }); }}>{tr('Change date or notes')}</button>}
+                {canManage && isOpen(cur) && <button type="button" className="btn btn-secondary" onClick={() => { setDialogError(null); setEdit({ promisedDate: cur.promisedDate || '', notes: cur.notes || '', ...(reps.length ? { repId: cur.repId || null } : {}) }); }}>{tr('Change date, rep or notes')}</button>}
                 {canInvoice && cur.status !== 'cancelled' && !curInv && <button type="button" className={'btn ' + (cur.status === 'delivered' ? 'btn-primary' : 'btn-secondary')} disabled={busyId === cur.id} onClick={() => makeInvoice(cur)}>{tr('Make the invoice')}</button>}
                 {canManage && cur.status === 'pending' && <button type="button" className="btn btn-primary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'processing')}>{tr('Start work')}</button>}
                 {canManage && cur.status === 'processing' && <button type="button" className="btn btn-primary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'delivered')}>{tr('Mark delivered')}</button>}
@@ -461,6 +475,16 @@ export default function SalesOrdersPage() {
               <input id="so-promised" className="input" type="date" value={newForm.promisedDate} onChange={(e) => setNewForm({ ...newForm, promisedDate: e.target.value })} />
               <span className="dk-muted tl-small">{tr('The date the client was told to expect it. Leave empty if not agreed yet.')}</span>
             </div>
+            {reps.length > 0 && (
+              <div className="field">
+                <label htmlFor="so-rep">{tr('Sales rep')}</label>
+                <select id="so-rep" className="input" value={newForm.repId} onChange={(e) => setNewForm({ ...newForm, repId: e.target.value })}>
+                  <option value="">{tr('The customer\'s rep (or me)')}</option>
+                  {reps.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+                <span className="dk-muted tl-small">{tr('The rep the sale counts for. The invoice made from the order carries the same rep.')}</span>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="so-notes">{tr('Notes')}</label>
               <textarea id="so-notes" className="input" rows={3} maxLength={1000} value={newForm.notes} onChange={(e) => setNewForm({ ...newForm, notes: e.target.value })} placeholder={tr('Delivery address, who to call, anything the team should know')} />
