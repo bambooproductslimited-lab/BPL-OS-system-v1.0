@@ -184,7 +184,8 @@ async function contentIdeas(ctx, q) {
     try {
       var facts = { days: t.days, messages: t.messages,
         products: t.products.slice(0, 12).map(function (p) { return { name: p.name, category: p.category, customersAsking: p.customers, trendPct: p.trend, questions: p.questions, quoted: p.quoted, sold: p.sold, channels: p.channels }; }),
-        questions: t.questions.map(function (x) { return { topic: x.label, customers: x.customers, examples: x.examples }; }), channels: t.channels };
+        // Counts only: no message excerpts (customers' words stay in the OS).
+        questions: t.questions.map(function (x) { return { topic: x.label, customers: x.customers, messages: x.count }; }), channels: t.channels };
       var text = await claude.complete(
         'You are the marketing lead of Bamboo Products Limited, a Ghanaian maker of bamboo furniture, decor and everyday bamboo products. ' +
         'From what customers asked in the last weeks, suggest content to make.' + (LANGS[q.lang] ? ' Write every text field in ' + LANGS[q.lang] + '.' : '') + ' Answer with JSON only: an array of up to 8 objects ' +

@@ -302,6 +302,19 @@ test('marketing: what customers ask about, posts to make, and who to tell about 
   assert.equal(ideas.source, 'rules');
   assert.ok(ideas.ideas.length >= 1 && ideas.ideas.every(function (i) { return i.title && i.why && i.platform; }));
   assert.ok(ideas.ideas.every(function (i) { return i.kind && i.vars; }), 'every rule idea has its kind and numbers');
+  // With the AI Assistant: only counts and product names leave — never customers' words.
+  var claude = require('../src/ai/claude');
+  var seen = null;
+  var fakeCreate = async function (params) { seen = params; return { stop_reason: 'end_turn', content: [{ type: 'text', text: '[{"product":null,"title":"Zcrm idea","format":"Post","platform":"Instagram","why":"3 asked","hook":"Hi","points":["a","b","c"]}]' }] }; };
+  claude.setClientForTests({ messages: { create: fakeCreate }, beta: { messages: { create: fakeCreate } } });
+  try {
+    var ai = await marketing.contentIdeas(admin, { days: 30, ai: '1' });
+    assert.equal(ai.source, 'ai');
+    var sent = JSON.stringify(seen.messages);
+    assert.ok(!/how much|deliver to Tema|Zcrm I sent/i.test(sent), 'no message text is sent to the AI');
+    var facts = JSON.parse(seen.messages[0].content);
+    assert.ok(facts.questions.length && facts.questions.every(function (q) { return typeof q.customers === 'number' && !q.examples; }), 'the counts are, without examples');
+  } finally { claude.setClientForTests(null); }
 
   var lantern = (await pool.query("SELECT id FROM products WHERE sku = 'ZCRM-2'")).rows[0].id;
   var aud = await marketing.audience(admin, { productId: lantern });
