@@ -32,7 +32,9 @@ var AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth';
 // business_management is temporary, for the /me/businesses diagnostic
 // below — drop it once the actual page-enumeration path is confirmed and
 // this app doesn't otherwise need broad business-asset management access.
-var SCOPES = 'pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_insights,business_management';
+// pages_messaging and instagram_manage_messages: the CRM inbox reads the
+// Page's Messenger and Instagram messages and replies (crmMeta.service.js).
+var SCOPES = 'pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_insights,business_management,pages_messaging,instagram_manage_messages';
 var PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 
 function requireManage(ctx) {

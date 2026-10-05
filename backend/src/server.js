@@ -5,6 +5,7 @@ var meetingReminders = require('./jobs/meetingReminders');
 var morningDigest = require('./jobs/morningDigest');
 var dailyAlerts = require('./jobs/dailyAlerts');
 var attendanceFeeds = require('./jobs/attendanceFeeds');
+var crmJobs = require('./jobs/crm');
 
 app.listen(config.port, function () {
   console.log('Bamboo OS backend listening on port ' + config.port + ' (' + config.nodeEnv + ')');
@@ -13,4 +14,5 @@ app.listen(config.port, function () {
   morningDigest.start();
   dailyAlerts.start();
   attendanceFeeds.start();
+  crmJobs.start();
 });

@@ -49,10 +49,13 @@ async function list(ctx) {
   // it came from, and how often and when the client was last reminded.
   var res = await pool.query(
     'SELECT i.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email, c.category AS customer_category, ' +
-    '  q.quote_no, so.order_no, rm.reminders, rm.last_reminded_at ' +
+    '  q.quote_no, so.order_no, rm.reminders, rm.last_reminded_at, ' +
+    // The sale's rep: its sales order's, else the customer's (CRM).
+    "  COALESCE(so.rep_id, c.account_manager_id) AS rep_id, rp.first_name || ' ' || rp.last_name AS rep_name " +
     'FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
     'LEFT JOIN quotations q ON q.id = i.quotation_id ' +
     'LEFT JOIN sales_orders so ON so.id = i.sales_order_id ' +
+    'LEFT JOIN employees rp ON rp.id = COALESCE(so.rep_id, c.account_manager_id) ' +
     'LEFT JOIN (SELECT invoice_id, count(*)::int AS reminders, max(sent_at) AS last_reminded_at FROM payment_reminders GROUP BY invoice_id) rm ON rm.invoice_id = i.id ' +
     'WHERE ' + bplScopeClause('i') + ' ORDER BY i.issued_at DESC, i.invoice_no DESC');
   // One query for every payment on this page of invoices, grouped in memory,
@@ -81,6 +84,7 @@ async function list(ctx) {
     out.push(await rowToInvoice(pool, r, {
       customerName: r.customer_name, customerPhone: r.customer_phone || '', customerEmail: r.customer_email || '', customerCategory: r.customer_category,
       quoteNo: r.quote_no || null, orderNo: r.order_no || null,
+      rep: r.rep_id ? { id: r.rep_id, name: r.rep_name } : null,
       reminders: r.reminders || 0, lastRemindedAt: r.last_reminded_at || null,
       overdue: overdue, daysOverdue: overdue ? Math.round((new Date(t + 'T00:00:00Z') - new Date(r.due_date + 'T00:00:00Z')) / 86400000) : 0,
       payments: byInvoice[r.id] || [],

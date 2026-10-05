@@ -72,6 +72,10 @@ async function send(opts) {
       to: to,
       cc: opts.cc && opts.cc.length ? opts.cc : undefined,
       replyTo: opts.replyTo && isEmail(opts.replyTo) ? opts.replyTo : undefined,
+      // A reply in an email thread (the CRM inbox): the customer's mail app
+      // shows it under their message.
+      inReplyTo: opts.inReplyTo || undefined,
+      references: opts.references || undefined,
       subject: String(opts.subject || '').replace(/[\r\n]+/g, ' ').slice(0, 200),
       text: opts.text,
       html: opts.html,

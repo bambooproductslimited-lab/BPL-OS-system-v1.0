@@ -47,6 +47,7 @@ var payrollRoutes = require('./routes/payroll.routes');
 var maintenanceRoutes = require('./routes/maintenance.routes');
 var customersRoutes = require('./routes/customers.routes');
 var crmRoutes = require('./routes/crm.routes');
+var crmHubRoutes = require('./routes/crmHub.routes');
 var catalogRoutes = require('./routes/catalog.routes');
 var quotationsRoutes = require('./routes/quotations.routes');
 var estimatesRoutes = require('./routes/estimates.routes');
@@ -160,6 +161,7 @@ app.use('/api/timestation', timestationRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/customers', customersRoutes);
 app.use('/api/crm', crmRoutes);
+app.use('/api/crm', crmHubRoutes); // profiles, inbox, follow-ups, data health, marketing
 app.use('/api/catalog', catalogRoutes);
 app.use('/api/quotations', quotationsRoutes);
 app.use('/api/estimates', estimatesRoutes);

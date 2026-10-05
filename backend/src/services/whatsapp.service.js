@@ -78,10 +78,20 @@ function isValidSignature(rawBody, signatureHeader) {
 // receipts, sent when a customer's client acks a message we sent) and
 // message types this app doesn't render inline are recorded with a plain
 // note rather than dropped, so nothing silently vanishes from the Inbox.
+// A WhatsApp message as words for the CRM: its text, or what it was (a
+// photo, a voice note…) with any caption — the media stays on WhatsApp.
+function describe(m) {
+  if (m.type === 'text' && m.text) return { body: m.text.body, attachments: [] };
+  var media = m[m.type] || {};
+  var label = { image: 'Photo', video: 'Video', audio: 'Voice note', document: 'Document', sticker: 'Sticker', location: 'Location', contacts: 'Contact card' }[m.type] || m.type;
+  var body = media.caption || (m.type === 'location' && media.name ? media.name : '') || (m.type === 'button' && m.button ? m.button.text : '') ||
+    (m.type === 'interactive' && m.interactive ? JSON.stringify(m.interactive).slice(0, 200) : '');
+  return { body: body || '[' + label + ']', attachments: m.type === 'text' ? [] : [{ name: media.filename || label, type: media.mime_type || m.type }] };
+}
+
 async function handleWebhookEvent(payload) {
   var chanRes = await pool.query("SELECT id FROM marketing_channels WHERE key = 'whatsapp'");
   var channelId = chanRes.rows[0] && chanRes.rows[0].id;
-  if (!channelId) return; // schema not migrated/seeded yet — nothing to attach to
 
   var entries = payload.entry || [];
   for (var i = 0; i < entries.length; i++) {
@@ -95,14 +105,25 @@ async function handleWebhookEvent(payload) {
       for (var k = 0; k < messages.length; k++) {
         var m = messages[k];
         var contact = contactsByWaId[m.from];
-        var body = m.type === 'text' && m.text ? m.text.body
-          : '[Unsupported message type: ' + m.type + ' — reply from the WhatsApp app directly.]';
-        await pool.query(
-          'INSERT INTO marketing_inbox_items (channel_id, kind, author_name, author_handle, body, received_at, external_id, created_by) ' +
-          "VALUES ($1,'message',$2,$3,$4,$5,$6,NULL) " +
-          'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO NOTHING',
-          [channelId, (contact && contact.profile && contact.profile.name) || '', m.from || '', body.slice(0, 2000), new Date(Number(m.timestamp) * 1000), m.id]
-        );
+        var name = (contact && contact.profile && contact.profile.name) || '';
+        var d = describe(m);
+        if (channelId) {
+          await pool.query(
+            'INSERT INTO marketing_inbox_items (channel_id, kind, author_name, author_handle, body, received_at, external_id, created_by) ' +
+            "VALUES ($1,'message',$2,$3,$4,$5,$6,NULL) " +
+            'ON CONFLICT (channel_id, external_id) WHERE external_id IS NOT NULL DO NOTHING',
+            [channelId, name, m.from || '', d.body.slice(0, 2000), new Date(Number(m.timestamp) * 1000), m.id]
+          );
+        }
+        // The CRM: the conversation with this number, on its customer's
+        // profile (made now if the number is new).
+        try {
+          await require('./crmInbox.service').ingest({
+            channel: 'whatsapp', threadId: m.from,
+            contact: { name: name, handles: [{ kind: 'phone', value: m.from }] },
+            messages: [{ externalId: m.id, direction: 'in', author: name, body: d.body, attachments: d.attachments, sentAt: new Date(Number(m.timestamp) * 1000) }]
+          });
+        } catch (e) { console.error('[crm] WhatsApp message not kept:', e.message); }
       }
     }
   }

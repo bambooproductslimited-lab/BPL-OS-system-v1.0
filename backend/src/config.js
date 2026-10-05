@@ -218,6 +218,27 @@ module.exports = {
       get configured() { return !!(this.url && this.apiKey && this.apiSecret); }
     };
   }()),
+  // The CRM's email inbox (services/crmEmail.service.js): the sales
+  // mailbox it reads over IMAP, so customers' emails land on their CRM
+  // profiles. Gmail or Google Workspace: imap.gmail.com with an app password
+  // (Google account → Security → App passwords); Hostinger: imap.hostinger.com.
+  // CRM_IMAP_SENT is the sent-mail folder, so replies written in the mail app
+  // are kept too ("[Gmail]/Sent Mail" on Gmail, "Sent" or "INBOX.Sent"
+  // elsewhere). Without CRM_IMAP_USER and CRM_IMAP_PASS nothing is read.
+  crmImap: (function () {
+    var port = Number(process.env.CRM_IMAP_PORT || 993);
+    return {
+      host: (process.env.CRM_IMAP_HOST || '').trim() || 'imap.gmail.com',
+      port: port,
+      secure: process.env.CRM_IMAP_SECURE ? process.env.CRM_IMAP_SECURE === 'true' : port === 993,
+      user: (process.env.CRM_IMAP_USER || '').trim(),
+      pass: process.env.CRM_IMAP_PASS || '',
+      inbox: (process.env.CRM_IMAP_INBOX || '').trim() || 'INBOX',
+      sent: (process.env.CRM_IMAP_SENT || '').trim(),
+      get configured() { return !!(this.user && this.pass); }
+    };
+  })(),
+
   // Outgoing email over SMTP (services/mail.service.js) — two-step sign-in
   // codes by email. Any mailbox the company already has works: Hostinger
   // email (smtp.hostinger.com, port 465), Google Workspace or Gmail with an
