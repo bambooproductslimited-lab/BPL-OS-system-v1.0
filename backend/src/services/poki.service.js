@@ -1045,6 +1045,45 @@ async function endBooking(ctx, id, p) {
   return getBooking(ctx, id);
 }
 
+// Undoing an ending made by mistake: the booking is as it was — same
+// number, dates, rent, deposit and agreement — and its unit occupied again
+// (a booking that hasn't started yet goes back to draft, to be activated
+// when they move in). Refused when it can't honestly be put back: the
+// deposit has been refunded, its term has run out anyway, or the unit has
+// since been booked for some of the same days. Its invoices were never
+// touched by the ending, so nothing else changes.
+async function reopenBooking(ctx, id, p) {
+  canManage(ctx);
+  var reason = V.text(p && p.reason, 'Reason', 300);
+  var b = (await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id])).rows[0];
+  if (!b) fail('notfound', 'Booking not found.');
+  if (b.status !== 'terminated' && b.status !== 'expired') fail('conflict', 'Only a booking that has ended can be put back.');
+  if (Number(b.deposit_refunded) > 0) fail('conflict', 'Its deposit has already been refunded, so it cannot simply be put back. Make a new booking instead.');
+  var today = todayISO();
+  if (dateOnly(b.end_date) < today) fail('conflict', 'Its term ran to ' + dateOnly(b.end_date) + ' anyway, so there is nothing to put back. Renew it or make a new booking.');
+  var clash = (await pool.query(
+    "SELECT booking_no FROM poki_bookings WHERE unit_id = $1 AND id <> $2 AND status IN ('draft', 'active') " +
+    "AND daterange(start_date, end_date, '[]') && daterange($3::date, $4::date, '[]') ORDER BY start_date LIMIT 1",
+    [b.unit_id, id, b.start_date, b.end_date])).rows[0];
+  if (clash) fail('conflict', 'The unit has since been booked under ' + clash.booking_no + ' for some of the same days. Change or end that booking first.');
+  var started = dateOnly(b.start_date) <= today;
+  var status = started ? 'active' : 'draft';
+  try {
+    await withTransaction(async function (client) {
+      await client.query(
+        "UPDATE poki_bookings SET status = $2, terminated_on = NULL, termination_reason = '', updated_at = now() WHERE id = $1", [id, status]);
+      if (started) await client.query("UPDATE poki_units SET status = 'occupied', updated_at = now() WHERE id = $1", [b.unit_id]);
+      await audit(client, ctx, 'poki.booking.reopen', 'poki_booking', id,
+        'Put back booking ' + b.booking_no + ' (ended on ' + dateOnly(b.terminated_on || b.updated_at) + ' by mistake) \u2014 ' + reason + '.');
+    });
+  } catch (e) {
+    // Another booking for the same days slipped in meanwhile (the no-overlap rule).
+    if (e.code === '23P01') fail('conflict', 'The unit has since been booked for some of the same days. Change or end that booking first.');
+    throw e;
+  }
+  return getBooking(ctx, id);
+}
+
 // Renewal creates a NEW booking continuing from the old one's end date rather
 // than extending it in place, so each term keeps its own rent, dates and
 // signed agreement — which is what you need when a dispute is about what
@@ -1353,7 +1392,7 @@ module.exports = {
   listTenants: listTenants, createTenant: createTenant, updateTenant: updateTenant, removeTenant: removeTenant,
   listBookings: listBookings, getBooking: getBooking, createBooking: createBooking, updateBooking: updateBooking,
   quoteBooking: quoteBooking,
-  activateBooking: activateBooking, endBooking: endBooking, renewBooking: renewBooking,
+  activateBooking: activateBooking, reopenBooking: reopenBooking, endBooking: endBooking, renewBooking: renewBooking,
   recordDeposit: recordDeposit, refundDeposit: refundDeposit,
   overview: overview, rentRoll: rentRoll, autoExpireBookings: autoExpireBookings
 };

@@ -433,3 +433,61 @@ test('editing a renewal does not charge the carried-over deposit again', async f
   await call('PATCH', '/api/poki/bookings/' + renewed.body.id, { depositAmount: 5000 });
   assert.equal((await invoiceOf(renewed.body.bookingNo)).grandTotal, 7000);
 });
+
+test('a booking ended by mistake can be put back, as it was; not when that would be wrong', async function () {
+  function daysFromToday(n) { var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  var unitStatus = async function (id) { return (await pool.query('SELECT status FROM poki_units WHERE id = $1', [id])).rows[0].status; };
+  var f = await fixtures('R1', 1500, 50);
+  var b = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: daysFromToday(-30), durationMonths: 6 }));
+  assert.equal(b.status, 201);
+  var id = b.body.id;
+
+  var ended = await call('POST', '/api/poki/bookings/' + id + '/end', { reason: 'pressed by mistake' });
+  assert.equal(ended.body.status, 'terminated');
+  assert.equal(await unitStatus(f.unitId), 'vacant');
+
+  var noReason = await call('POST', '/api/poki/bookings/' + id + '/reopen', {});
+  assert.equal(noReason.status, 400);
+  var back = await call('POST', '/api/poki/bookings/' + id + '/reopen', { reason: 'Ended the wrong booking' });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  assert.equal(back.body.status, 'active');
+  assert.equal(back.body.terminatedOn, null);
+  assert.equal(back.body.bookingNo, b.body.bookingNo, 'the same booking, same number');
+  assert.equal(await unitStatus(f.unitId), 'occupied');
+  var log = (await pool.query("SELECT summary FROM audit_logs WHERE action = 'poki.booking.reopen' AND entity_id = $1", [id])).rows[0];
+  assert.match(log.summary, /Ended the wrong booking/);
+  assert.equal((await call('POST', '/api/poki/bookings/' + id + '/reopen', { reason: 'again' })).status, 409, 'an active booking has nothing to put back');
+
+  // Ended, and the unit let to someone else for some of the same days: refused.
+  await call('POST', '/api/poki/bookings/' + id + '/end', { reason: 'moved out' });
+  var other = await call('POST', '/api/poki/bookings', bookingBody(f, { startDate: daysFromToday(10), durationMonths: 1 }));
+  assert.equal(other.status, 201);
+  var clash = await call('POST', '/api/poki/bookings/' + id + '/reopen', { reason: 'try' });
+  assert.equal(clash.status, 409);
+  assert.match(clash.body.error.message, new RegExp('since been booked under ' + other.body.bookingNo));
+
+  // The deposit already refunded: refused.
+  var f2 = await fixtures('R2', 1000, 0);
+  var d = await call('POST', '/api/poki/bookings', bookingBody(f2, { startDate: daysFromToday(-10), durationMonths: 3 }));
+  await call('POST', '/api/poki/bookings/' + d.body.id + '/end', { reason: 'x' });
+  await pool.query('UPDATE poki_bookings SET deposit_held = 500, deposit_refunded = 500 WHERE id = $1', [d.body.id]);
+  var refunded = await call('POST', '/api/poki/bookings/' + d.body.id + '/reopen', { reason: 'try' });
+  assert.equal(refunded.status, 409);
+  assert.match(refunded.body.error.message, /deposit has already been refunded/);
+
+  // Its term has run out anyway: refused.
+  var f3 = await fixtures('R3', 1000, 0);
+  var old = await call('POST', '/api/poki/bookings', bookingBody(f3, { startDate: '2020-01-01', durationMonths: 1 }));
+  await call('POST', '/api/poki/bookings/' + old.body.id + '/end', { reason: 'x', status: 'expired' });
+  var past = await call('POST', '/api/poki/bookings/' + old.body.id + '/reopen', { reason: 'try' });
+  assert.equal(past.status, 409);
+  assert.match(past.body.error.message, /ran to 2020-01-31 anyway/);
+
+  // Not started yet: back to draft, the unit left as it is until they move in.
+  var f4 = await fixtures('R4', 1000, 0);
+  var later = await call('POST', '/api/poki/bookings', bookingBody(f4, { startDate: '2035-01-01', durationMonths: 2 }));
+  await call('POST', '/api/poki/bookings/' + later.body.id + '/end', { reason: 'x' });
+  var draft = await call('POST', '/api/poki/bookings/' + later.body.id + '/reopen', { reason: 'Cancelled the wrong one' });
+  assert.equal(draft.body.status, 'draft');
+  assert.equal(await unitStatus(f4.unitId), 'vacant');
+});

@@ -316,7 +316,9 @@ export default function PokiBookingsPage() {
         ? { amount: Math.round((booking.depositHeld - booking.depositRefunded) * 100) / 100, deductions: '', notes: '' }
         : kind === 'deposit'
           ? { amount: Math.max(0, Math.round((booking.depositAmount - booking.depositHeld) * 100) / 100) || '', notes: '' }
-          : { reason: '', status: daysUntil(booking.endDate) <= 0 ? 'expired' : 'terminated' });
+          : kind === 'reopen'
+            ? { reason: '' }
+            : { reason: '', status: daysUntil(booking.endDate) <= 0 ? 'expired' : 'terminated' });
     setDetail(null);
     setDialog(kind);
   }
@@ -343,6 +345,9 @@ export default function PokiBookingsPage() {
       } else if (dialog === 'end') {
         await api.post('/poki/bookings/' + target.id + '/end', { reason: form.reason, status: form.status });
         setToast(tr('Booking ended — the unit is now vacant.'));
+      } else if (dialog === 'reopen') {
+        const back = await api.post('/poki/bookings/' + target.id + '/reopen', { reason: form.reason });
+        setToast(back.status === 'active' ? tr('{bookingNo} is back — {unitCode} is occupied again.', { bookingNo: back.bookingNo, unitCode: target.unitCode }) : tr('{bookingNo} is back as a draft; activate it when they move in.', { bookingNo: back.bookingNo }));
       }
       setDialog(null);
       await load();
@@ -448,6 +453,9 @@ export default function PokiBookingsPage() {
     ['past', tr('Past'), bookings.filter(chipTest.past).length], ['all', tr('All'), bookings.length]
   ].filter(([k, , c]) => c > 0 || k === 'current' || k === chip);
 
+  // Ended by mistake: put back as it was, while that is still honest — the
+  // deposit not refunded and its term not run out (poki.service reopenBooking).
+  const canReopen = (b) => canManage && (b.status === 'terminated' || b.status === 'expired') && !(b.depositRefunded > 0) && daysUntil(b.endDate) >= 0;
   function bookingActions(l) {
     return [
       { label: tr('Open'), onClick: () => setDetail(l.id) },
@@ -457,6 +465,7 @@ export default function PokiBookingsPage() {
       canManage && l.status === 'active' && l.depositHeld < l.depositAmount && { label: tr('Record deposit'), onClick: () => openSimple('deposit', l) },
       canManage && l.status === 'active' && { label: tr('Renew'), onClick: () => openSimple('renew', l) },
       canManage && l.status === 'active' && { label: tr('End'), onClick: () => openSimple('end', l), danger: true },
+      canReopen(l) && { label: tr('Undo ending'), onClick: () => openSimple('reopen', l) },
       canManage && depositToReturn(l) && { label: tr('Refund deposit'), onClick: () => openSimple('refund', l) }
     ].filter(Boolean);
   }
@@ -612,6 +621,7 @@ export default function PokiBookingsPage() {
               {cur.balanceTotal > 0 && <Link className="btn btn-secondary" to="/pokibilling">{tr('Record a payment')}</Link>}
               {canManage && (cur.status === 'draft' || cur.status === 'active') && <button type="button" className="btn btn-secondary" onClick={() => openBooking(cur)}>{tr('Edit')}</button>}
               {canManage && cur.status === 'active' && <button type="button" className="btn btn-secondary" onClick={() => openSimple('end', cur)}>{tr('End')}</button>}
+              {canReopen(cur) && <button type="button" className="btn btn-secondary" onClick={() => openSimple('reopen', cur)}>{tr('Undo ending')}</button>}
               {canManage && depositToReturn(cur) && <button type="button" className="btn btn-primary" onClick={() => openSimple('refund', cur)}>{tr('Refund deposit')}</button>}
               {canManage && cur.status === 'active' && <button type="button" className="btn btn-primary" onClick={() => openSimple('renew', cur)}>{tr('Renew')}</button>}
               {canManage && cur.status === 'draft' && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => { setDetail(null); act(cur, '/activate', {}, tr('Booking activated — the unit is now occupied.')); }}>{tr('Activate')}</button>}
@@ -727,7 +737,7 @@ export default function PokiBookingsPage() {
       )}
 
       {/* ── deposit, refund, renew, end ── */}
-      {(dialog === 'deposit' || dialog === 'refund' || dialog === 'renew' || dialog === 'end') && target && (
+      {(dialog === 'deposit' || dialog === 'refund' || dialog === 'renew' || dialog === 'end' || dialog === 'reopen') && target && (
         <div className="dialog-backdrop" onClick={() => !saving && setDialog(null)}>
           <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitSimple}>
             <h2>
@@ -735,6 +745,7 @@ export default function PokiBookingsPage() {
               {dialog === 'refund' && tr('Refund deposit — {bookingNo}', { bookingNo: target.bookingNo })}
               {dialog === 'renew' && tr('Renew booking — {bookingNo}', { bookingNo: target.bookingNo })}
               {dialog === 'end' && tr('End booking — {bookingNo}', { bookingNo: target.bookingNo })}
+              {dialog === 'reopen' && tr('Undo ending — {bookingNo}', { bookingNo: target.bookingNo })}
             </h2>
             <p className="dk-muted tl-small">{target.tenantName} · {target.unitCode} · {target.propertyName}</p>
             <div className="tl-form">
@@ -796,6 +807,19 @@ export default function PokiBookingsPage() {
                   </div>
                 </>
               )}
+              {dialog === 'reopen' && (
+                <>
+                  <p className="tl-small tl-span">{daysUntil(target.startDate) > 0
+                    ? tr('{bookingNo} goes back to a draft, with the same dates, rent, deposit and agreement. Activate it when they move in.', { bookingNo: target.bookingNo })
+                    : tr('{bookingNo} goes back to active, with the same dates ({from} – {to}), rent, deposit and agreement, and {unitCode} is occupied again. Its invoices were never changed by the ending.', { bookingNo: target.bookingNo, from: fmtDate(target.startDate), to: fmtDate(target.endDate), unitCode: target.unitCode })}</p>
+                  {target.terminatedOn && <p className="dk-muted tl-small tl-span">{tr('Ended on {date}', { date: fmtDate(target.terminatedOn) })}{target.terminationReason ? ' · ' + target.terminationReason : ''}</p>}
+                  <div className="field tl-span">
+                    <label htmlFor="pr-reason">{tr('Why is it being put back?')}</label>
+                    <textarea id="pr-reason" className="input tl-textarea" value={form.reason} onChange={set('reason')} required placeholder={tr('e.g. Ended the wrong booking')} />
+                    <small className="dk-muted tl-small">{tr('Kept in the audit log with your name.')}</small>
+                  </div>
+                </>
+              )}
               {dialog === 'end' && (
                 <>
                   <p className="dk-muted tl-small tl-span">{tr("{unitCode} becomes vacant immediately. Any unpaid invoices stay outstanding — ending a tenancy doesn't cancel what's owed.", { unitCode: target.unitCode })}</p>
@@ -815,7 +839,7 @@ export default function PokiBookingsPage() {
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)} disabled={saving}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Confirm')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || (dialog === 'reopen' && !form.reason.trim())}>{saving ? tr('Saving…') : dialog === 'reopen' ? tr('Put it back') : tr('Confirm')}</button>
             </div>
           </form>
         </div>

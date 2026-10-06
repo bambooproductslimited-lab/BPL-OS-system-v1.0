@@ -101,6 +101,10 @@ router.post('/bookings/:id/activate', async function (req, res, next) {
 router.post('/bookings/:id/end', async function (req, res, next) {
   try { res.json(await poki.endBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
+// A booking ended by mistake, put back (poki.service.js reopenBooking).
+router.post('/bookings/:id/reopen', async function (req, res, next) {
+  try { res.json(await poki.reopenBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
 router.post('/bookings/:id/renew', async function (req, res, next) {
   try { res.status(201).json(await poki.renewBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
