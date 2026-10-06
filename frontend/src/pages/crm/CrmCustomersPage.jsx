@@ -37,7 +37,9 @@ export default function CrmCustomersPage() {
 
   const show = params.get('show') || '';
   const repF = params.get('rep') || '';
-  const catF = params.get('category') || '';
+  // Customers are the ones who have paid (Lead → Prospect → Customer);
+  // leads and prospects with a profile are one tap away.
+  const catF = params.get('category') || 'paying';
   const chF = params.get('channel') || '';
   const sort = params.get('sort') || '';
   const openId = params.get('id');
@@ -49,7 +51,7 @@ export default function CrmCustomersPage() {
     if (show === 'followup') qs.set('followUp', 'due');
     if (show === 'inactive') qs.set('status', 'inactive');
     if (repF) qs.set('rep', repF);
-    if (catF) qs.set('category', catF);
+    if (catF !== 'all') qs.set('category', catF);
     if (chF) qs.set('channel', chF);
     if (sort) qs.set('sort', sort);
     if (q.trim()) qs.set('search', q.trim());
@@ -82,13 +84,13 @@ export default function CrmCustomersPage() {
     <div className="dk crm hub">
       {error && <div className="error-banner" role="alert">{error}</div>}
       <Hero eyebrow={tr('Sales & CRM')} title={tr('Customers')}
-        sub={tr('Every customer in one place: each with all their numbers and accounts, every conversation on every channel, and everything they were quoted, ordered and paid. New people who write to us get a profile by themselves.')}
+        sub={tr('Everyone who has paid us, in one place: each with all their numbers and accounts, every conversation on every channel, and everything they were quoted, ordered and paid. People who write to us get a profile by themselves, as a lead; the first payment makes them a customer.')}
         actions={<>
           <button type="button" className="btn btn-primary" onClick={() => navigate('/crminbox?tab=followups')}>{tr('My follow-ups')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate('/crminbox')}>{tr('Inbox')}</button>
         </>}
         stats={[
-          { icon: 'people', value: String(s.total), label: tr('customers'), note: meId ? tr('{n} are yours', { n: s.mine }) : null, onClick: () => setParam('show', '') },
+          { icon: 'people', value: String(s.paying), label: tr('paying customers'), note: tr('{p} prospects and {l} leads have a profile too', { p: s.prospects, l: s.leads }), onClick: () => setParams({}, { replace: true }) },
           { icon: 'send', value: String(s.waiting), label: tr('waiting for a reply'), note: tr('wrote last, not answered'), tone: s.waiting ? 'alert' : 'good', onClick: () => setParam('show', 'waiting') },
           { icon: 'calendar', value: String(s.follow_up_due), label: tr('follow-ups due'), note: tr('on or before today'), tone: s.follow_up_due ? 'bad' : '', onClick: () => setParam('show', 'followup') },
           { icon: 'warn', value: String(s.unassigned), label: tr('with no sales rep'), note: tr('{n} possible duplicates', { n: s.duplicates }), tone: s.unassigned ? 'bad' : 'good', onClick: () => setParam('rep', 'none') }
@@ -122,8 +124,8 @@ export default function CrmCustomersPage() {
             <button key={k || 'all'} type="button" role="radio" aria-checked={show === k} className={'ppl-chip' + (show === k ? ' is-on' : '')} onClick={() => setParam('show', k)}>{l}</button>
           ))}
           <span className="hub-chip-gap" />
-          {[['', tr('Any kind')], ...CATEGORIES.map((c) => [c.key, tr(c.label)])].map(([k, l]) => (
-            <button key={k || 'anykind'} type="button" role="radio" aria-checked={catF === k} className={'ppl-chip' + (catF === k ? ' is-on' : '')} onClick={() => setParam('category', k)}>{l}</button>
+          {[['paying', tr('Paying customers')], ['vip', tr('VIP')], ['prospect', tr('Prospects')], ['lead', tr('Leads')], ['all', tr('All profiles')]].map(([k, l]) => (
+            <button key={k} type="button" role="radio" aria-checked={catF === k} className={'ppl-chip' + (catF === k ? ' is-on' : '')} onClick={() => setParam('category', k === 'paying' ? '' : k)}>{l}</button>
           ))}
         </div>
 

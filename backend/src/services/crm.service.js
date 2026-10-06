@@ -4,8 +4,10 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 
 // The CRM (migration 0102): the sales team's leads from the first message to
-// a won or lost deal, with follow-ups, site visits, prospects, referrals and
-// the rep's commission on every sale.
+// a won or lost deal, with follow-ups, site visits, referrals and the rep's
+// commission on every sale. Lead → Prospect → Customer (migration 0132): a
+// lead becomes a prospect once qualified or quoted, and a customer when they
+// pay.
 //
 // A sale is always an OS invoice. Linking an invoice to a lead makes it a
 // deal; its value, discount, what's been paid and the balance are read from
@@ -18,12 +20,36 @@ var { audit } = require('../utils/audit');
 // kick-back is the same share going to someone who isn't the sales rep. A
 // referral pays the referral rate (20%) of the deal's value.
 //
-// Who sees what: crm.read to look, crm.manage to add and work leads,
-// prospects and visits; commission figures are shown to the rep they belong
+// Who sees what: crm.read to look, crm.manage to add and work leads and
+// visits; commission figures are shown to the rep they belong
 // to, and everyone's (and marking them paid) needs crm.commission.
 
 var STAGES = ['new', 'contacted', 'follow_up', 'qualified', 'quote_sent', 'negotiation', 'won', 'lost'];
 var OPEN_STAGES = STAGES.slice(0, 6);
+// Lead → Prospect → Customer (migration 0132): the first three stages are
+// a lead's, the next three a prospect's; a won lead is a customer once
+// they have paid, and until then a prospect waiting for the money.
+var LEAD_STAGES = STAGES.slice(0, 3);
+var PROSPECT_STAGES = STAGES.slice(3, 6);
+var PHASES = ['lead', 'prospect', 'won', 'customer', 'lost'];
+// Has this lead paid? A linked sale with money on it, or a payment by its
+// customer on a sale raised since the lead came in.
+var PAID_SQL = "(EXISTS (SELECT 1 FROM crm_deals pd JOIN invoices pi ON pi.id = pd.invoice_id WHERE pd.lead_id = l.id AND pi.amount_paid > 0) " +
+  "OR (l.customer_id IS NOT NULL AND EXISTS (SELECT 1 FROM payments pp JOIN invoices pi ON pi.id = pp.invoice_id " +
+  "WHERE pp.customer_id = l.customer_id AND pp.amount > 0 AND pi.doc_kind = 'sale' AND pi.issued_at >= l.received_on)))";
+function phaseOf(stage, paid) {
+  if (stage === 'lost') return 'lost';
+  if (stage === 'won') return paid ? 'customer' : 'won';
+  return LEAD_STAGES.indexOf(stage) >= 0 ? 'lead' : 'prospect';
+}
+function isProspectStage(stage) { return PROSPECT_STAGES.indexOf(stage) >= 0 || stage === 'won'; }
+function phaseWhere(phase) {
+  if (phase === 'lead') return "l.stage IN ('new', 'contacted', 'follow_up')";
+  if (phase === 'prospect') return "(l.stage IN ('qualified', 'quote_sent', 'negotiation') OR (l.stage = 'won' AND NOT " + PAID_SQL + '))';
+  if (phase === 'won') return "(l.stage = 'won' AND NOT " + PAID_SQL + ')';
+  if (phase === 'customer') return "(l.stage = 'won' AND " + PAID_SQL + ')';
+  return "l.stage = 'lost'";
+}
 var NOTE_KINDS = ['note', 'call'];
 var PAY_STATUSES = ['pending', 'paid', 'not_eligible'];
 var VISIT_STATUSES = ['scheduled', 'visited', 'cancelled'];
@@ -113,7 +139,8 @@ var LEAD_SELECT =
   'SELECT l.*, e.first_name AS rep_first, e.last_name AS rep_last, c.name AS customer_name, ' +
   '(SELECT count(*)::int FROM crm_deals d WHERE d.lead_id = l.id) AS deal_count, ' +
   '(SELECT coalesce(sum(i.grand_total), 0) FROM crm_deals d JOIN invoices i ON i.id = d.invoice_id WHERE d.lead_id = l.id) AS deal_value, ' +
-  '(SELECT json_build_object(\'body\', n.body, \'kind\', n.kind, \'at\', n.at) FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.kind IN (\'note\', \'call\') ORDER BY n.at DESC LIMIT 1) AS last_note ' +
+  '(SELECT json_build_object(\'body\', n.body, \'kind\', n.kind, \'at\', n.at) FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.kind IN (\'note\', \'call\') ORDER BY n.at DESC LIMIT 1) AS last_note, ' +
+  PAID_SQL + ' AS paid ' +
   'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id ';
 
 function rowToLead(r) {
@@ -125,7 +152,8 @@ function rowToLead(r) {
     comments: r.comments, lostReason: r.lost_reason || null,
     customerId: r.customer_id, customerName: r.customer_name || null, prospectId: r.prospect_id,
     stageChangedAt: r.stage_changed_at, createdAt: r.created_at, updatedAt: r.updated_at,
-    dealCount: r.deal_count || 0, dealValue: round2(r.deal_value), lastNote: r.last_note || null
+    dealCount: r.deal_count || 0, dealValue: round2(r.deal_value), lastNote: r.last_note || null,
+    paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid)
   };
 }
 
@@ -134,7 +162,9 @@ async function listLeads(ctx, q) {
   q = q || {};
   var where = [], args = [];
   function arg(v) { args.push(v); return '$' + args.length; }
-  if (q.stage === 'open' || !q.stage) where.push('l.stage = ANY(' + arg(OPEN_STAGES) + ')');
+  // A phase (lead, prospect, won, customer, lost) says which stages itself.
+  if (q.phase) where.push(phaseWhere(V.oneOf(q.phase, PHASES, 'Phase')));
+  else if (q.stage === 'open' || !q.stage) where.push('l.stage = ANY(' + arg(OPEN_STAGES) + ')');
   else if (q.stage !== 'all') where.push('l.stage = ' + arg(V.oneOf(q.stage, STAGES, 'Stage')));
   if (q.rep === 'me') where.push('l.rep_id = ' + arg(me(ctx)));
   else if (q.rep === 'none') where.push("l.rep_id IS NULL AND l.rep_name = ''");
@@ -237,6 +267,9 @@ async function updateLead(ctx, id, p) {
         rep.id, rep.name, p.receivedOn === undefined ? cur.received_on : V.date(p.receivedOn, 'Date received'),
         stage, stage === 'lost' ? (p.lostReason === undefined ? cur.lost_reason : str(p.lostReason, 300)) : '']);
     if (stage !== cur.stage) await note(db, ctx, id, 'stage', str(p.stageNote, 2000), cur.stage, stage);
+    // Qualified, quoted, agreeing terms or won and not paid yet: their
+    // profile says Prospect too (the payment makes it Customer).
+    if (cur.customer_id && isProspectStage(stage)) await db.query("UPDATE customers SET category = 'prospect' WHERE id = $1 AND category = 'lead'", [cur.customer_id]);
     await audit(db, ctx, 'crm.lead.update', 'crm_lead', id, 'Updated lead ' + cur.ref + (stage !== cur.stage ? ' (' + cur.stage + ' → ' + stage + ')' : '') + '.');
   });
   return getLead(ctx, id);
@@ -275,8 +308,10 @@ async function removeLead(ctx, id) {
   return { ok: true };
 }
 
-// Makes the lead a customer in the OS (or links the customer who already
-// has its phone or email), so a quotation and invoice can be raised.
+// Gives the lead a customer profile in the OS (or links the profile that
+// already has its phone or email), so a quotation and invoice can be
+// raised. The profile says Lead or Prospect as the lead does; it says
+// Customer by itself when they pay (migration 0132).
 async function toCustomer(ctx, id) {
   need(ctx, 'crm.manage');
   need(ctx, 'customer.manage');
@@ -295,13 +330,14 @@ async function toCustomer(ctx, id) {
       var co = await salesCompany(s);
       customerId = (await db.query(
         "INSERT INTO customers (name, contact_person, email, phone, address, category, account_manager_id, status, notes, company_id) " +
-        "VALUES ($1,$2,$3,$4,$5,'lead',$6,'active',$7,$8) RETURNING id",
-        [cur.company || cur.name, cur.company ? cur.name : '', cur.email, cur.phone, cur.location, cur.rep_id || me(ctx),
+        "VALUES ($1,$2,$3,$4,$5,$6,$7,'active',$8,$9) RETURNING id",
+        [cur.company || cur.name, cur.company ? cur.name : '', cur.email, cur.phone, cur.location, isProspectStage(cur.stage) ? 'prospect' : 'lead', cur.rep_id || me(ctx),
           'From CRM lead ' + cur.ref + (cur.item ? ' — ' + cur.item : '') + '.', co.id])).rows[0].id;
       await audit(db, ctx, 'customer.create', 'customer', customerId, 'Added customer ' + (cur.company || cur.name) + ' from CRM lead ' + cur.ref + '.');
     }
     await db.query('UPDATE crm_leads SET customer_id = $2, updated_at = now() WHERE id = $1', [id, customerId]);
-    await note(db, ctx, id, 'note', existing ? 'Linked to the existing customer with the same contact details.' : 'Added as a customer.');
+    if (existing && isProspectStage(cur.stage)) await db.query("UPDATE customers SET category = 'prospect' WHERE id = $1 AND category = 'lead'", [customerId]);
+    await note(db, ctx, id, 'note', existing ? 'Linked to the existing customer with the same contact details.' : 'Customer profile created.');
   });
   return getLead(ctx, id);
 }
@@ -517,79 +553,6 @@ async function removeReferral(ctx, id) {
   return { ok: true };
 }
 
-// ── prospects ────────────────────────────────────────────────────────
-
-function rowToProspect(r) {
-  return {
-    id: r.id, listName: r.list_name, market: r.market, company: r.company, name: r.name, phone: r.phone, email: r.email,
-    website: r.website, interest: r.interest, notes: r.notes, createdAt: r.created_at,
-    leadId: r.lead_id || null, leadRef: r.lead_ref || null, leadStage: r.lead_stage || null
-  };
-}
-var PROSPECT_SELECT = 'SELECT p.*, l.id AS lead_id, l.ref AS lead_ref, l.stage AS lead_stage FROM crm_prospects p ' +
-  'LEFT JOIN LATERAL (SELECT id, ref, stage FROM crm_leads WHERE prospect_id = p.id ORDER BY created_at DESC LIMIT 1) l ON true ';
-
-async function listProspects(ctx, q) {
-  need(ctx, 'crm.read');
-  q = q || {};
-  var where = [], args = [];
-  function arg(v) { args.push(v); return '$' + args.length; }
-  if (q.list) where.push('p.list_name = ' + arg(q.list));
-  if (q.market) where.push('p.market = ' + arg(q.market));
-  if (q.q) {
-    var like = arg('%' + String(q.q).trim().toLowerCase() + '%');
-    where.push('(lower(p.name) LIKE ' + like + ' OR lower(p.company) LIKE ' + like + ' OR lower(p.interest) LIKE ' + like + ' OR lower(p.email) LIKE ' + like + ' OR p.phone LIKE ' + like + ')');
-  }
-  var rows = (await pool.query(PROSPECT_SELECT + (where.length ? 'WHERE ' + where.join(' AND ') : '') + ' ORDER BY p.list_name, p.company, p.name LIMIT 2000', args)).rows;
-  var lists = (await pool.query(
-    'SELECT p.list_name, p.market, count(*)::int AS n, count(l.id)::int AS converted FROM crm_prospects p LEFT JOIN crm_leads l ON l.prospect_id = p.id GROUP BY 1, 2 ORDER BY 3 DESC')).rows;
-  return {
-    prospects: rows.map(rowToProspect),
-    lists: lists.map(function (r) { return { listName: r.list_name, market: r.market, count: r.n, converted: r.converted }; })
-  };
-}
-
-async function saveProspect(ctx, id, p) {
-  need(ctx, 'crm.manage');
-  p = p || {};
-  var cur = id ? (await pool.query('SELECT * FROM crm_prospects WHERE id = $1', [id])).rows[0] : null;
-  if (id && !cur) fail('notfound', 'Prospect not found.');
-  function f(key, col, max) { return p[key] === undefined && cur ? cur[col] : str(p[key], max); }
-  var vals = [f('listName', 'list_name', 80), V.oneOf(p.market === undefined && cur ? cur.market : (p.market || 'local'), ['local', 'export'], 'Market'),
-    f('company', 'company', 120), f('name', 'name', 120), f('phone', 'phone', 40), f('email', 'email', 120), f('website', 'website', 200),
-    f('interest', 'interest', 200), f('notes', 'notes', 2000)];
-  if (!vals[2] && !vals[3]) fail('invalid', 'Give a name or a company.');
-  var pid;
-  if (cur) {
-    await pool.query('UPDATE crm_prospects SET list_name = $2, market = $3, company = $4, name = $5, phone = $6, email = $7, website = $8, interest = $9, notes = $10 WHERE id = $1', [id].concat(vals));
-    pid = id;
-  } else {
-    pid = (await pool.query('INSERT INTO crm_prospects (list_name, market, company, name, phone, email, website, interest, notes, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id', vals.concat([me(ctx)]))).rows[0].id;
-  }
-  await audit(pool, ctx, cur ? 'crm.prospect.update' : 'crm.prospect.create', 'crm_prospect', pid, (cur ? 'Updated' : 'Added') + ' prospect ' + (vals[3] || vals[2]) + '.');
-  return rowToProspect((await pool.query(PROSPECT_SELECT + 'WHERE p.id = $1', [pid])).rows[0]);
-}
-async function removeProspect(ctx, id) {
-  need(ctx, 'crm.manage');
-  var r = (await pool.query('DELETE FROM crm_prospects WHERE id = $1 RETURNING name, company', [id])).rows[0];
-  if (!r) fail('notfound', 'Prospect not found.');
-  await audit(pool, ctx, 'crm.prospect.delete', 'crm_prospect', id, 'Deleted prospect ' + (r.name || r.company) + '.');
-  return { ok: true };
-}
-// A prospect worth approaching becomes a lead, keeping where it came from.
-async function prospectToLead(ctx, id, p) {
-  need(ctx, 'crm.manage');
-  var pr = (await pool.query(PROSPECT_SELECT + 'WHERE p.id = $1', [id])).rows[0];
-  if (!pr) fail('notfound', 'Prospect not found.');
-  if (pr.lead_id) fail('conflict', 'This prospect is already lead ' + pr.lead_ref + '.');
-  p = p || {};
-  return createLead(ctx, {
-    name: pr.name || pr.company, company: pr.name ? pr.company : '', phone: pr.phone, email: pr.email,
-    source: p.source || 'Prospect list', item: pr.interest, prospectId: pr.id, repId: p.repId,
-    comments: [pr.list_name ? 'From the prospect list "' + pr.list_name + '".' : '', pr.notes].filter(Boolean).join(' ')
-  });
-}
-
 // ── site visits ──────────────────────────────────────────────────────
 
 async function listVisitsWhere(where, args) {
@@ -784,7 +747,11 @@ async function overview(ctx, q) {
   var vIn = visits.filter(function (v) { var d = dateOnly(v.scheduled_on); return d >= period.from && d <= period.to; });
   var upcoming = (await listVisitsWhere("v.status = 'scheduled' AND v.scheduled_on >= $1 AND v.scheduled_on <= $2", [today, addDays(today, 14)])).reverse();
 
-  var prospects = (await pool.query('SELECT count(*)::int AS n, count(DISTINCT l.prospect_id)::int AS converted FROM crm_prospects p LEFT JOIN crm_leads l ON l.prospect_id = p.id')).rows[0];
+  // Where every lead stands now: lead, prospect, won waiting for the
+  // money, customer, lost.
+  var phaseRows = (await pool.query('SELECT l.stage, ' + PAID_SQL + ' AS paid, count(*)::int AS n FROM crm_leads l GROUP BY 1, 2')).rows;
+  var phases = { lead: 0, prospect: 0, won: 0, customer: 0, lost: 0 };
+  phaseRows.forEach(function (r) { phases[phaseOf(r.stage, r.paid)] += r.n; });
 
   var mine = {
     open: open.filter(function (l) { return l.rep_id === myId; }).length,
@@ -814,7 +781,7 @@ async function overview(ctx, q) {
       cancelled: vIn.filter(function (v) { return v.status === 'cancelled'; }).length,
       upcoming: upcoming.slice(0, 6)
     },
-    prospects: { total: prospects.n, converted: prospects.converted },
+    phases: phases,
     mine: mine
   };
 }
@@ -884,13 +851,12 @@ async function people(ctx) {
 }
 
 module.exports = {
-  STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, commission: money,
+  STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, LEAD_STAGES: LEAD_STAGES, PROSPECT_STAGES: PROSPECT_STAGES, PAID_SQL: PAID_SQL, phaseOf: phaseOf, commission: money,
   getSettings: getSettings, saveSettings: saveSettings, overview: overview, people: people,
   listLeads: listLeads, getLead: getLead, createLead: createLead, updateLead: updateLead, setStage: setStage, addNote: addNote,
   removeLead: removeLead, toCustomer: toCustomer,
   invoicesToLink: invoicesToLink, linkInvoice: linkInvoice, updateDeal: updateDeal, setDealStatus: setDealStatus, unlinkDeal: unlinkDeal, listDeals: listDeals,
   listReferrals: listReferrals, saveReferral: saveReferral, setReferralStatus: setReferralStatus, removeReferral: removeReferral,
-  listProspects: listProspects, saveProspect: saveProspect, removeProspect: removeProspect, prospectToLead: prospectToLead,
   listVisits: listVisits, saveVisit: saveVisit, removeVisit: removeVisit,
   unmatchedNames: unmatchedNames, assignName: assignName,
   _settingsRow: settingsRow, _salesCompany: salesCompany, _invoiceScope: invoiceScope

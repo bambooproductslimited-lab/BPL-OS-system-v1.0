@@ -79,15 +79,21 @@ async function money(co, from, to) {
     "count(*) FILTER (WHERE q.status IN ('rejected', 'expired', 'cancelled') OR (q.status IN ('sent', 'viewed') AND q.valid_until < CURRENT_DATE))::int AS lost " +
     'FROM quotations q JOIN customers c ON c.id = q.customer_id ' +
     "WHERE q.status <> 'draft' AND q.currency = 'GHS' AND COALESCE(q.sent_at, q.created_at)::date BETWEEN " + q3.p(from) + ' AND ' + q3.p(to) + ' AND ' + quoteScope(co, q3.p), q3.args)).rows[0];
+  // Leads that came in, how many got as far as a prospect (qualified, quoted
+  // or agreeing terms, even if lost since), how many were won, and how many
+  // have paid: Lead → Prospect → Customer.
   var leads = (await pool.query(
-    "SELECT count(*)::int AS n, count(*) FILTER (WHERE stage = 'won')::int AS won FROM crm_leads WHERE received_on BETWEEN $1 AND $2", [from, to])).rows[0];
+    "SELECT count(*)::int AS n, " +
+    "count(*) FILTER (WHERE l.stage IN ('qualified', 'quote_sent', 'negotiation', 'won') OR EXISTS (SELECT 1 FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.to_stage IN ('qualified', 'quote_sent', 'negotiation', 'won')))::int AS prospects, " +
+    "count(*) FILTER (WHERE l.stage = 'won')::int AS won, count(*) FILTER (WHERE l.stage = 'won' AND " + crm.PAID_SQL + ")::int AS customers " +
+    'FROM crm_leads l WHERE l.received_on BETWEEN $1 AND $2', [from, to])).rows[0];
   var sales = r2(inv.sales), decided = quotes.won + quotes.lost;
   return {
     sales: sales, cash: r2(paid.cash), invoices: inv.n, averageInvoice: inv.n ? r2(sales / inv.n) : null,
     buyers: inv.buyers, newBuyers: inv.new_buyers, returningBuyers: inv.buyers - inv.new_buyers,
     quotesSent: quotes.sent, quotesValue: r2(quotes.sent_value), quotesWon: quotes.won, quotesWonValue: r2(quotes.won_value), quotesLost: quotes.lost,
     winRate: decided ? Math.round(quotes.won / decided * 100) : null,
-    leads: leads.n, leadsWon: leads.won
+    leads: leads.n, leadsProspects: leads.prospects, leadsWon: leads.won, leadsCustomers: leads.customers
   };
 }
 

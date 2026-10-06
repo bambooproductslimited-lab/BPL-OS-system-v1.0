@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Change, Empty, Glossary, Hero, Icon, Insights, LinkButton, RankList, Row, Section, Status, fmtDate, jump, pctChange } from '../../components/DashKit';
 import { activeIntlLocale, tr, msg } from '../../lib/i18n.jsx';
-import { STAGES, ImportDialog, LeadDialog, NewLeadDialog, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, followUpText, ghs, monthLabel, stage, todayISO, useCrmBasics, usePerms, visitLabel } from './crmShared';
+import { PROSPECT_STAGES, STAGES, ImportDialog, LeadDialog, NewLeadDialog, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, followUpText, ghs, monthLabel, stage, todayISO, useCrmBasics, usePerms, visitLabel } from './crmShared';
 import { channelLabel } from './crmHubShared';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
@@ -120,13 +120,17 @@ export default function CrmOverviewPage() {
   if (d.seeAllCommission && d.commission.readyCount) insights.push({ tone: 'info', icon: 'cash', text: tr('{n} commissions worth {amount} are on paid-up sales and can be paid.', { n: d.commission.readyCount, amount: ghs(d.commission.ready) }), action: { label: tr('Open commissions'), run: () => navigate('/crmcommissions') } });
   if (!n.sales && !d.totalLeads) insights.push({ tone: 'info', icon: 'info', text: tr('No sales or leads in this period yet.') });
 
+  // Lead → Prospect → Customer, for the leads that came in in the period.
+  const stepPct = (a, from) => (from ? tr('{pct}% of the step before', { pct: Math.round(a / from * 100) }) : '');
   const funnel = [
-    { key: 'leads', label: tr('Enquiries'), count: n.leads, note: n.leadsWon === 1 ? tr('1 already won') : tr('{n} already won', { n: n.leadsWon }), onClick: () => toLeads('') },
-    { key: 'quotes', label: tr('Quotations sent'), count: n.quotesSent, note: ghs(n.quotesValue), onClick: can('quotation.read') ? () => navigate('/quotations') : null },
-    { key: 'won', label: tr('Quotations accepted'), count: n.quotesWon, note: ghs(n.quotesWonValue) },
-    { key: 'sales', label: tr('Invoiced'), count: n.invoices, note: ghs(n.sales), onClick: canInvoices ? () => navigate('/invoices') : null }
+    { key: 'leads', label: tr('Leads'), count: n.leads, note: tr('came in {period}', { period: periodName }), onClick: () => navigate('/crmleads') },
+    { key: 'quotes', label: tr('Became prospects'), count: n.leadsProspects, note: stepPct(n.leadsProspects, n.leads), onClick: () => navigate('/crmcustomers?tab=prospects') },
+    { key: 'won', label: tr('Won'), count: n.leadsWon, note: stepPct(n.leadsWon, n.leadsProspects), onClick: () => navigate('/crmcustomers?tab=prospects&stage=won') },
+    { key: 'sales', label: tr('Became paying customers'), count: n.leadsCustomers, note: stepPct(n.leadsCustomers, n.leadsWon), onClick: () => navigate('/crmcustomers?tab=prospects&stage=customer') }
   ];
   const funnelMax = Math.max(1, ...funnel.map((s) => s.count));
+  // A stage's leads are on the Leads page, or with the prospects.
+  const stageLink = (key) => (PROSPECT_STAGES.includes(key) || key === 'won' ? navigate('/crmcustomers?tab=prospects&stage=' + key) : toLeads('stage=' + key));
   const trendMax = Math.max(1, ...x.trend.map((m) => Math.max(m.sales, m.cash)));
   const ages = AGES.map(([key, cls, label]) => ({ key, cls, label, ...(rec.aging.find((a) => a.key === key) || { amount: 0, invoices: 0 }) }));
   const flow = STAGES.map((s) => {
@@ -177,8 +181,8 @@ export default function CrmOverviewPage() {
             note={tr('half of the customers waited less than this')} onClick={() => jump('ex-service')} />
           <Kpi icon="send" label={tr('Answered within an hour')} value={svc.withinHour !== null ? svc.withinHour + '%' : '—'}
             note={tr('{answered} of {asked} messages answered', { answered: svc.answered, asked: svc.asked })} tone={svc.withinHour === null ? '' : svc.withinHour < 50 ? 'warn' : svc.withinHour >= 80 ? 'good' : ''} onClick={() => jump('ex-service')} />
-          <Kpi icon="spark" label={tr('Enquiries')} value={String(n.leads)} change={<Change now={n.leads} before={b.leads} label={prevName} />}
-            note={n.leadsWon === 1 ? tr('1 already won') : tr('{n} already won', { n: n.leadsWon })} onClick={() => jump('ex-day')} />
+          <Kpi icon="spark" label={tr('New leads')} value={String(n.leads)} change={<Change now={n.leads} before={b.leads} label={prevName} />}
+            note={tr('{p} became prospects · {c} paying customers', { p: n.leadsProspects, c: n.leadsCustomers })} onClick={() => jump('ex-funnel')} />
           <Kpi icon="scale" label={tr('Top 5 customers\' share')} value={cust.topFiveShare !== null ? cust.topFiveShare + '%' : '—'} tone={cust.topFiveShare >= 60 && cust.top.length >= 5 ? 'warn' : ''}
             note={tr('of everything sold {period}', { period: periodName })} onClick={() => jump('ex-customers')} />
         </div>
@@ -207,7 +211,7 @@ export default function CrmOverviewPage() {
       </Section>
 
       <div className="dk-two">
-        <Section card id="ex-funnel" title={tr('From enquiry to sale')} sub={tr('What came in {period} and how much of it became money. Quotations not answered by their end date count as lost.', { period: periodName })}>
+        <Section card id="ex-funnel" title={tr('Lead → Prospect → Customer')} sub={tr('The leads that came in {period}: how many became prospects, were won, and have paid.', { period: periodName })}>
           <ol className="ex-funnel">
             {funnel.map((s) => {
               const Tag = s.onClick ? 'button' : 'div';
@@ -222,6 +226,7 @@ export default function CrmOverviewPage() {
               );
             })}
           </ol>
+          <p className="dk-muted tl-small ex-hint">{tr('Quotations sent {period}: {n}, worth {amount}; {won} accepted. One not answered by its end date counts as lost.', { period: periodName, n: n.quotesSent, amount: ghs(n.quotesValue), won: n.quotesWon })}</p>
           {pipe.biggest.length > 0 && (
             <>
               <h4 className="ex-h4">{tr('Biggest quotations still open')}</h4>
@@ -358,7 +363,7 @@ export default function CrmOverviewPage() {
         <ul className="dk-flow crm-flow">
           {flow.map((s) => (
             <li key={s.key} className={'is-' + (s.tone === 'good' ? 'good' : s.tone === 'bad' ? 'bad' : s.tone === 'warn' ? 'warn' : 'info')}>
-              <button type="button" className="crm-flow-btn" onClick={() => toLeads('stage=' + s.key)}>
+              <button type="button" className="crm-flow-btn" onClick={() => stageLink(s.key)}>
                 <span className="dk-flow-name">{tr(s.label)}</span>
                 <span className="dk-flow-n">{s.n}</span>
                 <span className="dk-flow-value">{tr('{pct}% of all leads', { pct: s.pct })}</span>
@@ -408,8 +413,14 @@ export default function CrmOverviewPage() {
             <RankList barClass="is-info" rows={d.sources.map((s) => ({ key: s.source || '-', name: s.source || tr('Not known'), value: s.leads, amount: s.leads === 1 ? tr('1 lead') : tr('{n} leads', { n: s.leads }), meta: s.leads ? tr('{won} won · {pct}%', { won: s.won, pct: Math.round(s.won / s.leads * 100) }) : '' }))} />
           ) : <Empty icon="spark">{tr('No leads received {period}.', { period: periodName })}</Empty>}
         </Section>
-        <Section card title={tr('Prospects')} sub={tr('People and companies from fairs, events and lists, to approach.')} action={<LinkButton onClick={() => navigate('/crmcustomers?tab=prospects')}>{tr('Open prospects')}</LinkButton>}>
-          <p className="crm-big">{tr('{n} prospects, {converted} of them now leads.', { n: d.prospects.total, converted: d.prospects.converted })}</p>
+        <Section card title={tr('Lead → Prospect → Customer')} sub={tr('Where every lead stands now. A lead becomes a prospect once qualified or quoted, and a customer when they pay.')}>
+          <ul className="ex-phases">
+            {[['lead', tr('Leads'), d.phases.lead, () => navigate('/crmleads')], ['prospect', tr('Prospects'), d.phases.prospect, () => navigate('/crmcustomers?tab=prospects')],
+              ['won', tr('Won, waiting for payment'), d.phases.won, () => navigate('/crmcustomers?tab=prospects&stage=won')], ['customer', tr('Customers'), d.phases.customer, () => navigate('/crmcustomers?tab=prospects&stage=customer')],
+              ['lost', tr('Lost'), d.phases.lost, () => navigate('/crmleads?stage=lost')]].map(([k, label, count, go]) => (
+              <li key={k}><button type="button" className={'ex-phase is-' + k} onClick={go}><strong>{count}</strong><span>{label}</span></button></li>
+            ))}
+          </ul>
           {d.unlinkedSales.count > 0 && <p className="dk-muted tl-small">{tr('{n} sales invoices worth {amount} {period} aren\'t linked to a lead, so they don\'t count for a lead or a commission.', { n: d.unlinkedSales.count, amount: ghs(d.unlinkedSales.total), period: periodName })}</p>}
         </Section>
       </div>

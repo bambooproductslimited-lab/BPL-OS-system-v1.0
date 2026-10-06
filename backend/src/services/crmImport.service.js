@@ -17,7 +17,7 @@ var crm = require('./crm.service');
 //                the customer, amount and date
 //   Site Visits  (Client, Scheduled Date for Visit, Status …)         -> site visits
 //   Referral     (Referrer, Customer Referred …)                      -> referrals
-//   Data Base    (Fair/Event, Prospect Name, Contact …)                -> prospects
+//   Data Base    (Fair/Event, Prospect Name, Contact …)                -> new leads, the list as their source
 //
 // Everything imported carries a key made from its own contents, so running
 // the same workbook again adds nothing twice; rows already imported are
@@ -321,7 +321,10 @@ async function summarise(ctx, p) {
       await existingKeys('crm_import_keys', p.sales.map(function (x) { return x.key; }))),
     visits: await existingKeys('crm_site_visits', p.visits.map(function (x) { return x.key; })),
     referrals: await existingKeys('crm_referrals', p.referrals.map(function (x) { return x.key; })),
-    prospects: await existingKeys('crm_prospects', p.prospects.map(function (x) { return x.key; }))
+    // Contact lists become leads (migration 0132); one imported before then
+    // is still in crm_prospects.
+    prospects: Object.assign(await existingKeys('crm_leads', p.prospects.map(function (x) { return x.key; })),
+      await existingKeys('crm_prospects', p.prospects.map(function (x) { return x.key; })))
   };
   function count(k) { var n = p[k].filter(function (x) { return !keys[k][x.key]; }).length; return { found: p[k].length, new: n, already: p[k].length - n }; }
   var repNames = {};
@@ -447,15 +450,21 @@ async function run(ctx, file) {
     for (var q = 0; q < p.prospects.length; q++) {
       var pr = p.prospects[q];
       if (s.keys.prospects[pr.key]) continue;
+      // A contact from a fair, an event or a list is a new lead, with the
+      // list's name as where it came from.
+      var list = pr.listName || 'Contact list';
       var ins3 = await db.query(
-        'INSERT INTO crm_prospects (list_name, market, company, name, phone, email, website, interest, notes, external_key, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (external_key) DO NOTHING',
-        [pr.listName, pr.market, pr.company, pr.name, pr.phone, pr.email, pr.website, pr.interest, pr.notes, pr.key, meId]);
+        "INSERT INTO crm_leads (received_on, name, company, phone, email, source, item, stage, comments, external_key, created_by) VALUES (CURRENT_DATE,$1,$2,$3,$4,$5,$6,'new',$7,$8,$9) ON CONFLICT (external_key) DO NOTHING RETURNING id",
+        [pr.name || pr.company, pr.name ? pr.company : '', pr.phone, pr.email, list.slice(0, 40), pr.interest,
+          ['From the contact list "' + list + '"' + (pr.market === 'export' ? ' (export market).' : '.'), pr.website ? 'Website: ' + pr.website + '.' : '', pr.notes].filter(Boolean).join(' '),
+          pr.key, meId]);
+      if (ins3.rowCount) await db.query("INSERT INTO crm_lead_notes (lead_id, kind, body, to_stage, by_employee) VALUES ($1, 'stage', 'Lead added.', 'new', $2)", [ins3.rows[0].id, meId]);
       result.prospects += ins3.rowCount;
     }
 
     await audit(db, ctx, 'crm.import', 'crm', null,
       'Imported from a spreadsheet: ' + result.leads + ' lead(s), ' + result.sales + ' sale(s) (' + result.joined + ' added to existing leads, ' + result.linked + ' linked to invoices), ' +
-      result.visits + ' site visit(s), ' + result.referrals + ' referral(s), ' + result.prospects + ' prospect(s).');
+      result.visits + ' site visit(s), ' + result.referrals + ' referral(s), ' + result.prospects + ' contact(s) from lists as new leads.');
   });
   result.unknownPeople = s.unknownPeople;
   result.skipped = { leads: s.leads.already, sales: s.sales.already, visits: s.visits.already, referrals: s.referrals.already, prospects: s.prospects.already };

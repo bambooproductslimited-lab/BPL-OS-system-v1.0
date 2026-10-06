@@ -53,11 +53,6 @@ router.put('/referrals/:id', h(function (req) { return crm.saveReferral(req.ctx,
 router.post('/referrals/:id/status', h(function (req) { return crm.setReferralStatus(req.ctx, req.params.id, req.body.status); }));
 router.delete('/referrals/:id', h(function (req) { return crm.removeReferral(req.ctx, req.params.id); }));
 
-router.get('/prospects', h(function (req) { return crm.listProspects(req.ctx, req.query); }));
-router.post('/prospects', h(function (req) { return crm.saveProspect(req.ctx, null, req.body); }));
-router.put('/prospects/:id', h(function (req) { return crm.saveProspect(req.ctx, req.params.id, req.body); }));
-router.post('/prospects/:id/lead', h(function (req) { return crm.prospectToLead(req.ctx, req.params.id, req.body); }));
-router.delete('/prospects/:id', h(function (req) { return crm.removeProspect(req.ctx, req.params.id); }));
 
 router.get('/visits', h(function (req) { return crm.listVisits(req.ctx, req.query); }));
 router.post('/visits', h(function (req) { return crm.saveVisit(req.ctx, null, req.body); }));

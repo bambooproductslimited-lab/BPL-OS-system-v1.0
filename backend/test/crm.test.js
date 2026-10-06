@@ -1,8 +1,10 @@
 // The CRM (migration 0102, services/crm.service.js and crmImport.service.js):
 // who may see and do what; a lead from first message to a won sale with its
 // history; a sale is an OS invoice and the commission is the base rate
-// minus the discount given; the overview adds it all up; prospects become
-// leads; site visits and referrals; and the spreadsheet import, run twice.
+// minus the discount given; the overview adds it all up; Lead → Prospect →
+// Customer (a quotation makes a prospect, the first payment a customer, and
+// the old contact lists become leads); site visits and referrals; and the
+// spreadsheet import, run twice.
 // Test data: ZQC codes and "Zq" names, all removed afterwards.
 var test = require('node:test');
 var assert = require('node:assert/strict');
@@ -30,6 +32,7 @@ async function cleanup() {
   await pool.query('DELETE FROM crm_prospects');
   var co = (await pool.query("SELECT id FROM companies WHERE code = 'ZQC'")).rows[0];
   if (co) {
+    await pool.query('DELETE FROM quotations WHERE customer_id IN (SELECT id FROM customers WHERE company_id = $1)', [co.id]);
     await pool.query('DELETE FROM invoices WHERE company_id = $1', [co.id]);
     await pool.query('DELETE FROM customers WHERE company_id = $1', [co.id]);
     await pool.query('UPDATE crm_settings SET company_id = NULL WHERE company_id = $1', [co.id]);
@@ -209,16 +212,28 @@ test('the overview adds up the sales, the pipeline, the team and what needs doin
   assert.equal(repView.seeAllCommission, false);
 });
 
-test('prospects become leads once, keeping where they came from', async function () {
-  var p = await crm.saveProspect(rep, null, { listName: 'Zq Fair 2026', company: 'Zq Hotels', name: 'Zq Yaw', phone: '0200000333', interest: 'Zq louvres' });
-  var list = await crm.listProspects(rep, {});
-  assert.equal(list.lists.find(function (l) { return l.listName === 'Zq Fair 2026'; }).count, 1);
-  var l = await crm.prospectToLead(rep, p.id, {});
-  assert.equal(l.prospectId, p.id);
-  assert.equal(l.company, 'Zq Hotels');
-  assert.match(l.comments, /Zq Fair 2026/);
-  await assert.rejects(crm.prospectToLead(rep, p.id, {}), /already lead/);
-  assert.equal((await crm.listProspects(rep, {})).lists[0].converted, 1);
+test('the contact lists kept before become new leads, once (migration 0132)', async function () {
+  var sql = require('fs').readFileSync(require('path').join(__dirname, '../src/db/migrations/0132_crm_lead_prospect_customer.up.sql'), 'utf8');
+  var moveLists = sql.slice(0, sql.indexOf('-- 2.'));
+  var client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    var p = (await client.query("INSERT INTO crm_prospects (list_name, market, company, name, phone, interest, website, notes) VALUES ('Zq Fair 2026', 'export', 'Zq Hotels', 'Zq Yaw', '0200000333', 'Zq louvres', 'zq.example', 'Zq met at stand 4') RETURNING id")).rows[0].id;
+    var done = (await client.query("INSERT INTO crm_prospects (list_name, company, name) VALUES ('Zq Fair 2026', '', 'Zq Already') RETURNING id")).rows[0].id;
+    await client.query("INSERT INTO crm_leads (name, prospect_id) VALUES ('Zq Already', $1)", [done]);
+    await client.query(moveLists);
+    var l = (await client.query('SELECT l.*, (SELECT body FROM crm_lead_notes n WHERE n.lead_id = l.id) AS note FROM crm_leads l WHERE prospect_id = $1', [p])).rows;
+    assert.equal(l.length, 1);
+    assert.deepEqual([l[0].name, l[0].company, l[0].phone, l[0].source, l[0].item, l[0].stage], ['Zq Yaw', 'Zq Hotels', '0200000333', 'Zq Fair 2026', 'Zq louvres', 'new']);
+    assert.equal(l[0].comments, 'From the contact list "Zq Fair 2026" (export market). Website: zq.example. Zq met at stand 4');
+    assert.equal(l[0].note, 'Moved from the contact lists.');
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM crm_leads WHERE prospect_id = $1', [done])).rows[0].n, 1, 'one already a lead is not added again');
+    await client.query(moveLists);
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM crm_leads WHERE prospect_id = $1', [p])).rows[0].n, 1, 'run again: nothing twice');
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
 });
 
 test('site visits and referrals', async function () {
@@ -351,11 +366,13 @@ test('the spreadsheet import: preview, import, and again adds nothing', async fu
   assert.equal(kv.leadId, kwame.id);
   assert.deepEqual(kv.assessors.map(function (a) { return a.id; }), [rep.employee.id]);
   assert.equal(kv.assessorsText, 'Zq Carpenter');
-  var pr = await crm.listProspects(rep, { list: 'Zq Fair 2025' });
-  assert.equal(pr.prospects[0].phone, '0542000777');
-  assert.equal(pr.prospects[0].company, '');
-  var est = (await crm.listProspects(rep, { q: 'Zq Estates' })).prospects[0];
-  assert.deepEqual([est.market, est.phone], ['export', '']);
+  // The contact lists ("Data Base") come in as new leads, the list as their source.
+  var isaac = (await crm.listLeads(rep, { q: 'Zq Isaac', stage: 'all' }))[0];
+  assert.deepEqual([isaac.stage, isaac.phase, isaac.source, isaac.phone, isaac.company], ['new', 'lead', 'Zq Fair 2025', '0542000777', '']);
+  assert.match(isaac.comments, /^From the contact list "Zq Fair 2025"\. Zq Isaac \| side bed drawer$/);
+  var est = (await crm.listLeads(rep, { q: 'Zq Estates', stage: 'all' }))[0];
+  assert.equal(est.phone, '');
+  assert.match(est.comments, /\(export market\)/);
 
   var again = await crmImport.run(rep, file);
   assert.deepEqual([again.leads, again.sales, again.visits, again.referrals, again.prospects], [0, 0, 0, 0, 0]);
@@ -396,4 +413,74 @@ test('who is this: a spreadsheet name is linked to staff once, everywhere, and r
   assert.deepEqual((await crmImport.preview(rep, file)).unknownPeople, []);
   await crmImport.run(rep, file);
   assert.equal((await crm.listLeads(rep, { q: 'Zq Later Lead', stage: 'all' }))[0].repId, rep2.employee.id);
+});
+
+test('Lead → Prospect → Customer: qualified or quoted makes a prospect; the first payment, a customer', async function () {
+  // A lead, with a profile so it can be quoted: both say Lead.
+  var a = await crm.createLead(rep, { name: 'Zq Phase Ama', phone: '0209990001', item: 'Zq stools' });
+  assert.equal(a.phase, 'lead');
+  a = await crm.toCustomer(kelvin, a.id);
+  var cat = async function (id) { return (await pool.query('SELECT category FROM customers WHERE id = $1', [id])).rows[0].category; };
+  assert.equal(await cat(a.customerId), 'lead');
+  assert.ok((await crm.listLeads(rep, { phase: 'lead' })).some(function (l) { return l.id === a.id; }));
+  assert.ok(!(await crm.listLeads(rep, { phase: 'prospect' })).some(function (l) { return l.id === a.id; }));
+
+  // Qualified: a prospect, and the profile says so.
+  a = await crm.setStage(rep, a.id, { stage: 'qualified' });
+  assert.equal(a.phase, 'prospect');
+  assert.equal(await cat(a.customerId), 'prospect');
+
+  // Another lead: sending them a quotation makes them a prospect at Quote sent.
+  var b = await crm.toCustomer(kelvin, (await crm.createLead(rep, { name: 'Zq Phase Kojo', phone: '0209990002' })).id);
+  await pool.query("INSERT INTO quotations (quote_no, customer_id, grand_total, status, created_by) VALUES ('ZQC-Q-9', $1, 800, 'draft', $2)", [b.customerId, kelvin.employee.id]);
+  assert.equal((await crm.getLead(rep, b.id)).stage, 'new', 'a draft changes nothing');
+  await pool.query("UPDATE quotations SET status = 'sent', sent_at = now() WHERE quote_no = 'ZQC-Q-9'");
+  b = await crm.getLead(rep, b.id);
+  assert.deepEqual([b.stage, b.phase], ['quote_sent', 'prospect']);
+  assert.equal(b.notes[0].body, 'Quotation ZQC-Q-9 sent.');
+  assert.equal(await cat(b.customerId), 'prospect');
+
+  // Won without the money yet: still with the prospects, waiting for payment.
+  b = await crm.setStage(rep, b.id, { stage: 'won' });
+  assert.deepEqual([b.phase, b.paid], ['won', false]);
+  // Won by hand from a lead's stage: their profile says Prospect until they pay.
+  var c = await crm.toCustomer(kelvin, (await crm.createLead(rep, { name: 'Zq Phase Esi', phone: '0209990003' })).id);
+  await crm.setStage(rep, c.id, { stage: 'won' });
+  assert.equal(await cat(c.customerId), 'prospect');
+  assert.ok((await crm.listLeads(rep, { phase: 'prospect' })).some(function (l) { return l.id === b.id; }));
+
+  // The first payment on a sale: Ama is a customer, and her lead is won.
+  var saleFor = async function (customerId, no) {
+    return (await pool.query("INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, company_id, doc_kind) VALUES ($1,$2,300,0,0,300,0,300,'unpaid',CURRENT_DATE,$3,'sale') RETURNING id", [no, customerId, bpl])).rows[0].id;
+  };
+  var pay = function (invoiceId, customerId, amount) {
+    return pool.query("INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, received_by) VALUES ($1,$2,CURRENT_DATE,$3,'GHS','cash',$4)", [invoiceId, customerId, amount, kelvin.employee.id]);
+  };
+  var ia = await saleFor(a.customerId, 'ZQC-P1');
+  await pay(ia, a.customerId, 100);
+  a = await crm.getLead(rep, a.id);
+  assert.deepEqual([a.stage, a.paid, a.phase], ['won', true, 'customer']);
+  assert.equal(a.notes[0].body, 'Paid ZQC-P1 — now a customer.');
+  assert.equal(await cat(a.customerId), 'active');
+  assert.ok((await crm.listLeads(rep, { phase: 'customer' })).some(function (l) { return l.id === a.id; }));
+  assert.ok(!(await crm.listLeads(rep, { phase: 'prospect' })).some(function (l) { return l.id === a.id; }));
+
+  // Kojo pays too: from won to customer.
+  await pay(await saleFor(b.customerId, 'ZQC-P2'), b.customerId, 300);
+  assert.equal((await crm.getLead(rep, b.id)).phase, 'customer');
+  assert.equal(await cat(b.customerId), 'active');
+
+  // A refund (a negative payment) changes nothing back; a VIP stays a VIP.
+  await pool.query("UPDATE customers SET category = 'vip' WHERE id = $1", [a.customerId]);
+  await pay(ia, a.customerId, 50);
+  assert.equal(await cat(a.customerId), 'vip');
+
+  // The overview and the CEO's figures count them by phase.
+  var o = await crm.overview(kelvin, {});
+  assert.ok(o.phases.customer >= 2);
+  assert.equal(o.phases.lead + o.phases.prospect + o.phases.won + o.phases.customer + o.phases.lost, o.totalLeads);
+  var x = await require('../src/services/crmExecutive.service').summary(kelvin, {});
+  assert.ok(x.now.leadsCustomers >= 2);
+  assert.ok(x.now.leadsProspects >= x.now.leadsWon);
+  await assert.rejects(crm.listLeads(rep, { phase: 'nope' }), /Phase is not a valid option/);
 });

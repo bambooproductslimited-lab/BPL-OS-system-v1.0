@@ -67,7 +67,11 @@ async function listProfiles(ctx, q) {
   if (q.rep === 'me') where.push('c.account_manager_id = ' + arg(me(ctx)));
   else if (q.rep === 'none') where.push('c.account_manager_id IS NULL');
   else if (q.rep) where.push('c.account_manager_id = ' + arg(q.rep));
-  if (CATEGORIES.indexOf(q.category) >= 0) where.push('c.category = ' + arg(q.category));
+  // Customers are the ones who have paid (Customer or VIP); leads and
+  // prospects haven't bought yet (migration 0132 keeps that up to date).
+  if (q.category === 'paying') where.push("c.category IN ('active', 'vip')");
+  else if (q.category === 'notyet') where.push("c.category IN ('lead', 'prospect')");
+  else if (CATEGORIES.indexOf(q.category) >= 0) where.push('c.category = ' + arg(q.category));
   if (q.followUp === 'due') where.push('c.follow_up_on <= CURRENT_DATE');
   if (q.waiting === '1') where.push("EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.status = 'open' AND w.last_direction = 'in')");
   if (q.channel && inbox.CHANNELS.indexOf(q.channel) >= 0) where.push('EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.channel = ' + arg(q.channel) + ')');
@@ -87,6 +91,7 @@ async function listProfiles(ctx, q) {
     "count(*) FILTER (WHERE c.follow_up_on <= CURRENT_DATE)::int AS follow_up_due, " +
     "count(*) FILTER (WHERE EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.status = 'open' AND w.last_direction = 'in'))::int AS waiting, " +
     "count(*) FILTER (WHERE c.source = 'crm')::int AS from_conversations, " +
+    "count(*) FILTER (WHERE c.category IN ('active', 'vip'))::int AS paying, count(*) FILTER (WHERE c.category = 'prospect')::int AS prospects, count(*) FILTER (WHERE c.category = 'lead')::int AS leads, " +
     "(SELECT count(*)::int FROM crm_duplicate_suggestions WHERE status = 'open') AS duplicates " +
     "FROM customers c WHERE " + SCOPE + " AND c.status = 'active'", [me(ctx)])).rows[0];
   return { profiles: rows.map(rowToProfile), summary: sum };

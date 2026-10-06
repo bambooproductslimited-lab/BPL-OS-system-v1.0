@@ -64,7 +64,7 @@ export function timeOf(iso) {
 export const CATEGORIES = [
   { key: 'lead', label: msg('Lead'), tone: 'info', help: msg('Has asked about something, hasn\'t bought yet.') },
   { key: 'prospect', label: msg('Prospect'), tone: 'warn', help: msg('A real chance: talking prices, quoted or close to ordering.') },
-  { key: 'active', label: msg('Customer'), tone: 'good', help: msg('Has bought from us.') },
+  { key: 'active', label: msg('Customer'), tone: 'good', help: msg('Has paid us. The first payment on a sale makes them a customer by itself.') },
   { key: 'vip', label: msg('VIP'), tone: 'good', help: msg('Buys often or buys big. Looked after first.') }
 ];
 export function CategoryTag({ value }) {

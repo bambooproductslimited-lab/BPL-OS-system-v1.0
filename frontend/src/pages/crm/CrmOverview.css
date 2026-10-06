@@ -88,3 +88,13 @@ button.ex-step:hover .ex-step-head span { text-decoration: underline; }
   .ex-kpi-value { font-size: 20px; }
 }
 @media (max-width: 420px) { .ex-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; } .ex-kpi { padding: 12px; } }
+
+/* Where every lead stands now (Lead → Prospect → Customer). */
+.ex-phases { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.ex-phase { --t: var(--dk-info); width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border: 1px solid var(--color-border); border-top: 3px solid var(--t); border-radius: var(--dk-r); background: var(--color-bg-subtle); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ex-phase:hover span { text-decoration: underline; }
+.ex-phase strong { font-family: var(--font-heading); font-size: 20px; font-variant-numeric: tabular-nums; }
+.ex-phase span { font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
+.ex-phase.is-prospect, .ex-phase.is-won { --t: var(--dk-warn); }
+.ex-phase.is-customer { --t: var(--color-accent); }
+.ex-phase.is-lost { --t: var(--dk-bad); }

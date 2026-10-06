@@ -15,13 +15,39 @@ export const STAGES = [
   { key: 'new', label: msg('New lead'), tone: 'info', help: msg('Just came in. Nobody has spoken to them yet.') },
   { key: 'contacted', label: msg('Contacted'), tone: 'info', help: msg('We have replied or called.') },
   { key: 'follow_up', label: msg('Follow-up'), tone: 'warn', help: msg('Waiting on them, or we owe them a call.') },
-  { key: 'qualified', label: msg('Qualified'), tone: 'info', help: msg('A real job: they know what they want and can pay.') },
+  { key: 'qualified', label: msg('Qualified'), tone: 'info', help: msg('Now a prospect: a real job, they know what they want and can pay.') },
   { key: 'quote_sent', label: msg('Quote sent'), tone: 'info', help: msg('They have our price.') },
   { key: 'negotiation', label: msg('Negotiation'), tone: 'warn', help: msg('Agreeing the price, the design or the date.') },
-  { key: 'won', label: msg('Won'), tone: 'good', help: msg('They bought. The sale is linked to its invoice.') },
+  { key: 'won', label: msg('Won'), tone: 'good', help: msg('They agreed to buy. They become a customer when the first payment comes in.') },
   { key: 'lost', label: msg('Lost'), tone: 'bad', help: msg('They went elsewhere or stopped answering.') }
 ];
 export const OPEN_STAGES = STAGES.slice(0, 6).map((s) => s.key);
+// Lead → Prospect → Customer (backend migration 0132): the first three
+// stages are a lead's, the next three a prospect's, and a won lead becomes a
+// customer when they pay (lead.phase: lead, prospect, won, customer, lost).
+export const LEAD_STAGES = ['new', 'contacted', 'follow_up'];
+export const PROSPECT_STAGES = ['qualified', 'quote_sent', 'negotiation'];
+export const PHASES = [
+  { key: 'lead', label: msg('Lead'), help: msg('Anyone who comes in: an enquiry, or a contact from a fair, an event or a list.') },
+  { key: 'prospect', label: msg('Prospect'), help: msg('A lead being worked on for real: qualified, quoted, or agreeing terms.') },
+  { key: 'customer', label: msg('Customer'), help: msg('Has paid. A won prospect becomes a customer with the first payment.') }
+];
+const PHASE_TAG = { lead: ['info', msg('Lead')], prospect: ['warn', msg('Prospect')], won: ['warn', msg('Won, waiting for payment')], customer: ['good', msg('Customer')], lost: ['bad', msg('Lost')] };
+export function PhaseTag({ phase }) { const t = PHASE_TAG[phase] || PHASE_TAG.lead; return <Status tone={t[0]}>{tr(t[1])}</Status>; }
+// Where a lead is on the way: Lead → Prospect → Customer.
+export function PhaseTrack({ phase }) {
+  const at = phase === 'customer' ? 2 : phase === 'prospect' || phase === 'won' ? 1 : phase === 'lost' ? -1 : 0;
+  return (
+    <ol className="crm-phases" aria-label={tr('Lead → Prospect → Customer')}>
+      {PHASES.map((p, i) => (
+        <li key={p.key} className={i === at ? 'is-now' : i < at ? 'is-done' : ''} title={tr(p.help)}>
+          <span className="crm-phase-dot">{i < at ? <Icon name="check" /> : i + 1}</span>
+          <span>{tr(p.label)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 export function stage(key) { return STAGES.find((s) => s.key === key) || STAGES[0]; }
 export function StageTag({ value }) { const s = stage(value); return <Status tone={s.tone}>{tr(s.label)}</Status>; }
 export const ghs = (n) => money(n, 'GHS');
@@ -192,6 +218,7 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
           <button type="button" className="crm-x" onClick={onClose} aria-label={tr('Close')}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
         </div>
 
+        <PhaseTrack phase={lead.phase} />
         {/* the stages, one tap to move */}
         <ol className="crm-steps" aria-label={tr('Stage')}>
           {STAGES.map((s, i) => {
@@ -208,7 +235,7 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
             );
           })}
         </ol>
-        <p className="dk-muted tl-small crm-step-help"><StageTag value={lead.stage} /> {tr(st.help)}{lead.stage === 'lost' && lead.lostReason ? ' ' + tr('Reason: {reason}', { reason: lead.lostReason }) : ''}</p>
+        <p className="dk-muted tl-small crm-step-help"><StageTag value={lead.stage} /> {lead.phase === 'customer' ? '' : tr(st.help)}{lead.stage === 'lost' && lead.lostReason ? ' ' + tr('Reason: {reason}', { reason: lead.lostReason }) : ''}</p>
         {losing !== null && (
           <div className="crm-inline">
             <input className="input" autoFocus placeholder={tr('Why was it lost? e.g. price, went elsewhere, no reply')} value={losing} onChange={(e) => setLosing(e.target.value)} />
@@ -216,6 +243,8 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
             <button type="button" className="btn btn-secondary" onClick={() => setLosing(null)}>{tr('Cancel')}</button>
           </div>
         )}
+        {lead.phase === 'won' && <div className="crm-note is-info"><Icon name="clock" /> {tr('Won, waiting for payment. They become a customer when the first payment on their invoice comes in.')}</div>}
+        {lead.phase === 'customer' && <div className="crm-note is-good"><Icon name="check" /> {tr('Paid: a customer now.')}</div>}
         {lead.stage === 'won' && !lead.dealCount && <div className="crm-note is-warn"><Icon name="warn" /> {tr('Won, but no sale is linked yet — link its invoice below so the revenue and the rep\'s commission count.')}</div>}
         {lead.sameContact && lead.sameContact.length > 0 && (
           <div className="crm-note is-info"><Icon name="info" /> {tr('Probably the same person as {leads} (same phone or email).', { leads: lead.sameContact.map((x) => x.ref + ' ' + x.name).join(', ') })}</div>
@@ -246,7 +275,7 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                     <div><dt>{tr('Location')}</dt><dd>{lead.location || '—'}</dd></div>
                     <div><dt>{tr('How they found us')}</dt><dd>{lead.source || '—'}</dd></div>
                     <div><dt>{tr('Sales rep')}</dt><dd>{lead.repName || tr('Nobody yet')}</dd></div>
-                    <div><dt>{tr('Customer')}</dt><dd>{lead.customerName || tr('Not a customer yet')}</dd></div>
+                    <div><dt>{tr('Customer profile')}</dt><dd>{lead.customerName || tr('None yet')}</dd></div>
                   </dl>
                   <ContactButtons name={lead.name} phone={lead.phone} email={lead.email} />
                   {lead.comments && <p className="crm-comments">{lead.comments}</p>}
@@ -308,11 +337,11 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                 </ul>
               ) : !linking && (
                 <p className="dk-muted tl-small">
-                  {lead.customerId ? tr('When they buy, raise the quotation and invoice for {name}, then link the invoice here.', { name: lead.customerName }) : tr('To quote or invoice them, first add them as a customer.')}
+                  {lead.customerId ? tr('When they buy, raise the quotation and invoice for {name}, then link the invoice here.', { name: lead.customerName }) : tr('To quote or invoice them, first create their customer profile.')}
                 </p>
               )}
               {!lead.customerId && canManage && canCustomer && !linking && (
-                <button type="button" className="btn btn-secondary crm-mt" disabled={busy} onClick={() => act(() => api.post('/crm/leads/' + leadId + '/customer', {}))}>{tr('Add as a customer')}</button>
+                <button type="button" className="btn btn-secondary crm-mt" disabled={busy} onClick={() => act(() => api.post('/crm/leads/' + leadId + '/customer', {}))}>{tr('Create their customer profile')}</button>
               )}
               {lead.customerId && isOpen && <button type="button" className="btn btn-secondary crm-mt" onClick={() => navigate('/quotations')}>{tr('Open quotations')}</button>}
               {linking && (
@@ -413,7 +442,10 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
 function historyText(body) {
   let m;
   if (body === 'Imported from the spreadsheet.') return tr('Imported from the spreadsheet.');
-  if (body === 'Added as a customer.') return tr('Added as a customer.');
+  if (body === 'Added as a customer.' || body === 'Customer profile created.') return tr('Customer profile created.');
+  if (body === 'Moved from the contact lists.') return tr('Moved from the contact lists.');
+  if ((m = /^Quotation (.+) sent\.$/.exec(body))) return tr('Quotation {no} sent.', { no: m[1] });
+  if ((m = /^Paid (.+) — now a customer\.$/.exec(body))) return tr('Paid {no}: now a customer.', { no: m[1] });
   if (body === 'Linked to the existing customer with the same contact details.') return tr('Linked to the existing customer with the same contact details.');
   if (body === 'Site visit cancelled.') return tr('Site visit cancelled.');
   if ((m = /^Sale linked: invoice (.+)\.$/.exec(body))) return tr('Sale linked: invoice {no}.', { no: m[1] });
@@ -552,7 +584,7 @@ export function WhoIsThisDialog({ people, onClose, onDone }) {
 }
 
 // ── the spreadsheet import ───────────────────────────────────────────
-const TAB_LABEL = { leads: msg('Leads'), purchases: msg('Purchases (sales)'), visits: msg('Site visits'), referrals: msg('Referrals'), prospects: msg('Prospects') };
+const TAB_LABEL = { leads: msg('Leads'), purchases: msg('Purchases (sales)'), visits: msg('Site visits'), referrals: msg('Referrals'), prospects: msg('Contact lists') };
 
 export function ImportDialog({ onClose, onDone }) {
   const [file, setFile] = useState(null);
@@ -576,7 +608,7 @@ export function ImportDialog({ onClose, onDone }) {
     try { setResult(await send('/crm/import', file)); if (onDone) onDone(); } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
   const rows = preview ? [['leads', preview.leads], ['sales', preview.sales], ['visits', preview.visits], ['referrals', preview.referrals], ['prospects', preview.prospects]].filter(([, c]) => c.found) : [];
-  const names = { leads: tr('Leads'), sales: tr('Sales (won leads)'), visits: tr('Site visits'), referrals: tr('Referrals'), prospects: tr('Prospects') };
+  const names = { leads: tr('Leads'), sales: tr('Sales (won leads)'), visits: tr('Site visits'), referrals: tr('Referrals'), prospects: tr('Contacts from lists, as new leads') };
   return (
     <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
       <div className="dialog tl-dialog crm-dialog" onClick={(e) => e.stopPropagation()}>
@@ -608,7 +640,7 @@ export function ImportDialog({ onClose, onDone }) {
         )}
         {result && (
           <>
-            <div className="crm-note is-good"><Icon name="check" /> {tr('Imported: {leads} leads, {sales} sales ({linked} linked to invoices), {visits} site visits, {referrals} referrals, {prospects} prospects.', result)}</div>
+            <div className="crm-note is-good"><Icon name="check" /> {tr('Imported: {leads} leads, {sales} sales ({linked} linked to invoices), {visits} site visits, {referrals} referrals, {prospects} contacts from lists as new leads.', result)}</div>
             {result.joined > 0 && <p className="dk-muted tl-small">{tr('{n} sales went on leads that were already there, so nobody is counted twice.', { n: result.joined })}</p>}
             {result.unlinkedSales.length > 0 && <p className="dk-muted tl-small">{tr('{n} sales have no matching OS invoice yet. They are won leads with a note saying so; link each one\'s invoice from the lead when it is in the OS.', { n: result.unlinkedSales.length })}</p>}
             <div className="dialog-actions"><button type="button" className="btn btn-primary" onClick={onClose}>{tr('Done')}</button></div>

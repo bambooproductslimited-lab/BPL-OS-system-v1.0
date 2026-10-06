@@ -4,16 +4,17 @@ import { api } from '../../api/client';
 import NavIcon from '../../layout/navIcons';
 import { tr, msg } from '../../lib/i18n.jsx';
 import CrmCustomersPage from './CrmCustomersPage';
-import CrmProspectsPage from './CrmProspectsPage';
+import CrmLeadsPage from './CrmLeadsPage';
 import CrmInboxPage from './CrmInboxPage';
 import CrmFollowUpsPage from './CrmFollowUpsPage';
 import './CrmHub.css';
 
 // Two pages that belong together, under one sidebar entry each: customers
-// and the prospects who may become customers; the inbox and the follow-ups
-// it turns into. The tab is in the address (?tab=…), so a link can open
-// either side, and the old addresses (/crmprospects, /crmfollowups) land on
-// the right tab (App.jsx).
+// and the prospects who may become customers (Lead → Prospect → Customer;
+// the prospects are the leads page's next step, CrmLeadsPage phase
+// "prospect"); the inbox and the follow-ups it turns into. The tab is in
+// the address (?tab=…), so a link can open either side, and the old
+// addresses (/crmprospects, /crmfollowups) land on the right tab (App.jsx).
 
 function Tabs({ tabs, label }) {
   const [params, setParams] = useSearchParams();
@@ -37,10 +38,12 @@ function Tabs({ tabs, label }) {
   );
 }
 
+function ProspectsPage() { return <CrmLeadsPage phase="prospect" />; }
+
 export function CrmCustomersHub() {
   return <Tabs label={tr('Customers & prospects')} tabs={[
     { key: 'customers', label: msg('Customers'), icon: 'user', Page: CrmCustomersPage },
-    { key: 'prospects', label: msg('Prospects'), icon: 'megaphone', Page: CrmProspectsPage }
+    { key: 'prospects', label: msg('Prospects'), icon: 'megaphone', Page: ProspectsPage }
   ]} />;
 }
 

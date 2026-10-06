@@ -169,3 +169,14 @@
 .crm-who-pick { display: flex; gap: 6px; align-items: center; flex: 1 1 260px; min-width: 0; max-width: 100%; justify-content: flex-end; }
 .crm-who-pick select.input { width: auto; min-width: 0; flex: 1 1 140px; max-width: 280px; }
 .crm-who-pick .btn { flex: none; }
+
+/* Lead → Prospect → Customer (crmShared.jsx PhaseTrack). */
+.crm-phases { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.crm-phases li { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 6px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg); font-size: 13px; font-weight: 700; color: var(--color-text-muted); }
+.crm-phase-dot { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 800; background: var(--color-bg-subtle); border: 1px solid var(--color-border); }
+.crm-phase-dot .dk-icon { width: 13px; height: 13px; }
+.crm-phases li.is-done { color: var(--color-text); }
+.crm-phases li.is-done .crm-phase-dot { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.crm-phases li.is-now { color: var(--color-accent-700); border-color: var(--color-accent); background: var(--color-accent-100); }
+:root[data-theme='dark'] .crm-phases li.is-now { color: var(--color-accent); }
+.crm-phases li.is-now .crm-phase-dot { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }

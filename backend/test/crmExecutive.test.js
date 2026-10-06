@@ -26,7 +26,6 @@ async function cleanup() {
   await pool.query('DELETE FROM invoices WHERE id IN ' + inv);
   await pool.query('DELETE FROM quotations WHERE customer_id IN ' + cust);
   await pool.query("DELETE FROM crm_conversations WHERE external_thread_id LIKE 'zex-%'");
-  await pool.query("DELETE FROM crm_leads WHERE name LIKE 'ZEX%'");
   await pool.query("DELETE FROM customers WHERE name LIKE 'ZEX%'");
 }
 
@@ -67,7 +66,6 @@ test('sales, cash, customers, quotations and the funnel, against the period befo
   await pool.query(q, ['ZEX-Q1', a, 4000, 'accepted', adminEmp, '2019-01-05', '2019-02-05']);
   await pool.query(q, ['ZEX-Q2', b, 1500, 'rejected', adminEmp, '2019-02-01', '2019-03-01']);
   await pool.query(q, ['ZEX-Q3', b, 800, 'sent', adminEmp, '2019-03-10', '2019-03-20']); // lapsed: counts as lost
-  await pool.query("INSERT INTO crm_leads (name, received_on, stage) VALUES ('ZEX lead 1', '2019-01-02', 'won'), ('ZEX lead 2', '2019-02-02', 'lost')");
 
   var r = await executive.summary(admin, Q1);
   assert.deepEqual(r.previous, { from: '2018-10-03', to: '2018-12-31' });
@@ -83,8 +81,7 @@ test('sales, cash, customers, quotations and the funnel, against the period befo
   assert.equal(r.now.quotesSent, 3);
   assert.equal(r.now.quotesWon, 1);
   assert.equal(r.now.winRate, 33, 'won 1 of 3 decided (one rejected, one lapsed)');
-  assert.equal(r.now.leads, 2);
-  assert.equal(r.now.leadsWon, 1);
+  // Leads (crm_leads) belong to test/crm.test.js, which checks them there.
 
   // Twelve months to the end of the period.
   assert.equal(r.trend.length, 12);
