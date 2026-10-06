@@ -248,7 +248,9 @@ async function recordPayment(ctx, invoiceId, p) {
 
   // The customer's receipt by email, on its own when that is switched on
   // (documentEmails.service.js). Not waited for: the payment stands either way.
-  setImmediate(function () { require('./documentEmails.service').afterPayment(result.receiptId); });
+  // Not when old invoices are settled in bulk (invoiceCleanup.service.js):
+  // a customer would get receipts for money paid a year ago.
+  if (!p.noReceiptEmail) setImmediate(function () { require('./documentEmails.service').afterPayment(result.receiptId); });
 
   var invRes = await pool.query('SELECT * FROM invoices WHERE id = $1', [result.invoiceId]);
   var payRes = await pool.query('SELECT * FROM payments WHERE id = $1', [result.paymentId]);
@@ -302,7 +304,8 @@ async function remove(ctx, id) {
 }
 
 // kernel.js: handlers['invoices.void']
-async function voidInvoice(ctx, id) {
+// reason (optional): why, kept in the audit log.
+async function voidInvoice(ctx, id, reason) {
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
   var res = await pool.query('SELECT * FROM invoices WHERE id = $1', [id]);
   var i = res.rows[0];
@@ -323,7 +326,7 @@ async function voidInvoice(ctx, id) {
       periods: await require('./pokiRecurring.service').release(client, id)
     };
     await audit(client, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided' +
-      (released.readings || released.periods ? ' (' + released.readings + ' reading(s), ' + released.periods + ' recurring period(s) back to not billed)' : '') + '.');
+      (released.readings || released.periods ? ' (' + released.readings + ' reading(s), ' + released.periods + ' recurring period(s) back to not billed)' : '') + (reason ? ' \u2014 ' + reason : '') + '.');
     return u;
   });
   var out = await rowToInvoice(pool, updated.rows[0]);

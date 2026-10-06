@@ -13,6 +13,7 @@ import RowMenu from '../components/RowMenu';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { adjustmentRows, creditRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
 import CreditNoteDialog from '../components/CreditNoteDialog';
+import InvoiceCleanupDialog from '../components/InvoiceCleanupDialog';
 import { money, moneyBreakdown } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
@@ -117,6 +118,7 @@ export default function InvoicesPage() {
 
   const [payTarget, setPayTarget] = useState(null);
   const [creditTarget, setCreditTarget] = useState(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [payForm, setPayForm] = useState(null);
   const [payError, setPayError] = useState(null);
   const [paying, setPaying] = useState(false);
@@ -339,6 +341,9 @@ export default function InvoicesPage() {
   if (overdue.length && overdue[0].daysOverdue > 30) insights.push({ tone: 'bad', icon: 'clock', text: tr('{no} for {name} is {days} days overdue; {amount} still to pay.', { no: overdue[0].invoiceNo, name: overdue[0].customerName, days: overdue[0].daysOverdue, amount: money(overdue[0].balanceDue, overdue[0].currency) }), action: { label: tr('Open'), run: () => setDetail(overdue[0].id) } });
   if (dueSoon.length) insights.push({ tone: 'warn', icon: 'calendar', text: dueSoon.length === 1 ? tr('{no} for {name} falls due on {date}.', { no: dueSoon[0].invoiceNo, name: dueSoon[0].customerName, date: fmtDate(dueSoon[0].dueDate) }) : tr('{n} invoices fall due in the next seven days.', { n: dueSoon.length }), action: { label: tr('Show them'), run: () => showOnly('soon') } });
   if (partPaid.length) insights.push({ tone: 'info', icon: 'receipt', text: partPaid.length === 1 ? tr('{name} has paid part of {no}; {amount} still to come.', { name: partPaid[0].customerName, no: partPaid[0].invoiceNo, amount: money(partPaid[0].balanceDue, partPaid[0].currency) }) : tr('{n} invoices are part-paid; {amount} still to come.', { n: partPaid.length, amount: moneyBreakdown(sumOf(partPaid, 'balanceDue')) }), action: { label: tr('Show them'), run: () => showOnly('part') } });
+  // Owed for over a year: most likely never coming, or paid and never recorded.
+  const yearOld = owing.filter((inv) => daysLate(inv) > 365);
+  if (canManage && yearOld.length) insights.splice(1, 0, { tone: 'warn', icon: 'clock', text: yearOld.length === 1 ? tr('1 invoice has been owed for over a year ({amount}). If it will never be paid, or was paid and never recorded, clear it out.', { amount: moneyBreakdown(sumOf(yearOld, 'balanceDue')) }) : tr('{n} invoices have been owed for over a year ({amount}). Clear out the ones that will never be paid, or that were paid and never recorded.', { n: yearOld.length, amount: moneyBreakdown(sumOf(yearOld, 'balanceDue')) }), action: { label: tr('Clean up'), run: () => setCleanupOpen(true) } });
   if (!overdue.length && invoices.length) insights.push({ tone: 'good', icon: 'check', text: owing.length ? tr('Nothing is overdue. Everything owed is still within its due date.') : tr('Every invoice is paid.') });
 
   const ageOf = (inv) => (AGES.find((a) => a.test(daysLate(inv))) || AGES[0]).key;
@@ -399,6 +404,7 @@ export default function InvoicesPage() {
             {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New invoice')}</button>}
             {canManage && canSeeSalesOrders && orderChoices.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => setOrderOpen(true)}>{tr('From a sales order')}</button>}
             <Link className="btn btn-secondary" to="/reminders">{tr('Payment reminders')}</Link>
+            {canManage && overdue.some((inv) => daysLate(inv) > 90) && <button type="button" className="btn btn-secondary" onClick={() => setCleanupOpen(true)}>{tr('Clean up old invoices')}</button>}
           </>
         )}
         stats={stats} />
@@ -496,7 +502,8 @@ export default function InvoicesPage() {
         [tr('Part-paid'), tr('Some money has come in, but not all of it.')],
         [tr('Collected'), tr('Payments recorded against invoices, by the date the money came in.')],
         [tr('Reminder'), tr('A WhatsApp or text message asking the client to pay, sent from here or the Payment reminders page.')],
-        [tr('Voided'), tr('Cancelled and kept for the record. Only an invoice with no payments can be voided.')]
+        [tr('Voided'), tr('Cancelled and kept for the record. Only an invoice with no payments can be voided.')],
+        [tr('Written off'), tr('A debt that will not be paid, taken off with a credit note. The invoice keeps its total and owes nothing; Clean up old invoices does several at once.')]
       ]} />
 
       {/* ── one invoice ── */}
@@ -747,6 +754,7 @@ export default function InvoicesPage() {
         />
       )}
 
+      {cleanupOpen && <InvoiceCleanupDialog invoices={invoices} onClose={() => setCleanupOpen(false)} onDone={() => load()} />}
       {creditTarget && <CreditNoteDialog invoice={creditTarget} apiBase="/invoices" onClose={() => setCreditTarget(null)} onDone={() => load()} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}

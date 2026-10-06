@@ -2,6 +2,7 @@ var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var invoicesService = require('../services/invoices.service');
 var creditNotes = require('../services/creditNotes.service');
+var invoiceCleanup = require('../services/invoiceCleanup.service');
 
 var router = express.Router();
 router.use(requireAuth);
@@ -24,6 +25,12 @@ router.post('/from-order', async function (req, res, next) {
 // kernel.js: handlers['invoices.createFromQuotation'] -> POST /api/invoices/from-quotation
 router.post('/from-quotation', async function (req, res, next) {
   try { res.status(201).json(await invoicesService.createFromQuotation(req.ctx, req.body.quotationId, req.body.poReference)); } catch (e) { next(e); }
+});
+
+// Old invoices cleared in one go: paid, written off or voided, with a
+// reason (invoiceCleanup.service.js).
+router.post('/cleanup', async function (req, res, next) {
+  try { res.json(await invoiceCleanup.apply(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['invoices.update'] -> PATCH /api/invoices/:id

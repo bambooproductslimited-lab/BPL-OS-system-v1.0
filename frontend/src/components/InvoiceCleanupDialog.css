@@ -1,0 +1,63 @@
+/* Clearing out old invoices in one go (InvoiceCleanupDialog.jsx). Shares
+   the email dialog's frame (.ed); these are its own parts. */
+.dialog.ed.icu { max-width: 760px; }
+.icu-small { font-size: 12px; color: var(--color-text-muted); }
+.icu-step { display: flex; flex-direction: column; gap: 10px; }
+.icu-step-head { display: flex; align-items: center; gap: 10px; }
+.icu-step-head h3 { margin: 0; font-size: 15px; }
+.icu-num { width: 24px; height: 24px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; background: var(--color-accent); color: #fff; }
+.icu-ages .tl-seg-btn { flex: 1 1 110px; }
+.icu-empty { padding: 18px; }
+
+.icu-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.icu-all { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.icu-list { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; border: 1px solid var(--color-divider); border-radius: 12px; background: var(--color-bg-subtle); }
+.icu-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 9px; border: 1px solid transparent; background: var(--color-bg); cursor: pointer; }
+.icu-row:hover { border-color: var(--color-divider); }
+.icu-row.is-on { border-color: var(--color-accent); background: var(--color-accent-100); }
+.icu-row input, .icu-all input { width: 17px; height: 17px; accent-color: var(--color-accent); margin: 0; }
+.icu-row-main { display: flex; flex-direction: column; min-width: 0; }
+.icu-row-main strong { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icu-row-late { font-size: 12px; font-weight: 700; color: var(--color-danger, #b42318); display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.icu-row-late em { font-style: normal; font-weight: 600; color: #9a5b00; }
+.icu-row-amt { display: flex; flex-direction: column; align-items: flex-end; text-align: right; min-width: 96px; }
+.icu-row-amt strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+
+.icu-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.icu-act { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: 12px; border: 1.5px solid var(--color-border); background: var(--color-bg); color: var(--color-text); font: inherit; text-align: left; cursor: pointer; }
+.icu-act:hover { border-color: var(--color-accent); }
+.icu-act.is-on { border-color: var(--color-accent); background: var(--color-accent-100); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.icu-act-icon { width: 32px; height: 32px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--color-bg-subtle); color: var(--color-accent); margin-bottom: 2px; }
+.icu-act.is-void .icu-act-icon { color: var(--color-danger, #b42318); }
+.icu-act strong { font-size: 13.5px; }
+.icu-act-when { font-size: 12.5px; font-weight: 600; }
+.icu-act-what { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
+.icu-paid { margin-top: 2px; }
+.icu-reason { min-height: 60px; resize: vertical; }
+
+.icu-foot { align-items: center; flex-wrap: wrap; }
+.icu-sum { margin-right: auto; font-weight: 700; }
+
+.icu-confirm { display: flex; gap: 12px; padding: 14px; border-radius: 12px; border-left: 3px solid var(--color-accent); background: var(--color-accent-100); }
+.icu-confirm.is-void { border-left-color: var(--color-danger, #b42318); background: color-mix(in srgb, var(--color-danger, #b42318) 9%, var(--color-bg)); }
+.icu-confirm-icon { width: 40px; height: 40px; border-radius: 12px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--color-bg); color: var(--color-accent); }
+.icu-confirm.is-void .icu-confirm-icon { color: var(--color-danger, #b42318); }
+.icu-confirm strong { font-size: 15px; }
+.icu-confirm p { margin: 6px 0 0; font-size: 13px; }
+.icu-why { font-style: italic; overflow-wrap: anywhere; }
+
+.icu-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+.icu-results li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; background: var(--color-bg-subtle); }
+.icu-res-icon { width: 22px; height: 22px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: var(--color-accent); }
+.icu-results li.is-bad .icu-res-icon { background: var(--color-danger, #b42318); }
+.icu-res-text { display: flex; flex-direction: column; min-width: 0; font-size: 13px; }
+.icu-res-text strong { font-weight: 600; overflow-wrap: anywhere; }
+.icu-res-text span { color: var(--color-text-muted); font-size: 12.5px; }
+
+@media (max-width: 640px) {
+  .icu-actions { grid-template-columns: 1fr; }
+  .icu-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .icu-row-late { grid-column: 2; grid-row: 2; align-items: flex-start; text-align: left; flex-direction: row; gap: 8px; }
+  .icu-row-amt { grid-column: 3; grid-row: 1 / span 2; min-width: 0; }
+  .icu-ages .tl-seg-btn { flex: 1 1 40%; }
+}
