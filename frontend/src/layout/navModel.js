@@ -58,8 +58,8 @@ export const NAV_GROUPS = [
     { key: 'crm', label: msg('Overview'), perm: 'crm.read', icon: 'chart' },
     // Each with a second tab (pages/crm/CrmTabs.jsx): My follow-ups; Prospects.
     { key: 'crminbox', label: msg('Inbox & follow-ups'), perm: 'crm.read', icon: 'chat' },
-    { key: 'crmcustomers', label: msg('Customers & prospects'), perm: 'crm.read', icon: 'user' },
     { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
+    { key: 'crmcustomers', label: msg('Customers & prospects'), perm: 'crm.read', icon: 'user' },
     { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
     { key: 'crmmarketing', label: msg('Marketing ideas'), perm: 'crm.read', icon: 'sparkle' },
     { key: 'crmhealth', label: msg('Data health'), perm: 'crm.read', icon: 'shield' }
