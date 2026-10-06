@@ -2,7 +2,8 @@
  * Old invoices cleared in one go (invoiceCleanup.service.js): recorded as
  * paid, written off with a credit note, or voided — each under the same
  * rules as by hand, one reason for all, and what cannot be done is reported
- * while the rest go through. Customers use the ZIC prefix and are removed
+ * while the rest go through; Bamboo Products' invoices and Poki's rent and
+ * utility bills each only on their own side. Customers use the ZIC prefix and are removed
  * afterwards.
  */
 var test = require('node:test');
@@ -21,6 +22,7 @@ async function cleanup() {
   await pool.query('DELETE FROM payments WHERE invoice_id IN ' + inv);
   await pool.query("DELETE FROM document_line_items WHERE document_type = 'invoice' AND document_id IN " + inv);
   await pool.query('DELETE FROM invoices WHERE id IN ' + inv);
+  await pool.query('DELETE FROM poki_tenants WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE \'ZIC%\')');
   await pool.query("DELETE FROM customers WHERE name LIKE 'ZIC%'");
   await pool.query("DELETE FROM audit_logs WHERE action = 'invoice.cleanup' AND summary LIKE '%ZIC test%'");
 }
@@ -119,4 +121,43 @@ test('what it needs: a reason, an action, ticks, the right; nothing in the futur
     assert.equal((await row(b.id)).status, 'unpaid');
   }
   assert.equal((await row(a.id)).status, 'unpaid', 'nothing changed by the refusals');
+});
+
+test('rent and utility bills (Poki): the same clean-up, Poki\'s own bills only, by a Poki manager', async function () {
+  var poki = require('../src/services/poki.service');
+  var pokiId = await poki.pokiCompanyId();
+  var tenant = (await pool.query("INSERT INTO customers (name, company_id) VALUES ('ZIC Tenant', $1) RETURNING id", [pokiId])).rows[0].id;
+  async function bill(kind, total) {
+    return (await pool.query(
+      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, doc_kind, company_id) " +
+      "VALUES ($1,$2,$3,0,0,$3,0,$3,'unpaid','2025-01-05','2025-01-15',$4,$5) RETURNING id", ['ZIC-PKI-' + kind + '-' + Date.now(), tenant, total, kind, pokiId])).rows[0].id;
+  }
+  var rent = await bill('rent', 2400), water = await bill('utility', 180), wrong = await bill('cam', 90);
+  var bplOne = (await invoiceOf(70)).id;
+  // A Poki manager: poki.manage, and not Bamboo Products' invoice.manage.
+  var manager = Object.assign(Object.create(Object.getPrototypeOf(admin)), admin, { can: function (p) { return p === 'poki.manage' || p === 'poki.read'; } });
+
+  var r = await cleanupSvc.applyPoki(manager, { invoiceIds: [rent, bplOne], action: 'write_off', reason: 'ZIC test: tenant left in 2025' });
+  assert.equal(r.done, 1);
+  assert.match(r.results[1].error, /not found/, 'a Bamboo Products invoice is not Poki\'s to clean up');
+  assert.equal((await row(rent)).status, 'paid');
+  assert.equal(Number((await row(rent)).credit_total), 2400);
+  assert.equal((await row(bplOne)).status, 'unpaid');
+
+  r = await cleanupSvc.applyPoki(manager, { invoiceIds: [water], action: 'paid', method: 'cash', date: '2025-02-01', reason: 'ZIC test: paid at the office' });
+  assert.equal(r.done, 1);
+  assert.match(r.results[0].made, /\S/, 'a receipt number');
+  assert.equal((await row(water)).status, 'paid');
+
+  r = await cleanupSvc.applyPoki(manager, { invoiceIds: [wrong], action: 'void', reason: 'ZIC test: billed twice' });
+  assert.equal(r.done, 1);
+  assert.equal((await row(wrong)).status, 'void');
+  assert.match((await pool.query("SELECT summary FROM audit_logs WHERE action = 'invoice.void' AND entity_id = $1", [wrong])).rows[0].summary, /— ZIC test: billed twice\./);
+  assert.ok((await pool.query("SELECT 1 FROM audit_logs WHERE action = 'invoice.cleanup' AND summary LIKE 'Poki clean-up: 1 invoice(s) voided%ZIC test: billed twice.'")).rows.length);
+
+  // And the other way: Bamboo Products' clean-up does not reach Poki's bills.
+  var other = await bill('rent', 500);
+  var b = await cleanupSvc.apply(admin, { invoiceIds: [other], action: 'void', reason: 'ZIC test: not mine' });
+  assert.match(b.results[0].error, /not found/);
+  await assert.rejects(cleanupSvc.applyPoki(Object.assign({}, admin, { can: function () { return false; } }), { invoiceIds: [other], action: 'void', reason: 'x' }), /poki\.manage/);
 });

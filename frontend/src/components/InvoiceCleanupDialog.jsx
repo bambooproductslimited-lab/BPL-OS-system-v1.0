@@ -11,6 +11,8 @@ import './InvoiceCleanupDialog.css';
 // say what happened and why, and each is recorded as paid, written off with
 // a credit note, or voided, under the same rules as doing it by hand. What
 // cannot be done is listed with why; the rest still go through.
+// rent: Poki Rentals' rent and utility bills (Rent & utilities, POST
+// /poki/invoices/cleanup), in a landlord's words: tenants and bills.
 
 const AGES = [[90, msg('Over 3 months')], [180, msg('Over 6 months')], [365, msg('Over a year')], [730, msg('Over 2 years')]];
 const METHODS = [['bank_transfer', msg('Bank transfer')], ['cash', msg('Cash')], ['mobile_money', msg('Mobile Money')], ['card', msg('Card')], ['cheque', msg('Cheque')], ['other', msg('Other')]];
@@ -21,6 +23,15 @@ const ACTIONS = [
     what: msg('A payment of what is left, with a receipt. No email goes to the customer.') },
   { key: 'void', icon: 'ban', title: msg('Void — the sale never happened'), when: msg('Entered by mistake, twice, or the order was cancelled.'),
     what: msg('Cancelled and kept for the record; any stock it took goes back. Only for invoices with no payments.') }
+];
+// The same three, for rent and utility bills.
+const RENT_ACTIONS = [
+  { key: 'write_off', icon: 'eraser', title: msg('Write it off'), when: msg('The tenant had the place or the service, but the money will not come.'),
+    what: msg('A credit note takes off what is left. The bill stays, with its total, and owes nothing.') },
+  { key: 'paid', icon: 'cash', title: msg('They paid — record it'), when: msg('The money came in, but was never recorded here.'),
+    what: msg('A payment of what is left, with a receipt. No email goes to the tenant. A rent bill paid off marks the deposit as held, as usual.') },
+  { key: 'void', icon: 'ban', title: msg('Void — it should never have been billed'), when: msg('Billed by mistake, or twice.'),
+    what: msg('Cancelled and kept for the record; meter readings and recurring charges on it go back to not billed. Only for bills with no payments.') }
 ];
 // Why one could not be done (the server's words), so they can be shown in
 // the reader's language.
@@ -56,7 +67,8 @@ function yearsMonths(days) {
   return tr('{n} days late', { n: days });
 }
 
-export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startDays = 365 }) {
+export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startDays = 365, rent = false }) {
+  const actions = rent ? RENT_ACTIONS : ACTIONS;
   const [days, setDays] = useState(startDays);
   const [picked, setPicked] = useState(() => new Set());
   const [action, setAction] = useState('write_off');
@@ -94,7 +106,7 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
   async function run() {
     setSaving(true); setError(null);
     try {
-      const res = await api.post('/invoices/cleanup', {
+      const res = await api.post(rent ? '/poki/invoices/cleanup' : '/invoices/cleanup', {
         invoiceIds: ticked.map((inv) => inv.id), action, reason: reason.trim(),
         method: action === 'paid' ? method : undefined, date: action === 'paid' ? date : undefined
       });
@@ -104,15 +116,17 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
     setSaving(false);
   }
 
-  const act = ACTIONS.find((a) => a.key === action);
+  const act = actions.find((a) => a.key === action);
   return (
     <div className="dialog-backdrop ed-over" onClick={() => !busy && onClose()}>
       <div className="dialog ed icu" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="icu-title">
         <div className="ed-head">
           <span className="ed-head-icon"><Glyph name="broom" size={20} /></span>
           <div>
-            <h2 id="icu-title">{tr('Clean up old invoices')}</h2>
-            <p className="ed-sub">{tr('Clear out invoices that will never be paid, or that were paid and never recorded: tick them, say what happened and why, and they are all done in one go. Each one is kept in the audit log.')}</p>
+            <h2 id="icu-title">{rent ? tr('Clean up old rent and utility bills') : tr('Clean up old invoices')}</h2>
+            <p className="ed-sub">{rent
+              ? tr('Clear out bills tenants will never pay, or that were paid and never recorded: tick them, say what happened and why, and they are all done in one go. Each one is kept in the audit log.')
+              : tr('Clear out invoices that will never be paid, or that were paid and never recorded: tick them, say what happened and why, and they are all done in one go. Each one is kept in the audit log.')}</p>
           </div>
         </div>
 
@@ -198,7 +212,7 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
                             <input type="checkbox" checked={on} onChange={() => toggle(inv.id)} />
                             <span className="icu-row-main">
                               <strong>{inv.customerName}</strong>
-                              <span className="icu-small">{inv.invoiceNo} · {tr('issued {date}', { date: fmtDate(inv.issuedAt) })}</span>
+                              <span className="icu-small">{[inv.invoiceNo, inv.unitCode ? [inv.propertyName, inv.unitCode].filter(Boolean).join(' ') : null, tr('issued {date}', { date: fmtDate(inv.issuedAt) })].filter(Boolean).join(' · ')}</span>
                             </span>
                             <span className="icu-row-late">{yearsMonths(daysLate(inv))}{inv.amountPaid > 0 && <em>{tr('part-paid')}</em>}</span>
                             <span className="icu-row-amt">
@@ -220,7 +234,7 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
                 <h3 id="icu-s2">{tr('What happened')}</h3>
               </div>
               <div className="icu-actions" role="radiogroup" aria-labelledby="icu-s2">
-                {ACTIONS.map((a) => (
+                {actions.map((a) => (
                   <button key={a.key} type="button" role="radio" aria-checked={action === a.key} className={'icu-act is-' + a.key + (action === a.key ? ' is-on' : '')} onClick={() => setAction(a.key)}>
                     <span className="icu-act-icon"><Glyph name={a.icon} /></span>
                     <strong>{tr(a.title)}</strong>
@@ -257,7 +271,9 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
                 <h3 id="icu-s3"><label htmlFor="icu-reason">{tr('Why')}</label></h3>
               </div>
               <textarea id="icu-reason" className="input icu-reason" rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)}
-                placeholder={action === 'paid' ? tr('e.g. Paid in cash at the time; found in the Square records') : action === 'void' ? tr('e.g. Entered twice when the Square sales came in') : tr('e.g. Over a year old; the customer cannot be reached')} />
+                placeholder={rent
+                  ? (action === 'paid' ? tr('e.g. Paid in cash at the office; found in the receipt book') : action === 'void' ? tr('e.g. March water billed twice') : tr('e.g. The tenant left in 2025 and cannot be reached'))
+                  : (action === 'paid' ? tr('e.g. Paid in cash at the time; found in the Square records') : action === 'void' ? tr('e.g. Entered twice when the Square sales came in') : tr('e.g. Over a year old; the customer cannot be reached'))} />
               <small className="icu-small">{action === 'write_off' ? tr('Kept in the audit log, and written on each credit note.') : tr('Kept in the audit log with each invoice.')}</small>
             </section>
 

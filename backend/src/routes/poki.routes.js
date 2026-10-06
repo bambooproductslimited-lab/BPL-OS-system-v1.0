@@ -7,6 +7,7 @@ var reminders = require('../services/pokiReminders.service');
 var pokiInvoices = require('../services/pokiInvoices.service');
 var rentSideMove = require('../services/rentSideMove.service');
 var recurring = require('../services/pokiRecurring.service');
+var invoiceCleanup = require('../services/invoiceCleanup.service');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
 // requireAuth; the poki.read / poki.manage gates live in the services so
@@ -219,6 +220,11 @@ router.get('/invoices/:id', async function (req, res, next) {
 });
 router.put('/invoices/:id', async function (req, res, next) {
   try { res.json(await pokiInvoices.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+// Old bills cleared in one go: paid, written off or voided, with a reason
+// (invoiceCleanup.service.js applyPoki).
+router.post('/invoices/cleanup', async function (req, res, next) {
+  try { res.json(await invoiceCleanup.applyPoki(req.ctx, req.body)); } catch (e) { next(e); }
 });
 router.post('/invoices/:id/payments', async function (req, res, next) {
   try { res.status(201).json(await pokiInvoices.recordPayment(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }

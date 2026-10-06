@@ -140,9 +140,10 @@ async function recordPayment(ctx, id, p) {
 // Voiding a bill raised from meter readings or recurring charges puts
 // them back to not billed (invoices.service voidInvoice does it, for every
 // void), so a bill raised by mistake can be raised again properly.
-async function voidInvoice(ctx, id) {
+// reason (optional): why, kept in the audit log (the clean-up of old bills).
+async function voidInvoice(ctx, id, reason) {
   return actingOnPokiInvoice(ctx, id, function (e) {
-    return invoicesService.voidInvoice(e, id);
+    return invoicesService.voidInvoice(e, id, reason);
   });
 }
 

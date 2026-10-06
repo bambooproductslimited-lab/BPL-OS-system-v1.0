@@ -8,6 +8,7 @@ import { Glossary, Hero, Insights, Section, Status, jump } from '../components/D
 import { money, moneyBreakdown } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
 import CreditNoteDialog from '../components/CreditNoteDialog';
+import InvoiceCleanupDialog from '../components/InvoiceCleanupDialog';
 import RentSideMoveDialog from '../components/RentSideMoveDialog';
 import BillReadingsDialog from '../components/BillReadingsDialog';
 import EditPokiInvoiceDialog from '../components/EditPokiInvoiceDialog';
@@ -60,6 +61,7 @@ export default function PokiBillingPage() {
 
   const [previewInv, setPreviewInv] = useState(null);
   const [creditFor, setCreditFor] = useState(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [billIds, setBillIds] = useState(null); // readings being billed (BillReadingsDialog)
   const [editId, setEditId] = useState(null); // invoice being changed (EditPokiInvoiceDialog)
   const [payFor, setPayFor] = useState(null);
@@ -343,6 +345,9 @@ export default function PokiBillingPage() {
     insights.push({ tone: 'bad', icon: 'owed', text: overdue.length === 1 ? tr('{name} has owed {amount} on {no} for {days} days.', { name: w.customerName, amount: money(w.balanceDue, w.currency), no: w.invoiceNo, days: daysSince(w.dueDate) }) : tr('{n} invoices are overdue; the oldest is {name}\'s {no}, {days} days.', { n: overdue.length, name: w.customerName, no: w.invoiceNo, days: daysSince(w.dueDate) }), action: canManage && overdue.length === 1 ? { label: tr('Record payment'), run: () => openPay(w) } : { label: tr('Show them'), run: () => showInvoices('overdue') } });
   }
   const rentSideCount = (rentSide || []).reduce((n, g) => n + g.invoices.length, 0);
+  // Owed for over a year: most likely never coming, or paid and never recorded.
+  const yearOld = unpaid.filter((i) => i.dueDate && daysSince(i.dueDate) > 365);
+  if (canManage && yearOld.length) insights.splice(overdue.length ? 1 : 0, 0, { tone: 'warn', icon: 'clock', text: yearOld.length === 1 ? tr('1 bill has been owed for over a year ({amount}). If the tenant will never pay it, or paid and it was never recorded, clear it out.', { amount: moneyBreakdown(sumBy(yearOld, (i) => i.balanceDue)) }) : tr('{n} bills have been owed for over a year ({amount}). Clear out the ones tenants will never pay, or that were paid and never recorded.', { n: yearOld.length, amount: moneyBreakdown(sumBy(yearOld, (i) => i.balanceDue)) }), action: { label: tr('Clean up'), run: () => setCleanupOpen(true) } });
   if (rentSideCount) insights.push({ tone: 'warn', icon: 'doc', text: tr('{n} rent-side invoices (CAM, water & power…) for {c} customers are in Bamboo Products\' invoices instead of here.', { n: rentSideCount, c: rentSide.length }), action: { label: tr('Review and bring over'), run: () => setMoveOpen(true) } });
   if (unbilled.length) insights.push({ tone: 'warn', icon: 'clock', text: unbilled.length === 1 ? tr('A reading of {amount} on {unit} has not been billed yet.', { amount: money(unbilled[0].amount), unit: unbilled[0].unitCode }) : tr('{n} meter readings worth {amount} have not been billed yet.', { n: unbilled.length, amount: money(unbilledTotal) }), action: { label: tr('Bill them'), run: () => { setView('utilities'); setTimeout(() => jump('pk-desk'), 0); } } });
   if (masterOpen.length) insights.push({ tone: 'warn', icon: 'doc', text: masterOpen.length === 1 ? tr('The {utility} bill for {property} has not been charged to the tenants.', { utility: codeLabel(masterOpen[0].utilityType).toLowerCase(), property: masterOpen[0].propertyName }) : tr('{n} shared bills have not been charged to the tenants.', { n: masterOpen.length }), action: { label: tr('Review & bill'), run: () => showSplit(masterOpen[0]) } });
@@ -389,6 +394,7 @@ export default function PokiBillingPage() {
         actions={canManage && (
           <>
             <button type="button" className="btn btn-primary" onClick={openNewInvoice}>{tr('New invoice')}</button>
+            {overdue.some((i) => daysSince(i.dueDate) > 90) && <button type="button" className="btn btn-secondary" onClick={() => setCleanupOpen(true)}>{tr('Clean up old bills')}</button>}
             {meters.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setForm({ meterId: meters[0].id, periodStart: '', periodEnd: '', currentReading: '' }); setDialogError(null); setDialog('reading'); }}>{tr('Record reading')}</button>}
           </>
         )}
@@ -1037,6 +1043,7 @@ export default function PokiBillingPage() {
       )}
 
       {moveOpen && <RentSideMoveDialog tenants={tenants} onClose={() => setMoveOpen(false)} onDone={() => load()} />}
+      {cleanupOpen && <InvoiceCleanupDialog rent invoices={invoices} onClose={() => setCleanupOpen(false)} onDone={() => load()} />}
       {creditFor && <CreditNoteDialog invoice={creditFor} apiBase="/poki/invoices" onClose={() => setCreditFor(null)} onDone={() => load()} />}
 
       {toast && <div className="toast">{toast}</div>}
