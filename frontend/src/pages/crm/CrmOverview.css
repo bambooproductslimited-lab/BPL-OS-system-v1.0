@@ -1,0 +1,90 @@
+/* The Sales & CRM overview for the CEO or a sales manager
+   (CrmOverviewPage.jsx). DashKit (.dk) supplies the frame and tokens. */
+
+/* Scorecard: eight figures, each saying what it is and what it means. */
+.ex-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ex-kpi { --t: var(--color-accent); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg); color: inherit; font: inherit; text-align: left; position: relative; overflow: hidden; }
+.ex-kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--t); opacity: .85; }
+.ex-kpi.is-link { cursor: pointer; }
+.ex-kpi.is-link:hover { border-color: var(--t); }
+.ex-kpi.is-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ex-kpi.is-warn { --t: var(--dk-warn); background: color-mix(in srgb, var(--dk-warn) 7%, var(--color-bg)); }
+.ex-kpi.is-bad { --t: var(--dk-bad); background: color-mix(in srgb, var(--dk-bad) 6%, var(--color-bg)); }
+.ex-kpi.is-good { --t: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 6%, var(--color-bg)); }
+.ex-kpi-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); }
+.ex-kpi-icon { width: 26px; height: 26px; border-radius: 8px; flex: none; display: grid; place-items: center; color: var(--t); background: color-mix(in srgb, var(--t) 13%, transparent); }
+.ex-kpi-icon .dk-icon { width: 15px; height: 15px; }
+.ex-kpi-value { font-family: var(--font-heading); font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-top: 4px; }
+.ex-kpi.is-warn .ex-kpi-value { color: color-mix(in srgb, var(--dk-warn) 75%, var(--color-text)); }
+.ex-kpi.is-bad .ex-kpi-value { color: var(--dk-bad); }
+.ex-kpi-note { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
+.ex-kpi .dk-change { font-size: 12px; }
+
+/* Twelve months of sales and money in; this period's months stand out. */
+.ex-trend { display: flex; align-items: stretch; gap: 6px; height: 220px; }
+.ex-trend-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; border-radius: 6px; padding: 4px 2px 0; }
+.ex-trend-col.is-now { background: color-mix(in srgb, var(--color-accent) 7%, transparent); }
+.ex-trend-bars { flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 3px; border-bottom: 1px solid var(--color-divider); }
+.ex-bar { display: inline-block; flex: 1; max-width: 20px; border-radius: 4px 4px 0 0; }
+.ex-bar.is-sales { background: var(--dk-info); }
+.ex-bar.is-cash { background: var(--dk-in); }
+.dk-legend .ex-bar { flex: none; border-radius: 3px; }
+.ex-now-swatch { background: color-mix(in srgb, var(--color-accent) 18%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent); }
+.ex-trend-label { font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-trend-col.is-now .ex-trend-label { color: var(--color-text); }
+.ex-short { display: none; }
+
+/* From enquiry to sale. */
+.ex-funnel { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ex-step { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--dk-r); background: var(--color-bg-subtle); color: inherit; font: inherit; text-align: left; }
+button.ex-step { cursor: pointer; }
+button.ex-step:hover .ex-step-head span { text-decoration: underline; }
+.ex-step-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; font-weight: 700; }
+.ex-step-head strong { font-family: var(--font-heading); font-size: 17px; font-variant-numeric: tabular-nums; }
+.ex-step-track { height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 7%, transparent); overflow: hidden; }
+.ex-step-track span { display: block; height: 100%; border-radius: 999px; }
+.ex-step-track .is-leads { background: #8a6fd1; }
+.ex-step-track .is-quotes { background: var(--dk-info); }
+.ex-step-track .is-won { background: #2f9e8f; }
+.ex-step-track .is-sales { background: var(--dk-in); }
+.ex-h4 { margin: 6px 0 0; font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-muted); }
+
+/* Owed to us, by age. */
+.ex-sum { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.age-5 { background: #8f1d14; }
+:root[data-theme='dark'] .age-5 { background: #c2410c; }
+.ex-ages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ex-ages li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--color-divider); font-size: 13px; }
+.ex-ages li:first-child { border-top: 0; }
+.ex-ages-name { font-weight: 600; }
+.ex-ages strong { font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; }
+.ex-hint { margin: 0; }
+
+/* The team, side by side. */
+.ex-team { font-size: 12.5px; }
+.ex-team th { white-space: normal; vertical-align: bottom; line-height: 1.25; padding: 9px 10px; }
+.ex-team td { vertical-align: top; padding: 9px 10px; }
+.ex-team td:first-child { white-space: nowrap; }
+.ex-team td.is-num { line-height: 1.3; }
+.ex-team td.is-num > * { display: block; margin-left: auto; }
+.ex-team td.is-num > .dk-status { display: inline-block; }
+.ex-rep { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+.ex-rep:hover { color: var(--color-accent); text-decoration: underline; }
+.ex-share { width: 80px; height: 5px; margin: 4px 0 3px auto; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 8%, transparent); overflow: hidden; }
+.ex-share span { display: block; height: 100%; background: var(--dk-info); }
+.ex-owe { color: var(--dk-bad); font-weight: 700; }
+
+.ex-divider { padding-top: 14px; border-top: 2px solid var(--color-divider); scroll-margin-top: 80px; }
+.ex-divider:focus { outline: none; }
+.ex-divider .dk-muted { margin: 3px 0 0; }
+
+@media (max-width: 1100px) { .ex-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .ex-trend { height: 170px; gap: 3px; }
+  .ex-trend-label { font-size: 9.5px; text-overflow: clip; }
+  .ex-long { display: none; }
+  .ex-short { display: inline; }
+  .ex-sum { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ex-kpi-value { font-size: 20px; }
+}
+@media (max-width: 420px) { .ex-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; } .ex-kpi { padding: 12px; } }
