@@ -217,6 +217,12 @@ button { font-family: inherit; }
 .dialog h2 { font-size: 20px; }
 .dialog-body { margin: 0; font-size: 13px; color: var(--color-text-muted); }
 .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+/* A window taller than the screen (a customer profile, a long form) starts
+   at the top and the backdrop scrolls, instead of being centred with its
+   top and bottom cut off out of reach. Auto margins centre it when it fits
+   and fall to 0 when it does not. */
+.dialog-backdrop { overflow-y: auto; overscroll-behavior: contain; }
+.dialog-backdrop > .dialog { margin: auto; flex-shrink: 0; }
 
 textarea.input { font-family: inherit; resize: vertical; min-height: 72px; }
 
