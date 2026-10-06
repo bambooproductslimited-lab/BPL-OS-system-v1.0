@@ -56,13 +56,11 @@ export const NAV_GROUPS = [
   ] },
   { label: msg('Sales & CRM'), items: [
     { key: 'crm', label: msg('Overview'), perm: 'crm.read', icon: 'chart' },
-    { key: 'crmfollowups', label: msg('My follow-ups'), perm: 'crm.read', icon: 'bell' },
-    { key: 'crminbox', label: msg('Inbox'), perm: 'crm.read', icon: 'chat' },
-    { key: 'crmcustomers', label: msg('Customers'), perm: 'crm.read', icon: 'user' },
+    // Each with a second tab (pages/crm/CrmTabs.jsx): My follow-ups; Prospects.
+    { key: 'crminbox', label: msg('Inbox & follow-ups'), perm: 'crm.read', icon: 'chat' },
+    { key: 'crmcustomers', label: msg('Customers & prospects'), perm: 'crm.read', icon: 'user' },
     { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
-    { key: 'crmprospects', label: msg('Prospects'), perm: 'crm.read', icon: 'megaphone' },
     { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
-    { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'crmmarketing', label: msg('Marketing ideas'), perm: 'crm.read', icon: 'sparkle' },
     { key: 'crmhealth', label: msg('Data health'), perm: 'crm.read', icon: 'shield' }
   ] },
@@ -81,6 +79,8 @@ export const NAV_GROUPS = [
     { key: 'financedash', label: msg('Finance dashboard'), perm: 'report.read', icon: 'chart' },
     { key: 'payroll', label: msg('Payroll'), perm: 'payroll.read', icon: 'cash' },
     { key: 'expenses', label: msg('Expenses'), perm: 'expense.request', icon: 'receipt' },
+    // Sales reps' commission on paid-up deals (the CRM's figures; crm.read).
+    { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },
     { key: 'reports', label: msg('Reports'), perm: 'report.read', icon: 'chart' },
     { key: 'financialreports', label: msg('Financial reports'), perm: 'report.read', icon: 'chart' }

@@ -148,7 +148,7 @@ export function FollowUpsWelcome() {
         </div>
         <div className="dialog-actions">
           <button type="button" className="btn btn-secondary" onClick={close}>{tr('Later')}</button>
-          <button type="button" className="btn btn-primary" onClick={() => { close(); navigate('/crmfollowups'); }}>{data.total > 4 ? tr('See all {n}', { n: data.total }) : tr('Open my follow-ups')}</button>
+          <button type="button" className="btn btn-primary" onClick={() => { close(); navigate('/crminbox?tab=followups'); }}>{data.total > 4 ? tr('See all {n}', { n: data.total }) : tr('Open my follow-ups')}</button>
         </div>
       </div>
     </div>

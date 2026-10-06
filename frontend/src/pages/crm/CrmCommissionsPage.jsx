@@ -97,7 +97,7 @@ export default function CrmCommissionsPage() {
   return (
     <div className="dk crm">
       {error && <div className="error-banner" role="alert">{error}</div>}
-      <Hero eyebrow={tr('Sales & CRM')} title={canCommission ? tr('Commissions') : tr('My commission')}
+      <Hero eyebrow={tr('Finance')} title={canCommission ? tr('Commissions') : tr('My commission')}
         sub={tr('The share each won sale earns: {rate}% less the discount given, on the price after discount. It can be paid once the customer has paid the invoice in full.', { rate })}
         actions={<>
           <button type="button" className="btn btn-secondary" onClick={csv}>{tr('Download CSV')}</button>

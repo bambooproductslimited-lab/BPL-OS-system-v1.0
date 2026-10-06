@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import ProtectedRoute from './auth/ProtectedRoute';
 import AppShell from './layout/AppShell';
 import { ALL_NAV_ITEMS } from './layout/navModel';
@@ -66,12 +66,9 @@ import MeetPage from './pages/MeetPage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
 import CrmOverviewPage from './pages/crm/CrmOverviewPage';
 import CrmLeadsPage from './pages/crm/CrmLeadsPage';
-import CrmProspectsPage from './pages/crm/CrmProspectsPage';
 import CrmVisitsPage from './pages/crm/CrmVisitsPage';
 import CrmCommissionsPage from './pages/crm/CrmCommissionsPage';
-import CrmCustomersPage from './pages/crm/CrmCustomersPage';
-import CrmInboxPage from './pages/crm/CrmInboxPage';
-import CrmFollowUpsPage from './pages/crm/CrmFollowUpsPage';
+import { CrmCustomersHub, CrmInboxHub } from './pages/crm/CrmTabs';
 import CrmHealthPage from './pages/crm/CrmHealthPage';
 import CrmMarketingPage from './pages/crm/CrmMarketingPage';
 
@@ -91,13 +88,20 @@ const BUILT_SCREENS = {
   audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage,
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
   pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage,
-  crm: CrmOverviewPage, crmleads: CrmLeadsPage, crmprospects: CrmProspectsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
-  crmcustomers: CrmCustomersPage, crminbox: CrmInboxPage, crmfollowups: CrmFollowUpsPage, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage
+  crm: CrmOverviewPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
+  crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];
   return { key: item.key, element: Screen ? <Screen /> : <PlaceholderPage title={item.label} /> };
 });
+
+function MovedToTab({ to, tab }) {
+  const { search } = useLocation();
+  const p = new URLSearchParams(search);
+  p.set('tab', tab);
+  return <Navigate to={'/' + to + '?' + p.toString()} replace />;
+}
 
 export default function App() {
   return (
@@ -115,6 +119,10 @@ export default function App() {
           {SCREEN_ROUTES.map((route) => (
             <Route key={route.key} path={route.key} element={route.element} />
           ))}
+          {/* Pages now a tab of another (pages/crm/CrmTabs.jsx): old links and
+              notifications still land on them. */}
+          <Route path="crmprospects" element={<MovedToTab to="crmcustomers" tab="prospects" />} />
+          <Route path="crmfollowups" element={<MovedToTab to="crminbox" tab="followups" />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>

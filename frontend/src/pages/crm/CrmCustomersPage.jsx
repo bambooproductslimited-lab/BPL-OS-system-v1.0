@@ -84,7 +84,7 @@ export default function CrmCustomersPage() {
       <Hero eyebrow={tr('Sales & CRM')} title={tr('Customers')}
         sub={tr('Every customer in one place: each with all their numbers and accounts, every conversation on every channel, and everything they were quoted, ordered and paid. New people who write to us get a profile by themselves.')}
         actions={<>
-          <button type="button" className="btn btn-primary" onClick={() => navigate('/crmfollowups')}>{tr('My follow-ups')}</button>
+          <button type="button" className="btn btn-primary" onClick={() => navigate('/crminbox?tab=followups')}>{tr('My follow-ups')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate('/crminbox')}>{tr('Inbox')}</button>
         </>}
         stats={[

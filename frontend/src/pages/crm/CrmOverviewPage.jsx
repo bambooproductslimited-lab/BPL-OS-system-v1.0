@@ -182,7 +182,7 @@ export default function CrmOverviewPage() {
         </Section>
       </div>
 
-      <Section card title={tr('Prospects')} sub={tr('People and companies from fairs, events and lists, to approach.')} action={<LinkButton onClick={() => navigate('/crmprospects')}>{tr('Open prospects')}</LinkButton>}>
+      <Section card title={tr('Prospects')} sub={tr('People and companies from fairs, events and lists, to approach.')} action={<LinkButton onClick={() => navigate('/crmcustomers?tab=prospects')}>{tr('Open prospects')}</LinkButton>}>
         <p className="crm-big">{tr('{n} prospects, {converted} of them now leads.', { n: d.prospects.total, converted: d.prospects.converted })}</p>
       </Section>
 

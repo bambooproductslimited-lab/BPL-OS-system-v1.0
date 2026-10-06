@@ -305,7 +305,7 @@ async function handToReps(ctx, p) {
   rows.forEach(function (r) { var k = r.account_manager_id || me(ctx); (byRep[k] = byRep[k] || []).push(r.id); });
   for (var repId of Object.keys(byRep)) {
     if (repId && repId !== String(me(ctx))) {
-      await notify(pool, repId, byRep[repId].length + ' customer(s) to tell about ' + what, 'They are on your follow-ups from ' + on + '.', '/crmfollowups');
+      await notify(pool, repId, byRep[repId].length + ' customer(s) to tell about ' + what, 'They are on your follow-ups from ' + on + '.', '/crminbox?tab=followups');
     }
   }
   await audit(pool, ctx, 'crm.campaign', 'customer', 'many', 'Put ' + rows.length + ' customer(s) on their reps\' follow-ups to tell them about ' + what + '.');
