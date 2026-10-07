@@ -83,7 +83,10 @@
   #               for styles is not the risk it is for scripts.
   #   img-src     data: and blob: are required — html2canvas renders the
   #               invoice preview to a canvas, and menu-photo previews use
-  #               createObjectURL before upload.
+  #               createObjectURL before upload. The API on Render serves
+  #               the menu photos as plain <img src> (routes/menuPhotos), so
+  #               it is here too; without it every menu and till photo is
+  #               a broken image.
   #   connect-src the API on Render, plus blob:/data: for the generated PDF,
   #               plus LiveKit Cloud for voice and video calls (the call's
   #               connection is wss://, and the client asks https:// for
@@ -97,5 +100,5 @@
   #               another site may be framed.
   #   frame-ancestors  nothing may embed this app — clickjacking on a
   #               payroll and invoicing system is worth closing properly.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://*.facebook.com https://*.fbcdn.net; connect-src 'self' https://bamboo-os-backend.onrender.com https://*.facebook.com https://graph.facebook.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob: https://*.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://bamboo-os-backend.onrender.com https://*.facebook.com https://*.fbcdn.net; connect-src 'self' https://bamboo-os-backend.onrender.com https://*.facebook.com https://graph.facebook.com wss://*.livekit.cloud https://*.livekit.cloud blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob: https://*.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>
