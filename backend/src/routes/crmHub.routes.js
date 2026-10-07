@@ -46,6 +46,19 @@ router.get('/channels', wrap(async function (req) {
   return { whatsapp: await require('../services/whatsapp.service').status(), email: await email.status(), meta: await meta.status() };
 }));
 
+// The sales mailbox, connected on Integrations → Email inbox
+// (crmMailbox.service.js); "Read new mail now" runs the 3-minute sync at once.
+var mailboxes = require('../services/crmMailbox.service');
+router.get('/mailbox', wrap(function (req) { return mailboxes.info(req.ctx); }));
+router.post('/mailbox/test', wrap(function (req) { return mailboxes.test(req.ctx, req.body || {}); }));
+router.put('/mailbox', wrap(function (req) { return mailboxes.connect(req.ctx, req.body || {}); }));
+router.delete('/mailbox', wrap(function (req) { return mailboxes.disconnect(req.ctx); }));
+router.post('/mailbox/sync', wrap(async function (req) {
+  if (!req.ctx.can('settings.manage')) { var { fail } = require('../utils/errors'); fail('forbidden', 'Your role does not allow this action (settings.manage).'); }
+  var r = await email.sync();
+  return { kept: r.kept || 0, skipped: r.skipped || 0, error: r.error || null, notSetUp: !!r.skipped && typeof r.skipped === 'string', mailbox: await mailboxes.info(req.ctx) };
+}));
+
 router.post('/whatsapp-alerts/:id/dismiss', wrap(function (req) { return require('../services/whatsappAlerts.service').dismiss(req.ctx, req.params.id); }));
 
 // follow-ups

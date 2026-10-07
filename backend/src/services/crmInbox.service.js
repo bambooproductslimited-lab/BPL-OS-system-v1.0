@@ -299,7 +299,7 @@ async function getConversation(ctx, id) {
 async function replyChannel(conv) {
   var config = require('../config');
   if (conv.channel === 'whatsapp') return require('./whatsappAccess').configured() ? 'whatsapp' : null;
-  if (conv.channel === 'email') return require('./mail.service').configured() && isEmail(conv.contact_key || conv.contact_label) ? 'email' : null;
+  if (conv.channel === 'email') return (await require('./crmMailbox.service').canSend()) && isEmail(conv.contact_key || conv.contact_label) ? 'email' : null;
   if (conv.channel === 'facebook' || conv.channel === 'instagram') return (await require('./crmMeta.service').canSend(conv.channel)) ? conv.channel : null;
   return null;
 }
@@ -327,10 +327,15 @@ async function reply(ctx, id, p) {
   } else if (how === 'email') {
     var lastIn = (await pool.query("SELECT external_id FROM crm_messages WHERE conversation_id = $1 AND direction = 'in' AND external_id IS NOT NULL ORDER BY sent_at DESC LIMIT 1", [conv.id])).rows[0];
     var subject = conv.subject ? (/^re:/i.test(conv.subject) ? conv.subject : 'Re: ' + conv.subject) : 'Bamboo Products';
-    var mailed = await require('./mail.service').send({
+    // The thread's first message, then the one answered: the customer's mail
+    // app keeps the reply in the thread, and reading it back from the sent
+    // folder lands it on this same conversation.
+    var root = /^mail:/.test(conv.external_thread_id || '') ? conv.external_thread_id.slice(5) : null;
+    var refs = [root, lastIn && lastIn.external_id].filter(function (x, i, all) { return x && all.indexOf(x) === i; });
+    var mailed = await require('./crmMailbox.service').send({
       to: conv.contact_key || conv.contact_label, subject: subject, text: body,
-      inReplyTo: lastIn ? lastIn.external_id : undefined, references: lastIn ? lastIn.external_id : undefined,
-      fromName: ctx.employee ? ctx.employee.first_name + ' ' + ctx.employee.last_name + ' · Bamboo Products' : undefined
+      inReplyTo: lastIn ? lastIn.external_id : undefined, references: refs.length ? refs : undefined,
+      author: ctx.employee ? ctx.employee.first_name + ' ' + ctx.employee.last_name : undefined
     });
     sent = { externalId: mailed && mailed.messageId };
   } else {

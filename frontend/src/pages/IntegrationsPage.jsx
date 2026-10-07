@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import AttendanceFeeds from '../components/AttendanceFeeds';
 import WhatsAppConnect from '../components/WhatsAppConnect';
+import MailboxConnect from '../components/MailboxConnect';
 import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
@@ -329,6 +330,8 @@ export default function IntegrationsPage() {
 
       <WhatsAppConnect onToast={setToast} />
 
+      <MailboxConnect onToast={setToast} />
+
       <AttendanceFeeds onToast={setToast} onSummary={setFeeds} />
 
       <Section id="in-services" title={tr('Services set up on the server')} sub={tr('These are switched on by adding settings in Render → bamboo-os-backend → Environment, then redeploying. Only whether each is ready is shown here, never the values.')}>
@@ -351,6 +354,8 @@ export default function IntegrationsPage() {
         [tr('Set up on the server'), tr('Keys added in Render → Environment by whoever looks after the server. They never pass through this page or chat.')],
         [tr('App keys'), tr('The keys that identify Bamboo OS to a platform. Without them, that platform\'s Connect button can\'t work.')],
         [tr('Not available yet'), tr('Listed so it can be asked for, but nothing in the OS uses it yet.')],
+        [tr('App password'), tr('A separate 16-letter password Google makes for one app, so the OS can read and send from a Gmail mailbox without the normal password. Removing it in the Google account stops the OS at once.')],
+        [tr('IMAP and SMTP'), tr('The two ways into a mailbox: IMAP to read the mail, SMTP to send it. Gmail and Hostinger\'s are filled in by themselves.')],
         [tr('Disconnect'), tr('Stops the OS using that account straight away and forgets its access. Connecting again means signing in again.')],
         [tr('Attendance feed'), tr('One company\'s clock-ins and attendance, for another system. Sent to their address as it happens, read by their system with a key, or both.')],
         [tr('Signing secret'), tr('Starts with bfs_. Every post to their site carries a signature made with it, so their system can tell it really came from Bamboo OS. Shown once.')],

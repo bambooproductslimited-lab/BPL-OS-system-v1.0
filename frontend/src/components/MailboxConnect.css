@@ -1,0 +1,30 @@
+/* Integrations → Email inbox (MailboxConnect.jsx); the cards come from WhatsAppConnect.css. */
+.mbx-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 12px; align-items: start; }
+.mbx-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.mbx-banner { padding: 10px 12px; border-radius: var(--dk-r, 10px); background: color-mix(in srgb, var(--dk-bad, var(--color-danger)) 8%, var(--color-bg)); }
+.mbx-form h4, .mbx-what h4 { margin: 0; font-size: 15px; }
+.mbx-providers { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.mbx-provider { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; font: inherit; color: inherit; cursor: pointer;
+  background: var(--color-bg); border: 1px solid var(--color-divider, var(--color-border)); border-radius: var(--dk-r, 10px); }
+.mbx-provider strong { font-size: 13.5px; }
+.mbx-provider:hover { border-color: var(--color-accent); }
+.mbx-provider.is-on { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); background: color-mix(in srgb, var(--color-accent) 7%, var(--color-bg)); }
+.mbx-provider:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.mbx-servers { grid-template-columns: minmax(0, 2fr) minmax(70px, 0.6fr) minmax(0, 2fr) minmax(70px, 0.6fr); }
+.mbx-help { padding: 10px 12px 10px 30px; border-radius: var(--dk-r, 10px); background: color-mix(in srgb, var(--color-accent) 6%, var(--color-bg)); font-size: 13px; }
+.mbx-more summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--color-text-muted); }
+.mbx-more[open] { display: flex; flex-direction: column; gap: 8px; }
+.mbx-more[open] summary { margin-bottom: 2px; }
+.mbx-form .field { margin: 0; }
+.mbx-checked { align-items: flex-start; }
+.mbx-what { gap: 8px; }
+.mbx-what h4 { font-size: 13.5px; margin-top: 4px; }
+.mbx-what h4:first-child { margin-top: 0; }
+.mbx-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.mbx-list li { display: flex; gap: 8px; align-items: flex-start; }
+.mbx-list .dk-icon { flex: none; width: 15px; height: 15px; margin-top: 2px; }
+.mbx-list .is-yes .dk-icon { color: var(--color-accent-700); }
+:root[data-theme='dark'] .mbx-list .is-yes .dk-icon { color: var(--color-accent); }
+.mbx-list .is-no { color: var(--color-text-muted); }
+@media (max-width: 860px) { .mbx-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .mbx-servers { grid-template-columns: minmax(0, 1fr) 80px; } }

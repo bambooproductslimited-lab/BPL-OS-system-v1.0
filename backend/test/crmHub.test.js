@@ -20,6 +20,7 @@ var meta = require('../src/services/crmMeta.service');
 var whatsapp = require('../src/services/whatsapp.service');
 var salesOrders = require('../src/services/salesOrders.service');
 var config = require('../src/config');
+var mailboxes = require('../src/services/crmMailbox.service');
 
 var admin, repA, repB, repACtx, repBCtx, deptId;
 var sent = [];
@@ -41,6 +42,8 @@ async function cleanup() {
   await pool.query("DELETE FROM crm_channel_state WHERE key IN ('coverage_alert', 'facebook', 'instagram') OR key LIKE 'email:%' OR key LIKE 'whatsapp:%'");
   await pool.query("DELETE FROM crm_contact_names WHERE value LIKE '23320555%'");
   await pool.query("DELETE FROM marketing_oauth_tokens WHERE channel_key IN ('facebook', 'instagram') AND open_id LIKE 'zcrm-%'");
+  await pool.query("DELETE FROM crm_mailbox WHERE address LIKE '%zcrm.example'");
+  await pool.query("DELETE FROM audit_logs WHERE action LIKE 'crm.mailbox.%' AND summary LIKE '%zcrm.example%'");
 }
 async function makeRep(code, first) {
   var e = (await pool.query("INSERT INTO employees (code, first_name, last_name, email, department_id, hire_date) VALUES ($1,$2,'Zcrm',$3,$4,'2025-01-01') RETURNING id",
@@ -63,7 +66,7 @@ test.before(async function () {
   repBCtx = await buildContext(repB.userId);
   inbox.setSendersForTests({ whatsapp: async function (conv, body) { sent.push({ to: conv.external_thread_id, body: body }); return { externalId: 'wamid.out.' + sent.length }; } });
 });
-test.after(async function () { inbox.setSendersForTests(null); email.setMailboxForTests(null); meta.setFetchForTests(null); await cleanup(); await pool.end(); });
+test.after(async function () { inbox.setSendersForTests(null); email.setMailboxForTests(null); mailboxes.setProbeForTests(null); mailboxes.setTransportForTests(null); meta.setFetchForTests(null); await cleanup(); await pool.end(); });
 
 test('a WhatsApp message makes a customer profile; the same number in another form lands on it', async function () {
   var t = Date.now() - 5 * 3600000;
@@ -270,6 +273,86 @@ test('email: customers\' mail lands on profiles (quotes cut), newsletters are sk
     assert.deepEqual(c.messages.map(function (m) { return m.direction + ':' + m.body; }), ['in:Hi, I need a price for 20 bamboo wall panels.', 'out:Hello Esi, GHS 350 each.']);
     assert.equal((await email.sync()).kept, 0, 'nothing twice');
   } finally { config.crmImap.user = saved.user; config.crmImap.sent = saved.sent; }
+});
+
+test('the mailbox connected on Integrations: checked first, the password sealed and never shown, read and replied from', async function () {
+  var tried = [];
+  mailboxes.setProbeForTests(async function (s) {
+    tried.push(s.imap.host + '|' + s.pass);
+    if (s.pass !== 'zcrm-right-pass') { var e = new Error('Invalid credentials (Failure)'); e.authenticationFailed = true; e.stage = 'imap'; throw e; }
+    return { sentFolder: 'INBOX.Sent' };
+  });
+  await assert.rejects(mailboxes.info(repACtx), /settings\.manage/);
+  await assert.rejects(mailboxes.connect(repACtx, { provider: 'hostinger', address: 'shop@bpl.zcrm.example', password: 'zcrm-right-pass' }), /settings\.manage/);
+  // A wrong password is said there and then, in words to act on.
+  await assert.rejects(mailboxes.test(admin, { provider: 'gmail', address: 'shop@bpl.zcrm.example', password: 'zcrm-normal-pass' }), /app password/);
+  await assert.rejects(mailboxes.connect(admin, { provider: 'hostinger', address: 'shop@bpl.zcrm.example', password: 'zcrm-wrong' }), /hPanel/);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM crm_mailbox')).rows[0].n, 0, 'nothing kept when the check fails');
+  await assert.rejects(mailboxes.test(admin, { provider: 'other', address: 'shop@bpl.zcrm.example', password: 'x', imapHost: 'not a host' }), /server name/);
+
+  var info = await mailboxes.connect(admin, { provider: 'hostinger', address: 'Shop@BPL.zcrm.example', password: 'zcrm-right-pass', fromName: 'Zcrm Sales' });
+  assert.deepEqual([info.source, info.address, info.imapHost, info.smtpHost, info.sent, info.canSend], ['os', 'shop@bpl.zcrm.example', 'imap.hostinger.com', 'smtp.hostinger.com', 'INBOX.Sent', true]);
+  assert.equal(info.connectedByName, admin.employee.first_name + ' ' + admin.employee.last_name);
+  assert.ok(!/zcrm-right-pass/.test(JSON.stringify(info)), 'the password is never sent back');
+  var row = (await pool.query('SELECT password_enc FROM crm_mailbox WHERE id = 1')).rows[0];
+  assert.ok(!/zcrm-right-pass/.test(row.password_enc), 'kept sealed');
+  assert.ok((await pool.query("SELECT 1 FROM audit_logs WHERE action = 'crm.mailbox.connect' AND summary LIKE '%shop@bpl.zcrm.example%'")).rows.length);
+
+  // Other settings changed without typing the password again — the same mailbox only.
+  info = await mailboxes.connect(admin, { provider: 'other', address: 'shop@bpl.zcrm.example', imapHost: 'mail.zcrm.example', smtpHost: 'mail.zcrm.example', smtpPort: 587 });
+  assert.deepEqual([info.imapHost, tried[tried.length - 1]], ['mail.zcrm.example', 'mail.zcrm.example|zcrm-right-pass']);
+  await assert.rejects(mailboxes.connect(admin, { provider: 'hostinger', address: 'other@bpl.zcrm.example' }), /Enter the mailbox's password/);
+
+  // Reading: the connected mailbox, from its own last 30 days (not the cursor of the one before).
+  function mail(from, to, subject, body, id, extra) {
+    return Buffer.from('From: ' + from + '\r\nTo: ' + to + '\r\nSubject: ' + subject + '\r\nMessage-ID: <' + id + '>\r\nDate: ' + new Date(Date.now() - 3600000).toUTCString() + '\r\n' + (extra || '') + 'Content-Type: text/plain\r\n\r\n' + body);
+  }
+  var cursors = {};
+  email.setMailboxForTests({ open: async function () {}, close: async function () {}, listNew: async function (folder, cursor) {
+    cursors[folder] = cursor;
+    return { v: '1', messages: folder === 'INBOX' ? [
+      { uid: 1, source: mail('Zcrm Kofi Asare <kofi@zcrm.example>', 'shop@bpl.zcrm.example', 'Bamboo blinds', 'How much for 6 bamboo blinds?', 'kofi-1@zcrm.example') },
+      { uid: 2, source: mail('Zcrm Kofi Asare <kofi@zcrm.example>', 'shop@bpl.zcrm.example', 'Re: Bamboo blinds', 'And can you fit them?', 'kofi-2@zcrm.example', 'In-Reply-To: <kofi-1@zcrm.example>\r\nReferences: <kofi-1@zcrm.example>\r\n') }] : [] };
+  } });
+  var r = await email.sync();
+  assert.equal(r.kept, 2);
+  assert.equal(cursors.INBOX, null, 'the earlier mailbox\'s place is not used');
+  assert.ok('INBOX.Sent' in cursors, 'its sent folder is read too');
+  var st = (await pool.query("SELECT cursor FROM crm_channel_state WHERE key = 'email:INBOX'")).rows[0];
+  assert.equal(JSON.parse(st.cursor).a, 'shop@bpl.zcrm.example');
+
+  // Replying: from the mailbox, in the thread, with a copy in its sent folder.
+  var conv = (await pool.query("SELECT id FROM crm_conversations WHERE channel = 'email' AND contact_key = 'kofi@zcrm.example'")).rows[0];
+  var mails = [], copies = [];
+  mailboxes.setTransportForTests({ sendMail: async function (m) { mails.push(m); } }, async function (folder, raw) { copies.push({ folder: folder, raw: raw.toString() }); });
+  inbox.setSendersForTests(null);
+  try {
+    var after = await inbox.reply(admin, conv.id, { body: 'Zcrm hello Kofi, GHS 450 each, fitting included.' });
+  } finally { inbox.setSendersForTests({ whatsapp: async function (c, body) { sent.push({ to: c.external_thread_id, body: body }); return { externalId: 'wamid.out.' + sent.length }; } }); }
+  assert.equal(mails.length, 1);
+  var m = mails[0];
+  assert.deepEqual([m.from.address, m.to, m.subject, m.inReplyTo], ['shop@bpl.zcrm.example', 'kofi@zcrm.example', 'Re: Bamboo blinds', '<kofi-2@zcrm.example>']);
+  assert.deepEqual(m.references, ['<kofi-1@zcrm.example>', '<kofi-2@zcrm.example>'], 'the thread\'s first message, then the one answered');
+  assert.equal(m.from.name, admin.employee.first_name + ' ' + admin.employee.last_name + ' \u00b7 Bamboo Products', 'signed by who wrote it, then the mailbox\'s name');
+  assert.equal(copies.length, 1);
+  assert.equal(copies[0].folder, 'INBOX.Sent');
+  assert.ok(copies[0].raw.indexOf(m.messageId) >= 0 && /GHS 450 each/.test(copies[0].raw));
+  assert.equal(after.messages[after.messages.length - 1].direction, 'out');
+
+  // A password that can no longer be opened (the server's secret changed): said, and nothing sent.
+  mailboxes.setTransportForTests(null);
+  await pool.query("UPDATE crm_mailbox SET password_enc = 'x.y.z' WHERE id = 1");
+  info = await mailboxes.info(admin);
+  assert.deepEqual([info.broken, info.canSend], [true, false]);
+  email.setMailboxForTests(null);
+  assert.deepEqual(await email.sync(), { skipped: 'not set up' }, 'the real mailbox is not tried without its password');
+
+  // Disconnected: back to the server's own settings.
+  info = await mailboxes.disconnect(admin);
+  assert.notEqual(info.source, 'os');
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM crm_mailbox')).rows[0].n, 0);
+  assert.ok((await pool.query("SELECT 1 FROM audit_logs WHERE action = 'crm.mailbox.disconnect' AND summary LIKE '%shop@bpl.zcrm.example%'")).rows.length);
+  mailboxes.setProbeForTests(null);
 });
 
 test('Facebook and Instagram messages come in through the connected Page', async function () {

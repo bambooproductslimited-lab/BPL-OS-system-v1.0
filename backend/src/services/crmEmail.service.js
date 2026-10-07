@@ -1,7 +1,8 @@
 /*
- * The sales mailbox in the CRM inbox: customers' emails, read over IMAP
- * (config.js → crmImap; Gmail with an app password, or Hostinger), land on
- * their profiles as conversations, one per email thread.
+ * The sales mailbox in the CRM inbox: customers' emails, read over IMAP,
+ * land on their profiles as conversations, one per email thread. The mailbox
+ * is the one connected on Integrations → Email inbox (crmMailbox.service.js),
+ * else the server's settings (config.js → crmImap).
  *
  * sync() runs from jobs/crm.js every few minutes. Each folder (the inbox,
  * and the sent folder when set, so replies written in the mail app are kept
@@ -11,9 +12,9 @@
  * each email is kept, not the quoted conversation below it.
  */
 var { simpleParser } = require('mailparser');
-var config = require('../config');
 var { pool } = require('../db/pool');
 var inbox = require('./crmInbox.service');
+var mailboxes = require('./crmMailbox.service');
 
 var FIRST_DAYS = 30;
 var MAX_PER_RUN = 300;
@@ -23,13 +24,13 @@ var MAX_PER_RUN = 300;
 var mailbox = null;
 function setMailboxForTests(m) { mailbox = m; }
 
-function realMailbox() {
+function realMailbox(s) {
   var { ImapFlow } = require('imapflow');
   var client = null;
   return {
     open: async function () {
-      client = new ImapFlow({ host: config.crmImap.host, port: config.crmImap.port, secure: config.crmImap.secure,
-        auth: { user: config.crmImap.user, pass: config.crmImap.pass }, logger: false, socketTimeout: 60000 });
+      client = new ImapFlow({ host: s.imap.host, port: s.imap.port, secure: s.imap.secure,
+        auth: { user: s.address, pass: s.pass }, logger: false, socketTimeout: 60000 });
       await client.connect();
     },
     // The messages after `cursor` ({ v: uidValidity, uid }) in the folder.
@@ -77,8 +78,7 @@ function automated(parsed, address) {
 }
 
 // One email into the CRM; false when it isn't a conversation with a customer.
-async function take(parsed, fromSentFolder) {
-  var me = config.crmImap.user.toLowerCase();
+async function take(parsed, fromSentFolder, me) {
   var from = parsed.from && parsed.from.value && parsed.from.value[0];
   var fromAddr = from && from.address ? from.address.toLowerCase() : '';
   var outgoing = fromSentFolder || fromAddr === me;
@@ -113,10 +113,12 @@ async function saveState(key, cursor, error, items) {
 }
 
 async function sync() {
-  if (!mailbox && !config.crmImap.configured) return { skipped: 'not set up' };
-  var box = mailbox || realMailbox();
-  var folders = [[config.crmImap.inbox, false]];
-  if (config.crmImap.sent) folders.push([config.crmImap.sent, true]);
+  var s = await mailboxes.settings();
+  if (!mailbox && !s.configured) return { skipped: 'not set up' };
+  var me = String(s.address || '').toLowerCase();
+  var box = mailbox || realMailbox(s);
+  var folders = [[s.inbox, false]];
+  if (s.sent) folders.push([s.sent, true]);
   var result = { kept: 0, skipped: 0 };
   try {
     await box.open();
@@ -124,21 +126,23 @@ async function sync() {
       var key = 'email:' + f[0];
       var st = await state(key);
       var cursor = st && st.cursor ? JSON.parse(st.cursor) : null;
+      // Another mailbox connected since: start again from its last 30 days.
+      if (cursor && cursor.a && cursor.a !== me) cursor = null;
       var got = await box.listNew(f[0], cursor);
       var last = cursor && cursor.v === got.v ? Number(cursor.uid) : 0;
       var kept = 0;
       for (var m of got.messages) {
         try {
           var parsed = await simpleParser(m.source);
-          if (await take(parsed, f[1])) kept++; else result.skipped++;
+          if (await take(parsed, f[1], me)) kept++; else result.skipped++;
         } catch (e) { console.error('[crm email] message ' + m.uid + ' not read:', e.message); }
         last = Math.max(last, m.uid);
       }
-      await saveState(key, JSON.stringify({ v: got.v, uid: last }), null, kept);
+      await saveState(key, JSON.stringify({ v: got.v, uid: last, a: me }), null, kept);
       result.kept += kept;
     }
   } catch (e) {
-    await saveState('email:' + config.crmImap.inbox, null, String(e.message || e).slice(0, 300), 0);
+    await saveState('email:' + s.inbox, null, String(e.message || e).slice(0, 300), 0);
     result.error = e.message;
   } finally {
     await box.close();
@@ -147,8 +151,9 @@ async function sync() {
 }
 
 async function status() {
-  var st = await state('email:' + config.crmImap.inbox);
-  return { configured: config.crmImap.configured, mailbox: config.crmImap.user || null, host: config.crmImap.host,
+  var s = await mailboxes.settings();
+  var st = await state('email:' + s.inbox);
+  return { configured: s.configured, mailbox: s.address || null, host: s.imap.host,
     lastOkAt: st ? st.last_ok_at : null, lastError: st ? st.last_error : null, items: st ? st.items : 0 };
 }
 
