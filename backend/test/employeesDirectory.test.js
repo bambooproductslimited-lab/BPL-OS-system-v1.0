@@ -70,3 +70,25 @@ test('who has the OS open right now, and today\'s clock-in for those who may see
   });
   assert.equal('today' in (await find(noAttendance)), false, 'no attendance permission, no clock-in shown');
 });
+
+test('a date of birth: colleagues see the birthday, only HR and the person see the year', async function () {
+  await employees.update(ctx, empId, { dateOfBirth: '1990-03-14' });
+  var hr = (await employees.list(ctx, { q: 'dirq' }))[0];
+  assert.deepEqual([hr.birthday, hr.dateOfBirth], ['03-14', '1990-03-14']);
+  var colleague = Object.assign(Object.create(Object.getPrototypeOf(ctx)), ctx, {
+    can: function (p) { return p !== 'employee.write' && ctx.can(p); }
+  });
+  var seen = (await employees.list(colleague, { q: 'dirq' }))[0];
+  assert.equal(seen.birthday, '03-14');
+  assert.equal('dateOfBirth' in seen, false, 'no year for a colleague');
+  var self = Object.assign(Object.create(Object.getPrototypeOf(colleague)), colleague, { employee: Object.assign({}, ctx.employee, { id: empId }) });
+  assert.equal((await employees.list(self, { q: 'dirq' }))[0].dateOfBirth, '1990-03-14', 'the person sees their own');
+
+  // Checked: a real date, between 14 and 100 years ago; empty clears it.
+  await assert.rejects(employees.update(ctx, empId, { dateOfBirth: '1990-02-30' }), /valid date/);
+  await assert.rejects(employees.update(ctx, empId, { dateOfBirth: new Date(Date.now() + 86400000).toISOString().slice(0, 10) }), /check the year/);
+  await assert.rejects(employees.update(ctx, empId, { dateOfBirth: '1890-01-01' }), /check the year/);
+  await employees.update(ctx, empId, { dateOfBirth: '' });
+  var cleared = (await employees.list(ctx, { q: 'dirq' }))[0];
+  assert.deepEqual([cleared.birthday, cleared.dateOfBirth], [null, null]);
+});

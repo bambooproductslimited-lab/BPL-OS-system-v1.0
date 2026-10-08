@@ -90,6 +90,22 @@ button.pf-tile:hover { background: rgba(255, 255, 255, .17); transform: translat
 .pf-tile strong { font-size: 26px; line-height: 1.1; font-weight: 800; font-variant-numeric: tabular-nums; }
 .pf-tile small { font-size: 11.5px; line-height: 1.3; opacity: .8; }
 
+/* ── today's birthday, in the banner ── */
+.pf-bday-ribbon { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 8px; padding: 10px 14px; border-radius: 16px;
+  background: linear-gradient(120deg, rgba(255, 209, 102, .28), rgba(255, 145, 200, .26)); border: 1px solid rgba(255, 220, 150, .55); }
+.pf-bday-cake { display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: 12px; color: #3b2a00; background: #ffd166; animation: pf-wiggle 2.4s ease-in-out infinite; }
+.pf-bday-text { flex: 1 1 180px; font-size: 14.5px; font-weight: 800; }
+.pf-bday-btn { padding: 7px 14px; border: 0; border-radius: 999px; background: #fff; color: #7a1d55; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.pf-bday-btn:hover { background: #fff1f8; }
+.pf-bday-link { padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.pf-bday-confetti { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.pf-bday-ribbon > :not(.pf-bday-confetti) { position: relative; z-index: 1; }
+.pf-bday-confetti i { position: absolute; top: -8px; left: calc(var(--i) * 7.2%); width: 6px; height: 10px; border-radius: 2px; opacity: .85;
+  background: hsl(calc(var(--i) * 47) 85% 65%); animation: pf-fall 3.2s linear infinite; animation-delay: calc(var(--i) * -.23s); }
+@keyframes pf-fall { from { transform: translateY(0) rotate(0); } to { transform: translateY(90px) rotate(320deg); } }
+.pf-tag-bday { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; color: #7a1d55; background: #ffe3f1; }
+:root[data-theme='dark'] .pf-tag-bday { color: #ffc2e1; background: rgba(214, 51, 138, .25); }
+
 /* ── panels ── */
 .pf-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0 22px; }
 .pf-panel { min-width: 0; padding: 18px; border-radius: var(--pf-r); background: var(--pf-card); border: 1px solid var(--pf-line); box-shadow: var(--pf-shadow); }
@@ -123,9 +139,11 @@ button.pf-tile:hover { background: rgba(255, 255, 255, .17); transform: translat
 .pf-cele-card button:hover { transform: translateY(-3px); box-shadow: var(--pf-shadow); }
 .pf-cele-card strong { margin-top: 6px; font-size: 13.5px; line-height: 1.25; }
 .pf-cele-card small { font-size: 12px; color: var(--color-text-muted); line-height: 1.35; }
-.pf-cele-badge { position: absolute; top: 8px; right: 10px; display: grid; place-items: center; min-width: 30px; height: 30px; padding: 0 6px; border-radius: 999px; font-size: 13px; font-weight: 900; color: #3b2a00;
+.pf-cele-badge { position: absolute; z-index: 1; top: 8px; right: 10px; display: grid; place-items: center; min-width: 30px; height: 30px; padding: 0 6px; border-radius: 999px; font-size: 13px; font-weight: 900; color: #3b2a00;
   background: linear-gradient(135deg, #ffe08a, #f2b705); box-shadow: 0 6px 14px -6px rgba(242, 183, 5, .8); }
 .pf-cele-badge.is-new { font-size: 11px; color: #fff; background: linear-gradient(135deg, #f27ab8, #d6338a); box-shadow: 0 6px 14px -6px rgba(214, 51, 138, .8); }
+.pf-cele-badge.is-bday { color: #fff; background: linear-gradient(135deg, #7cc7ff, #2a78d6); box-shadow: 0 6px 14px -6px rgba(42, 120, 214, .8); }
+.pf-cele-card.is-bday button { background: linear-gradient(180deg, color-mix(in srgb, var(--pf-s1) 7%, var(--pf-card)), var(--pf-card) 60%); }
 .pf-cele-card.is-past button { opacity: .75; }
 .pf-cele-card.is-today button { border-color: var(--pf-gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pf-gold) 25%, transparent); }
 .pf-cele-today { margin-top: 4px; padding: 2px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 900; color: #3b2a00; background: #ffd166; animation: pf-wiggle 2.4s ease-in-out infinite; }
@@ -228,6 +246,7 @@ button.pf-tile:hover { background: rgba(255, 255, 255, .17); transform: translat
   .pf-cele { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pf-mosaic-face, .pf-live i, .pf-face.is-online .pf-dot::after, .pf-cele-today { animation: none; }
+  .pf-mosaic-face, .pf-live i, .pf-face.is-online .pf-dot::after, .pf-cele-today, .pf-bday-cake, .pf-bday-confetti i { animation: none; }
+  .pf-bday-confetti { display: none; }
   .ppl .ppl-card:hover, .ppl .ppl-group:hover, button.pf-tile:hover, .pf-cele-card button:hover { transform: none; }
 }

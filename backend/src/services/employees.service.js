@@ -38,8 +38,12 @@ function rowToEmployee(r, ctx) {
     shift: r.shift_tpl_name ? (r.shift_tpl_name + ' · ' + shiftStart + '–' + shiftEnd) : (shiftStart ? (shiftStart + '–' + (shiftEnd || '?')) : r.shift),
     // The profile photo's version (when it last changed), or null — the
     // picture itself is at /api/messages/people/:id/photo.
-    photo: r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null
+    photo: r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null,
+    // The birthday (MM-DD) for everyone who can see the record; the full
+    // date of birth, with the year, only for HR and the person themself.
+    birthday: r.date_of_birth ? String(r.date_of_birth).slice(5, 10) : null
   };
+  if (ctx && (ctx.can('employee.write') || (ctx.employee && ctx.employee.id === r.id))) out.dateOfBirth = r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null;
   if (ctx && ctx.can('payroll.manage')) {
     out.payCycle = r.pay_cycle;
     out.dailyRate = Number(r.daily_rate);
@@ -51,6 +55,19 @@ function rowToEmployee(r, ctx) {
     out.tin = r.tin || null;
   }
   return out;
+}
+
+// A date of birth as typed: empty clears it; otherwise a real date that
+// makes the person between 14 and 100 years old today.
+function birthDate(v) {
+  if (v === undefined) return undefined;
+  if (v === null || String(v).trim() === '') return null;
+  var d = V.date(String(v).trim(), 'Date of birth');
+  var t = new Date(d + 'T00:00:00Z');
+  if (isNaN(t.getTime()) || t.toISOString().slice(0, 10) !== d) fail('invalid', 'Date of birth must be a valid date.');
+  var age = (Date.now() - t.getTime()) / (365.25 * 86400000);
+  if (age < 14 || age > 100) fail('invalid', 'Date of birth looks wrong: check the year.');
+  return d;
 }
 
 // SSNIT number / TIN as typed: trimmed, upper case, spaces dropped; empty
@@ -174,6 +191,7 @@ async function create(ctx, p) {
   var positionTitle = V.text(p.positionTitle, 'Job title', 60);
   var employmentType = V.oneOf(p.employmentType || 'permanent', ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
   var hireDate = V.date(p.hireDate || new Date().toISOString().slice(0, 10), 'Hire date');
+  var dateOfBirth = birthDate(p.dateOfBirth) || null;
   var shiftStart = p.shiftStart ? V.time(p.shiftStart, 'Shift start') : null;
   var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
   var shiftId = null;
@@ -212,13 +230,13 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days, second_shift_start, second_shift_end) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days, second_shift_start, second_shift_end, date_of_birth) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
         employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate,
         p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null, ssnitNumber, tin,
         p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null,
-        second ? second.start : null, second ? second.end : null]
+        second ? second.start : null, second ? second.end : null, dateOfBirth]
     );
     var e = insertRes.rows[0];
 
@@ -351,6 +369,10 @@ async function update(ctx, id, p) {
   if (p.workDays !== undefined) {
     var workDays = p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null;
     if (workDays !== (e.work_days || null)) { changed.push('workDays'); values.push(workDays); sets.push('work_days = $' + values.length); }
+  }
+  if (p.dateOfBirth !== undefined) {
+    var dob = birthDate(p.dateOfBirth);
+    if (dob !== (e.date_of_birth ? String(e.date_of_birth).slice(0, 10) : null)) { changed.push('dateOfBirth'); values.push(dob); sets.push('date_of_birth = $' + values.length); }
   }
   // The kiosk's language for them; empty clears back to their account's.
   if (p.language !== undefined) {

@@ -22,6 +22,14 @@ function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso.length > 10 ? iso : iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { day: '2-digit', month: 'short', year: 'numeric' });
 }
+// "14 March" from MM-DD; age in whole years from YYYY-MM-DD.
+function birthdayText(mmdd) { return new Date('2000-' + mmdd + 'T00:00:00Z').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+function ageOf(iso) {
+  const b = new Date(iso + 'T00:00:00Z'), n = new Date();
+  let y = n.getUTCFullYear() - b.getUTCFullYear();
+  if (n.getUTCMonth() < b.getUTCMonth() || (n.getUTCMonth() === b.getUTCMonth() && n.getUTCDate() < b.getUTCDate())) y--;
+  return y;
+}
 function fmtTime(t) {
   if (!t) return '—';
   return t.slice(0, 5);
@@ -119,6 +127,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
               <div><div className="employee-profile-label">{tr('Phone')}</div><div>{e.phone || '—'}</div></div>
               <div><div className="employee-profile-label">{tr('Employment type')}</div><div>{EMPLOYMENT_TYPE_LABELS[e.employmentType] ? tr(EMPLOYMENT_TYPE_LABELS[e.employmentType]) : e.employmentType}</div></div>
               <div><div className="employee-profile-label">{tr('Hire date')}</div><div>{fmtDate(e.hireDate)}</div></div>
+              {e.birthday && <div><div className="employee-profile-label">{tr('Birthday')}</div><div>{birthdayText(e.birthday)}{e.dateOfBirth ? ' · ' + tr('{n} years old', { n: ageOf(e.dateOfBirth) }) : ''}</div></div>}
               <div><div className="employee-profile-label">{tr('Location')}</div><div>{e.location || '—'}</div></div>
               <div><div className="employee-profile-label">{tr('Shift')}</div><div>{e.shift || '—'}{e.secondShiftStart ? ' · ' + tr('2nd shift {start}–{end}', { start: e.secondShiftStart, end: e.secondShiftEnd }) : ''}</div></div>
               <div><div className="employee-profile-label">{tr('Work week')}</div><div>{e.workDays === 'mon_fri' ? tr('Monday to Friday') : e.workDays === 'all' ? tr('Every day') : tr('Monday to Saturday')}</div></div>

@@ -28,6 +28,26 @@ export function tenureText(hireDate) {
   return months >= 1 ? (months === 1 ? tr('1 month') : tr('{n} months', { n: months })) : tr('new');
 }
 function dayMonth(iso) { return new Date(String(iso).slice(0, 10) + 'T00:00:00Z').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+// Birthdays (MM-DD from the directory): today's, and this month's. Someone
+// born on 29 February celebrates on the 28th in other years.
+function mmdd(d) { return String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0'); }
+function leapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+export function birthdayToday(p, now) {
+  if (!p.birthday) return false;
+  const n = now || new Date();
+  return p.birthday === mmdd(n) || (p.birthday === '02-29' && mmdd(n) === '02-28' && !leapYear(n.getUTCFullYear()));
+}
+export function birthdayThisMonth(p, now) { return !!p.birthday && Number(p.birthday.slice(0, 2)) === (now || new Date()).getUTCMonth() + 1; }
+function birthdayDate(mm) { return new Date('2000-' + mm + 'T00:00:00Z').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+export function Cake({ size }) {
+  return (
+    <svg className="pf-cake" width={size || 16} height={size || 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 20.5h16M5 20.5v-6.5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6.5M5 15.5c1.2 1 2.3 1 3.5 0s2.3-1 3.5 0 2.3 1 3.5 0 2.3-1 3.5 0M12 12V8.5M8 12V9.5M16 12V9.5" />
+      <path d="M12 3.5c.9 1 .9 2.2 0 3-.9-.8-.9-2 0-3zM8 5c.7.8.7 1.8 0 2.5-.7-.7-.7-1.7 0-2.5zM16 5c.7.8.7 1.8 0 2.5-.7-.7-.7-1.7 0-2.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
 // Each group keeps a hue of its own, from its name.
 export function hueOf(name) { let h = 0; const s = String(name || ''); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
 
@@ -53,8 +73,9 @@ export function Face({ p, size }) {
 }
 
 // ── the banner ────────────────────────────────────────────────────────
-export function PeopleBanner({ eyebrow, title, sub, actions, people, tiles, online, inToday, hasToday }) {
+export function PeopleBanner({ eyebrow, title, sub, actions, people, tiles, online, inToday, hasToday, myId, onWish, onOpen }) {
   const faces = people.slice().sort((a, b) => (b.photo ? 1 : 0) - (a.photo ? 1 : 0) || (b.online ? 1 : 0) - (a.online ? 1 : 0)).slice(0, 14);
+  const party = people.filter((p) => birthdayToday(p));
   return (
     <header className="pf-hero">
       <span className="pf-hero-glow" aria-hidden="true" />
@@ -63,6 +84,21 @@ export function PeopleBanner({ eyebrow, title, sub, actions, people, tiles, onli
         <h2 className="pf-hero-title">{title}</h2>
         <p className="pf-hero-sub">{sub}</p>
         {actions && <div className="pf-hero-actions no-print">{actions}</div>}
+        {party.length > 0 && (
+          <div className="pf-bday-ribbon" role="status">
+            <span className="pf-bday-confetti" aria-hidden="true">{Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</span>
+            <span className="pf-bday-cake"><Cake size={22} /></span>
+            <span className="pf-bday-text">
+              {party.length === 1
+                ? (party[0].id === myId ? tr('Happy birthday to you, {name}!', { name: party[0].firstName }) : tr('It is {name}\'s birthday today!', { name: fullName(party[0]) }))
+                : tr('{n} birthdays today: {names}!', { n: party.length, names: party.map((p) => p.firstName).join(', ') })}
+            </span>
+            {party.filter((p) => p.id !== myId).slice(0, 1).map((p) => (
+              <button key={p.id} type="button" className="pf-bday-btn" onClick={() => onWish(p)}>{party.length === 1 ? tr('Send wishes') : tr('Wish {name}', { name: p.firstName })}</button>
+            ))}
+            {party.length === 1 && party[0].id !== myId && <button type="button" className="pf-bday-link" onClick={() => onOpen(party[0])}>{tr('Profile')}</button>}
+          </div>
+        )}
       </div>
       <div className="pf-hero-side">
         <div className="pf-mosaic">
@@ -122,12 +158,25 @@ export function ThisMonth({ people, onOpen, newDays }) {
     .sort((a, b) => a.day - b.day);
   const joiners = people.filter((p) => { const d = p.hireDate ? Math.floor((Date.now() - new Date(String(p.hireDate).slice(0, 10) + 'T00:00:00Z').getTime()) / 86400000) : null; return d !== null && d >= 0 && d <= newDays; })
     .sort((a, b) => String(b.hireDate).localeCompare(String(a.hireDate)));
-  if (!anniversaries.length && !joiners.length) return null;
+  const birthdays = people.filter((p) => birthdayThisMonth(p, now)).map((p) => ({ p, day: Number(p.birthday.slice(3, 5)), today: birthdayToday(p, now) }))
+    .sort((a, b) => a.day - b.day);
+  if (!anniversaries.length && !joiners.length && !birthdays.length) return null;
   const today = now.getUTCDate();
   return (
     <section className="pf-panel is-wide pf-month">
-      <PanelHead icon="party" title={tr('This month')} sub={tr('Work anniversaries in {month}, and the people who joined in the last {n} days. A good time to say congratulations, or welcome.', { month: now.toLocaleDateString(activeIntlLocale(), { month: 'long', timeZone: 'UTC' }), n: newDays })} />
+      <PanelHead icon="party" title={tr('This month')} sub={tr('Birthdays and work anniversaries in {month}, and the people who joined in the last {n} days. A good time to say happy birthday, congratulations or welcome.', { month: now.toLocaleDateString(activeIntlLocale(), { month: 'long', timeZone: 'UTC' }), n: newDays })} />
       <ul className="pf-cele">
+        {birthdays.map(({ p, day, today: isToday }) => (
+          <li key={'b' + p.id} className={'pf-cele-card is-bday' + (isToday ? ' is-today' : day < today ? ' is-past' : '')}>
+            <button type="button" onClick={() => onOpen(p)}>
+              <span className="pf-cele-badge is-bday"><Cake size={16} /></span>
+              <Face p={p} size={52} />
+              <strong>{fullName(p)}</strong>
+              <small>{tr('Birthday on {date}', { date: birthdayDate(p.birthday) })}</small>
+              {isToday && <span className="pf-cele-today">{tr('Today!')}</span>}
+            </button>
+          </li>
+        ))}
         {anniversaries.map(({ p, years, day }) => (
           <li key={'a' + p.id} className={'pf-cele-card is-anniv' + (day === today ? ' is-today' : day < today ? ' is-past' : '')}>
             <button type="button" onClick={() => onOpen(p)}>

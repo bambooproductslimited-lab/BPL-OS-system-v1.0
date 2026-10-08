@@ -12,7 +12,7 @@ import PhotoDialog from '../components/PhotoDialog';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import './EmployeesPage.css';
-import { Composition, Face, Kinds, PanelHead, PeopleBanner, Teams, Tenure, ThisMonth, hueOf, tenureText, todayState } from './PeopleFun';
+import { Cake, Composition, Face, Kinds, PanelHead, PeopleBanner, Teams, Tenure, ThisMonth, birthdayThisMonth, birthdayToday, hueOf, tenureText, todayState } from './PeopleFun';
 import './PeopleFun.css';
 import RowMenu from '../components/RowMenu';
 import ViewScopeDialog from '../components/ViewScopeDialog';
@@ -96,7 +96,7 @@ const EMPTY_EMPLOYEE_FORM = {
   code: '', firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '',
-  shiftStart: '', shiftEnd: '', secondShiftStart: '', secondShiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: ''
+  shiftStart: '', shiftEnd: '', secondShiftStart: '', secondShiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: '', dateOfBirth: ''
 };
 // An employee's work week (employees.work_days); '' is the usual Monday to Saturday.
 const WORK_WEEKS = [
@@ -264,7 +264,7 @@ export default function EmployeesPage() {
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
       secondShiftStart: emp.secondShiftStart || '', secondShiftEnd: emp.secondShiftEnd || '',
-      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || '', workDays: emp.workDays || ''
+      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || '', workDays: emp.workDays || '', dateOfBirth: emp.dateOfBirth || ''
     });
     setDialog('employee');
   }
@@ -280,7 +280,7 @@ export default function EmployeesPage() {
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
           employmentType: form.employmentType, status: form.status,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language, workDays: form.workDays,
-          secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd
+          secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd, dateOfBirth: form.dateOfBirth
         };
         if (canManagePayroll) {
           body.payCycle = form.payCycle;
@@ -297,7 +297,7 @@ export default function EmployeesPage() {
         const created = await api.post('/employees', {
           code: form.code.trim() || null, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
-          hireDate: form.hireDate, employmentType: form.employmentType,
+          hireDate: form.hireDate, employmentType: form.employmentType, dateOfBirth: form.dateOfBirth || null,
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null, workDays: form.workDays || null,
           secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd,
           createAccount: !!form.roleId, roleId: form.roleId || null,
@@ -613,7 +613,9 @@ export default function EmployeesPage() {
   const withoutLogin = current.filter(noLogin);
   const inactive = current.filter((e) => e.status === 'inactive');
   const isIn = (e) => { const st = todayState(e); return st === 'in' || st === 'late'; };
-  const chipTest = { leave: (e) => !!e.onLeaveUntil, new: isNew, incomplete: isIncomplete, nologin: noLogin, inactive: (e) => e.status === 'inactive', online: (e) => !!e.online, in: isIn };
+  const chipTest = { leave: (e) => !!e.onLeaveUntil, new: isNew, incomplete: isIncomplete, nologin: noLogin, inactive: (e) => e.status === 'inactive', online: (e) => !!e.online, in: isIn, bday: (e) => birthdayThisMonth(e) };
+  const birthdaysMonth = current.filter((e) => birthdayThisMonth(e));
+  const birthdaysToday = current.filter((e) => birthdayToday(e));
   const onlineNow = current.filter((e) => e.online);
   const hasToday = current.some((e) => 'today' in e);
   const inNow = current.filter(isIn);
@@ -681,6 +683,13 @@ export default function EmployeesPage() {
     });
   }
   const listNames = (arr) => (arr.length <= 3 ? arr.map(fullName).join(', ') : tr('{names} and {n} more', { names: arr.slice(0, 2).map(fullName).join(', '), n: arr.length - 2 }));
+  if (birthdaysToday.length) {
+    const others = birthdaysToday.filter((e) => e.id !== myId);
+    insights.push({ tone: 'good', icon: 'spark', text: birthdaysToday.length === 1 ? tr('Today is {name}\'s birthday. Wish them a happy birthday!', { name: fullName(birthdaysToday[0]) }) : tr('{n} birthdays today: {names}. Wish them a happy birthday!', { n: birthdaysToday.length, names: listNames(birthdaysToday) }),
+      action: others.length ? { label: tr('Send a message'), run: () => navigate('/messages?peer=' + others[0].id) } : null });
+  } else if (birthdaysMonth.length) {
+    insights.push({ tone: 'info', icon: 'calendar', text: birthdaysMonth.length === 1 ? tr('1 birthday this month: {names}.', { names: listNames(birthdaysMonth) }) : tr('{n} birthdays this month: {names}.', { n: birthdaysMonth.length, names: listNames(birthdaysMonth) }), action: { label: tr('Show them'), run: () => showOnly('bday') } });
+  }
   if (joiners.length) insights.push({ tone: 'good', icon: 'spark', text: joiners.length === 1 ? tr('{names} joined on {date}. Say hello!', { names: fullName(joiners[0]), date: fmtDate(joiners[0].hireDate) }) : tr('{names} joined in the last {n} days.', { names: listNames(joiners), n: NEW_DAYS }), action: { label: tr('Show them'), run: () => showOnly('new') } });
   if (onLeave.length) {
     const soonest = onLeave.slice().sort((a, b) => a.onLeaveUntil.localeCompare(b.onLeaveUntil))[0];
@@ -714,6 +723,7 @@ export default function EmployeesPage() {
     ['', tr('Everyone'), scoped.length],
     ['online', tr('Online now'), onlineNow.length],
     hasToday && ['in', tr('In today'), inNow.length],
+    birthdaysMonth.length > 0 && ['bday', tr('Birthdays this month'), birthdaysMonth.length],
     ['leave', tr('On leave'), onLeave.length],
     ['new', tr('New'), joiners.length],
     canWrite && ['incomplete', tr('Missing details'), incomplete.length],
@@ -742,6 +752,7 @@ export default function EmployeesPage() {
         {p.status === 'inactive' && <Status tone="muted">{tr('Inactive')}</Status>}
         {p.onLeaveUntil && <Status tone="warn">{tr('On leave until {date}', { date: fmtDate(p.onLeaveUntil) })}</Status>}
         {isNew(p) && p.status !== 'terminated' && <Status tone="good">{tr('New')}</Status>}
+        {birthdayToday(p) && p.status !== 'terminated' && <span className="pf-tag-bday"><Cake size={13} />{tr('Birthday today')}</span>}
         {noLogin(p) && <Status tone="muted">{tr('No sign-in')}</Status>}
       </>
     );
@@ -792,7 +803,8 @@ export default function EmployeesPage() {
           {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setIdsOpen(true)}>{tr('Set IDs from a list')}</button>}
           {canSync && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
         </>}
-        people={current} tiles={stats} online={onlineNow.length} inToday={inNow.length} hasToday={hasToday} />
+        people={current} tiles={stats} online={onlineNow.length} inToday={inNow.length} hasToday={hasToday}
+        myId={myId} onWish={(p) => navigate('/messages?peer=' + p.id)} onOpen={(p) => setProfileTarget(p.id)} />
 
       <Insights items={insights.slice(0, 6)} />
 
@@ -1022,6 +1034,10 @@ export default function EmployeesPage() {
                 <input id="emp-hire" className="input" type="date" value={form.hireDate} onChange={(e) => setForm({ ...form, hireDate: e.target.value })} required />
               </div>
             )}
+            <div className="field"><label htmlFor="emp-dob">{tr('Date of birth')}</label>
+              <input id="emp-dob" className="input" type="date" value={form.dateOfBirth} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} />
+              <span className="emp-field-hint">{tr('Optional. Colleagues see only the day and month, for birthdays.')}</span>
+            </div>
             <div className="field"><label htmlFor="emp-type">{tr('Employment type')}</label>
               <select id="emp-type" className="input" value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value })}>
                 {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{tr(t.label)}</option>)}
