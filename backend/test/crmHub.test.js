@@ -56,7 +56,13 @@ function wa(from, name, text, at, id) {
   return { entry: [{ changes: [{ value: { contacts: [{ wa_id: from, profile: { name: name } }], messages: [{ from: from, id: id, timestamp: String(Math.floor(at / 1000)), type: 'text', text: { body: text } }] } }] }] };
 }
 
+// The CRM settings are one row for the whole OS, and crm.test.js points them
+// at its own company while it runs; the inbox and profiles follow that
+// company, so this file waits its turn (the same advisory lock).
+var settingsLock;
 test.before(async function () {
+  settingsLock = await pool.connect();
+  await settingsLock.query('SELECT pg_advisory_lock(7102)');
   await cleanup();
   admin = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'kelvin.duho@bplghana.com'")).rows[0].id);
   deptId = (await pool.query("SELECT d.id FROM departments d JOIN companies c ON c.id = d.company_id WHERE c.code = 'BPL' LIMIT 1")).rows[0].id;
@@ -66,7 +72,11 @@ test.before(async function () {
   repBCtx = await buildContext(repB.userId);
   inbox.setSendersForTests({ whatsapp: async function (conv, body) { sent.push({ to: conv.external_thread_id, body: body }); return { externalId: 'wamid.out.' + sent.length }; } });
 });
-test.after(async function () { inbox.setSendersForTests(null); email.setMailboxForTests(null); mailboxes.setProbeForTests(null); mailboxes.setTransportForTests(null); meta.setFetchForTests(null); await cleanup(); await pool.end(); });
+test.after(async function () { inbox.setSendersForTests(null); email.setMailboxForTests(null); mailboxes.setProbeForTests(null); mailboxes.setTransportForTests(null); meta.setFetchForTests(null); await cleanup();
+  await settingsLock.query('SELECT pg_advisory_unlock(7102)');
+  settingsLock.release();
+  await pool.end();
+});
 
 test('a WhatsApp message makes a customer profile; the same number in another form lands on it', async function () {
   var t = Date.now() - 5 * 3600000;
@@ -304,15 +314,16 @@ test('the mailbox connected on Integrations: checked first, the password sealed 
   await assert.rejects(mailboxes.connect(admin, { provider: 'hostinger', address: 'other@bpl.zcrm.example' }), /Enter the mailbox's password/);
 
   // Reading: the connected mailbox, from its own last 30 days (not the cursor of the one before).
-  function mail(from, to, subject, body, id, extra) {
-    return Buffer.from('From: ' + from + '\r\nTo: ' + to + '\r\nSubject: ' + subject + '\r\nMessage-ID: <' + id + '>\r\nDate: ' + new Date(Date.now() - 3600000).toUTCString() + '\r\n' + (extra || '') + 'Content-Type: text/plain\r\n\r\n' + body);
+  // minutesAgo: an email's Date has whole seconds, so a reply is given a later one.
+  function mail(from, to, subject, body, id, extra, minutesAgo) {
+    return Buffer.from('From: ' + from + '\r\nTo: ' + to + '\r\nSubject: ' + subject + '\r\nMessage-ID: <' + id + '>\r\nDate: ' + new Date(Date.now() - (minutesAgo || 60) * 60000).toUTCString() + '\r\n' + (extra || '') + 'Content-Type: text/plain\r\n\r\n' + body);
   }
   var cursors = {};
   email.setMailboxForTests({ open: async function () {}, close: async function () {}, listNew: async function (folder, cursor) {
     cursors[folder] = cursor;
     return { v: '1', messages: folder === 'INBOX' ? [
       { uid: 1, source: mail('Zcrm Kofi Asare <kofi@zcrm.example>', 'shop@bpl.zcrm.example', 'Bamboo blinds', 'How much for 6 bamboo blinds?', 'kofi-1@zcrm.example') },
-      { uid: 2, source: mail('Zcrm Kofi Asare <kofi@zcrm.example>', 'shop@bpl.zcrm.example', 'Re: Bamboo blinds', 'And can you fit them?', 'kofi-2@zcrm.example', 'In-Reply-To: <kofi-1@zcrm.example>\r\nReferences: <kofi-1@zcrm.example>\r\n') }] : [] };
+      { uid: 2, source: mail('Zcrm Kofi Asare <kofi@zcrm.example>', 'shop@bpl.zcrm.example', 'Re: Bamboo blinds', 'And can you fit them?', 'kofi-2@zcrm.example', 'In-Reply-To: <kofi-1@zcrm.example>\r\nReferences: <kofi-1@zcrm.example>\r\n', 40) }] : [] };
   } });
   var r = await email.sync();
   assert.equal(r.kept, 2);

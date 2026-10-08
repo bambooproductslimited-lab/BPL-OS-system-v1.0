@@ -44,7 +44,13 @@ async function invoice(customer, issued, total, paid, line, opts) {
   return i.id;
 }
 
+// The CRM settings (which company's sales count) are one row for the whole
+// OS, and crm.test.js points them at its own company while it runs: the two
+// files take turns (a Postgres advisory lock).
+var settingsLock;
 test.before(async function () {
+  settingsLock = await pool.connect();
+  await settingsLock.query('SELECT pg_advisory_lock(7102)');
   await cleanup();
   admin = await buildContext((await pool.query("SELECT id FROM users WHERE email = 'kelvin.duho@bplghana.com'")).rows[0].id);
   adminEmp = admin.employee.id;
@@ -52,7 +58,12 @@ test.before(async function () {
   b = (await pool.query("INSERT INTO customers (name) VALUES ('ZEX Hotel') RETURNING id")).rows[0].id;
   quietOne = (await pool.query("INSERT INTO customers (name) VALUES ('ZEX Old Friend') RETURNING id")).rows[0].id;
 });
-test.after(async function () { await cleanup(); await pool.end(); });
+test.after(async function () {
+  await cleanup();
+  await settingsLock.query('SELECT pg_advisory_unlock(7102)');
+  settingsLock.release();
+  await pool.end();
+});
 
 test('sales, cash, customers, quotations and the funnel, against the period before', async function () {
   var owedBefore = (await executive.summary(admin, Q1)).receivables;

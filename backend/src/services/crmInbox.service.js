@@ -325,7 +325,7 @@ async function reply(ctx, id, p) {
     var w = await require('./whatsapp.service').sendMessage(conv.external_thread_id, body);
     sent = { externalId: w && w.messages && w.messages[0] && w.messages[0].id };
   } else if (how === 'email') {
-    var lastIn = (await pool.query("SELECT external_id FROM crm_messages WHERE conversation_id = $1 AND direction = 'in' AND external_id IS NOT NULL ORDER BY sent_at DESC LIMIT 1", [conv.id])).rows[0];
+    var lastIn = (await pool.query("SELECT external_id FROM crm_messages WHERE conversation_id = $1 AND direction = 'in' AND external_id IS NOT NULL ORDER BY sent_at DESC, created_at DESC LIMIT 1", [conv.id])).rows[0];
     var subject = conv.subject ? (/^re:/i.test(conv.subject) ? conv.subject : 'Re: ' + conv.subject) : 'Bamboo Products';
     // The thread's first message, then the one answered: the customer's mail
     // app keeps the reply in the thread, and reading it back from the sent

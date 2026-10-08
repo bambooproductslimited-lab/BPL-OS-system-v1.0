@@ -4,7 +4,7 @@
 // minus the discount given; the overview adds it all up; Lead → Prospect →
 // Customer (a quotation makes a prospect, the first payment a customer, and
 // the old contact lists become leads); site visits and referrals; and the
-// spreadsheet import, run twice.
+// spreadsheet import, run twice; and a rep's sales board, ranked.
 // Test data: ZQC codes and "Zq" names, all removed afterwards.
 var test = require('node:test');
 var assert = require('node:assert/strict');
@@ -13,6 +13,7 @@ var bcrypt = require('bcrypt');
 var { pool } = require('../src/db/pool');
 var crm = require('../src/services/crm.service');
 var crmImport = require('../src/services/crmImport.service');
+var crmBoard = require('../src/services/crmBoard.service');
 var { buildContext } = require('../src/services/context.service');
 
 var kelvin, andy, alice, rep, rep2, bpl, cust, inv = {};   // bpl: the test's own company, standing in for BPL
@@ -38,6 +39,7 @@ async function cleanup() {
     await pool.query('UPDATE crm_settings SET company_id = NULL WHERE company_id = $1', [co.id]);
     await pool.query('DELETE FROM companies WHERE id = $1', [co.id]);
   }
+  await pool.query("DELETE FROM crm_conversations WHERE external_thread_id LIKE 'zqb-%'");
   await pool.query("DELETE FROM users WHERE email LIKE 'zqc.%@example.com'");
   await pool.query("DELETE FROM employees WHERE code LIKE 'ZQC-%'");
 }
@@ -58,7 +60,14 @@ async function invoice(no, subtotal, discount, paid, issued) {
     "VALUES ($1,$2,$3,$4,0,$5,$6,$7,$8,$9,$10) RETURNING id", [no, cust, subtotal, discount, grand, paid, grand - paid, paid >= grand ? 'paid' : paid > 0 ? 'partially_paid' : 'unpaid', issued, bpl])).rows[0].id;
 }
 
+// The CRM settings are one row for the whole OS, and this file points them
+// at its own company while it runs; crmExecutive.test.js and crmHub.test.js
+// work with the default company, so the files take turns (a Postgres
+// advisory lock).
+var settingsLock;
 test.before(async function () {
+  settingsLock = await pool.connect();
+  await settingsLock.query('SELECT pg_advisory_lock(7102)');
   await cleanup();
   kelvin = await ctxFor('kelvin.duho@bplghana.com');
   andy = await ctxFor('andy.chou@bplghana.com');
@@ -74,7 +83,12 @@ test.before(async function () {
   inv.big = await invoice('ZQC-003', 1000, 300, 700, today);           // 30% off
   inv.loose = await invoice('ZQC-004', 400, 0, 400, today);            // never linked
 });
-test.after(async function () { await cleanup(); await pool.end(); });
+test.after(async function () {
+  await cleanup();
+  await settingsLock.query('SELECT pg_advisory_unlock(7102)');
+  settingsLock.release();
+  await pool.end();
+});
 
 test('commission is the base rate minus the discount given, never below zero', function () {
   var five = crm.commission({ subtotal: 1000, discount_total: 50, grand_total: 950, amount_paid: 950, balance_due: 0 }, 20);
@@ -483,4 +497,166 @@ test('Lead → Prospect → Customer: qualified or quoted makes a prospect; the 
   assert.ok(x.now.leadsCustomers >= 2);
   assert.ok(x.now.leadsProspects >= x.now.leadsWon);
   await assert.rejects(crm.listLeads(rep, { phase: 'nope' }), /Phase is not a valid option/);
+});
+
+test('the sales board: three lanes ranked by what needs the rep, and points for what they did', async function () {
+  var ama = await repUser('ZQC-REP3', 'Zq Ama', 'zqc.rep3@example.com');
+  var yaw = await repUser('ZQC-REP4', 'Zq Yaw', 'zqc.rep4@example.com');
+  var me = ama.employee.id;
+  var inDays = function (n) { var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+  // Everything in the test's own company (the CRM's while this file runs),
+  // each with its own number, so other files' customer lists never see them.
+  var phone = 0;
+  var lead = async function (name, stage, extra) {
+    extra = extra || {};
+    return (await pool.query(
+      'INSERT INTO crm_leads (ref, name, phone, stage, rep_id, next_follow_up, customer_id, received_on, created_at, source) ' +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE), now() - make_interval(hours => $9), $10) RETURNING id",
+      ['ZQB-' + name.slice(-3), name, '02099910' + String(++phone).padStart(2, '0'), stage, extra.rep || me, extra.followUp || null, extra.customer || null, extra.received || null, extra.hoursAgo || 0, extra.source || ''])).rows[0].id;
+  };
+  var customer = async function (name, category, extra) {
+    extra = extra || {};
+    return (await pool.query(
+      "INSERT INTO customers (name, phone, category, status, account_manager_id, follow_up_on, last_contact_at, company_id) VALUES ($1, $2, $3, 'active', $4, $5, $6, $7) RETURNING id",
+      [name, '02099920' + String(++phone).padStart(2, '0'), category, extra.rep || me, extra.followUp || null, extra.lastContact || null, bpl])).rows[0].id;
+  };
+  var conversation = async function (key, customerId, direction, hoursAgo) {
+    return (await pool.query(
+      "INSERT INTO crm_conversations (company_id, channel, external_thread_id, customer_id, status, last_direction, last_message_at, last_preview) VALUES ($1, 'whatsapp', $2, $3, 'open', $4, now() - make_interval(hours => $5), 'Zq is the price still the same?') RETURNING id",
+      [bpl, 'zqb-' + key, customerId, direction, hoursAgo])).rows[0].id;
+  };
+
+  // Leads: one nobody has called (a day and more), one whose follow-up was two days ago.
+  var untouched = await lead('Zqb Lead New', 'new', { received: daysAgo(3), hoursAgo: 30 });
+  var overdue = await lead('Zqb Lead Due', 'follow_up', { followUp: daysAgo(2) });
+  // Prospects: talking price with a large quotation running out in two days;
+  // won but not paid; one on track with its next call planned.
+  var quoted = (await pool.query("INSERT INTO customers (name, phone, company_id) VALUES ('Zqc Board Quoted', '0209993001', $1) RETURNING id", [bpl])).rows[0].id;
+  await pool.query("INSERT INTO quotations (quote_no, customer_id, grand_total, status, created_by, sent_at, valid_until) VALUES ('ZQB-Q-1', $1, 20000, 'sent', $2, now(), $3)", [quoted, me, inDays(2)]);
+  var talking = await lead('Zqb Lead Neg', 'negotiation', { customer: quoted });
+  var wonUnpaid = await lead('Zqb Lead Won', 'won');
+  var onTrack = await lead('Zqb Lead Qua', 'qualified', { followUp: inDays(5) });
+  await lead('Zqb Lead Yaw', 'new', { rep: yaw.employee.id });
+  await lead('Zqb Lead Los', 'lost');
+  // Customers: one waiting for an answer with an invoice ten days overdue; a
+  // VIP nobody has spoken to for two months; one to call today.
+  var owing = await customer('Zqb Owing', 'active');
+  await pool.query("INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, company_id) VALUES ('ZQB-I-1', $1, 5000, 0, 0, 5000, 0, 5000, 'unpaid', $2, $3, $4)", [owing, daysAgo(40), daysAgo(10), bpl]);
+  var waitingConv = await conversation('owing', owing, 'in', 5);
+  var quiet = await customer('Zqb Quiet', 'vip', { lastContact: new Date(Date.now() - 60 * 86400000) });
+  await pool.query("INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, company_id) VALUES ('ZQB-I-2', $1, 1200, 0, 0, 1200, 1200, 0, 'paid', $2, $2, $3)", [quiet, daysAgo(60), bpl]);
+  // A profile that wrote in on WhatsApp, with no lead behind it: a lead card.
+  var enquiry = await customer('Zqb Enquiry', 'lead');
+  await conversation('enquiry', enquiry, 'in', 3);
+  var callToday = await customer('Zqb Today', 'active', { followUp: today });
+  var answered = await conversation('today', callToday, 'out', 0);
+  await customer('Zqb Yaws', 'active', { rep: yaw.employee.id });
+
+  // What Ama did: three days in a row over the daily goal of 60 points.
+  var note = function (leadId, kind, from, to, when) {
+    return pool.query('INSERT INTO crm_lead_notes (lead_id, kind, body, from_stage, to_stage, by_employee, at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [leadId, kind, 'Zq ' + kind, from || null, to || null, me, when || new Date()]);
+  };
+  await note(onTrack, 'call');                                  // 10
+  await note(onTrack, 'note');                                  // 5
+  await note(onTrack, 'stage', 'new', 'contacted');             // 10
+  await note(onTrack, 'stage', 'contacted', 'qualified');       // 25, a prospect
+  await note(wonUnpaid, 'stage', 'negotiation', 'won');         // 100, a win
+  await pool.query("INSERT INTO crm_messages (conversation_id, direction, body, sent_at, sent_by) VALUES ($1, 'out', 'Zq yes it is', now(), $2)", [answered, me]);   // 8, and the quotation 30
+  for (var back = 1; back <= 2; back++) {
+    var then = new Date(Date.now() - back * 86400000);
+    for (var k = 0; k < 6; k++) await note(onTrack, 'call', null, null, then);   // 60 a day
+  }
+  await pool.query('INSERT INTO crm_lead_notes (lead_id, kind, body, by_employee) VALUES ($1, $2, $3, $4)', [overdue, 'call', 'Zq Yaw called', yaw.employee.id]);
+  await pool.query("UPDATE crm_lead_notes SET at = now() - interval '20 days' WHERE lead_id = $1", [overdue]);   // Yaw's call was long ago
+
+  var b = await crmBoard.board(ama, {});
+  var keys = function (lane) { return b.lanes[lane].map(function (c) { return c.name; }); };
+  var cardOf = function (name) { return ['lead', 'prospect', 'customer'].map(function (l) { return b.lanes[l]; }).flat().find(function (c) { return c.name === name; }); };
+  var types = function (name) { return cardOf(name).signals.map(function (s) { return s.type; }); };
+
+  // Three lanes, Ama's only, the most urgent first.
+  assert.deepEqual(keys('lead'), ['Zqb Enquiry', 'Zqb Lead New', 'Zqb Lead Due']);
+  assert.deepEqual(keys('prospect'), ['Zqb Lead Neg', 'Zqb Lead Won', 'Zqb Lead Qua']);
+  assert.deepEqual(keys('customer'), ['Zqb Owing', 'Zqb Quiet', 'Zqb Today']);
+  assert.deepEqual(b.lanes.prospect.map(function (c) { return c.rank; }), [1, 2, 3]);
+  assert.equal(b.rep.id, me);
+
+  // Why each card is where it is, and what to do next.
+  var c = cardOf('Zqb Lead New');
+  assert.deepEqual([c.score, c.level, c.next, types(c.name)], [35, 'warm', 'call', ['untouched']]);
+  c = cardOf('Zqb Enquiry');
+  assert.deepEqual([c.kind, c.lane, c.score, c.level, c.next, types(c.name)], ['customer', 'lead', 45, 'warm', 'reply', ['waiting']]);
+  c = cardOf('Zqb Lead Due');
+  assert.deepEqual([c.score, c.level, c.next, c.signals[0].days], [31, 'warm', 'call', 2]);
+  assert.deepEqual(types(c.name), ['followup_overdue']);
+  c = cardOf('Zqb Lead Neg');
+  assert.deepEqual(types(c.name), ['quote_expiring', 'negotiation', 'big_deal', 'no_next_step']);
+  assert.deepEqual([c.score, c.level, c.next, c.value, c.signals[0].ref], [62, 'hot', 'chase_quote', 20000, 'ZQB-Q-1']);
+  c = cardOf('Zqb Lead Won');
+  assert.deepEqual([c.score, c.level, c.next, types(c.name)], [30, 'warm', 'collect', ['won_unpaid']]);
+  c = cardOf('Zqb Lead Qua');
+  assert.deepEqual([c.score, c.level, c.signals.length, !!c.lastNote], [0, 'cool', 0, true]);
+  c = cardOf('Zqb Owing');
+  assert.deepEqual(types(c.name), ['waiting', 'overdue_invoice']);
+  assert.deepEqual([c.score, c.level, c.next, c.signals[0].conversationId, c.signals[1].days, c.signals[1].amount], [77, 'hot', 'reply', waitingConv, 10, 5000]);
+  c = cardOf('Zqb Quiet');
+  assert.deepEqual(types(c.name), ['quiet', 'vip']);
+  assert.deepEqual([c.score, c.level, c.next, c.signals[0].days, c.value], [28, 'warm', 'check_in', 60, 1200]);
+  c = cardOf('Zqb Today');
+  assert.deepEqual([c.score, c.level, c.next, types(c.name)], [22, 'cool', 'call', ['followup_today']]);
+
+  // The three to do first, from any lane; each lane's count, heat and pipeline.
+  assert.deepEqual(b.focus.map(function (x) { return x.name; }), ['Zqb Owing', 'Zqb Lead Neg', 'Zqb Enquiry']);
+  assert.deepEqual(b.counts.prospect, { total: 3, hot: 1, warm: 1, value: 20000 });
+  assert.deepEqual(b.counts.customer, { total: 3, hot: 1, warm: 1, value: 0 });
+
+  // Points: 188 today (call, note, contacted, prospect, win, reply, quotation),
+  // 60 the two days before, so a streak of three and the bronze level.
+  var p = b.progress;
+  assert.equal(p.goal, 60);
+  assert.equal(p.today, 188);
+  assert.deepEqual(p.todayDone, { calls: 1, replies: 1, notes: 1, moves: 2, quotes: 1, wins: 1 });
+  assert.equal(p.streak, 3);
+  assert.equal(p.month, 308);
+  assert.deepEqual(p.level, { key: 'bronze', from: 300, next: { key: 'silver', at: 800 } });
+  assert.deepEqual(p.days.slice(-3).map(function (d) { return d.points; }), [60, 60, 188]);
+  assert.equal(p.weekWins, 1);
+  assert.ok(p.weekDone.prospects >= 1 && p.weekDone.wins === 1 && p.weekDone.calls >= 1 && p.weekDone.quotes === 1);
+  assert.ok(p.week >= 188);
+  assert.deepEqual(p.badges.map(function (x) { return x.key; }), ['closer', 'streak']);
+  var mine = p.leaderboard.find(function (x) { return x.id === me; });
+  assert.ok(p.rank >= 1 && p.of >= 1);
+  if (mine) assert.equal(mine.wins, 1);
+
+  // A rep sees only their own board; a manager picks a rep, or everyone.
+  await assert.rejects(crmBoard.board(ama, { rep: 'all' }), /crm\.assign/);
+  await assert.rejects(crmBoard.board(ama, { rep: yaw.employee.id }), /crm\.assign/);
+  var asManager = await crmBoard.board(kelvin, { rep: me });
+  assert.deepEqual(asManager.lanes.customer.map(function (x) { return x.name; }), keys('customer'));
+  assert.equal(asManager.progress.today, 188);
+  assert.ok(asManager.canAssign);
+  assert.ok(asManager.reps.some(function (r) { return r.id === me; }) && asManager.reps.some(function (r) { return r.id === yaw.employee.id; }));
+  var everyone = await crmBoard.board(kelvin, { rep: 'all' });
+  var names = ['lead', 'prospect', 'customer'].map(function (l) { return everyone.lanes[l]; }).flat().map(function (x) { return x.name; });
+  ['Zqb Lead New', 'Zqb Lead Yaw', 'Zqb Owing', 'Zqb Yaws'].forEach(function (n) { assert.ok(names.indexOf(n) >= 0, n); });
+  assert.ok(names.indexOf('Zqb Lead Los') < 0);
+  assert.equal(everyone.rep, null);
+  await assert.rejects(crmBoard.board(kelvin, { rep: '00000000-0000-0000-0000-000000000000' }), /not found/);
+
+  // A lead made for the profile takes its place: one card, not two.
+  await lead('Zqb Lead Enq', 'contacted', { customer: enquiry, followUp: inDays(1) });
+  b = await crmBoard.board(ama, {});
+  assert.deepEqual(keys('lead'), ['Zqb Lead Enq', 'Zqb Lead New', 'Zqb Lead Due']);
+  assert.deepEqual(types('Zqb Lead Enq'), ['waiting']);
+
+  // Once the money comes in, the won deal leaves the prospects.
+  var paidCust = await customer('Zqb Paid', 'prospect');
+  await pool.query('UPDATE crm_leads SET customer_id = $1 WHERE id = $2', [paidCust, wonUnpaid]);
+  var sale = (await pool.query("INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, company_id, doc_kind) VALUES ('ZQB-I-3', $1, 300, 0, 0, 300, 0, 300, 'unpaid', CURRENT_DATE, $2, 'sale') RETURNING id", [paidCust, bpl])).rows[0].id;
+  await pool.query("INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, received_by) VALUES ($1, $2, CURRENT_DATE, 300, 'GHS', 'cash', $3)", [sale, paidCust, me]);
+  b = await crmBoard.board(ama, {});
+  assert.deepEqual(keys('prospect'), ['Zqb Lead Neg', 'Zqb Lead Qua']);
+  assert.ok(keys('customer').indexOf('Zqb Paid') >= 0, 'paid: a customer now');
+  void untouched; void talking; void quiet;
 });

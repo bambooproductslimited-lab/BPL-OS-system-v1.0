@@ -66,6 +66,7 @@ import SharePage from './pages/SharePage';
 import MeetPage from './pages/MeetPage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
 import CrmOverviewPage from './pages/crm/CrmOverviewPage';
+import CrmBoardPage from './pages/crm/CrmBoardPage';
 import CrmLeadsPage from './pages/crm/CrmLeadsPage';
 import CrmVisitsPage from './pages/crm/CrmVisitsPage';
 import CrmCommissionsPage from './pages/crm/CrmCommissionsPage';
@@ -89,7 +90,7 @@ const BUILT_SCREENS = {
   audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage,
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
   pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage,
-  crm: CrmOverviewPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
+  crm: CrmOverviewPage, crmboard: CrmBoardPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
   crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {

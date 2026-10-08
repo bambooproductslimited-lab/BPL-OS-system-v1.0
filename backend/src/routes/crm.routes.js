@@ -5,6 +5,7 @@ var { allowlistFilter } = require('../lib/uploadFilters');
 var crm = require('../services/crm.service');
 var crmImport = require('../services/crmImport.service');
 var crmExecutive = require('../services/crmExecutive.service');
+var crmBoard = require('../services/crmBoard.service');
 
 // The CRM (services/crm.service.js) and its spreadsheet import
 // (services/crmImport.service.js).
@@ -24,6 +25,8 @@ function h(fn) {
 router.get('/overview', h(function (req) { return crm.overview(req.ctx, req.query); }));
 // The same page's figures for the CEO or a sales manager (crmExecutive.service.js).
 router.get('/executive', h(function (req) { return crmExecutive.summary(req.ctx, req.query); }));
+// A rep's board: leads, prospects and customers ranked by what needs them (crmBoard.service.js).
+router.get('/board', h(function (req) { return crmBoard.board(req.ctx, req.query); }));
 router.get('/settings', h(function (req) { return crm.getSettings(req.ctx); }));
 router.put('/settings', h(function (req) { return crm.saveSettings(req.ctx, req.body); }));
 router.get('/people', h(function (req) { return crm.people(req.ctx); }));

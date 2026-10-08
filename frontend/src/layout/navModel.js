@@ -57,6 +57,8 @@ export const NAV_GROUPS = [
     { key: 'pokimaintenance', label: msg('Maintenance'), perm: 'poki.read', icon: 'wrench' }
   ] },
   { label: msg('Sales & CRM'), items: [
+    // A rep's day: leads, prospects and customers in three lanes, ranked (pages/crm/CrmBoardPage.jsx).
+    { key: 'crmboard', label: msg('My sales board'), perm: 'crm.read', icon: 'target' },
     { key: 'crm', label: msg('Overview'), perm: 'crm.read', icon: 'chart' },
     // Each with a second tab (pages/crm/CrmTabs.jsx): My follow-ups; Prospects.
     { key: 'crminbox', label: msg('Inbox & follow-ups'), perm: 'crm.read', icon: 'chat' },
