@@ -4,9 +4,10 @@ import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
 import SearchInput from '../components/SearchInput';
-import { CompanySwitcher, Glossary, Hero, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { CompanySwitcher, Glossary, Icon, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import Bars from './RestaurantBars';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
@@ -14,13 +15,14 @@ import './RestaurantsPage.css';
 import './RestaurantCrmPage.css';
 
 // A restaurant's guest CRM (backend: restaurantCrm.service.js), starting
-// with Bamboo Garden. Pick the restaurant; the key numbers (orders, guests,
-// how many came back, the rating); what stands out (complaints nobody has
-// called back, regulars who stopped ordering, feedback not asked for,
-// guests without a number); and four views:
+// with Bamboo Garden. Pick the restaurant; a banner with the key numbers
+// (orders and guests with their monthly trend, how many came back, the
+// rating); what stands out (complaints nobody has called back, regulars who
+// stopped ordering, feedback not asked for, guests without a number); and
+// four views:
 //   Overview — orders month by month, how they come in (phone, WhatsApp,
-//     Bolt, the till) and how they are served, the top guests and dishes,
-//     the busy days and what guests say;
+//     Bolt, the till) and how they are served as rings, the busy days as a
+//     heat strip, the top guests and dishes, and what guests say;
 //   Orders — the order log customer service keeps (it replaces the BG ORDER
 //     RECORD sheet, which can be imported once), each linked to its sale on
 //     Square so it is counted once and shows what it cost;
@@ -28,13 +30,19 @@ import './RestaurantCrmPage.css';
 //     their favourite dish, and the same guest typed twice to put together;
 //   Follow-ups — complaints to call back, regulars to invite back.
 // A guest's profile shows every order, from the log and from the till.
+// The chart colours (RestaurantCrmPage.css, --rc-s1…5) are a validated
+// categorical set, each channel and service always the same colour, with
+// its name and figures written beside it.
 
 const VIEWS = ['overview', 'orders', 'guests', 'followups'];
+const VIEW_ICON = { overview: 'layers', orders: 'receipt', guests: 'people', followups: 'phone' };
 const RANGES = [['30', msg('30 days')], ['90', msg('90 days')], ['365', msg('12 months')], ['all', msg('All time')]];
 const CHANNEL = { phone: msg('Phone call'), whatsapp: msg('WhatsApp'), bolt: msg('Bolt'), walk_in: msg('Walk-in'), instagram: msg('Instagram'), facebook: msg('Facebook'), website: msg('Website'), other: msg('Other'), till: msg('At the till') };
 const CHANNELS = ['phone', 'whatsapp', 'bolt', 'walk_in', 'instagram', 'facebook', 'website', 'other'];
 const SERVICE = { pickup: msg('Pick-up'), dine_in: msg('Dine-in'), delivery: msg('Delivery'), reservation: msg('Reservation'), counter: msg('At the counter') };
 const SERVICES = ['pickup', 'dine_in', 'delivery', 'reservation'];
+// Each channel and service keeps its colour slot whatever its rank.
+const SLOT = { phone: 1, bolt: 2, whatsapp: 3, till: 4, pickup: 1, delivery: 2, dine_in: 3, reservation: 4, counter: 5 };
 const THEME = { portion: msg('Small portions'), order: msg('Wrong or missing items'), wait: msg('Waited too long'), taste: msg('Taste or temperature'), service: msg('Service'), price: msg('Price'), praise: msg('Praise') };
 const SEGMENT = {
   regular: [msg('Regular'), 'good'], quiet: [msg('Gone quiet'), 'warn'], returning: [msg('Came back'), 'info'],
@@ -52,12 +60,161 @@ function weekdayName(i, long) { return new Date(Date.UTC(2024, 0, 7 + i)).toLoca
 function ordersText(n) { return n === 1 ? tr('1 order') : tr('{n} orders', { n }); }
 function stars(r) { return r ? '★'.repeat(r) + '☆'.repeat(5 - r) : ''; }
 function isBg(c) { return /bamboo\s*garden/i.test(c.name) || /^BG/i.test(c.code); }
+function pct(n, of) { return of ? Math.round(n / of * 100) : 0; }
+// "6 Oct", with the year only when it is not this year.
+function shortDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
+  return d.toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short', year: d.getUTCFullYear() === new Date().getUTCFullYear() ? undefined : 'numeric', timeZone: 'UTC' });
+}
+// What the guest said, in a bubble; a rating alone as stars.
+function Said({ feedback, rating }) {
+  if (feedback) return <p className="rc-bubble">“{feedback}” <Stars value={rating} /></p>;
+  if (rating) return <p className="rc-rated"><Stars value={rating} /></p>;
+  return null;
+}
 
 function Stars({ value }) {
   if (!value) return null;
   return <span className="rc-stars" title={tr('{n} out of 5', { n: value })} aria-label={tr('{n} out of 5', { n: value })}>{stars(value)}</span>;
 }
 function Tag({ children, tone }) { return <span className={'rc-tag' + (tone ? ' is-' + tone : '')}>{children}</span>; }
+
+// ── small pieces ──────────────────────────────────────────────────────
+const GLYPH = {
+  phone: <path d="M6.5 4h3l1.5 4-2 1.2a10 10 0 0 0 5.8 5.8L16 13l4 1.5v3a2 2 0 0 1-2.2 2A15.5 15.5 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" />,
+  whatsapp: <><path d="M4 20l1.2-4.1A8 8 0 1 1 8.3 19z" /><path d="M9 8.6c0 3.3 3 6.4 6.4 6.4l1-1.6-2-1-1 .9a4.4 4.4 0 0 1-2.7-2.7l.9-1-1-2z" /></>,
+  bolt: <path d="M13 3 5 13.5h6L10 21l9-11h-6z" />,
+  till: <><rect x="5" y="3.5" width="14" height="17" rx="1.5" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></>,
+  walk_in: <><circle cx="12" cy="5.5" r="2" /><path d="M10 21l1.5-6-2-2 1-4.5 3 1 2 3h2.5M11.5 15l3 6" /></>,
+  instagram: <><rect x="4" y="4" width="16" height="16" rx="4.5" /><circle cx="12" cy="12" r="3.6" /></>,
+  facebook: <path d="M14 8h2.5V4.5H14A3.5 3.5 0 0 0 10.5 8v2.5H8V14h2.5v6.5H14V14h2.5l.5-3.5h-3V8.5c0-.3.2-.5.5-.5z" />,
+  website: <><circle cx="12" cy="12" r="8" /><path d="M4 12h16M12 4c2.5 2.6 2.5 13.4 0 16M12 4c-2.5 2.6-2.5 13.4 0 16" /></>,
+  other: <><circle cx="6" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="18" cy="12" r="1.4" /></>,
+  pickup: <><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8a3 3 0 0 1 6 0" /></>,
+  delivery: <><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="17.5" r="1.8" /><circle cx="17" cy="17.5" r="1.8" /></>,
+  dine_in: <path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M16 3c-1.7 0-3 2-3 5s1.3 4 3 4v9" />,
+  reservation: <><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 10h16M8.5 3v4M15.5 3v4M9 15l2 2 4-4" /></>,
+  counter: <path d="M3 11h18v9H3zM6 11V6h12v5" />
+};
+function Glyph({ name }) {
+  return <svg className="rc-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{GLYPH[name] || GLYPH.other}</svg>;
+}
+// A channel or service, with its icon and its colour.
+function Kind({ k, label }) {
+  return <span className={'rc-kind is-s' + (SLOT[k] || 5)}><Glyph name={k} />{label}</span>;
+}
+function Avatar({ name, big }) {
+  return <span className={'rc-avatar' + (big ? ' is-big' : '')} style={{ background: avatarColor(name) }} aria-hidden="true">{initials(name)}</span>;
+}
+
+// A trend line for a key number: one series, the last point marked.
+function Spark({ values }) {
+  if (!values || values.length < 2) return null;
+  const max = Math.max(1, ...values);
+  const w = 120, h = 34;
+  const pts = values.map((v, i) => [Math.round(i / (values.length - 1) * w * 10) / 10, Math.round((h - 3 - (v / max) * (h - 8)) * 10) / 10]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
+  const last = pts[pts.length - 1];
+  return (
+    <svg className="rc-spark" viewBox={'0 0 ' + w + ' ' + h} preserveAspectRatio="none" aria-hidden="true">
+      <path className="rc-spark-area" d={line + ' L' + w + ' ' + h + ' L0 ' + h + ' Z'} />
+      <path className="rc-spark-line" d={line} vectorEffect="non-scaling-stroke" />
+      <circle className="rc-spark-dot" cx={last[0]} cy={last[1]} r="3" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+// A ring filled to pct.
+function Ring({ value, label }) {
+  const r = 22, c = 2 * Math.PI * r;
+  return (
+    <svg className="rc-ring" viewBox="0 0 56 56" role="img" aria-label={label}>
+      <circle cx="28" cy="28" r={r} className="rc-ring-track" />
+      <circle cx="28" cy="28" r={r} className="rc-ring-fill" strokeDasharray={(c * Math.min(100, value) / 100) + ' ' + c} transform="rotate(-90 28 28)" />
+    </svg>
+  );
+}
+
+// Part of the whole as a ring: [{ key, name, value }], at most five parts
+// (the rest folded into one), each in its own colour with its name, count
+// and share written beside it.
+function Donut({ rows, total, center, caption }) {
+  const sorted = rows.slice().sort((a, b) => b.value - a.value);
+  const parts = sorted.length > 5 ? sorted.slice(0, 4).concat([{ key: 'rest', name: tr('Other'), value: sorted.slice(4).reduce((a, x) => a + x.value, 0), slot: 5 }]) : sorted;
+  const r = 40, c = 2 * Math.PI * r, gap = parts.length > 1 ? 2.5 : 0;
+  let at = 0;
+  return (
+    <div className="rc-donut">
+      <div className="rc-donut-chart">
+        <svg viewBox="0 0 100 100" role="img" aria-label={parts.map((p) => p.name + ' ' + pct(p.value, total) + '%').join(', ')}>
+          <circle cx="50" cy="50" r={r} className="rc-donut-track" />
+          {parts.map((p) => {
+            const len = Math.max(0, c * p.value / total - gap);
+            const el = <circle key={p.key} cx="50" cy="50" r={r} className={'rc-donut-seg is-s' + (p.slot || SLOT[p.key] || 5)} strokeDasharray={len + ' ' + (c - len)} strokeDashoffset={-at} transform="rotate(-90 50 50)"><title>{p.name + ': ' + p.value + ' (' + pct(p.value, total) + '%)'}</title></circle>;
+            at += c * p.value / total;
+            return el;
+          })}
+        </svg>
+        <span className="rc-donut-center"><strong>{center}</strong><small>{caption}</small></span>
+      </div>
+      <ul className="rc-legend">
+        {parts.map((p) => (
+          <li key={p.key}>
+            <i className={'rc-swatch is-s' + (p.slot || SLOT[p.key] || 5)} />
+            <span className="rc-legend-name">{p.name}</span>
+            <span className="rc-legend-n">{p.value}</span>
+            <span className="rc-legend-pct">{pct(p.value, total)}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// The seven days of the week, darker for more orders, Monday first.
+function HeatStrip({ counts }) {
+  const days = [1, 2, 3, 4, 5, 6, 0];
+  const max = Math.max(1, ...counts);
+  return (
+    <div className="rc-heat" role="img" aria-label={days.map((d) => weekdayName(d, true) + ': ' + ordersText(counts[d])).join('; ')}>
+      {days.map((d) => (
+        <div key={d} className={'rc-heat-day' + (counts[d] === max && counts[d] ? ' is-top' : '')} title={weekdayName(d, true) + ': ' + ordersText(counts[d])}>
+          <span className={'rc-heat-cell' + (counts[d] / max > 0.55 ? ' is-hot' : '')} style={{ '--rc-heat': counts[d] ? 0.14 + 0.86 * counts[d] / max : 0 }}><strong>{counts[d]}</strong></span>
+          <span className="rc-heat-label">{weekdayName(d)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// What stands out, as cards.
+function InsightCards({ items }) {
+  if (!items.length) return null;
+  return (
+    <section className="rc-insights" aria-label={tr('What stands out')}>
+      {items.map((it, i) => (
+        <div key={i} className={'rc-insight is-' + it.tone}>
+          <span className="rc-insight-icon"><Icon name={it.icon} /></span>
+          <p>{it.text}</p>
+          {it.action && <button type="button" className="rc-insight-go" onClick={it.action.run}>{it.action.label} <Icon name="arrow" /></button>}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+// One key number in the banner.
+function Kpi({ icon, value, label, note, tone, onClick, children }) {
+  const Tag2 = onClick ? 'button' : 'div';
+  return (
+    <Tag2 type={onClick ? 'button' : undefined} onClick={onClick} className={'rc-kpi' + (tone ? ' is-' + tone : '') + (onClick ? ' is-link' : '')}>
+      <span className="rc-kpi-top"><span className="rc-kpi-icon"><Icon name={icon} /></span><span className="rc-kpi-label">{label}</span></span>
+      <strong className="rc-kpi-value">{value}</strong>
+      {children}
+      {note && <small className="rc-kpi-note">{note}</small>}
+    </Tag2>
+  );
+}
 
 export default function RestaurantCrmPage() {
   const { can } = useAuth();
@@ -152,14 +309,6 @@ export default function RestaurantCrmPage() {
   const t = ov ? ov.totals : null;
   const rangeName = tr((RANGES.find((r) => r[0] === range) || RANGES[2])[1]);
 
-  // ── the key numbers ──
-  const stats = t ? [
-    { icon: 'receipt', value: String(t.orders), label: tr('orders'), note: rangeName + (t.logged ? ' · ' + tr('{n} by phone, WhatsApp or Bolt', { n: t.logged }) : ''), onClick: () => pickView('orders') },
-    { icon: 'people', value: String(t.guests), label: tr('guests'), note: tr('{n} new', { n: t.newGuests }) + ' · ' + tr('{n} ordered again', { n: t.repeatGuests }), onClick: () => pickView('guests') },
-    { icon: 'up', value: t.guests ? Math.round(t.repeatGuests / t.guests * 100) + '%' : '—', label: tr('came back'), note: tr('guests with two orders or more'), tone: t.guests && t.repeatGuests / t.guests < 0.25 ? 'alert' : '' },
-    { icon: 'spark', value: t.avgRating ? t.avgRating.toLocaleString(activeIntlLocale()) + ' / 5' : '—', label: tr('average rating'), note: t.feedbackRate === null ? tr('no feedback yet') : tr('feedback on {pct}% of orders', { pct: t.feedbackRate }), tone: t.openFollowUps ? 'bad' : '', onClick: () => pickView('followups') }
-  ] : [];
-
   // ── what stands out ──
   const insights = [];
   if (t) {
@@ -180,6 +329,8 @@ export default function RestaurantCrmPage() {
     ['guests', tr('Guests'), t ? t.allGuests : null],
     ['followups', tr('Follow-ups'), t ? (t.openFollowUps + (ov.quietCount || 0)) || null : null]
   ];
+  const logo = restaurantLogoUrl(current.code);
+  const came = t && t.guests ? pct(t.repeatGuests, t.guests) : null;
 
   return (
     <div className="dk tl rs rc">
@@ -188,38 +339,69 @@ export default function RestaurantCrmPage() {
       <CompanySwitcher companies={shown} company={current.code} onPick={pickCompany}
         describe={(co) => (co.orders30 ? tr('{n} sales in 30 days', { n: co.orders30 }) : tr('no sales yet'))} />
 
-      <Hero
-        eyebrow={tr('Guest CRM')}
-        title={current.name}
-        sub={tr('Who orders, how often, how they order and what they think of the food. Orders come from the till (Square) and from the order log customer service keeps for phone, WhatsApp and Bolt orders. Press a number to go to it.')}
-        actions={canManage && (
-          <>
-            <button type="button" className="btn btn-primary" onClick={() => setOrderDialog({})}>{tr('Log an order')}</button>
-            <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(true)}>{tr('Import the order sheet')}</button>
-          </>
+      <header className="rc-hero">
+        <div className="rc-hero-glow" aria-hidden="true" />
+        <div className="rc-hero-main">
+          <div className="rc-hero-brand">
+            {logo ? <img className="rc-hero-logo" src={logo} alt="" /> : <span className="rc-hero-logo is-mark" style={{ background: avatarColor(current.name) }}>{initials(current.name)}</span>}
+            <div>
+              <p className="rc-eyebrow">{tr('Guest CRM')}</p>
+              <h2 className="rc-hero-title">{current.name}</h2>
+            </div>
+          </div>
+          <p className="rc-hero-sub">{tr('Who orders, how often, how they order and what they think of the food. Orders come from the till (Square) and from the order log customer service keeps for phone, WhatsApp and Bolt orders. Press a number to go to it.')}</p>
+          {canManage && (
+            <div className="rc-hero-actions">
+              <button type="button" className="rc-btn is-primary" onClick={() => setOrderDialog({})}><Icon name="receipt" /> {tr('Log an order')}</button>
+              <button type="button" className="rc-btn is-ghost" onClick={() => setImportOpen(true)}><Icon name="layers" /> {tr('Import the order sheet')}</button>
+            </div>
+          )}
+        </div>
+        {t && (
+          <div className="rc-hero-kpis">
+            <Kpi icon="receipt" label={tr('orders')} value={t.orders} note={rangeName + (t.logged ? ' · ' + tr('{n} by phone, WhatsApp or Bolt', { n: t.logged }) : '')} onClick={() => pickView('orders')}>
+              <Spark values={ov.months.map((m) => m.orders)} />
+            </Kpi>
+            <Kpi icon="people" label={tr('guests')} value={t.guests} note={tr('{n} new', { n: t.newGuests }) + ' · ' + tr('{n} ordered again', { n: t.repeatGuests })} onClick={() => pickView('guests')}>
+              <Spark values={ov.months.map((m) => m.guests)} />
+            </Kpi>
+            <Kpi icon="up" label={tr('came back')} value={came === null ? '—' : came + '%'} note={tr('guests with two orders or more')} tone={came !== null && came < 25 ? 'warn' : ''}>
+              {came !== null && <Ring value={came} label={came + '%'} />}
+            </Kpi>
+            <Kpi icon="spark" label={tr('average rating')} value={t.avgRating ? t.avgRating.toLocaleString(activeIntlLocale()) : '—'} note={t.feedbackRate === null ? tr('no feedback yet') : tr('feedback on {pct}% of orders', { pct: t.feedbackRate })} onClick={() => pickView('followups')}>
+              {t.avgRating ? <span className="rc-kpi-stars" aria-hidden="true"><span style={{ width: (t.avgRating / 5 * 100) + '%' }}>★★★★★</span>★★★★★</span> : null}
+              {t.openFollowUps ? <span className="rc-kpi-badge">{tr('{n} to call back', { n: t.openFollowUps })}</span> : null}
+            </Kpi>
+          </div>
         )}
-        stats={stats} />
+      </header>
 
-      <Insights items={insights.slice(0, 6)} />
+      <InsightCards items={insights.slice(0, 6)} />
 
-      <div id="rc-views" className="rs-views" role="tablist" aria-label={tr('Show')}>
+      <nav id="rc-views" className="rc-tabs" role="tablist" aria-label={tr('Show')}>
         {views.map(([k, label, n]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k} className={'rs-view' + (view === k ? ' is-on' : '')} onClick={() => pickView(k)}>
-            {label}{n ? <span className="ppl-chip-n">{n}</span> : null}
+          <button key={k} type="button" role="tab" aria-selected={view === k} className={'rc-tab' + (view === k ? ' is-on' : '')} onClick={() => pickView(k)}>
+            <Icon name={VIEW_ICON[k]} /> {label}{n ? <span className="rc-tab-n">{n}</span> : null}
           </button>
         ))}
-      </div>
+      </nav>
 
-      {!ov && <p className="eyebrow">{tr('Loading…')}</p>}
+      {!ov && <div className="rc-skeleton" aria-busy="true"><span /><span /><span /></div>}
       {ov && view === 'overview' && <Overview ov={ov} range={range} onRange={pickRange} onGuest={setProfileId} onLog={canManage ? () => setOrderDialog({}) : null} onImport={canManage ? () => setImportOpen(true) : null} />}
 
       {ov && view === 'orders' && (
-        <Section id="rc-orders" title={tr('Order log')} sub={tr('Orders customer service takes by phone, WhatsApp or Bolt, newest first, with what the guest said. Each is linked to its sale on the till when the OS finds it.')}
-          action={canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => setOrderDialog({})}>{tr('Log an order')}</button>}>
-          <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+        <section id="rc-orders" className="rc-panel">
+          <div className="rc-panel-head">
+            <div>
+              <h3>{tr('Order log')}</h3>
+              <p>{tr('Orders customer service takes by phone, WhatsApp or Bolt, newest first, with what the guest said. Each is linked to its sale on the till when the OS finds it.')}</p>
+            </div>
+            {canManage && <button type="button" className="rc-btn is-primary is-small" onClick={() => setOrderDialog({})}><Icon name="receipt" /> {tr('Log an order')}</button>}
+          </div>
+          <div className="rc-seg" role="radiogroup" aria-label={tr('Show')}>
             {ORDER_CHIPS.map(([k, label]) => (
-              <button key={k} type="button" role="radio" aria-checked={orderChip === k} className={'ppl-chip' + (orderChip === k ? ' is-on' : '')} onClick={() => { setOrderChip(k); setOrderOffset(0); }}>
-                {tr(label)}{k === 'open' && t.openFollowUps ? <span className="ppl-chip-n">{t.openFollowUps}</span> : null}
+              <button key={k} type="button" role="radio" aria-checked={orderChip === k} className={'rc-seg-opt' + (orderChip === k ? ' is-on' : '')} onClick={() => { setOrderChip(k); setOrderOffset(0); }}>
+                {tr(label)}{k === 'open' && t.openFollowUps ? <span className="rc-tab-n is-bad">{t.openFollowUps}</span> : null}
               </button>
             ))}
           </div>
@@ -234,8 +416,8 @@ export default function RestaurantCrmPage() {
               {SERVICES.map((s) => <option key={s} value={s}>{tr(SERVICE[s])}</option>)}
             </select>
           </div>
-          {!orders ? <p className="eyebrow">{tr('Loading…')}</p> : !orders.orders.length ? (
-            <div className="dk-empty tl-empty"><p>{orders.total === 0 && orderChip === 'all' && !orderSearch && !orderChannel && !orderService
+          {!orders ? <div className="rc-skeleton" aria-busy="true"><span /><span /></div> : !orders.orders.length ? (
+            <div className="rc-empty"><Icon name="receipt" /><p>{orders.total === 0 && orderChip === 'all' && !orderSearch && !orderChannel && !orderService
               ? tr('No orders logged yet. Log the next phone, WhatsApp or Bolt order, or import the order sheet kept so far.')
               : tr('Nothing matches. Try another search or filter.')}</p></div>
           ) : (
@@ -252,41 +434,53 @@ export default function RestaurantCrmPage() {
               </ul>
               {orders.total > PAGE && (
                 <div className="rc-pager">
-                  <button type="button" className="btn btn-secondary tl-btn" disabled={orderOffset === 0} onClick={() => setOrderOffset(Math.max(0, orderOffset - PAGE))}>{tr('Newer')}</button>
+                  <button type="button" className="rc-btn is-ghost is-small" disabled={orderOffset === 0} onClick={() => setOrderOffset(Math.max(0, orderOffset - PAGE))}>{tr('Newer')}</button>
                   <span className="dk-muted tl-small">{tr('{from}–{to} of {total}', { from: orderOffset + 1, to: Math.min(orders.total, orderOffset + PAGE), total: orders.total })}</span>
-                  <button type="button" className="btn btn-secondary tl-btn" disabled={orderOffset + PAGE >= orders.total} onClick={() => setOrderOffset(orderOffset + PAGE)}>{tr('Older')}</button>
+                  <button type="button" className="rc-btn is-ghost is-small" disabled={orderOffset + PAGE >= orders.total} onClick={() => setOrderOffset(orderOffset + PAGE)}>{tr('Older')}</button>
                 </div>
               )}
             </>
           )}
-        </Section>
+        </section>
       )}
 
       {ov && view === 'guests' && (
         <>
           {dupes.length > 0 && (
-            <Section id="rc-dupes" title={tr('The same guest twice?')} sub={tr('The same number, or the same name where one has no number. Putting them together keeps every order on one profile.')} card>
+            <section id="rc-dupes" className="rc-panel is-warn">
+              <div className="rc-panel-head">
+                <div>
+                  <h3>{tr('The same guest twice?')}</h3>
+                  <p>{tr('The same number, or the same name where one has no number. Putting them together keeps every order on one profile.')}</p>
+                </div>
+              </div>
               <ul className="rc-dupes">
                 {dupes.slice(0, 8).map((d) => (
                   <li key={d.a.id + d.b.id}>
-                    <span><strong>{d.a.name}</strong> <span className="dk-muted tl-small">{[d.a.phone, ordersText(d.a.orders)].filter(Boolean).join(' · ')}</span></span>
-                    <span className="dk-muted">+</span>
-                    <span><strong>{d.b.name}</strong> <span className="dk-muted tl-small">{[d.b.phone, ordersText(d.b.orders)].filter(Boolean).join(' · ')}</span></span>
+                    <span className="rc-dupe-who"><Avatar name={d.a.name} /><span><strong>{d.a.name}</strong><small>{[d.a.phone, ordersText(d.a.orders)].filter(Boolean).join(' · ')}</small></span></span>
+                    <span className="rc-dupe-plus" aria-hidden="true">+</span>
+                    <span className="rc-dupe-who"><Avatar name={d.b.name} /><span><strong>{d.b.name}</strong><small>{[d.b.phone, ordersText(d.b.orders)].filter(Boolean).join(' · ')}</small></span></span>
                     <Tag>{d.reason === 'phone' ? tr('same number') : tr('same name')}</Tag>
-                    {canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => merge(d)}>{tr('Put together')}</button>}
+                    {canManage && <button type="button" className="rc-btn is-ghost is-small" onClick={() => merge(d)}>{tr('Put together')}</button>}
                   </li>
                 ))}
               </ul>
-            </Section>
+            </section>
           )}
-          <Section id="rc-guests" title={tr('Guests')} sub={tr('Everyone who has ordered, from the till or the order log. Press a guest for every order and what they said.')}>
-            <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
+          <section id="rc-guests" className="rc-panel">
+            <div className="rc-panel-head">
+              <div>
+                <h3>{tr('Guests')}</h3>
+                <p>{tr('Everyone who has ordered, from the till or the order log. Press a guest for every order and what they said.')}</p>
+              </div>
+            </div>
+            <div className="rc-seg is-wrap" role="radiogroup" aria-label={tr('Show')}>
               {GUEST_CHIPS.map(([k, label]) => {
                 const n = guests ? (k === 'all' ? guests.counts.all : guests.counts[k]) : null;
                 if (k !== 'all' && guests && !n) return null;
                 return (
-                  <button key={k} type="button" role="radio" aria-checked={guestChip === k} className={'ppl-chip' + (guestChip === k ? ' is-on' : '')} onClick={() => setGuestChip(k)}>
-                    {tr(label)}{n !== null ? <span className="ppl-chip-n">{n}</span> : null}
+                  <button key={k} type="button" role="radio" aria-checked={guestChip === k} className={'rc-seg-opt' + (guestChip === k ? ' is-on' : '')} onClick={() => setGuestChip(k)}>
+                    {tr(label)}{n !== null ? <span className="rc-tab-n">{n}</span> : null}
                   </button>
                 );
               })}
@@ -299,76 +493,102 @@ export default function RestaurantCrmPage() {
                 <option value="name">{tr('By name')}</option>
               </select>
             </div>
-            {!guests ? <p className="eyebrow">{tr('Loading…')}</p> : !guests.guests.length ? (
-              <div className="dk-empty tl-empty"><p>{guests.counts.all ? tr('Nothing matches. Try another search or filter.') : tr('No guests yet. They appear as orders are logged, imported, or rung up on Square with a customer.')}</p></div>
+            {!guests ? <div className="rc-skeleton" aria-busy="true"><span /><span /></div> : !guests.guests.length ? (
+              <div className="rc-empty"><Icon name="people" /><p>{guests.counts.all ? tr('Nothing matches. Try another search or filter.') : tr('No guests yet. They appear as orders are logged, imported, or rung up on Square with a customer.')}</p></div>
             ) : (
-              <div className="tl-grid rc-guests">
+              <div className="rc-guests">
                 {guests.guests.map((g) => (
-                  <article key={g.id} className="tl-card rc-guest" role="button" tabIndex={0} onClick={() => setProfileId(g.id)} onKeyDown={(e) => { if (e.key === 'Enter') setProfileId(g.id); }}>
+                  <article key={g.id} className={'rc-guest is-' + g.segment} role="button" tabIndex={0} onClick={() => setProfileId(g.id)} onKeyDown={(e) => { if (e.key === 'Enter') setProfileId(g.id); }}>
                     <div className="rc-guest-head">
-                      <span className="tl-card-head">
-                        <span className="tl-name">{g.name}</span>
-                        <span className="dk-muted tl-small">{g.phone || tr('No number')}</span>
+                      <Avatar name={g.name} />
+                      <span className="rc-guest-who">
+                        <strong>{g.name}</strong>
+                        <small>{g.phone || tr('No number')}</small>
                       </span>
                       <ContactButtons name={g.name} phone={g.phone} />
                     </div>
-                    <div className="tl-tags">
-                      <Status tone={SEGMENT[g.segment][1]}>{tr(SEGMENT[g.segment][0])}</Status>
-                      {g.openFollowUps > 0 && <Status tone="bad">{tr('To call back')}</Status>}
-                      {g.possibleDuplicate && <Status tone="warn">{tr('Twice?')}</Status>}
-                      {g.fromSquare && <Tag>Square</Tag>}
+                    <div className="rc-guest-tags">
+                      <span className={'rc-pill is-' + g.segment}>{tr(SEGMENT[g.segment][0])}</span>
+                      {g.openFollowUps > 0 && <span className="rc-pill is-bad">{tr('To call back')}</span>}
+                      {g.possibleDuplicate && <span className="rc-pill is-warn">{tr('Twice?')}</span>}
+                      {g.fromSquare && <span className="rc-pill is-plain">Square</span>}
                     </div>
-                    <p className="tl-small rc-guest-line">
-                      {g.orders ? ordersText(g.orders) + ' · ' + tr('last {date}', { date: fmtDate(g.lastOn) }) : tr('No orders yet')}
-                      {g.avgGap && g.orders >= 3 ? ' · ' + tr('about every {n} days', { n: g.avgGap }) : ''}
-                    </p>
-                    {(g.favourite || g.avgRating) && <p className="dk-muted tl-small rc-guest-line">{g.favourite ? tr('Usually: {dish}', { dish: g.favourite }) : ''} {g.avgRating ? <Stars value={Math.round(g.avgRating)} /> : null}</p>}
+                    <dl className="rc-guest-stats">
+                      <div><dt>{tr('orders')}</dt><dd>{g.orders}</dd></div>
+                      <div><dt>{tr('last order')}</dt><dd>{shortDate(g.lastOn)}</dd></div>
+                      <div><dt>{tr('every')}</dt><dd>{g.avgGap && g.orders >= 2 ? tr('{n} days', { n: g.avgGap }) : '—'}</dd></div>
+                    </dl>
+                    {(g.favourite || g.avgRating) && (
+                      <p className="rc-guest-fav">
+                        {g.favourite && <span><Icon name="spark" /> {g.favourite}</span>}
+                        {g.avgRating ? <Stars value={Math.round(g.avgRating)} /> : null}
+                      </p>
+                    )}
                   </article>
                 ))}
               </div>
             )}
-          </Section>
+          </section>
         </>
       )}
 
       {ov && view === 'followups' && (
-        <div className="dk-two">
-          <Section id="rc-calls" title={tr('Complaints to call back')} sub={tr('A rating of 3 or less, or a complaint in what the guest said. Call, apologise, and write what was done.')} card>
+        <div className="rc-cols">
+          <section id="rc-calls" className="rc-panel is-bad">
+            <div className="rc-panel-head">
+              <div>
+                <h3><span className="rc-head-icon is-bad"><Icon name="warn" /></span> {tr('Complaints to call back')}</h3>
+                <p>{tr('A rating of 3 or less, or a complaint in what the guest said. Call, apologise, and write what was done.')}</p>
+              </div>
+            </div>
             {ov.openFollowUps.length ? (
               <ul className="rc-follow">
                 {ov.openFollowUps.map((f) => (
                   <li key={f.id}>
                     <div className="rc-follow-head">
-                      <button type="button" className="rc-name" onClick={() => f.guest && setProfileId(f.guest.id)}>{f.guest ? f.guest.name : tr('A guest')}</button>
+                      {f.guest ? <Avatar name={f.guest.name} /> : null}
+                      <span className="rc-guest-who">
+                        <button type="button" className="rc-name" onClick={() => f.guest && setProfileId(f.guest.id)}>{f.guest ? f.guest.name : tr('A guest')}</button>
+                        <small>{shortDate(f.day)} · {f.items || '—'}</small>
+                      </span>
                       {f.guest && <ContactButtons name={f.guest.name} phone={f.guest.phone} />}
                     </div>
-                    <p className="dk-muted tl-small">{fmtDate(f.day)} · {f.items || '—'}</p>
-                    <p className="rc-quote">{f.feedback ? '“' + f.feedback + '”' : null} <Stars value={f.rating} /></p>
-                    {f.themes.length > 0 && <div className="tl-tags">{f.themes.map((th) => <Tag key={th} tone="bad">{tr(THEME[th])}</Tag>)}</div>}
+                    <Said feedback={f.feedback} rating={f.rating} />
+                    {f.themes.length > 0 && <div className="rc-guest-tags">{f.themes.map((th) => <span key={th} className="rc-pill is-bad">{tr(THEME[th])}</span>)}</div>}
                     {f.guest && !f.guest.phone && <p className="dk-muted tl-small">{tr('No number saved — reach them through the channel they ordered on, and add their number to their profile.')}</p>}
-                    {canManage && <button type="button" className="btn btn-primary tl-btn" onClick={() => setFollowDialog({ order: { id: f.id, guest: f.guest, feedback: f.feedback, orderedOn: f.day }, note: '' })}>{tr('Called back')}</button>}
+                    {canManage && <button type="button" className="rc-btn is-primary is-small" onClick={() => setFollowDialog({ order: { id: f.id, guest: f.guest, feedback: f.feedback, orderedOn: f.day }, note: '' })}><Icon name="check" /> {tr('Called back')}</button>}
                   </li>
                 ))}
               </ul>
-            ) : <div className="dk-empty"><p>{tr('Nobody is waiting for a call back.')}</p></div>}
-          </Section>
-          <Section id="rc-quiet" title={tr('Regulars to invite back')} sub={tr('Guests with three orders or more who have not ordered for twice as long as usual (at least 30 days). A message with what they like often brings them back.')} card>
+            ) : <div className="rc-empty is-good"><Icon name="check" /><p>{tr('Nobody is waiting for a call back.')}</p></div>}
+          </section>
+          <section id="rc-quiet" className="rc-panel is-warn">
+            <div className="rc-panel-head">
+              <div>
+                <h3><span className="rc-head-icon is-warn"><Icon name="clock" /></span> {tr('Regulars to invite back')}</h3>
+                <p>{tr('Guests with three orders or more who have not ordered for twice as long as usual (at least 30 days). A message with what they like often brings them back.')}</p>
+              </div>
+            </div>
             {ov.quiet.length ? (
               <ul className="rc-follow">
                 {ov.quiet.map((q) => (
                   <li key={q.id}>
                     <div className="rc-follow-head">
-                      <button type="button" className="rc-name" onClick={() => setProfileId(q.id)}>{q.name}</button>
+                      <Avatar name={q.name} />
+                      <span className="rc-guest-who">
+                        <button type="button" className="rc-name" onClick={() => setProfileId(q.id)}>{q.name}</button>
+                        <small>{ordersText(q.orders)}{q.avgGap ? ' · ' + tr('usually every {n} days', { n: q.avgGap }) : ''}</small>
+                      </span>
                       <ContactButtons name={q.name} phone={q.phone} />
                     </div>
-                    <p className="tl-small">{ordersText(q.orders)}{q.avgGap ? ' · ' + tr('usually every {n} days', { n: q.avgGap }) : ''}</p>
-                    <p className="dk-muted tl-small">{tr('Last ordered {date}, {n} days ago.', { date: fmtDate(q.lastOn), n: q.daysSince })}</p>
+                    <p className="rc-quiet-bar"><span style={{ width: Math.min(100, Math.round((q.avgGap || 30) / q.daysSince * 100)) + '%' }} /></p>
+                    <p className="dk-muted tl-small">{tr('Last ordered {date}, {n} days ago.', { date: shortDate(q.lastOn), n: q.daysSince })}</p>
                     {!q.phone && <p className="dk-muted tl-small">{tr('No number saved — add it on their profile next time they order.')}</p>}
                   </li>
                 ))}
               </ul>
-            ) : <div className="dk-empty"><p>{tr('No regular has gone quiet.')}</p></div>}
-          </Section>
+            ) : <div className="rc-empty is-good"><Icon name="check" /><p>{tr('No regular has gone quiet.')}</p></div>}
+          </section>
         </div>
       )}
 
@@ -401,82 +621,133 @@ function Overview({ ov, range, onRange, onGuest, onLog, onImport }) {
   const t = ov.totals;
   if (!t.orders && !ov.firstOrderOn) {
     return (
-      <Section title={tr('Nothing here yet')} card>
+      <section className="rc-panel rc-welcome">
+        <span className="rc-welcome-icon"><Icon name="people" /></span>
+        <h3>{tr('Nothing here yet')}</h3>
         <p>{tr('Guests appear here from three places: the order sheet customer service has kept (import it once), new phone, WhatsApp and Bolt orders logged here, and sales rung up on Square with a customer.')}</p>
-        <div className="rc-start">
-          {onImport && <button type="button" className="btn btn-primary" onClick={onImport}>{tr('Import the order sheet')}</button>}
-          {onLog && <button type="button" className="btn btn-secondary" onClick={onLog}>{tr('Log an order')}</button>}
+        <div className="rc-hero-actions">
+          {onImport && <button type="button" className="rc-btn is-primary" onClick={onImport}><Icon name="layers" /> {tr('Import the order sheet')}</button>}
+          {onLog && <button type="button" className="rc-btn is-ghost" onClick={onLog}><Icon name="receipt" /> {tr('Log an order')}</button>}
         </div>
-      </Section>
+      </section>
     );
   }
   const monthRows = ov.months.map((m, i) => ({
     key: m.month, value: m.orders, current: i === ov.months.length - 1, label: monthLabel(m.month),
     tip: monthLabel(m.month, true) + ': ' + ordersText(m.orders) + ' · ' + tr('{n} guests, {k} new', { n: m.guests, k: m.newGuests }) + (m.amount ? ' · ' + money(m.amount) : '')
   }));
-  const dayRows = [1, 2, 3, 4, 5, 6, 0].map((d) => ({ key: String(d), value: ov.weekdays[d], label: weekdayName(d), tip: weekdayName(d, true) + ': ' + ordersText(ov.weekdays[d]) }));
-  const busiest = dayRows.slice().sort((a, b) => b.value - a.value)[0];
-  const chanRows = ov.channels.map((c) => ({ key: c.key, name: tr(CHANNEL[c.key] || c.key), value: c.orders, amount: Math.round(c.orders / t.orders * 100) + '%', meta: ordersText(c.orders) }));
-  const servRows = ov.services.map((c) => ({ key: c.key, name: tr(SERVICE[c.key] || c.key), value: c.orders, amount: Math.round(c.orders / t.orders * 100) + '%', meta: ordersText(c.orders) }));
-  const dishRows = ov.dishes.map((d) => ({ key: d.key, name: d.name, value: d.orders, amount: ordersText(d.orders) }));
+  const busiest = [1, 2, 3, 4, 5, 6, 0].slice().sort((a, b) => ov.weekdays[b] - ov.weekdays[a])[0];
+  const chanRows = ov.channels.map((c) => ({ key: c.key, name: tr(CHANNEL[c.key] || c.key), value: c.orders }));
+  const servRows = ov.services.map((c) => ({ key: c.key, name: tr(SERVICE[c.key] || c.key), value: c.orders }));
   const complaints = ov.themes.filter((x) => x.key !== 'praise');
   const praise = ov.themes.find((x) => x.key === 'praise');
+  const said = complaints.reduce((a, x) => a + x.count, 0) + (praise ? praise.count : 0);
+  const maxGuest = ov.topGuests.length ? ov.topGuests[0].inRange : 1;
+  const maxDish = ov.dishes.length ? ov.dishes[0].orders : 1;
   return (
     <>
-      <div className="ppl-chips rc-range" role="radiogroup" aria-label={tr('Period')}>
+      <div className="rc-seg rc-range" role="radiogroup" aria-label={tr('Period')}>
         {RANGES.map(([k, label]) => (
-          <button key={k} type="button" role="radio" aria-checked={range === k} className={'ppl-chip' + (range === k ? ' is-on' : '')} onClick={() => onRange(k)}>{tr(label)}</button>
+          <button key={k} type="button" role="radio" aria-checked={range === k} className={'rc-seg-opt' + (range === k ? ' is-on' : '')} onClick={() => onRange(k)}>{tr(label)}</button>
         ))}
-        <span className="dk-muted tl-small">{tr('{from} to {to}', { from: fmtDate(ov.from), to: fmtDate(ov.to) })}</span>
+        <span className="rc-range-dates"><Icon name="calendar" /> {tr('{from} to {to}', { from: fmtDate(ov.from), to: fmtDate(ov.to) })}</span>
       </div>
-      <Section title={tr('Orders, month by month')} sub={tr('Point at a month for its guests and how many were new.')} card>
-        {t.orders ? <Bars rows={monthRows} format={(v) => String(v)} label={tr('Orders, month by month')} className="rc-months" /> : <p className="dk-muted tl-small">{tr('No orders in this period.')}</p>}
-        <div className="rc-kpis">
-          <div><strong>{t.orders}</strong><span>{tr('orders')}</span></div>
-          <div><strong>{t.guests}</strong><span>{tr('guests')}</span></div>
-          <div><strong>{t.repeatGuests}</strong><span>{tr('ordered again')}</span></div>
-          <div><strong>{t.feedbackRate === null ? '—' : t.feedbackRate + '%'}</strong><span>{tr('with feedback')}</span></div>
-          <div><strong>{t.amountOrders ? money(t.amount) : '—'}</strong><span>{t.amountOrders ? tr('from {n} orders with a known amount', { n: t.amountOrders }) : tr('amounts come from the till')}</span></div>
-        </div>
-      </Section>
-      <div className="dk-two">
-        <Section title={tr('How orders come in')} sub={rangeSub(ov)} card>{chanRows.length ? <RankList rows={chanRows} /> : <p className="dk-muted tl-small">—</p>}</Section>
-        <Section title={tr('How they are served')} sub={rangeSub(ov)} card>{servRows.length ? <RankList rows={servRows} /> : <p className="dk-muted tl-small">—</p>}</Section>
-        <Section title={tr('Top guests')} sub={tr('Most orders in the period. Press one for their profile.')} card>
+
+      <div className="rc-grid">
+        <section className="rc-panel rc-span-2">
+          <div className="rc-panel-head">
+            <div>
+              <h3>{tr('Orders, month by month')}</h3>
+              <p>{tr('Point at a month for its guests and how many were new.')}</p>
+            </div>
+          </div>
+          {t.orders ? <Bars rows={monthRows} format={(v) => String(v)} label={tr('Orders, month by month')} className="rc-months" /> : <p className="dk-muted tl-small">{tr('No orders in this period.')}</p>}
+        </section>
+        <section className="rc-panel rc-mini-stats">
+          <div><span className="rc-mini-icon"><Icon name="receipt" /></span><strong>{t.orders}</strong><small>{tr('orders')}</small></div>
+          <div><span className="rc-mini-icon"><Icon name="people" /></span><strong>{t.guests}</strong><small>{tr('guests')}</small></div>
+          <div><span className="rc-mini-icon"><Icon name="up" /></span><strong>{t.repeatGuests}</strong><small>{tr('ordered again')}</small></div>
+          <div><span className="rc-mini-icon"><Icon name="spark" /></span><strong>{t.feedbackRate === null ? '—' : t.feedbackRate + '%'}</strong><small>{tr('with feedback')}</small></div>
+          <div className="rc-mini-wide"><span className="rc-mini-icon"><Icon name="cash" /></span><strong>{t.amountOrders ? money(t.amount) : '—'}</strong><small>{t.amountOrders ? tr('from {n} orders with a known amount', { n: t.amountOrders }) : tr('amounts come from the till')}</small></div>
+        </section>
+
+        <section className="rc-panel">
+          <div className="rc-panel-head"><div><h3>{tr('How orders come in')}</h3><p>{rangeSub(ov)}</p></div></div>
+          {chanRows.length ? <Donut rows={chanRows} total={t.orders} center={t.orders} caption={tr('orders')} /> : <p className="dk-muted tl-small">—</p>}
+        </section>
+        <section className="rc-panel">
+          <div className="rc-panel-head"><div><h3>{tr('How they are served')}</h3><p>{rangeSub(ov)}</p></div></div>
+          {servRows.length ? <Donut rows={servRows} total={t.orders} center={t.orders} caption={tr('orders')} /> : <p className="dk-muted tl-small">—</p>}
+        </section>
+        <section className="rc-panel">
+          <div className="rc-panel-head"><div><h3>{tr('Busiest days')}</h3><p>{ov.weekdays[busiest] ? tr('Orders by day of the week; most on {day}.', { day: weekdayName(busiest, true) }) : tr('Orders by day of the week.')}</p></div></div>
+          <HeatStrip counts={ov.weekdays} />
+          {t.orders > 0 && (
+            <div className="rc-weekend">
+              <Ring value={pct(ov.weekdays[0] + ov.weekdays[6], t.orders)} label={pct(ov.weekdays[0] + ov.weekdays[6], t.orders) + '%'} />
+              <p><strong>{pct(ov.weekdays[0] + ov.weekdays[6], t.orders)}%</strong> {tr('of orders come on Saturday and Sunday.')}</p>
+            </div>
+          )}
+        </section>
+
+        <section className="rc-panel">
+          <div className="rc-panel-head"><div><h3>{tr('Top guests')}</h3><p>{tr('Most orders in the period. Press one for their profile.')}</p></div></div>
           {ov.topGuests.length ? (
-            <ol className="dk-rank">
+            <ol className="rc-rank">
               {ov.topGuests.map((g, i) => (
                 <li key={g.id}>
-                  <span className={'dk-rank-n' + (i === 0 ? ' is-first' : '')}>{i + 1}</span>
-                  <div className="dk-rank-main">
-                    <div className="dk-rank-row">
-                      <button type="button" className="rc-name dk-rank-name" onClick={() => onGuest(g.id)}>{g.name}</button>
-                      <span className="dk-rank-amount">{ordersText(g.inRange)}</span>
+                  <Avatar name={g.name} />
+                  <div className="rc-rank-main">
+                    <div className="rc-rank-row">
+                      <button type="button" className="rc-name" onClick={() => onGuest(g.id)}>{g.name}</button>
+                      <span className="rc-rank-n">{ordersText(g.inRange)}</span>
                     </div>
-                    <div className="dk-track" aria-hidden="true"><span style={{ width: Math.round(g.inRange / ov.topGuests[0].inRange * 100) + '%' }} /></div>
-                    <div className="dk-muted dk-rank-meta">{tr(SEGMENT[g.segment][0])} · {tr('last {date}', { date: fmtDate(g.lastOn) })}</div>
+                    <span className="rc-bar" aria-hidden="true"><span style={{ width: Math.round(g.inRange / maxGuest * 100) + '%' }} /></span>
+                    <small><span className={'rc-pill is-' + g.segment + ' is-tiny'}>{tr(SEGMENT[g.segment][0])}</span> {tr('last {date}', { date: shortDate(g.lastOn) })}</small>
                   </div>
+                  {i < 3 && <span className={'rc-medal is-' + (i + 1)} aria-hidden="true">{i + 1}</span>}
                 </li>
               ))}
             </ol>
           ) : <p className="dk-muted tl-small">{tr('No named guests in this period.')}</p>}
-        </Section>
-        <Section title={tr('Most ordered')} sub={tr('Dishes by how many orders had them. Menu codes such as A90 are read as the dish.')} card>
-          {dishRows.length ? <RankList rows={dishRows} /> : <p className="dk-muted tl-small">—</p>}
-        </Section>
-        <Section title={tr('Busiest days')} sub={busiest && busiest.value ? tr('Orders by day of the week; most on {day}.', { day: weekdayName(Number(busiest.key), true) }) : tr('Orders by day of the week.')} card>
-          <Bars rows={dayRows} format={(v) => String(v)} label={tr('Busiest days')} />
-        </Section>
-        <Section title={tr('What guests say')} sub={t.feedback ? tr('From {n} orders with feedback or a rating.', { n: t.feedback }) : tr('No feedback in this period yet.')} card>
-          {complaints.length || praise ? (
-            <ul className="rc-themes">
-              {complaints.map((x) => (
-                <li key={x.key}><Tag tone="bad">{tr(THEME[x.key])}</Tag><strong>{x.count}</strong>{x.example && <span className="dk-muted tl-small">“{x.example}”</span>}</li>
+        </section>
+        <section className="rc-panel">
+          <div className="rc-panel-head"><div><h3>{tr('Most ordered')}</h3><p>{tr('Dishes by how many orders had them. Menu codes such as A90 are read as the dish.')}</p></div></div>
+          {ov.dishes.length ? (
+            <ol className="rc-rank is-dishes">
+              {ov.dishes.map((d, i) => (
+                <li key={d.key}>
+                  <span className={'rc-dish-n' + (i < 3 ? ' is-' + (i + 1) : '')}>{i + 1}</span>
+                  <div className="rc-rank-main">
+                    <div className="rc-rank-row"><span className="rc-rank-name">{d.name}</span><span className="rc-rank-n">{ordersText(d.orders)}</span></div>
+                    <span className="rc-bar" aria-hidden="true"><span style={{ width: Math.round(d.orders / maxDish * 100) + '%' }} /></span>
+                  </div>
+                </li>
               ))}
-              {praise && <li><Tag tone="good">{tr(THEME.praise)}</Tag><strong>{praise.count}</strong>{praise.example && <span className="dk-muted tl-small">“{praise.example}”</span>}</li>}
-            </ul>
+            </ol>
+          ) : <p className="dk-muted tl-small">—</p>}
+        </section>
+        <section className="rc-panel">
+          <div className="rc-panel-head"><div><h3>{tr('What guests say')}</h3><p>{t.feedback ? tr('From {n} orders with feedback or a rating.', { n: t.feedback }) : tr('No feedback in this period yet.')}</p></div></div>
+          {said ? (
+            <>
+              <div className="rc-mood" role="img" aria-label={tr('Praise') + ' ' + (praise ? praise.count : 0) + ', ' + tr('Complaint') + ' ' + (said - (praise ? praise.count : 0))}>
+                <span className="is-good" style={{ flexGrow: praise ? praise.count : 0 }} />
+                <span className="is-bad" style={{ flexGrow: said - (praise ? praise.count : 0) }} />
+              </div>
+              <div className="rc-mood-key">
+                <span><i className="is-good" />{tr('Praise')} {praise ? praise.count : 0}</span>
+                <span><i className="is-bad" />{tr('Complaint')} {said - (praise ? praise.count : 0)}</span>
+              </div>
+              <ul className="rc-themes">
+                {complaints.map((x) => (
+                  <li key={x.key}><span className="rc-pill is-bad">{tr(THEME[x.key])} · {x.count}</span>{x.example && <q>{x.example}</q>}</li>
+                ))}
+                {praise && <li><span className="rc-pill is-good">{tr(THEME.praise)} · {praise.count}</span>{praise.example && <q>{praise.example}</q>}</li>}
+              </ul>
+            </>
           ) : <p className="dk-muted tl-small">{tr('Ask guests how the food was; what they say shows here, grouped.')}</p>}
-        </Section>
+        </section>
       </div>
     </>
   );
@@ -494,35 +765,42 @@ function OrderRow({ o, canManage, onGuest, onEdit, onTill, onFollow, onReopen, o
       </span>
       <div className="rc-order-main">
         <div className="rc-order-head">
-          {o.guest ? <button type="button" className="rc-name" onClick={() => onGuest(o.guest.id)}>{o.guest.name}</button> : <strong>{tr('A guest')}</strong>}
+          {o.guest ? <><Avatar name={o.guest.name} /><button type="button" className="rc-name" onClick={() => onGuest(o.guest.id)}>{o.guest.name}</button></> : <strong>{tr('A guest')}</strong>}
           {o.guest && <ContactButtons name={o.guest.name} phone={o.guest.phone} />}
-          <span className="dk-muted tl-small rc-when">{fmtDate(o.orderedOn)}</span>
+          {o.followUp === 'open' && <span className="rc-pill is-bad">{tr('To call back')}</span>}
+          {o.followUp === 'done' && <span className="rc-pill is-good"><Icon name="check" /> {tr('Called back')}</span>}
         </div>
         <p className="rc-items">{o.items || (o.service === 'reservation' ? tr('Table booked') : '—')}{o.itemsRead ? <span className="dk-muted rc-read"> = {o.itemsRead}</span> : null}</p>
-        <div className="tl-tags">
-          <Tag>{tr(CHANNEL[o.channel] || o.channel)}</Tag>
-          <Tag>{tr(SERVICE[o.service] || o.service)}</Tag>
-          {o.partySize ? <Tag>{tr('{n} guests', { n: o.partySize })}</Tag> : null}
-          {o.tableNote ? <Tag>{o.tableNote}</Tag> : null}
-          {o.themes.map((th) => <Tag key={th} tone="bad">{tr(THEME[th])}</Tag>)}
+        <div className="rc-kinds">
+          <Kind k={o.channel} label={tr(CHANNEL[o.channel] || o.channel)} />
+          <Kind k={o.service} label={tr(SERVICE[o.service] || o.service)} />
+          {o.partySize ? <span className="rc-pill is-plain">{tr('{n} guests', { n: o.partySize })}</span> : null}
+          {o.tableNote ? <span className="rc-pill is-plain">{o.tableNote}</span> : null}
+          {o.themes.map((th) => <span key={th} className="rc-pill is-bad">{tr(THEME[th])}</span>)}
         </div>
-        {(o.feedback || o.rating) && <p className="rc-quote">{o.feedback ? '“' + o.feedback + '”' : null} <Stars value={o.rating} /></p>}
-        {o.followUp === 'open' && <p className="rc-flag is-bad">{tr('To call back')}</p>}
-        {o.followUp === 'done' && <p className="rc-flag is-good">{tr('Called back')}{o.followedUpByName ? ' · ' + o.followedUpByName : ''}{o.followedUpAt ? ' · ' + fmtDate(o.followedUpAt) : ''}{o.followUpNote ? ': ' + o.followUpNote : ''}</p>}
-        <p className="dk-muted tl-small rc-till">
-          {o.till ? tr('On the till: {no}, {amount}', { no: o.till.orderNo, amount: money(o.till.total) }) + (o.till.link === 'staff' ? ' · ' + tr('linked by hand') : '')
-            : o.tillLink === 'none' ? tr('Not on the till')
-              : tr('Not linked to a sale on the till yet')}
-          {!o.till && o.amount !== null ? ' · ' + money(o.amount) : ''}
-        </p>
+        <Said feedback={o.feedback} rating={o.rating} />
+        {o.followUp === 'done' && o.followUpNote && <p className="rc-done-note"><Icon name="check" /> {o.followUpNote}{o.followedUpByName ? ' — ' + o.followedUpByName : ''}{o.followedUpAt ? ', ' + fmtDate(o.followedUpAt) : ''}</p>}
       </div>
-      {canManage && <RowMenu actions={[
-        { label: tr('Edit'), onClick: onEdit },
-        { label: o.till ? tr('Change the sale on the till') : tr('Find the sale on the till'), onClick: onTill },
-        o.followUp === 'open' ? { label: tr('Called back'), onClick: onFollow } : { label: tr('Call back'), onClick: onReopen, hidden: o.followUp === 'none' && !o.feedback && !o.rating },
-        o.followUp === 'done' ? { label: tr('Edit what was done'), onClick: onFollow } : null,
-        { label: tr('Remove from the log'), onClick: onDelete, danger: true }
-      ]} />}
+      <div className="rc-order-side">
+        {o.till ? (
+          <span className="rc-receipt" title={o.till.items}>
+            <Icon name="receipt" />
+            <span><strong>{money(o.till.total)}</strong><small>{o.till.orderNo}{o.till.link === 'staff' ? ' · ' + tr('linked by hand') : ''}</small></span>
+          </span>
+        ) : (
+          <span className="rc-receipt is-missing">
+            <Icon name="receipt" />
+            <span>{o.amount !== null && <strong>{money(o.amount)}</strong>}<small>{o.tillLink === 'none' ? tr('Not on the till') : tr('Not linked to a sale on the till yet')}</small></span>
+          </span>
+        )}
+        {canManage && <RowMenu actions={[
+          { label: tr('Edit'), onClick: onEdit },
+          { label: o.till ? tr('Change the sale on the till') : tr('Find the sale on the till'), onClick: onTill },
+          o.followUp === 'open' ? { label: tr('Called back'), onClick: onFollow } : { label: tr('Call back'), onClick: onReopen, hidden: o.followUp === 'none' && !o.feedback && !o.rating },
+          o.followUp === 'done' ? { label: tr('Edit what was done'), onClick: onFollow } : null,
+          { label: tr('Remove from the log'), onClick: onDelete, danger: true }
+        ]} />}
+      </div>
     </li>
   );
 }
@@ -665,19 +943,20 @@ function GuestProfile({ id, canManage, onClose, onOpen, onLog, onChanged, onToas
       <div className="dialog tl-dialog rc-profile" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={g ? g.name : tr('Guest')}>
         {!g ? (err ? <div className="error-banner">{err}</div> : <p className="eyebrow">{tr('Loading…')}</p>) : (
           <>
-            <div className="rc-profile-head">
-              <div>
+            <div className="rc-profile-band">
+              <Avatar name={g.name} big />
+              <div className="rc-profile-who">
                 <h2>{g.name}</h2>
-                <p className="dk-muted tl-small">{g.phone || tr('No number')}{g.fromSquare ? ' · ' + tr('a customer on Square') : ''}</p>
+                <p>{g.phone || tr('No number')}{g.fromSquare ? ' · ' + tr('a customer on Square') : ''}</p>
+                <span className={'rc-pill is-' + g.segment}>{tr(SEGMENT[g.segment][0])}</span>
               </div>
               <ContactButtons name={g.name} phone={g.phone} />
-              <Status tone={SEGMENT[g.segment][1]}>{tr(SEGMENT[g.segment][0])}</Status>
             </div>
             {err && <div className="error-banner">{err}</div>}
-            <div className="rc-kpis">
+            <div className="rc-kpis rc-profile-kpis">
               <div><strong>{g.orders}</strong><span>{tr('orders')}</span></div>
-              <div><strong>{g.firstOn ? fmtDate(g.firstOn) : '—'}</strong><span>{tr('first order')}</span></div>
-              <div><strong>{g.lastOn ? fmtDate(g.lastOn) : '—'}</strong><span>{g.daysSince !== null ? tr('{n} days ago', { n: g.daysSince }) : tr('last order')}</span></div>
+              <div><strong>{shortDate(g.firstOn)}</strong><span>{tr('first order')}</span></div>
+              <div><strong>{shortDate(g.lastOn)}</strong><span>{g.daysSince !== null ? tr('{n} days ago', { n: g.daysSince }) : tr('last order')}</span></div>
               <div><strong>{g.avgGap ? tr('{n} days', { n: g.avgGap }) : '—'}</strong><span>{tr('usually between orders')}</span></div>
               <div><strong>{g.avgRating ? g.avgRating + ' / 5' : '—'}</strong><span>{tr('average rating')}</span></div>
               <div><strong>{g.amount ? money(g.amount) : '—'}</strong><span>{tr('spent (known amounts)')}</span></div>
@@ -713,18 +992,19 @@ function GuestProfile({ id, canManage, onClose, onOpen, onLog, onChanged, onToas
               {g.timeline.length ? (
                 <ul className="rc-timeline">
                   {g.timeline.map((o) => (
-                    <li key={o.kind + o.id}>
+                    <li key={o.kind + o.id} className={o.complaint ? 'is-bad' : o.praise ? 'is-good' : ''}>
+                      <span className="rc-tl-dot" aria-hidden="true" />
                       <span className="dk-muted tl-small rc-tl-date">{fmtDate(o.day)}</span>
                       <div>
                         <p className="rc-items">{o.items || (o.service === 'reservation' ? tr('Table booked') : '—')}{o.amount !== null ? <strong className="rc-tl-amount">{money(o.amount)}</strong> : null}</p>
-                        <div className="tl-tags">
-                          <Tag>{tr(CHANNEL[o.channel] || o.channel)}</Tag>
-                          <Tag>{tr(SERVICE[o.service] || o.service)}</Tag>
+                        <div className="rc-kinds">
+                          <Kind k={o.channel} label={tr(CHANNEL[o.channel] || o.channel)} />
+                          <Kind k={o.service} label={tr(SERVICE[o.service] || o.service)} />
                           {o.kind === 'till' && <Tag>{tr('Till only')}</Tag>}
                           {o.kind === 'log' && o.tillOrderId && <Tag tone="good">{tr('On the till')}</Tag>}
                           {o.themes.map((th) => <Tag key={th} tone="bad">{tr(THEME[th])}</Tag>)}
                         </div>
-                        {(o.feedback || o.rating) && <p className="rc-quote">{o.feedback ? '“' + o.feedback + '”' : null} <Stars value={o.rating} /></p>}
+                        <Said feedback={o.feedback} rating={o.rating} />
                       </div>
                     </li>
                   ))}
