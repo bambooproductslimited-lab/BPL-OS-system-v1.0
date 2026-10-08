@@ -120,6 +120,7 @@ var ALLOWED = {
   'GET /api/leave/types': 'leave-type catalogue, needed to file a request',
   'GET /api/attendance/': 'own attendance row — scoped, asserted below',
   'GET /api/attendance/report': 'own attendance only, and canViewPay is false — scoped, asserted below',
+  'GET /api/attendance/highlights': 'own attendance only (the same scope as the roster) — scoped, asserted below',
   'GET /api/dashboard/': 'own KPI tiles — scoped, asserted below',
   'GET /api/tasks/': 'own tasks — scoped, asserted below',
   'GET /api/announcements/': 'company noticeboard; audience_scope decides who sees what',
@@ -444,6 +445,11 @@ test('list endpoints any employee may call return only their own rows', async fu
     leaks.push('/api/attendance/report returned ' + whose.length + ' employee(s), expected only the caller');
   }
   if (report.canViewPay !== false) leaks.push('/api/attendance/report set canViewPay=true without payroll permission');
+  // The attendance screen's highlights work over the same people as the roster.
+  var high = JSON.parse((await callAs('GET', '/api/attendance/highlights')).text);
+  if (high.scopeSize !== 1) leaks.push('/api/attendance/highlights scopeSize=' + high.scopeSize + ', expected 1 (self only)');
+  var named = (high.streaks || []).concat(high.earlyBirds || [], (high.perfect && high.perfect.people) || []).filter(function (p) { return p.employeeId !== nobody.employeeId; });
+  if (named.length) leaks.push('/api/attendance/highlights named ' + named.length + ' other employee(s)');
 
   assert.deepEqual(leaks, [], "Self-scoped endpoints leaked another employee's data:\n  " + leaks.join('\n  '));
 });

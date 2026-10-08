@@ -828,6 +828,122 @@ async function remove(ctx, id) {
   return true;
 }
 
+// ── what the attendance screen celebrates and watches ───────────────────
+//
+// For the day picked (today by default) and the 30 days up to it, the same
+// "a day with no record is absent, unless on approved leave or a rest day"
+// rule as list() and report():
+//   trend       the last 14 days: who came in out of who was expected
+//   streaks     workdays in a row each person came in on time, up to the
+//               day (leave and rest days neither count nor break a run;
+//               today, someone not in yet keeps yesterday's run)
+//   earlyBirds  the day's three earliest on-time arrivals, measured against
+//               each person's own shift start (no shift, not ranked)
+//   weekdays    attendance per day of the week across the 30 days
+//   perfect     everyone with 10+ days worked and none late or missed
+//   punctuality on-time arrivals out of all arrivals
+// Today counts as it stands, so its figures grow during the morning.
+var HIGHLIGHT_DAYS = 30;
+var TREND_DAYS = 14;
+function addDaysISO(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+
+async function highlights(ctx, params) {
+  params = params || {};
+  var date = params.date ? V.date(params.date, 'Date') : todayISO();
+  if (isNaN(new Date(date + 'T00:00:00Z').getTime()) || new Date(date + 'T00:00:00Z').toISOString().slice(0, 10) !== date) fail('invalid', 'Date must be a valid date.');
+  var from = addDaysISO(date, -(HIGHLIGHT_DAYS - 1));
+  var isToday = date === todayISO();
+  var dates = [];
+  for (var d = from; d <= date; d = addDaysISO(d, 1)) dates.push(d);
+  var emps = await scopedEmployees(ctx, params);
+  var ids = emps.map(function (e) { return e.id; });
+  var out = { date: date, from: from, days: HIGHLIGHT_DAYS, partial: isToday, scopeSize: ids.length, trend: [], streaks: [], onStreak: 0, earlyBirds: [], weekdays: [], perfect: { count: 0, people: [] }, punctuality: { onTime: 0, late: 0, rate: null } };
+  if (!ids.length) return out;
+
+  var att = (await pool.query(
+    'SELECT employee_id, date, shift_no, clock_in, status FROM attendance WHERE employee_id = ANY($1) AND date BETWEEN $2 AND $3 ORDER BY shift_no',
+    [ids, from, date])).rows;
+  var rec = {};
+  att.forEach(function (r) { var k = r.employee_id + '|' + r.date; if (!rec[k]) rec[k] = r; });   // the first shift worked
+  var onLeave = await approvedLeaveDays(ids, from, date);
+  function statusOf(e, day) {
+    var r = rec[e.id + '|' + day];
+    if (r) return r.status;
+    if (onLeave[e.id + '|' + day]) return 'leave';
+    return isRestDay(e.company_name, e.department_name, day, e.work_days) ? 'off' : 'absent';
+  }
+  var came = function (st) { return st === 'present' || st === 'late' || st === 'half_day'; };
+  var person = function (e) { return { employeeId: e.id, name: e.first_name + ' ' + e.last_name, code: e.code, department: e.department_name, company: e.company_name }; };
+  var grid = emps.map(function (e) { return { e: e, st: dates.map(function (day) { return statusOf(e, day); }) }; });
+  // Today, someone not in yet has not missed the day (yet).
+  var lastIdx = dates.length - 1;
+  var counted = function (st, i) { return !(isToday && i === lastIdx && st === 'absent'); };
+
+  // The last 14 days, day by day.
+  dates.slice(-TREND_DAYS).forEach(function (day) {
+    var i = dates.indexOf(day), t = { date: day, came: 0, late: 0, expected: 0, rate: null };
+    grid.forEach(function (g) {
+      var st = g.st[i];
+      if (!counted(st, i)) return;
+      if (came(st)) { t.came++; t.expected++; if (st === 'late') t.late++; }
+      else if (st === 'absent') t.expected++;
+    });
+    t.rate = t.expected ? Math.round(t.came / t.expected * 100) : null;
+    out.trend.push(t);
+  });
+
+  // On-time runs, counted back from the day.
+  var runs = [];
+  grid.forEach(function (g) {
+    var n = 0, whole = true;
+    for (var i = lastIdx; i >= 0; i--) {
+      var st = g.st[i];
+      if (!counted(st, i) || st === 'leave' || st === 'off' || st === 'half_day') continue;
+      if (st === 'present') { n++; continue; }
+      whole = false; break;
+    }
+    if (n >= 3) runs.push(Object.assign(person(g.e), { days: n, wholeWindow: whole }));
+  });
+  runs.sort(function (a, b) { return b.days - a.days || a.name.localeCompare(b.name); });
+  out.onStreak = runs.filter(function (r) { return r.days >= 5; }).length;
+  out.streaks = runs.slice(0, 8);
+
+  // The day's early birds, against their own shift start.
+  var birds = [];
+  emps.forEach(function (e) {
+    var r = rec[e.id + '|' + date];
+    if (!r || r.status !== 'present' || !r.clock_in || Number(r.shift_no) !== 1 || !e.shift_start_time) return;
+    var diff = hmToMinutes(String(e.shift_start_time).slice(0, 5)) - hmToMinutes(String(r.clock_in).slice(0, 5));
+    diff = ((diff + 720) % 1440 + 1440) % 1440 - 720;   // overnight shifts wrap
+    if (diff < 0 || diff > 180) return;
+    birds.push(Object.assign(person(e), { clockIn: String(r.clock_in).slice(0, 5), shiftStart: String(e.shift_start_time).slice(0, 5), early: diff }));
+  });
+  birds.sort(function (a, b) { return b.early - a.early || a.clockIn.localeCompare(b.clockIn) || a.name.localeCompare(b.name); });
+  out.earlyBirds = birds.slice(0, 3);
+
+  // Each day of the week, Monday first; perfect attendance; punctuality.
+  var wk = [1, 2, 3, 4, 5, 6, 0].map(function (w) { return { weekday: w, came: 0, expected: 0, rate: null }; });
+  var perfect = [];
+  grid.forEach(function (g) {
+    var worked = 0, missed = 0;
+    g.st.forEach(function (st, i) {
+      if (!counted(st, i)) return;
+      var w = wk[(new Date(dates[i] + 'T00:00:00Z').getUTCDay() + 6) % 7];
+      if (came(st)) { w.came++; w.expected++; worked++; } else if (st === 'absent') { w.expected++; missed++; }
+      if (st === 'present') out.punctuality.onTime++;
+      if (st === 'late') { out.punctuality.late++; missed++; }
+    });
+    if (worked >= 10 && !missed) perfect.push(person(g.e));
+  });
+  wk.forEach(function (w) { w.rate = w.expected ? Math.round(w.came / w.expected * 100) : null; });
+  out.weekdays = wk;
+  perfect.sort(function (a, b) { return a.name.localeCompare(b.name); });
+  out.perfect = { count: perfect.length, people: perfect.slice(0, 12) };
+  var arrivals = out.punctuality.onTime + out.punctuality.late;
+  out.punctuality.rate = arrivals ? Math.round(out.punctuality.onTime / arrivals * 100) : null;
+  return out;
+}
+
 function rowToAttendance(r) {
   return {
     id: r.id, employeeId: r.employee_id, date: r.date,
@@ -848,5 +964,5 @@ module.exports = {
   resolveLateAfter: resolveLateAfter, resolveLateRule: resolveLateRule, judgeLateness: judgeLateness,
   graceSchedule: graceSchedule, graceOn: graceOn, secondShiftOf: secondShiftOf,
   unassignedShifts: unassignedShifts, latenessReport: latenessReport,
-  report: report, isRestDay: isRestDay, approvedLeaveDays: approvedLeaveDays
+  report: report, isRestDay: isRestDay, approvedLeaveDays: approvedLeaveDays, highlights: highlights
 };

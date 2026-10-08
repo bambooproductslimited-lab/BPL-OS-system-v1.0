@@ -27,6 +27,14 @@ router.get('/', async function (req, res, next) {
   } catch (e) { next(e); }
 });
 
+// The screen's highlights: the trend, on-time streaks, early birds, the
+// days of the week (attendance.service.js highlights()).
+router.get('/highlights', async function (req, res, next) {
+  try {
+    res.json(await attendanceService.highlights(req.ctx, { date: req.query.date, companyId: req.query.companyId, departmentId: req.query.departmentId }));
+  } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['attendance.report'] -> GET /api/attendance/report?from=&to=&companyId=&departmentId=
 router.get('/report', async function (req, res, next) {
   try {

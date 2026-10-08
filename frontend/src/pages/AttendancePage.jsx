@@ -12,8 +12,10 @@ import { companiesInReach, useMyViewScope, viewScopeInsight } from '../lib/viewS
 import { activeIntlLocale, tr, trNodes } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import {
-  CompanySwitcher, Glossary, Hero, Insights, Section, jump
+  CompanySwitcher, Glossary, Insights, Section, jump
 } from '../components/DashKit';
+import { ArrivalLine, Banner, DayStrip, EarlyBirds, Face, PanelHead, PerfectClub, PresenceWall, StatusLegend, StatusPill, Streaks, WeekRhythm } from './AttendanceFun';
+import './AttendanceFun.css';
 // Ported from Bamboo OS.dc.html's attendance screen (screens.attendance
 // block + the attendance/attSummary computed values around its render()).
 // Clock in/out lives on the "My space" screen, not here — this screen is
@@ -33,17 +35,6 @@ import {
 // page already carries a lot of write/batch logic, so reskinning the list
 // view is the highest-value, lowest-risk change.
 
-const AVATAR_COLORS = ['#3f7d3b', '#2f5f2c', '#7d5c3f', '#3f5a7d', '#7d3f5c', '#5c3f7d', '#7d6b3f', '#3f7d6b'];
-function initials(name) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0] ? parts[0][0] : '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
-}
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_COLORS.length]; }
 
 const ICON_PATHS = {
   users: <><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M2.5 19c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M14.8 13.3c2.6.4 4.7 2.5 4.7 5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>,
@@ -87,14 +78,6 @@ function todayISO() {
 
 function daysAgoISO(n) {
   return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
-}
-
-// Ported from kernel.js's UI helper tag(status).
-function tagClass(status) {
-  if (['approved', 'present', 'active', 'completed'].includes(status)) return 'tag-neutral';
-  if (['pending', 'late', 'in_progress', 'under_review', 'waiting', 'not_started', 'planning'].includes(status)) return 'tag-outline';
-  if (['rejected', 'absent', 'disabled', 'cancelled', 'on_hold', 'delayed'].includes(status)) return 'tag-accent';
-  return 'tag-neutral';
 }
 
 // Ported from Bamboo OS.dc.html's fmtDate().
@@ -205,6 +188,8 @@ export default function AttendancePage() {
   const isSingleDay = dateRange.from === dateRange.to;
   const [data, setData] = useState({ rows: [], scopeSize: 0 });
   const [periodRows, setPeriodRows] = useState([]); // aggregated per-employee counts, used when the range spans more than one day
+  const [periodDays, setPeriodDays] = useState({}); // employeeId → [{ date, status }], for each person's strip of days
+  const [highlights, setHighlights] = useState(null); // streaks, trend, early birds … (GET /attendance/highlights)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -294,8 +279,11 @@ export default function AttendancePage() {
       const scopeParams = new URLSearchParams();
       if (companyFilter) scopeParams.set('companyId', companyFilter);
       if (deptFilter) scopeParams.set('departmentId', deptFilter);
-      const [depts] = await Promise.all([api.get('/departments')]);
+      const hl = new URLSearchParams(scopeParams);
+      hl.set('date', isSingleDay ? dateRange.from : dateRange.to);
+      const [depts, high] = await Promise.all([api.get('/departments'), api.get('/attendance/highlights?' + hl.toString()).catch(() => null)]);
       setDepartments(depts);
+      setHighlights(high);
       if (isSingleDay) {
         scopeParams.set('date', dateRange.from);
         const res = await api.get('/attendance?' + scopeParams.toString());
@@ -305,6 +293,9 @@ export default function AttendancePage() {
         scopeParams.set('to', dateRange.to);
         const res = await api.get('/attendance/report?' + scopeParams.toString());
         setPeriodRows(aggregateByEmployee(res.rows));
+        const days = {};
+        res.rows.forEach((r) => { if (r.shiftNo !== 2) (days[r.employeeId] = days[r.employeeId] || []).push({ date: r.date, status: r.status }); });
+        setPeriodDays(days);
       }
     } catch (err) {
       setError(err.message);
@@ -314,6 +305,13 @@ export default function AttendancePage() {
   }, [dateRange, isSingleDay, companyFilter, deptFilter]);
 
   useEffect(() => { load(); }, [load]);
+  // Today's board keeps itself up to date as people clock in.
+  const watchingToday = isSingleDay && dateRange.from === todayISO();
+  useEffect(() => {
+    if (!watchingToday) return undefined;
+    const t = setInterval(() => { load(); }, 120000);
+    return () => clearInterval(t);
+  }, [watchingToday, load]);
 
   // The single-day and period summary tiles below use different statusFilter
   // vocabularies (a per-day status vs. an aggregated day-count bucket, incl.
@@ -599,6 +597,7 @@ export default function AttendancePage() {
     }).sort((a, b) => (a.rate === null ? 101 : a.rate) - (b.rate === null ? 101 : b.rate));
   })();
   const showCompany = !companyFilter && companies.length > 1;
+  const showStrips = !isSingleDay && enumerateDates(dateRange.from, dateRange.to).length <= 62;
 
   const insights = [];
   const scopeLine = viewScopeInsight(myScope);
@@ -647,17 +646,19 @@ export default function AttendancePage() {
     insights.push({ tone: 'warn', icon: 'people', text: tr('{group} has the lowest attendance: {rate}%.', { group: lowGroup.name + (showCompany ? ' (' + lowGroup.company + ')' : ''), rate: lowGroup.rate }) });
   }
 
+  const lateMins = rows.filter((r) => r.status === 'late' && r.minutesLate != null).map((r) => r.minutesLate);
+  const lateAvg = lateMins.length ? Math.round(lateMins.reduce((a, n) => a + n, 0) / lateMins.length) : null;
   function statTile(key) { return () => { setStatusFilter(statusFilter === key ? '' : key); jump('att-roster'); }; }
   const stats = isSingleDay ? [
     { icon: 'people', value: dayCounts.in + '/' + dayExpected, label: isToday ? tr('in today') : tr('came in'), note: dayExpected ? tr('{rate}% of those expected', { rate: dayRate }) : tr('nobody expected'), onClick: statTile('') },
-    { icon: 'clock', value: String(dayCounts.late), label: tr('late'), note: tr('after their start time'), tone: dayCounts.late ? 'alert' : '', onClick: statTile('late') },
-    { icon: 'warn', value: String(dayCounts.absent), label: isToday ? tr('not in yet') : tr('no record'), note: tr('not clocked in, not on leave'), tone: dayCounts.absent && !isToday ? 'bad' : '', onClick: statTile('absent') },
-    { icon: 'calendar', value: String(dayCounts.leave + dayCounts.off), label: tr('away'), note: tr('{l} on leave · {o} rest day', { l: dayCounts.leave, o: dayCounts.off }), onClick: statTile(dayCounts.leave ? 'leave' : 'off') }
+    { icon: 'clock', value: String(dayCounts.late), label: tr('late'), note: lateAvg !== null ? tr('{n} min late on average', { n: lateAvg }) : tr('after their start time'), tone: dayCounts.late ? 'alert' : '', onClick: statTile('late'), filterKey: 'late' },
+    { icon: 'warn', value: String(dayCounts.absent), label: isToday ? tr('not in yet') : tr('no record'), note: tr('not clocked in, not on leave'), tone: dayCounts.absent && !isToday ? 'bad' : '', onClick: statTile('absent'), filterKey: 'absent' },
+    { icon: 'calendar', value: String(dayCounts.leave + dayCounts.off), label: tr('away'), note: tr('{l} on leave · {o} rest day', { l: dayCounts.leave, o: dayCounts.off }), onClick: statTile(dayCounts.leave ? 'leave' : 'off'), filterKey: dayCounts.leave ? 'leave' : 'off' }
   ] : [
     { icon: 'people', value: periodRate + '%', label: tr('attendance'), note: tr('{worked} of {expected} expected days worked', { worked: periodWorked, expected: periodExpected }), onClick: statTile('') },
-    { icon: 'clock', value: String(periodTotals.late), label: tr('late days'), note: tr('across {n} people', { n: periodRows.filter((r) => r.late).length }), tone: periodTotals.late ? 'alert' : '', onClick: statTile('late') },
-    { icon: 'warn', value: String(periodTotals.absent), label: tr('missed days'), note: tr('no record and no leave'), tone: periodTotals.absent ? 'bad' : '', onClick: statTile('absent') },
-    { icon: 'calendar', value: String(periodTotals.leave), label: tr('leave days'), note: tr('{n} rest days besides', { n: periodTotals.off }), onClick: statTile('leave') }
+    { icon: 'clock', value: String(periodTotals.late), label: tr('late days'), note: tr('across {n} people', { n: periodRows.filter((r) => r.late).length }), tone: periodTotals.late ? 'alert' : '', onClick: statTile('late'), filterKey: 'late' },
+    { icon: 'warn', value: String(periodTotals.absent), label: tr('missed days'), note: tr('no record and no leave'), tone: periodTotals.absent ? 'bad' : '', onClick: statTile('absent'), filterKey: 'absent' },
+    { icon: 'calendar', value: String(periodTotals.leave), label: tr('leave days'), note: tr('{n} rest days besides', { n: periodTotals.off }), onClick: statTile('leave'), filterKey: 'leave' }
   ];
 
   return (
@@ -670,7 +671,8 @@ export default function AttendancePage() {
           onPick={pickCompany} describe={(co) => (co.code === 'ALL' ? tr('Everyone together') : tr('{n} groups', { n: departments.filter((d) => d.companyId === co.id).length }))} />
       )}
 
-      <Hero
+      <Banner
+        live={isToday}
         eyebrow={isSingleDay ? fmtDate(dateRange.from) : fmtDate(dateRange.from) + ' – ' + fmtDate(dateRange.to)}
         title={isToday ? tr('Today\'s attendance') : isSingleDay ? tr('Attendance on this day') : tr('Attendance over the period')}
         sub={isSingleDay
@@ -682,9 +684,54 @@ export default function AttendancePage() {
           <button type="button" className="btn btn-secondary" onClick={openReport}>{tr('Download report')}</button>
           <button type="button" className="btn btn-secondary" onClick={openLateness}>{tr('Lateness')}</button>
         </>}
-        stats={stats} />
+        ringPct={isSingleDay ? dayRate : periodRate}
+        ringValue={(isSingleDay ? (dayExpected ? dayRate : 0) : periodRate) + '%'}
+        ringLabel={isSingleDay ? tr('{came} of {expected} in', { came: dayCounts.in, expected: dayExpected }) : tr('{came} of {expected} days', { came: periodWorked, expected: periodExpected })}
+        full={isSingleDay && dayExpected > 0 && dayCounts.in === dayExpected}
+        tiles={stats.slice(1).map((st, i) => ({ ...st, key: i, active: statusFilter && statusFilter === st.filterKey }))}
+        trend={highlights ? highlights.trend : null}
+        onTime={highlights && highlights.punctuality ? highlights.punctuality.rate : null} />
 
       <Insights items={insights.slice(0, 7)} />
+
+      {isSingleDay && rows.length > 0 && (
+        <Section title={isToday ? tr('Who\'s in right now') : tr('Who came in')} sub={tr('Everyone in view, as faces. Press a face to find them in the list below.')}>
+          <PresenceWall rows={rows} isToday={isToday} onPick={(r) => { setStatusFilter(''); setSearch(r.name); jump('att-roster'); }} />
+        </Section>
+      )}
+
+      <div className="atf-panels">
+        {isSingleDay && rows.length > 0 && (
+          <section className="atf-panel is-wide">
+            <PanelHead icon="sunrise" title={tr('How the morning went')} sub={tr('Each dot is someone clocking in, at the time they did.')} />
+            <ArrivalLine rows={rows} />
+          </section>
+        )}
+        {isSingleDay && highlights && (
+          <section className="atf-panel">
+            <PanelHead icon="bird" title={tr('Early birds')} sub={tr('The earliest on-time arrivals, against their own shift start.')} />
+            <EarlyBirds birds={highlights.earlyBirds} />
+          </section>
+        )}
+        {highlights && (
+          <section className="atf-panel">
+            <PanelHead icon="flame" title={tr('On-time streaks')} sub={tr('Workdays in a row on time, up to {date}. Leave and rest days do not break a run.', { date: fmtDate(highlights.date) })} />
+            <Streaks streaks={highlights.streaks} onStreak={highlights.onStreak} />
+          </section>
+        )}
+        {highlights && (
+          <section className="atf-panel">
+            <PanelHead icon="wave" title={tr('The rhythm of the week')} sub={tr('Attendance on each day of the week, over the last 30 days.')} />
+            <WeekRhythm weekdays={highlights.weekdays} />
+          </section>
+        )}
+        {highlights && (
+          <section className="atf-panel">
+            <PanelHead icon="star" title={tr('Perfect attendance')} sub={tr('Every expected day, on time, over the last 30 days.')} />
+            <PerfectClub perfect={highlights.perfect} />
+          </section>
+        )}
+      </div>
 
       {groups.length > 1 && (
         <Section title={tr('By group')} sub={isSingleDay ? tr('Who came in out of who was expected. People on leave or on a rest day are not expected.') : tr('Days worked out of days expected, per group.')}>
@@ -739,6 +786,7 @@ export default function AttendancePage() {
         )}
       </div>
 
+      <StatusLegend />
       {isSingleDay ? (
         <>
           <div className="table-scroll"><table className="table">
@@ -751,7 +799,7 @@ export default function AttendancePage() {
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
                   <td>
                     <div className="attendance-name-cell">
-                      <span className="attendance-avatar" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span>
+                      <Face name={r.name} size={32} ring={isSingleDay ? (r.status === 'present' || r.status === 'late' ? (r.status === 'late' ? 'late' : (r.clockOut ? 'done' : 'now')) : r.status === 'absent' ? 'missing' : 'away') : null} />
                       <span style={{ fontWeight: 600 }}>{r.name}</span>
                     </div>
                   </td>
@@ -775,11 +823,11 @@ export default function AttendancePage() {
                     )}
                   </td>
                   <td>
-                    <span className={'tag ' + tagClass(r.status)}>{codeLabel(r.status)}</span>
+                    <StatusPill status={r.status} />
                     {r.status === 'late' && r.minutesLate != null && <span className="attendance-late-by">{tr('{n} min', { n: r.minutesLate })}</span>}
                     {r.secondShift && (
                       <div className="attendance-second">
-                        <span className={'tag ' + tagClass(r.secondShift.status)}>{codeLabel(r.secondShift.status)}</span>
+                        <StatusPill status={r.secondShift.status} />
                         {r.secondShift.status === 'late' && r.secondShift.minutesLate != null && <span className="attendance-late-by">{tr('{n} min', { n: r.secondShift.minutesLate })}</span>}
                       </div>
                     )}
@@ -808,7 +856,7 @@ export default function AttendancePage() {
         <>
           <div className="table-scroll"><table className="table">
             <thead>
-              <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Present')}</th><th>{tr('Late')}</th><th>{tr('Absent')}</th><th>{tr('Leave')}</th><th>{tr('Off')}</th><th title={tr('Days they actually came to work (present + late)')}>{tr('Total')}</th></tr>
+              <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Present')}</th><th>{tr('Late')}</th><th>{tr('Absent')}</th><th>{tr('Leave')}</th><th>{tr('Off')}</th><th title={tr('Days they actually came to work (present + late)')}>{tr('Total')}</th>{showStrips && <th>{tr('Day by day')}</th>}</tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
@@ -816,7 +864,7 @@ export default function AttendancePage() {
                   <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.code}</td>
                   <td>
                     <div className="attendance-name-cell">
-                      <span className="attendance-avatar" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span>
+                      <Face name={r.name} size={32} ring={isSingleDay ? (r.status === 'present' || r.status === 'late' ? (r.status === 'late' ? 'late' : (r.clockOut ? 'done' : 'in')) : r.status === 'absent' ? 'missing' : 'away') : null} />
                       <span style={{ fontWeight: 600 }}>{r.name}</span>
                     </div>
                   </td>
@@ -828,6 +876,7 @@ export default function AttendancePage() {
                   <td>{r.leave}</td>
                   <td>{r.off}</td>
                   <td style={{ fontWeight: 600 }}>{r.total}</td>
+                  {showStrips && <td><DayStrip days={periodDays[r.employeeId] || []} /></td>}
                 </tr>
               ))}
             </tbody>
