@@ -28,7 +28,7 @@ import './ProjectsPage.css';
 
 const STATUSES = ['planning', 'active', 'on_hold', 'delayed', 'completed', 'cancelled'];
 const OPEN = (p) => p.status !== 'completed' && p.status !== 'cancelled';
-const EMPTY_FORM = { name: '', departmentId: '', ownerId: '', memberIds: [], startDate: '', deadline: '', budget: '', description: '', forKind: 'company', forCompanyId: '', customerText: '' };
+const EMPTY_FORM = { name: '', departmentId: '', ownerId: '', memberIds: [], startDate: '', deadline: '', budget: '', description: '', forKind: 'company', forCompanyId: '', customerText: '', autoClose: true };
 
 // What the server reads for who the project is for.
 function forBody(f) {
@@ -48,9 +48,12 @@ function healthOf(p, today) {
   const gone = p.startDate ? daysBetween(p.startDate, today) : 0;
   const time = span > 0 ? Math.max(0, Math.min(1, gone / span)) : (p.deadline && today >= p.deadline ? 1 : 0);
   const daysLeft = p.deadline ? daysBetween(today, p.deadline) : null;
+  // Every work order done (none open, at least one completed) but still open: waiting to be closed.
+  const openWork = Math.max(0, (p.taskCount || 0) - (p.doneCount || 0) - (p.cancelledCount || 0));
   let key = 'track';
   if (p.status === 'completed') key = 'done';
   else if (p.status === 'cancelled') key = 'cancelled';
+  else if (work && !openWork && (p.doneCount || 0) > 0) key = 'ready';
   else if (daysLeft !== null && daysLeft < 0) key = 'overdue';
   else if (!work) key = 'notasks';
   else if (time >= 0.3 && time - done >= 0.25) key = 'behind';
@@ -61,9 +64,19 @@ const HEALTH = {
   behind: { tone: 'warn', label: () => tr('Falling behind') },
   overdue: { tone: 'bad', label: () => tr('Past deadline') },
   notasks: { tone: 'muted', label: () => tr('No work orders yet') },
+  ready: { tone: 'info', label: () => tr('Ready to close') },
   done: { tone: 'good', label: () => tr('Completed') },
   cancelled: { tone: 'muted', label: () => tr('Cancelled') }
 };
+
+// How a closed project came to be closed.
+function closedText(p) {
+  if (!p.closedAt) return p.status === 'cancelled' ? tr('Cancelled') : tr('Completed');
+  const date = fmtDate(String(p.closedAt).slice(0, 10));
+  if (p.status === 'cancelled') return p.closedByName ? tr('Cancelled on {date} by {name}.', { date, name: p.closedByName }) : tr('Cancelled on {date}.', { date });
+  if (p.closedAuto) return tr('Closed by itself on {date}, when its last work order was done.', { date });
+  return p.closedByName ? tr('Closed on {date} by {name}.', { date, name: p.closedByName }) : tr('Closed on {date}.', { date });
+}
 
 function Faces({ people, size = 26, max = 4 }) {
   if (!people || !people.length) return null;
@@ -164,6 +177,13 @@ function ProjectForm({ form, setForm, departments, employees, companies, custome
         <label htmlFor="pj-budget">{tr('Budget (GHS, optional)')}</label>
         <input id="pj-budget" className="input" type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
       </div>
+      <label className="pj-span pj-check">
+        <input type="checkbox" checked={!!form.autoClose} onChange={(e) => setForm({ ...form, autoClose: e.target.checked })} />
+        <span>
+          <strong>{tr('Close it by itself when all its work orders are done')}</strong>
+          <span className="dk-muted">{tr('Its owner is told, and it reopens by itself if one of them is opened again or a new one is added. Leave this off to close the project yourself.')}</span>
+        </span>
+      </label>
       <div className="field pj-span">
         <label htmlFor="pj-desc">{tr('Description')}</label>
         <textarea id="pj-desc" className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={tr('What the project is for and what "done" looks like.')} />
@@ -199,6 +219,9 @@ export default function ProjectsPage() {
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(null);
   const [detailError, setDetailError] = useState(null);
+  const [closeTarget, setCloseTarget] = useState(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -242,7 +265,7 @@ export default function ProjectsPage() {
     try {
       const created = await api.post('/projects', {
         name: form.name, departmentId: form.departmentId, ownerId: form.ownerId || undefined, memberIds: form.memberIds,
-        startDate: form.startDate || undefined, deadline: form.deadline || undefined, budget: form.budget || 0, description: form.description, ...forBody(form)
+        startDate: form.startDate || undefined, deadline: form.deadline || undefined, budget: form.budget || 0, description: form.description, autoClose: !!form.autoClose, ...forBody(form)
       });
       setNewOpen(false);
       setToast(tr('Project created.'));
@@ -265,11 +288,23 @@ export default function ProjectsPage() {
       await load();
     } catch (err) { (detail ? setDetailError : setError)(err.message); }
   }
+  function openClose(p) { setCloseTarget(p); setCancelOpen(false); }
+  async function confirmClose() {
+    setClosing(true);
+    try {
+      const closed = await api.post('/projects/' + closeTarget.id + '/close', { cancelOpen });
+      setToast(closed.cancelledWorkOrders ? tr('{code} is closed; {n} open work orders were cancelled.', { code: closed.code, n: closed.cancelledWorkOrders }) : tr('{code} is closed.', { code: closed.code }));
+      if (detail && detail.id === closed.id) setDetail(closed);
+      setCloseTarget(null);
+      await load();
+    } catch (err) { setError(err.message); setCloseTarget(null); } finally { setClosing(false); }
+  }
   function startEdit() {
     setEditing({
       name: detail.name, departmentId: detail.departmentId, ownerId: detail.ownerId, memberIds: detail.members.map((m) => m.id),
       startDate: detail.startDate || '', deadline: detail.deadline || '', budget: detail.budget ? String(detail.budget) : '', description: detail.description || '',
-      forKind: detail.forCompanyId || !detail.customerName ? 'company' : 'customer', forCompanyId: detail.forCompanyId || '', customerText: detail.forCompanyId ? '' : detail.customerName || ''
+      forKind: detail.forCompanyId || !detail.customerName ? 'company' : 'customer', forCompanyId: detail.forCompanyId || '', customerText: detail.forCompanyId ? '' : detail.customerName || '',
+      autoClose: !!detail.autoClose
     });
   }
   async function saveEdit(e) {
@@ -278,9 +313,10 @@ export default function ProjectsPage() {
     setDetailError(null);
     try {
       const { forKind, forCompanyId, customerText, ...rest } = editing; // eslint-disable-line no-unused-vars
-      setDetail(await api.patch('/projects/' + detail.id, { ...rest, ...forBody(editing), ownerId: editing.ownerId || undefined, budget: editing.budget === '' ? 0 : editing.budget }));
+      const saved = await api.patch('/projects/' + detail.id, { ...rest, ...forBody(editing), ownerId: editing.ownerId || undefined, budget: editing.budget === '' ? 0 : editing.budget });
+      setDetail(saved);
       setEditing(null);
-      setToast(tr('Project updated.'));
+      setToast((saved.projectChanges || []).some((c) => c.change === 'closed') ? tr('Project updated. All its work orders are done, so it has closed itself.') : tr('Project updated.'));
       await load();
     } catch (err) { setDetailError(err.message); } finally { setSaving(false); }
   }
@@ -308,12 +344,13 @@ export default function ProjectsPage() {
     soon: ({ p, h }) => OPEN(p) && h.daysLeft !== null && h.daysLeft >= 0 && h.daysLeft <= 30,
     planning: ({ p }) => p.status === 'planning',
     held: ({ p }) => p.status === 'on_hold' || p.status === 'delayed',
+    ready: ({ h }) => h.key === 'ready',
     completed: ({ p }) => p.status === 'completed',
     cancelled: ({ p }) => p.status === 'cancelled',
     all: () => true
   };
   function showOnly(key) { setChip(chip === key ? 'open' : key); jump('pj-list'); }
-  const order = { overdue: 0, behind: 1, notasks: 2, track: 3, done: 4, cancelled: 5 };
+  const order = { overdue: 0, ready: 1, behind: 2, notasks: 3, track: 4, done: 5, cancelled: 6 };
   const visible = withHealth
     .filter(chipTest[chip] || chipTest.open)
     .filter(({ p }) => matchesQuery(search, p.name, p.code, p.departmentName, p.companyName, p.ownerName, p.description, ...(p.members || []).map((m) => m.name)))
@@ -338,11 +375,18 @@ export default function ProjectsPage() {
     insights.push({ tone: 'warn', icon: 'doc', text: withLateTasks.length === 1 ? tr('{name} has {n} overdue work orders.', { name: worst.name, n: worst.overdueTaskCount }) : tr('{n} projects have overdue work orders; {name} has the most ({t}).', { n: withLateTasks.length, name: worst.name, t: worst.overdueTaskCount }), action: { label: tr('See its work orders'), run: () => navigate('/tasks?project=' + worst.id) } });
   }
   if (noTasks.length) insights.push({ tone: 'info', icon: 'info', text: noTasks.length === 1 ? tr('{name} has no work orders yet, so its progress cannot be measured. Add work orders to it in Work orders.', { name: noTasks[0].p.name }) : tr('{n} open projects have no work orders yet, so their progress cannot be measured.', { n: noTasks.length }) });
+  const ready = open.filter(({ h }) => h.key === 'ready');
+  if (ready.length) {
+    insights.unshift(ready.length === 1
+      ? { tone: 'good', icon: 'check', text: tr('{name} has all its work orders done. Close it?', { name: ready[0].p.name }), action: canManage ? { label: tr('Close it'), run: () => openClose(ready[0].p) } : { label: tr('Open'), run: () => openDetail(ready[0].p) } }
+      : { tone: 'good', icon: 'check', text: tr('{n} projects have all their work orders done and are waiting to be closed.', { n: ready.length }), action: { label: tr('Show them'), run: () => showOnly('ready') } });
+  }
   const held = open.filter(({ p }) => p.status === 'on_hold' || p.status === 'delayed');
   if (held.length) insights.push({ tone: 'info', icon: 'clock', text: tr('On hold or delayed: {names}.', { names: held.map(({ p }) => p.name).join(', ') }), action: { label: tr('Show them'), run: () => showOnly('held') } });
 
   const chips = [
     ['open', tr('Open'), scoped.filter(OPEN).length],
+    ['ready', tr('Ready to close'), ready.length],
     ['behind', tr('Behind or late'), overdue.length + behind.length],
     ['soon', tr('Deadline within 30 days'), soon.length],
     ['planning', codeLabel('planning'), withHealth.filter(chipTest.planning).length],
@@ -397,7 +441,8 @@ export default function ProjectsPage() {
                   <span className="dk-muted pj-card-code">{p.code} · {p.departmentName}{showCompany ? ' · ' + p.companyCode : ''}</span>
                   {canManage && <RowMenu actions={[
                     { label: tr('Open'), onClick: () => openDetail(p) },
-                    ...STATUSES.filter((s) => s !== p.status).map((s) => ({ label: tr('Set to {status}', { status: codeLabel(s) }), onClick: () => setStatus(p, s) }))
+                    ...STATUSES.filter((s) => s !== p.status).map((s) => ({ label: tr('Set to {status}', { status: codeLabel(s) }), onClick: () => setStatus(p, s) })),
+                    { label: tr('Close the project'), onClick: () => openClose(p), hidden: !OPEN(p) }
                   ]} />}
                 </div>
                 <button type="button" className="pj-card-name" onClick={() => openDetail(p)}>{p.name}</button>
@@ -432,6 +477,8 @@ export default function ProjectsPage() {
         [tr('Work done'), tr('Completed work orders out of all the project\'s work orders (cancelled ones not counted).')],
         [tr('Falling behind'), tr('At least 30% of the time is gone and the work done is 25 points or more behind it.')],
         [tr('Past deadline'), tr('The deadline has passed and the project is not completed or cancelled.')],
+        [tr('Ready to close'), tr('Every work order is done — completed, or cancelled with at least one completed — and the project is waiting for someone to close it.')],
+        [tr('Closes by itself'), tr('A project can be set to close itself when its last work order is done. Its owner is told, and it reopens if one of its work orders is opened again or a new one is added. One closed by hand stays closed.')],
         [codeLabel('planning'), tr('Being set up; work has not properly started.')],
         [tr('On hold or delayed'), tr('Paused on purpose (on hold) or running late for a known reason (delayed).')]
       ]} />
@@ -486,7 +533,8 @@ export default function ProjectsPage() {
 
                 <div className="pj-detail-health">
                   {OPEN(detail) && <Status tone={HEALTH[dh.key].tone}>{HEALTH[dh.key].label()}</Status>}
-                  <span className={'pj-deadline' + (dh.key === 'overdue' ? ' is-bad' : '')}>{deadlineText(dh, detail)}</span>
+                  {OPEN(detail) ? <span className={'pj-deadline' + (dh.key === 'overdue' ? ' is-bad' : '')}>{deadlineText(dh, detail)}</span> : <span className="pj-closed-line">{closedText(detail)}</span>}
+                  {canManage && OPEN(detail) && <button type="button" className={'btn pj-close-btn ' + (dh.key === 'ready' ? 'btn-primary' : 'btn-secondary')} onClick={() => openClose(detail)}>{tr('Close the project')}</button>}
                 </div>
                 <Bars h={dh} />
 
@@ -494,6 +542,7 @@ export default function ProjectsPage() {
                   {detail.requestedFor && <div><dt>{tr('For')}</dt><dd>{detail.requestedFor}</dd></div>}
                   <div><dt>{tr('Owner')}</dt><dd className="pj-person"><Photo id={detail.ownerId} name={detail.ownerName} photo={detail.ownerPhoto} size={26} />{detail.ownerName}</dd></div>
                   <div><dt>{tr('Dates')}</dt><dd>{fmtDate(detail.startDate)} → {fmtDate(detail.deadline)}</dd></div>
+                  <div><dt>{tr('Closing')}</dt><dd>{detail.autoClose ? tr('By itself, when all its work orders are done') : tr('By hand')}</dd></div>
                   {detail.budget > 0 && <div><dt>{tr('Budget')}</dt><dd>{money(detail.budget)}</dd></div>}
                   <div className="pj-span"><dt>{tr('Team')}</dt><dd className="pj-people">{detail.members.length ? detail.members.map((m) => <span key={m.id} className="pj-person"><Photo id={m.id} name={m.name} photo={m.photo} size={26} />{m.name}</span>) : <span className="dk-muted">{tr('No team members yet.')}</span>}</dd></div>
                 </dl>
@@ -543,6 +592,36 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
+
+      {closeTarget && (() => {
+        const row = projects.find((x) => x.id === closeTarget.id) || closeTarget;
+        const total = row.taskCount !== undefined ? row.taskCount : (closeTarget.tasks || []).length;
+        const done = row.doneCount !== undefined ? row.doneCount : (closeTarget.tasks || []).filter((t) => t.status === 'completed').length;
+        const cancelled = row.cancelledCount !== undefined ? row.cancelledCount : (closeTarget.tasks || []).filter((t) => t.status === 'cancelled').length;
+        const left = Math.max(0, total - done - cancelled);
+        return (
+          <div className="dialog-backdrop" onClick={() => setCloseTarget(null)}>
+            <div className="dialog pj-close-dialog" onClick={(e) => e.stopPropagation()}>
+              <h2>{tr('Close {name}?', { name: closeTarget.name })}</h2>
+              <div className="pj-close-counts">
+                <div><strong>{done}</strong><span>{tr('completed')}</span></div>
+                <div><strong>{cancelled}</strong><span>{codeLabel('cancelled').toLowerCase()}</span></div>
+                <div className={left ? 'is-open' : ''}><strong>{left}</strong><span>{tr('still open')}</span></div>
+              </div>
+              {left > 0 ? (
+                <div className="pj-close-choice" role="radiogroup" aria-label={tr('The work orders still open')}>
+                  <label><input type="radio" name="pj-close-open" checked={!cancelOpen} onChange={() => setCancelOpen(false)} /> {left === 1 ? tr('Leave the 1 open work order as it is') : tr('Leave the {n} open work orders as they are', { n: left })}</label>
+                  <label><input type="radio" name="pj-close-open" checked={cancelOpen} onChange={() => setCancelOpen(true)} /> {left === 1 ? tr('Cancel it too') : tr('Cancel them too')}</label>
+                </div>
+              ) : <p className="dialog-body">{total ? tr('Every work order is done. The project is marked completed today, by you.') : tr('It has no work orders. The project is marked completed today, by you.')}</p>}
+              <div className="dialog-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setCloseTarget(null)}>{tr('Cancel')}</button>
+                <button type="button" className="btn btn-primary" disabled={closing} onClick={confirmClose}>{closing ? tr('Saving…') : tr('Close the project')}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

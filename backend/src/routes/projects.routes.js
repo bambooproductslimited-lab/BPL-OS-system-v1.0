@@ -30,4 +30,9 @@ router.post('/:id/status', async function (req, res, next) {
   try { res.json(await projectsService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
 });
 
+// Closing a project by hand: { cancelOpen } cancels the work orders still open.
+router.post('/:id/close', async function (req, res, next) {
+  try { res.json(await projectsService.close(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+
 module.exports = router;

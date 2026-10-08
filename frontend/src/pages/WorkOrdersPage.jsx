@@ -42,6 +42,17 @@ const EMPTY_FORM = {
   materials: '', materialQuantity: '', materialSpec: '', process: '', projectManagerId: '', workers: '', workDays: '', teamNames: ''
 };
 
+// What a change to a WO did to its project, if anything: a project set to
+// close itself closes when its last work order is done and reopens when one
+// is open again (projects.service.js syncClosing).
+function projectNote(changes) {
+  const c = (changes || [])[0];
+  if (!c) return null;
+  const project = c.code + ' — ' + c.name;
+  return c.change === 'closed'
+    ? tr('{project} is complete: all its work orders are done, so it has closed itself.', { project })
+    : tr('{project} has reopened: one of its work orders is open again.', { project });
+}
 function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
 function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
 function dayOf(ts) { return ts ? isoDay(new Date(ts)) : null; }
@@ -364,6 +375,8 @@ export default function WorkOrdersPage() {
     try {
       const updated = await api.post('/tasks/' + task.id + '/status', { status });
       if (detail && detail.id === task.id) setDetail(updated);
+      const note = projectNote(updated.projectChanges);
+      if (note) setToast(note);
       await load();
     } catch (err) {
       setError(err.message);
@@ -386,7 +399,7 @@ export default function WorkOrdersPage() {
     try {
       const created = await api.post('/tasks', { ...payload(form, options), status: form.status });
       setNewOpen(false);
-      setToast(tr('{no} issued.', { no: created.number }));
+      setToast(projectNote(created.projectChanges) || tr('{no} issued.', { no: created.number }));
       await load();
       setDetail(created);
     } catch (err) { setFormError(err.message); } finally { setSaving(false); }
@@ -438,7 +451,7 @@ export default function WorkOrdersPage() {
       const updated = await api.patch('/tasks/' + detail.id, body);
       setDetail(updated);
       setEditing(null);
-      setToast(tr('{no} updated.', { no: updated.number }));
+      setToast(projectNote(updated.projectChanges) || tr('{no} updated.', { no: updated.number }));
       await load();
     } catch (err) { setDetailError(err.message); } finally { setSaving(false); }
   }
@@ -456,8 +469,8 @@ export default function WorkOrdersPage() {
   async function confirmDelete() {
     setDeleting(true);
     try {
-      await api.del('/tasks/' + deleteTarget.id);
-      setToast(tr('{no} deleted.', { no: deleteTarget.number }));
+      const gone = await api.del('/tasks/' + deleteTarget.id);
+      setToast(projectNote(gone && gone.projectChanges) || tr('{no} deleted.', { no: deleteTarget.number }));
       if (detail && detail.id === deleteTarget.id) setDetail(null);
       setDeleteTarget(null);
       await load();
@@ -469,7 +482,9 @@ export default function WorkOrdersPage() {
     setError(null);
     try {
       const r = await api.post('/tasks/project', { ids: Array.from(picked), projectId });
-      setToast(r.project ? tr('{n} work orders added to {project}.', { n: r.updated, project: r.project.code + ' — ' + r.project.name }) : tr('{n} work orders taken out of their project.', { n: r.updated }));
+      const moved = r.project ? tr('{n} work orders added to {project}.', { n: r.updated, project: r.project.code + ' — ' + r.project.name }) : tr('{n} work orders taken out of their project.', { n: r.updated });
+      const note = projectNote(r.projectChanges);
+      setToast(note ? moved + ' ' + note : moved);
       setPicked(new Set());
       setPickProject('');
       await load();

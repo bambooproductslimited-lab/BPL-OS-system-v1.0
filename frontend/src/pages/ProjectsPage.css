@@ -142,3 +142,17 @@
 .pj-new-wo { padding: 5px 12px; font-size: 12.5px; border-radius: 999px; }
 @media (max-width: 640px) { .pj-figs-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pj-tasks-head { align-items: center; flex-wrap: wrap; }
+.pj-check { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--color-border); cursor: pointer; }
+.pj-check input { width: 17px; height: 17px; margin-top: 2px; flex: none; accent-color: var(--color-accent); }
+.pj-check > span { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.pj-check .dk-muted { font-size: 12px; line-height: 1.4; }
+.pj-close-btn { margin-left: auto; padding: 5px 14px; font-size: 12.5px; border-radius: 999px; }
+.pj-closed-line { font-size: 13px; font-weight: 600; color: var(--color-text-muted); }
+.pj-close-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.pj-close-counts > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--color-text) 4%, var(--color-bg)); }
+.pj-close-counts strong { font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.pj-close-counts span { font-size: 12px; color: var(--color-text-muted); }
+.pj-close-counts .is-open { background: color-mix(in srgb, #b26a00 12%, var(--color-bg)); }
+.pj-close-choice { display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+.pj-close-choice label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.pj-close-choice input { accent-color: var(--color-accent); }

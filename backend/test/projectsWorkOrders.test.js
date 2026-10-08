@@ -88,5 +88,5 @@ test('work orders go into a project several at once, and its figures say how the
   // Out of the project again.
   assert.equal((await tasks.setProject(boss, [w3.id], null)).updated, 1);
   assert.equal((await tasks.get(boss, w3.id)).projectId, null);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE action = 'task.project' AND summary LIKE '%Zqpw Hotel pergola%'")).rows[0].n, 1);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE action = 'task.project' AND summary LIKE '%Zqpw Hotel pergola%' AND entity_id = $1", [proj])).rows[0].n, 1);
 });

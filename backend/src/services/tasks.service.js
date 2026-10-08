@@ -19,6 +19,10 @@ function todayISO() { return new Date().toISOString().slice(0, 10); }
 function dayOf(ts) { return ts ? new Date(ts).toISOString().slice(0, 10) : null; }
 function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000); }
 function woNumber(n) { return 'WO-' + String(n).padStart(4, '0'); }
+// A project closes itself when its work orders are all done, and reopens
+// when one is open again (projects.service.js syncClosing); every change
+// to a WO's status or project goes through here, inside its transaction.
+function syncProjects(db, ctx, ids) { return require('./projects.service').syncClosing(db, ctx, ids); }
 
 // Ported from kernel.js's taskVisible(ctx, t). The project manager sees
 // their WOs too. `cache` (optional) keeps project departments and assignees
@@ -284,6 +288,7 @@ async function create(ctx, p) {
   var f = await fields(p);
   var status = V.oneOf(p.status || 'not_started', ['discussing', 'not_started'], 'Status');
 
+  var changes = [];
   var newId = await withTransaction(async function (client) {
     var cols = COLUMNS.map(function (c) { return c[1]; }).concat(['status', 'created_by']);
     var vals = COLUMNS.map(function (c) { return f[c[0]]; }).concat([status, ctx.employee.id]);
@@ -296,12 +301,13 @@ async function create(ctx, p) {
     var told = assigneeIds.concat(f.projectManagerId && assigneeIds.indexOf(f.projectManagerId) < 0 ? [f.projectManagerId] : []);
     await tellTeam(client, ctx, told, f, t.wo_no);
     await audit(client, ctx, 'task.create', 'task', t.id, 'Issued ' + woNumber(t.wo_no) + ' "' + t.title + '".');
+    changes = await syncProjects(client, ctx, [f.projectId]);
     return t.id;
   });
   // get() reads via the plain pool, so it must run after the transaction
   // above has committed — reading through `client` mid-transaction would see
   // uncommitted state on a *different* connection, hence the two-step return.
-  return get(ctx, newId);
+  return Object.assign(await get(ctx, newId), { projectChanges: changes });
 }
 
 // kernel.js: handlers['tasks.setStatus']
@@ -313,6 +319,7 @@ async function setStatus(ctx, id, status) {
 
   if (status === task.status) return get(ctx, id);
   var label = woNumber(task.woNo) + ' "' + task.title + '"';
+  var changes = [];
   await withTransaction(async function (client) {
     // completed_at / cancelled_at record when it was closed; reopening clears them.
     await client.query(
@@ -333,8 +340,9 @@ async function setStatus(ctx, id, status) {
       }
     }
     await audit(client, ctx, 'task.status', 'task', id, 'Set ' + label + ' to ' + status + '.');
+    changes = await syncProjects(client, ctx, [task.projectId]);
   });
-  return get(ctx, id);
+  return Object.assign(await get(ctx, id), { projectChanges: changes });
 }
 
 // kernel.js: handlers['tasks.update']
@@ -348,6 +356,7 @@ async function update(ctx, id, p) {
   var assigneeIds = (p.assigneeIds && p.assigneeIds.length) ? p.assigneeIds : was.assigneeIds;
   for (var a = 0; a < assigneeIds.length; a++) await existing('employees', assigneeIds[a], 'A team member');
 
+  var changes = [];
   await withTransaction(async function (client) {
     var sets = COLUMNS.map(function (c, i) { return c[1] + ' = $' + (i + 1); });
     var vals = COLUMNS.map(function (c) { return f[c[0]]; });
@@ -364,8 +373,9 @@ async function update(ctx, id, p) {
     });
     await tellTeam(client, ctx, newly, f, was.woNo);
     await audit(client, ctx, 'task.update', 'task', id, 'Updated ' + woNumber(was.woNo) + ' "' + f.title + '".');
+    changes = await syncProjects(client, ctx, [was.projectId, f.projectId]);
   });
-  return get(ctx, id);
+  return Object.assign(await get(ctx, id), { projectChanges: changes });
 }
 
 // kernel.js: handlers['tasks.delete']
@@ -374,9 +384,12 @@ async function remove(ctx, id) {
   var was = await loadTask(id);
   if (!was) fail('notfound', 'Work order not found.');
   if (!(await taskVisible(ctx, was))) fail('forbidden', 'Outside your scope.');
-  await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
-  await audit(pool, ctx, 'task.delete', 'task', id, 'Deleted ' + woNumber(was.woNo) + ' "' + was.title + '".');
-  return true;
+  var changes = await withTransaction(async function (client) {
+    await client.query('DELETE FROM tasks WHERE id = $1', [id]);
+    await audit(client, ctx, 'task.delete', 'task', id, 'Deleted ' + woNumber(was.woNo) + ' "' + was.title + '".');
+    return syncProjects(client, ctx, [was.projectId]);
+  });
+  return { deleted: true, projectChanges: changes };
 }
 
 // kernel.js: handlers['tasks.addComment']
@@ -423,13 +436,16 @@ async function setProject(ctx, ids, projectId) {
       fail('forbidden', 'A work order picked is outside your scope.');
     }
   }
+  var changes = [];
   var n = await withTransaction(async function (client) {
     var res = await client.query('UPDATE tasks SET project_id = $1 WHERE id = ANY($2) AND project_id IS DISTINCT FROM $1', [project ? project.id : null, ids]);
+    // The projects they left, and the one they joined.
+    if (res.rowCount) changes = await syncProjects(client, ctx, rows.map(function (r) { return r.project_id; }).concat(project ? [project.id] : []));
     if (res.rowCount) await audit(client, ctx, 'task.project', 'task', project ? project.id : 'none',
       project ? 'Added ' + res.rowCount + ' work orders to ' + project.code + ' — ' + project.name + '.' : 'Took ' + res.rowCount + ' work orders out of their project.');
     return res.rowCount;
   });
-  return { updated: n, project: project ? { id: project.id, code: project.code, name: project.name } : null };
+  return { updated: n, project: project ? { id: project.id, code: project.code, name: project.name } : null, projectChanges: changes };
 }
 
 // What the WO form offers to pick from: our companies, customers and staff.

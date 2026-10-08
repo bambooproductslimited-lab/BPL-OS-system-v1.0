@@ -22,7 +22,9 @@ function rowToProject(r, extra) {
     budget: r.budget === null ? 0 : Number(r.budget), description: r.description,
     forCompanyId: r.for_company_id || null, customerId: r.customer_id || null,
     customerName: r.customer_display || r.customer_name || '',
-    requestedFor: r.for_company_name || r.customer_display || r.customer_name || ''
+    requestedFor: r.for_company_name || r.customer_display || r.customer_name || '',
+    autoClose: !!r.auto_close, closedAt: r.closed_at || null, closedAuto: !!r.closed_auto, closedBy: r.closed_by || null,
+    closedByName: r.closer_first ? r.closer_first + ' ' + r.closer_last : null
   }, extra || {});
 }
 
@@ -30,8 +32,8 @@ function rowToProject(r, extra) {
 // work orders went: how many were completed, how many of those by their
 // date due, the days each took from issued to completed, and the labour
 // (workers × days) recorded on them.
-var FOR_JOIN = 'LEFT JOIN companies fc ON fc.id = p.for_company_id LEFT JOIN customers cu ON cu.id = p.customer_id ';
-var FOR_COLS = 'fc.name AS for_company_name, cu.name AS customer_display, ';
+var FOR_JOIN = 'LEFT JOIN companies fc ON fc.id = p.for_company_id LEFT JOIN customers cu ON cu.id = p.customer_id LEFT JOIN employees cb ON cb.id = p.closed_by ';
+var FOR_COLS = 'fc.name AS for_company_name, cu.name AS customer_display, cb.first_name AS closer_first, cb.last_name AS closer_last, ';
 var DONE_DAY = "(t.completed_at AT TIME ZONE 'UTC')::date";
 var FIGURES_JOIN =
   'LEFT JOIN LATERAL (SELECT ' +
@@ -131,6 +133,7 @@ async function create(ctx, p) {
   var memberIds = p.memberIds || [];
   var ownerId = p.ownerId || ctx.employee.id;
   var forWho = await forOf(p);
+  var autoClose = p.autoClose === undefined ? true : !!p.autoClose;
 
   // The next PRJ- number after the highest one used (a count would repeat a
   // number after a delete); two saved at once, the second takes the next.
@@ -138,9 +141,9 @@ async function create(ctx, p) {
   for (var attempt = 0; attempt < 5 && !proj; attempt++) {
     var next = (await pool.query("SELECT coalesce(max(substring(code from '^PRJ-([0-9]+)$')::int), 0) + 1 + $1 AS n FROM projects", [attempt])).rows[0].n;
     proj = (await pool.query(
-      "INSERT INTO projects (code, name, department_id, owner_id, start_date, deadline, status, budget, description, for_company_id, customer_id, customer_name) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,'planning',$7,$8,$9,$10,$11) ON CONFLICT (code) DO NOTHING RETURNING *",
-      ['PRJ-' + String(next).padStart(3, '0'), name, p.departmentId, ownerId, startDate, deadline, Number(p.budget) || 0, (p.description || '').trim(), forWho.forCompanyId, forWho.customerId, forWho.customerName]
+      "INSERT INTO projects (code, name, department_id, owner_id, start_date, deadline, status, budget, description, for_company_id, customer_id, customer_name, auto_close) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,'planning',$7,$8,$9,$10,$11,$12) ON CONFLICT (code) DO NOTHING RETURNING *",
+      ['PRJ-' + String(next).padStart(3, '0'), name, p.departmentId, ownerId, startDate, deadline, Number(p.budget) || 0, (p.description || '').trim(), forWho.forCompanyId, forWho.customerId, forWho.customerName, autoClose]
     )).rows[0];
   }
   if (!proj) fail('conflict', 'Could not give the project a number. Try again.');
@@ -165,7 +168,12 @@ async function setStatus(ctx, id, status) {
   if (!projectVisible(ctx, proj)) fail('forbidden', 'Outside your scope.');
   status = V.oneOf(status, ['planning', 'active', 'on_hold', 'delayed', 'completed', 'cancelled'], 'Status');
 
-  var updated = await pool.query('UPDATE projects SET status = $1, updated_at = now() WHERE id = $2 RETURNING *', [status, id]);
+  // Completed or cancelled by hand: closed now, by this person. Opened again: not closed.
+  var closing = status === 'completed' || status === 'cancelled';
+  var updated = await pool.query(
+    'UPDATE projects SET status = $1, closed_at = CASE WHEN $3::boolean THEN coalesce(CASE WHEN status IN (\'completed\', \'cancelled\') THEN closed_at END, now()) END, ' +
+    'closed_by = CASE WHEN $3::boolean THEN $4::uuid END, closed_auto = false, updated_at = now() WHERE id = $2 RETURNING *',
+    [status, id, closing, ctx.employee.id]);
   await audit(pool, ctx, 'project.update', 'project', id, 'Set ' + proj.code + ' to ' + status + '.');
   return rowToProject(updated.rows[0], { memberIds: proj.member_ids || [] });
 }
@@ -240,14 +248,16 @@ async function update(ctx, id, p) {
   if (!Number.isFinite(budget) || budget < 0) fail('invalid', 'Budget must be a number, 0 or more.');
   var memberIds = Array.isArray(p.memberIds) ? Array.from(new Set(p.memberIds.filter(Boolean))) : (proj.member_ids || []);
   var before = proj.member_ids || [];
+  var changes = [];
   var forWho = await forOf(p, proj);
+  var autoClose = p.autoClose === undefined ? proj.auto_close : !!p.autoClose;
 
   await withTransaction(async function (client) {
     await client.query(
       'UPDATE projects SET name = $1, department_id = $2, owner_id = $3, start_date = $4, deadline = $5, budget = $6, description = $7, ' +
-      'for_company_id = $9, customer_id = $10, customer_name = $11, updated_at = now() WHERE id = $8',
+      'for_company_id = $9, customer_id = $10, customer_name = $11, auto_close = $12, updated_at = now() WHERE id = $8',
       [name, departmentId, ownerId, startDate, deadline, budget, p.description === undefined ? proj.description : String(p.description || '').trim(), id,
-        forWho.forCompanyId, forWho.customerId, forWho.customerName]
+        forWho.forCompanyId, forWho.customerId, forWho.customerName, autoClose]
     );
     await client.query('DELETE FROM project_members WHERE project_id = $1', [id]);
     for (var i = 0; i < memberIds.length; i++) {
@@ -257,8 +267,69 @@ async function update(ctx, id, p) {
       }
     }
     await audit(client, ctx, 'project.update', 'project', id, 'Updated project ' + proj.code + ' — ' + name + '.');
+    // Told to close itself when its work is done, and it is: it closes now.
+    changes = await syncClosing(client, ctx, [id]);
   });
-  return get(ctx, id);
+  return Object.assign(await get(ctx, id), { projectChanges: changes });
 }
 
-module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, projectVisible: projectVisible };
+// Where each project given stands now that its work orders have changed
+// (tasks.service.js calls this inside its own transaction, `db`): one told
+// to close itself (auto_close) closes once all its work orders are done —
+// none open, at least one completed — and one it closed itself opens again
+// when a work order in it is open again. A project closed by hand stays
+// closed. The owner hears either way. Returns what changed, for the screen
+// to say: [{ id, code, name, change: 'closed' | 'reopened' }].
+async function syncClosing(db, ctx, ids) {
+  var out = [];
+  var uniq = Array.from(new Set((ids || []).filter(Boolean)));
+  for (var i = 0; i < uniq.length; i++) {
+    var p = (await db.query('SELECT id, code, name, status, auto_close, closed_auto, owner_id FROM projects WHERE id = $1 FOR UPDATE', [uniq[i]])).rows[0];
+    if (!p) continue;
+    var c = (await db.query(
+      "SELECT count(*) FILTER (WHERE status = 'completed')::int AS done, count(*) FILTER (WHERE status NOT IN ('completed', 'cancelled'))::int AS open FROM tasks WHERE project_id = $1",
+      [p.id])).rows[0];
+    var label = p.code + ' — ' + p.name;
+    if (p.auto_close && p.status !== 'completed' && p.status !== 'cancelled' && c.open === 0 && c.done > 0) {
+      await db.query("UPDATE projects SET status = 'completed', closed_at = now(), closed_by = NULL, closed_auto = true, updated_at = now() WHERE id = $1", [p.id]);
+      await notify(db, p.owner_id, 'Project completed', label + ': all its work orders are done, so it has closed itself.', 'projects');
+      await audit(db, ctx, 'project.autoclose', 'project', p.id, 'Closed ' + label + ' by itself: all its work orders are done.');
+      out.push({ id: p.id, code: p.code, name: p.name, change: 'closed' });
+    } else if (p.status === 'completed' && p.closed_auto && c.open > 0) {
+      await db.query("UPDATE projects SET status = 'active', closed_at = NULL, closed_by = NULL, closed_auto = false, updated_at = now() WHERE id = $1", [p.id]);
+      await notify(db, p.owner_id, 'Project reopened', label + ': a work order in it is open again, so it has reopened.', 'projects');
+      await audit(db, ctx, 'project.reopen', 'project', p.id, 'Reopened ' + label + ': a work order in it is open again.');
+      out.push({ id: p.id, code: p.code, name: p.name, change: 'reopened' });
+    }
+  }
+  return out;
+}
+
+// Closing a project by hand: it is completed, closed now by this person.
+// Work orders still open stay as they are, or are cancelled with it
+// (cancelOpen); either way the people on them are not left guessing — the
+// project's owner and team see it closed.
+async function close(ctx, id, p) {
+  if (!ctx.can('project.manage')) fail('forbidden', 'Your role does not allow this action (project.manage).');
+  if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) fail('notfound', 'Project not found.');
+  var proj = (await pool.query(
+    'SELECT p.*, (SELECT array_agg(employee_id) FROM project_members pm WHERE pm.project_id = p.id) AS member_ids FROM projects p WHERE p.id = $1', [id])).rows[0];
+  if (!proj) fail('notfound', 'Project not found.');
+  if (!projectVisible(ctx, proj)) fail('forbidden', 'Outside your scope.');
+  if (proj.status === 'completed' || proj.status === 'cancelled') fail('conflict', 'This project is already closed.');
+  var cancelOpen = !!(p && p.cancelOpen);
+  var label = proj.code + ' — ' + proj.name;
+  var cancelled = 0;
+  await withTransaction(async function (client) {
+    if (cancelOpen) {
+      cancelled = (await client.query(
+        "UPDATE tasks SET status = 'cancelled', cancelled_at = now(), completed_at = NULL WHERE project_id = $1 AND status NOT IN ('completed', 'cancelled')", [id])).rowCount;
+    }
+    await client.query("UPDATE projects SET status = 'completed', closed_at = now(), closed_by = $2, closed_auto = false, updated_at = now() WHERE id = $1", [id, ctx.employee.id]);
+    if (proj.owner_id !== ctx.employee.id) await notify(client, proj.owner_id, 'Project completed', label + ' was closed by ' + ctx.employee.first_name + ' ' + ctx.employee.last_name + '.', 'projects');
+    await audit(client, ctx, 'project.close', 'project', id, 'Closed ' + label + (cancelled ? ', cancelling ' + cancelled + ' open work orders' : '') + '.');
+  });
+  return Object.assign(await get(ctx, id), { cancelledWorkOrders: cancelled });
+}
+
+module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, close: close, syncClosing: syncClosing, projectVisible: projectVisible };
