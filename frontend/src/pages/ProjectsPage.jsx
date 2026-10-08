@@ -6,13 +6,15 @@ import Photo from '../components/Photo';
 import PeoplePicker from '../components/PeoplePicker';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { CompanySwitcher, Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
 import { tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { woStatusLabel } from '../lib/workOrders.js';
 import './EmployeesPage.css';
 import './ProjectsPage.css';
+import './ProjectsFun.css';
+import { ForWhom, Owners, PanelHead, PjBanner, PjFlow, RecentlyClosed, Ring, Timeline } from './ProjectsFun.jsx';
 
 // Projects. Same "explains itself" layout as the dashboards
 // (components/DashKit.jsx): a company switcher, the key numbers (press one
@@ -209,6 +211,8 @@ export default function ProjectsPage() {
   const [companyCode, setCompanyCode] = useState(() => readPref('bos.projectsCompany', 'ALL'));
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
+  const [forFilter, setForFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('');
   const [chip, setChip] = useState('open');
 
   const [newOpen, setNewOpen] = useState(false);
@@ -327,7 +331,9 @@ export default function ProjectsPage() {
   const today = isoDay(new Date());
   const scoped = projects
     .filter((p) => !currentCompany || p.companyCode === currentCompany.code)
-    .filter((p) => !deptFilter || p.departmentId === deptFilter);
+    .filter((p) => !deptFilter || p.departmentId === deptFilter)
+    .filter((p) => !forFilter || p.requestedFor === forFilter)
+    .filter((p) => !ownerFilter || p.ownerName === ownerFilter);
   const withHealth = scoped.map((p) => ({ p, h: healthOf(p, today) }));
   const open = withHealth.filter(({ p }) => OPEN(p));
   const overdue = open.filter(({ h }) => h.key === 'overdue');
@@ -345,6 +351,7 @@ export default function ProjectsPage() {
     planning: ({ p }) => p.status === 'planning',
     held: ({ p }) => p.status === 'on_hold' || p.status === 'delayed',
     ready: ({ h }) => h.key === 'ready',
+    active: ({ p, h }) => p.status === 'active' && h.key !== 'ready',
     completed: ({ p }) => p.status === 'completed',
     cancelled: ({ p }) => p.status === 'cancelled',
     all: () => true
@@ -356,12 +363,6 @@ export default function ProjectsPage() {
     .filter(({ p }) => matchesQuery(search, p.name, p.code, p.departmentName, p.companyName, p.ownerName, p.description, ...(p.members || []).map((m) => m.name)))
     .sort((a, b) => order[a.h.key] - order[b.h.key] || String(a.p.deadline || '9999').localeCompare(String(b.p.deadline || '9999')));
 
-  const stats = [
-    { icon: 'doc', value: String(open.length), label: tr('open projects'), note: tr('{a} active · {p} planning', { a: open.filter(({ p }) => p.status === 'active').length, p: open.filter(({ p }) => p.status === 'planning').length }), onClick: () => { setChip('open'); jump('pj-list'); } },
-    { icon: 'warn', value: String(overdue.length + behind.length), label: tr('behind or late'), note: tr('{o} past deadline · {b} falling behind', { o: overdue.length, b: behind.length }), tone: overdue.length ? 'bad' : behind.length ? 'alert' : '', onClick: () => showOnly('behind') },
-    { icon: 'calendar', value: String(soon.length), label: tr('deadline within 30 days'), note: soon.length ? tr('next: {name}', { name: soon.slice().sort((a, b) => a.h.daysLeft - b.h.daysLeft)[0].p.name }) : tr('none coming up'), onClick: () => showOnly('soon') },
-    { icon: 'check', value: workAll ? Math.round((doneAll / workAll) * 100) + '%' : '—', label: tr('of work orders done'), note: tr('{d} of {t} work orders in open projects', { d: doneAll, t: workAll }), onClick: () => { setChip('open'); jump('pj-list'); } }
-  ];
 
   const insights = [];
   overdue.slice().sort((a, b) => a.h.daysLeft - b.h.daysLeft).slice(0, 2).forEach(({ p, h }) => {
@@ -395,6 +396,15 @@ export default function ProjectsPage() {
     ['cancelled', codeLabel('cancelled'), withHealth.filter(chipTest.cancelled).length]
   ].filter(([k, , n]) => n > 0 || k === 'open' || k === chip);
   const showCompany = !currentCompany && companies.length > 1;
+  const readyCount = ready.length;
+  const notReady = open.filter(({ h }) => h.key !== 'ready');
+  const flowCounts = {
+    planning: notReady.filter(({ p }) => p.status === 'planning').length,
+    active: notReady.filter(({ p }) => p.status === 'active').length,
+    held: notReady.filter(({ p }) => p.status === 'on_hold' || p.status === 'delayed').length,
+    ready: readyCount,
+    completed: withHealth.filter(({ p }) => p.status === 'completed').length
+  };
 
   const dh = detail ? healthOf({ ...detail, taskCount: detail.tasks.length, doneCount: detail.tasks.filter((t) => t.status === 'completed').length, cancelledCount: detail.tasks.filter((t) => t.status === 'cancelled').length }, today) : null;
 
@@ -408,14 +418,52 @@ export default function ProjectsPage() {
           describe={(co) => tr('{n} open', { n: projects.filter((p) => OPEN(p) && (co.code === 'ALL' || p.companyCode === co.code)).length })} />
       )}
 
-      <Hero
+      <PjBanner
         eyebrow={currentCompany ? currentCompany.name : tr('All companies')}
         title={tr('Projects')}
         sub={tr('Bigger pieces of work, each made of work orders. For every project: how much of the time is gone next to how much of the work is done, so you can see which ones are falling behind. Press a number to show only those projects.')}
-        actions={canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New project')}</button>}
-        stats={stats} />
+        actions={canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('+ New project')}</button>}
+        work={workAll ? doneAll / workAll : null}
+        workText={tr('{d} of {t} work orders in open projects', { d: doneAll, t: workAll })}
+        tiles={[
+          { icon: 'doc', value: String(open.length), label: tr('open projects'), note: tr('{a} active · {p} planning', { a: open.filter(({ p }) => p.status === 'active').length, p: open.filter(({ p }) => p.status === 'planning').length }), onClick: () => showOnly('open'), active: chip === 'open' },
+          { icon: 'warn', value: String(overdue.length + behind.length), label: tr('behind or late'), note: tr('{o} past deadline · {b} falling behind', { o: overdue.length, b: behind.length }), tone: overdue.length + behind.length ? 'alert' : 'good', onClick: () => showOnly('behind'), active: chip === 'behind' },
+          { icon: 'check', value: String(readyCount), label: tr('ready to close'), note: readyCount ? tr('all their work orders done') : tr('none waiting'), tone: readyCount ? 'good' : '', onClick: () => showOnly('ready'), active: chip === 'ready' },
+          { icon: 'calendar', value: String(soon.length), label: tr('deadline within 30 days'), note: soon.length ? tr('next: {name}', { name: soon.slice().sort((a, b) => a.h.daysLeft - b.h.daysLeft)[0].p.name }) : tr('none coming up'), onClick: () => showOnly('soon'), active: chip === 'soon' }
+        ]} />
+
+      <PjFlow counts={flowCounts} active={chip} onPick={showOnly} />
+
+      {(forFilter || ownerFilter) && (
+        <div className="pjx-filtered" role="status">
+          <span>{tr('Showing only:')}</span>
+          {forFilter && <button type="button" className="pjx-filter-chip" onClick={() => setForFilter('')}>{tr('for {name}', { name: forFilter })} ×</button>}
+          {ownerFilter && <button type="button" className="pjx-filter-chip" onClick={() => setOwnerFilter('')}>{tr('owned by {name}', { name: ownerFilter })} ×</button>}
+        </div>
+      )}
 
       <Insights items={insights.slice(0, 6)} />
+
+      {scoped.length > 0 && (
+        <div className="pjx-panels">
+          <section className="pjx-panel is-wide">
+            <PanelHead icon="road" title={tr('The road to each deadline')} sub={tr('Every open project from its start to its deadline, filled with the work done so far, and today marked across them all. A bar that runs past its deadline in red is late. Press one to open it.')} />
+            <Timeline rows={open} today={today} onOpen={openDetail} />
+          </section>
+          <section className="pjx-panel">
+            <PanelHead icon="for" title={tr('Who the projects are for')} sub={tr('Our own companies and customers, with how many of their projects are still open. Press one to show only theirs.')} />
+            <ForWhom projects={scoped} active={forFilter} onPick={(n) => { setForFilter(forFilter === n ? '' : n); jump('pj-list'); }} />
+          </section>
+          <section className="pjx-panel">
+            <PanelHead icon="owner" title={tr('Owners')} sub={tr('Who owns the open projects, and how many are behind, late or ready to close. Press one to show only theirs.')} />
+            <Owners rows={withHealth} active={ownerFilter} onPick={(n) => { setOwnerFilter(ownerFilter === n ? '' : n); jump('pj-list'); }} />
+          </section>
+          <section className="pjx-panel">
+            <PanelHead icon="trophy" title={tr('Completed lately')} sub={tr('Projects completed in the last four months: closed by themselves or by hand, and whether they made their deadline.')} />
+            <RecentlyClosed projects={scoped} today={today} onOpen={openDetail} />
+          </section>
+        </div>
+      )}
 
       <Section id="pj-list" title={tr('Projects')} sub={tr('Late and falling-behind projects first, then by deadline. Press a project to open it.')}>
         <div className="pj-tools">
@@ -434,45 +482,55 @@ export default function ProjectsPage() {
         </div>
 
         {visible.length ? (
-          <div className="pj-grid">
+          <div className="pjx-grid">
             {visible.map(({ p, h }) => (
-              <article key={p.id} className={'pj-card is-' + h.key}>
-                <div className="pj-card-top">
-                  <span className="dk-muted pj-card-code">{p.code} · {p.departmentName}{showCompany ? ' · ' + p.companyCode : ''}</span>
+              <article key={p.id} className={'pjx-card is-' + h.key + ' st-' + p.status}>
+                <span className="pjx-card-band" aria-hidden="true" />
+                <div className="pjx-card-top">
+                  <span className="dk-muted pjx-card-code">{p.code} · {p.departmentName}{showCompany ? ' · ' + p.companyCode : ''}</span>
                   {canManage && <RowMenu actions={[
                     { label: tr('Open'), onClick: () => openDetail(p) },
                     ...STATUSES.filter((s) => s !== p.status).map((s) => ({ label: tr('Set to {status}', { status: codeLabel(s) }), onClick: () => setStatus(p, s) })),
                     { label: tr('Close the project'), onClick: () => openClose(p), hidden: !OPEN(p) }
                   ]} />}
                 </div>
-                <button type="button" className="pj-card-name" onClick={() => openDetail(p)}>{p.name}</button>
-                <div className="pj-card-tags">
-                  <Status tone={p.status === 'active' ? 'info' : p.status === 'completed' ? 'good' : p.status === 'delayed' ? 'bad' : 'muted'}>{codeLabel(p.status)}</Status>
-                  {OPEN(p) && <Status tone={HEALTH[h.key].tone}>{HEALTH[h.key].label()}</Status>}
-                  {p.requestedFor && <span className="pj-for-tag">{tr('for {name}', { name: p.requestedFor })}</span>}
+                <div className="pjx-card-head">
+                  <Ring work={h.done} time={h.time} tone={h.key} />
+                  <div className="pjx-card-title">
+                    <button type="button" className="pjx-card-name" onClick={() => openDetail(p)}>{p.name}</button>
+                    <div className="pjx-card-tags">
+                      <span className={'pjx-pill st-' + p.status}><i aria-hidden="true" />{codeLabel(p.status)}</span>
+                      {OPEN(p) && <span className={'pjx-pill is-' + h.key}><i aria-hidden="true" />{HEALTH[h.key].label()}</span>}
+                    </div>
+                  </div>
                 </div>
-                <Bars h={h} />
-                <div className="pj-card-facts">
-                  <span className={'pj-deadline' + (h.key === 'overdue' ? ' is-bad' : h.daysLeft !== null && h.daysLeft <= 7 && OPEN(p) ? ' is-warn' : '')}>{deadlineText(h, p)}</span>
-                  <span className="dk-muted">{tr('{d} of {t} work orders', { d: p.doneCount, t: h.work })}{p.overdueTaskCount ? ' · ' : ''}{p.overdueTaskCount ? <span className="pj-late">{tr('{n} late', { n: p.overdueTaskCount })}</span> : null}</span>
+                {p.requestedFor && <span className="pj-for-tag pjx-for">{tr('for {name}', { name: p.requestedFor })}</span>}
+                <div className="pjx-card-stats">
+                  <span className="pjx-count is-done" title={tr('Work orders completed')}><b>{p.doneCount || 0}</b> {tr('done')}</span>
+                  <span className="pjx-count is-open" title={tr('Work orders still open')}><b>{Math.max(0, (p.taskCount || 0) - (p.doneCount || 0) - (p.cancelledCount || 0))}</b> {tr('open')}</span>
+                  {p.overdueTaskCount > 0 && <span className="pjx-count is-late" title={tr('Work orders past their date due')}><b>{p.overdueTaskCount}</b> {tr('late')}</span>}
+                  <span className={'pjx-deadline' + (h.key === 'overdue' ? ' is-bad' : h.daysLeft !== null && h.daysLeft <= 7 && OPEN(p) ? ' is-warn' : '')}>{OPEN(p) ? deadlineText(h, p) : p.deadline ? tr('Deadline {date}', { date: fmtDate(p.deadline) }) : ''}</span>
                 </div>
-                <div className="pj-card-foot">
+                {h.key === 'ready' && canManage && <button type="button" className="pjx-ready-btn" onClick={() => openClose(p)}>{tr('All work done — close it')}</button>}
+                <div className="pjx-card-foot">
                   <span className="pj-owner"><Photo id={p.ownerId} name={p.ownerName} photo={p.ownerPhoto} size={26} /><span>{p.ownerName}</span></span>
                   <Faces people={p.members} size={24} max={3} />
                 </div>
+                {p.status === 'completed' && <span className="pjx-stamp" aria-hidden="true">{p.closedAuto ? tr('Closed itself') : tr('Completed')}</span>}
               </article>
             ))}
           </div>
         ) : (
           <div className="dk-empty pj-empty">
             <p>{scoped.length ? tr('No projects match. Try another search or filter.') : tr('No projects visible to your role')}</p>
-            {(search || chip !== 'open' || deptFilter) && scoped.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip('open'); setDeptFilter(''); }}>{tr('Clear filters')}</button>}
+            {(search || chip !== 'open' || deptFilter || forFilter || ownerFilter) && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip('open'); setDeptFilter(''); setForFilter(''); setOwnerFilter(''); }}>{tr('Clear filters')}</button>}
             {canManage && !scoped.length && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New project')}</button>}
           </div>
         )}
       </Section>
 
       <Glossary items={[
+        [tr('The rings'), tr('On each project: the inner ring is the work done (its number in the middle), the outer ring the time used. Inner behind outer means the work is falling behind the calendar.')],
         [tr('Time used'), tr('How much of the time between the start date and the deadline has passed.')],
         [tr('Work done'), tr('Completed work orders out of all the project\'s work orders (cancelled ones not counted).')],
         [tr('Falling behind'), tr('At least 30% of the time is gone and the work done is 25 points or more behind it.')],
@@ -513,7 +571,8 @@ export default function ProjectsPage() {
               </form>
             ) : (
               <>
-                <header className="pj-detail-head">
+                <header className="pj-detail-head pjx-detail-head">
+                  <Ring work={dh.done} time={dh.time} tone={dh.key} size={72} />
                   <div>
                     <span className="dk-muted">{detail.code} · {detail.departmentName} · {detail.companyName}</span>
                     <h2>{detail.name}</h2>
