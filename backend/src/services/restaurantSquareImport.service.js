@@ -245,10 +245,71 @@ function buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation
   });
 }
 
+// What Square says about who and how, beyond the items and total: the app
+// it came from (Bolt Food and the like; empty for Square's own till),
+// pick-up or delivery, and the customer — the one on the order, or the name
+// and number on its pick-up or delivery. The guest CRM
+// (restaurantCrm.service.js) puts the sale on that guest and matches it to
+// the order customer service logged.
+var FULFILLMENT = { PICKUP: 'pickup', DELIVERY: 'delivery', SHIPMENT: 'delivery', DINE_IN: 'dine_in' };
+function orderMeta(order) {
+  var f = (order.fulfillments || [])[0] || {};
+  var details = f.pickup_details || f.delivery_details || f.shipment_details || f.dine_in_details || {};
+  var who = details.recipient || {};
+  return {
+    sourceName: String((order.source && order.source.name) || '').slice(0, 100),
+    fulfillment: FULFILLMENT[f.type] || '',
+    customerName: String(who.display_name || '').slice(0, 120),
+    customerPhone: String(who.phone_number || '').slice(0, 40),
+    squareCustomerId: order.customer_id || who.customer_id || null,
+    ticketName: String(order.ticket_name || '').slice(0, 120)
+  };
+}
+
+// The guest a Square sale belongs to: its Square customer (made a guest the
+// first time, or found by number), else the number on its pick-up or
+// delivery. A name alone is not enough — two "Ama"s are not one guest.
+// cache: { squareId or phone -> guest id } for the length of one import.
+async function guestForOrder(company, meta, customers, cache) {
+  var crm = require('./restaurantCrm.service');
+  var sq = meta.squareCustomerId;
+  if (sq) {
+    if (cache['s:' + sq] !== undefined) return cache['s:' + sq];
+    var found = (await pool.query('SELECT id FROM restaurant_guests WHERE company_id = $1 AND square_customer_id = $2', [company.id, sq])).rows[0];
+    if (!found) {
+      var c = (customers && customers[sq]) || {};
+      var name = [c.given_name, c.family_name].filter(Boolean).join(' ').trim() || c.company_name || c.nickname || meta.customerName || '';
+      var phone = c.phone_number || meta.customerPhone || '';
+      if (name || phone) {
+        var pk = crm.phoneKey(phone);
+        var byPhone = pk ? (await pool.query('SELECT id FROM restaurant_guests WHERE company_id = $1 AND phone_key = $2 AND square_customer_id IS NULL ORDER BY created_at LIMIT 1', [company.id, pk])).rows[0] : null;
+        if (byPhone) {
+          await pool.query('UPDATE restaurant_guests SET square_customer_id = $2, updated_at = now() WHERE id = $1', [byPhone.id, sq]);
+          found = byPhone;
+        } else {
+          found = (await pool.query(
+            "INSERT INTO restaurant_guests (company_id, name, phone, source, square_customer_id) VALUES ($1,$2,$3,'square',$4) " +
+            'ON CONFLICT (company_id, square_customer_id) WHERE square_customer_id IS NOT NULL DO UPDATE SET updated_at = now() RETURNING id',
+            [company.id, name || phone, phone, sq])).rows[0];
+        }
+      }
+    }
+    cache['s:' + sq] = found ? found.id : null;
+    return cache['s:' + sq];
+  }
+  var key = crm.phoneKey(meta.customerPhone);
+  if (!key) return null;
+  if (cache['p:' + key] !== undefined) return cache['p:' + key];
+  var g = await crm.findOrCreateGuest(pool, company.id, { name: meta.customerName, phone: meta.customerPhone }, 'square');
+  if (g.created) await pool.query("UPDATE restaurant_guests SET source = 'square' WHERE id = $1", [g.id]);
+  cache['p:' + key] = g.id;
+  return g.id;
+}
+
 // quiet: a background import records one summary in the audit log when it
 // finishes instead of one line per order (a busy restaurant's history is
-// tens of thousands of orders).
-async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation, quiet) {
+// tens of thousands of orders). guestId: the guest it is for, if known.
+async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation, quiet, guestId) {
   var total = minorToMajor(order.total_money);
   var items = buildOrderItems(order, menuItemIdByVariation, variationRowIdByVariation);
   var subtotal = items.reduce(function (sum, it) { return sum + it.lineTotal; }, 0);
@@ -261,15 +322,21 @@ async function upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation
   var status = 'completed';
   var createdAt = order.created_at || new Date().toISOString();
   var paymentMethod = orderPaymentMethod(order);
+  var meta = orderMeta(order);
 
   return withTransaction(async function (client) {
+    // A guest set on the sale before (in the OS, or by the guest CRM) stays.
     var res = await client.query(
-      "INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, status, created_at, external_id, source) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'square') " +
+      "INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, status, created_at, external_id, source, " +
+      "  source_name, fulfillment, customer_name, customer_phone, square_customer_id, ticket_name, guest_id) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'square',$10,$11,$12,$13,$14,$15,$16) " +
       "ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
-      "subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, payment_method = EXCLUDED.payment_method, created_at = EXCLUDED.created_at " +
+      "subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, payment_method = EXCLUDED.payment_method, created_at = EXCLUDED.created_at, " +
+      "source_name = EXCLUDED.source_name, fulfillment = EXCLUDED.fulfillment, customer_name = EXCLUDED.customer_name, customer_phone = EXCLUDED.customer_phone, " +
+      "square_customer_id = EXCLUDED.square_customer_id, ticket_name = EXCLUDED.ticket_name, guest_id = COALESCE(restaurant_orders.guest_id, EXCLUDED.guest_id) " +
       "RETURNING id",
-      [company.id, orderNo, cashierId, subtotal, total, paymentMethod, status, createdAt, order.id]
+      [company.id, orderNo, cashierId, subtotal, total, paymentMethod, status, createdAt, order.id,
+        meta.sourceName, meta.fulfillment, meta.customerName, meta.customerPhone, meta.squareCustomerId, meta.ticketName, guestId || null]
     );
     var orderId = res.rows[0].id;
     await client.query('DELETE FROM restaurant_order_items WHERE order_id = $1', [orderId]);
@@ -427,13 +494,25 @@ async function runJob(ctx, jobId, company, creds, client, full) {
     await pool.query('UPDATE restaurant_import_jobs SET orders_since = $2 WHERE id = $1', [jobId, since]);
     await save('orders');
 
+    // Square's customers, so each sale with one lands on that guest.
+    var customers = {};
+    var guestCache = {};
+    if (client.listAllCustomers) {
+      try {
+        (await client.listAllCustomers()).forEach(function (c) { customers[c.id] = c; });
+      } catch (e) {
+        keepError({ type: 'customers', externalId: null, message: 'Square customers could not be read, so sales were saved without their guest: ' + e.message });
+      }
+    }
+
     var cursor = null;
     do {
       var page = await client.searchOrdersPage(locationIds, { cursor: cursor, since: since });
       for (var oi = 0; oi < page.orders.length; oi++) {
         var order = page.orders[oi];
         try {
-          await upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation, true);
+          var guestId = await guestForOrder(company, orderMeta(order), customers, guestCache);
+          await upsertOrder(ctx, company, order, cashierId, menuItemIdByVariation, variationRowIdByVariation, true, guestId);
           counts.ordersImported++;
           if (order.created_at) counts.lastOrderAt = order.created_at;
         } catch (e) {
@@ -445,6 +524,13 @@ async function runJob(ctx, jobId, company, creds, client, full) {
       await save('orders');
       cursor = page.cursor;
     } while (cursor);
+
+    // The orders customer service logged, matched to the sales just saved.
+    try {
+      await require('./restaurantCrm.service').autoLink(company.id, since ? { from: since.toISOString().slice(0, 10) } : {});
+    } catch (e) {
+      keepError({ type: 'guestOrders', externalId: null, message: 'Linking the order log to the sales failed: ' + e.message });
+    }
 
     await save('done', ", status = 'done', finished_at = now()");
     await audit(pool, ctx, 'restaurant.square_import', 'restaurant_import_job', jobId,
@@ -472,5 +558,6 @@ module.exports = {
   minorToMajor: minorToMajor, menuItemName: menuItemName, mapTenderType: mapTenderType,
   requireCompany: requireCompany, ensureImportCashier: ensureImportCashier,
   upsertMenuItem: upsertMenuItem, upsertGroupedMenuItem: upsertGroupedMenuItem,
-  upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation, squarePictureId: squarePictureId
+  upsertOrder: upsertOrder, itemPresentAtLocation: itemPresentAtLocation, squarePictureId: squarePictureId,
+  orderMeta: orderMeta, guestForOrder: guestForOrder
 };
