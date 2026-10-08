@@ -18,6 +18,7 @@
 // v4: calls ring on the device with the OS closed (Answer / Decline).
 // v5: a call buzzes harder and more often (every 3 s, long pulses) for the
 //     minute it rings.
+// v6: a pop-up about a work order opens that work order.
 // v3: adds the Web Push handlers at the foot of this file.
 // v2: fixed a real bug — cache-first for the navigation itself
 // (this file's original behavior) could permanently strand an installed
@@ -25,7 +26,7 @@
 // from a build no longer on the server, once enough redeploys had
 // happened since that device last did a background refresh (see the
 // identical fix in kiosk-sw.js, where this was caught on a real device).
-var CACHE_NAME = 'bamboo-app-v5';
+var CACHE_NAME = 'bamboo-app-v6';
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -227,7 +228,8 @@ function declineCall(d) {
 // and tell it where to go; only open a new one when there is none.
 //
 // The link format is the same one NotificationsBell.jsx uses —
-// "message:<id>" for a conversation, otherwise a bare route name.
+// "message:<id>" for a conversation, "tasks:<id>" for a work order,
+// otherwise a bare route name.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var d = event.notification.data || {};
@@ -240,6 +242,7 @@ self.addEventListener('notificationclick', function (event) {
     var parts = String(link).split(':');
     path = parts[0] === 'message' ? '/messages?peer=' + parts[1]
       : parts[0] === 'chat' ? '/messages?chat=' + parts[1]
+      : parts[0] === 'tasks' && parts[1] ? '/tasks?open=' + parts[1]
       : '/' + parts[0];
   }
   event.waitUntil(

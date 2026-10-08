@@ -53,8 +53,9 @@ test('a WO has a number, who it is for, the form’s fields and a project manage
   assert.ok(wo.companyCodes.indexOf('BPL') >= 0);
 
   // The project manager hears about it and has it among "mine".
-  var told = await pool.query("SELECT title FROM notifications WHERE employee_id = $1 AND body = 'Wox round table and stand'", [pmId]);
+  var told = await pool.query("SELECT title, link FROM notifications WHERE employee_id = $1 AND body = 'Wox round table and stand'", [pmId]);
   assert.equal(told.rows[0].title, 'New work order ' + wo.number);
+  assert.equal(told.rows[0].link, 'tasks:' + wo.id, 'pressing the notification opens this WO');
   assert.ok((await tasks.list(pmCtx, { scope: 'mine' })).some(function (t) { return t.id === wo.id; }));
   assert.ok((await tasks.list(boss, { scope: 'all', q: wo.number.toLowerCase() })).some(function (t) { return t.id === wo.id; }));
 
@@ -66,10 +67,14 @@ test('a WO has a number, who it is for, the form’s fields and a project manage
   assert.equal(done.onTime, true);
   assert.equal(done.daysOpen, null);
   // Both whoever issued it and its project manager are told.
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = ANY($1) AND title = 'Work order completed' AND body LIKE '%Wox round%'", [[bossId, pmId]])).rows[0].n, 2);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = ANY($1) AND title = 'Work order completed' AND body LIKE '%Wox round%' AND link = $2", [[bossId, pmId], 'tasks:' + wo.id])).rows[0].n, 2);
   var cancelled = await tasks.setStatus(boss, wo.id, 'cancelled');
   assert.ok(cancelled.cancelledAt);
   assert.equal(cancelled.completedAt, null);
+  // A comment: the others on it hear, and the notification opens the WO.
+  await tasks.addComment(worker, wo.id, 'Wox legs are cut');
+  var heard = await pool.query("SELECT link FROM notifications WHERE employee_id = $1 AND title LIKE 'New comment on%' AND body = 'Wox legs are cut'", [pmId]);
+  assert.equal(heard.rows[0].link, 'tasks:' + wo.id);
 });
 
 test('what a WO form refuses', async function () {

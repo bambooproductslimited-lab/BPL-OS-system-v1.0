@@ -314,7 +314,7 @@ export default function MySpacePage() {
               return (
                 <li key={t.id} className={late ? 'is-late' : ''}>
                   <span className="msp-main">
-                    <strong>{t.number ? <span className="msp-wo">{t.number}</span> : null}{t.title}</strong>
+                    <strong><Link className="msp-wo-link" to={'/tasks?open=' + t.id}>{t.number ? <span className="msp-wo">{t.number}</span> : null}{t.title}</Link></strong>
                     <span className="dk-muted tl-small">{[t.managing ? tr('you manage it') : null, t.project, t.dueDate ? tr('due {date}', { date: fmtDate(t.dueDate) }) : tr('no due date')].filter(Boolean).join(' · ')}</span>
                   </span>
                   {t.priority === 'high' && <Status tone="bad">{tr('High priority')}</Status>}

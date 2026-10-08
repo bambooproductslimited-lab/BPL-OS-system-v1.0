@@ -632,7 +632,7 @@ export default function ProjectsPage() {
                       {detail.tasks.map((t) => (
                         <li key={t.id} className={'is-' + t.status + (t.overdue ? ' is-overdue' : '')}>
                           <span className={'pj-task-dot is-' + t.status} aria-hidden="true" />
-                          <span className="pj-task-title">{t.number ? <span className="pj-wo">{t.number}</span> : null}{t.title}</span>
+                          <button type="button" className="pj-task-title is-link" onClick={() => navigate('/tasks?open=' + t.id)} title={tr('Open {no}', { no: t.number || t.title })}>{t.number ? <span className="pj-wo">{t.number}</span> : null}{t.title}</button>
                           <Faces people={t.assignees} size={22} max={2} />
                           <span className={'pj-task-due' + (t.overdue ? ' is-bad' : '')}>{t.status === 'completed' ? tr('Done') : t.dueDate ? fmtDate(t.dueDate) : '—'}</span>
                           <span className="dk-muted pj-task-status">{woStatusLabel(t.status)}</span>

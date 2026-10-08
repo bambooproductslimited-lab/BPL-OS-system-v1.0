@@ -6,6 +6,7 @@ import EmployeeIdDocsDialog from '../components/EmployeeIdDocsDialog';
 import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
 import MergeEmployeesDialog from '../components/MergeEmployeesDialog';
 import SetEmployeeIdsDialog from '../components/SetEmployeeIdsDialog';
+import SetHireDatesDialog from '../components/SetHireDatesDialog';
 import FaceCapture from '../components/FaceCapture';
 import Photo, { forgetBlob } from '../components/Photo';
 import PhotoDialog from '../components/PhotoDialog';
@@ -137,6 +138,7 @@ export default function EmployeesPage() {
   const [toast, setToast] = useState(null);
   const [mergeTarget, setMergeTarget] = useState(null);
   const [idsOpen, setIdsOpen] = useState(false);
+  const [hireOpen, setHireOpen] = useState(false);
   const canMerge = can('employee.write') && can('user.manage');
 
   const [q, setQ] = useState('');
@@ -699,6 +701,9 @@ export default function EmployeesPage() {
   if (noPhone.length) insights.push({ tone: 'warn', icon: 'phone', text: noPhone.length === 1 ? tr('{name} has no phone number on record, so they cannot be called or sent an SMS from the OS.', { name: fullName(noPhone[0]) }) : tr('{n} people have no phone number on record, so they cannot be called or sent an SMS from the OS.', { n: noPhone.length }), action: canWrite ? { label: tr('Show them'), run: () => showOnly('incomplete') } : null });
   const noManager = current.filter((e) => !e.managerId);
   if (canWrite && noManager.length && noManager.length < current.length) insights.push({ tone: 'warn', icon: 'people', text: noManager.length === 1 ? tr('{name} does not report to anyone yet, so their leave and expense requests have no manager to approve them.', { name: fullName(noManager[0]) }) : tr('{n} people do not report to anyone yet, so their leave and expense requests have no manager to approve them.', { n: noManager.length }), action: { label: tr('Show them'), run: () => showOnly('incomplete') } });
+  // Hire dates that are only the day someone was added to the OS.
+  const addedDay = canWrite ? current.filter((p) => p.addedOn && p.hireDate && String(p.hireDate).slice(0, 10) === p.addedOn) : [];
+  if (addedDay.length >= 3) insights.push({ tone: 'warn', icon: 'calendar', text: tr('{n} people have the day they were added to the OS as their hire date. If that is not when they started, set the real dates from a list.', { n: addedDay.length }), action: { label: tr('Set hire dates'), run: () => setHireOpen(true) } });
   if (withoutLogin.length) insights.push({ tone: 'info', icon: 'card', text: withoutLogin.length === 1 ? tr('{name} cannot sign in to the OS. That is fine for staff who only clock in at the kiosk.', { name: fullName(withoutLogin[0]) }) : tr('{n} active people cannot sign in to the OS. That is fine for staff who only clock in at the kiosk.', { n: withoutLogin.length }), action: { label: tr('Show them'), run: () => showOnly('nologin') } });
   const neverSigned = canWrite ? current.filter((e) => e.status === 'active' && e.login && !e.login.lastLoginAt) : [];
   if (neverSigned.length) insights.push({ tone: 'info', icon: 'info', text: neverSigned.length === 1 ? tr('{name} has a login but has never signed in.', { name: fullName(neverSigned[0]) }) : tr('{n} people have a login but have never signed in.', { n: neverSigned.length }) });
@@ -801,6 +806,7 @@ export default function EmployeesPage() {
           {canWrite && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('Add employee')}</button>}
           {canWrite && <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>}
           {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setIdsOpen(true)}>{tr('Set IDs from a list')}</button>}
+          {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setHireOpen(true)}>{tr('Set hire dates from a list')}</button>}
           {canSync && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
         </>}
         people={current} tiles={stats} online={onlineNow.length} inToday={inNow.length} hasToday={hasToday}
@@ -1505,6 +1511,7 @@ export default function EmployeesPage() {
           onDone={(text) => { setMergeTarget(null); setToast(text); load(); }} />
       )}
       {idsOpen && <SetEmployeeIdsDialog onClose={() => setIdsOpen(false)} onDone={(text) => { setIdsOpen(false); setToast(text); load(); }} />}
+      {hireOpen && <SetHireDatesDialog onClose={() => setHireOpen(false)} onDone={(text) => { setHireOpen(false); setToast(text); load(); }} />}
       {scopeTarget && (
         <ViewScopeDialog employee={scopeTarget} people={employees} departments={departments} mine={myScope}
           onClose={() => setScopeTarget(null)}

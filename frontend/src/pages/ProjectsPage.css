@@ -111,6 +111,8 @@
 .pj-task-dot.is-under_review { background: #7d3f9c; }
 .pj-task-dot.is-completed { background: var(--color-accent); }
 .pj-task-title { overflow-wrap: anywhere; font-weight: 600; }
+.pj-task-title.is-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.pj-task-title.is-link:hover { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; }
 .pj-task-due { font-size: 12px; text-align: right; white-space: nowrap; }
 .pj-task-due.is-bad { color: var(--color-danger); font-weight: 700; }
 .pj-task-status { font-size: 12px; text-align: right; white-space: nowrap; }

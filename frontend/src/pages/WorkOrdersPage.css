@@ -516,11 +516,23 @@ i.is-late { background: var(--wo-s2); }
   .wo-import-list li, .wo-import-list.is-names li { grid-template-columns: 1fr; gap: 4px; }
 }
 
-/* The WO sheet prints on its own, for the workshop floor. */
+/* The WO sheet prints on its own, for the workshop floor — unless the
+   Saturday review is printing (PrintLayer marks the body for it). */
 @media print {
-  body * { visibility: hidden; }
+  body:not(.has-print-layer) * { visibility: hidden; }
   .wo-print-root, .wo-print-root .wo-sheet, .wo-print-root .wo-sheet * { visibility: visible; }
   .wo-print-root { position: absolute; inset: 0; background: #fff; }
   .wo-print-root .wo-sheet { position: absolute; left: 0; top: 0; width: 100%; max-height: none; overflow: visible; box-shadow: none; border: 0; }
   .wo-sheet .wo-close, .wo-sheet .wo-detail-actions, .wo-sheet .wo-compose, .wo-sheet .wo-steps .wo-step:not(.is-on) { display: none; }
 }
+
+/* A work order on its way: the window shows at once. */
+.dialog.wo-opening { max-width: 460px; display: flex; flex-direction: column; gap: 10px; }
+.wo-opening h2 { margin: 0; font-size: 18px; }
+.wo-opening .wo-no { align-self: flex-start; }
+.wo-opening-wait { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; color: var(--color-text-muted); }
+.wo-spin { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--wo-line); border-top-color: var(--color-accent); animation: wo-spin .8s linear infinite; }
+@keyframes wo-spin { to { transform: rotate(360deg); } }
+.wo-reg-row { cursor: pointer; }
+.wo-present-btn { display: inline-flex; align-items: center; gap: 6px; }
+.wo-present-btn svg { width: 14px; height: 14px; }

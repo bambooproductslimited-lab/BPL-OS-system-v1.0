@@ -166,6 +166,7 @@ export default function NotificationsBell() {
     const [kind, id] = n.link.split(':');
     if (kind === 'message') navigate('/messages?peer=' + id);
     else if (kind === 'chat') navigate('/messages?chat=' + id);
+    else if (kind === 'tasks' && id) navigate('/tasks?open=' + id);
     else navigate('/' + kind);
   }
 

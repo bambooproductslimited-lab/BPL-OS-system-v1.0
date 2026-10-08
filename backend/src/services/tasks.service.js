@@ -273,9 +273,10 @@ function asInput(row) {
   return out;
 }
 
-async function tellTeam(client, ctx, ids, f, woNo) {
+// A notification's link "tasks:<id>" opens that WO (NotificationsBell, sw.js).
+async function tellTeam(client, ctx, ids, f, woNo, taskId) {
   for (var i = 0; i < ids.length; i++) {
-    if (ids[i] !== ctx.employee.id) await notify(client, ids[i], 'New work order ' + woNumber(woNo), f.title, 'tasks');
+    if (ids[i] !== ctx.employee.id) await notify(client, ids[i], 'New work order ' + woNumber(woNo), f.title, 'tasks:' + taskId);
   }
 }
 
@@ -299,7 +300,7 @@ async function create(ctx, p) {
     var t = res.rows[0];
     for (var i = 0; i < assigneeIds.length; i++) await client.query('INSERT INTO task_assignees (task_id, employee_id) VALUES ($1,$2)', [t.id, assigneeIds[i]]);
     var told = assigneeIds.concat(f.projectManagerId && assigneeIds.indexOf(f.projectManagerId) < 0 ? [f.projectManagerId] : []);
-    await tellTeam(client, ctx, told, f, t.wo_no);
+    await tellTeam(client, ctx, told, f, t.wo_no, t.id);
     await audit(client, ctx, 'task.create', 'task', t.id, 'Issued ' + woNumber(t.wo_no) + ' "' + t.title + '".');
     changes = await syncProjects(client, ctx, [f.projectId]);
     return t.id;
@@ -336,7 +337,7 @@ async function setStatus(ctx, id, status) {
         await notify(client, told[i],
           status === 'completed' ? 'Work order completed' : 'Work order ready for checking',
           who + (status === 'completed' ? ' completed ' : ' sent ') + label + (status === 'completed' ? '.' : ' for checking.'),
-          'tasks');
+          'tasks:' + id);
       }
     }
     await audit(client, ctx, 'task.status', 'task', id, 'Set ' + label + ' to ' + status + '.');
@@ -371,7 +372,7 @@ async function update(ctx, id, p) {
     var newly = assigneeIds.concat(f.projectManagerId ? [f.projectManagerId] : []).filter(function (x, i2, all) {
       return all.indexOf(x) === i2 && was.assigneeIds.indexOf(x) < 0 && x !== was.projectManagerId;
     });
-    await tellTeam(client, ctx, newly, f, was.woNo);
+    await tellTeam(client, ctx, newly, f, was.woNo, id);
     await audit(client, ctx, 'task.update', 'task', id, 'Updated ' + woNumber(was.woNo) + ' "' + f.title + '".');
     changes = await syncProjects(client, ctx, [was.projectId, f.projectId]);
   });
@@ -403,7 +404,7 @@ async function addComment(ctx, id, body) {
   await withTransaction(async function (client) {
     await client.query('INSERT INTO task_comments (task_id, author_id, text) VALUES ($1,$2,$3)', [id, ctx.employee.id, body]);
     var told = task.assigneeIds.concat([task.projectManagerId, task.createdBy]).filter(function (x, i, all) { return x && x !== ctx.employee.id && all.indexOf(x) === i; });
-    for (var i = 0; i < told.length; i++) await notify(client, told[i], 'New comment on ' + label, body.slice(0, 140), 'tasks');
+    for (var i = 0; i < told.length; i++) await notify(client, told[i], 'New comment on ' + label, body.slice(0, 140), 'tasks:' + id);
     await audit(client, ctx, 'task.comment', 'task', id, 'Commented on ' + label + '.');
   });
   return get(ctx, id);

@@ -14,6 +14,7 @@ import {
   Confetti, DaysChip, ForBadge, ForWhom, Linked, Managers, MiniTimeline, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, StatusSelect, Weekly, WoBanner, WoCard, WoImport, colHint, downloadCsv,
   addDays, dueInfo, forName, isoDay, pmOf
 } from './WorkOrdersFun.jsx';
+import WorkOrdersPresent from './WorkOrdersPresent';
 import './EmployeesPage.css';
 import './WorkOrdersPage.css';
 
@@ -302,11 +303,15 @@ export default function WorkOrdersPage() {
 
   const [newOpen, setNewOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [presenting, setPresenting] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const [detail, setDetail] = useState(null);
+  // A WO being fetched: its window shows at once, with any error in it.
+  const [opening, setOpening] = useState(null);
+  const openingId = useRef(null);
   const [editing, setEditing] = useState(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [detailError, setDetailError] = useState(null);
@@ -389,7 +394,10 @@ export default function WorkOrdersPage() {
       if (note) setToast(note);
       await load();
     } catch (err) {
+      // Said where they are looking, not only in the banner at the top.
       setError(err.message);
+      setToast(err.message);
+      if (detail && detail.id === task.id) setDetailError(err.message);
       await load();
     }
   }
@@ -437,7 +445,22 @@ export default function WorkOrdersPage() {
     setDetailError(null);
     setEditing(null);
     setCommentDraft('');
-    try { setDetail(await api.get('/tasks/' + t.id)); } catch (err) { setError(err.message); }
+    setDetail(null);
+    openingId.current = t.id;
+    setOpening({ t, error: null });
+    try {
+      const d = await api.get('/tasks/' + t.id);
+      if (openingId.current !== t.id) return;
+      setDetail(d); setOpening(null);
+    } catch (err) {
+      if (openingId.current === t.id) setOpening({ t, error: err.message || tr('Could not open this work order.') });
+    }
+  }
+  function closeOpening() { openingId.current = null; setOpening(null); }
+  // A click anywhere on a row or card opens it, but not on its own controls.
+  function openFromRow(e, t) {
+    if (e.target.closest('button, a, input, select, label, textarea')) return;
+    openDetail(t);
   }
   function startEdit() {
     const d = detail;
@@ -667,6 +690,10 @@ export default function WorkOrdersPage() {
           </div>
           {canManage && <button type="button" className="btn btn-primary" onClick={() => openNew()}>{tr('+ New work order')}</button>}
           {canManage && <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(true)}>{tr('Import from the sheet')}</button>}
+          <button type="button" className="btn btn-secondary wo-present-btn" onClick={() => setPresenting(true)} title={tr('This week’s completed and pending work orders as slides, for the Saturday meeting')}>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" /></svg>
+            {tr('Saturday review')}
+          </button>
         </>}
         tiles={tiles} />
 
@@ -780,7 +807,7 @@ export default function WorkOrdersPage() {
                 <div className="wo-col-body">
                   {dragId && dropCol === s && !inCol.some((t) => t.id === dragId) && <div className="wo-drop-here">{tr('Drop here to move it to {status}', { status: woStatusLabel(s) })}</div>}
                   {shown.map((t) => (
-                    <WoCard key={t.id} t={t} today={today} onOpen={() => openDetail(t)} menu={moveMenu(t)} dragging={dragId === t.id}
+                    <WoCard key={t.id} t={t} today={today} onOpen={() => openDetail(t)} onCardClick={(e) => openFromRow(e, t)} menu={moveMenu(t)} dragging={dragId === t.id}
                       onNext={NEXT[t.status] ? () => setStatus(t, NEXT[t.status]) : null} justDone={cheer && cheer.id === t.id && t.status === 'completed'}
                       onDragStart={(e) => { setDragId(t.id); e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move'; }}
                       onDragEnd={() => { setDragId(null); setDropCol(null); }} />
@@ -830,7 +857,7 @@ export default function WorkOrdersPage() {
                         </tr>
                       )}
                       {g.rows.map((t, i) => (
-                        <tr key={t.id} className={'wo-reg-row is-' + t.status + (t.overdue ? ' is-overdue' : '') + (WO_OPEN(t) ? '' : ' is-closed') + (picked.has(t.id) ? ' is-picked' : '')} style={{ '--i': Math.min(i, 20) }}>
+                        <tr key={t.id} className={'wo-reg-row is-' + t.status + (t.overdue ? ' is-overdue' : '') + (WO_OPEN(t) ? '' : ' is-closed') + (picked.has(t.id) ? ' is-picked' : '')} style={{ '--i': Math.min(i, 20) }} onClick={(e) => openFromRow(e, t)}>
                           {canManage && <td className="is-pick"><input type="checkbox" checked={picked.has(t.id)} onChange={() => togglePick(t.id)} aria-label={tr('Pick {no}', { no: t.number })} /></td>}
                           <td className="is-title">
                             <span className="wo-row-top">
@@ -913,7 +940,34 @@ export default function WorkOrdersPage() {
         </div>
       )}
 
+      {presenting && (
+        <WorkOrdersPresent wos={scoped} scopeName={scope === 'mine' ? tr('My work orders') : currentCompany ? currentCompany.name : tr('All companies')}
+          onClose={() => setPresenting(false)} onOpen={openDetail} paused={!!detail || !!opening || !!deleteTarget} />
+      )}
       {importOpen && <WoImport employees={employees} onClose={() => setImportOpen(false)} onDone={imported} />}
+
+      {opening && !detail && (
+        <div className="dialog-backdrop" onClick={closeOpening}>
+          <div className="dialog wo-dialog wo-opening" role="status" onClick={(e) => e.stopPropagation()}>
+            {opening.t.number && <span className="wo-no">{opening.t.number}</span>}
+            {opening.error ? (
+              <>
+                <h2>{tr('This work order did not open')}</h2>
+                <div className="error-banner" role="alert">{opening.error}</div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={closeOpening}>{tr('Close')}</button>
+                  <button type="button" className="btn btn-primary" onClick={() => openDetail(opening.t)}>{tr('Try again')}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>{opening.t.title || tr('Opening the work order…')}</h2>
+                <p className="wo-opening-wait"><span className="wo-spin" aria-hidden="true" />{tr('Opening…')}</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {detail && (
         <div className="dialog-backdrop wo-print-root" onClick={() => setDetail(null)}>

@@ -355,12 +355,12 @@ export function TimeBar({ t, today }) {
 }
 
 // ── a card on the board ───────────────────────────────────────────────
-export function WoCard({ t, today, onOpen, menu, dragging, onDragStart, onDragEnd, onNext, justDone }) {
+export function WoCard({ t, today, onOpen, onCardClick, menu, dragging, onDragStart, onDragEnd, onNext, justDone }) {
   const who = forName(t);
   const next = NEXT[t.status];
   return (
     <article className={'wo-card is-' + t.status + (t.overdue ? ' is-overdue' : '') + (dragging ? ' is-dragging' : '') + (justDone ? ' is-just-done' : '')} draggable
-      onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onCardClick}>
       <div className="wo-card-top">
         <span className="wo-no">{t.number}</span>
         {t.priority === 'high' && (

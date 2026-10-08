@@ -25,7 +25,7 @@ function rowToEmployee(r, ctx) {
   var out = {
     id: r.id, code: r.code, firstName: r.first_name, lastName: r.last_name, email: r.email, phone: r.phone,
     departmentId: r.department_id, positionTitle: r.position_title, managerId: r.manager_id,
-    employmentType: r.employment_type, hireDate: r.hire_date, status: r.status, location: r.location,
+    employmentType: r.employment_type, hireDate: r.hire_date, addedOn: r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : null, status: r.status, location: r.location,
     shiftId: r.shift_id, shiftName: r.shift_tpl_name || null,
     shiftStart: shiftStart, shiftEnd: shiftEnd,
     // A second shift the same day (migration 0112), or null.
@@ -526,4 +526,4 @@ async function profile(ctx, id) {
   };
 }
 
-module.exports = { list: list, get: get, create: create, update: update, terminate: terminate, purgeTerminated: purgeTerminated, profile: profile, rowToEmployee: rowToEmployee };
+module.exports = { list: list, get: get, create: create, update: update, terminate: terminate, purgeTerminated: purgeTerminated, profile: profile, rowToEmployee: rowToEmployee, hireDay: hireDay };
