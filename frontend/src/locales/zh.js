@@ -7601,6 +7601,7 @@ export default {
   "The date the client was told to expect it. Leave empty if not agreed yet.": "告知客户预计收到的日期。如尚未约定，请留空。",
   "The date the client was told to expect the order. An order still not delivered after that day counts as late.": "告知客户预计收到订单的日期。过了该日期仍未交付的订单视为逾期。",
   "The date the prices hold until. After it, check them again before quoting.": "价格有效的截止日期。过期后，报价前请重新核对。",
+  "The day they started work. People added from a list or the clock got the day they were added: fix it here.": "入职当天的日期。通过名单或打卡机添加的人员，日期被设成了添加当天：请在此更正。",
   "The days a year agreed with a person, or their company's default. That year's company holidays come off it on 1 January; annual, compassionate and sick leave are taken from what remains.": "与个人约定的每年天数，或其公司的默认值。当年公司假日于 1 月 1 日从中扣除；年假、事假和病假从剩余部分中扣除。",
   "The days of that leave type the person still has this year after this request, if it is approved.": "如果批准此申请，本人今年该类休假还剩的天数。",
   "The days they are meant to work. Their rest days show as off, not absent, in Attendance; leave doesn't charge them; and a basic salary is shared over the working days of the month.": "此人应上班的日子。其休息日在考勤中显示为休息而不是缺勤；请假不扣这些天；基本工资按当月工作日分摊。",

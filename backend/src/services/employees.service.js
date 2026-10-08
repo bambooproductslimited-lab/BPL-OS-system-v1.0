@@ -70,6 +70,16 @@ function birthDate(v) {
   return d;
 }
 
+// A hire date as typed: a real calendar date, not before 1950 and not more
+// than a year ahead (someone starting soon can be added before they start).
+function hireDay(v) {
+  var d = V.date(v == null ? '' : String(v).trim(), 'Hire date');
+  var t = new Date(d + 'T00:00:00Z');
+  if (isNaN(t.getTime()) || t.toISOString().slice(0, 10) !== d) fail('invalid', 'Hire date must be a valid date.');
+  if (d < '1950-01-01' || t.getTime() > Date.now() + 366 * 86400000) fail('invalid', 'Hire date looks wrong: check the year.');
+  return d;
+}
+
 // SSNIT number / TIN as typed: trimmed, upper case, spaces dropped; empty
 // clears it. Letters, digits and dashes only (an old SSNIT number like
 // C018306020094, a Ghana Card number like GHA-123456789-0).
@@ -190,7 +200,7 @@ async function create(ctx, p) {
   await assertDepartmentInReach(ctx, departmentId);
   var positionTitle = V.text(p.positionTitle, 'Job title', 60);
   var employmentType = V.oneOf(p.employmentType || 'permanent', ['permanent', 'contract', 'casual', 'day_rate'], 'Employment type');
-  var hireDate = V.date(p.hireDate || new Date().toISOString().slice(0, 10), 'Hire date');
+  var hireDate = hireDay(p.hireDate || new Date().toISOString().slice(0, 10));
   var dateOfBirth = birthDate(p.dateOfBirth) || null;
   var shiftStart = p.shiftStart ? V.time(p.shiftStart, 'Shift start') : null;
   var shiftEnd = p.shiftEnd ? V.time(p.shiftEnd, 'Shift end') : null;
@@ -369,6 +379,12 @@ async function update(ctx, id, p) {
   if (p.workDays !== undefined) {
     var workDays = p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null;
     if (workDays !== (e.work_days || null)) { changed.push('workDays'); values.push(workDays); sets.push('work_days = $' + values.length); }
+  }
+  // Hire date: fixable after the person is added (people added from a list
+  // or the clock got the day they were added).
+  if (p.hireDate !== undefined) {
+    var hire = hireDay(p.hireDate);
+    if (hire !== String(e.hire_date).slice(0, 10)) { changed.push('hireDate'); values.push(hire); sets.push('hire_date = $' + values.length); }
   }
   if (p.dateOfBirth !== undefined) {
     var dob = birthDate(p.dateOfBirth);

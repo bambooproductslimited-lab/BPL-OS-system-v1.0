@@ -278,7 +278,7 @@ export default function EmployeesPage() {
         const body = {
           code: form.code, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone,
           positionTitle: form.positionTitle, departmentId: form.departmentId, shiftId: form.shiftId || null, managerId: form.managerId || null,
-          employmentType: form.employmentType, status: form.status,
+          employmentType: form.employmentType, status: form.status, hireDate: String(form.hireDate || '').slice(0, 10),
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language, workDays: form.workDays,
           secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd, dateOfBirth: form.dateOfBirth
         };
@@ -1029,11 +1029,10 @@ export default function EmployeesPage() {
                 {managers.filter((m) => m.id !== editId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
-            {!editId && (
-              <div className="field"><label htmlFor="emp-hire">{tr('Hire date')}</label>
-                <input id="emp-hire" className="input" type="date" value={form.hireDate} onChange={(e) => setForm({ ...form, hireDate: e.target.value })} required />
-              </div>
-            )}
+            <div className="field"><label htmlFor="emp-hire">{tr('Hire date')}</label>
+              <input id="emp-hire" className="input" type="date" value={String(form.hireDate || '').slice(0, 10)} onChange={(e) => setForm({ ...form, hireDate: e.target.value })} required />
+              {editId && <span className="emp-field-hint">{tr('The day they started work. People added from a list or the clock got the day they were added: fix it here.')}</span>}
+            </div>
             <div className="field"><label htmlFor="emp-dob">{tr('Date of birth')}</label>
               <input id="emp-dob" className="input" type="date" value={form.dateOfBirth} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} />
               <span className="emp-field-hint">{tr('Optional. Colleagues see only the day and month, for birthdays.')}</span>
