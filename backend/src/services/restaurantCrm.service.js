@@ -88,7 +88,7 @@ function feedbackOf(text, rating) {
 
 // ── dishes ────────────────────────────────────────────────────────────
 // "Assorted Fried Rice, beef sauce", "A90, A85", "2x Crazy Tuna Roll":
-// one dish per part; a menu code (A90) becomes the dish on the menu; the
+// one dish per part (parts split by commas, semicolons, new lines or +); a menu code (A90) becomes the dish on the menu; the
 // till's "N05 Assorted Fried Rice" and the log's "assorted fried rice" are
 // the same dish.
 var CODE = /^([a-z]{1,2}\d{1,3})$/i;
@@ -111,7 +111,8 @@ function hasCode(items) { return String(items || '').split(/[,;\s]+/).some(funct
 function dishKey(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9À-￿]+/g, ' ').trim(); }
 function dishesOf(items, codes) {
   var out = [];
-  String(items || '').split(/[,;\n+&]|\band\b/i).forEach(function (part) {
+  // Not on "and" or "&": "Jollof and Chicken", "Banku and Okro" are one dish.
+  String(items || '').split(/[,;\n+]/).forEach(function (part) {
     var p = part.trim().replace(/^\d+\s*(x|×|pcs?|pieces?)?\s+/i, '').replace(/\s*(x|×)\s*\d+$/i, '').trim();
     if (!p || /^reserv/i.test(p)) return;
     var code = CODE.exec(p);
@@ -764,7 +765,7 @@ async function mergeGuests(ctx, p) {
   return getGuest(ctx, keep.id);
 }
 
-// ── the order sheet (Bamboo Garden's "BG ORDER RECORD") ──────────────
+// ── the order sheet (Bamboo Garden's "BG ORDER RECORD", Star Bar's …) ──
 // One row per order: the date, the customer's name, what they ordered, how
 // it came in (Phone call, Bolt, WhatsApp), how it was served (Pick-up,
 // Dine-in, Delivery), feedback and the phone number. Columns are found by
@@ -776,12 +777,12 @@ async function mergeGuests(ctx, p) {
 var MAX_ROWS = 10000;
 var HEADINGS = {
   date: /^(month\s*\/?\s*date|date|order date|day)$/,
-  name: /^(customer name|customer|name|guest|guest name|client)$/,
-  items: /^(order details|order|items|what was ordered|food|order items)$/,
+  name: /^(customer name|customer|name|guest|guest name|client|client name|customer's name)$/,
+  items: /^(order details|order|orders|items|item|what was ordered|food|order items|food and drinks|food & drinks|details)$/,
   channel: /^(mode of communication|channel|communication|source|order channel|how)$/,
-  service: /^(mode of delivery|delivery|service|order type|type|mode)$/,
+  service: /^(mode of delivery|delivery|service|order type|type|mode|dine in or takeaway)$/,
   feedback: /^(feedback|comment|comments|remarks|review)$/,
-  phone: /^(phone number|phone|contact|telephone|mobile|number)$/,
+  phone: /^(phone number|phone|contact|telephone|mobile|number|contact number|tel)$/,
   amount: /^(amount|total|price|value|amount ghs|total ghs)$/
 };
 
@@ -874,7 +875,7 @@ async function readSheet(file) {
       if (cols.date && cols.name && cols.items) found = { ws: ws, headerRow: r, cols: cols };
     }
   });
-  if (!found) fail('invalid', 'No tab with the columns date, customer name and order details was found. Use the order record sheet (BG ORDER RECORD).');
+  if (!found) fail('invalid', 'No tab with the columns date, customer name and order details was found. Use the sheet where customer service records the orders, one row per order (like BG ORDER RECORD).');
   var rows = [];
   var skipped = [];
   var seen = {};

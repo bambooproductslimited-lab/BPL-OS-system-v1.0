@@ -14,8 +14,9 @@ import './ToolRoomPage.css';
 import './RestaurantsPage.css';
 import './RestaurantCrmPage.css';
 
-// A restaurant's guest CRM (backend: restaurantCrm.service.js), starting
-// with Bamboo Garden. Pick the restaurant; a banner with the key numbers
+// A restaurant's guest CRM (backend: restaurantCrm.service.js): Bamboo
+// Garden, Star Bar, and any other restaurant with a till. Pick the
+// restaurant (or open /restaurantcrm?restaurant=<code>); a banner with the key numbers
 // (orders and guests with their monthly trend, how many came back, the
 // rating); what stands out (complaints nobody has called back, regulars who
 // stopped ordering, feedback not asked for, guests without a number); and
@@ -60,6 +61,7 @@ function weekdayName(i, long) { return new Date(Date.UTC(2024, 0, 7 + i)).toLoca
 function ordersText(n) { return n === 1 ? tr('1 order') : tr('{n} orders', { n }); }
 function stars(r) { return r ? '★'.repeat(r) + '☆'.repeat(5 - r) : ''; }
 function isBg(c) { return /bamboo\s*garden/i.test(c.name) || /^BG/i.test(c.code); }
+function isStarBar(c) { return /star\s*bar/i.test(c.name) || /^SB/i.test(c.code); }
 function pct(n, of) { return of ? Math.round(n / of * 100) : 0; }
 // "6 Oct", with the year only when it is not this year.
 function shortDate(iso) {
@@ -220,7 +222,7 @@ export default function RestaurantCrmPage() {
   const { can } = useAuth();
   const canManage = can('restaurant.manage');
   const [companies, setCompanies] = useState([]);
-  const [companyCode, setCompanyCode] = useState(() => readPref('bos.restaurantCrmCompany', ''));
+  const [companyCode, setCompanyCode] = useState(() => new URLSearchParams(window.location.search).get('restaurant') || readPref('bos.restaurantCrmCompany', ''));
   const [view, setView] = useState(() => { const v = new URLSearchParams(window.location.search).get('view'); return VIEWS.includes(v) ? v : 'overview'; });
   const [range, setRange] = useState(() => readPref('bos.restaurantCrmRange', '365'));
   const [ov, setOv] = useState(null);
@@ -250,12 +252,17 @@ export default function RestaurantCrmPage() {
     api.get('/restaurant/companies').then(setCompanies).catch((err) => setError(err.message));
   }, []);
   const shown = useMemo(() => {
-    const running = companies.filter((c) => c.menuItems > 0 || c.orders30 > 0 || isBg(c));
-    return (running.length ? running : companies).slice().sort((x, y) => isBg(y) - isBg(x) || y.orders30 - x.orders30 || String(x.name).localeCompare(String(y.name)));
+    const running = companies.filter((c) => c.menuItems > 0 || c.orders30 > 0 || isBg(c) || isStarBar(c));
+    return (running.length ? running : companies).slice().sort((x, y) => isBg(y) - isBg(x) || isStarBar(y) - isStarBar(x) || y.orders30 - x.orders30 || String(x.name).localeCompare(String(y.name)));
   }, [companies]);
   const current = companies.find((c) => c.code === companyCode) || shown[0] || null;
   const companyId = current ? current.id : null;
-  function pickCompany(code) { setCompanyCode(code); writePref('bos.restaurantCrmCompany', code); setOrderOffset(0); }
+  function pickCompany(code) {
+    setCompanyCode(code); writePref('bos.restaurantCrmCompany', code); setOrderOffset(0); setGuests(null); setOrders(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('restaurant', code);
+    window.history.replaceState(null, '', url);
+  }
   function pickView(v) {
     setView(v);
     const url = new URL(window.location.href);
@@ -1045,7 +1052,7 @@ function ImportDialog({ companyId, companyName, onClose, onDone }) {
     <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
       <div className="dialog tl-dialog rc-import" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={tr('Import the order sheet')}>
         <h2>{tr('Import the order sheet')}</h2>
-        <p className="dk-muted tl-small">{tr('The sheet customer service has kept for {name} (BG ORDER RECORD): date, customer name, order details, how it came in, pick-up/dine-in/delivery, feedback and phone number. Download it as Excel (.xlsx). Importing it again later only adds the new rows.', { name: companyName })}</p>
+        <p className="dk-muted tl-small">{tr('The sheet where customer service has kept {name}\'s orders, one row per order — like Bamboo Garden\'s BG ORDER RECORD: the date, the customer\'s name and what they ordered, and if kept, how it came in, pick-up/dine-in/delivery, feedback and phone number. The columns are found by their headings. Download it as Excel (.xlsx). Importing it again later only adds the new rows.', { name: companyName })}</p>
         <div className="field">
           <label htmlFor="rc-file">{tr('Order sheet (.xlsx)')}</label>
           <input id="rc-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => preview(e.target.files[0] || null)} />

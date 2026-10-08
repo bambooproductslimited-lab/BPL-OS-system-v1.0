@@ -19,7 +19,7 @@ function day(offset) { var d = new Date(todayISO() + 'T00:00:00Z'); d.setUTCDate
 function utc(iso) { return new Date(iso + 'T00:00:00Z'); }
 
 async function cleanup() {
-  var ids = (await pool.query("SELECT id FROM companies WHERE code = 'ZRC'")).rows.map(function (r) { return r.id; });
+  var ids = (await pool.query("SELECT id FROM companies WHERE code IN ('ZRC', 'ZRS')")).rows.map(function (r) { return r.id; });
   if (!ids.length) return;
   await pool.query('DELETE FROM restaurant_guest_orders WHERE company_id = ANY($1)', [ids]);
   await pool.query('DELETE FROM restaurant_order_items WHERE order_id IN (SELECT id FROM restaurant_orders WHERE company_id = ANY($1))', [ids]);
@@ -87,6 +87,7 @@ test('what the guest said, numbers and names, dishes and menu codes', function (
 
   var dishes = crm.dishesOf('Z01, 2x Zrc beef noodles, Red bull', { Z01: 'Zrc Assorted Fried Rice' });
   assert.deepEqual(dishes.map(function (d) { return d.key; }), ['zrc assorted fried rice', 'zrc beef noodles', 'red bull']);
+  assert.deepEqual(crm.dishesOf('Jollof and chicken, Banku & okro', {}).map(function (d) { return d.key; }), ['jollof and chicken', 'banku okro'], 'a dish with "and" in its name stays one dish');
 });
 
 test('the order sheet: read as the sheet means it, guests found, nothing twice', async function () {
@@ -246,4 +247,28 @@ test('Square: the customer on a sale becomes the guest; a number on a delivery f
   await pool.query('UPDATE restaurant_orders SET guest_id = $2 WHERE id = $1', [id1, ama]);
   await squareImport.upsertOrder(admin, co, o1, cashier, {}, {}, true, g1);
   assert.equal((await pool.query('SELECT guest_id FROM restaurant_orders WHERE id = $1', [id1])).rows[0].guest_id, ama);
+});
+
+test('another restaurant (a Star Bar): its own sheet layout, its own guests', async function () {
+  var star = (await pool.query("INSERT INTO companies (code, name) VALUES ('ZRS', 'Zrs Star Bar') RETURNING *")).rows[0];
+  var wb = new ExcelJS.Workbook();
+  var ws = wb.addWorksheet('Zrs orders');
+  ws.addRow(['Zrs Star Bar — orders']);
+  ws.addRow(['Date', 'Client Name', 'Order', 'Channel', 'Type', 'Comment', 'Contact']);
+  ws.addRow([utc(day(-3)), 'Zrs Kojo', 'Grilled tilapia, 2x Club beer', 'WhatsApp', 'Dine in', '5 people, table 3 booked', '0205550501']);
+  ws.addRow([day(-2).split('-').reverse().join('/'), 'Zrs Kojo', 'Jollof and chicken', 'Phone', 'Takeaway', 'Too salty', '+233 20 555 0501']);
+  ws.addRow([utc(day(-1)), 'Zrc Ama', 'Fried yam', 'Walk-in', 'Dine in', null, '0205550301']);
+  var r = await crm.importRun(admin, star.id, { buffer: Buffer.from(await wb.xlsx.writeBuffer()) });
+  assert.deepEqual([r.added, r.newGuests], [3, 2], 'headings in another order and words; a date typed as day/month/year');
+  var kojo = (await crm.listGuests(admin, { companyId: star.id, q: 'Zrs Kojo' })).guests[0];
+  assert.equal(kojo.orders, 2, 'his two orders, the number typed two ways');
+  var rows = (await pool.query("SELECT service, party_size, table_note, feedback FROM restaurant_guest_orders WHERE company_id = $1 ORDER BY ordered_on", [star.id])).rows;
+  assert.deepEqual(rows.map(function (x) { return x.service; }), ['reservation', 'pickup', 'dine_in']);
+  assert.deepEqual([rows[0].party_size, rows[0].table_note, rows[1].feedback], [5, 'Table 3', 'Too salty']);
+  // Zrc Ama of the other restaurant is not this one's guest: each restaurant keeps its own.
+  var ama = (await pool.query("SELECT company_id FROM restaurant_guests WHERE phone_key = '233205550301' ORDER BY created_at")).rows;
+  assert.deepEqual(ama.map(function (x) { return x.company_id; }).sort(), [co.id, star.id].sort());
+  var ov = await crm.overview(admin, { companyId: star.id, range: '30' });
+  assert.deepEqual([ov.totals.orders, ov.totals.guests, ov.totals.complaints], [3, 2, 1]);
+  assert.equal((await crm.listOrders(admin, { companyId: co.id, q: 'tilapia' })).total, 0, 'nothing of it at the other restaurant');
 });
