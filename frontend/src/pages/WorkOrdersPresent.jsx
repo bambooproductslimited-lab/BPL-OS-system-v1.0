@@ -8,12 +8,17 @@ import { ForBadge, addDays, daysBetween, forName, isoDay, nextLabel, pmOf, short
 import './WorkOrdersPresent.css';
 
 // The Saturday review: the week's work orders as slides to show on a
-// screen — what was completed this week, and what is still pending, late
-// ones first — with the numbers that sum them up. Arrow keys or the
+// screen, in three parts — what was completed this week, what is in
+// process, and what is pending (not started or held up), late ones first
+// — with the numbers that sum them up. Arrow keys or the
 // buttons move through it; F is full screen; it prints one slide a page.
 // A card opens its work order over the slides (onOpen).
 
 const PER_SLIDE = 6;
+// The open work orders in two parts: being made (or made and waiting for
+// their check), and not started or held up.
+const IN_PROCESS = ['in_progress', 'under_review'];
+const PENDING = ['discussing', 'not_started', 'awaiting_material', 'waiting'];
 function dayOf(ts) { return ts ? isoDay(new Date(ts)) : null; }
 function monday(iso) { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return isoDay(d); }
 function chunk(list, n) { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; }
@@ -94,39 +99,54 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       .sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
     const late = done.filter((t) => t.onTime === false);
     const issued = wos.filter((t) => t.issuedOn && t.issuedOn >= weekFrom && t.issuedOn <= weekTo);
-    const pending = wos.filter(WO_OPEN).sort((a, b) => {
+    const open = wos.filter(WO_OPEN).sort((a, b) => {
       if (!!a.overdue !== !!b.overdue) return a.overdue ? -1 : 1;
       if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1;
       return String(a.dueDate || '').localeCompare(String(b.dueDate || '')) || (a.number || '').localeCompare(b.number || '');
     });
-    const overdue = pending.filter((t) => t.overdue);
-    const dueNext = pending.filter((t) => !t.overdue && t.dueDate && t.dueDate >= nextFrom && t.dueDate <= nextTo);
+    // Anything open with another status counts as pending.
+    const process = open.filter((t) => IN_PROCESS.includes(t.status));
+    const pending = open.filter((t) => !IN_PROCESS.includes(t.status));
+    const overdue = open.filter((t) => t.overdue);
+    const dueNext = open.filter((t) => !t.overdue && t.dueDate && t.dueDate >= nextFrom && t.dueDate <= nextTo);
+    // The facts for each open part.
+    const part = (list, statuses) => ({
+      list,
+      late: list.filter((t) => t.overdue).length,
+      dueNext: list.filter((t) => !t.overdue && t.dueDate && t.dueDate >= nextFrom && t.dueDate <= nextTo).length,
+      oldest: list.filter((t) => t.issuedOn).sort((a, b) => a.issuedOn.localeCompare(b.issuedOn))[0] || null,
+      byStatus: statuses.map((st) => ({ key: st, label: woStatusLabel(st), n: list.filter((t) => t.status === st).length }))
+    });
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = addDays(weekFrom, i);
       return { key: d, label: new Date(d + 'T00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'short' }), n: done.filter((t) => dayOf(t.completedAt) === d).length };
     });
-    const byStatus = WO_STATUSES.filter((s) => s !== 'completed' && s !== 'cancelled').map((s) => ({ key: s, label: woStatusLabel(s), n: pending.filter((t) => t.status === s).length })).filter((x) => x.n);
     const people = {};
     wos.forEach((t) => {
       const pm = pmOf(t);
       if (!pm) return;
-      const inDone = done.includes(t), inPending = WO_OPEN(t);
-      if (!inDone && !inPending) return;
-      const p = people[pm] || (people[pm] = { name: pm, person: t.projectManager || null, done: 0, open: 0, late: 0 });
+      const inDone = done.includes(t), isOpen = WO_OPEN(t);
+      if (!inDone && !isOpen) return;
+      const p = people[pm] || (people[pm] = { name: pm, person: t.projectManager || null, done: 0, process: 0, pending: 0, late: 0 });
       if (inDone) p.done++;
-      if (inPending) { p.open++; if (t.overdue) p.late++; }
+      if (isOpen) { if (IN_PROCESS.includes(t.status)) p.process++; else p.pending++; if (t.overdue) p.late++; }
     });
-    const pms = Object.values(people).sort((a, b) => b.done - a.done || b.open - a.open || a.name.localeCompare(b.name));
-    const oldest = pending.filter((t) => t.issuedOn).sort((a, b) => a.issuedOn.localeCompare(b.issuedOn))[0] || null;
-    return { done, late, issued, pending, overdue, dueNext, days, byStatus, pms, oldest, median: median(done.map((t) => t.daysToClose).filter((n) => n !== null && n !== undefined)) };
+    const pms = Object.values(people).sort((a, b) => b.done - a.done || (b.process + b.pending) - (a.process + a.pending) || a.name.localeCompare(b.name));
+    return {
+      done, late, issued, open, overdue, dueNext, days, pms,
+      process: part(process, IN_PROCESS), pending: part(pending, PENDING.concat(WO_STATUSES.filter((st) => st !== 'completed' && st !== 'cancelled' && !IN_PROCESS.includes(st) && !PENDING.includes(st)))),
+      median: median(done.map((t) => t.daysToClose).filter((n) => n !== null && n !== undefined))
+    };
   }, [wos, weekFrom, weekTo, nextFrom, nextTo]);
 
   const slides = useMemo(() => {
     const s = [{ key: 'cover', kind: 'cover' }];
     s.push({ key: 'done-sum', kind: 'done-sum' });
     chunk(data.done, PER_SLIDE).forEach((list, i, all) => s.push({ key: 'done-' + i, kind: 'list', mode: 'done', list, page: i + 1, pages: all.length }));
-    s.push({ key: 'pending-sum', kind: 'pending-sum' });
-    chunk(data.pending, PER_SLIDE).forEach((list, i, all) => s.push({ key: 'pending-' + i, kind: 'list', mode: 'pending', list, page: i + 1, pages: all.length }));
+    ['process', 'pending'].forEach((g) => {
+      s.push({ key: g + '-sum', kind: 'open-sum', group: g });
+      chunk(data[g].list, PER_SLIDE).forEach((list, i, all) => s.push({ key: g + '-' + i, kind: 'list', mode: g, list, page: i + 1, pages: all.length }));
+    });
     if (data.pms.length) s.push({ key: 'people', kind: 'people' });
     s.push({ key: 'end', kind: 'end' });
     return s;
@@ -179,11 +199,15 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
           <p className="wop-range">{range}</p>
           <div className="wop-tiles">
             <div className="wop-tile is-good"><b>{data.done.length}</b><span>{tr('completed this week')}</span></div>
-            <div className="wop-tile"><b>{pct === null ? '—' : pct + '%'}</b><span>{tr('of them on time')}</span></div>
-            <div className="wop-tile is-open"><b>{data.pending.length}</b><span>{tr('still pending')}</span></div>
-            <div className={'wop-tile' + (data.overdue.length ? ' is-bad' : '')}><b>{data.overdue.length}</b><span>{tr('of them late')}</span></div>
+            <div className="wop-tile is-open"><b>{data.process.list.length}</b><span>{tr('in process')}</span></div>
+            <div className="wop-tile is-pend"><b>{data.pending.list.length}</b><span>{tr('pending')}</span></div>
+            <div className={'wop-tile' + (data.overdue.length ? ' is-bad' : '')}><b>{data.overdue.length}</b><span>{tr('late, in process or pending')}</span></div>
           </div>
-          <p className="wop-foot">{(data.issued.length === 1 ? tr('1 new work order issued this week') : tr('{n} new work orders issued this week', { n: data.issued.length })) + ' · ' + (data.dueNext.length === 1 ? tr('1 due next week') : tr('{n} due next week', { n: data.dueNext.length }))}</p>
+          <p className="wop-foot">{[
+            pct === null ? null : tr('{pct}% of those completed were on time', { pct }),
+            data.issued.length === 1 ? tr('1 new work order issued this week') : tr('{n} new work orders issued this week', { n: data.issued.length }),
+            data.dueNext.length === 1 ? tr('1 due next week') : tr('{n} due next week', { n: data.dueNext.length })
+          ].filter(Boolean).join(' · ')}</p>
         </div>
       );
     }
@@ -223,21 +247,27 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
         </div>
       );
     }
-    if (sl.kind === 'pending-sum') {
-      const max = Math.max(1, ...data.byStatus.map((x) => x.n));
+    if (sl.kind === 'open-sum') {
+      const g = data[sl.group], proc = sl.group === 'process';
+      const max = Math.max(1, ...g.byStatus.map((x) => x.n));
       return (
         <div className="wop-sum">
-          <header className="wop-head"><span className="wop-eyebrow is-open">{tr('Still pending')}</span><h2>{data.pending.length === 1 ? tr('1 work order still pending') : tr('{n} work orders still pending', { n: data.pending.length })}</h2></header>
-          {!data.pending.length ? <p className="wop-empty">{tr('Nothing pending. Every work order is finished.')}</p> : (
+          <header className="wop-head">
+            <span className={'wop-eyebrow ' + (proc ? 'is-open' : 'is-pend')}>{proc ? tr('In process') : tr('Pending')}</span>
+            <h2>{proc ? (g.list.length === 1 ? tr('1 work order in process') : tr('{n} work orders in process', { n: g.list.length }))
+              : (g.list.length === 1 ? tr('1 work order pending') : tr('{n} work orders pending', { n: g.list.length }))}</h2>
+            <p className="wop-sub">{proc ? tr('Being made now, or made and waiting for their check.') : tr('Not started yet or held up: still being discussed, issued, waiting for material or suspended.')}</p>
+          </header>
+          {!g.list.length ? <p className="wop-empty">{proc ? tr('Nothing in process right now.') : tr('Nothing pending.')}</p> : (
             <div className="wop-sum-grid">
               <section className="wop-panel">
                 <h3>{tr('Where they are')}</h3>
-                <Bars items={data.byStatus} max={max} />
+                <Bars items={g.byStatus.filter((x) => x.n || IN_PROCESS.includes(x.key) || PENDING.includes(x.key))} max={max} />
               </section>
               <section className="wop-panel wop-facts">
-                <div className={'wop-fact' + (data.overdue.length ? ' is-bad' : '')}><b>{data.overdue.length}</b><span>{tr('late: past their date due')}</span></div>
-                <div className="wop-fact is-warn"><b>{data.dueNext.length}</b><span>{tr('due next week ({dates})', { dates: weekLabel(nextFrom, nextTo) })}</span></div>
-                {data.oldest && <div className="wop-fact"><b>{daysBetween(data.oldest.issuedOn, today)}</b><span>{tr('days open: the oldest, {no} {title}', { no: data.oldest.number, title: data.oldest.title })}</span></div>}
+                <div className={'wop-fact' + (g.late ? ' is-bad' : '')}><b>{g.late}</b><span>{tr('late: past their date due')}</span></div>
+                <div className="wop-fact is-warn"><b>{g.dueNext}</b><span>{tr('due next week ({dates})', { dates: weekLabel(nextFrom, nextTo) })}</span></div>
+                {g.oldest && <div className="wop-fact"><b>{daysBetween(g.oldest.issuedOn, today)}</b><span>{tr('days open: the oldest, {no} {title}', { no: g.oldest.number, title: g.oldest.title })}</span></div>}
               </section>
             </div>
           )}
@@ -245,16 +275,18 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       );
     }
     if (sl.kind === 'list') {
-      const done = sl.mode === 'done';
+      const done = sl.mode === 'done', proc = sl.mode === 'process';
+      const lateFirst = sl.list.some((t) => t.overdue);
       return (
         <div className="wop-list">
           <header className="wop-head is-row">
-            <span className={'wop-eyebrow ' + (done ? 'is-good' : 'is-open')}>{done ? tr('Completed this week') : tr('Still pending')}</span>
-            <h2>{done ? tr('Completed') : sl.list.some((t) => t.overdue) ? tr('Pending: late ones first') : tr('Pending: soonest due first')}</h2>
+            <span className={'wop-eyebrow ' + (done ? 'is-good' : proc ? 'is-open' : 'is-pend')}>{done ? tr('Completed this week') : proc ? tr('In process') : tr('Pending')}</span>
+            <h2>{done ? tr('Completed') : proc ? (lateFirst ? tr('In process: late ones first') : tr('In process: soonest due first'))
+              : (lateFirst ? tr('Pending: late ones first') : tr('Pending: soonest due first'))}</h2>
             {sl.pages > 1 && <span className="wop-page">{tr('{a} of {b}', { a: sl.page, b: sl.pages })}</span>}
           </header>
           <div className="wop-cards">
-            {sl.list.map((t) => <PCard key={t.id} t={t} today={today} mode={sl.mode} onOpen={onOpen} />)}
+            {sl.list.map((t) => <PCard key={t.id} t={t} today={today} mode={done ? 'done' : 'pending'} onOpen={onOpen} />)}
           </div>
         </div>
       );
@@ -264,13 +296,14 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
         <div className="wop-sum">
           <header className="wop-head"><span className="wop-eyebrow">{tr('Project managers')}</span><h2>{tr('Who has what')}</h2></header>
           <table className="wop-table">
-            <thead><tr><th>{tr('Project manager')}</th><th>{tr('Completed this week')}</th><th>{tr('Still pending')}</th><th>{tr('Late')}</th></tr></thead>
+            <thead><tr><th>{tr('Project manager')}</th><th>{tr('Completed this week')}</th><th>{tr('In process')}</th><th>{tr('Pending')}</th><th>{tr('Late')}</th></tr></thead>
             <tbody>
               {data.pms.slice(0, 8).map((p) => (
                 <tr key={p.name}>
                   <td><span className="wop-pm">{p.person ? <Photo id={p.person.id} name={p.person.name} photo={p.person.photo} size={28} /> : null}{p.name}</span></td>
                   <td><b className="is-good">{p.done}</b></td>
-                  <td><b>{p.open}</b></td>
+                  <td><b>{p.process}</b></td>
+                  <td><b>{p.pending}</b></td>
                   <td>{p.late ? <b className="is-bad">{p.late}</b> : <span className="wop-zero">0</span>}</td>
                 </tr>
               ))}
