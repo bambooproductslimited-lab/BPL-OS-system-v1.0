@@ -396,6 +396,42 @@ async function addComment(ctx, id, body) {
   return get(ctx, id);
 }
 
+// Several WOs into one project at once (projectId), or out of their
+// project (projectId null) — for work orders brought in from the sheet,
+// which has no project column. Every WO must be one this person can see.
+async function setProject(ctx, ids, projectId) {
+  if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
+  ids = Array.isArray(ids) ? Array.from(new Set(ids.filter(Boolean).map(String))) : [];
+  if (!ids.length) fail('invalid', 'Pick the work orders first.');
+  if (ids.length > 2000) fail('invalid', 'Pick at most 2000 work orders at a time.');
+  if (ids.some(function (id) { return !/^[0-9a-f-]{36}$/i.test(id); })) fail('invalid', 'A work order picked was not found.');
+  var project = null;
+  if (projectId) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(projectId))) fail('invalid', 'That project was not found.');
+    project = (await pool.query('SELECT p.*, (SELECT array_agg(employee_id) FROM project_members pm WHERE pm.project_id = p.id) AS member_ids FROM projects p WHERE p.id = $1', [projectId])).rows[0];
+    if (!project) fail('invalid', 'That project was not found.');
+    if (!require('./projects.service').projectVisible(ctx, project)) fail('forbidden', 'That project is outside your scope.');
+  }
+  var rows = (await pool.query(
+    'SELECT t.id, t.project_id, t.created_by, t.project_manager_id, (SELECT array_agg(employee_id) FROM task_assignees ta WHERE ta.task_id = t.id) AS assignee_ids FROM tasks t WHERE t.id = ANY($1)',
+    [ids])).rows;
+  if (rows.length !== ids.length) fail('invalid', 'A work order picked was not found.');
+  var cache = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!(await taskVisible(ctx, { id: r.id, projectId: r.project_id, createdBy: r.created_by, assigneeIds: r.assignee_ids || [], projectManagerId: r.project_manager_id }, cache))) {
+      fail('forbidden', 'A work order picked is outside your scope.');
+    }
+  }
+  var n = await withTransaction(async function (client) {
+    var res = await client.query('UPDATE tasks SET project_id = $1 WHERE id = ANY($2) AND project_id IS DISTINCT FROM $1', [project ? project.id : null, ids]);
+    if (res.rowCount) await audit(client, ctx, 'task.project', 'task', project ? project.id : 'none',
+      project ? 'Added ' + res.rowCount + ' work orders to ' + project.code + ' — ' + project.name + '.' : 'Took ' + res.rowCount + ' work orders out of their project.');
+    return res.rowCount;
+  });
+  return { updated: n, project: project ? { id: project.id, code: project.code, name: project.name } : null };
+}
+
 // What the WO form offers to pick from: our companies, customers and staff.
 async function options(ctx) {
   if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
@@ -406,5 +442,5 @@ async function options(ctx) {
 
 module.exports = {
   list: list, get: get, create: create, setStatus: setStatus, update: update, remove: remove, addComment: addComment,
-  options: options, taskVisible: taskVisible, woNumber: woNumber, STATUSES: STATUSES
+  options: options, setProject: setProject, taskVisible: taskVisible, woNumber: woNumber, STATUSES: STATUSES
 };

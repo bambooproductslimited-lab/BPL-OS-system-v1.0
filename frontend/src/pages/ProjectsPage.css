@@ -125,3 +125,20 @@
   .pj-task-list li .pj-faces { grid-row: 1; grid-column: 3; }
 }
 .pj-wo { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.pj-for { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pj-for .input { flex: 1 1 200px; width: auto; }
+.pj-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 5%, var(--color-bg)); border: 1px solid var(--color-border); }
+.pj-seg button { padding: 5px 12px; border: 0; border-radius: 999px; background: none; color: var(--color-text-muted); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.pj-seg button.is-on { background: var(--color-bg); color: var(--color-text); box-shadow: 0 1px 3px rgba(15, 23, 42, .14); }
+.pj-for-tag { display: inline-flex; align-items: center; padding: 1px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #2a78d6; background: color-mix(in srgb, #2a78d6 11%, var(--color-bg)); }
+:root[data-theme='dark'] .pj-for-tag { color: #6aa8f0; }
+.pj-figs { padding: 12px 14px; border-radius: 14px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-text) 3%, var(--color-bg)); }
+.pj-figs h3 { margin: 0 0 10px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.pj-figs-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.pj-figs-row > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pj-figs-row strong { font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.pj-figs-row span { font-size: 11.5px; line-height: 1.35; color: var(--color-text-muted); }
+.pj-tasks-actions { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pj-new-wo { padding: 5px 12px; font-size: 12.5px; border-radius: 999px; }
+@media (max-width: 640px) { .pj-figs-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pj-tasks-head { align-items: center; flex-wrap: wrap; }

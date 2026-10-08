@@ -20,6 +20,11 @@ router.get('/options', async function (req, res, next) {
   try { res.json(await tasksService.options(req.ctx)); } catch (e) { next(e); }
 });
 
+// Several WOs into a project at once, or out of their project: { ids, projectId }.
+router.post('/project', async function (req, res, next) {
+  try { res.json(await tasksService.setProject(req.ctx, req.body.ids, req.body.projectId || null)); } catch (e) { next(e); }
+});
+
 // The WO sheet: preview what a workbook holds, then import it.
 router.post('/import/preview', sheetUpload.single('file'), async function (req, res, next) {
   try { res.json(await woImport.preview(req.ctx, req.file, req.body)); } catch (e) { next(e); }

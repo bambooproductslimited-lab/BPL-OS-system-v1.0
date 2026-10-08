@@ -19,8 +19,58 @@ function rowToProject(r, extra) {
   return Object.assign({
     id: r.id, code: r.code, name: r.name, departmentId: r.department_id, ownerId: r.owner_id,
     memberIds: r.member_ids || [], startDate: r.start_date, deadline: r.deadline, status: r.status,
-    budget: r.budget === null ? 0 : Number(r.budget), description: r.description
+    budget: r.budget === null ? 0 : Number(r.budget), description: r.description,
+    forCompanyId: r.for_company_id || null, customerId: r.customer_id || null,
+    customerName: r.customer_display || r.customer_name || '',
+    requestedFor: r.for_company_name || r.customer_display || r.customer_name || ''
   }, extra || {});
+}
+
+// Who the project is for (migration 0137) — names to show — and how its
+// work orders went: how many were completed, how many of those by their
+// date due, the days each took from issued to completed, and the labour
+// (workers × days) recorded on them.
+var FOR_JOIN = 'LEFT JOIN companies fc ON fc.id = p.for_company_id LEFT JOIN customers cu ON cu.id = p.customer_id ';
+var FOR_COLS = 'fc.name AS for_company_name, cu.name AS customer_display, ';
+var DONE_DAY = "(t.completed_at AT TIME ZONE 'UTC')::date";
+var FIGURES_JOIN =
+  'LEFT JOIN LATERAL (SELECT ' +
+  "count(*) FILTER (WHERE t.status = 'completed')::int AS wo_completed, " +
+  "count(*) FILTER (WHERE t.status = 'completed' AND t.completed_at IS NOT NULL AND t.due_date IS NOT NULL)::int AS wo_with_due, " +
+  "count(*) FILTER (WHERE t.status = 'completed' AND t.completed_at IS NOT NULL AND t.due_date IS NOT NULL AND " + DONE_DAY + ' <= t.due_date)::int AS wo_on_time, ' +
+  'avg(' + DONE_DAY + " - coalesce(t.issued_on, (t.created_at AT TIME ZONE 'UTC')::date)) FILTER (WHERE t.status = 'completed' AND t.completed_at IS NOT NULL) AS wo_avg_days, " +
+  'sum(t.workers * t.work_days) FILTER (WHERE t.workers IS NOT NULL AND t.work_days IS NOT NULL) AS wo_person_days, ' +
+  'count(*) FILTER (WHERE t.workers IS NOT NULL AND t.work_days IS NOT NULL)::int AS wo_labour ' +
+  'FROM tasks t WHERE t.project_id = p.id) wf ON true ';
+function figuresOf(r) {
+  return {
+    completed: r.wo_completed || 0,
+    onTimePct: r.wo_with_due ? Math.round((r.wo_on_time / r.wo_with_due) * 100) : null,
+    onTime: r.wo_on_time || 0, withDue: r.wo_with_due || 0,
+    avgDaysToClose: r.wo_avg_days === null || r.wo_avg_days === undefined ? null : Math.round(Number(r.wo_avg_days) * 10) / 10,
+    personDays: r.wo_person_days === null || r.wo_person_days === undefined ? null : Math.round(Number(r.wo_person_days) * 10) / 10,
+    labourWos: r.wo_labour || 0
+  };
+}
+
+// The project's "for" from a create/update body: one of our companies, or a
+// customer named exactly as one on file, or just the name. Left out of the
+// body, it stays as it was.
+async function forOf(p, was) {
+  was = was || {};
+  var given = p.forCompanyId !== undefined || p.customerName !== undefined;
+  if (!given) return { forCompanyId: was.for_company_id || null, customerId: was.customer_id || null, customerName: was.customer_name || '' };
+  if (p.forCompanyId) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(p.forCompanyId))) fail('invalid', 'That company was not found.');
+    var co = (await pool.query('SELECT id FROM companies WHERE id = $1', [p.forCompanyId])).rows[0];
+    if (!co) fail('invalid', 'That company was not found.');
+    return { forCompanyId: co.id, customerId: null, customerName: '' };
+  }
+  var name = String(p.customerName || '').trim();
+  if (name.length > 120) fail('invalid', 'Customer name must be under 120 characters.');
+  if (!name) return { forCompanyId: null, customerId: null, customerName: '' };
+  var cu = (await pool.query('SELECT id FROM customers WHERE lower(name) = lower($1) LIMIT 2', [name])).rows;
+  return cu.length === 1 ? { forCompanyId: null, customerId: cu[0].id, customerName: '' } : { forCompanyId: null, customerId: null, customerName: name };
 }
 
 // Name and photo version of every person given, in one query.
@@ -42,7 +92,7 @@ function person(people, id) { return people[id] || { id: id, name: '—', photo:
 async function list(ctx, params) {
   if (!ctx.can('project.read')) fail('forbidden', 'Your role does not allow this action (project.read).');
   var res = await pool.query(
-    'SELECT p.*, o.first_name AS owner_first, o.last_name AS owner_last, d.name AS dept_name, d.company_id, c.name AS company_name, ' +
+    'SELECT p.*, o.first_name AS owner_first, o.last_name AS owner_last, d.name AS dept_name, d.company_id, c.name AS company_name, ' + FOR_COLS + 'wf.*, ' +
     "(SELECT array_agg(employee_id) FROM project_members pm WHERE pm.project_id = p.id) AS member_ids, " +
     '(SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id) AS task_count, ' +
     "(SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') AS done_count, " +
@@ -51,7 +101,7 @@ async function list(ctx, params) {
     "(SELECT to_char(min(t.due_date), 'YYYY-MM-DD') FROM tasks t WHERE t.project_id = p.id AND t.status NOT IN ('completed','cancelled')) AS next_task_due, " +
     'c.code AS company_code ' +
     'FROM projects p JOIN employees o ON o.id = p.owner_id JOIN departments d ON d.id = p.department_id ' +
-    'JOIN companies c ON c.id = d.company_id ' +
+    'JOIN companies c ON c.id = d.company_id ' + FOR_JOIN + FIGURES_JOIN +
     'ORDER BY p.code'
   );
   var rows = res.rows
@@ -65,7 +115,7 @@ async function list(ctx, params) {
       members: (r.member_ids || []).map(function (id) { return person(people, id); }),
       departmentName: r.dept_name, companyId: r.company_id, companyName: r.company_name, companyCode: r.company_code,
       taskCount: r.task_count, doneCount: r.done_count, cancelledCount: r.cancelled_count,
-      overdueTaskCount: r.overdue_task_count, nextTaskDue: r.next_task_due
+      overdueTaskCount: r.overdue_task_count, nextTaskDue: r.next_task_due, figures: figuresOf(r)
     });
   });
 }
@@ -80,16 +130,20 @@ async function create(ctx, p) {
   var deadline = V.date(p.deadline || todayISO(), 'Deadline');
   var memberIds = p.memberIds || [];
   var ownerId = p.ownerId || ctx.employee.id;
+  var forWho = await forOf(p);
 
-  var countRes = await pool.query('SELECT count(*)::int AS n FROM projects');
-  var code = 'PRJ-' + String(countRes.rows[0].n + 1).padStart(3, '0');
-
-  var insertRes = await pool.query(
-    "INSERT INTO projects (code, name, department_id, owner_id, start_date, deadline, status, budget, description) " +
-    "VALUES ($1,$2,$3,$4,$5,$6,'planning',$7,$8) RETURNING *",
-    [code, name, p.departmentId, ownerId, startDate, deadline, Number(p.budget) || 0, (p.description || '').trim()]
-  );
-  var proj = insertRes.rows[0];
+  // The next PRJ- number after the highest one used (a count would repeat a
+  // number after a delete); two saved at once, the second takes the next.
+  var proj = null;
+  for (var attempt = 0; attempt < 5 && !proj; attempt++) {
+    var next = (await pool.query("SELECT coalesce(max(substring(code from '^PRJ-([0-9]+)$')::int), 0) + 1 + $1 AS n FROM projects", [attempt])).rows[0].n;
+    proj = (await pool.query(
+      "INSERT INTO projects (code, name, department_id, owner_id, start_date, deadline, status, budget, description, for_company_id, customer_id, customer_name) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,'planning',$7,$8,$9,$10,$11) ON CONFLICT (code) DO NOTHING RETURNING *",
+      ['PRJ-' + String(next).padStart(3, '0'), name, p.departmentId, ownerId, startDate, deadline, Number(p.budget) || 0, (p.description || '').trim(), forWho.forCompanyId, forWho.customerId, forWho.customerName]
+    )).rows[0];
+  }
+  if (!proj) fail('conflict', 'Could not give the project a number. Try again.');
   for (var i = 0; i < memberIds.length; i++) {
     await pool.query('INSERT INTO project_members (project_id, employee_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [proj.id, memberIds[i]]);
     if (memberIds[i] !== ctx.employee.id) await notify(pool, memberIds[i], 'Added to a project', proj.code + ' — ' + proj.name, 'projects');
@@ -121,9 +175,9 @@ async function setStatus(ctx, id, status) {
 async function get(ctx, id) {
   if (!ctx.can('project.read')) fail('forbidden', 'Your role does not allow this action (project.read).');
   var res = await pool.query(
-    'SELECT p.*, d.name AS dept_name, c.id AS company_id, c.name AS company_name, c.code AS company_code, ' +
+    'SELECT p.*, d.name AS dept_name, c.id AS company_id, c.name AS company_name, c.code AS company_code, ' + FOR_COLS + 'wf.*, ' +
     '(SELECT array_agg(employee_id) FROM project_members pm WHERE pm.project_id = p.id) AS member_ids ' +
-    'FROM projects p JOIN departments d ON d.id = p.department_id JOIN companies c ON c.id = d.company_id WHERE p.id = $1',
+    'FROM projects p JOIN departments d ON d.id = p.department_id JOIN companies c ON c.id = d.company_id ' + FOR_JOIN + FIGURES_JOIN + 'WHERE p.id = $1',
     [id]
   );
   var r = res.rows[0];
@@ -150,6 +204,7 @@ async function get(ctx, id) {
     ownerName: owner.name, ownerPhoto: owner.photo,
     members: (r.member_ids || []).map(function (mid) { return person(people, mid); }),
     departmentName: r.dept_name, companyId: r.company_id, companyName: r.company_name, companyCode: r.company_code,
+    figures: figuresOf(r),
     tasks: visibleTasks.map(function (t) {
       return {
         id: t.id, number: tasksService.woNumber(t.wo_no), title: t.title, status: t.status, priority: t.priority, dueDate: t.due_date, completedAt: t.completed_at,
@@ -185,11 +240,14 @@ async function update(ctx, id, p) {
   if (!Number.isFinite(budget) || budget < 0) fail('invalid', 'Budget must be a number, 0 or more.');
   var memberIds = Array.isArray(p.memberIds) ? Array.from(new Set(p.memberIds.filter(Boolean))) : (proj.member_ids || []);
   var before = proj.member_ids || [];
+  var forWho = await forOf(p, proj);
 
   await withTransaction(async function (client) {
     await client.query(
-      'UPDATE projects SET name = $1, department_id = $2, owner_id = $3, start_date = $4, deadline = $5, budget = $6, description = $7, updated_at = now() WHERE id = $8',
-      [name, departmentId, ownerId, startDate, deadline, budget, p.description === undefined ? proj.description : String(p.description || '').trim(), id]
+      'UPDATE projects SET name = $1, department_id = $2, owner_id = $3, start_date = $4, deadline = $5, budget = $6, description = $7, ' +
+      'for_company_id = $9, customer_id = $10, customer_name = $11, updated_at = now() WHERE id = $8',
+      [name, departmentId, ownerId, startDate, deadline, budget, p.description === undefined ? proj.description : String(p.description || '').trim(), id,
+        forWho.forCompanyId, forWho.customerId, forWho.customerName]
     );
     await client.query('DELETE FROM project_members WHERE project_id = $1', [id]);
     for (var i = 0; i < memberIds.length; i++) {

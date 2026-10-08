@@ -234,20 +234,32 @@ i.is-late { background: var(--wo-s2); }
 .wo-register { width: 100%; border-collapse: collapse; font-size: 13px; }
 .wo-register th { position: sticky; top: 0; padding: 9px 8px; text-align: left; font-size: 11.5px; font-weight: 800; letter-spacing: .02em; color: var(--color-text-muted); background: var(--wo-soft); border-bottom: 1px solid var(--wo-line); white-space: nowrap; }
 .wo-register td { padding: 7px 8px; border-bottom: 1px solid var(--wo-line); vertical-align: middle; white-space: nowrap; }
-.wo-register td.is-for, .wo-register td.is-pm { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+.wo-register td.is-for, .wo-register td.is-pm { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; }
 .wo-register tr:last-child td { border-bottom: 0; }
 .wo-register tr:hover td { background: color-mix(in srgb, var(--wo-soft) 70%, transparent); }
 .wo-register tr.is-overdue td:first-child { box-shadow: inset 3px 0 0 var(--wo-late); }
 .wo-register tr.is-closed td { color: var(--color-text-muted); }
 .wo-register .is-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .wo-register .is-num { text-align: right; font-variant-numeric: tabular-nums; }
-.wo-register td.is-title { min-width: 11rem; white-space: normal; }
+.wo-register td.is-title { min-width: 10rem; white-space: normal; }
 .wo-row-title { padding: 0; border: 0; background: none; color: var(--color-text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .wo-register tr.is-closed .wo-row-title { color: var(--color-text-muted); font-weight: 500; }
 .wo-row-title:hover { color: var(--color-accent); }
 .wo-status-select { width: auto; min-width: 0; padding: 3px 6px; font-size: 12px; font-weight: 700; border-left: 4px solid var(--st); }
 .wo-late-n { color: var(--wo-late); font-weight: 800; }
 .wo-more-rows { display: block; margin: 12px auto 0; }
+
+.wo-register .is-pick { width: 24px; padding-right: 0; }
+.wo-register .is-pick input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-accent); }
+.wo-register tr.is-picked td { background: color-mix(in srgb, var(--color-accent) 8%, var(--wo-card)); }
+.wo-row-project { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 600; color: var(--wo-discussing); }
+.wo-pickbar { position: fixed; bottom: 18px; left: 50%; z-index: 40; width: min(1120px, calc(100vw - 32px)); transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px;
+  border-radius: 16px; background: var(--wo-card); border: 1px solid var(--color-accent); box-shadow: 0 12px 30px -12px rgba(15, 23, 42, .35); }
+.wo-pickbar strong { font-size: 14px; }
+.wo-pickbar-fill { flex: 1 1 0; }
+.wo-pickbar .input { width: auto; max-width: 18rem; }
+.wo-filled { margin: 0 0 12px; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45;
+  background: color-mix(in srgb, var(--wo-discussing) 10%, var(--wo-card)); border: 1px solid color-mix(in srgb, var(--wo-discussing) 35%, transparent); }
 
 /* ── a WO opened: its sheet ── */
 .wo-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; color: var(--color-text);
@@ -335,6 +347,7 @@ i.is-late { background: var(--wo-s2); }
   .wo-sheet-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
+  .wo-pickbar .input { max-width: none; flex: 1 1 100%; }
   .wo-hero { padding: 20px 16px; }
   .wo-tile strong { font-size: 22px; }
   .wo-flow-node { min-width: 92px; padding: 8px 10px 8px 12px; }

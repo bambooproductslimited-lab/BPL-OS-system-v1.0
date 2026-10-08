@@ -35,6 +35,7 @@ const BOARD = ['discussing', 'not_started', 'in_progress', 'awaiting_material', 
 const DONE_SHOWN = 12;
 const RECENT_DAYS = 14;
 const PAGE = 60;
+const NO_PROJECT = '__none__';
 const EMPTY_FORM = {
   title: '', description: '', projectId: '', assigneeIds: [], priority: 'medium', issuedOn: '', dueDate: '', status: 'not_started',
   forKind: 'company', forCompanyId: '', customerText: '', contact: '', soRef: '', itemCode: '', quantity: '', specification: '',
@@ -53,18 +54,44 @@ function ago(iso) {
   return fmtDate(String(iso).slice(0, 10));
 }
 
+// A new WO for a project starts with what the project already says: who it
+// is for, its owner as project manager and its members as the team —
+// filling only what is still blank (and "who it is for" only until it is
+// changed by hand).
+function fillFromProject(form, project, staffIds) {
+  if (!project) return { ...form, projectId: '', filled: null };
+  const next = { ...form, projectId: project.id };
+  const what = [];
+  if (!form.forTouched && (project.forCompanyId || project.customerName)) {
+    Object.assign(next, project.forCompanyId
+      ? { forKind: 'company', forCompanyId: project.forCompanyId, customerText: '' }
+      : { forKind: 'customer', forCompanyId: '', customerText: project.customerName });
+    what.push(tr('who it is for'));
+  }
+  if (!form.projectManagerId && project.ownerId && staffIds.has(project.ownerId)) { next.projectManagerId = project.ownerId; what.push(tr('the project manager')); }
+  if (!form.assigneeIds.length) {
+    const team = (project.memberIds || []).filter((id) => staffIds.has(id));
+    if (team.length) { next.assigneeIds = team; what.push(tr('the team')); }
+  }
+  next.filled = what.length ? { project: project.name, what } : null;
+  return next;
+}
+
 function WoForm({ form, setForm, projects, employees, options, editing }) {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const setFor = (k) => (e) => setForm({ ...form, [k]: e.target.value, forTouched: true });
+  const staffIds = new Set(employees.map((e) => e.id));
   const companies = options.companies || [];
   return (
     <>
+      {form.filled && <p className="wo-filled">{tr('Filled in from the project {project}: {what}. Change anything that differs.', { project: form.filled.project, what: form.filled.what.join(', ') })}</p>}
       <fieldset className="wo-fs">
         <legend><b>1</b>{tr('The request')}</legend>
         <div className="field">
           <span className="wo-label">{tr('Who it is for')}</span>
           <div className="wo-seg" role="radiogroup" aria-label={tr('Who it is for')}>
             {[['company', tr('One of our companies')], ['customer', tr('A customer')]].map(([k, label]) => (
-              <button key={k} type="button" role="radio" aria-checked={form.forKind === k} className={form.forKind === k ? 'is-on' : ''} onClick={() => setForm({ ...form, forKind: k })}>{label}</button>
+              <button key={k} type="button" role="radio" aria-checked={form.forKind === k} className={form.forKind === k ? 'is-on' : ''} onClick={() => setForm({ ...form, forKind: k, forTouched: true })}>{label}</button>
             ))}
           </div>
         </div>
@@ -72,7 +99,7 @@ function WoForm({ form, setForm, projects, employees, options, editing }) {
           {form.forKind === 'company' ? (
             <div className="field">
               <label htmlFor="wo-for-co">{tr('Company')}</label>
-              <select id="wo-for-co" className="input" value={form.forCompanyId} onChange={set('forCompanyId')}>
+              <select id="wo-for-co" className="input" value={form.forCompanyId} onChange={setFor('forCompanyId')}>
                 <option value="">{tr('Not said')}</option>
                 {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -80,7 +107,7 @@ function WoForm({ form, setForm, projects, employees, options, editing }) {
           ) : (
             <div className="field">
               <label htmlFor="wo-for-cu">{tr('Customer')}</label>
-              <input id="wo-for-cu" className="input" list="wo-customers" value={form.customerText} maxLength={120} onChange={set('customerText')} placeholder={tr('Pick or type a name')} />
+              <input id="wo-for-cu" className="input" list="wo-customers" value={form.customerText} maxLength={120} onChange={setFor('customerText')} placeholder={tr('Pick or type a name')} />
               <datalist id="wo-customers">{(options.customers || []).map((c) => <option key={c.id} value={c.name} />)}</datalist>
             </div>
           )}
@@ -179,7 +206,7 @@ function WoForm({ form, setForm, projects, employees, options, editing }) {
           </div>
           <div className="field">
             <label htmlFor="wo-project">{tr('Project')}</label>
-            <select id="wo-project" className="input" value={form.projectId || ''} onChange={set('projectId')}>
+            <select id="wo-project" className="input" value={form.projectId || ''} onChange={(e) => (editing ? setForm({ ...form, projectId: e.target.value }) : setForm(fillFromProject(form, projects.find((p) => p.id === e.target.value), staffIds)))}>
               <option value="">{tr('None')}</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -246,6 +273,10 @@ export default function WorkOrdersPage() {
   const [pmFilter, setPmFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState(projectFromUrl);
   const [shownRows, setShownRows] = useState(PAGE);
+  // Work orders ticked in the register, to put into a project together.
+  const [picked, setPicked] = useState(() => new Set());
+  const [pickProject, setPickProject] = useState('');
+  const [moving, setMoving] = useState(false);
 
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -311,7 +342,7 @@ export default function WorkOrdersPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
-  useEffect(() => { setShownRows(PAGE); }, [chip, search, forFilter, pmFilter, projectFilter, companyCode, scope]);
+  useEffect(() => { setShownRows(PAGE); setPicked(new Set()); }, [chip, search, forFilter, pmFilter, projectFilter, companyCode, scope, view]);
 
   const companies = useMemo(() => {
     const seen = new Map();
@@ -340,10 +371,11 @@ export default function WorkOrdersPage() {
     }
   }
 
-  function openNew() {
+  function openNew(project) {
     const today = isoDay(new Date());
     const bpl = (options.companies || []).find((c) => c.code === 'BPL');
-    setForm({ ...EMPTY_FORM, issuedOn: today, dueDate: addDays(today, 3), forCompanyId: bpl ? bpl.id : '' });
+    const base = { ...EMPTY_FORM, issuedOn: today, dueDate: addDays(today, 3), forCompanyId: bpl ? bpl.id : '' };
+    setForm(project ? fillFromProject(base, project, new Set(employees.map((e) => e.id))) : base);
     setFormError(null);
     setNewOpen(true);
   }
@@ -368,6 +400,16 @@ export default function WorkOrdersPage() {
     openDetail({ id });
     setParams({}, { replace: true });
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+  // /tasks?project=<id>&new=1 (a project's "+ Work order") opens a new WO
+  // for that project, once the people to fill it in with have loaded.
+  const newFromUrl = useRef(params.get('new') === '1');
+  useEffect(() => {
+    if (!newFromUrl.current || loading || !canManage || !employees.length) return;
+    newFromUrl.current = false;
+    const pid = params.get('project');
+    openNew(projects.find((p) => p.id === pid) || null);
+    setParams(pid ? { project: pid } : {}, { replace: true });
+  }, [loading, employees, projects, canManage]); // eslint-disable-line react-hooks/exhaustive-deps
   async function openDetail(t) {
     setDetailError(null);
     setEditing(null);
@@ -421,6 +463,18 @@ export default function WorkOrdersPage() {
       await load();
     } catch (err) { setError(err.message); } finally { setDeleting(false); }
   }
+  function togglePick(id) { setPicked((was) => { const s = new Set(was); if (s.has(id)) s.delete(id); else s.add(id); return s; }); }
+  async function moveToProject(projectId) {
+    setMoving(true);
+    setError(null);
+    try {
+      const r = await api.post('/tasks/project', { ids: Array.from(picked), projectId });
+      setToast(r.project ? tr('{n} work orders added to {project}.', { n: r.updated, project: r.project.code + ' — ' + r.project.name }) : tr('{n} work orders taken out of their project.', { n: r.updated }));
+      setPicked(new Set());
+      setPickProject('');
+      await load();
+    } catch (err) { setError(err.message); } finally { setMoving(false); }
+  }
   function imported(result) {
     setImportOpen(false);
     setToast(tr('{n} work orders imported from the sheet.', { n: result.added }));
@@ -436,7 +490,7 @@ export default function WorkOrdersPage() {
   const recentFrom = addDays(today, -RECENT_DAYS);
   const inCompany = tasks.filter((t) => !currentCompany || (t.companyCodes || []).includes(currentCompany.code));
   const scoped = inCompany
-    .filter((t) => !projectFilter || t.projectId === projectFilter)
+    .filter((t) => !projectFilter || (projectFilter === NO_PROJECT ? !t.projectId : t.projectId === projectFilter))
     .filter((t) => !forFilter || forName(t) === forFilter)
     .filter((t) => !pmFilter || pmOf(t) === pmFilter);
   const open = scoped.filter(WO_OPEN);
@@ -511,6 +565,8 @@ export default function WorkOrdersPage() {
     return ra === 0 ? sortOpen(a, b) : byDone(a, b) || b.woNo - a.woNo;
   });
 
+  const pageRows = rows.slice(0, shownRows);
+
   function moveMenu(t) {
     return [
       { label: tr('Open'), onClick: () => openDetail(t) },
@@ -554,7 +610,7 @@ export default function WorkOrdersPage() {
             <button type="button" role="radio" aria-checked={scope === 'mine'} className={scope === 'mine' ? 'is-on' : ''} onClick={() => pickScope('mine')}>{tr('Mine')}</button>
             <button type="button" role="radio" aria-checked={scope === 'all'} className={scope === 'all' ? 'is-on' : ''} onClick={() => pickScope('all')}>{tr('Everything I can see')}</button>
           </div>
-          {canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('+ New work order')}</button>}
+          {canManage && <button type="button" className="btn btn-primary" onClick={() => openNew()}>{tr('+ New work order')}</button>}
           {canManage && <button type="button" className="btn btn-secondary" onClick={() => setImportOpen(true)}>{tr('Import from the sheet')}</button>}
         </>}
         tiles={tiles} />
@@ -567,7 +623,7 @@ export default function WorkOrdersPage() {
           <span>{tr('Showing only:')}</span>
           {forFilter && <button type="button" className="wo-filter-chip" onClick={() => setForFilter('')}>{tr('for {name}', { name: forFilter })} ×</button>}
           {pmFilter && <button type="button" className="wo-filter-chip" onClick={() => setPmFilter('')}>{tr('managed by {name}', { name: pmFilter })} ×</button>}
-          {projectFilter && <button type="button" className="wo-filter-chip" onClick={() => setProjectFilter('')}>{(projects.find((p) => p.id === projectFilter) || {}).name || tr('one project')} ×</button>}
+          {projectFilter && <button type="button" className="wo-filter-chip" onClick={() => setProjectFilter('')}>{projectFilter === NO_PROJECT ? tr('no project') : (projects.find((p) => p.id === projectFilter) || {}).name || tr('one project')} ×</button>}
         </div>
       )}
 
@@ -623,6 +679,7 @@ export default function WorkOrdersPage() {
           {projects.length > 0 && (
             <select className="input wo-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} aria-label={tr('Filter by project')}>
               <option value="">{tr('All projects')}</option>
+              <option value={NO_PROJECT}>{tr('No project')}</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
@@ -639,7 +696,7 @@ export default function WorkOrdersPage() {
           <div className="dk-empty wo-empty">
             <p>{scoped.length ? tr('No work orders match. Try another search or filter.') : scope === 'mine' ? tr('Nothing on your plate. Work orders you are on or manage will show here.') : tr('No work orders yet.')}</p>
             {(search || chip !== 'active' || filtered) && scoped.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip('active'); setForFilter(''); setPmFilter(''); setProjectFilter(''); }}>{tr('Clear filters')}</button>}
-            {canManage && !tasks.length && <div className="wo-empty-actions"><button type="button" className="btn btn-primary" onClick={openNew}>{tr('+ New work order')}</button><button type="button" className="btn btn-secondary" onClick={() => setImportOpen(true)}>{tr('Import from the sheet')}</button></div>}
+            {canManage && !tasks.length && <div className="wo-empty-actions"><button type="button" className="btn btn-primary" onClick={() => openNew()}>{tr('+ New work order')}</button><button type="button" className="btn btn-secondary" onClick={() => setImportOpen(true)}>{tr('Import from the sheet')}</button></div>}
           </div>
         ) : view === 'board' ? (
           <>
@@ -673,20 +730,22 @@ export default function WorkOrdersPage() {
               <table className="wo-register">
                 <thead>
                   <tr>
+                    {canManage && <th className="is-pick"><input type="checkbox" checked={pageRows.length > 0 && pageRows.every((t) => picked.has(t.id))} onChange={(e) => setPicked((was) => { const s = new Set(was); pageRows.forEach((t) => (e.target.checked ? s.add(t.id) : s.delete(t.id))); return s; })} aria-label={tr('Pick every row shown')} /></th>}
                     <th>{tr('WO')}</th><th>{tr('Issued')}</th><th>{tr('For')}</th><th>{tr('Description')}</th><th>{tr('Qty')}</th>
                     <th>{tr('Project manager')}</th><th>{tr('Team')}</th><th>{tr('Due')}</th><th>{tr('Status')}</th><th>{tr('Closed')}</th><th className="is-num">{tr('Days')}</th><th aria-label={tr('Actions')} />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.slice(0, shownRows).map((t) => {
+                  {pageRows.map((t) => {
                     const due = dueInfo(t, today);
                     const closed = t.completedAt || t.cancelledAt;
                     return (
-                      <tr key={t.id} className={(t.overdue ? 'is-overdue' : '') + (WO_OPEN(t) ? '' : ' is-closed')}>
+                      <tr key={t.id} className={(t.overdue ? 'is-overdue' : '') + (WO_OPEN(t) ? '' : ' is-closed') + (picked.has(t.id) ? ' is-picked' : '')}>
+                        {canManage && <td className="is-pick"><input type="checkbox" checked={picked.has(t.id)} onChange={() => togglePick(t.id)} aria-label={tr('Pick {no}', { no: t.number })} /></td>}
                         <td><button type="button" className="wo-no is-link" onClick={() => openDetail(t)}>{t.number}</button></td>
                         <td className="is-date">{t.issuedOn ? shortDate(t.issuedOn) : '—'}</td>
                         <td className="is-for" title={forName(t)}>{forName(t) || <span className="dk-muted">—</span>}</td>
-                        <td className="is-title"><button type="button" className="wo-row-title" onClick={() => openDetail(t)}>{t.title}</button></td>
+                        <td className="is-title"><button type="button" className="wo-row-title" onClick={() => openDetail(t)}>{t.title}</button>{t.projectName && t.projectName !== '—' && <span className="wo-row-project">{t.projectName}</span>}</td>
                         <td>{t.quantity || '—'}</td>
                         <td className="is-pm" title={pmOf(t)}>{pmOf(t) || <span className="dk-muted">—</span>}</td>
                         <td><Faces2 t={t} /></td>
@@ -706,6 +765,20 @@ export default function WorkOrdersPage() {
               </table>
             </div>
             {rows.length > shownRows && <button type="button" className="btn btn-secondary wo-more-rows" onClick={() => setShownRows(shownRows + PAGE * 2)}>{tr('Show {n} more of {total}', { n: Math.min(PAGE * 2, rows.length - shownRows), total: rows.length })}</button>}
+            {canManage && picked.size > 0 && (
+              <div className="wo-pickbar" role="region" aria-label={tr('Picked work orders')}>
+                <strong>{tr('{n} picked', { n: picked.size })}</strong>
+                {picked.size < rows.length && <button type="button" className="dk-link" onClick={() => setPicked(new Set(rows.map((t) => t.id)))}>{tr('Pick all {n} that match', { n: rows.length })}</button>}
+                <span className="wo-pickbar-fill" />
+                <select className="input" value={pickProject} onChange={(e) => setPickProject(e.target.value)} aria-label={tr('Project to add them to')}>
+                  <option value="">{tr('Choose a project…')}</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.code + ' — ' + p.name}</option>)}
+                </select>
+                <button type="button" className="btn btn-primary" disabled={!pickProject || moving} onClick={() => moveToProject(pickProject)}>{moving ? tr('Saving…') : tr('Add to the project')}</button>
+                <button type="button" className="btn btn-secondary" disabled={moving} onClick={() => moveToProject(null)}>{tr('Take out of their project')}</button>
+                <button type="button" className="dk-link" onClick={() => setPicked(new Set())}>{tr('Clear')}</button>
+              </div>
+            )}
           </>
         )}
       </Section>

@@ -20,12 +20,20 @@ import './ProjectsPage.css';
 // falling behind — much of the time gone but little of the work done —
 // overdue tasks, projects with no tasks), then a card per project showing
 // time used next to work done. A project opens in a window with its
-// status, people, dates, budget, description and tasks; managers
-// (project.manage) can edit it and change its status.
+// status, who it is for, people, dates, budget, description, how its work
+// orders went (completed, on time, days each, labour) and the work orders
+// themselves; managers (project.manage) can edit it and change its status,
+// and anyone who issues work orders can issue one for it from there — the
+// new work order starts with the project's "for", owner and team.
 
 const STATUSES = ['planning', 'active', 'on_hold', 'delayed', 'completed', 'cancelled'];
 const OPEN = (p) => p.status !== 'completed' && p.status !== 'cancelled';
-const EMPTY_FORM = { name: '', departmentId: '', ownerId: '', memberIds: [], startDate: '', deadline: '', budget: '', description: '' };
+const EMPTY_FORM = { name: '', departmentId: '', ownerId: '', memberIds: [], startDate: '', deadline: '', budget: '', description: '', forKind: 'company', forCompanyId: '', customerText: '' };
+
+// What the server reads for who the project is for.
+function forBody(f) {
+  return f.forKind === 'company' ? { forCompanyId: f.forCompanyId || null, customerName: '' } : { forCompanyId: null, customerName: f.customerText || '' };
+}
 
 function isoDay(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 86400000); }
@@ -93,7 +101,7 @@ function deadlineText(h, p) {
   return tr('{n} days left', { n: h.daysLeft });
 }
 
-function ProjectForm({ form, setForm, departments, employees, companies }) {
+function ProjectForm({ form, setForm, departments, employees, companies, customers }) {
   return (
     <div className="pj-form">
       <div className="field pj-span">
@@ -110,6 +118,28 @@ function ProjectForm({ form, setForm, departments, employees, companies }) {
             </optgroup>
           ))}
         </select>
+      </div>
+      <div className="field pj-span">
+        <span className="pj-label">{tr('Who it is for')}</span>
+        <div className="pj-for">
+          <div className="pj-seg" role="radiogroup" aria-label={tr('Who it is for')}>
+            {[['company', tr('One of our companies')], ['customer', tr('A customer')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={form.forKind === k} className={form.forKind === k ? 'is-on' : ''} onClick={() => setForm({ ...form, forKind: k })}>{label}</button>
+            ))}
+          </div>
+          {form.forKind === 'company' ? (
+            <select id="pj-for-co" className="input" value={form.forCompanyId} onChange={(e) => setForm({ ...form, forCompanyId: e.target.value })} aria-label={tr('Company')}>
+              <option value="">{tr('Not said')}</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          ) : (
+            <>
+              <input id="pj-for-cu" className="input" list="pj-customers" value={form.customerText} maxLength={120} onChange={(e) => setForm({ ...form, customerText: e.target.value })} placeholder={tr('Pick or type a name')} aria-label={tr('Customer')} />
+              <datalist id="pj-customers">{(customers || []).map((c) => <option key={c.id} value={c.name} />)}</datalist>
+            </>
+          )}
+        </div>
+        <span className="dk-muted pj-small">{tr('Work orders issued for the project start with this filled in.')}</span>
       </div>
       <div className="field">
         <label htmlFor="pj-owner">{tr('Owner')}</label>
@@ -150,6 +180,8 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const canIssue = can('task.manage');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -182,6 +214,7 @@ export default function ProjectsPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (canManage) api.get('/employees').then(setEmployees).catch(() => {}); }, [canManage]);
+  useEffect(() => { if (canManage && canIssue) api.get('/tasks/options').then((o) => setCustomers(o.customers || [])).catch(() => {}); }, [canManage, canIssue]);
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
@@ -209,7 +242,7 @@ export default function ProjectsPage() {
     try {
       const created = await api.post('/projects', {
         name: form.name, departmentId: form.departmentId, ownerId: form.ownerId || undefined, memberIds: form.memberIds,
-        startDate: form.startDate || undefined, deadline: form.deadline || undefined, budget: form.budget || 0, description: form.description
+        startDate: form.startDate || undefined, deadline: form.deadline || undefined, budget: form.budget || 0, description: form.description, ...forBody(form)
       });
       setNewOpen(false);
       setToast(tr('Project created.'));
@@ -235,7 +268,8 @@ export default function ProjectsPage() {
   function startEdit() {
     setEditing({
       name: detail.name, departmentId: detail.departmentId, ownerId: detail.ownerId, memberIds: detail.members.map((m) => m.id),
-      startDate: detail.startDate || '', deadline: detail.deadline || '', budget: detail.budget ? String(detail.budget) : '', description: detail.description || ''
+      startDate: detail.startDate || '', deadline: detail.deadline || '', budget: detail.budget ? String(detail.budget) : '', description: detail.description || '',
+      forKind: detail.forCompanyId || !detail.customerName ? 'company' : 'customer', forCompanyId: detail.forCompanyId || '', customerText: detail.forCompanyId ? '' : detail.customerName || ''
     });
   }
   async function saveEdit(e) {
@@ -243,7 +277,8 @@ export default function ProjectsPage() {
     setSaving(true);
     setDetailError(null);
     try {
-      setDetail(await api.patch('/projects/' + detail.id, { ...editing, ownerId: editing.ownerId || undefined, budget: editing.budget === '' ? 0 : editing.budget }));
+      const { forKind, forCompanyId, customerText, ...rest } = editing; // eslint-disable-line no-unused-vars
+      setDetail(await api.patch('/projects/' + detail.id, { ...rest, ...forBody(editing), ownerId: editing.ownerId || undefined, budget: editing.budget === '' ? 0 : editing.budget }));
       setEditing(null);
       setToast(tr('Project updated.'));
       await load();
@@ -369,6 +404,7 @@ export default function ProjectsPage() {
                 <div className="pj-card-tags">
                   <Status tone={p.status === 'active' ? 'info' : p.status === 'completed' ? 'good' : p.status === 'delayed' ? 'bad' : 'muted'}>{codeLabel(p.status)}</Status>
                   {OPEN(p) && <Status tone={HEALTH[h.key].tone}>{HEALTH[h.key].label()}</Status>}
+                  {p.requestedFor && <span className="pj-for-tag">{tr('for {name}', { name: p.requestedFor })}</span>}
                 </div>
                 <Bars h={h} />
                 <div className="pj-card-facts">
@@ -404,7 +440,7 @@ export default function ProjectsPage() {
         <div className="dialog-backdrop" onClick={() => setNewOpen(false)}>
           <form className="dialog pj-dialog" onClick={(e) => e.stopPropagation()} onSubmit={createProject}>
             <h2>{tr('New project')}</h2>
-            <ProjectForm form={form} setForm={setForm} departments={departments} employees={employees} companies={companies} />
+            <ProjectForm form={form} setForm={setForm} departments={departments} employees={employees} companies={companies} customers={customers} />
             <p className="dk-muted pj-small">{tr('The team members get a notification. Issue the project\'s work orders in Work orders and pick this project for each.')}</p>
             {formError && <div className="error-banner">{formError}</div>}
             <div className="dialog-actions">
@@ -422,7 +458,7 @@ export default function ProjectsPage() {
             {editing ? (
               <form onSubmit={saveEdit}>
                 <h2>{tr('Edit project')}</h2>
-                <ProjectForm form={editing} setForm={setEditing} departments={departments} employees={employees} companies={companies} />
+                <ProjectForm form={editing} setForm={setEditing} departments={departments} employees={employees} companies={companies} customers={customers} />
                 <div className="dialog-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)}>{tr('Cancel')}</button>
                   <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Saving…') : tr('Save changes')}</button>
@@ -455,6 +491,7 @@ export default function ProjectsPage() {
                 <Bars h={dh} />
 
                 <dl className="pj-facts">
+                  {detail.requestedFor && <div><dt>{tr('For')}</dt><dd>{detail.requestedFor}</dd></div>}
                   <div><dt>{tr('Owner')}</dt><dd className="pj-person"><Photo id={detail.ownerId} name={detail.ownerName} photo={detail.ownerPhoto} size={26} />{detail.ownerName}</dd></div>
                   <div><dt>{tr('Dates')}</dt><dd>{fmtDate(detail.startDate)} → {fmtDate(detail.deadline)}</dd></div>
                   {detail.budget > 0 && <div><dt>{tr('Budget')}</dt><dd>{money(detail.budget)}</dd></div>}
@@ -462,10 +499,25 @@ export default function ProjectsPage() {
                 </dl>
                 {detail.description && <p className="pj-desc">{detail.description}</p>}
 
+                {detail.figures && (detail.figures.completed > 0 || detail.figures.labourWos > 0) && (
+                  <section className="pj-figs" aria-label={tr('How its work orders went')}>
+                    <h3>{tr('How its work orders went')}</h3>
+                    <div className="pj-figs-row">
+                      <div><strong>{detail.figures.completed}</strong><span>{tr('completed')}</span></div>
+                      <div><strong>{detail.figures.onTimePct === null ? '—' : detail.figures.onTimePct + '%'}</strong><span>{detail.figures.withDue ? tr('on time ({n} of {t})', { n: detail.figures.onTime, t: detail.figures.withDue }) : tr('on time')}</span></div>
+                      <div><strong>{detail.figures.avgDaysToClose === null ? '—' : detail.figures.avgDaysToClose}</strong><span>{tr('days each, issued to completed')}</span></div>
+                      <div><strong>{detail.figures.personDays === null ? '—' : detail.figures.personDays}</strong><span>{detail.figures.labourWos ? tr('person-days of labour (from {n} WOs)', { n: detail.figures.labourWos }) : tr('person-days of labour')}</span></div>
+                    </div>
+                  </section>
+                )}
+
                 <section className="pj-tasks">
                   <div className="pj-tasks-head">
                     <h3>{tr('Work orders')} <span className="dk-muted">{detail.tasks.length}</span></h3>
-                    <button type="button" className="dk-link" onClick={() => navigate('/tasks?project=' + detail.id)}>{tr('See its work orders')} →</button>
+                    <span className="pj-tasks-actions">
+                      {canIssue && OPEN(detail) && <button type="button" className="btn btn-primary pj-new-wo" onClick={() => navigate('/tasks?project=' + detail.id + '&new=1')}>{tr('+ Work order')}</button>}
+                      <button type="button" className="dk-link" onClick={() => navigate('/tasks?project=' + detail.id)}>{tr('See its work orders')} →</button>
+                    </span>
                   </div>
                   {detail.tasks.length ? (
                     <ul className="pj-task-list">
@@ -479,7 +531,7 @@ export default function ProjectsPage() {
                         </li>
                       ))}
                     </ul>
-                  ) : <p className="dk-muted pj-small">{tr('No work orders yet. In Work orders, issue one and pick this project for it.')}</p>}
+                  ) : <p className="dk-muted pj-small">{canIssue ? tr('No work orders yet. Press “+ Work order” to issue one for this project, or add existing ones from the register in Work orders.') : tr('No work orders yet.')}</p>}
                 </section>
 
                 <div className="dialog-actions">
