@@ -610,3 +610,60 @@ export function WoImport({ employees, onClose, onDone }) {
     </div>
   );
 }
+
+// Several work orders to another project manager at once — for when the
+// sheet's import matched a name to the wrong person. "Remember" tells the
+// next imports what that name on the sheet means (POST /tasks/manager).
+export function WoManagerDialog({ wos, employees, remember, onClose, onDone }) {
+  const pms = Array.from(new Set(wos.map((t) => pmOf(t)).filter(Boolean)));
+  const from = pms.length === 1 ? pms[0] : '';
+  const firstName = wos[0] && wos[0].projectManager && pms.length === 1 ? String(from).split(' ')[0] : '';
+  const [pmId, setPmId] = useState('');
+  const [keep, setKeep] = useState(!!remember && !!firstName);
+  const [sheetName, setSheetName] = useState(firstName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const people = employees.slice().sort((a, b) => (a.firstName + ' ' + a.lastName).localeCompare(b.firstName + ' ' + b.lastName));
+  const chosen = people.find((e) => e.id === pmId);
+  const chosenName = chosen ? (chosen.firstName + ' ' + chosen.lastName).trim() : '';
+  async function save(e) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      const r = await api.post('/tasks/manager', { ids: wos.map((t) => t.id), projectManagerId: pmId, sheetName: keep && sheetName.trim() ? sheetName.trim() : null });
+      onDone(r);
+    } catch (err) { setError(err.message); setBusy(false); }
+  }
+  return (
+    <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
+      <form className="dialog wo-dialog wo-pmdlg" role="dialog" aria-modal="true" aria-labelledby="wo-pmdlg-title" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2 id="wo-pmdlg-title">{tr('Change the project manager')}</h2>
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        <p className="dialog-body">
+          {from ? (wos.length === 1 ? tr('1 work order, managed now by {name}.', { name: from }) : tr('{n} work orders, all managed now by {name}.', { n: wos.length, name: from }))
+            : (wos.length === 1 ? tr('1 work order picked.') : tr('{n} work orders picked.', { n: wos.length }))}
+          {' '}{tr('Choose who really manages them. Use this when the import of the sheet matched a name to the wrong person.')}
+        </p>
+        <div className="field">
+          <label htmlFor="wo-pmdlg-pm">{tr('Project manager')}</label>
+          <select id="wo-pmdlg-pm" className="input" value={pmId} onChange={(e) => setPmId(e.target.value)} required>
+            <option value="" disabled>{tr('Choose a person…')}</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.firstName + ' ' + p.lastName + (p.positionTitle ? ' · ' + p.positionTitle : '')}</option>)}
+          </select>
+        </div>
+        <label className="wo-pmdlg-keep">
+          <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
+          <span>{tr('Remember it for the next imports of the sheet: when the sheet says')}</span>
+          <input className="input wo-pmdlg-name" value={sheetName} onChange={(e) => { setSheetName(e.target.value); if (e.target.value.trim()) setKeep(true); }} placeholder={tr('the name as written')} aria-label={tr('The name as the sheet writes it')} maxLength={80} />
+          <span>{chosenName ? tr('it means {name}.', { name: chosenName }) : tr('it means the person chosen.')}</span>
+        </label>
+        <div className="dialog-actions">
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>{tr('Cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !pmId}>
+            {busy ? tr('Saving…') : chosenName ? (wos.length === 1 ? tr('Give 1 work order to {name}', { name: chosenName }) : tr('Give {n} work orders to {name}', { n: wos.length, name: chosenName })) : tr('Change the project manager')}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

@@ -28,7 +28,7 @@ test.before(async function () {
 test.after(async function () {
   if (ids.length) await pool.query('DELETE FROM tasks WHERE id = ANY($1)', [ids]);
   await pool.query("DELETE FROM tasks WHERE sheet_stamp >= '2030-03-01' AND sheet_stamp < '2030-04-01'");
-  await pool.query("DELETE FROM crm_name_aliases WHERE name_key = 'zqcapi'");
+  await pool.query("DELETE FROM crm_name_aliases WHERE name_key IN ('zqcapi', 'woxpm')");
   await pool.query("DELETE FROM notifications WHERE body LIKE '%Wox%' OR title LIKE '%Wox%'");
   await pool.end();
 });
@@ -75,6 +75,26 @@ test('a WO has a number, who it is for, the form’s fields and a project manage
   await tasks.addComment(worker, wo.id, 'Wox legs are cut');
   var heard = await pool.query("SELECT link FROM notifications WHERE employee_id = $1 AND title LIKE 'New comment on%' AND body = 'Wox legs are cut'", [pmId]);
   assert.equal(heard.rows[0].link, 'tasks:' + wo.id);
+});
+
+test('many WOs to another project manager at once, and the sheet’s name for them remembered', async function () {
+  var made = [];
+  for (var i = 0; i < 3; i++) made.push(await tasks.create(boss, { title: 'Wox handed over ' + i, projectManagerId: workerId }));
+  made.forEach(function (w) { ids.push(w.id); });
+  var r = await tasks.setManager(boss, made.map(function (w) { return w.id; }), pmId, ' WoxPM ');
+  assert.equal(r.updated, 3);
+  assert.equal(r.remembered, 'WoxPM');
+  for (var j = 0; j < made.length; j++) assert.equal((await tasks.get(boss, made[j].id)).projectManager.id, pmId);
+  var log = await pool.query("SELECT summary FROM audit_logs WHERE entity_id = $1 AND action = 'task.update' ORDER BY at DESC LIMIT 1", [made[0].id]);
+  assert.match(log.rows[0].summary, /Project manager of WO-\d+ changed from .+ to /);
+  assert.equal((await pool.query("SELECT employee_id FROM crm_name_aliases WHERE name_key = 'woxpm'")).rows[0].employee_id, pmId, 'the next import reads WoxPM as them');
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND title = 'You manage 3 more work orders'", [pmId])).rows[0].n, 1);
+  // Again: nothing changes.
+  assert.equal((await tasks.setManager(boss, made.map(function (w) { return w.id; }), pmId)).updated, 0);
+  await assert.rejects(tasks.setManager(boss, [], pmId), /Pick the work orders/);
+  await assert.rejects(tasks.setManager(boss, [made[0].id], null), /Choose the project manager/);
+  await assert.rejects(tasks.setManager(boss, [made[0].id], '00000000-0000-0000-0000-000000000000'), /not found/);
+  await assert.rejects(tasks.setManager(await ctxFor('alice.kamau@bplghana.com'), [made[0].id], pmId), /task.manage/);
 });
 
 test('what a WO form refuses', async function () {

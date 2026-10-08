@@ -11,7 +11,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
 import {
-  Confetti, DaysChip, ForBadge, ForWhom, Linked, Managers, MiniTimeline, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, StatusSelect, Weekly, WoBanner, WoCard, WoImport, colHint, downloadCsv,
+  Confetti, DaysChip, ForBadge, ForWhom, Linked, Managers, MiniTimeline, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, StatusSelect, Weekly, WoBanner, WoCard, WoImport, WoManagerDialog, colHint, downloadCsv,
   addDays, dueInfo, forName, isoDay, pmOf
 } from './WorkOrdersFun.jsx';
 import WorkOrdersPresent from './WorkOrdersPresent';
@@ -304,6 +304,7 @@ export default function WorkOrdersPage() {
   const [newOpen, setNewOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [presenting, setPresenting] = useState(false);
+  const [pmDialog, setPmDialog] = useState(null); // { wos, remember }
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -705,6 +706,10 @@ export default function WorkOrdersPage() {
           <span>{tr('Showing only:')}</span>
           {forFilter && <button type="button" className="wo-filter-chip" onClick={() => setForFilter('')}>{tr('for {name}', { name: forFilter })} ×</button>}
           {pmFilter && <button type="button" className="wo-filter-chip" onClick={() => setPmFilter('')}>{tr('managed by {name}', { name: pmFilter })} ×</button>}
+          {pmFilter && canManage && (() => {
+            const theirs = tasks.filter((t) => pmOf(t) === pmFilter);
+            return theirs.length ? <button type="button" className="dk-link" onClick={() => setPmDialog({ wos: theirs, remember: true })}>{theirs.length === 1 ? tr('Wrong person? Give it to another project manager') : tr('Wrong person? Give all {n} to another project manager', { n: theirs.length })}</button> : null;
+          })()}
           {projectFilter && <button type="button" className="wo-filter-chip" onClick={() => setProjectFilter('')}>{projectFilter === NO_PROJECT ? tr('no project') : (projects.find((p) => p.id === projectFilter) || {}).name || tr('one project')} ×</button>}
         </div>
       )}
@@ -904,6 +909,7 @@ export default function WorkOrdersPage() {
                 </select>
                 <button type="button" className="btn btn-primary" disabled={!pickProject || moving} onClick={() => moveToProject(pickProject)}>{moving ? tr('Saving…') : tr('Add to the project')}</button>
                 <button type="button" className="btn btn-secondary" disabled={moving} onClick={() => moveToProject(null)}>{tr('Take out of their project')}</button>
+                <button type="button" className="btn btn-secondary" disabled={moving} onClick={() => setPmDialog({ wos: tasks.filter((t) => picked.has(t.id)), remember: false })}>{tr('Change project manager')}</button>
                 <button type="button" className="dk-link" onClick={() => setPicked(new Set())}>{tr('Clear')}</button>
               </div>
             )}
@@ -940,6 +946,15 @@ export default function WorkOrdersPage() {
         </div>
       )}
 
+      {pmDialog && (
+        <WoManagerDialog wos={pmDialog.wos} employees={employees} remember={pmDialog.remember} onClose={() => setPmDialog(null)}
+          onDone={(r) => {
+            setPmDialog(null); setPicked(new Set()); setPmFilter('');
+            const said = r.updated === 1 ? tr('1 work order now managed by {name}.', { name: r.projectManager.name }) : tr('{n} work orders now managed by {name}.', { n: r.updated, name: r.projectManager.name });
+            setToast(r.remembered ? said + ' ' + tr('The next imports will read “{sheet}” as them.', { sheet: r.remembered }) : said);
+            load();
+          }} />
+      )}
       {presenting && (
         <WorkOrdersPresent wos={scoped} scopeName={scope === 'mine' ? tr('My work orders') : currentCompany ? currentCompany.name : tr('All companies')}
           onClose={() => setPresenting(false)} onOpen={openDetail} paused={!!detail || !!opening || !!deleteTarget} />

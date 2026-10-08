@@ -20,6 +20,11 @@ router.get('/options', async function (req, res, next) {
   try { res.json(await tasksService.options(req.ctx)); } catch (e) { next(e); }
 });
 
+// Several WOs to another project manager: { ids, projectManagerId, sheetName? }.
+router.post('/manager', async function (req, res, next) {
+  try { res.json(await tasksService.setManager(req.ctx, req.body.ids, req.body.projectManagerId, req.body.sheetName)); } catch (e) { next(e); }
+});
+
 // Several WOs into a project at once, or out of their project: { ids, projectId }.
 router.post('/project', async function (req, res, next) {
   try { res.json(await tasksService.setProject(req.ctx, req.body.ids, req.body.projectId || null)); } catch (e) { next(e); }

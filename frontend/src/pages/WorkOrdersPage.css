@@ -536,3 +536,10 @@ i.is-late { background: var(--wo-s2); }
 .wo-reg-row { cursor: pointer; }
 .wo-present-btn { display: inline-flex; align-items: center; gap: 6px; }
 .wo-present-btn svg { width: 14px; height: 14px; }
+
+/* Several WOs to another project manager (WoManagerDialog). */
+.dialog.wo-pmdlg { max-width: 560px; }
+.wo-pmdlg-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; border-radius: 12px; background: var(--color-bg-subtle); font-size: 13px; line-height: 1.5; }
+.wo-pmdlg-keep > input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--color-accent); }
+.wo-pmdlg-name { width: 11rem; padding: 4px 8px; font-size: 13px; }
+.wo-filtered .dk-link { margin-left: 4px; }

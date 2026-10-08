@@ -449,6 +449,58 @@ async function setProject(ctx, ids, projectId) {
   return { updated: n, project: project ? { id: project.id, code: project.code, name: project.name } : null, projectChanges: changes };
 }
 
+// Several WOs to another project manager at once: { ids, projectManagerId,
+// sheetName }. sheetName (optional) is how the workshop's sheet writes the
+// new manager's name; it is remembered, so the next import of the sheet
+// matches that name to them (crm_name_aliases, as the import's own
+// "who is this" does). For an import that matched a name to the wrong
+// person.
+async function setManager(ctx, ids, projectManagerId, sheetName) {
+  if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
+  ids = Array.isArray(ids) ? Array.from(new Set(ids.filter(Boolean).map(String))) : [];
+  if (!ids.length) fail('invalid', 'Pick the work orders first.');
+  if (ids.length > 2000) fail('invalid', 'Pick at most 2000 work orders at a time.');
+  if (ids.some(function (id) { return !/^[0-9a-f-]{36}$/i.test(id); })) fail('invalid', 'A work order picked was not found.');
+  if (!/^[0-9a-f-]{36}$/i.test(String(projectManagerId || ''))) fail('invalid', 'Choose the project manager.');
+  var pm = (await pool.query("SELECT id, first_name, last_name, status FROM employees WHERE id = $1", [projectManagerId])).rows[0];
+  if (!pm || pm.status === 'terminated') fail('invalid', 'That project manager was not found.');
+  var pmName = (pm.first_name + ' ' + pm.last_name).trim();
+  var key = sheetName === undefined || sheetName === null ? '' : String(sheetName).trim().toLowerCase().replace(/\s+/g, ' ');
+  if (key.length > 80) fail('invalid', 'The name on the sheet must be under 80 characters.');
+  var rows = (await pool.query(
+    'SELECT t.id, t.wo_no, t.project_id, t.created_by, t.project_manager_id, t.pm_name, (SELECT array_agg(employee_id) FROM task_assignees ta WHERE ta.task_id = t.id) AS assignee_ids FROM tasks t WHERE t.id = ANY($1)',
+    [ids])).rows;
+  if (rows.length !== ids.length) fail('invalid', 'A work order picked was not found.');
+  var cache = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!(await taskVisible(ctx, { id: r.id, projectId: r.project_id, createdBy: r.created_by, assigneeIds: r.assignee_ids || [], projectManagerId: r.project_manager_id }, cache))) {
+      fail('forbidden', 'A work order picked is outside your scope.');
+    }
+  }
+  var was = await peopleById(rows.map(function (r) { return r.project_manager_id; }));
+  var moving = rows.filter(function (r) { return r.project_manager_id !== pm.id || r.pm_name; });
+  await withTransaction(async function (client) {
+    if (moving.length) {
+      await client.query("UPDATE tasks SET project_manager_id = $1, pm_name = '' WHERE id = ANY($2)", [pm.id, moving.map(function (r) { return r.id; })]);
+      for (var j = 0; j < moving.length; j++) {
+        var m = moving[j];
+        var before = m.project_manager_id ? person(was, m.project_manager_id).name : (m.pm_name || 'nobody');
+        await audit(client, ctx, 'task.update', 'task', m.id, 'Project manager of ' + woNumber(m.wo_no) + ' changed from ' + before + ' to ' + pmName + '.');
+      }
+      if (pm.id !== ctx.employee.id) {
+        await notify(client, pm.id, moving.length === 1 ? 'You manage ' + woNumber(moving[0].wo_no) : 'You manage ' + moving.length + ' more work orders',
+          moving.length === 1 ? 'You are now its project manager.' : 'You are now their project manager.', moving.length === 1 ? 'tasks:' + moving[0].id : 'tasks');
+      }
+    }
+    if (key) {
+      await client.query('INSERT INTO crm_name_aliases (name_key, employee_id, created_by) VALUES ($1, $2, $3) ON CONFLICT (name_key) DO UPDATE SET employee_id = EXCLUDED.employee_id', [key, pm.id, ctx.employee.id]);
+      await audit(client, ctx, 'task.import', 'employee', pm.id, 'On the work-order sheet, "' + String(sheetName).trim() + '" now means ' + pmName + '.');
+    }
+  });
+  return { updated: moving.length, unchanged: rows.length - moving.length, projectManager: { id: pm.id, name: pmName }, remembered: key ? String(sheetName).trim().replace(/\s+/g, ' ') : null };
+}
+
 // What the WO form offers to pick from: our companies, customers and staff.
 async function options(ctx) {
   if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
@@ -458,6 +510,6 @@ async function options(ctx) {
 }
 
 module.exports = {
-  list: list, get: get, create: create, setStatus: setStatus, update: update, remove: remove, addComment: addComment,
+  list: list, get: get, create: create, setStatus: setStatus, update: update, remove: remove, addComment: addComment, setManager: setManager,
   options: options, setProject: setProject, taskVisible: taskVisible, woNumber: woNumber, STATUSES: STATUSES
 };
