@@ -16,7 +16,7 @@ import { tr, docTr, msg } from './i18n.jsx';
 const LABELS = {
   // Lifecycle
   draft: msg('Draft'), pending: msg('Pending'), planned: msg('Planned'), planning: msg('Planning'),
-  scheduled: msg('Scheduled'), not_started: msg('Not started'), in_progress: msg('In progress'),
+  scheduled: msg('Scheduled'), not_started: msg('Not started'), in_progress: msg('In progress'), discussing: msg('Discussing'), awaiting_material: msg('Awaiting material'),
   under_review: msg('Under review'), on_hold: msg('On hold'), waiting: msg('Waiting'), delayed: msg('Delayed'),
   processing: msg('Processing'), done: msg('Done'), completed: msg('Completed'), fulfilled: msg('Fulfilled'),
   finalized: msg('Finalized'), resolved: msg('Resolved'), open: msg('Open'), closed: msg('Closed'),

@@ -1172,7 +1172,7 @@ export default function EmployeesPage() {
           <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={confirmTerminate}>
             <h2>{tr('Delete employee')}</h2>
             <p className="dialog-body">
-              {tr('This marks')} <strong>{terminateTarget.firstName} {terminateTarget.lastName}</strong> {tr('as terminated and disables their login. Their history (attendance, leave, tasks, documents) is kept for records — this does not permanently erase them.')}
+              {tr('This marks')} <strong>{terminateTarget.firstName} {terminateTarget.lastName}</strong> {tr('as terminated and disables their login. Their history (attendance, leave, work orders, documents) is kept for records — this does not permanently erase them.')}
             </p>
             <div className="field">
               <label htmlFor="term-reason">{tr('Reason (kept in the audit log)')}</label>
@@ -1192,7 +1192,7 @@ export default function EmployeesPage() {
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Remove all deleted employees')}</h2>
             <p className="dialog-body">
-              {tr('This permanently removes all {terminatedCount} terminated employee record(s) and their logins. Unlike deleting a single employee, this cannot be undone — their attendance, leave and task history will remain but will no longer show a name.', { terminatedCount })}
+              {tr('This permanently removes all {terminatedCount} terminated employee record(s) and their logins. Unlike deleting a single employee, this cannot be undone — their attendance, leave and work order history will remain but will no longer show a name.', { terminatedCount })}
             </p>
             {dialogError && <div className="error-banner">{dialogError}</div>}
             <div className="dialog-actions">

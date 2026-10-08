@@ -207,7 +207,7 @@ test('a change made through the connector happens at once and is recorded', asyn
   try {
     var res = await c.callTool({ name: 'create_task', arguments: { title: 'Z9MCP restack the slats', due_date: '2026-10-02' } });
     assert.equal(res.isError, undefined);
-    assert.match(res.content[0].text, /Task created/);
+    assert.match(res.content[0].text, /Work order WO-\d+ issued/);
     var tasks = await pool.query("SELECT count(*)::int AS n FROM tasks WHERE title = 'Z9MCP restack the slats'");
     assert.equal(tasks.rows[0].n, 1);
     var rec = (await pool.query("SELECT status, source FROM ai_actions WHERE summary LIKE '%Z9MCP restack%'")).rows;

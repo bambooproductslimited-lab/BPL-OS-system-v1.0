@@ -131,17 +131,17 @@ async function get(ctx, id) {
   if (!projectVisible(ctx, r)) fail('forbidden', 'Outside your scope.');
 
   var tasksRes = await pool.query(
-    'SELECT t.id, t.title, t.status, t.priority, t.due_date, t.created_by, t.completed_at, ' +
+    'SELECT t.id, t.wo_no, t.title, t.status, t.priority, t.due_date, t.created_by, t.completed_at, t.project_manager_id, ' +
     '(SELECT array_agg(employee_id) FROM task_assignees ta WHERE ta.task_id = t.id) AS assignee_ids ' +
     'FROM tasks t WHERE t.project_id = $1 ORDER BY t.due_date NULLS LAST, t.created_at',
     [id]
   );
-  // Only the tasks this person could open anyway (tasks.service.js).
+  // Only the work orders this person could open anyway (tasks.service.js).
   var tasksService = require('./tasks.service');
   var visibleTasks = [];
   for (var i = 0; i < tasksRes.rows.length; i++) {
     var t = tasksRes.rows[i];
-    if (await tasksService.taskVisible(ctx, { id: t.id, projectId: id, createdBy: t.created_by, assigneeIds: t.assignee_ids || [] })) visibleTasks.push(t);
+    if (await tasksService.taskVisible(ctx, { id: t.id, projectId: id, createdBy: t.created_by, assigneeIds: t.assignee_ids || [], projectManagerId: t.project_manager_id })) visibleTasks.push(t);
   }
   var people = await peopleById([r.owner_id].concat(r.member_ids || [], visibleTasks.reduce(function (ids, t) { return ids.concat(t.assignee_ids || []); }, [])));
   var today = todayISO();
@@ -152,7 +152,7 @@ async function get(ctx, id) {
     departmentName: r.dept_name, companyId: r.company_id, companyName: r.company_name, companyCode: r.company_code,
     tasks: visibleTasks.map(function (t) {
       return {
-        id: t.id, title: t.title, status: t.status, priority: t.priority, dueDate: t.due_date, completedAt: t.completed_at,
+        id: t.id, number: tasksService.woNumber(t.wo_no), title: t.title, status: t.status, priority: t.priority, dueDate: t.due_date, completedAt: t.completed_at,
         overdue: !!(t.due_date && t.due_date < today && ['completed', 'cancelled'].indexOf(t.status) < 0),
         assignees: (t.assignee_ids || []).map(function (aid) { return person(people, aid); })
       };

@@ -42,11 +42,11 @@ test('assignees come with photos and companies; completing records when and tell
   assert.equal(row.completedAt, null);
 
   await tasks.setStatus(worker, taskId, 'under_review');
-  assert.equal((await notes(bossId, 'Task ready for review')).length, 1);
+  assert.equal((await notes(bossId, 'Work order ready for checking')).length, 1);
 
   var done = await tasks.setStatus(worker, taskId, 'completed');
   assert.ok(done.completedAt);
-  assert.equal((await notes(bossId, 'Task completed')).length, 1);
+  assert.equal((await notes(bossId, 'Work order completed')).length, 1);
 
   var reopened = await tasks.setStatus(boss, taskId, 'in_progress');
   assert.equal(reopened.completedAt, null);
@@ -55,6 +55,6 @@ test('assignees come with photos and companies; completing records when and tell
 test('people newly added to a task are told', async function () {
   var t = await tasks.get(boss, taskId);
   await tasks.update(boss, taskId, { title: t.title, projectId: t.projectId, assigneeIds: [workerId, helperId], priority: t.priority, dueDate: t.dueDate, description: t.description });
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND title = 'New task assigned' AND body = 'Tbq check the kiln'", [helperId])).rows[0].n, 1);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND title = 'New task assigned' AND body = 'Tbq check the kiln'", [workerId])).rows[0].n, 1);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND title LIKE 'New work order WO-%' AND body = 'Tbq check the kiln'", [helperId])).rows[0].n, 1);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND title LIKE 'New work order WO-%' AND body = 'Tbq check the kiln'", [workerId])).rows[0].n, 1);
 });

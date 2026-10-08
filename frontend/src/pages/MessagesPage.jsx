@@ -1037,7 +1037,7 @@ export default function MessagesPage() {
                       <>
                         <button type="button" className="chat-icon-btn" onClick={() => fileInputRef.current.click()} aria-label={tr('Attach files')} title={tr('Attach documents, photos or audio')} disabled={sending}><Icon name="clip" /></button>
                         <button type="button" className="chat-icon-btn chat-media-btn" onClick={() => mediaInputRef.current.click()} aria-label={tr('Photos and videos')} title={tr('Photos and videos')} disabled={sending}><Icon name="image" /></button>
-                        <button type="button" className="chat-icon-btn" onClick={() => setRecordPicker(true)} aria-label={tr('Share from the OS')} title={tr('Share a task, invoice, quotation, client, lead or leave request')} disabled={sending}><ChatGlyph name="grid" size={18} /></button>
+                        <button type="button" className="chat-icon-btn" onClick={() => setRecordPicker(true)} aria-label={tr('Share from the OS')} title={tr('Share a work order, invoice, quotation, client, lead or leave request')} disabled={sending}><ChatGlyph name="grid" size={18} /></button>
                       </>
                     )}
                     <textarea ref={composerRef} className="chat-input" rows={1} value={draft}
@@ -1149,7 +1149,7 @@ export default function MessagesPage() {
                     <section className="chat-info-section">
                       <div className="chat-info-section-head"><strong>{tr('Shared from the OS')}</strong><span className="chat-muted">{recs.length}</span></div>
                       {recs.length ? <div className="chat-info-records">{recs.slice(0, 20).map((r) => <RecordCard key={r.messageId} record={r.record} onOpen={() => openRecord(r.record)} />)}</div>
-                        : <p className="chat-muted">{tr('No tasks, invoices or other records shared yet.')}</p>}
+                        : <p className="chat-muted">{tr('No work orders, invoices or other records shared yet.')}</p>}
                     </section>
                   </>
                 );

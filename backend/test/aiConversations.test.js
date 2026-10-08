@@ -62,7 +62,7 @@ test('questions are saved as a conversation and continued from the saved turns',
   var sent = calls[calls.length - 1].messages;
   assert.equal(sent.length, 3);
   assert.equal(sent[0].content, 'Z9AC make me a task to sweep the yard');
-  assert.match(sent[1].content, /^Prepared — press Confirm\.\n\n\[Prepared: Create task "Z9AC sweep the yard" .* — cancelled\]$/);
+  assert.match(sent[1].content, /^Prepared — press Confirm\.\n\n\[Prepared: Issue work order "Z9AC sweep the yard" .* — cancelled\]$/);
   assert.equal(sent[2].content, 'Anything else?');
 
   var convo = await ai.getConversation(kelvin, id);

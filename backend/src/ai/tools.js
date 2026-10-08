@@ -311,26 +311,29 @@ var TOOLS = [
     name: 'list_tasks',
     kind: 'read',
     perm: 'task.read',
-    description: 'Tasks with title, project, priority, status and due date. "mine" is tasks assigned to this person; "all" is every task they can see.',
+    description: 'Work orders (WOs) with number, description, who it is for, project manager, team, status, date issued and due date. "mine" is WOs this person is on the team of or manages; "all" is every WO they can see.',
     input_schema: {
       type: 'object',
       properties: {
         scope: { type: 'string', enum: ['mine', 'all'] },
-        status: { type: 'string', enum: ['not_started', 'in_progress', 'under_review', 'done'] },
+        status: { type: 'string', enum: tasksService.STATUSES },
         overdue_only: { type: 'boolean' }
       },
       additionalProperties: false
     },
     run: async function (ctx, input) {
       var list = await tasksService.list(ctx, { scope: input.scope || 'mine' });
-      var t = todayISO();
       var hits = list.filter(function (x) {
         if (input.status && x.status !== input.status) return false;
-        if (input.overdue_only && !(x.status !== 'done' && x.dueDate && day(x.dueDate) < t)) return false;
+        if (input.overdue_only && !x.overdue) return false;
         return true;
       });
       return capped(hits, function (x) {
-        return { title: x.title, project: x.projectName || undefined, priority: x.priority, status: x.status, due: day(x.dueDate), assignees: x.assigneeNames || undefined };
+        return {
+          number: x.number, title: x.title, for: x.requestedFor || undefined, quantity: x.quantity || undefined, project: x.projectName !== '—' ? x.projectName : undefined,
+          projectManager: x.pmName || undefined, priority: x.priority, status: x.status, issued: day(x.issuedOn), due: day(x.dueDate),
+          completed: day(x.completedAt) || undefined, daysToClose: x.daysToClose === null ? undefined : x.daysToClose, team: x.assigneeNames.length ? x.assigneeNames : undefined
+        };
       });
     }
   },
@@ -407,11 +410,11 @@ var TOOLS = [
     name: 'create_task',
     kind: 'action',
     perm: 'task.manage',
-    description: 'Create a task and assign it.',
+    description: 'Issue a work order (WO) and assign its team.',
     input_schema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Short task title (up to 100 characters).' },
+        title: { type: 'string', description: 'What the work order is for, in a few words (up to 100 characters).' },
         description: { type: 'string' },
         due_date: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
         priority: { type: 'string', enum: ['low', 'medium', 'high'] },
@@ -428,13 +431,13 @@ var TOOLS = [
       for (var i = 0; i < (input.assignees || []).length; i++) people.push(await resolveEmployee(ctx, input.assignees[i]));
       var names = people.length ? people.map(function (e) { return e.firstName + ' ' + e.lastName; }).join(', ') : 'you';
       return {
-        summary: 'Create task "' + title + '" for ' + names + ', due ' + due + ' (' + priority + ' priority).',
+        summary: 'Issue work order "' + title + '" for ' + names + ', due ' + due + ' (' + priority + ' priority).',
         payload: { title: title, description: String(input.description || '').slice(0, 2000), dueDate: due, priority: priority, assigneeIds: people.map(function (e) { return e.id; }) }
       };
     },
     execute: async function (ctx, p) {
       var t = await tasksService.create(ctx, p);
-      return { message: 'Task created: ' + (t.title || p.title) + '.' };
+      return { message: 'Work order ' + t.number + ' issued: ' + (t.title || p.title) + '.' };
     }
   },
   {

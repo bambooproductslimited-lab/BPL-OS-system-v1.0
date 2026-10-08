@@ -29,7 +29,7 @@ const AREAS = {
   auth: msg('Sign-in'), user: msg('User accounts'), role: msg('Roles'), mcp: msg('Claude connector'), ai: msg('AI Assistant'),
   settings: msg('Settings'), integration: msg('Integrations'), company: msg('Companies'), department: msg('Departments'), shift: msg('Shifts'), sms: msg('Text messages'), mail: msg('Email'), system: msg('System'),
   invoice: msg('Invoices'), payment: msg('Payments'), receipt: msg('Receipts'), expense: msg('Expenses'), payroll: msg('Payroll'), report: msg('Reports'), estimate: msg('Estimates'), quotation: msg('Quotations'), salesorder: msg('Sales orders'),
-  employee: msg('Employees'), leave: msg('Leave'), attendance: msg('Attendance'), task: msg('Tasks'), project: msg('Projects'), announcement: msg('Announcements'), document: msg('Documents'), chat: msg('Messages'), message: msg('Messages'),
+  employee: msg('Employees'), leave: msg('Leave'), attendance: msg('Attendance'), task: msg('Work orders'), project: msg('Projects'), announcement: msg('Announcements'), document: msg('Documents'), chat: msg('Messages'), message: msg('Messages'),
   product: msg('Products'), stock: msg('Stock'), warehouse: msg('Warehouses'), toolroom: msg('Tool room'), itdevice: msg('IT devices'), asset: msg('Assets'), maintenance: msg('Maintenance'), waybill: msg('Waybills'),
   production: msg('Production'), rawbatch: msg('Raw bamboo'), procurement: msg('Procurement'), supplier: msg('Suppliers'), catalog: msg('Products & services'), restaurant: msg('Restaurants'), poki: msg('Poki Rentals'),
   customer: msg('Clients'), marketing: msg('Marketing')

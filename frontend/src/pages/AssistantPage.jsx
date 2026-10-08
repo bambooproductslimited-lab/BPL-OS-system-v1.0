@@ -35,12 +35,12 @@ const TOOL_INFO = {
   list_invoices: { label: msg('Invoices'), what: msg('What was billed, paid and is still owed.'), ask: msg('Which invoices are overdue?') },
   list_quotations: { label: msg('Quotations'), what: msg('Offers sent to clients and their answers.'), ask: msg('Which quotations are still waiting for an answer?') },
   search_suppliers: { label: msg('Suppliers and farmers'), what: msg('Who supplies what, and how to reach them.'), ask: msg('Which suppliers sell bamboo poles?') },
-  list_tasks: { label: msg('Tasks'), what: msg('Tasks, who has them and when they are due.'), ask: msg('What tasks are due this week?') },
+  list_tasks: { label: msg('Work orders'), what: msg('Work orders: who they are for, who is on them and when they are due.'), ask: msg('Which work orders are due this week?') },
   list_leave_requests: { label: msg('Leave'), what: msg('Leave requests and who is away.'), ask: msg('Who is on leave this week?') },
   get_approval_queue: { label: msg('Your approvals'), what: msg('What is waiting for your decision.'), ask: msg('What is in my approval queue?') },
   list_purchase_requests: { label: msg('Purchase requests'), what: msg('What was asked to be bought and where it stands.'), ask: msg('Which purchase requests are still open?') },
   list_expense_claims: { label: msg('Expense claims'), what: msg('Claims, their amounts and where they stand.'), ask: msg('Which expense claims are waiting for a decision?') },
-  create_task: { label: msg('Create a task'), what: msg('For you or someone else, with a due date and priority.'), ask: msg('Create a task for me to check the kiln by Friday.') },
+  create_task: { label: msg('Issue a work order'), what: msg('For you or someone else, with a due date and priority.'), ask: msg('Issue a work order for me to check the kiln by Friday.') },
   request_leave: { label: msg('Request leave'), what: msg('For you, on the dates you give.'), ask: msg('Request annual leave for me next Monday to Wednesday.') },
   submit_purchase_request: { label: msg('Ask to buy something'), what: msg('A purchase request that goes for approval.'), ask: msg('Ask to buy 20 bags of cement for the workshop.') },
   add_customer: { label: msg('Add a client'), what: msg('A new client with their contact details.'), ask: msg('Add a new client called Riverside Lodge, phone 020 000 0000.') },
@@ -400,7 +400,7 @@ export default function AssistantPage() {
           ))}
         </div>
         {!changes.length ? (
-          <div className="dk-empty"><p>{overview.recent.length ? tr('Nothing here.') : tr('Nothing prepared yet. Ask it to create a task, request leave or the like, and the change shows up here.')}</p></div>
+          <div className="dk-empty"><p>{overview.recent.length ? tr('Nothing here.') : tr('Nothing prepared yet. Ask it to issue a work order, request leave or the like, and the change shows up here.')}</p></div>
         ) : (
           <ul className="ai-changes">
             {changes.map((a) => (

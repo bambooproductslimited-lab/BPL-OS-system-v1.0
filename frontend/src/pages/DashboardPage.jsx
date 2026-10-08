@@ -126,7 +126,7 @@ export default function DashboardPage() {
     insights.push({ tone: 'info', icon: 'calendar', text: d.pendingLeave === 1 ? tr('1 leave request is waiting for a decision.') : tr('{n} leave requests are waiting for a decision.', { n: d.pendingLeave }), action: { label: tr('Open leave'), run: () => navigate('/leave') } });
   }
   if (d.myOverdueTasks) {
-    insights.push({ tone: 'bad', icon: 'doc', text: d.myOverdueTasks === 1 ? tr('1 of your tasks is past its due date.') : tr('{n} of your tasks are past their due date.', { n: d.myOverdueTasks }), action: { label: tr('Open tasks'), run: () => navigate('/tasks') } });
+    insights.push({ tone: 'bad', icon: 'doc', text: d.myOverdueTasks === 1 ? tr('1 of your work orders is past its due date.') : tr('{n} of your work orders are past their due date.', { n: d.myOverdueTasks }), action: { label: tr('Open work orders'), run: () => navigate('/tasks') } });
   }
   if (d.overdueInvoices) {
     insights.push({ tone: 'bad', icon: 'warn', text: d.overdueInvoices === 1 ? tr('1 invoice is overdue.') : tr('{n} invoices are overdue.', { n: d.overdueInvoices }), action: { label: tr('Finance dashboard'), run: () => navigate('/financedash' + (d.company.code !== 'ALL' ? '?company=' + d.company.code : '')) } });
@@ -160,7 +160,7 @@ export default function DashboardPage() {
       ? { icon: 'people', value: d.presentToday + '/' + d.headcount, label: tr('in today'), note: d.lateToday ? tr('{rate}% · {n} late', { rate, n: d.lateToday }) : tr('{rate}% of people', { rate }), onClick: () => jump('ov-people') }
       : { icon: 'people', value: '—', label: tr('in today'), note: tr('no staff here that you can see') },
     { icon: 'check', value: String(waiting), label: tr('waiting for you'), note: tr('{a} approvals · {l} leave requests', { a: d.approvalQueue, l: d.pendingLeave || 0 }), tone: waiting ? 'alert' : '', onClick: () => navigate('/approvals') },
-    { icon: 'doc', value: String(d.myOpenTasks), label: tr('your open tasks'), note: d.myOverdueTasks ? tr('{n} overdue', { n: d.myOverdueTasks }) : d.myTasksDueToday ? tr('{n} due today', { n: d.myTasksDueToday }) : tr('nothing overdue'), tone: d.myOverdueTasks ? 'bad' : '', onClick: () => navigate('/tasks') }
+    { icon: 'doc', value: String(d.myOpenTasks), label: tr('your open work orders'), note: d.myOverdueTasks ? tr('{n} overdue', { n: d.myOverdueTasks }) : d.myTasksDueToday ? tr('{n} due today', { n: d.myTasksDueToday }) : tr('nothing overdue'), tone: d.myOverdueTasks ? 'bad' : '', onClick: () => navigate('/tasks') }
   ];
   if (restaurantHere) {
     const pct = pctChange(restaurantHere.salesToday, restaurantHere.salesSameDayLastWeek);

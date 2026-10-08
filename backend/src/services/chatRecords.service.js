@@ -3,7 +3,7 @@ var { fail } = require('../utils/errors');
 var tasks = require('./tasks.service');
 
 // OS records that can be shared in a chat as a card (messages.service.js,
-// migration 0110): a task, invoice, quotation, client, lead or leave
+// migration 0110): a work order, invoice, quotation, client, lead or leave
 // request. Sharing needs the same permission as seeing the record; the card
 // keeps a snapshot of what it said then ({ type, id, title, sub, amount,
 // currency, status, date }), and opening it goes through that page's own
@@ -31,7 +31,7 @@ function num(v) { return v == null ? null : Number(v); }
 
 // What each row becomes on a card.
 var shape = {
-  task: function (r) { return { type: 'task', id: r.id, title: r.title, sub: r.projectName && r.projectName !== '—' ? r.projectName : '', status: r.status, date: day(r.dueDate) }; },
+  task: function (r) { return { type: 'task', id: r.id, title: (r.number ? r.number + ' · ' : '') + r.title, sub: [r.requestedFor, r.projectName && r.projectName !== '—' ? r.projectName : ''].filter(Boolean).join(' · '), status: r.status, date: day(r.dueDate) }; },
   invoice: function (r) { return { type: 'invoice', id: r.id, title: r.invoice_no, sub: r.customer, amount: num(r.grand_total), currency: r.currency, status: r.status, date: day(r.issued_at) }; },
   quotation: function (r) { return { type: 'quotation', id: r.id, title: r.quote_no, sub: [r.customer, r.title].filter(Boolean).join(' · '), amount: num(r.grand_total), currency: r.currency, status: r.status, date: day(r.created_at) }; },
   customer: function (r) { return { type: 'customer', id: r.id, title: r.name, sub: [r.contact_person, r.phone].filter(Boolean).join(' · '), status: r.status }; },

@@ -162,7 +162,7 @@ test('a change is only prepared; it happens on Confirm, once, and only for the p
   assert.equal(r.actions.length, 1);
   var card = r.actions[0];
   assert.equal(card.status, 'pending');
-  assert.equal(card.summary, 'Create task "Z9AI check the kiln" for Alice Kamau, due 2026-10-01 (medium priority).');
+  assert.equal(card.summary, 'Issue work order "Z9AI check the kiln" for Alice Kamau, due 2026-10-01 (medium priority).');
   var told = JSON.parse(resultsSentOn(1)[0].content);
   assert.equal(told.status, 'awaiting_confirmation', 'Claude is told it has not happened');
 
@@ -176,7 +176,7 @@ test('a change is only prepared; it happens on Confirm, once, and only for the p
   var ok = await post(KELVIN, '/api/ai/actions/' + card.id + '/confirm');
   assert.equal(ok.status, 200);
   assert.equal(ok.body.status, 'done');
-  assert.match(ok.body.result, /Task created/);
+  assert.match(ok.body.result, /Work order WO-\d+ issued/);
   assert.equal(await count(), 1);
   var assignee = (await pool.query(
     "SELECT e.first_name FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id JOIN employees e ON e.id = ta.employee_id WHERE t.title = 'Z9AI check the kiln'"

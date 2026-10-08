@@ -24,7 +24,7 @@ export const NAV_GROUPS = [
     { key: 'leavetypes', label: msg('Leave types & balances'), perm: 'employee.write', icon: 'calendar' }
   ] },
   { label: msg('Work'), items: [
-    { key: 'tasks', label: msg('Tasks'), perm: 'task.read', icon: 'checklist' },
+    { key: 'tasks', label: msg('Work orders'), perm: 'task.read', icon: 'checklist' },
     { key: 'projects', label: msg('Projects'), perm: 'project.read', icon: 'folder' },
     { key: 'messages', label: msg('Messages'), icon: 'chat' },
     { key: 'announcements', label: msg('Announcements'), icon: 'megaphone' },

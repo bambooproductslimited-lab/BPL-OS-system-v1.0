@@ -494,7 +494,7 @@ async function profile(ctx, id) {
     [e.id]
   );
   var tasksRes = await pool.query(
-    'SELECT t.id, t.title, t.status, t.due_date FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id WHERE ta.employee_id = $1',
+    "SELECT t.id, t.wo_no, t.title, t.status, t.due_date FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id WHERE ta.employee_id = $1 AND t.status NOT IN ('completed', 'cancelled') ORDER BY t.due_date NULLS LAST, t.wo_no",
     [e.id]
   );
 
@@ -506,7 +506,7 @@ async function profile(ctx, id) {
     leave: leaveRes.rows.map(function (l) {
       return { id: l.id, startDate: l.start_date, endDate: l.end_date, days: l.days, status: l.status, typeName: l.type_name };
     }),
-    tasks: tasksRes.rows.map(function (t) { return { id: t.id, title: t.title, status: t.status, dueDate: t.due_date }; })
+    tasks: tasksRes.rows.map(function (t) { return { id: t.id, number: 'WO-' + String(t.wo_no).padStart(4, '0'), title: t.title, status: t.status, dueDate: t.due_date }; })
   };
 }
 

@@ -8,7 +8,7 @@ var { rowToLeaveRequest } = require('./leave.service');
 //
 // Today's clock and shift, the last 14 days and this month's attendance,
 // leave balances with what is waiting for a decision, their leave
-// requests, the tasks assigned to them, their expense claims and purchase
+// requests, the work orders they are on or manage, their expense claims and purchase
 // requests, their latest payslips from approved or paid runs (drafts stay
 // with payroll until approved), announcements they haven't read or still
 // need to confirm, how many approvals wait for them, and their account's
@@ -47,11 +47,13 @@ async function overview(ctx) {
     'SELECT lr.*, lt.name AS type_name FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id WHERE lr.employee_id = $1 ORDER BY lr.start_date DESC LIMIT 20', [emp])).rows;
 
   var tasks = (await pool.query(
-    'SELECT t.id, t.title, t.priority, t.due_date, t.status, p.name AS project_name FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id ' +
-    "LEFT JOIN projects p ON p.id = t.project_id WHERE ta.employee_id = $1 AND t.status NOT IN ('done', 'completed', 'cancelled') " +
+    'SELECT t.id, t.wo_no, t.title, t.priority, t.due_date, t.status, t.project_manager_id, p.name AS project_name FROM tasks t ' +
+    'LEFT JOIN projects p ON p.id = t.project_id WHERE (t.project_manager_id = $1 OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.employee_id = $1)) ' +
+    "AND t.status NOT IN ('done', 'completed', 'cancelled') " +
     'ORDER BY t.due_date NULLS LAST, t.created_at LIMIT 30', [emp])).rows;
   var doneMonth = (await pool.query(
-    "SELECT count(*)::int AS n FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id WHERE ta.employee_id = $1 AND t.status IN ('done', 'completed') AND t.completed_at >= $2", [emp, monthStart])).rows[0].n;
+    "SELECT count(*)::int AS n FROM tasks t WHERE (t.project_manager_id = $1 OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.employee_id = $1)) " +
+    "AND t.status IN ('done', 'completed') AND t.completed_at >= $2", [emp, monthStart])).rows[0].n;
 
   var claims = (await pool.query(
     'SELECT id, category, amount, date, status, decision_note, paid_at, receipt_key FROM expenses WHERE requester_id = $1 ORDER BY created_at DESC LIMIT 10', [emp])).rows;
@@ -97,7 +99,7 @@ async function overview(ctx) {
     // types marked inPool are counted here, not in their own balances.
     leavePool: await require('./leavePool.service').poolFor(emp, year),
     leave: leave.map(function (r) { return Object.assign(rowToLeaveRequest(r), { typeName: r.type_name }); }),
-    tasks: tasks.map(function (t) { return { id: t.id, title: t.title, priority: t.priority, dueDate: t.due_date, status: t.status, project: t.project_name || null }; }),
+    tasks: tasks.map(function (t) { return { id: t.id, number: 'WO-' + String(t.wo_no).padStart(4, '0'), title: t.title, priority: t.priority, dueDate: t.due_date, status: t.status, project: t.project_name || null, managing: t.project_manager_id === emp }; }),
     tasksDoneThisMonth: doneMonth,
     claims: claims.map(function (c) {
       return { id: c.id, category: c.category, amount: Number(c.amount), date: c.date, status: c.status, note: c.decision_note || '', paidAt: c.paid_at, hasReceipt: !!c.receipt_key };

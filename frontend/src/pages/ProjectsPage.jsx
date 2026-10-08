@@ -10,6 +10,7 @@ import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, ju
 import { money } from '../lib/currency';
 import { tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
+import { woStatusLabel } from '../lib/workOrders.js';
 import './EmployeesPage.css';
 import './ProjectsPage.css';
 
@@ -51,7 +52,7 @@ const HEALTH = {
   track: { tone: 'good', label: () => tr('On track') },
   behind: { tone: 'warn', label: () => tr('Falling behind') },
   overdue: { tone: 'bad', label: () => tr('Past deadline') },
-  notasks: { tone: 'muted', label: () => tr('No tasks yet') },
+  notasks: { tone: 'muted', label: () => tr('No work orders yet') },
   done: { tone: 'good', label: () => tr('Completed') },
   cancelled: { tone: 'muted', label: () => tr('Cancelled') }
 };
@@ -287,7 +288,7 @@ export default function ProjectsPage() {
     { icon: 'doc', value: String(open.length), label: tr('open projects'), note: tr('{a} active · {p} planning', { a: open.filter(({ p }) => p.status === 'active').length, p: open.filter(({ p }) => p.status === 'planning').length }), onClick: () => { setChip('open'); jump('pj-list'); } },
     { icon: 'warn', value: String(overdue.length + behind.length), label: tr('behind or late'), note: tr('{o} past deadline · {b} falling behind', { o: overdue.length, b: behind.length }), tone: overdue.length ? 'bad' : behind.length ? 'alert' : '', onClick: () => showOnly('behind') },
     { icon: 'calendar', value: String(soon.length), label: tr('deadline within 30 days'), note: soon.length ? tr('next: {name}', { name: soon.slice().sort((a, b) => a.h.daysLeft - b.h.daysLeft)[0].p.name }) : tr('none coming up'), onClick: () => showOnly('soon') },
-    { icon: 'check', value: workAll ? Math.round((doneAll / workAll) * 100) + '%' : '—', label: tr('of tasks done'), note: tr('{d} of {t} tasks in open projects', { d: doneAll, t: workAll }), onClick: () => { setChip('open'); jump('pj-list'); } }
+    { icon: 'check', value: workAll ? Math.round((doneAll / workAll) * 100) + '%' : '—', label: tr('of work orders done'), note: tr('{d} of {t} work orders in open projects', { d: doneAll, t: workAll }), onClick: () => { setChip('open'); jump('pj-list'); } }
   ];
 
   const insights = [];
@@ -299,9 +300,9 @@ export default function ProjectsPage() {
   });
   if (withLateTasks.length) {
     const worst = withLateTasks.slice().sort((a, b) => b.p.overdueTaskCount - a.p.overdueTaskCount)[0].p;
-    insights.push({ tone: 'warn', icon: 'doc', text: withLateTasks.length === 1 ? tr('{name} has {n} overdue tasks.', { name: worst.name, n: worst.overdueTaskCount }) : tr('{n} projects have overdue tasks; {name} has the most ({t}).', { n: withLateTasks.length, name: worst.name, t: worst.overdueTaskCount }), action: { label: tr('See in Tasks'), run: () => navigate('/tasks?project=' + worst.id) } });
+    insights.push({ tone: 'warn', icon: 'doc', text: withLateTasks.length === 1 ? tr('{name} has {n} overdue work orders.', { name: worst.name, n: worst.overdueTaskCount }) : tr('{n} projects have overdue work orders; {name} has the most ({t}).', { n: withLateTasks.length, name: worst.name, t: worst.overdueTaskCount }), action: { label: tr('See its work orders'), run: () => navigate('/tasks?project=' + worst.id) } });
   }
-  if (noTasks.length) insights.push({ tone: 'info', icon: 'info', text: noTasks.length === 1 ? tr('{name} has no tasks yet, so its progress cannot be measured. Add tasks to it in Tasks.', { name: noTasks[0].p.name }) : tr('{n} open projects have no tasks yet, so their progress cannot be measured.', { n: noTasks.length }) });
+  if (noTasks.length) insights.push({ tone: 'info', icon: 'info', text: noTasks.length === 1 ? tr('{name} has no work orders yet, so its progress cannot be measured. Add work orders to it in Work orders.', { name: noTasks[0].p.name }) : tr('{n} open projects have no work orders yet, so their progress cannot be measured.', { n: noTasks.length }) });
   const held = open.filter(({ p }) => p.status === 'on_hold' || p.status === 'delayed');
   if (held.length) insights.push({ tone: 'info', icon: 'clock', text: tr('On hold or delayed: {names}.', { names: held.map(({ p }) => p.name).join(', ') }), action: { label: tr('Show them'), run: () => showOnly('held') } });
 
@@ -331,7 +332,7 @@ export default function ProjectsPage() {
       <Hero
         eyebrow={currentCompany ? currentCompany.name : tr('All companies')}
         title={tr('Projects')}
-        sub={tr('Bigger pieces of work, each made of tasks. For every project: how much of the time is gone next to how much of the work is done, so you can see which ones are falling behind. Press a number to show only those projects.')}
+        sub={tr('Bigger pieces of work, each made of work orders. For every project: how much of the time is gone next to how much of the work is done, so you can see which ones are falling behind. Press a number to show only those projects.')}
         actions={canManage && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New project')}</button>}
         stats={stats} />
 
@@ -372,7 +373,7 @@ export default function ProjectsPage() {
                 <Bars h={h} />
                 <div className="pj-card-facts">
                   <span className={'pj-deadline' + (h.key === 'overdue' ? ' is-bad' : h.daysLeft !== null && h.daysLeft <= 7 && OPEN(p) ? ' is-warn' : '')}>{deadlineText(h, p)}</span>
-                  <span className="dk-muted">{tr('{d} of {t} tasks', { d: p.doneCount, t: h.work })}{p.overdueTaskCount ? ' · ' : ''}{p.overdueTaskCount ? <span className="pj-late">{tr('{n} late', { n: p.overdueTaskCount })}</span> : null}</span>
+                  <span className="dk-muted">{tr('{d} of {t} work orders', { d: p.doneCount, t: h.work })}{p.overdueTaskCount ? ' · ' : ''}{p.overdueTaskCount ? <span className="pj-late">{tr('{n} late', { n: p.overdueTaskCount })}</span> : null}</span>
                 </div>
                 <div className="pj-card-foot">
                   <span className="pj-owner"><Photo id={p.ownerId} name={p.ownerName} photo={p.ownerPhoto} size={26} /><span>{p.ownerName}</span></span>
@@ -392,7 +393,7 @@ export default function ProjectsPage() {
 
       <Glossary items={[
         [tr('Time used'), tr('How much of the time between the start date and the deadline has passed.')],
-        [tr('Work done'), tr('Completed tasks out of all the project\'s tasks (cancelled ones not counted).')],
+        [tr('Work done'), tr('Completed work orders out of all the project\'s work orders (cancelled ones not counted).')],
         [tr('Falling behind'), tr('At least 30% of the time is gone and the work done is 25 points or more behind it.')],
         [tr('Past deadline'), tr('The deadline has passed and the project is not completed or cancelled.')],
         [codeLabel('planning'), tr('Being set up; work has not properly started.')],
@@ -404,7 +405,7 @@ export default function ProjectsPage() {
           <form className="dialog pj-dialog" onClick={(e) => e.stopPropagation()} onSubmit={createProject}>
             <h2>{tr('New project')}</h2>
             <ProjectForm form={form} setForm={setForm} departments={departments} employees={employees} companies={companies} />
-            <p className="dk-muted pj-small">{tr('The team members get a notification. Add the project\'s tasks in Tasks and pick this project for each.')}</p>
+            <p className="dk-muted pj-small">{tr('The team members get a notification. Issue the project\'s work orders in Work orders and pick this project for each.')}</p>
             {formError && <div className="error-banner">{formError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setNewOpen(false)}>{tr('Cancel')}</button>
@@ -463,22 +464,22 @@ export default function ProjectsPage() {
 
                 <section className="pj-tasks">
                   <div className="pj-tasks-head">
-                    <h3>{tr('Tasks')} <span className="dk-muted">{detail.tasks.length}</span></h3>
-                    <button type="button" className="dk-link" onClick={() => navigate('/tasks?project=' + detail.id)}>{tr('See in Tasks')} →</button>
+                    <h3>{tr('Work orders')} <span className="dk-muted">{detail.tasks.length}</span></h3>
+                    <button type="button" className="dk-link" onClick={() => navigate('/tasks?project=' + detail.id)}>{tr('See its work orders')} →</button>
                   </div>
                   {detail.tasks.length ? (
                     <ul className="pj-task-list">
                       {detail.tasks.map((t) => (
                         <li key={t.id} className={'is-' + t.status + (t.overdue ? ' is-overdue' : '')}>
                           <span className={'pj-task-dot is-' + t.status} aria-hidden="true" />
-                          <span className="pj-task-title">{t.title}</span>
+                          <span className="pj-task-title">{t.number ? <span className="pj-wo">{t.number}</span> : null}{t.title}</span>
                           <Faces people={t.assignees} size={22} max={2} />
                           <span className={'pj-task-due' + (t.overdue ? ' is-bad' : '')}>{t.status === 'completed' ? tr('Done') : t.dueDate ? fmtDate(t.dueDate) : '—'}</span>
-                          <span className="dk-muted pj-task-status">{codeLabel(t.status)}</span>
+                          <span className="dk-muted pj-task-status">{woStatusLabel(t.status)}</span>
                         </li>
                       ))}
                     </ul>
-                  ) : <p className="dk-muted pj-small">{tr('No tasks yet. In Tasks, add a task and pick this project for it.')}</p>}
+                  ) : <p className="dk-muted pj-small">{tr('No work orders yet. In Work orders, issue one and pick this project for it.')}</p>}
                 </section>
 
                 <div className="dialog-actions">

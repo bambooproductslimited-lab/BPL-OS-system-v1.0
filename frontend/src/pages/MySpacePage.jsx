@@ -9,6 +9,7 @@ import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../com
 import { money } from '../lib/currency';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
+import { woStatusLabel } from '../lib/workOrders.js';
 import './ToolRoomPage.css';
 import './MySpacePage.css';
 
@@ -184,7 +185,7 @@ export default function MySpacePage() {
   const stats = [
     { icon: 'calendar', value: String(leftDays), label: tr('days of paid leave left'), note: pendingDays ? tr('{n} more waiting for a decision', { n: pendingDays }) : tr('of {n} this year', { n: entitled }), onClick: () => jump('msp-leave') },
     { icon: 'clock', value: onTime === null ? '—' : onTime + '%', label: tr('on time this month'), note: tr('{days} days · {hours} hours worked', { days: data.month.days, hours: data.month.hours }), tone: onTime === null ? '' : onTime >= 90 ? 'good' : onTime < 70 ? 'warn' : '', onClick: () => jump('msp-day') },
-    { icon: 'check', value: String(data.tasks.length), label: tr('tasks open for you'), note: overdue.length ? tr('{n} overdue', { n: overdue.length }) : tr('{n} done this month', { n: data.tasksDoneThisMonth }), tone: overdue.length ? 'bad' : '', onClick: () => jump('msp-work') },
+    { icon: 'check', value: String(data.tasks.length), label: tr('work orders open for you'), note: overdue.length ? tr('{n} overdue', { n: overdue.length }) : tr('{n} done this month', { n: data.tasksDoneThisMonth }), tone: overdue.length ? 'bad' : '', onClick: () => jump('msp-work') },
     owedTotal
       ? { icon: 'cash', value: money(owedTotal, 'GHS'), label: tr('approved claims not paid yet'), note: owed.length === 1 ? tr('1 claim') : tr('{n} claims', { n: owed.length }), tone: 'info', onClick: () => jump('msp-money') }
       : { icon: 'cash', value: lastPay ? money(lastPay.net, 'GHS') : '—', label: tr('last take-home pay'), note: lastPay ? tr('for {from} – {to}', { from: fmtDate(lastPay.periodStart), to: fmtDate(lastPay.periodEnd) }) : tr('no payslip yet'), onClick: () => jump('msp-money') }
@@ -193,7 +194,7 @@ export default function MySpacePage() {
   const insights = [];
   if (lateNow) insights.push({ tone: 'warn', icon: 'clock', text: tr('You haven\'t clocked in yet today. Your shift started at {time}.', { time: data.shift.start }), action: { label: tr('Clock in'), run: clockIn } });
   if (longShift) insights.push({ tone: 'warn', icon: 'clock', text: tr('You\'ve been clocked in since {time} on {date}. Clock out if you have finished.', { time: att.clockIn, date: fmtDate(att.date) }), action: { label: tr('Clock out'), run: clockOut } });
-  if (overdue.length) insights.push({ tone: 'bad', icon: 'check', text: overdue.length === 1 ? tr('"{title}" was due {date}.', { title: overdue[0].title, date: fmtDate(overdue[0].dueDate) }) : tr('{n} of your tasks are past their due date.', { n: overdue.length }), action: { label: tr('Open Tasks'), run: () => navigate('/tasks') } });
+  if (overdue.length) insights.push({ tone: 'bad', icon: 'check', text: overdue.length === 1 ? tr('"{title}" was due {date}.', { title: overdue[0].title, date: fmtDate(overdue[0].dueDate) }) : tr('{n} of your work orders are past their due date.', { n: overdue.length }), action: { label: tr('Open work orders'), run: () => navigate('/tasks') } });
   if (data.approvalsWaiting) insights.push({ tone: 'warn', icon: 'people', text: data.approvalsWaiting === 1 ? tr('One request is waiting for your decision.') : tr('{n} requests are waiting for your decision.', { n: data.approvalsWaiting }), action: { label: tr('Open'), run: () => navigate('/approvals') } });
   if (toConfirm.length) insights.push({ tone: 'warn', icon: 'info', text: toConfirm.length === 1 ? tr('Please read and confirm "{title}".', { title: toConfirm[0].title }) : tr('{n} announcements need you to confirm you have read them.', { n: toConfirm.length }), action: { label: tr('Open'), run: () => navigate('/announcements') } });
   else if (unreadNews.length) insights.push({ tone: 'info', icon: 'info', text: unreadNews.length === 1 ? tr('New announcement: "{title}".', { title: unreadNews[0].title }) : tr('{n} announcements you haven\'t read.', { n: unreadNews.length }), action: { label: tr('Open'), run: () => navigate('/announcements') } });
@@ -304,8 +305,8 @@ export default function MySpacePage() {
         )}
       </Section>
 
-      <Section id="msp-work" title={tr('My tasks')} sub={tr('Open tasks assigned to you, soonest due first.')} action={<Link className="btn btn-secondary" to="/tasks">{tr('Open Tasks')}</Link>}>
-        {!data.tasks.length ? <div className="dk-empty"><p>{tr('No open tasks. Nice.')}</p></div> : (
+      <Section id="msp-work" title={tr('My work orders')} sub={tr('Open work orders you are on or manage, soonest due first.')} action={<Link className="btn btn-secondary" to="/tasks">{tr('Open work orders')}</Link>}>
+        {!data.tasks.length ? <div className="dk-empty"><p>{tr('No open work orders. Nice.')}</p></div> : (
           <ul className="msp-list">
             {data.tasks.slice(0, 10).map((t) => {
               const late = t.dueDate && dayNum(t.dueDate) < todayNum();
@@ -313,11 +314,11 @@ export default function MySpacePage() {
               return (
                 <li key={t.id} className={late ? 'is-late' : ''}>
                   <span className="msp-main">
-                    <strong>{t.title}</strong>
-                    <span className="dk-muted tl-small">{[t.project, t.dueDate ? tr('due {date}', { date: fmtDate(t.dueDate) }) : tr('no due date')].filter(Boolean).join(' · ')}</span>
+                    <strong>{t.number ? <span className="msp-wo">{t.number}</span> : null}{t.title}</strong>
+                    <span className="dk-muted tl-small">{[t.managing ? tr('you manage it') : null, t.project, t.dueDate ? tr('due {date}', { date: fmtDate(t.dueDate) }) : tr('no due date')].filter(Boolean).join(' · ')}</span>
                   </span>
                   {t.priority === 'high' && <Status tone="bad">{tr('High priority')}</Status>}
-                  <Status tone={late ? 'bad' : soon ? 'warn' : TASK_DONE.includes(t.status) ? 'good' : 'muted'}>{late ? tr('Overdue') : codeLabel(t.status)}</Status>
+                  <Status tone={late ? 'bad' : soon ? 'warn' : TASK_DONE.includes(t.status) ? 'good' : 'muted'}>{late ? tr('Overdue') : woStatusLabel(t.status)}</Status>
                 </li>
               );
             })}

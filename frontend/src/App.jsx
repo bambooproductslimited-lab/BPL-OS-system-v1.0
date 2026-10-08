@@ -11,7 +11,7 @@ import EmployeesPage from './pages/EmployeesPage';
 import DepartmentsPage from './pages/DepartmentsPage';
 import AttendancePage from './pages/AttendancePage';
 import MySpacePage from './pages/MySpacePage';
-import TasksPage from './pages/TasksPage';
+import WorkOrdersPage from './pages/WorkOrdersPage';
 import ProjectsPage from './pages/ProjectsPage';
 import AnnouncementsPage from './pages/AnnouncementsPage';
 import DocumentsPage from './pages/DocumentsPage';
@@ -80,7 +80,7 @@ import CrmMarketingPage from './pages/crm/CrmMarketingPage';
 // module scope so route elements stay referentially stable across renders.
 const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
-  myspace: MySpacePage, tasks: TasksPage, projects: ProjectsPage, announcements: AnnouncementsPage,
+  myspace: MySpacePage, tasks: WorkOrdersPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
   assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,

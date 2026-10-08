@@ -43,8 +43,8 @@ export function ChatGlyph({ name, size = 16 }) {
 }
 
 // ── OS records as cards ──────────────────────────────────────────────
-const RECORD_LABEL = { task: msg('Task'), invoice: msg('Invoice'), quotation: msg('Quotation'), customer: msg('Client'), lead: msg('Lead'), leave: msg('Leave request') };
-const RECORD_PLURAL = { task: msg('Tasks'), invoice: msg('Invoices'), quotation: msg('Quotations'), customer: msg('Clients'), lead: msg('Leads'), leave: msg('Leave requests') };
+const RECORD_LABEL = { task: msg('Work order'), invoice: msg('Invoice'), quotation: msg('Quotation'), customer: msg('Client'), lead: msg('Lead'), leave: msg('Leave request') };
+const RECORD_PLURAL = { task: msg('Work orders'), invoice: msg('Invoices'), quotation: msg('Quotations'), customer: msg('Clients'), lead: msg('Leads'), leave: msg('Leave requests') };
 export function recordLabel(type) { return RECORD_LABEL[type] ? tr(RECORD_LABEL[type]) : type; }
 export function recordHref(r) {
   if (!r) return null;

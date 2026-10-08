@@ -176,3 +176,4 @@
 .msp-pw h2 { margin: 0; }
 @media (max-width: 900px) { .msp .myspace-top, .msp-money, .msp-about { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .msp-strip { gap: 2px; } .msp-day-n { font-size: 9.5px; } }
+.msp-wo { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 6%, transparent); vertical-align: 1px; }

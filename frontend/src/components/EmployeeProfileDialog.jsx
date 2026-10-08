@@ -6,6 +6,7 @@ import { isPdf, toPreviewUrl } from '../lib/previewUrl';
 import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeeProfileDialog.css';
 import { codeLabel } from '../lib/codeLabels.js';
+import { woStatusLabel } from '../lib/workOrders.js';
 
 const ID_SLOT_LABELS = { id_front: msg('ID — front'), id_back: msg('ID — back'), passport: msg('Passport') };
 const EMPLOYMENT_TYPE_LABELS = { permanent: msg('Permanent'), contract: msg('Contract'), casual: msg('Casual'), day_rate: msg('By day') };
@@ -231,21 +232,21 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
             </div>
 
             <div className="employee-profile-section">
-              <div className="employee-profile-section-title">{tr('Open tasks')}</div>
+              <div className="employee-profile-section-title">{tr('Open work orders')}</div>
               {data.tasks.length ? (
                 <table className="table employee-profile-table">
-                  <thead><tr><th>{tr('Task')}</th><th>{tr('Status')}</th><th>{tr('Due')}</th></tr></thead>
+                  <thead><tr><th>{tr('Work order')}</th><th>{tr('Status')}</th><th>{tr('Due')}</th></tr></thead>
                   <tbody>
                     {data.tasks.map((t) => (
                       <tr key={t.id}>
-                        <td>{t.title}</td>
-                        <td><span className={'tag ' + tagClass(t.status)}>{codeLabel(t.status)}</span></td>
+                        <td>{t.number ? <span className="employee-profile-wo">{t.number}</span> : null} {t.title}</td>
+                        <td><span className={'tag ' + tagClass(t.status)}>{woStatusLabel(t.status)}</span></td>
                         <td>{fmtDate(t.dueDate)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              ) : <p className="table-empty">{tr('No tasks assigned.')}</p>}
+              ) : <p className="table-empty">{tr('No open work orders.')}</p>}
             </div>
           </>
         )}

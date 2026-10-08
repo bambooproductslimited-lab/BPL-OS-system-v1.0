@@ -17,7 +17,7 @@ test.before(async function () {
   var dept = (await pool.query("SELECT d.id FROM departments d JOIN companies c ON c.id = d.company_id WHERE c.code = 'BPL' LIMIT 1")).rows[0];
   var p = await projects.create(boss, { name: 'Pjq Kiln upgrade', departmentId: dept.id, memberIds: [memberId], startDate: '2031-01-01', deadline: '2031-06-30', budget: 5000 });
   projId = p.id;
-  var a = await tasks.create(boss, { title: 'Pjq order parts', projectId: projId, assigneeIds: [memberId], dueDate: '2020-01-01' });
+  var a = await tasks.create(boss, { title: 'Pjq order parts', projectId: projId, assigneeIds: [memberId], issuedOn: '2019-12-20', dueDate: '2020-01-01' });
   var b = await tasks.create(boss, { title: 'Pjq fit parts', projectId: projId, assigneeIds: [memberId], dueDate: '2031-03-01' });
   taskIds = [a.id, b.id];
   await tasks.setStatus(boss, b.id, 'completed');

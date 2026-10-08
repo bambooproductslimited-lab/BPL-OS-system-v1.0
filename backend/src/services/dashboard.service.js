@@ -121,7 +121,7 @@ async function load(ctx, companyCode) {
   // The person's own work: not per company.
   var myTasksRes = await pool.query(
     "SELECT count(*)::int AS n, count(*) FILTER (WHERE t.due_date < $2)::int AS overdue, count(*) FILTER (WHERE t.due_date = $2)::int AS due_today " +
-    "FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id WHERE ta.employee_id = $1 AND t.status NOT IN ('completed','cancelled')",
+    "FROM tasks t WHERE (t.project_manager_id = $1 OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.employee_id = $1)) AND t.status NOT IN ('completed','cancelled')",
     [ctx.employee.id, t]
   );
   var announcementRes = await pool.query(
