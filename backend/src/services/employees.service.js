@@ -107,8 +107,11 @@ async function list(ctx, params) {
   return out;
 }
 
-// For the directory: who is on approved leave today (and until when), and,
-// for HR (employee.write), whether each person can sign in to the OS.
+// For the directory: who is on approved leave today (and until when),
+// who has the OS open right now (the same "online" as Messages: seen in the
+// last two minutes), for HR (employee.write) whether each person can sign
+// in, and, for whoever may see everyone's attendance, today's clock-in.
+var ONLINE_MS = 2 * 60 * 1000;
 async function addDirectoryFacts(ctx, list) {
   var ids = list.map(function (e) { return e.id; });
   if (!ids.length) return;
@@ -125,9 +128,22 @@ async function addDirectoryFacts(ctx, list) {
     var users = await pool.query('SELECT employee_id, status, last_login_at FROM users WHERE employee_id = ANY($1)', [ids]);
     users.rows.forEach(function (u) { logins[u.employee_id] = { status: u.status, lastLoginAt: u.last_login_at }; });
   }
+  var seen = {};
+  (await pool.query('SELECT id, last_seen_at FROM employees WHERE id = ANY($1) AND last_seen_at IS NOT NULL', [ids])).rows.forEach(function (r) { seen[r.id] = r.last_seen_at; });
+  var today = null;
+  if (ctx.can('attendance.read.all')) {
+    today = {};
+    (await pool.query(
+      'SELECT DISTINCT ON (employee_id) employee_id, clock_in, clock_out, status FROM attendance WHERE employee_id = ANY($1) AND date = $2 ORDER BY employee_id, shift_no',
+      [ids, new Date().toISOString().slice(0, 10)])).rows.forEach(function (r) {
+      today[r.employee_id] = { status: r.status, clockIn: r.clock_in ? String(r.clock_in).slice(0, 5) : null, clockOut: r.clock_out ? String(r.clock_out).slice(0, 5) : null };
+    });
+  }
   list.forEach(function (e) {
     e.onLeaveUntil = until[e.id] || null;
+    e.online = !!seen[e.id] && Date.now() - new Date(seen[e.id]).getTime() < ONLINE_MS;
     if (canSeeLogins) e.login = logins[e.id] || null;
+    if (today) e.today = today[e.id] || null;
   });
 }
 

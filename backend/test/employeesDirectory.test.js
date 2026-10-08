@@ -1,6 +1,7 @@
 // The employee directory list: each person's photo version, who is on
-// approved leave today (and until when), and — for HR only — whether they
-// can sign in.
+// approved leave today (and until when), who has the OS open right now,
+// — for HR only — whether they can sign in, and — for whoever may see
+// everyone's attendance — today's clock-in.
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var { pool } = require('../src/db/pool');
@@ -23,6 +24,7 @@ test.before(async function () {
   );
 });
 test.after(async function () {
+  await pool.query('DELETE FROM attendance WHERE employee_id = $1', [empId]);
   await pool.query('DELETE FROM leave_requests WHERE employee_id = $1', [empId]);
   await pool.query('DELETE FROM employees WHERE id = $1', [empId]);
   await pool.end();
@@ -50,4 +52,21 @@ test('people without employee.write do not see sign-in details', async function 
   assert.equal(list.length, 1);
   assert.equal('login' in list[0], false);
   assert.ok(list[0].onLeaveUntil);
+});
+
+test('who has the OS open right now, and today\'s clock-in for those who may see attendance', async function () {
+  var find = async function (c) { return (await employees.list(c, { q: 'dirq' }))[0]; };
+  assert.equal((await find(ctx)).online, false);
+  assert.equal((await find(ctx)).today, null, 'not clocked in');
+  await pool.query("UPDATE employees SET last_seen_at = now() - interval '30 seconds' WHERE id = $1", [empId]);
+  await pool.query("INSERT INTO attendance (employee_id, date, clock_in, status, source) VALUES ($1, $2, '07:52', 'present', 'manual')", [empId, new Date().toISOString().slice(0, 10)]);
+  var e = await find(ctx);
+  assert.equal(e.online, true);
+  assert.deepEqual(e.today, { status: 'present', clockIn: '07:52', clockOut: null });
+  await pool.query("UPDATE employees SET last_seen_at = now() - interval '10 minutes' WHERE id = $1", [empId]);
+  assert.equal((await find(ctx)).online, false, 'seen ten minutes ago is not online');
+  var noAttendance = Object.assign(Object.create(Object.getPrototypeOf(ctx)), ctx, {
+    can: function (p) { return p !== 'attendance.read.all' && ctx.can(p); }
+  });
+  assert.equal('today' in (await find(noAttendance)), false, 'no attendance permission, no clock-in shown');
 });

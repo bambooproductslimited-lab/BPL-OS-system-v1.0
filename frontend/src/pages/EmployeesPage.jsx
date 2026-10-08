@@ -10,8 +10,10 @@ import FaceCapture from '../components/FaceCapture';
 import Photo, { forgetBlob } from '../components/Photo';
 import PhotoDialog from '../components/PhotoDialog';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { CompanySwitcher, Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import './EmployeesPage.css';
+import { Composition, Face, Kinds, PanelHead, PeopleBanner, Teams, Tenure, ThisMonth, hueOf, tenureText, todayState } from './PeopleFun';
+import './PeopleFun.css';
 import RowMenu from '../components/RowMenu';
 import ViewScopeDialog from '../components/ViewScopeDialog';
 import { companiesInReach, useMyViewScope, viewScopeInsight } from '../lib/viewScope';
@@ -610,7 +612,11 @@ export default function EmployeesPage() {
   const incomplete = current.filter(isIncomplete);
   const withoutLogin = current.filter(noLogin);
   const inactive = current.filter((e) => e.status === 'inactive');
-  const chipTest = { leave: (e) => !!e.onLeaveUntil, new: isNew, incomplete: isIncomplete, nologin: noLogin, inactive: (e) => e.status === 'inactive' };
+  const isIn = (e) => { const st = todayState(e); return st === 'in' || st === 'late'; };
+  const chipTest = { leave: (e) => !!e.onLeaveUntil, new: isNew, incomplete: isIncomplete, nologin: noLogin, inactive: (e) => e.status === 'inactive', online: (e) => !!e.online, in: isIn };
+  const onlineNow = current.filter((e) => e.online);
+  const hasToday = current.some((e) => 'today' in e);
+  const inNow = current.filter(isIn);
 
   // Groups, biggest first.
   const groupMap = new Map();
@@ -647,12 +653,12 @@ export default function EmployeesPage() {
   function pickSort(v) { setSort(v); writePref('bos.peopleSort', v); }
 
   const stats = [
-    { icon: 'people', value: String(current.length), label: tr('people'), note: inactive.length ? tr('{a} active · {i} inactive', { a: current.length - inactive.length, i: inactive.length }) : tr('in {n} groups', { n: groups.length }), onClick: () => { setChip(''); setDeptFilter(''); jump('emp-list'); } },
-    { icon: 'calendar', value: String(onLeave.length), label: tr('on leave today'), note: tr('approved leave'), onClick: () => showOnly('leave') },
-    { icon: 'spark', value: String(joiners.length), label: tr('joined recently'), note: tr('in the last {n} days', { n: NEW_DAYS }), tone: joiners.length ? 'good' : '', onClick: () => showOnly('new') },
+    { icon: 'layers', value: String(groups.length), label: tr('groups'), note: inactive.length ? tr('{a} active · {i} inactive', { a: current.length - inactive.length, i: inactive.length }) : scopeName, onClick: () => { setChip(''); setDeptFilter(''); jump('emp-groups'); } },
+    { icon: 'calendar', value: String(onLeave.length), label: tr('on leave today'), note: tr('approved leave'), onClick: () => showOnly('leave'), active: chip === 'leave' },
+    { icon: 'spark', value: String(joiners.length), label: tr('joined recently'), note: tr('in the last {n} days', { n: NEW_DAYS }), tone: joiners.length ? 'good' : '', onClick: () => showOnly('new'), active: chip === 'new' },
     canWrite
-      ? { icon: 'warn', value: String(incomplete.length), label: tr('missing details'), note: tr('no phone or no manager'), tone: incomplete.length ? 'alert' : '', onClick: () => showOnly('incomplete') }
-      : { icon: 'doc', value: String(groups.length), label: tr('groups'), note: scopeName }
+      ? { icon: 'warn', value: String(incomplete.length), label: tr('missing details'), note: tr('no phone or no manager'), tone: incomplete.length ? 'alert' : '', onClick: () => showOnly('incomplete'), active: chip === 'incomplete' }
+      : { icon: 'people', value: String(onlineNow.length), label: tr('online now'), note: tr('with the OS open'), onClick: () => showOnly('online'), active: chip === 'online' }
   ];
 
   // What stands out.
@@ -706,6 +712,8 @@ export default function EmployeesPage() {
 
   const chips = [
     ['', tr('Everyone'), scoped.length],
+    ['online', tr('Online now'), onlineNow.length],
+    hasToday && ['in', tr('In today'), inNow.length],
     ['leave', tr('On leave'), onLeave.length],
     ['new', tr('New'), joiners.length],
     canWrite && ['incomplete', tr('Missing details'), incomplete.length],
@@ -774,7 +782,7 @@ export default function EmployeesPage() {
           }} />
       )}
 
-      <Hero
+      <PeopleBanner
         eyebrow={currentCompany ? currentCompany.name : tr('All companies')}
         title={tr('Employee directory')}
         sub={tr('Everyone who works at {scope}: find a colleague, call, WhatsApp or message them, and see who is away or new. Press a number to show only those people.', { scope: scopeName })}
@@ -784,15 +792,41 @@ export default function EmployeesPage() {
           {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setIdsOpen(true)}>{tr('Set IDs from a list')}</button>}
           {canSync && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
         </>}
-        stats={stats} />
+        people={current} tiles={stats} online={onlineNow.length} inToday={inNow.length} hasToday={hasToday} />
 
       <Insights items={insights.slice(0, 6)} />
 
+      {current.length > 0 && (
+        <div className="pf-panels">
+          <ThisMonth people={current} onOpen={(p) => setProfileTarget(p.id)} newDays={NEW_DAYS} />
+          <section className="pf-panel">
+            <PanelHead icon="pie" title={showCompany ? tr('Where everyone works') : tr('The groups')} sub={showCompany ? tr('People in each company. Press one to show only its people.') : tr('People in each group. Press one to show only its people.')} />
+            <Composition total={current.length} title={current.length === 1 ? tr('person') : tr('people')}
+              slices={showCompany
+                ? companies.map((co) => ({ key: co.code, name: co.name, value: current.filter((e) => deptById[e.departmentId] && deptById[e.departmentId].companyId === co.id).length })).filter((x) => x.value)
+                : groups.map((g) => ({ key: g.key, id: g.id, name: g.name, value: g.people.length }))}
+              onPick={(x) => { if (showCompany) pickCompany(x.key); else { setDeptFilter(x.id || ''); setChip(''); jump('emp-list'); } }} />
+          </section>
+          <section className="pf-panel">
+            <PanelHead icon="hourglass" title={tr('How long people have been with us')} sub={tr('From each person\'s hire date.')} />
+            <Tenure people={current} onOpen={(p) => setProfileTarget(p.id)} />
+          </section>
+          <section className="pf-panel">
+            <PanelHead icon="badge" title={tr('Kinds of employment')} sub={tr('Permanent, on contract, casual or paid by the day.')} />
+            <Kinds people={current} />
+          </section>
+          <section className="pf-panel">
+            <PanelHead icon="tree" title={tr('The biggest teams')} sub={tr('Managers with the most people reporting to them.')} />
+            <Teams people={current} byId={byId} onOpen={(p) => setProfileTarget(p.id)} />
+          </section>
+        </div>
+      )}
+
       {groups.length > 1 && (
-        <Section title={tr('Groups')} sub={tr('How many people are in each group. Press one to see its people.')}>
+        <Section id="emp-groups" title={tr('Groups')} sub={tr('How many people are in each group. Press one to see its people.')}>
           <div className="ppl-groups">
             {groups.map((g) => (
-              <button key={g.key} type="button" className={'ppl-group' + (deptFilter && deptFilter === g.id ? ' is-on' : '')}
+              <button key={g.key} type="button" style={{ '--hue': hueOf(g.name) }} className={'ppl-group' + (deptFilter && deptFilter === g.id ? ' is-on' : '')}
                 onClick={() => { setDeptFilter(deptFilter === g.id ? '' : g.id || ''); setChip(''); jump('emp-list'); }}>
                 <span className="ppl-group-top">
                   <span className="ppl-group-name">{g.name}{showCompany && g.company && <span className="ppl-group-co">{g.company}</span>}</span>
@@ -843,10 +877,11 @@ export default function EmployeesPage() {
         {view === 'cards' ? (
           <div className="ppl-cards">
             {visible.map((p) => (
-              <article key={p.id} className={'ppl-card' + (p.status === 'terminated' ? ' is-gone' : '')}>
+              <article key={p.id} style={{ '--hue': hueOf(deptById[p.departmentId] ? deptById[p.departmentId].name : '') }} className={'ppl-card' + (p.status === 'terminated' ? ' is-gone' : '')}>
                 <div className="ppl-card-menu"><RowMenu actions={menuFor(p)} /></div>
                 <button type="button" className="ppl-card-main" onClick={() => setProfileTarget(p.id)}>
-                  <Photo id={p.id} name={fullName(p)} photo={p.photo} size={72} />
+                  <Face p={p} size={76} />
+                  {tenureText(p.hireDate) && p.status !== 'terminated' && <span className="pf-tenure">{tenureText(p.hireDate)}</span>}
                   <span className="ppl-card-name">{fullName(p)}{p.id === myId && <span className="ppl-you">{tr('You')}</span>}</span>
                   <span className="ppl-card-title">{p.positionTitle || '—'}</span>
                   <span className="dk-muted ppl-card-group">{groupLine(p)}</span>
@@ -864,7 +899,7 @@ export default function EmployeesPage() {
             {visible.map((p) => (
               <li key={p.id} className={'ppl-line' + (p.status === 'terminated' ? ' is-gone' : '')}>
                 <button type="button" className="ppl-line-who" onClick={() => setProfileTarget(p.id)}>
-                  <Photo id={p.id} name={fullName(p)} photo={p.photo} size={40} />
+                  <Face p={p} size={40} />
                   <span className="ppl-line-text">
                     <span className="ppl-line-name">{fullName(p)}{p.id === myId && <span className="ppl-you">{tr('You')}</span>}</span>
                     <span className="dk-muted">{p.positionTitle || '—'} · {p.code}</span>
