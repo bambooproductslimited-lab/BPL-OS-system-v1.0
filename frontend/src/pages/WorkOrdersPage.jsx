@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -11,8 +11,8 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
 import {
-  Confetti, ForWhom, Linked, Managers, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, Weekly, WoBanner, WoCard, WoImport, colHint,
-  addDays, dueInfo, forName, isoDay, pmOf, shortDate
+  Confetti, DaysChip, ForBadge, ForWhom, Linked, Managers, MiniTimeline, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, StatusSelect, Weekly, WoBanner, WoCard, WoImport, colHint, downloadCsv,
+  addDays, dueInfo, forName, isoDay, pmOf
 } from './WorkOrdersFun.jsx';
 import './EmployeesPage.css';
 import './WorkOrdersPage.css';
@@ -284,6 +284,8 @@ export default function WorkOrdersPage() {
   const [pmFilter, setPmFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState(projectFromUrl);
   const [shownRows, setShownRows] = useState(PAGE);
+  // The register's order: its usual one (late, then open, then finished), or by a column.
+  const [regSort, setRegSort] = useState(null);
   // Work orders ticked in the register, to put into a project together.
   const [picked, setPicked] = useState(() => new Set());
   const [pickProject, setPickProject] = useState('');
@@ -588,7 +590,37 @@ export default function WorkOrdersPage() {
     return ra === 0 ? sortOpen(a, b) : byDone(a, b) || b.woNo - a.woNo;
   });
 
-  const pageRows = rows.slice(0, shownRows);
+  const SORTS = {
+    wo: (t) => t.woNo, title: (t) => t.title.toLowerCase(), for: (t) => forName(t).toLowerCase(), qty: (t) => parseFloat(String(t.quantity).replace(',', '.')) || 0,
+    due: (t) => t.dueDate || '9999', status: (t) => WO_STATUSES.indexOf(t.status), days: (t) => (t.daysToClose !== null ? t.daysToClose : t.daysOpen !== null ? t.daysOpen : -1)
+  };
+  const sortedRows = regSort ? rows.slice().sort((a, b) => {
+    const x = SORTS[regSort.key](a), y = SORTS[regSort.key](b);
+    return (x < y ? -1 : x > y ? 1 : 0) * (regSort.dir === 'desc' ? -1 : 1) || b.woNo - a.woNo;
+  }) : rows;
+  const pageRows = sortedRows.slice(0, shownRows);
+  // Without a column picked, the register reads in three parts.
+  const regGroups = regSort ? [{ key: 'all', rows: pageRows }] : [
+    { key: 'late', label: tr('Late'), n: rows.filter((t) => WO_OPEN(t) && t.overdue).length, rows: pageRows.filter((t) => WO_OPEN(t) && t.overdue) },
+    { key: 'open', label: tr('Open'), n: rows.filter((t) => WO_OPEN(t) && !t.overdue).length, rows: pageRows.filter((t) => WO_OPEN(t) && !t.overdue) },
+    { key: 'done', label: tr('Finished'), n: rows.filter((t) => !WO_OPEN(t)).length, rows: pageRows.filter((t) => !WO_OPEN(t)) }
+  ].filter((g) => g.rows.length);
+  function sortBy(key) {
+    setRegSort((was) => (!was || was.key !== key ? { key, dir: key === 'due' || key === 'title' || key === 'for' ? 'asc' : 'desc' } : was.dir === 'desc' ? { key, dir: 'asc' } : null));
+  }
+  function sortBtn(k, children) {
+    const on = regSort && regSort.key === k;
+    return <button key={k} type="button" className={'wo-sort' + (on ? ' is-on' : '')} onClick={() => sortBy(k)}>{children}<span aria-hidden="true">{on ? (regSort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button>;
+  }
+  // A header that sorts by one or more columns: [[key, label], …].
+  function sortTh(keys, className) {
+    const on = keys.find(([k]) => regSort && regSort.key === k);
+    return (
+      <th key={keys[0][0]} className={(className || '') + (on ? ' is-sorted' : '')} aria-sort={on ? (regSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        {keys.length > 1 ? <span className="wo-sorts">{keys.map(([k, label]) => sortBtn(k, label))}</span> : sortBtn(keys[0][0], keys[0][1])}
+      </th>
+    );
+  }
 
   function moveMenu(t) {
     return [
@@ -761,41 +793,75 @@ export default function WorkOrdersPage() {
           </>
         ) : (
           <>
+            <div className="wo-reg-bar">
+              <span className="wo-reg-summary">
+                <b>{rows.length === 1 ? tr('1 work order') : tr('{n} work orders', { n: rows.length })}</b>
+                {rows.filter((t) => WO_OPEN(t) && t.overdue).length > 0 && <span className="wo-reg-pill is-bad">{tr('{n} late', { n: rows.filter((t) => WO_OPEN(t) && t.overdue).length })}</span>}
+                {rows.filter((t) => WO_OPEN(t)).length > 0 && <span className="wo-reg-pill is-open">{tr('{n} open', { n: rows.filter((t) => WO_OPEN(t)).length })}</span>}
+                {rows.filter((t) => t.status === 'completed').length > 0 && <span className="wo-reg-pill is-good">{tr('{n} completed', { n: rows.filter((t) => t.status === 'completed').length })}</span>}
+              </span>
+              {regSort && <button type="button" className="dk-link" onClick={() => setRegSort(null)}>{tr('Back to the usual order')}</button>}
+              <button type="button" className="btn btn-secondary wo-reg-csv" onClick={() => downloadCsv(sortedRows)} title={tr('Every work order shown here, as a spreadsheet for Excel or Google Sheets')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" /></svg>
+                {tr('Download (.csv)')}
+              </button>
+            </div>
             <div className="wo-register-wrap">
-              <table className="wo-register">
+              <table className="wo-register is-fancy">
                 <thead>
                   <tr>
                     {canManage && <th className="is-pick"><input type="checkbox" checked={pageRows.length > 0 && pageRows.every((t) => picked.has(t.id))} onChange={(e) => setPicked((was) => { const s = new Set(was); pageRows.forEach((t) => (e.target.checked ? s.add(t.id) : s.delete(t.id))); return s; })} aria-label={tr('Pick every row shown')} /></th>}
-                    <th>{tr('WO')}</th><th>{tr('Issued')}</th><th>{tr('For')}</th><th>{tr('Description')}</th><th>{tr('Qty')}</th>
-                    <th>{tr('Project manager')}</th><th>{tr('Team')}</th><th>{tr('Due')}</th><th>{tr('Status')}</th><th>{tr('Closed')}</th><th className="is-num">{tr('Days')}</th><th aria-label={tr('Actions')} />
+                    {sortTh([['wo', tr('WO no.')], ['title', tr('Work order')]])}
+                    {sortTh([['for', tr('For')]])}
+                    {sortTh([['qty', tr('Qty')]], 'is-num')}
+                    <th>{tr('People')}</th>
+                    {sortTh([['due', tr('Issued → due')]])}
+                    {sortTh([['status', tr('Status')]])}
+                    {sortTh([['days', tr('Days')]], 'is-num')}
+                    <th aria-label={tr('Actions')} />
                   </tr>
                 </thead>
                 <tbody>
-                  {pageRows.map((t) => {
-                    const due = dueInfo(t, today);
-                    const closed = t.completedAt || t.cancelledAt;
-                    return (
-                      <tr key={t.id} className={(t.overdue ? 'is-overdue' : '') + (WO_OPEN(t) ? '' : ' is-closed') + (picked.has(t.id) ? ' is-picked' : '')}>
-                        {canManage && <td className="is-pick"><input type="checkbox" checked={picked.has(t.id)} onChange={() => togglePick(t.id)} aria-label={tr('Pick {no}', { no: t.number })} /></td>}
-                        <td><button type="button" className="wo-no is-link" onClick={() => openDetail(t)}>{t.number}</button></td>
-                        <td className="is-date">{t.issuedOn ? shortDate(t.issuedOn) : '—'}</td>
-                        <td className="is-for" title={forName(t)}>{forName(t) || <span className="dk-muted">—</span>}</td>
-                        <td className="is-title"><button type="button" className="wo-row-title" onClick={() => openDetail(t)}>{t.title}</button>{t.projectName && t.projectName !== '—' && <span className="wo-row-project">{t.projectName}</span>}</td>
-                        <td>{t.quantity || '—'}</td>
-                        <td className="is-pm" title={pmOf(t)}>{pmOf(t) || <span className="dk-muted">—</span>}</td>
-                        <td><Faces2 t={t} /></td>
-                        <td className="is-date"><span className={'wo-due is-' + (WO_OPEN(t) ? due.tone || 'plain' : 'plain')}>{t.dueDate ? shortDate(t.dueDate) : '—'}</span></td>
-                        <td>
-                          <select className={'input wo-status-select is-' + t.status} value={t.status} onChange={(e) => setStatus(t, e.target.value)} aria-label={tr('Status of {no}', { no: t.number })}>
-                            {WO_STATUSES.map((s) => <option key={s} value={s}>{woStatusLabel(s)}</option>)}
-                          </select>
-                        </td>
-                        <td className="is-date">{closed ? shortDate(dayOf(closed)) : '—'}</td>
-                        <td className="is-num">{t.daysToClose !== null ? <span className={t.onTime === false ? 'wo-late-n' : ''} title={t.onTime === false ? tr('Finished after the date due') : ''}>{t.daysToClose}</span> : t.daysOpen !== null ? <span className="dk-muted" title={tr('Open for {n} days so far', { n: t.daysOpen })}>{tr('{n} so far', { n: t.daysOpen })}</span> : '—'}</td>
-                        <td><RowMenu actions={[{ label: tr('Open'), onClick: () => openDetail(t) }, { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !canManage }]} /></td>
-                      </tr>
-                    );
-                  })}
+                  {regGroups.map((g) => (
+                    <Fragment key={g.key}>
+                      {g.label && (
+                        <tr className={'wo-reg-group is-' + g.key}>
+                          <td colSpan={canManage ? 9 : 8}><span className="wo-reg-group-label"><i aria-hidden="true" />{g.label}<b>{g.n}</b></span></td>
+                        </tr>
+                      )}
+                      {g.rows.map((t, i) => (
+                        <tr key={t.id} className={'wo-reg-row is-' + t.status + (t.overdue ? ' is-overdue' : '') + (WO_OPEN(t) ? '' : ' is-closed') + (picked.has(t.id) ? ' is-picked' : '')} style={{ '--i': Math.min(i, 20) }}>
+                          {canManage && <td className="is-pick"><input type="checkbox" checked={picked.has(t.id)} onChange={() => togglePick(t.id)} aria-label={tr('Pick {no}', { no: t.number })} /></td>}
+                          <td className="is-title">
+                            <span className="wo-row-top">
+                              <button type="button" className="wo-no is-link" onClick={() => openDetail(t)}>{t.number}</button>
+                              {t.priority === 'high' && (
+                                <span className="wo-flame" title={tr('{p} priority', { p: codeLabel('high') })}>
+                                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.5 2.5c.6 3.2-1.2 4.9-2.6 6.5C8.4 10.7 7 12.4 7 15a5 5 0 0 0 10 0c0-1.9-.8-3.4-1.7-4.6-.2 1.3-.9 2.3-1.9 2.8.3-3.3-.1-7.6-.9-10.7z" /></svg>
+                                  {codeLabel('high')}
+                                </span>
+                              )}
+                            </span>
+                            <button type="button" className="wo-row-title" onClick={() => openDetail(t)}>{t.title}</button>
+                            {(t.projectName !== '—' || t.process) && <span className="wo-row-sub">{t.projectName && t.projectName !== '—' && <span className="wo-row-project">{t.projectName}</span>}{t.process && <span className="wo-row-process">{t.process}</span>}</span>}
+                          </td>
+                          <td className="is-for" data-label={tr('For')} title={forName(t)}>{forName(t) ? <span className="wo-reg-for"><ForBadge name={forName(t)} /><span>{forName(t)}</span></span> : <span className="dk-muted">—</span>}</td>
+                          <td className="is-num is-qty" data-label={tr('Qty')}>{t.quantity ? <b>{t.quantity}</b> : <span className="dk-muted">—</span>}</td>
+                          <td className="is-people" data-label={tr('People')}>
+                            <span className="wo-reg-people">
+                              {t.projectManager ? <span className="wo-reg-pm" title={tr('Project manager: {name}', { name: pmOf(t) })}><Photo id={t.projectManager.id} name={t.projectManager.name} photo={t.projectManager.photo} size={24} /><b>{tr('PM')}</b></span>
+                                : pmOf(t) ? <span className="wo-reg-pm is-text" title={tr('Project manager: {name}', { name: pmOf(t) })}><b>{tr('PM')}</b>{pmOf(t)}</span> : null}
+                              <Faces2 t={t} />
+                            </span>
+                          </td>
+                          <td className="is-when" data-label={tr('Issued → due')}><MiniTimeline t={t} today={today} /></td>
+                          <td className="is-status" data-label={tr('Status')}><StatusSelect status={t.status} onChange={(v) => setStatus(t, v)} label={tr('Status of {no}', { no: t.number })} /></td>
+                          <td className="is-num is-days" data-label={tr('Days')}><DaysChip t={t} /></td>
+                          <td className="is-menu"><RowMenu actions={[{ label: tr('Open'), onClick: () => openDetail(t) }, { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !canManage }]} /></td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
                 </tbody>
               </table>
             </div>

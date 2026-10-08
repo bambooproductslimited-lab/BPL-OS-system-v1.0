@@ -5,7 +5,7 @@ import RowMenu from '../components/RowMenu';
 import { Icon, fmtDate } from '../components/DashKit';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
-import { WO_OPEN, woStatusLabel } from '../lib/workOrders.js';
+import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
 
 // The work-order page's livelier pieces (WorkOrdersPage.jsx): a banner
 // with the key numbers, the flow of statuses a WO moves through, who the
@@ -375,7 +375,7 @@ export function WoCard({ t, today, onOpen, menu, dragging, onDragStart, onDragEn
       <button type="button" className="wo-card-title" onClick={onOpen}>{t.title}</button>
       {(who || t.quantity) && (
         <div className="wo-card-for">
-          {who && <span className="wo-for-badge" style={{ '--h': hueOf(who) }} aria-hidden="true">{initialsOf(who)}</span>}
+          <ForBadge name={who} />
           {who && <span className={'wo-for-name' + (t.forCompanyCode ? ' is-ours' : '')} title={who}>{who}</span>}
           {t.quantity && <span className="wo-qty-big" title={tr('Quantity')}>×{t.quantity}</span>}
         </div>
@@ -398,6 +398,83 @@ export function WoCard({ t, today, onOpen, menu, dragging, onDragStart, onDragEn
       </div>
     </article>
   );
+}
+
+// ── the register ──────────────────────────────────────────────────────
+// Who a WO is for, as a coloured square with their initials.
+export function ForBadge({ name }) {
+  if (!name) return null;
+  return <span className="wo-for-badge" style={{ '--h': hueOf(name) }} aria-hidden="true">{initialsOf(name)}</span>;
+}
+
+// The status as a coloured pill that is also the way to change it.
+export function StatusSelect({ status, onChange, label }) {
+  return (
+    <span className={'wo-st-select is-' + status}>
+      <i aria-hidden="true" />
+      <select value={status} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+        {WO_STATUSES.map((s) => <option key={s} value={s}>{woStatusLabel(s)}</option>)}
+      </select>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
+    </span>
+  );
+}
+
+// Issued → due, with a small bar of the time gone between them: red past
+// the date due, green (amber if late) once finished.
+export function MiniTimeline({ t, today }) {
+  const closed = t.completedAt || t.cancelledAt;
+  const issued = t.issuedOn ? shortDate(t.issuedOn) : '—';
+  const due = t.dueDate ? shortDate(t.dueDate) : '—';
+  let frac = null, tone = 'ok';
+  if (t.status === 'completed') { frac = 1; tone = t.onTime === false ? 'warn' : 'good'; }
+  else if (t.status === 'cancelled') { frac = null; }
+  else if (t.issuedOn && t.dueDate) {
+    frac = Math.max(0.05, Math.min(1, daysBetween(t.issuedOn, today) / Math.max(1, daysBetween(t.issuedOn, t.dueDate))));
+    tone = t.overdue ? 'bad' : frac >= 0.75 ? 'warn' : 'ok';
+  }
+  return (
+    <span className={'wo-mini is-' + tone}>
+      <span className="wo-mini-dates">{issued}<span aria-hidden="true">→</span><b>{due}</b></span>
+      {frac !== null && <span className="wo-mini-track" aria-hidden="true"><span style={{ width: Math.round(frac * 100) + '%' }} /></span>}
+      {closed ? <small>{t.status === 'cancelled' ? tr('cancelled {date}', { date: shortDate(dayOf(closed)) }) : tr('closed {date}', { date: shortDate(dayOf(closed)) })}</small>
+        : t.overdue ? <small className="is-bad">{t.daysOverdue === 1 ? tr('1 day late') : tr('{n} days late', { n: t.daysOverdue })}</small> : null}
+    </span>
+  );
+}
+
+// The days a WO took (or has taken so far), coloured by how it went.
+export function DaysChip({ t }) {
+  if (t.daysToClose !== null && t.daysToClose !== undefined) {
+    return <span className={'wo-days ' + (t.onTime === false ? 'is-bad' : 'is-good')} title={t.onTime === false ? tr('Finished after the date due') : tr('Finished by the date due')}>{t.daysToClose === 1 ? tr('1 day') : tr('{n} days', { n: t.daysToClose })}</span>;
+  }
+  if (t.daysOpen !== null && t.daysOpen !== undefined) {
+    return <span className={'wo-days ' + (t.overdue ? 'is-late' : 'is-plain')} title={tr('Open for {n} days so far', { n: t.daysOpen })}>{tr('{n} so far', { n: t.daysOpen })}</span>;
+  }
+  return <span className="dk-muted">—</span>;
+}
+
+// The register as a spreadsheet: every WO shown, with the WO form's columns,
+// for Excel or Google Sheets.
+export function downloadCsv(rows) {
+  const head = [tr('WO'), tr('Date issued'), tr('For'), tr('Description'), tr('Quantity'), tr('Item number'), tr('Specification'), tr('Material needed'),
+    tr('Material quantity'), tr('Material specification'), tr('Process'), tr('Project manager'), tr('Team'), tr('Prepared by'), tr('Estimated date due'),
+    tr('Status'), tr('Closed'), tr('Days to close'), tr('Project')];
+  const cell = (v) => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
+  const lines = rows.map((t) => [
+    t.number, t.issuedOn, forName(t), t.title, t.quantity, t.itemCode, t.specification, t.materials, t.materialQuantity, t.materialSpec, t.process,
+    pmOf(t), (t.assigneeNames || []).join(', '), t.createdByName, t.dueDate, woStatusLabel(t.status), dayOf(t.completedAt || t.cancelledAt) || '',
+    t.daysToClose === null || t.daysToClose === undefined ? '' : t.daysToClose, t.projectName && t.projectName !== '—' ? t.projectName : ''
+  ].map(cell).join(','));
+  const blob = new Blob(['\ufeff' + [head.map(cell).join(',')].concat(lines).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'work-orders-' + isoDay(new Date()) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // A burst of confetti over the Completed column when a WO lands there.
