@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import Photo from '../components/Photo';
 import RowMenu from '../components/RowMenu';
 import { Icon, fmtDate } from '../components/DashKit';
-import { activeIntlLocale, tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { WO_OPEN, woStatusLabel } from '../lib/workOrders.js';
 
@@ -294,35 +294,118 @@ export function Speed({ wos, today }) {
   );
 }
 
-// ── a card on the board ───────────────────────────────────────────────
-export function WoCard({ t, today, onOpen, menu, dragging, onDragStart, onDragEnd }) {
+// ── the board ──────────────────────────────────────────────────────────
+// The step a WO usually takes next from where it is, and what the button
+// on its card says: "Start", "Ready for check", "Complete"…
+export const NEXT = { discussing: 'not_started', not_started: 'in_progress', in_progress: 'under_review', awaiting_material: 'in_progress', waiting: 'in_progress', under_review: 'completed' };
+const NEXT_LABEL = {
+  discussing: msg('Issue it'), not_started: msg('Start'), in_progress: msg('Ready for check'),
+  awaiting_material: msg('Material is here'), waiting: msg('Resume'), under_review: msg('Complete')
+};
+export function nextLabel(status) { return NEXT_LABEL[status] ? tr(NEXT_LABEL[status]) : ''; }
+// What each column holds, in a few words, under its name.
+const COL_HINT = {
+  discussing: msg('Being talked over'), not_started: msg('Issued, not begun'), in_progress: msg('Being made'),
+  awaiting_material: msg('Waiting for material'), waiting: msg('Stopped for now'), under_review: msg('Waiting to be checked'),
+  completed: msg('Finished'), cancelled: msg('Called off')
+};
+export function colHint(status) { return COL_HINT[status] ? tr(COL_HINT[status]) : ''; }
+const STATUS_GLYPH = {
+  discussing: <><path d="M4.5 15.5 5.4 12.6A6 6 0 1 1 8 15" /><path d="M10 18.5a5.5 5.5 0 0 0 8.6 1.2l1.9.6-.6-1.9A5.5 5.5 0 0 0 16 10" /></>,
+  not_started: <><rect x="6" y="4.5" width="12" height="16" rx="1.5" /><path d="M9.5 4.5v-1h5v1M9 10h6M9 13.5h6M9 17h3.5" /></>,
+  in_progress: <><path d="m14 6 4 4-9.5 9.5H4.5v-4z" /><path d="m12.5 7.5 4 4" /></>,
+  awaiting_material: <><path d="M3.5 7.5 12 3.5l8.5 4v9L12 20.5l-8.5-4z" /><path d="m3.5 7.5 8.5 4 8.5-4M12 11.5v9" /></>,
+  waiting: <><circle cx="12" cy="12" r="8" /><path d="M10 9v6M14 9v6" /></>,
+  under_review: <><circle cx="10.5" cy="10.5" r="5.5" /><path d="m15 15 5 5" /><path d="m8.2 10.6 1.6 1.6 2.9-3" /></>,
+  completed: <><path d="M12 3.5 14.4 6l3.4-.4.4 3.4L20.5 12l-2.3 2.6-.4 3.4-3.4-.4L12 20.5 9.6 18l-3.4.4-.4-3.4L3.5 12l2.3-2.6.4-3.4 3.4.4z" /><path d="m8.8 12.2 2.2 2.2 4.2-4.4" /></>,
+  cancelled: <><circle cx="12" cy="12" r="8" /><path d="m9 9 6 6M15 9l-6 6" /></>
+};
+export function StatusGlyph({ status }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{STATUS_GLYPH[status]}</svg>;
+}
+
+function hueOf(name) { let h = 0; const v = String(name || ''); for (let i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) >>> 0; return h % 360; }
+function initialsOf(name) { return String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase(); }
+
+// From the date issued to the date due, how much of the time has gone:
+// green while there is time, amber near the end, red once it is late;
+// a finished WO says how long it took.
+export function TimeBar({ t, today }) {
   const due = dueInfo(t, today);
+  if (t.status === 'cancelled') return null;
+  let frac = null, tone = due.tone || 'plain';
+  if (t.status === 'completed') { frac = 1; tone = t.onTime === false ? 'warn' : 'good'; }
+  else if (t.issuedOn && t.dueDate) {
+    const planned = Math.max(1, daysBetween(t.issuedOn, t.dueDate));
+    frac = Math.max(0.04, Math.min(1, daysBetween(t.issuedOn, today) / planned));
+    tone = t.overdue ? 'bad' : frac >= 0.75 ? 'warn' : 'ok';
+  }
+  const text = t.status === 'completed' && t.daysToClose !== null
+    ? (t.daysToClose === 0 ? tr('Done the same day') : t.onTime === false ? tr('Done in {n} days, late', { n: t.daysToClose }) : tr('Done in {n} days', { n: t.daysToClose }))
+    : due.text;
   return (
-    <article className={'wo-card is-' + t.status + (t.overdue ? ' is-overdue' : '') + (dragging ? ' is-dragging' : '')} draggable
+    <div className={'wo-timebar is-' + tone}>
+      <span className="wo-timebar-text">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 7.5V12l3 2" /></svg>
+        {text}
+      </span>
+      {frac !== null && <span className="wo-timebar-track" aria-hidden="true"><span style={{ width: Math.round(frac * 100) + '%' }} /></span>}
+    </div>
+  );
+}
+
+// ── a card on the board ───────────────────────────────────────────────
+export function WoCard({ t, today, onOpen, menu, dragging, onDragStart, onDragEnd, onNext, justDone }) {
+  const who = forName(t);
+  const next = NEXT[t.status];
+  return (
+    <article className={'wo-card is-' + t.status + (t.overdue ? ' is-overdue' : '') + (dragging ? ' is-dragging' : '') + (justDone ? ' is-just-done' : '')} draggable
       onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="wo-card-top">
         <span className="wo-no">{t.number}</span>
-        {t.priority === 'high' && <span className="wo-hot" title={tr('{p} priority', { p: codeLabel('high') })}>{codeLabel('high')}</span>}
+        {t.priority === 'high' && (
+          <span className="wo-flame" title={tr('{p} priority', { p: codeLabel('high') })}>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.5 2.5c.6 3.2-1.2 4.9-2.6 6.5C8.4 10.7 7 12.4 7 15a5 5 0 0 0 10 0c0-1.9-.8-3.4-1.7-4.6-.2 1.3-.9 2.3-1.9 2.8.3-3.3-.1-7.6-.9-10.7z" /></svg>
+            {codeLabel('high')}
+          </span>
+        )}
+        {t.overdue && <span className="wo-alarm" title={tr('Overdue')} aria-label={tr('Overdue')} />}
         <span className="wo-card-menu"><RowMenu actions={menu} /></span>
       </div>
       <button type="button" className="wo-card-title" onClick={onOpen}>{t.title}</button>
-      <div className="wo-card-tags">
-        {forName(t) && <span className={'wo-for' + (t.forCompanyCode ? ' is-ours' : '')}>{forName(t)}</span>}
-        {t.quantity && <span className="wo-qty">× {t.quantity}</span>}
-        {t.itemCode && <span className="wo-item">{t.itemCode}</span>}
-      </div>
-      {t.process && <p className="wo-card-process">{t.process}</p>}
+      {(who || t.quantity) && (
+        <div className="wo-card-for">
+          {who && <span className="wo-for-badge" style={{ '--h': hueOf(who) }} aria-hidden="true">{initialsOf(who)}</span>}
+          {who && <span className={'wo-for-name' + (t.forCompanyCode ? ' is-ours' : '')} title={who}>{who}</span>}
+          {t.quantity && <span className="wo-qty-big" title={tr('Quantity')}>×{t.quantity}</span>}
+        </div>
+      )}
+      {(t.process || t.itemCode) && <p className="wo-card-process">{t.itemCode && <b>{t.itemCode}</b>}{t.itemCode && t.process ? ' · ' : ''}{t.process}</p>}
+      <TimeBar t={t} today={today} />
       <div className="wo-card-foot">
         <span className="wo-card-people">
           {pmOf(t) && (t.projectManager
             ? <span className="wo-card-pm" title={tr('Project manager: {name}', { name: pmOf(t) })}><Photo id={t.projectManager.id} name={t.projectManager.name} photo={t.projectManager.photo} size={24} /><b>{tr('PM')}</b></span>
             : <span className="wo-card-pm is-text" title={tr('Project manager: {name}', { name: pmOf(t) })}><b>{tr('PM')}</b> {pmOf(t)}</span>)}
           <Faces people={t.assignees} size={22} max={3} extra={t.teamNames} />
+          {t.commentCount > 0 && <span className="wo-comments" title={tr('{n} comments', { n: t.commentCount })}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 18.5 5.6 15A7 7 0 1 1 8.9 17.6z" /></svg>{t.commentCount}</span>}
         </span>
-        <span className={'wo-due is-' + (due.tone || 'plain')}>{due.text}</span>
+        {next && onNext && (
+          <button type="button" className={'wo-next to-' + next} onClick={onNext} title={tr('Move to {status}', { status: woStatusLabel(next) })}>
+            {nextLabel(t.status)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </button>
+        )}
       </div>
-      {t.commentCount > 0 && <span className="wo-comments" title={tr('{n} comments', { n: t.commentCount })}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 18.5 5.6 15A7 7 0 1 1 8.9 17.6z" /></svg>{t.commentCount}</span>}
     </article>
+  );
+}
+
+// A burst of confetti over the Completed column when a WO lands there.
+export function Confetti() {
+  return (
+    <span className="wo-confetti" aria-hidden="true">
+      {Array.from({ length: 18 }, (_, i) => <i key={i} style={{ '--i': i }} />)}
+    </span>
   );
 }
 

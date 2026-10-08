@@ -11,7 +11,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
 import {
-  ForWhom, Linked, Managers, PanelHead, Pipeline, ProcessSteps, Speed, StatusPill, Weekly, WoBanner, WoCard, WoImport,
+  Confetti, ForWhom, Linked, Managers, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, Weekly, WoBanner, WoCard, WoImport, colHint,
   addDays, dueInfo, forName, isoDay, pmOf, shortDate
 } from './WorkOrdersFun.jsx';
 import './EmployeesPage.css';
@@ -312,6 +312,13 @@ export default function WorkOrdersPage() {
   const [deleting, setDeleting] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [dropCol, setDropCol] = useState(null);
+  // The last WO completed here, for a burst of confetti over its column.
+  const [cheer, setCheer] = useState(null);
+  useEffect(() => {
+    if (!cheer) return undefined;
+    const t = setTimeout(() => setCheer(null), 2200);
+    return () => clearTimeout(t);
+  }, [cheer]);
   // Whether the board is wider than the screen, to say so.
   const boardRef = useRef(null);
   const [boardWide, setBoardWide] = useState(false);
@@ -370,6 +377,7 @@ export default function WorkOrdersPage() {
   async function setStatus(task, status) {
     if (task.status === status) return;
     setError(null);
+    if (status === 'completed') setCheer({ id: task.id, at: Date.now() });
     // Move it at once; the reload below confirms it.
     setTasks((list) => list.map((t) => (t.id === task.id ? { ...t, status, completedAt: status === 'completed' ? new Date().toISOString() : null } : t)));
     try {
@@ -716,20 +724,32 @@ export default function WorkOrdersPage() {
         ) : view === 'board' ? (
           <>
           {boardWide && <p className="wo-wide-hint">{tr('Scroll sideways to see every column')} →</p>}
-          <div className="wo-board" ref={boardRef} style={{ gridTemplateColumns: boardCols.map((c) => (c.inCol.length || columns.length === 1 ? 'minmax(210px, 1fr)' : '58px')).join(' ') }}>
+          <div className="wo-board" ref={boardRef} style={{ gridTemplateColumns: boardCols.map((c) => (c.inCol.length || columns.length === 1 ? 'minmax(236px, 1fr)' : '58px')).join(' ') }}>
             {boardCols.map(({ s, inCol, shown }) => (
               <div key={s} className={'wo-col-b is-' + s + (dropCol === s ? ' is-drop' : '') + (!inCol.length && columns.length > 1 ? ' is-empty' : '')}
                 onDragOver={(e) => { if (dragId) { e.preventDefault(); setDropCol(s); } }}
                 onDragLeave={(e) => { if (e.currentTarget === e.target) setDropCol(null); }}
                 onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain') || dragId; const t = tasks.find((x) => x.id === id); setDropCol(null); setDragId(null); if (t) setStatus(t, s); }}>
                 <header className="wo-col-head">
-                  <span className="wo-col-dot" aria-hidden="true" />
-                  <strong>{woStatusLabel(s)}</strong>
+                  <span className="wo-col-icon" aria-hidden="true"><StatusGlyph status={s} /></span>
+                  <span className="wo-col-titles"><strong>{woStatusLabel(s)}</strong><small>{colHint(s)}</small></span>
                   <span className="wo-col-n">{inCol.length}</span>
+                  {s === 'completed' && cheer && <Confetti key={cheer.at} />}
                 </header>
+                {(() => {
+                  const late = inCol.filter((t) => t.overdue).length;
+                  const soonDue = inCol.filter((t) => WO_OPEN(t) && !t.overdue && t.dueDate && t.dueDate <= weekEnd).length;
+                  const doneNow = s === 'completed' ? inCol.filter((t) => t.completedAt && dayOf(t.completedAt) >= weekAgo).length : 0;
+                  const bits = s === 'completed'
+                    ? [doneNow ? <span key="w" className="wo-col-chip is-good">{tr('{n} this week', { n: doneNow })}</span> : null]
+                    : [late ? <span key="l" className="wo-col-chip is-bad">{tr('{n} late', { n: late })}</span> : null, soonDue ? <span key="s" className="wo-col-chip is-warn">{tr('{n} due this week', { n: soonDue })}</span> : null];
+                  return inCol.length && bits.some(Boolean) ? <div className="wo-col-meta">{bits}</div> : null;
+                })()}
                 <div className="wo-col-body">
+                  {dragId && dropCol === s && !inCol.some((t) => t.id === dragId) && <div className="wo-drop-here">{tr('Drop here to move it to {status}', { status: woStatusLabel(s) })}</div>}
                   {shown.map((t) => (
                     <WoCard key={t.id} t={t} today={today} onOpen={() => openDetail(t)} menu={moveMenu(t)} dragging={dragId === t.id}
+                      onNext={NEXT[t.status] ? () => setStatus(t, NEXT[t.status]) : null} justDone={cheer && cheer.id === t.id && t.status === 'completed'}
                       onDragStart={(e) => { setDragId(t.id); e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move'; }}
                       onDragEnd={() => { setDragId(null); setDropCol(null); }} />
                   ))}
