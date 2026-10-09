@@ -24,6 +24,7 @@ function ago(t) {
 
 const STEP_TITLE = {
   app: () => tr('Meta accepts the app’s ID and secret'),
+  webhook: () => tr('Meta sends new messages to the OS as they come (the webhook)'),
   page: () => tr('The company’s Facebook Page'),
   token: () => tr('The OS’s permission to read and answer messages (the Page token)'),
   messenger: () => tr('Messenger chats with the Page'),
@@ -47,6 +48,12 @@ function channelLine(label, c) {
     c.lastCustomerAt ? tr('the last {when}', { when: ago(c.lastCustomerAt) }) : null].filter(Boolean).join(' · ') + '.';
 }
 
+function webhookLine(w) {
+  if (w.signature) return tr('Meta is sending, but its signature does not match META_APP_SECRET on Render: the secret there is not this app’s. Copy it again from Meta → App settings → Basic.');
+  if (!w.lastAt) return tr('Webhook: nothing from Meta yet.');
+  return tr('Webhook: last message {when}', { when: ago(w.lastAt) }) + ' · ' + (w.count === 1 ? tr('1 received') : tr('{n} received', { n: w.count || 0 })) + '.';
+}
+
 function stepText(st, steps) {
   const d = st.data || {};
   const pageMissing = steps.some((x) => x.key === 'page' && x.state === 'bad' && !x.error);
@@ -55,6 +62,15 @@ function stepText(st, steps) {
       if (d.missing && d.missing.length) return tr('Missing on Render: {names}. Add them in Render → bamboo-os-backend → Environment, then deploy.', { names: d.missing.join(', ') });
       return st.state === 'ok' ? tr('Meta knows the app: {name}.', { name: d.name || '—' })
         : tr('Meta did not accept them ({why}). Copy the App ID and App secret again from Meta → App settings → Basic.', { why: st.error || '—' });
+    case 'webhook': {
+      if (st.state === 'skip') return tr('Needs META_APP_ID and META_APP_SECRET.');
+      if (st.error) return tr('Meta did not say ({why}).', { why: st.error });
+      if (st.state === 'ok') return tr('Meta sends each new Messenger and Instagram message to the OS within seconds.');
+      const right = (h) => h && h.set && h.active && h.messages && h.url === d.url;
+      const which = [!right(d.page) && 'Messenger', !right(d.instagram) && 'Instagram'].filter(Boolean).join(', ');
+      return tr('Not yet for: {which}. Press “Point Meta’s webhook at the OS”: new messages then come in within seconds, without Meta having to search the inbox.', { which })
+        + (d.canSet ? '' : ' ' + tr('Set WHATSAPP_VERIFY_TOKEN on Render first; then this button appears.'));
+    }
     case 'page':
       if (st.error) return tr('Meta did not answer for the Page ({why}). Connect with Facebook again.', { why: st.error });
       if (st.state === 'bad') return tr('No Facebook Page is connected yet. Press “Connect with Facebook”, sign in as an admin of the company Page and choose it.');
@@ -112,6 +128,14 @@ export default function MetaMessagesCheck({ onToast }) {
       window.location.href = url;
     } catch (err) { setError(err.message); setBusy(null); }
   }
+  async function pointWebhook() {
+    setBusy('webhook'); setError(null);
+    try {
+      const out = await api.post('/crm/meta-webhook');
+      setRes(out);
+      if (onToast) onToast(out.webhookRefused && out.webhookRefused.length ? tr('Meta set the webhook for {done}, but refused: {refused}', { done: out.webhookSet.join(', '), refused: out.webhookRefused.join('; ') }) : tr('Meta now sends new messages to the OS.'));
+    } catch (err) { setError(err.message); } finally { setBusy(null); }
+  }
   async function subscribe() {
     setBusy('subscribe'); setError(null);
     try {
@@ -142,6 +166,7 @@ export default function MetaMessagesCheck({ onToast }) {
 
   if (!res && error && /role does not allow/i.test(error)) return null;
   const bad = res ? res.steps.filter((x) => x.state === 'bad').length : 0;
+  const webhookOk = !!(res && res.steps.some((x) => x.key === 'webhook' && x.state === 'ok'));
   const warn = res ? res.steps.filter((x) => x.state === 'warn').length : 0;
   return (
     <Section id="in-meta-messages" title={tr('Facebook & Instagram messages')} sub={tr('Customers’ Messenger chats with the company Page and the Instagram account’s direct messages land in the CRM inbox, next to WhatsApp and email. The OS reads them every 3 minutes with the Page connected under Accounts above. This check asks Meta whether each step is in place.')}>
@@ -167,9 +192,12 @@ export default function MetaMessagesCheck({ onToast }) {
                     <span className="tl-small wac-lines">
                       <span>{channelLine('Messenger', st.data.facebook)}</span>
                       <span>{channelLine('Instagram', st.data.instagram)}</span>
+                      {st.data.webhook && <span>{webhookLine(st.data.webhook)}</span>}
                     </span>
                   )}
                   {st.fix === 'connect' && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={connect}>{busy === 'connect' ? tr('Redirecting…') : tr('Connect with Facebook')}</button>}
+                  {st.fix === 'webhook' && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={pointWebhook}>{busy === 'webhook' ? tr('Asking Meta…') : tr('Point Meta’s webhook at the OS')}</button>}
+                  {st.key === 'instagram' && st.data && st.data.slow && webhookOk && <span className="tl-small dk-muted">{tr('New Instagram messages still come in through Meta’s webhook.')}</span>}
                   {st.fix === 'subscribe' && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={subscribe}>{busy === 'subscribe' ? tr('Asking Meta…') : tr('Subscribe the app to the Page')}</button>}
                   {st.fix === 'sync' && <button type="button" className="btn btn-secondary wac-step-fix" disabled={!!busy} onClick={readNow}>{busy === 'sync' ? tr('Reading…') : tr('Read messages now')}</button>}
                   {st.fix === 'sync' && (

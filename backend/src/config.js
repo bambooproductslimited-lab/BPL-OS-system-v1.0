@@ -147,6 +147,9 @@ module.exports = {
       // Facebook/Instagram Connect button (Pages, Instagram, messages). When
       // set, the login asks with it instead of a list of permissions.
       pagesConfigId: (process.env.META_PAGES_CONFIG_ID || '').trim(),
+      // The phrase Meta's Facebook/Instagram messages webhook is checked
+      // with (routes/metaWebhook.routes.js) — WhatsApp's unless set apart.
+      verifyToken: (process.env.META_VERIFY_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN || '').trim(),
       configured: !!(appId && appSecret)
     };
   }()),

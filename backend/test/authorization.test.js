@@ -93,6 +93,8 @@ var ALLOWED = {
   'POST /api/pos/login': 'restaurant till; PIN-gated, shares the kiosk rate-limit counter',
   'GET /api/marketing/whatsapp/webhook': 'Meta subscription handshake; verify_token checked',
   'POST /api/marketing/whatsapp/webhook': 'Meta delivery; HMAC-verified, fails closed without the secret',
+  'GET /api/marketing/meta/webhook': 'Meta subscription handshake (Messenger/Instagram); verify_token checked',
+  'POST /api/marketing/meta/webhook': 'Meta delivery (Messenger/Instagram); HMAC-verified, fails closed without the secret',
   'GET /api/marketing/oauth/tiktok/callback': 'provider redirect, cannot carry a bearer token; state-gated',
   'GET /api/marketing/oauth/meta/callback': 'provider redirect, cannot carry a bearer token; state-gated',
   'GET /api/marketing/oauth/youtube/callback': 'provider redirect, cannot carry a bearer token; state-gated',

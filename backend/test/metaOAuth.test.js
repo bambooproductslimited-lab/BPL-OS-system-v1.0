@@ -77,6 +77,21 @@ test('meta oauth: back to the OS address the person started from, never one off 
   }
 });
 
+test('messages webhook: answers Meta\'s handshake only with the right phrase, and takes only signed deliveries', async function () {
+  var keep = config.meta.verifyToken;
+  config.meta.verifyToken = 'zq-verify';
+  try {
+    var ok = await fetch(base + '/api/marketing/meta/webhook?hub.mode=subscribe&hub.verify_token=zq-verify&hub.challenge=12345');
+    assert.deepEqual([ok.status, await ok.text()], [200, '12345']);
+    var wrong = await fetch(base + '/api/marketing/meta/webhook?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=12345');
+    assert.equal(wrong.status, 403);
+    var unsigned = await fetch(base + '/api/marketing/meta/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ object: 'instagram', entry: [] }) });
+    assert.equal(unsigned.status, 403);
+    var forged = await fetch(base + '/api/marketing/meta/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=' + '0'.repeat(64) }, body: JSON.stringify({ object: 'instagram', entry: [] }) });
+    assert.equal(forged.status, 403);
+  } finally { config.meta.verifyToken = keep; }
+});
+
 test('meta pages: fails cleanly with a missing/expired pending token, never crashes', async function () {
   var admin = await login('kelvin.duho@bplghana.com');
   var alice = await login('alice.kamau@bplghana.com');

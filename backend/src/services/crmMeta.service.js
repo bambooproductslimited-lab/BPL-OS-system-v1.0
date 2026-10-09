@@ -148,8 +148,124 @@ async function syncChannel(channel) {
   }
 }
 
-async function sync() {
-  return { facebook: await syncChannel('facebook'), instagram: await syncChannel('instagram') };
+// After Meta has given up on the Instagram inbox (standard access, busy
+// inbox — see SIZES), the 3-minute run tries it only every half hour; new
+// Instagram messages still come through the webhook. "Read messages now"
+// always tries.
+var SLOW_PAUSE_MS = 30 * 60 * 1000;
+async function pausedForSlow(channel) {
+  var st = (await pool.query('SELECT last_run_at, last_ok_at, last_error FROM crm_channel_state WHERE key = $1', [channel])).rows[0];
+  if (!st || !st.last_error || !st.last_run_at) return false;
+  return slow({ message: st.last_error }) && Date.now() - new Date(st.last_run_at).getTime() < SLOW_PAUSE_MS;
+}
+async function sync(opts) {
+  var force = !!(opts && opts.force);
+  return {
+    facebook: !force && await pausedForSlow('facebook') ? { skipped: 'Meta was slow; tried again later' } : await syncChannel('facebook'),
+    instagram: !force && await pausedForSlow('instagram') ? { skipped: 'Meta was slow; tried again later' } : await syncChannel('instagram')
+  };
+}
+
+// ── the webhook ──────────────────────────────────────────────────────
+// Meta sends each new Messenger and Instagram message to the OS as it comes
+// (routes/metaWebhook.routes.js), so they arrive within seconds and without
+// Meta having to search the inbox — which it can't do for a busy Instagram
+// account while the app has only standard access. The 3-minute read stays,
+// for anything the webhook missed and for older chats.
+var WEBHOOK_URL = 'https://bamboo-os-backend.onrender.com/api/marketing/meta/webhook';
+var HOOKS = { page: { channel: 'facebook', fields: ['messages', 'messaging_postbacks'] }, instagram: { channel: 'instagram', fields: ['messages'] } };
+function appToken() { var config = require('../config'); return config.meta.appId + '|' + config.meta.appSecret; }
+
+function verifyWebhookChallenge(query) {
+  var config = require('../config');
+  if (query['hub.mode'] === 'subscribe' && config.meta.verifyToken && query['hub.verify_token'] === config.meta.verifyToken) return query['hub.challenge'];
+  return null;
+}
+
+// The chat a message belongs to: the one already kept for that person, else
+// Meta's id for it (asked for that one person, so Meta needn't search),
+// else one of the OS's own.
+async function threadFor(channel, a, them) {
+  var known = (await pool.query('SELECT external_thread_id FROM crm_conversations WHERE channel = $1 AND contact_key = $2 ORDER BY id DESC LIMIT 1', [channel, them])).rows[0];
+  if (known) return known.external_thread_id;
+  try {
+    var r = await patient(function () { return graph('/' + a.pageId + '/conversations?platform=' + PLATFORM[channel] + '&user_id=' + encodeURIComponent(them) + '&fields=id', a.token); });
+    if (r.data && r.data[0] && r.data[0].id) return r.data[0].id;
+  } catch (e) { /* the OS's own id below */ }
+  return 'user:' + channel + ':' + them;
+}
+async function whoIs(channel, a, them) {
+  try {
+    var p = await graph('/' + encodeURIComponent(them) + '?fields=' + (channel === 'instagram' ? 'name,username' : 'name'), a.token);
+    return { name: p.name || (p.username ? '@' + p.username : ''), username: p.username || '' };
+  } catch (e) { return { name: '', username: '' }; }
+}
+
+async function noteWebhook(ok, added) {
+  try {
+    await pool.query(
+      "INSERT INTO crm_channel_state (key, last_run_at, last_ok_at, last_error, items) VALUES ('meta:webhook', now(), $1, $2, $3) " +
+      'ON CONFLICT (key) DO UPDATE SET last_run_at = now(), last_ok_at = COALESCE($1, crm_channel_state.last_ok_at), last_error = $2, items = crm_channel_state.items + $3',
+      [ok ? new Date() : null, ok ? null : 'signature', added || 0]);
+  } catch (e) { console.error('[meta] webhook not noted:', e.message); }
+}
+
+// One delivery: { object: 'page' | 'instagram', entry: [{ messaging: [...] }] }.
+// A message the business sent (from Meta Business Suite, the Instagram app
+// or the OS) comes back as an echo and is kept as ours.
+async function handleWebhook(body) {
+  var hook = body && HOOKS[body.object];
+  if (!hook) return { skipped: 'not a messages delivery' };
+  var channel = hook.channel;
+  var a = await access(channel);
+  if (!a) return { skipped: 'not connected' };
+  var added = 0;
+  for (var entry of body.entry || []) {
+    for (var ev of entry.messaging || []) {
+      var m = ev.message;
+      if (!m || !m.mid || m.is_deleted) continue;
+      var echo = !!m.is_echo;
+      var them = String(echo ? (ev.recipient && ev.recipient.id) || '' : (ev.sender && ev.sender.id) || '');
+      if (!them || them === String(a.ownId) || them === String(a.pageId)) continue;
+      var who = await whoIs(channel, a, them);
+      var name = who.name || (channel === 'instagram' ? 'Instagram user' : 'Facebook user');
+      var r = await inbox.ingest({
+        channel: channel, threadId: await threadFor(channel, a, them),
+        contact: { name: name, handles: [{ kind: channel, value: them, label: who.username ? '@' + who.username : name }] },
+        messages: [{
+          externalId: m.mid, direction: echo ? 'out' : 'in', author: echo ? '' : name, body: m.text || '',
+          sentAt: new Date(Number(ev.timestamp) || Date.now()).toISOString(),
+          attachments: (m.attachments || []).map(function (x) { return { name: x.type || 'attachment', type: x.type || '' }; })
+        }]
+      });
+      added += r.added || 0;
+    }
+  }
+  await noteWebhook(true, added);
+  return { added: added };
+}
+
+// "Point Meta's webhook at the OS": the app's webhook for Page (Messenger)
+// and Instagram messages. Meta calls the address once with the verify
+// phrase (META_VERIFY_TOKEN, or WHATSAPP_VERIFY_TOKEN), which it answers.
+async function setWebhook(ctx) {
+  mayCheck(ctx);
+  var config = require('../config');
+  var { fail } = require('../utils/errors');
+  if (!config.meta.appId || !config.meta.appSecret) fail('invalid', 'META_APP_ID and META_APP_SECRET must be set on Render first.');
+  if (!config.meta.verifyToken) fail('invalid', 'WHATSAPP_VERIFY_TOKEN (or META_VERIFY_TOKEN) must be set on Render first.');
+  var done = [], refused = [];
+  for (var object of Object.keys(HOOKS)) {
+    var body = new URLSearchParams({ object: object, callback_url: WEBHOOK_URL, verify_token: config.meta.verifyToken, fields: HOOKS[object].fields.join(','), include_values: 'true', access_token: appToken() });
+    try {
+      await graph('/' + encodeURIComponent(config.meta.appId) + '/subscriptions', null, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
+      done.push(object);
+    } catch (e) { refused.push(object + ': ' + e.message); }
+  }
+  if (!done.length) fail('invalid', 'Meta did not set the webhook: ' + refused.join('; '));
+  var { audit } = require('../utils/audit');
+  await audit(pool, ctx, 'crm.meta.webhook', 'crm_channel', config.meta.appId, 'Pointed the app\'s Facebook/Instagram messages webhook at the OS (' + done.join(', ') + ').');
+  return Object.assign(await check(ctx), { webhookSet: done, webhookRefused: refused });
 }
 
 // A reply, within the 24 hours Meta allows after the customer's last message.
@@ -204,6 +320,24 @@ async function check(ctx) {
   else {
     try { var app = await graph('/' + encodeURIComponent(config.meta.appId) + '?fields=id,name', appToken); add('app', 'ok', { name: app.name || '' }); }
     catch (e) { add('app', 'bad', {}, e.message); }
+  }
+
+  // Meta's webhook for the messages: Page (Messenger) and Instagram.
+  if (!config.meta.appId || !config.meta.appSecret) add('webhook', 'skip');
+  else {
+    try {
+      var subs = (await graph('/' + encodeURIComponent(config.meta.appId) + '/subscriptions', appToken)).data || [];
+      var hooks = {};
+      Object.keys(HOOKS).forEach(function (object) {
+        var x = subs.find(function (y) { return y.object === object; });
+        var names = x ? (x.fields || []).map(function (f) { return typeof f === 'string' ? f : f.name; }) : [];
+        hooks[object] = { set: !!x, url: x ? x.callback_url || '' : '', active: !!(x && x.active !== false), messages: names.indexOf('messages') >= 0 };
+      });
+      var right = function (h) { return h.set && h.active && h.messages && h.url === WEBHOOK_URL; };
+      var n = Object.keys(hooks).filter(function (k) { return right(hooks[k]); }).length;
+      add('webhook', n === 2 ? 'ok' : n === 1 ? 'warn' : 'bad', { url: WEBHOOK_URL, page: hooks.page, instagram: hooks.instagram, canSet: !!config.meta.verifyToken },
+        null, n < 2 && config.meta.verifyToken ? 'webhook' : null);
+    } catch (e) { add('webhook', 'bad', { url: WEBHOOK_URL, canSet: !!config.meta.verifyToken }, e.message, config.meta.verifyToken ? 'webhook' : null); }
   }
 
   var fb = await access('facebook');
@@ -281,10 +415,15 @@ async function check(ctx) {
       // Connected before the OS asked for messages: the 3-minute read leaves it alone.
       notAsked: !!(fb && fb.scope.indexOf(NEEDS[ch]) < 0) };
   });
-  var anyErr = arriving.facebook.error || arriving.instagram.error;
-  var anyRead = arriving.facebook.lastReadAt || arriving.instagram.lastReadAt;
+  var hookRow = (await pool.query("SELECT last_ok_at, last_run_at, last_error, items FROM crm_channel_state WHERE key = 'meta:webhook'")).rows[0];
+  arriving.webhook = { lastAt: hookRow ? hookRow.last_ok_at : null, count: hookRow ? hookRow.items : 0,
+    signature: !!(hookRow && hookRow.last_error === 'signature' && (!hookRow.last_ok_at || new Date(hookRow.last_run_at) > new Date(hookRow.last_ok_at))) };
+  var errs = [arriving.facebook.error, arriving.instagram.error].filter(Boolean);
+  // Meta being slow with the inbox is not something to put right here.
+  var onlySlow = errs.length && errs.every(function (x) { return slow({ message: x }); });
+  var anyRead = arriving.facebook.lastReadAt || arriving.instagram.lastReadAt || arriving.webhook.lastAt;
   var noneAsked = arriving.facebook.notAsked && arriving.instagram.notAsked;
-  add('arriving', anyErr ? 'bad' : anyRead ? 'ok' : 'wait', arriving, null, fb && !noneAsked ? 'sync' : null);
+  add('arriving', arriving.webhook.signature || (errs.length && !onlySlow) ? 'bad' : onlySlow ? 'warn' : anyRead ? 'ok' : 'wait', arriving, null, fb && !noneAsked ? 'sync' : null);
 
   return { steps: steps, ready: !steps.some(function (x) { return x.state === 'bad'; }), checkedAt: new Date() };
 }
@@ -292,7 +431,7 @@ async function check(ctx) {
 // "Read messages now": the 3-minute read at once, then the check again.
 async function syncNow(ctx) {
   mayCheck(ctx);
-  var r = await sync();
+  var r = await sync({ force: true });
   return Object.assign(await check(ctx), { synced: r });
 }
 
@@ -319,8 +458,9 @@ async function readOlder(ctx, p) {
       'INSERT INTO crm_channel_state (key, cursor) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET cursor = LEAST(COALESCE(crm_channel_state.cursor, $2), $2)',
       [ch, since.toISOString()]);
   }
-  var r = await sync();
+  var r = await sync({ force: true });
   return Object.assign(await check(ctx), { synced: r, months: months });
 }
 
-module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, subscribe: subscribe, subscribePage: subscribePage, setFetchForTests: setFetchForTests };
+module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, subscribe: subscribe, subscribePage: subscribePage,
+  verifyWebhookChallenge: verifyWebhookChallenge, handleWebhook: handleWebhook, noteWebhook: noteWebhook, setWebhook: setWebhook, WEBHOOK_URL: WEBHOOK_URL, setFetchForTests: setFetchForTests };

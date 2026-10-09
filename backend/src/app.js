@@ -112,7 +112,7 @@ var apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: function (req) {
-    return config.nodeEnv === 'test' || req.path === '/api/health' || req.path === '/api/marketing/whatsapp/webhook';
+    return config.nodeEnv === 'test' || req.path === '/api/health' || req.path === '/api/marketing/whatsapp/webhook' || req.path === '/api/marketing/meta/webhook';
   },
   message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
 });
@@ -185,6 +185,7 @@ app.use('/api/ai', aiRoutes);
 // them — Express matches mounts in registration order, not by specificity.
 app.use('/api/marketing/oauth', oauthRoutes);
 app.use('/api/marketing/whatsapp', whatsappRoutes);
+app.use('/api/marketing/meta', require('./routes/metaWebhook.routes'));
 app.use('/api/marketing', marketingRoutes);
 app.use('/api/kiosk', kioskRoutes);
 app.use('/api/push', pushRoutes);

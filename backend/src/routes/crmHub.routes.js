@@ -63,6 +63,7 @@ router.post('/mailbox/sync', wrap(async function (req) {
 // "Read messages now".
 router.get('/meta-check', wrap(function (req) { return meta.check(req.ctx); }));
 router.post('/meta-sync', wrap(function (req) { return meta.syncNow(req.ctx); }));
+router.post('/meta-webhook', wrap(function (req) { return meta.setWebhook(req.ctx); }));
 router.post('/meta-subscribe', wrap(function (req) { return meta.subscribe(req.ctx); }));
 router.post('/meta-history', wrap(function (req) { return meta.readOlder(req.ctx, req.body || {}); }));
 

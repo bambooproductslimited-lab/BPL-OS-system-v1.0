@@ -429,7 +429,7 @@ test('Facebook and Instagram messages: a Meta timeout is asked again for less, a
 });
 
 test('Facebook & Instagram messages: the setup check says which step is not right', async function () {
-  var saved = { id: config.meta.appId, secret: config.meta.appSecret };
+  var saved = { id: config.meta.appId, secret: config.meta.appSecret, verify: config.meta.verifyToken };
   config.meta.appId = 'zcrm-app'; config.meta.appSecret = 'zcrm-secret';
   function fakeMeta(o) {
     o = o || {};
@@ -438,6 +438,11 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
       if (/\/zcrm-app\?fields=id,name/.test(url)) return reply(200, { id: 'zcrm-app', name: 'Zcrm OS Tracker' });
       if (/\/zcrm-page\?fields=/.test(url)) return reply(200, { name: 'Zcrm Bamboo Page', instagram_business_account: o.noIg ? undefined : { id: 'zcrm-ig', username: 'zcrm_bamboo' } });
       if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, scopes: o.noMessages ? ['pages_show_list', 'instagram_basic'] : ['pages_show_list', 'pages_messaging', 'instagram_basic', 'instagram_manage_messages'].concat(o.noMetadata ? [] : ['pages_manage_metadata']) } });
+      if (/\/zcrm-app\/subscriptions/.test(url)) {
+        if (opts && opts.method === 'POST') { (o.hooksSet = o.hooksSet || []).push(new URLSearchParams(opts.body).get('object')); return reply(200, { success: true }); }
+        var hook = function (object) { return { object: object, callback_url: meta.WEBHOOK_URL, active: true, fields: [{ name: 'messages', version: 'v21.0' }] }; };
+        return reply(200, { data: o.noHook && !(o.hooksSet || []).length ? [{ object: 'whatsapp_business_account', callback_url: 'https://x.example/wa', active: true, fields: [{ name: 'messages' }] }] : [hook('page'), hook('instagram')] });
+      }
       if (/\/zcrm-page\/subscribed_apps/.test(url)) {
         if (opts && opts.method === 'POST') { o.posted = (o.posted || 0) + 1; o.notSubscribed = false; return reply(200, { success: true }); }
         return reply(200, { data: o.notSubscribed ? [] : [{ id: 'zcrm-app', name: 'Zcrm OS Tracker', subscribed_fields: ['messages'] }] });
@@ -455,7 +460,17 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
   try {
     meta.setFetchForTests(fakeMeta());
     var r = await meta.check(admin);
-    assert.deepEqual(r.steps.map(function (x) { return x.key + ':' + x.state; }), ['app:ok', 'page:ok', 'token:ok', 'messenger:ok', 'instagram:ok', 'review:info', 'arriving:ok']);
+    assert.deepEqual(r.steps.map(function (x) { return x.key + ':' + x.state; }), ['app:ok', 'webhook:ok', 'page:ok', 'token:ok', 'messenger:ok', 'instagram:ok', 'review:info', 'arriving:ok']);
+    // No webhook for the messages yet: the button points it at the OS (Page and Instagram).
+    config.meta.verifyToken = 'zcrm-verify';
+    var hooks = { noHook: true };
+    meta.setFetchForTests(fakeMeta(hooks));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'webhook').state, st(r, 'webhook').fix], ['bad', 'webhook']);
+    r = await meta.setWebhook(admin);
+    assert.deepEqual([hooks.hooksSet, r.webhookSet, st(r, 'webhook').state], [['page', 'instagram'], ['page', 'instagram'], 'ok']);
+    await assert.rejects(meta.setWebhook({ can: function () { return false; } }), /settings.manage/);
+    meta.setFetchForTests(fakeMeta());
     assert.deepEqual([st(r, 'page').data.name, st(r, 'page').data.instagram, st(r, 'messenger').data.seen], ['Zcrm Bamboo Page', 'zcrm_bamboo', 2]);
     assert.ok(st(r, 'arriving').data.facebook.received >= 1, 'the message read in the test above');
 
@@ -520,8 +535,51 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
     await pool.query('INSERT INTO marketing_oauth_tokens (channel_key, access_token, refresh_token, open_id, scope, expires_at) VALUES ($1,$2,$3,$4,$5,$6)', [keep.channel_key, keep.access_token, keep.refresh_token, keep.open_id, keep.scope, keep.expires_at]);
     await assert.rejects(meta.check({ can: function () { return false; } }), /settings.manage/);
   } finally {
-    config.meta.appId = saved.id; config.meta.appSecret = saved.secret;
+    config.meta.appId = saved.id; config.meta.appSecret = saved.secret; config.meta.verifyToken = saved.verify;
   }
+});
+
+test('Facebook and Instagram messages also come in through Meta\'s webhook, as they are sent', async function () {
+  var lookups = [];
+  meta.setFetchForTests(async function (url) {
+    var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
+    if (/conversations\?platform=instagram&user_id=zcrm-igsid-new/.test(url)) { lookups.push(url); return reply(200, { data: [{ id: 'zcrm-igconv-hook' }] }); }
+    if (/\/zcrm-igsid-new\?fields=name,username/.test(url)) return reply(200, { username: 'zcrm_abena', id: 'zcrm-igsid-new' });
+    if (/\/zcrm-psid-new\?fields=name/.test(url)) return reply(200, { name: 'Zcrm Kwesi Arthur' });
+    if (/conversations\?platform=messenger&user_id=/.test(url)) return reply(500, { error: { message: 'Timeout', code: -2 } });
+    return reply(404, { error: { message: 'not faked: ' + url } });
+  });
+  var at = Date.now() - 30000;
+  function ig(mid, text, echo) {
+    return { object: 'instagram', entry: [{ id: 'zcrm-ig', time: at, messaging: [{ sender: { id: echo ? 'zcrm-ig' : 'zcrm-igsid-new' }, recipient: { id: echo ? 'zcrm-igsid-new' : 'zcrm-ig' }, timestamp: echo ? at + 5000 : at, message: Object.assign({ mid: mid, text: text }, echo ? { is_echo: true } : {}) }] }] };
+  }
+  var r = await meta.handleWebhook(ig('zcrm-hook-m1', 'Zcrm do you have bamboo straws?'));
+  assert.equal(r.added, 1);
+  var conv = (await pool.query("SELECT * FROM crm_conversations WHERE channel = 'instagram' AND contact_key = 'zcrm-igsid-new'")).rows[0];
+  assert.deepEqual([conv.external_thread_id, conv.contact_name], ['zcrm-igconv-hook', '@zcrm_abena'], 'Meta\'s id for the chat, asked for that one person');
+  // The reply typed in the Instagram app comes back as an echo: kept as ours, in the same chat.
+  await meta.handleWebhook(ig('zcrm-hook-m2', 'Zcrm yes, 50 a pack', true));
+  var msgs = (await pool.query('SELECT direction, body FROM crm_messages WHERE conversation_id = $1 ORDER BY sent_at, id', [conv.id])).rows;
+  assert.deepEqual(msgs.map(function (m) { return m.direction; }), ['in', 'out']);
+  assert.equal(lookups.length, 1, 'the chat is looked up once, then known');
+  // Sent again by Meta: nothing twice.
+  assert.equal((await meta.handleWebhook(ig('zcrm-hook-m1', 'Zcrm do you have bamboo straws?'))).added, 0);
+  // Messenger, where Meta can't say the chat's id: the OS's own, and the person's name.
+  await meta.handleWebhook({ object: 'page', entry: [{ id: 'zcrm-page', messaging: [{ sender: { id: 'zcrm-psid-new' }, recipient: { id: 'zcrm-page' }, timestamp: at, message: { mid: 'zcrm-hook-m3', text: 'Zcrm price of a chair?' } }] }] });
+  var fbConv = (await pool.query("SELECT external_thread_id, contact_name FROM crm_conversations WHERE channel = 'facebook' AND contact_key = 'zcrm-psid-new'")).rows[0];
+  assert.deepEqual([fbConv.external_thread_id, fbConv.contact_name], ['user:facebook:zcrm-psid-new', 'Zcrm Kwesi Arthur']);
+  assert.deepEqual(await meta.handleWebhook({ object: 'whatsapp_business_account', entry: [] }), { skipped: 'not a messages delivery' });
+  var state = (await pool.query("SELECT items, last_ok_at FROM crm_channel_state WHERE key = 'meta:webhook'")).rows[0];
+  assert.ok(state.items >= 3 && state.last_ok_at);
+
+  // After Meta gave up on the Instagram inbox, the 3-minute read leaves it for half an hour; "Read messages now" still tries.
+  await pool.query("UPDATE crm_channel_state SET last_error = 'Meta: Timeout', last_run_at = now() WHERE key = 'instagram'");
+  var asked = 0;
+  meta.setFetchForTests(async function (url) { if (/platform=instagram/.test(url)) asked++; return { ok: true, status: 200, json: async function () { return { data: [] }; } }; });
+  var auto = await meta.sync();
+  assert.deepEqual([asked, typeof auto.instagram.skipped], [0, 'string']);
+  await meta.sync({ force: true });
+  assert.ok(asked > 0);
 });
 
 test('marketing: what customers ask about, posts to make, and who to tell about a product', async function () {
