@@ -63,6 +63,7 @@ router.post('/mailbox/sync', wrap(async function (req) {
 // "Read messages now".
 router.get('/meta-check', wrap(function (req) { return meta.check(req.ctx); }));
 router.post('/meta-sync', wrap(function (req) { return meta.syncNow(req.ctx); }));
+router.post('/meta-history', wrap(function (req) { return meta.readOlder(req.ctx, req.body || {}); }));
 
 router.post('/whatsapp-alerts/:id/dismiss', wrap(function (req) { return require('../services/whatsappAlerts.service').dismiss(req.ctx, req.params.id); }));
 

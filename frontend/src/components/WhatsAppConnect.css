@@ -61,3 +61,6 @@
 .wac-step.is-info .wac-step-mark { background: #5b6b7f; font-family: Georgia, serif; font-style: italic; }
 .wac-lines { display: flex; flex-direction: column; gap: 2px; }
 .wac-again .dk-link { font-size: inherit; font-weight: 700; padding: 0; }
+.wac-older { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wac-older-pick { font: inherit; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text); }
+.wac-older .dk-link { font-size: inherit; font-weight: 700; padding: 0; }

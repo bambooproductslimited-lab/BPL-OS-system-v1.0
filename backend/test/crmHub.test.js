@@ -386,6 +386,34 @@ test('Facebook and Instagram messages come in through the connected Page', async
   assert.equal((await meta.sync()).facebook.conversations, 0, 'only what changed since');
 });
 
+test('Facebook and Instagram messages: a Meta timeout is asked again for less, and older chats can be brought in', async function () {
+  var asked = [];
+  var recentAt = new Date(Date.now() - 60000).toISOString(), oldAt = new Date(Date.now() - 100 * 86400000).toISOString();
+  function conv(id, at, who, text) {
+    return { id: id, updated_time: at, participants: { data: [{ id: 'zcrm-ig' }, { id: who, username: who.replace(/-/g, '_') }] },
+      messages: { data: [{ id: id + '-m', message: text, from: { id: who, username: who.replace(/-/g, '_') }, created_time: at }] } };
+  }
+  meta.setFetchForTests(async function (url) {
+    asked.push(url);
+    var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
+    if (!/platform=instagram/.test(url)) return reply(200, { data: [] });
+    if (/limit=25/.test(url)) return reply(500, { error: { message: 'Timeout', code: -2 } });
+    return reply(200, { data: [conv('zcrm-igconv-new', recentAt, 'zcrm-ama-k', 'Zcrm is the lantern in stock?'), conv('zcrm-igconv-old', oldAt, 'zcrm-yaw-b', 'Zcrm do you deliver to Kumasi?')] });
+  });
+  var r = await meta.sync();
+  assert.equal(r.instagram.conversations, 1, 'read with a smaller ask; only what changed lately');
+  assert.ok(asked.some(function (u) { return /platform=instagram&limit=10/.test(u) && /messages.limit\(20\)/.test(decodeURIComponent(u)); }), 'asked again for 10 chats of 20 messages');
+  var old = "SELECT 1 FROM customer_identities WHERE kind = 'instagram' AND value = 'zcrm-yaw-b'";
+  assert.equal((await pool.query(old)).rows.length, 0, 'the 100-day-old chat is not read yet');
+  // "Bring in older chats".
+  await assert.rejects(meta.readOlder(admin, { months: 5 }), /3, 6, 12 or 24/);
+  await assert.rejects(meta.readOlder({ can: function () { return false; } }, { months: 6 }), /settings.manage/);
+  var older = await meta.readOlder(admin, { months: 6 });
+  assert.equal(older.months, 6);
+  assert.equal((await pool.query(old)).rows.length, 1, 'now it is');
+  assert.ok(Array.isArray(older.steps), 'and the check comes back with it');
+});
+
 test('Facebook & Instagram messages: the setup check says which step is not right', async function () {
   var saved = { id: config.meta.appId, secret: config.meta.appSecret };
   config.meta.appId = 'zcrm-app'; config.meta.appSecret = 'zcrm-secret';
@@ -395,7 +423,8 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
       var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
       if (/\/zcrm-app\?fields=id,name/.test(url)) return reply(200, { id: 'zcrm-app', name: 'Zcrm OS Tracker' });
       if (/\/zcrm-page\?fields=/.test(url)) return reply(200, { name: 'Zcrm Bamboo Page', instagram_business_account: o.noIg ? undefined : { id: 'zcrm-ig', username: 'zcrm_bamboo' } });
-      if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, scopes: o.noMessages ? ['pages_show_list', 'instagram_basic'] : ['pages_show_list', 'pages_messaging', 'instagram_basic', 'instagram_manage_messages'] } });
+      if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, scopes: o.noMessages ? ['pages_show_list', 'instagram_basic'] : ['pages_show_list', 'pages_messaging', 'instagram_basic', 'instagram_manage_messages'].concat(o.noMetadata ? [] : ['pages_manage_metadata']) } });
+      if (/platform=instagram&limit=5/.test(url) && o.igSlow) return reply(500, { error: { message: 'Timeout', code: -2 } });
       if (/platform=instagram&limit=5/.test(url)) return o.igOff ? reply(400, { error: { message: 'To access Instagram messages, turn on Allow access to messages.', code: 230 } }) : reply(200, { data: [{ id: 'c1', updated_time: new Date().toISOString() }] });
       if (/platform=messenger&limit=5/.test(url) && o.fbOff) return reply(400, { error: { message: '(#200) Requires permission: pages_messaging', code: 200 } });
       if (/platform=messenger&limit=5/.test(url)) return reply(200, { data: [{ id: 'c2', updated_time: new Date().toISOString() }, { id: 'c3', updated_time: new Date().toISOString() }] });
@@ -412,13 +441,21 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
 
     meta.setFetchForTests(fakeMeta({ noMessages: true }));
     r = await meta.check(admin);
-    assert.deepEqual([st(r, 'token').state, st(r, 'token').fix, st(r, 'token').data.lacking], ['bad', 'connect', ['pages_messaging', 'instagram_manage_messages']]);
+    assert.deepEqual([st(r, 'token').state, st(r, 'token').fix, st(r, 'token').data.lacking], ['bad', 'connect', ['pages_messaging', 'instagram_manage_messages', 'pages_manage_metadata']]);
     // Meta then refuses the chats too: said to follow from the token, not the Instagram setting.
     meta.setFetchForTests(fakeMeta({ noMessages: true, igOff: true, fbOff: true }));
     r = await meta.check(admin);
     assert.deepEqual([st(r, 'messenger').state, st(r, 'messenger').data.becauseToken, st(r, 'instagram').state, st(r, 'instagram').data.becauseToken], ['bad', true, 'bad', true]);
+    assert.deepEqual(st(r, 'instagram').data.tokenLacks, ['instagram_manage_messages', 'pages_manage_metadata']);
     meta.setFetchForTests(fakeMeta({ igOff: true }));
     assert.equal(st(await meta.check(admin), 'instagram').data.becauseToken, false, 'with the permission, it is the Instagram setting');
+    // Meta wants pages_manage_metadata for the Instagram chats as well.
+    meta.setFetchForTests(fakeMeta({ noMetadata: true }));
+    assert.deepEqual(st(await meta.check(admin), 'token').data.lacking, ['pages_manage_metadata']);
+    // Meta too slow to answer: said as such, not as a setting to change.
+    meta.setFetchForTests(fakeMeta({ igSlow: true }));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'instagram').state, st(r, 'instagram').data.slow, st(r, 'instagram').data.becauseToken], ['warn', true, false]);
     // Connected before the OS asked for messages: the read leaves it alone, and the check says so.
     var keepScope = (await pool.query("SELECT scope FROM marketing_oauth_tokens WHERE channel_key = 'facebook'")).rows[0].scope;
     await pool.query("UPDATE marketing_oauth_tokens SET scope = 'pages_show_list,instagram_basic' WHERE channel_key = 'facebook'");

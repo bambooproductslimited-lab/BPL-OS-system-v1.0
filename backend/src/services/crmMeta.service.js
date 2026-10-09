@@ -55,6 +55,24 @@ async function graph(url, token, opts) {
   return data;
 }
 
+// Meta sometimes gives up on a big ask — "Timeout", "Please reduce the
+// amount of data you're asking for", "Service temporarily unavailable" —
+// usually for an Instagram account with many chats. Asked again for less.
+function slow(e) {
+  return [1, 2, -2].indexOf(e.metaCode) >= 0 || /timeout|timed out|temporarily unavailable|unexpected error|reduce the amount of data/i.test(e.message || '');
+}
+var SIZES = [[25, 50], [10, 20], [5, 10]]; // conversations a page, messages each
+function listUrl(a, channel, size) {
+  return '/' + a.pageId + '/conversations?platform=' + PLATFORM[channel] + '&limit=' + size[0] + '&fields=' +
+    encodeURIComponent('id,updated_time,participants,messages.limit(' + size[1] + '){id,message,from,to,created_time,attachments{name,mime_type}}');
+}
+async function firstPage(a, channel) {
+  for (var i = 0; ; i++) {
+    try { return await graph(listUrl(a, channel, SIZES[i]), a.token); }
+    catch (e) { if (!slow(e) || i === SIZES.length - 1) throw e; }
+  }
+}
+
 async function saveState(key, patch) {
   await pool.query(
     'INSERT INTO crm_channel_state (key, cursor, last_run_at, last_ok_at, last_error, items) VALUES ($1,$2,now(),$3,$4,$5) ' +
@@ -73,10 +91,10 @@ async function syncChannel(channel) {
   var since = state && state.cursor ? new Date(state.cursor) : new Date(Date.now() - 30 * 86400000);
   var newest = since, conversations = 0, messages = 0;
   try {
-    var url = '/' + a.pageId + '/conversations?platform=' + PLATFORM[channel] + '&limit=25&fields=' +
-      encodeURIComponent('id,updated_time,participants,messages.limit(50){id,message,from,to,created_time,attachments{name,mime_type}}');
+    // The next pages (Meta's paging links) keep the size the first one got.
+    var url = true;
     for (var n = 0; n < MAX_PAGES && url; n++) {
-      var page = await graph(url, n ? null : a.token);
+      var page = n ? await graph(url, null) : await firstPage(a, channel);
       var done = false;
       for (var c of page.data || []) {
         var updated = new Date(c.updated_time);
@@ -151,7 +169,7 @@ async function status() {
 // Each step: { key, state: ok | warn | bad | wait | info | skip, data, error, fix }
 // (fix: 'connect' — the Facebook Connect button; 'sync' — read now).
 var NEED_FB = ['pages_messaging', 'pages_show_list'];
-var NEED_IG = ['instagram_manage_messages', 'instagram_basic'];
+var NEED_IG = ['instagram_manage_messages', 'instagram_basic', 'pages_manage_metadata'];
 function mayCheck(ctx) {
   var { fail } = require('../utils/errors');
   if (!ctx.can('settings.manage') && !ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
@@ -194,7 +212,10 @@ async function check(ctx) {
     try {
       var mc = await graph('/' + fb.pageId + '/conversations?platform=messenger&limit=5&fields=id,updated_time', fb.token);
       add('messenger', 'ok', { seen: (mc.data || []).length, latest: mc.data && mc.data[0] ? mc.data[0].updated_time : null });
-    } catch (e) { add('messenger', 'bad', { becauseToken: lacking.indexOf('pages_messaging') >= 0 }, e.message); }
+    } catch (e) {
+      var fbLacks = lacking.filter(function (x) { return NEED_FB.indexOf(x) >= 0; });
+      add('messenger', !fbLacks.length && slow(e) ? 'warn' : 'bad', { becauseToken: fbLacks.length > 0, tokenLacks: fbLacks, slow: !fbLacks.length && slow(e) }, e.message);
+    }
 
     var igLinked = pageInfo && pageInfo.instagram_business_account;
     var igRow = await access('instagram');
@@ -204,7 +225,10 @@ async function check(ctx) {
       try {
         var ic = await graph('/' + fb.pageId + '/conversations?platform=instagram&limit=5&fields=id,updated_time', fb.token);
         add('instagram', 'ok', { username: igLinked.username || '', seen: (ic.data || []).length, latest: ic.data && ic.data[0] ? ic.data[0].updated_time : null });
-      } catch (e) { add('instagram', 'bad', { username: igLinked.username || '', becauseToken: lacking.indexOf('instagram_manage_messages') >= 0 }, e.message); }
+      } catch (e) {
+        var igLacks = lacking.filter(function (x) { return NEED_IG.indexOf(x) >= 0; });
+        add('instagram', !igLacks.length && slow(e) ? 'warn' : 'bad', { username: igLinked.username || '', becauseToken: igLacks.length > 0, tokenLacks: igLacks, slow: !igLacks.length && slow(e) }, e.message);
+      }
     }
   }
 
@@ -241,4 +265,22 @@ async function syncNow(ctx) {
   return Object.assign(await check(ctx), { synced: r });
 }
 
-module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, setFetchForTests: setFetchForTests };
+// "Bring in older chats": the read normally takes what changed since it
+// last ran (30 days the first time); this moves that back, then reads.
+// Messages already kept are not kept twice (crmInbox.ingest).
+var HISTORY_MONTHS = [3, 6, 12, 24];
+async function readOlder(ctx, p) {
+  mayCheck(ctx);
+  var months = Number(p && p.months);
+  if (HISTORY_MONTHS.indexOf(months) < 0) { var { fail } = require('../utils/errors'); fail('invalid', 'Choose 3, 6, 12 or 24 months.'); }
+  var since = new Date(); since.setMonth(since.getMonth() - months);
+  for (var ch of ['facebook', 'instagram']) {
+    await pool.query(
+      'INSERT INTO crm_channel_state (key, cursor) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET cursor = LEAST(COALESCE(crm_channel_state.cursor, $2), $2)',
+      [ch, since.toISOString()]);
+  }
+  var r = await sync();
+  return Object.assign(await check(ctx), { synced: r, months: months });
+}
+
+module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, setFetchForTests: setFetchForTests };

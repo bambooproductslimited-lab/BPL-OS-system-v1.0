@@ -70,14 +70,16 @@ function stepText(st, steps) {
       return tr('Valid: the OS may read the chats and answer them.');
     case 'messenger':
       if (st.state === 'skip') return tr('Checked once a Page is connected.');
-      if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks pages_messaging. This follows from the step above: once it is right, this one is too.');
+      if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks {scopes}. This follows from the step above: once it is right, check again.', { scopes: (d.tokenLacks || []).join(', ') || 'pages_messaging' });
+      if (st.error && d.slow) return tr('Meta took too long to answer ({why}). This is on Meta’s side and usually passes: check again in a few minutes. When it happens, the OS’s 3-minute read asks Meta for fewer chats at a time.', { why: st.error });
       if (st.error) return tr('Meta refused to show the Page’s chats ({why}). Connect with Facebook again and leave every permission ticked.', { why: st.error });
       return tr('The OS can read them: {recent}.', { recent: recent(d) });
     case 'instagram':
       if (st.state === 'skip') return tr('Checked once a Page is connected.');
       if (d.noAccount) return tr('No Instagram account is linked to the Page. In the Instagram app, switch the company account to a Professional account; then link it to the Page (Facebook Page → Settings → Linked accounts → Instagram) and connect with Facebook again.');
       if (d.notSaved) return tr('The Page’s Instagram account @{ig} is not connected in the OS yet. Connect with Facebook again: it comes with the Page.', { ig: d.username || '—' });
-      if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks instagram_manage_messages. This follows from the step above: once it is right, check again.');
+      if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks {scopes}. This follows from the step above: once it is right, check again.', { scopes: (d.tokenLacks || []).join(', ') || 'instagram_manage_messages' });
+      if (st.error && d.slow) return tr('Meta took too long to answer for @{ig} ({why}). This is on Meta’s side and usually passes: check again in a few minutes. If it keeps happening, make sure “Allow access to messages” is on in the Instagram app (Settings → Messages and story replies → Message controls → Connected tools).', { ig: d.username || '—', why: st.error });
       if (st.error) return tr('Meta refused @{ig}’s direct messages ({why}). In the Instagram app: Settings → Messages and story replies → Message controls → Connected tools → turn on “Allow access to messages”, then check again.', { ig: d.username || '—', why: st.error });
       return tr('@{ig}: the OS can read them: {recent}.', { ig: d.username || '—', recent: recent(d) });
     case 'review':
@@ -94,6 +96,7 @@ export default function MetaMessagesCheck({ onToast }) {
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
+  const [months, setMonths] = useState('12');
   const run = useCallback(async () => {
     setBusy('check'); setError(null);
     try { setRes(await api.get('/crm/meta-check')); } catch (err) { setError(err.message); } finally { setBusy(null); }
@@ -106,6 +109,16 @@ export default function MetaMessagesCheck({ onToast }) {
       const { url } = await api.post('/marketing/oauth/meta/start', {});
       window.location.href = url;
     } catch (err) { setError(err.message); setBusy(null); }
+  }
+  async function readOlder() {
+    setBusy('older'); setError(null);
+    try {
+      const out = await api.post('/crm/meta-history', { months: Number(months) });
+      setRes(out);
+      const s = out.synced || {};
+      const n = ['facebook', 'instagram'].reduce((a, k) => a + ((s[k] && s[k].messages) || 0), 0);
+      if (onToast) onToast(n ? tr('Brought in {n} older messages.', { n }) : tr('No older messages found in that time.'));
+    } catch (err) { setError(err.message); } finally { setBusy(null); }
   }
   async function readNow() {
     setBusy('sync'); setError(null);
@@ -149,6 +162,18 @@ export default function MetaMessagesCheck({ onToast }) {
                   )}
                   {st.fix === 'connect' && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={connect}>{busy === 'connect' ? tr('Redirecting…') : tr('Connect with Facebook')}</button>}
                   {st.fix === 'sync' && <button type="button" className="btn btn-secondary wac-step-fix" disabled={!!busy} onClick={readNow}>{busy === 'sync' ? tr('Reading…') : tr('Read messages now')}</button>}
+                  {st.fix === 'sync' && (
+                    <span className="tl-small dk-muted wac-older">
+                      {tr('The first read only looks back 30 days. Bring in older chats from the last')}
+                      <select className="wac-older-pick" value={months} disabled={!!busy} onChange={(e) => setMonths(e.target.value)} aria-label={tr('How far back')}>
+                        <option value="3">{tr('3 months')}</option>
+                        <option value="6">{tr('6 months')}</option>
+                        <option value="12">{tr('12 months')}</option>
+                        <option value="24">{tr('24 months')}</option>
+                      </select>
+                      <button type="button" className="dk-link" disabled={!!busy} onClick={readOlder}>{busy === 'older' ? tr('Reading…') : tr('Bring them in')}</button>
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
