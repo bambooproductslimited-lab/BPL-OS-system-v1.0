@@ -259,7 +259,9 @@ test('the setup check: each step Meta has to have in place, and what to do when 
   assert.deepEqual([stepOf(r, 'app').state, stepOf(r, 'webhook').state], ['bad', 'skip']);
   assert.match(stepOf(r, 'app').error, /client secret/);
   connect.setFetchForTests(checkMeta({ badToken: true }));
-  assert.deepEqual([stepOf(await connect.check(admin), 'token').state, stepOf(await connect.check(admin), 'token').fix], ['bad', 'connect']);
+  r = await connect.check(admin);
+  assert.deepEqual([stepOf(r, 'token').state, stepOf(r, 'token').fix], ['bad', 'connect']);
+  assert.deepEqual([stepOf(r, 'subscribed').state, stepOf(r, 'subscribed').data.tokenDead, stepOf(r, 'subscribed').fix], ['skip', true, null], 'no Subscribe button while the token is dead');
   connect.setFetchForTests(checkMeta({ noScope: true }));
   assert.deepEqual(stepOf(await connect.check(admin), 'token').data.lacking, ['whatsapp_business_messaging', 'whatsapp_business_management']);
   connect.setFetchForTests(checkMeta({ notSubscribed: true }));

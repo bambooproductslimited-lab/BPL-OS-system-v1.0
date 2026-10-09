@@ -155,7 +155,7 @@ export default function WhatsAppConnect({ onToast }) {
             <>
               <p className="wac-err"><Icon name="warn" /> {tr('The button needs these settings on Render first: {names}', { names: info.missing.join(', ') })}</p>
               <ol className="wac-steps">
-                <li>{tr('META_WA_CONFIG_ID: in Meta for Developers → BPL OS_ Tracker → Facebook Login for Business → Configurations → Create configuration, choose "WhatsApp Embedded Signup", then copy its Configuration ID.')}</li>
+                <li>{tr('META_WA_CONFIG_ID: in Meta for Developers → BPL OS_ Tracker → Facebook Login for Business → Configurations → Create configuration. Choose the login variation “WhatsApp Embedded Signup”, set the access token to never expire, choose the WhatsApp accounts as assets with the permissions whatsapp_business_management and whatsapp_business_messaging, then create it and copy its Configuration ID.')}</li>
                 <li>{tr('Add it in Render → bamboo-os-backend → Environment, then deploy.')}</li>
               </ol>
             </>
@@ -229,6 +229,9 @@ function stepText(st) {
       if (!d.active || (d.fields || []).indexOf('messages') < 0) return tr('The webhook is not subscribed to messages.');
       return tr('Not subscribed to: {fields}. Replies typed on the phone, past chats or Meta’s notices will not arrive.', { fields: (d.lacking || []).join(', ') });
     case 'number':
+      if (st.error && d.expired) return d.source === 'env'
+        ? tr('The token set on Render (WHATSAPP_ACCESS_TOKEN) has run out, so Meta did not answer for the number. Connect the company number above: it gets a token that does not run out.')
+        : tr('The token has run out, so Meta did not answer for the number. Disconnect, then connect the number again above.');
       if (st.error) return tr('Meta did not answer for the number ({why}). Connect it again.', { why: st.error });
       if (st.state === 'bad' && !d.displayPhone) return tr('No number is connected yet. Press “Connect the WhatsApp Business app” above.');
       {
@@ -243,12 +246,14 @@ function stepText(st) {
     case 'token':
       if (st.state === 'skip') return d.source ? tr('Needs META_APP_ID and META_APP_SECRET.') : tr('Checked once a number is connected.');
       if (st.error) return tr('Meta did not check it ({why}). Connect the number again.', { why: st.error });
-      if (!d.valid) return tr('It no longer works: connect the number again.');
+      if (!d.valid) return d.source === 'env'
+        ? tr('The token set on Render (WHATSAPP_ACCESS_TOKEN) no longer works: it was a temporary one, from Meta’s API Setup page. Connect the company number above instead: it gets a token that does not run out.')
+        : tr('It no longer works: connect the number again.');
       if ((d.lacking || []).length) return tr('It lacks {scopes}: connect the number again and allow WhatsApp.', { scopes: d.lacking.join(', ') });
       if (d.expiresAt) return st.state === 'warn' ? tr('It runs out {when}: connect the number again before then.', { when: ago(d.expiresAt) }) : tr('Valid until {date}.', { date: fmtDate(d.expiresAt) });
       return tr('Valid, and it does not run out.');
     case 'subscribed':
-      if (st.state === 'skip') return d.noAccount ? tr('The account’s ID is not known: connect the number, or set WHATSAPP_BUSINESS_ACCOUNT_ID on Render.') : tr('Checked once a number is connected.');
+      if (st.state === 'skip') return d.tokenDead ? tr('Checked once the token works.') : d.noAccount ? tr('The account’s ID is not known: connect the number, or set WHATSAPP_BUSINESS_ACCOUNT_ID on Render.') : tr('Checked once a number is connected.');
       if (st.error) return tr('Meta did not say ({why}).', { why: st.error });
       return st.state === 'ok' ? tr('Yes.') : tr('No: the account’s messages are not sent to this app.');
     case 'receiving':
@@ -299,7 +304,7 @@ function SetupCheck({ onToast, onChanged }) {
                 <strong>{STEP_TITLE[st.key] ? STEP_TITLE[st.key]() : st.key}</strong>
                 <span className="tl-small">{stepText(st)}</span>
                 {st.fix && FIX_LABEL[st.fix] && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={() => fix(st.fix)}>{busy === st.fix ? tr('Asking Meta…') : FIX_LABEL[st.fix]()}</button>}
-                {st.fix === 'connect' && st.key !== 'number' && <span className="tl-small dk-muted">{tr('Use “Disconnect”, then connect the number again above.')}</span>}
+                {st.fix === 'connect' && st.key !== 'number' && st.data && st.data.source === 'connect' && <span className="tl-small dk-muted">{tr('Use “Disconnect”, then connect the number again above.')}</span>}
                 {st.key === 'webhook' && st.state !== 'ok' && !st.fix && st.state !== 'skip' && <span className="tl-small dk-muted">{tr('Set WHATSAPP_VERIFY_TOKEN on Render first; then this button appears.')}</span>}
               </div>
             </li>

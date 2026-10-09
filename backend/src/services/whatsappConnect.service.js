@@ -227,7 +227,7 @@ async function check(ctx) {
     try { num = await graph('/' + a.phoneNumberId + '?fields=' + encodeURIComponent('display_phone_number,verified_name,status,name_status,quality_rating,platform_type,messaging_limit_tier'), a.token); }
     catch (e) {
       try { num = await graph('/' + a.phoneNumberId + '?fields=display_phone_number,verified_name', a.token); }
-      catch (e2) { add('number', 'bad', { source: a.source }, e2.message, 'connect'); }
+      catch (e2) { add('number', 'bad', { source: a.source, expired: /expired|session has been invalidated|Error validating access token/i.test(e2.message) }, e2.message, 'connect'); }
     }
     if (num) {
       var nd = { source: a.source, coexistence: !!a.coexistence, displayPhone: num.display_phone_number || a.displayPhone || '', verifiedName: num.verified_name || '',
@@ -236,6 +236,7 @@ async function check(ctx) {
         : (nd.status && nd.status !== 'CONNECTED') || nd.nameStatus === 'DECLINED' || nd.quality === 'RED' ? 'warn' : 'ok';
       add('number', nstate, nd);
     }
+    var tokenDead = false;
     if (!config.meta.appId || !config.meta.appSecret) add('token', 'skip');
     else {
       try {
@@ -243,11 +244,14 @@ async function check(ctx) {
         var lackingScopes = MESSAGING_SCOPES.filter(function (sc) { return (dbg.scopes || []).indexOf(sc) < 0; });
         var expires = dbg.expires_at ? new Date(dbg.expires_at * 1000) : null;
         var td = { valid: !!dbg.is_valid, expiresAt: expires, lacking: lackingScopes, source: a.source };
+        tokenDead = !dbg.is_valid;
         add('token', !dbg.is_valid || lackingScopes.length ? 'bad' : expires && expires.getTime() < Date.now() + 7 * 86400000 ? 'warn' : 'ok', td, null,
           !dbg.is_valid || lackingScopes.length || expires ? 'connect' : null);
-      } catch (e) { add('token', 'bad', { source: a.source }, e.message, 'connect'); }
+      } catch (e) { add('token', 'bad', { source: a.source }, e.message, 'connect'); tokenDead = true; }
     }
-    if (!a.wabaId) add('subscribed', 'skip', { noAccount: true });
+    // Asking with a token that no longer works says nothing about the account.
+    if (tokenDead) add('subscribed', 'skip', { tokenDead: true });
+    else if (!a.wabaId) add('subscribed', 'skip', { noAccount: true });
     else {
       try {
         var sa = await graph('/' + a.wabaId + '/subscribed_apps', a.token);
