@@ -165,6 +165,14 @@ async function connectPage(ctx, pendingToken, pageId) {
     instagramConnected = true;
   }
 
+  // The CRM inbox reads Bamboo Products' Page messages: Meta wants the app
+  // subscribed to the Page for them. A refusal here doesn't stop the connect
+  // — the check on Integrations shows it, with a button to try again.
+  if (fbChan.key === 'facebook') {
+    try { await require('./crmMeta.service').subscribePage(page.id, page.access_token); }
+    catch (e) { console.error('[meta] subscribing the app to the Page failed:', e.message); }
+  }
+
   // Bamboo Products' Facebook/Instagram are also shown on the Integrations screen.
   var settingsRes = await pool.query('SELECT integrations FROM settings WHERE id = 1');
   var list = settingsRes.rows[0].integrations || [];

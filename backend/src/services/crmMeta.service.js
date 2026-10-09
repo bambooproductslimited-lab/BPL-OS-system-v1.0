@@ -22,7 +22,8 @@ var PLATFORM = { facebook: 'messenger', instagram: 'instagram' };
 var NEEDS = { facebook: 'pages_messaging', instagram: 'instagram_manage_messages' };
 
 var fetcher = function (url, opts) { return fetch(url, opts); };
-function setFetchForTests(fn) { fetcher = fn || function (url, opts) { return fetch(url, opts); }; }
+var retryMs = 1500;
+function setFetchForTests(fn) { fetcher = fn || function (url, opts) { return fetch(url, opts); }; retryMs = fn ? 0 : 1500; }
 
 // The Page token, the Page id, and (for Instagram) the account id.
 async function access(channel) {
@@ -61,16 +62,34 @@ async function graph(url, token, opts) {
 function slow(e) {
   return [1, 2, -2].indexOf(e.metaCode) >= 0 || /timeout|timed out|temporarily unavailable|unexpected error|reduce the amount of data/i.test(e.message || '');
 }
-var SIZES = [[25, 50], [10, 20], [5, 10]]; // conversations a page, messages each
+// While the app has only standard access, Meta searches the whole
+// Instagram inbox for the chats of people with a role on the app, and on a
+// busy account gives up on anything more than one chat a page — one at a
+// time works, though Meta still stumbles now and then (asked again shortly).
+var SIZES = [[25, 50], [10, 20], [5, 10], [1, 10]]; // conversations a page, messages each
 function listUrl(a, channel, size) {
   return '/' + a.pageId + '/conversations?platform=' + PLATFORM[channel] + '&limit=' + size[0] + '&fields=' +
     encodeURIComponent('id,updated_time,participants,messages.limit(' + size[1] + '){id,message,from,to,created_time,attachments{name,mime_type}}');
 }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+async function patient(fn) {
+  for (var i = 0; ; i++) {
+    try { return await fn(); } catch (e) { if (!slow(e) || i >= 2) throw e; await sleep(retryMs * (i + 1)); }
+  }
+}
 async function firstPage(a, channel) {
   for (var i = 0; ; i++) {
-    try { return await graph(listUrl(a, channel, SIZES[i]), a.token); }
+    var size = SIZES[i];
+    try { return await (i === SIZES.length - 1 ? patient(function () { return graph(listUrl(a, channel, size), a.token); }) : graph(listUrl(a, channel, size), a.token)); }
     catch (e) { if (!slow(e) || i === SIZES.length - 1) throw e; }
   }
+}
+
+// Messages: Meta wants the app subscribed to the Page (pages_manage_metadata)
+// — done when the Page is connected, and from the check if it is not.
+var SUB_FIELDS = 'messages,messaging_postbacks';
+async function subscribePage(pageId, token) {
+  return graph('/' + encodeURIComponent(pageId) + '/subscribed_apps?subscribed_fields=' + SUB_FIELDS, token, { method: 'POST' });
 }
 
 async function saveState(key, patch) {
@@ -94,7 +113,7 @@ async function syncChannel(channel) {
     // The next pages (Meta's paging links) keep the size the first one got.
     var url = true;
     for (var n = 0; n < MAX_PAGES && url; n++) {
-      var page = n ? await graph(url, null) : await firstPage(a, channel);
+      var page = n ? await patient(function () { return graph(url, null); }) : await firstPage(a, channel);
       var done = false;
       for (var c of page.data || []) {
         var updated = new Date(c.updated_time);
@@ -195,7 +214,13 @@ async function check(ctx) {
   } else {
     try {
       pageInfo = await graph('/' + fb.pageId + '?fields=' + encodeURIComponent('name,instagram_business_account{id,username}'), fb.token);
-      add('page', 'ok', { name: pageInfo.name || '', instagram: pageInfo.instagram_business_account ? pageInfo.instagram_business_account.username || '' : null });
+      var subscribed = null;
+      try {
+        var subs = (await graph('/' + fb.pageId + '/subscribed_apps', fb.token)).data || [];
+        subscribed = subs.some(function (x) { return String(x.id) === String(config.meta.appId); });
+      } catch (e) { subscribed = null; }
+      add('page', subscribed === false ? 'warn' : 'ok', { name: pageInfo.name || '', instagram: pageInfo.instagram_business_account ? pageInfo.instagram_business_account.username || '' : null, subscribed: subscribed },
+        null, subscribed === false ? 'subscribe' : null);
     } catch (e) { add('page', 'bad', {}, e.message, 'connect'); }
 
     if (!config.meta.appId || !config.meta.appSecret) add('token', 'skip');
@@ -223,8 +248,14 @@ async function check(ctx) {
     else if (!igRow || String(igRow.ownId) !== String(igLinked.id)) add('instagram', 'warn', { notSaved: true, username: igLinked.username || '' }, null, 'connect');
     else {
       try {
-        var ic = await graph('/' + fb.pageId + '/conversations?platform=instagram&limit=5&fields=id,updated_time', fb.token);
-        add('instagram', 'ok', { username: igLinked.username || '', seen: (ic.data || []).length, latest: ic.data && ic.data[0] ? ic.data[0].updated_time : null });
+        var ic, one = false;
+        try { ic = await graph('/' + fb.pageId + '/conversations?platform=instagram&limit=5&fields=id,updated_time', fb.token); }
+        catch (e0) {
+          if (!slow(e0) || lacking.some(function (x) { return NEED_IG.indexOf(x) >= 0; })) throw e0;
+          one = true;
+          ic = await patient(function () { return graph('/' + fb.pageId + '/conversations?platform=instagram&limit=1&fields=id,updated_time', fb.token); });
+        }
+        add('instagram', 'ok', { username: igLinked.username || '', seen: (ic.data || []).length, latest: ic.data && ic.data[0] ? ic.data[0].updated_time : null, oneAtATime: one });
       } catch (e) {
         var igLacks = lacking.filter(function (x) { return NEED_IG.indexOf(x) >= 0; });
         add('instagram', !igLacks.length && slow(e) ? 'warn' : 'bad', { username: igLinked.username || '', becauseToken: igLacks.length > 0, tokenLacks: igLacks, slow: !igLacks.length && slow(e) }, e.message);
@@ -265,6 +296,15 @@ async function syncNow(ctx) {
   return Object.assign(await check(ctx), { synced: r });
 }
 
+// "Subscribe the app to the Page" (the check's button).
+async function subscribe(ctx) {
+  mayCheck(ctx);
+  var fb = await access('facebook');
+  if (!fb) { var { fail } = require('../utils/errors'); fail('invalid', 'Connect the Facebook Page first.'); }
+  await subscribePage(fb.pageId, fb.token);
+  return check(ctx);
+}
+
 // "Bring in older chats": the read normally takes what changed since it
 // last ran (30 days the first time); this moves that back, then reads.
 // Messages already kept are not kept twice (crmInbox.ingest).
@@ -283,4 +323,4 @@ async function readOlder(ctx, p) {
   return Object.assign(await check(ctx), { synced: r, months: months });
 }
 
-module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, setFetchForTests: setFetchForTests };
+module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, subscribe: subscribe, subscribePage: subscribePage, setFetchForTests: setFetchForTests };

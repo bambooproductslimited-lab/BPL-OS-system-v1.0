@@ -412,6 +412,20 @@ test('Facebook and Instagram messages: a Meta timeout is asked again for less, a
   assert.equal(older.months, 6);
   assert.equal((await pool.query(old)).rows.length, 1, 'now it is');
   assert.ok(Array.isArray(older.steps), 'and the check comes back with it');
+
+  // Only one chat a page works, and Meta stumbles once: read anyway, chat by chat.
+  var newAt = new Date().toISOString(), stumbled = 0;
+  meta.setFetchForTests(async function (url) {
+    var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
+    if (!/platform=instagram/.test(url)) return reply(200, { data: [] });
+    if (!/limit=1&/.test(url)) return reply(500, { error: { message: 'Please reduce the amount of data you\'re asking for, then retry your request', code: 1 } });
+    if (!stumbled++) return reply(500, { error: { message: 'An unexpected error has occurred. Please retry your request later.', code: 2 } });
+    if (/after=p2/.test(url)) return reply(200, { data: [conv('zcrm-igconv-two', newAt, 'zcrm-esi-a', 'Zcrm second chat')] });
+    return reply(200, { data: [conv('zcrm-igconv-one', newAt, 'zcrm-kofi-d', 'Zcrm first chat')], paging: { next: 'https://graph.facebook.com/v21.0/zcrm-page/conversations?platform=instagram&limit=1&after=p2' } });
+  });
+  r = await meta.syncChannel('instagram');
+  assert.deepEqual([r.conversations, r.error], [2, undefined], 'both chats, one a page, after one retry');
+  assert.equal(stumbled, 3);
 });
 
 test('Facebook & Instagram messages: the setup check says which step is not right', async function () {
@@ -419,12 +433,18 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
   config.meta.appId = 'zcrm-app'; config.meta.appSecret = 'zcrm-secret';
   function fakeMeta(o) {
     o = o || {};
-    return async function (url) {
+    return async function (url, opts) {
       var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
       if (/\/zcrm-app\?fields=id,name/.test(url)) return reply(200, { id: 'zcrm-app', name: 'Zcrm OS Tracker' });
       if (/\/zcrm-page\?fields=/.test(url)) return reply(200, { name: 'Zcrm Bamboo Page', instagram_business_account: o.noIg ? undefined : { id: 'zcrm-ig', username: 'zcrm_bamboo' } });
       if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, scopes: o.noMessages ? ['pages_show_list', 'instagram_basic'] : ['pages_show_list', 'pages_messaging', 'instagram_basic', 'instagram_manage_messages'].concat(o.noMetadata ? [] : ['pages_manage_metadata']) } });
-      if (/platform=instagram&limit=5/.test(url) && o.igSlow) return reply(500, { error: { message: 'Timeout', code: -2 } });
+      if (/\/zcrm-page\/subscribed_apps/.test(url)) {
+        if (opts && opts.method === 'POST') { o.posted = (o.posted || 0) + 1; o.notSubscribed = false; return reply(200, { success: true }); }
+        return reply(200, { data: o.notSubscribed ? [] : [{ id: 'zcrm-app', name: 'Zcrm OS Tracker', subscribed_fields: ['messages'] }] });
+      }
+      if (/platform=instagram&limit=5/.test(url) && o.igOnlyOne) return reply(500, { error: { message: 'Please reduce the amount of data you\'re asking for, then retry your request', code: 1 } });
+      if (/platform=instagram&limit=1&/.test(url) && o.igOnlyOne) return reply(200, { data: [{ id: 'c9', updated_time: new Date().toISOString() }] });
+      if (/platform=instagram&limit=/.test(url) && o.igSlow) return reply(500, { error: { message: 'Timeout', code: -2 } });
       if (/platform=instagram&limit=5/.test(url)) return o.igOff ? reply(400, { error: { message: 'To access Instagram messages, turn on Allow access to messages.', code: 230 } }) : reply(200, { data: [{ id: 'c1', updated_time: new Date().toISOString() }] });
       if (/platform=messenger&limit=5/.test(url) && o.fbOff) return reply(400, { error: { message: '(#200) Requires permission: pages_messaging', code: 200 } });
       if (/platform=messenger&limit=5/.test(url)) return reply(200, { data: [{ id: 'c2', updated_time: new Date().toISOString() }, { id: 'c3', updated_time: new Date().toISOString() }] });
@@ -452,6 +472,18 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
     // Meta wants pages_manage_metadata for the Instagram chats as well.
     meta.setFetchForTests(fakeMeta({ noMetadata: true }));
     assert.deepEqual(st(await meta.check(admin), 'token').data.lacking, ['pages_manage_metadata']);
+    // The app not subscribed to the Page: a warning, and the button subscribes it.
+    var notSub = { notSubscribed: true };
+    meta.setFetchForTests(fakeMeta(notSub));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'page').state, st(r, 'page').fix, st(r, 'page').data.subscribed], ['warn', 'subscribe', false]);
+    r = await meta.subscribe(admin);
+    assert.deepEqual([notSub.posted, st(r, 'page').state, st(r, 'page').data.subscribed], [1, 'ok', true]);
+    await assert.rejects(meta.subscribe({ can: function () { return false; } }), /settings.manage/);
+    // Meta only answers for one Instagram chat at a time: still readable.
+    meta.setFetchForTests(fakeMeta({ igOnlyOne: true }));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'instagram').state, st(r, 'instagram').data.oneAtATime, st(r, 'instagram').data.seen], ['ok', true, 1]);
     // Meta too slow to answer: said as such, not as a setting to change.
     meta.setFetchForTests(fakeMeta({ igSlow: true }));
     r = await meta.check(admin);

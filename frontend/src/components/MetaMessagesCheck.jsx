@@ -57,9 +57,10 @@ function stepText(st, steps) {
         : tr('Meta did not accept them ({why}). Copy the App ID and App secret again from Meta → App settings → Basic.', { why: st.error || '—' });
     case 'page':
       if (st.error) return tr('Meta did not answer for the Page ({why}). Connect with Facebook again.', { why: st.error });
-      if (st.state !== 'ok') return tr('No Facebook Page is connected yet. Press “Connect with Facebook”, sign in as an admin of the company Page and choose it.');
-      return d.instagram ? tr('{page}, with its Instagram account @{ig}.', { page: d.name || '—', ig: d.instagram })
-        : tr('{page}. No Instagram account is linked to it.', { page: d.name || '—' });
+      if (st.state === 'bad') return tr('No Facebook Page is connected yet. Press “Connect with Facebook”, sign in as an admin of the company Page and choose it.');
+      return (d.instagram ? tr('{page}, with its Instagram account @{ig}.', { page: d.name || '—', ig: d.instagram })
+        : tr('{page}. No Instagram account is linked to it.', { page: d.name || '—' }))
+        + (d.subscribed === false ? ' ' + tr('The app is not subscribed to the Page yet, which Meta wants for its messages.') : '');
     case 'token':
       if (st.state === 'skip') return pageMissing ? tr('Checked once a Page is connected.') : tr('Needs META_APP_ID and META_APP_SECRET.');
       if (st.error) return tr('Meta did not check it ({why}). Connect with Facebook again.', { why: st.error });
@@ -79,8 +80,9 @@ function stepText(st, steps) {
       if (d.noAccount) return tr('No Instagram account is linked to the Page. In the Instagram app, switch the company account to a Professional account; then link it to the Page (Facebook Page → Settings → Linked accounts → Instagram) and connect with Facebook again.');
       if (d.notSaved) return tr('The Page’s Instagram account @{ig} is not connected in the OS yet. Connect with Facebook again: it comes with the Page.', { ig: d.username || '—' });
       if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks {scopes}. This follows from the step above: once it is right, check again.', { scopes: (d.tokenLacks || []).join(', ') || 'instagram_manage_messages' });
-      if (st.error && d.slow) return tr('Meta took too long to answer for @{ig} ({why}). This is on Meta’s side and usually passes: check again in a few minutes. If it keeps happening, make sure “Allow access to messages” is on in the Instagram app (Settings → Messages and story replies → Message controls → Connected tools).', { ig: d.username || '—', why: st.error });
+      if (st.error && d.slow) return tr('Meta took too long to answer for @{ig} ({why}), even for one chat. While the app has only standard access, Meta searches the whole Instagram inbox for chats from people with a role on the app, and on a busy inbox it gives up. This goes once App Review approves instagram_manage_messages. Meanwhile, check again in a few minutes, and make sure “Allow access to messages” is on in the Instagram app (Settings → Messages and story replies → Message controls → Connected tools).', { ig: d.username || '—', why: st.error });
       if (st.error) return tr('Meta refused @{ig}’s direct messages ({why}). In the Instagram app: Settings → Messages and story replies → Message controls → Connected tools → turn on “Allow access to messages”, then check again.', { ig: d.username || '—', why: st.error });
+      if (d.oneAtATime) return tr('@{ig}: the OS can read them, one chat at a time: {recent}. Meta is slow with more than one while the app has only standard access; that goes once App Review approves instagram_manage_messages.', { ig: d.username || '—', recent: recent(d) });
       return tr('@{ig}: the OS can read them: {recent}.', { ig: d.username || '—', recent: recent(d) });
     case 'review':
       return tr('Until Meta’s App Review approves pages_messaging and instagram_manage_messages, Meta only passes on messages from people with a role on the app (Meta for Developers → App roles). Test with such an account; customers’ messages come in once Meta approves.');
@@ -109,6 +111,13 @@ export default function MetaMessagesCheck({ onToast }) {
       const { url } = await api.post('/marketing/oauth/meta/start', {});
       window.location.href = url;
     } catch (err) { setError(err.message); setBusy(null); }
+  }
+  async function subscribe() {
+    setBusy('subscribe'); setError(null);
+    try {
+      setRes(await api.post('/crm/meta-subscribe'));
+      if (onToast) onToast(tr('The app is subscribed to the Page.'));
+    } catch (err) { setError(err.message); } finally { setBusy(null); }
   }
   async function readOlder() {
     setBusy('older'); setError(null);
@@ -161,6 +170,7 @@ export default function MetaMessagesCheck({ onToast }) {
                     </span>
                   )}
                   {st.fix === 'connect' && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={connect}>{busy === 'connect' ? tr('Redirecting…') : tr('Connect with Facebook')}</button>}
+                  {st.fix === 'subscribe' && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={subscribe}>{busy === 'subscribe' ? tr('Asking Meta…') : tr('Subscribe the app to the Page')}</button>}
                   {st.fix === 'sync' && <button type="button" className="btn btn-secondary wac-step-fix" disabled={!!busy} onClick={readNow}>{busy === 'sync' ? tr('Reading…') : tr('Read messages now')}</button>}
                   {st.fix === 'sync' && (
                     <span className="tl-small dk-muted wac-older">
