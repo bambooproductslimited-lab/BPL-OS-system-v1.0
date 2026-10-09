@@ -5,6 +5,7 @@ import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../com
 import AttendanceFeeds from '../components/AttendanceFeeds';
 import WhatsAppConnect from '../components/WhatsAppConnect';
 import MailboxConnect from '../components/MailboxConnect';
+import MetaMessagesCheck from '../components/MetaMessagesCheck';
 import { tr, msg, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
@@ -329,6 +330,8 @@ export default function IntegrationsPage() {
       {squareSection}
 
       <WhatsAppConnect onToast={setToast} />
+
+      <MetaMessagesCheck onToast={setToast} />
 
       <MailboxConnect onToast={setToast} />
 

@@ -65,7 +65,7 @@ async function startAuth(ctx, companyCode) {
   var url = AUTHORIZE_URL + '?client_id=' + encodeURIComponent(config.meta.appId) +
     '&redirect_uri=' + encodeURIComponent(config.meta.redirectUri) +
     '&state=' + state +
-    '&scope=' + encodeURIComponent(SCOPES) +
+    (config.meta.pagesConfigId ? '&config_id=' + encodeURIComponent(config.meta.pagesConfigId) : '&scope=' + encodeURIComponent(SCOPES)) +
     '&response_type=code';
   return { url: url };
 }

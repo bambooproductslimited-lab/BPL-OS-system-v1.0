@@ -144,4 +144,98 @@ async function status() {
   return out;
 }
 
-module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, setFetchForTests: setFetchForTests };
+// ── the setup check ──────────────────────────────────────────────────
+// Integrations → Facebook & Instagram messages: asks Meta, step by step,
+// whether the CRM inbox can read the Page's Messenger chats and the
+// Instagram account's direct messages, and says which step is not right.
+// Each step: { key, state: ok | warn | bad | wait | info | skip, data, error, fix }
+// (fix: 'connect' — the Facebook Connect button; 'sync' — read now).
+var NEED_FB = ['pages_messaging', 'pages_show_list'];
+var NEED_IG = ['instagram_manage_messages', 'instagram_basic'];
+function mayCheck(ctx) {
+  var { fail } = require('../utils/errors');
+  if (!ctx.can('settings.manage') && !ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
+}
+async function check(ctx) {
+  mayCheck(ctx);
+  var config = require('../config');
+  var steps = [];
+  function add(key, state, data, error, fix) { steps.push({ key: key, state: state, data: data || {}, error: error || null, fix: fix || null }); }
+  var appToken = config.meta.appId + '|' + config.meta.appSecret;
+
+  if (!config.meta.appId || !config.meta.appSecret) add('app', 'bad', { missing: [!config.meta.appId && 'META_APP_ID', !config.meta.appSecret && 'META_APP_SECRET'].filter(Boolean) });
+  else {
+    try { var app = await graph('/' + encodeURIComponent(config.meta.appId) + '?fields=id,name', appToken); add('app', 'ok', { name: app.name || '' }); }
+    catch (e) { add('app', 'bad', {}, e.message); }
+  }
+
+  var fb = await access('facebook');
+  var pageInfo = null, scopes = null;
+  if (!fb) {
+    add('page', 'bad', {}, null, 'connect');
+    ['token', 'messenger', 'instagram'].forEach(function (k) { add(k, 'skip'); });
+  } else {
+    try {
+      pageInfo = await graph('/' + fb.pageId + '?fields=' + encodeURIComponent('name,instagram_business_account{id,username}'), fb.token);
+      add('page', 'ok', { name: pageInfo.name || '', instagram: pageInfo.instagram_business_account ? pageInfo.instagram_business_account.username || '' : null });
+    } catch (e) { add('page', 'bad', {}, e.message, 'connect'); }
+
+    if (!config.meta.appId || !config.meta.appSecret) add('token', 'skip');
+    else {
+      try {
+        var d = (await graph('/debug_token?input_token=' + encodeURIComponent(fb.token), appToken)).data || {};
+        scopes = d.scopes || [];
+        var want = NEED_FB.concat(pageInfo && pageInfo.instagram_business_account ? NEED_IG : []);
+        var lacking = want.filter(function (x) { return scopes.indexOf(x) < 0; });
+        add('token', !d.is_valid || lacking.length ? 'bad' : 'ok', { valid: !!d.is_valid, lacking: lacking, configId: !!config.meta.pagesConfigId }, null, !d.is_valid || lacking.length ? 'connect' : null);
+      } catch (e) { add('token', 'bad', {}, e.message, 'connect'); }
+    }
+
+    try {
+      var mc = await graph('/' + fb.pageId + '/conversations?platform=messenger&limit=5&fields=id,updated_time', fb.token);
+      add('messenger', 'ok', { seen: (mc.data || []).length, latest: mc.data && mc.data[0] ? mc.data[0].updated_time : null });
+    } catch (e) { add('messenger', 'bad', {}, e.message); }
+
+    var igLinked = pageInfo && pageInfo.instagram_business_account;
+    var igRow = await access('instagram');
+    if (!igLinked) add('instagram', pageInfo ? 'bad' : 'skip', { noAccount: !!pageInfo });
+    else if (!igRow || String(igRow.ownId) !== String(igLinked.id)) add('instagram', 'warn', { notSaved: true, username: igLinked.username || '' }, null, 'connect');
+    else {
+      try {
+        var ic = await graph('/' + fb.pageId + '/conversations?platform=instagram&limit=5&fields=id,updated_time', fb.token);
+        add('instagram', 'ok', { username: igLinked.username || '', seen: (ic.data || []).length, latest: ic.data && ic.data[0] ? ic.data[0].updated_time : null });
+      } catch (e) { add('instagram', 'bad', { username: igLinked.username || '' }, e.message); }
+    }
+  }
+
+  // App Review: Meta does not say through the API whether the app has
+  // advanced access; the step explains what each level lets in.
+  add('review', 'info', {});
+
+  // What the 3-minute read has brought in, per channel.
+  var states = (await pool.query("SELECT key, last_ok_at, last_run_at, last_error, items FROM crm_channel_state WHERE key IN ('facebook', 'instagram')")).rows;
+  var lastIn = (await pool.query(
+    "SELECT c.channel, max(m.sent_at) FILTER (WHERE m.direction = 'in') AS t, count(*) FILTER (WHERE m.direction = 'in')::int AS n FROM crm_messages m JOIN crm_conversations c ON c.id = m.conversation_id " +
+    "WHERE c.channel IN ('facebook', 'instagram') GROUP BY c.channel")).rows;
+  var arriving = {};
+  ['facebook', 'instagram'].forEach(function (ch) {
+    var st = states.find(function (x) { return x.key === ch; }) || null;
+    var li = lastIn.find(function (x) { return x.channel === ch; }) || null;
+    arriving[ch] = { lastReadAt: st ? st.last_ok_at : null, error: st && st.last_error && (!st.last_ok_at || new Date(st.last_run_at) > new Date(st.last_ok_at)) ? st.last_error : null,
+      received: li ? li.n : 0, lastCustomerAt: li ? li.t : null };
+  });
+  var anyErr = arriving.facebook.error || arriving.instagram.error;
+  var anyRead = arriving.facebook.lastReadAt || arriving.instagram.lastReadAt;
+  add('arriving', anyErr ? 'bad' : anyRead ? 'ok' : 'wait', arriving, null, fb ? 'sync' : null);
+
+  return { steps: steps, ready: !steps.some(function (x) { return x.state === 'bad'; }), checkedAt: new Date() };
+}
+
+// "Read messages now": the 3-minute read at once, then the check again.
+async function syncNow(ctx) {
+  mayCheck(ctx);
+  var r = await sync();
+  return Object.assign(await check(ctx), { synced: r });
+}
+
+module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, setFetchForTests: setFetchForTests };

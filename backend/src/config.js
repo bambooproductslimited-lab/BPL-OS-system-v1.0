@@ -143,6 +143,10 @@ module.exports = {
       // Business → Configurations), used by Integrations → WhatsApp. Not a
       // secret: it is sent to the browser to open Meta's sign-up window.
       waConfigId: (process.env.META_WA_CONFIG_ID || '').trim(),
+      // Optional: a Facebook Login for Business configuration for the
+      // Facebook/Instagram Connect button (Pages, Instagram, messages). When
+      // set, the login asks with it instead of a list of permissions.
+      pagesConfigId: (process.env.META_PAGES_CONFIG_ID || '').trim(),
       configured: !!(appId && appSecret)
     };
   }()),

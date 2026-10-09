@@ -386,6 +386,59 @@ test('Facebook and Instagram messages come in through the connected Page', async
   assert.equal((await meta.sync()).facebook.conversations, 0, 'only what changed since');
 });
 
+test('Facebook & Instagram messages: the setup check says which step is not right', async function () {
+  var saved = { id: config.meta.appId, secret: config.meta.appSecret };
+  config.meta.appId = 'zcrm-app'; config.meta.appSecret = 'zcrm-secret';
+  function fakeMeta(o) {
+    o = o || {};
+    return async function (url) {
+      var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
+      if (/\/zcrm-app\?fields=id,name/.test(url)) return reply(200, { id: 'zcrm-app', name: 'Zcrm OS Tracker' });
+      if (/\/zcrm-page\?fields=/.test(url)) return reply(200, { name: 'Zcrm Bamboo Page', instagram_business_account: o.noIg ? undefined : { id: 'zcrm-ig', username: 'zcrm_bamboo' } });
+      if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, scopes: o.noMessages ? ['pages_show_list', 'instagram_basic'] : ['pages_show_list', 'pages_messaging', 'instagram_basic', 'instagram_manage_messages'] } });
+      if (/platform=instagram&limit=5/.test(url)) return o.igOff ? reply(400, { error: { message: 'To access Instagram messages, turn on Allow access to messages.', code: 230 } }) : reply(200, { data: [{ id: 'c1', updated_time: new Date().toISOString() }] });
+      if (/platform=messenger&limit=5/.test(url)) return reply(200, { data: [{ id: 'c2', updated_time: new Date().toISOString() }, { id: 'c3', updated_time: new Date().toISOString() }] });
+      return reply(404, { error: { message: 'not faked: ' + url } });
+    };
+  }
+  function st(r, k) { return r.steps.find(function (x) { return x.key === k; }); }
+  try {
+    meta.setFetchForTests(fakeMeta());
+    var r = await meta.check(admin);
+    assert.deepEqual(r.steps.map(function (x) { return x.key + ':' + x.state; }), ['app:ok', 'page:ok', 'token:ok', 'messenger:ok', 'instagram:ok', 'review:info', 'arriving:ok']);
+    assert.deepEqual([st(r, 'page').data.name, st(r, 'page').data.instagram, st(r, 'messenger').data.seen], ['Zcrm Bamboo Page', 'zcrm_bamboo', 2]);
+    assert.ok(st(r, 'arriving').data.facebook.received >= 1, 'the message read in the test above');
+
+    meta.setFetchForTests(fakeMeta({ noMessages: true }));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'token').state, st(r, 'token').fix, st(r, 'token').data.lacking], ['bad', 'connect', ['pages_messaging', 'instagram_manage_messages']]);
+    meta.setFetchForTests(fakeMeta({ igOff: true }));
+    r = await meta.check(admin);
+    assert.equal(st(r, 'instagram').state, 'bad');
+    assert.match(st(r, 'instagram').error, /Allow access to messages/);
+    meta.setFetchForTests(fakeMeta({ noIg: true }));
+    assert.deepEqual(st(await meta.check(admin), 'instagram').data, { noAccount: true });
+    // The Page's Instagram not the one saved: connect again.
+    await pool.query("UPDATE marketing_oauth_tokens SET open_id = 'zcrm-other' WHERE channel_key = 'instagram'");
+    meta.setFetchForTests(fakeMeta());
+    assert.deepEqual([st(await meta.check(admin), 'instagram').state, st(await meta.check(admin), 'instagram').fix], ['warn', 'connect']);
+    await pool.query("UPDATE marketing_oauth_tokens SET open_id = 'zcrm-ig' WHERE channel_key = 'instagram'");
+
+    // "Read messages now" runs the read and checks again.
+    var now = await meta.syncNow(admin);
+    assert.ok(now.synced && now.synced.facebook, 'the read ran');
+    // No Page connected.
+    var keep = (await pool.query("SELECT * FROM marketing_oauth_tokens WHERE channel_key = 'facebook'")).rows[0];
+    await pool.query("DELETE FROM marketing_oauth_tokens WHERE channel_key = 'facebook'");
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'page').state, st(r, 'page').fix, st(r, 'messenger').state], ['bad', 'connect', 'skip']);
+    await pool.query('INSERT INTO marketing_oauth_tokens (channel_key, access_token, refresh_token, open_id, scope, expires_at) VALUES ($1,$2,$3,$4,$5,$6)', [keep.channel_key, keep.access_token, keep.refresh_token, keep.open_id, keep.scope, keep.expires_at]);
+    await assert.rejects(meta.check({ can: function () { return false; } }), /settings.manage/);
+  } finally {
+    config.meta.appId = saved.id; config.meta.appSecret = saved.secret;
+  }
+});
+
 test('marketing: what customers ask about, posts to make, and who to tell about a product', async function () {
   await pool.query("INSERT INTO products (sku, name, category, active) VALUES ('ZCRM-1', 'Zcrm Bamboo straws (pack of 50)', 'Zcrm Tableware', true), ('ZCRM-2', 'Zcrm Bamboo lantern', 'Zcrm Decor', true), ('ZCRM-3', 'Zcrm Bamboo cups', 'Zcrm Tableware', true)");
   var t = await marketing.topics(admin, { days: 30 });

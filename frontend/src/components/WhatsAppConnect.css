@@ -58,3 +58,6 @@
 .wac-step.is-bad .wac-step-main > .tl-small:first-of-type { color: var(--dk-bad, var(--color-danger)); }
 .wac-step.is-skip { opacity: .7; }
 .wac-step-fix { margin-top: 2px; padding: 5px 12px; font-size: 12.5px; }
+.wac-step.is-info .wac-step-mark { background: #5b6b7f; font-family: Georgia, serif; font-style: italic; }
+.wac-lines { display: flex; flex-direction: column; gap: 2px; }
+.wac-again .dk-link { font-size: inherit; font-weight: 700; padding: 0; }

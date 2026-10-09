@@ -59,6 +59,11 @@ router.post('/mailbox/sync', wrap(async function (req) {
   return { kept: r.kept || 0, skipped: r.skipped || 0, error: r.error || null, notSetUp: !!r.skipped && typeof r.skipped === 'string', mailbox: await mailboxes.info(req.ctx) };
 }));
 
+// Integrations → Facebook & Instagram messages: the setup check, and
+// "Read messages now".
+router.get('/meta-check', wrap(function (req) { return meta.check(req.ctx); }));
+router.post('/meta-sync', wrap(function (req) { return meta.syncNow(req.ctx); }));
+
 router.post('/whatsapp-alerts/:id/dismiss', wrap(function (req) { return require('../services/whatsappAlerts.service').dismiss(req.ctx, req.params.id); }));
 
 // follow-ups
