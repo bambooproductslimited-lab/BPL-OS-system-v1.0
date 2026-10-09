@@ -22,7 +22,12 @@ router.post('/webhook', async function (req, res) {
   // Always 200 — Meta retries (and eventually disables) a webhook that
   // doesn't return 2xx promptly, so a bad/duplicate event should be
   // swallowed here, not surfaced as an HTTP error.
-  if (!whatsappService.isValidSignature(req.rawBody, req.get('x-hub-signature-256'))) return res.sendStatus(403);
+  if (!whatsappService.isValidSignature(req.rawBody, req.get('x-hub-signature-256'))) {
+    // Signed, but not with this app's secret: worth telling the setup check.
+    if (/^sha256=/.test(req.get('x-hub-signature-256') || '')) whatsappService.noteWebhook(false);
+    return res.sendStatus(403);
+  }
+  whatsappService.noteWebhook(true);
   // Answered first: a chunk of past chats (coexistence history) can take
   // longer to file than Meta waits. Failures are logged, not retried —
   // every message carries its id, so a resent chunk adds only what's new.

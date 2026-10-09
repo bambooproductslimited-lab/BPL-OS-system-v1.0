@@ -238,6 +238,13 @@ async function channelState(key, cursor, error, items) {
     [key, cursor, error, items || 0]);
 }
 
+// Each webhook call from Meta, for the setup check: a good one counts, and
+// one whose signature does not match META_APP_SECRET is remembered — Meta
+// is sending, but the secret on Render is not this app's.
+async function noteWebhook(ok) {
+  try { await channelState('whatsapp:webhook', null, ok ? null : 'signature', ok ? 1 : 0); } catch (e) { console.error('[whatsapp] webhook not noted:', e.message); }
+}
+
 // For Data health: what has come in from WhatsApp so far.
 async function status() {
   var rows = (await pool.query("SELECT key, cursor, last_ok_at, last_error, items FROM crm_channel_state WHERE key IN ('whatsapp:history', 'whatsapp:echoes')")).rows;
@@ -258,4 +265,4 @@ async function status() {
   };
 }
 
-module.exports = { sendMessage: sendMessage, verifyWebhookChallenge: verifyWebhookChallenge, isValidSignature: isValidSignature, handleWebhookEvent: handleWebhookEvent, status: status, setFetchForTests: setFetchForTests };
+module.exports = { sendMessage: sendMessage, verifyWebhookChallenge: verifyWebhookChallenge, isValidSignature: isValidSignature, handleWebhookEvent: handleWebhookEvent, noteWebhook: noteWebhook, status: status, setFetchForTests: setFetchForTests };

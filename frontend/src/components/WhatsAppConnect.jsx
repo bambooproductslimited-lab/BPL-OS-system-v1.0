@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Icon, Section, Status, fmtDate } from './DashKit';
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import './WhatsAppConnect.css';
 
 // Integrations → WhatsApp: connecting the company number with Meta's
@@ -178,8 +178,136 @@ export default function WhatsAppConnect({ onToast }) {
           <p className="dk-muted tl-small">{tr('Meta must also send messages to the OS: in the app\'s WhatsApp → Configuration, the webhook is {url}, with the verify phrase from Render (WHATSAPP_VERIFY_TOKEN), subscribed to messages, smb_message_echoes, history and smb_app_state_sync.', { url: info.webhookUrl })}</p>
         </div>
       )}
+      <SetupCheck onToast={onToast} onChanged={load} />
       {info.sending && <WhatsAppTools sending={info.sending} onToast={onToast} />}
     </Section>
+  );
+}
+
+// ── the setup check ──────────────────────────────────────────────────
+// Asks Meta whether each thing a WhatsApp message needs on its way to the OS
+// is in place (whatsappConnect.service.js check()), says which is not and
+// how to put it right — with a button where the OS can do it itself.
+function ago(t) {
+  if (!t) return '';
+  const s = Math.round((new Date(t).getTime() - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(activeIntlLocale(), { numeric: 'auto' });
+  const a = Math.abs(s);
+  if (a < 60) return rtf.format(s, 'second');
+  if (a < 3600) return rtf.format(Math.round(s / 60), 'minute');
+  if (a < 86400) return rtf.format(Math.round(s / 3600), 'hour');
+  return rtf.format(Math.round(s / 86400), 'day');
+}
+const STEP_TITLE = {
+  settings: () => tr('Settings on Render'),
+  app: () => tr('Meta accepts the app’s ID and secret'),
+  webhook: () => tr('Meta sends WhatsApp messages to the OS (the webhook)'),
+  number: () => tr('The WhatsApp number'),
+  token: () => tr('The OS’s permission to use it (the access token)'),
+  subscribed: () => tr('The number’s account sends its messages to this app'),
+  receiving: () => tr('Messages arriving')
+};
+const FIX_LABEL = { webhook: () => tr('Point Meta’s webhook at the OS'), subscribe: () => tr('Subscribe the app') };
+function source(d) { return d.source === 'env' ? tr('set on Render') : d.coexistence ? tr('kept in the WhatsApp Business app') : tr('only through the OS'); }
+
+function stepText(st) {
+  const d = st.data || {};
+  switch (st.key) {
+    case 'settings':
+      return st.state === 'ok' ? tr('META_APP_ID, META_APP_SECRET, META_WA_CONFIG_ID and WHATSAPP_VERIFY_TOKEN are set.')
+        : tr('Missing on Render: {names}. Add them in Render → bamboo-os-backend → Environment, then deploy.', { names: (d.missing || []).join(', ') });
+    case 'app':
+      if (st.state === 'skip') return tr('Needs META_APP_ID and META_APP_SECRET.');
+      return st.state === 'ok' ? tr('Meta knows the app: {name}.', { name: d.name || '—' })
+        : tr('Meta did not accept them ({why}). Copy the App ID and App secret again from Meta → App settings → Basic.', { why: st.error || '—' });
+    case 'webhook':
+      if (st.state === 'skip') return tr('Checked once Meta accepts the app’s ID and secret.');
+      if (st.error) return tr('Meta did not say ({why}).', { why: st.error });
+      if (st.state === 'ok') return tr('Meta sends the messages, the replies typed on the phone, the past chats and its notices to the OS.');
+      if (!d.set) return tr('This app has no WhatsApp webhook yet, so Meta sends the OS nothing.');
+      if (d.url !== d.expected) return tr('Meta sends them to {url}, not to the OS.', { url: d.url || '—' });
+      if (!d.active || (d.fields || []).indexOf('messages') < 0) return tr('The webhook is not subscribed to messages.');
+      return tr('Not subscribed to: {fields}. Replies typed on the phone, past chats or Meta’s notices will not arrive.', { fields: (d.lacking || []).join(', ') });
+    case 'number':
+      if (st.error) return tr('Meta did not answer for the number ({why}). Connect it again.', { why: st.error });
+      if (st.state === 'bad' && !d.displayPhone) return tr('No number is connected yet. Press “Connect the WhatsApp Business app” above.');
+      {
+        const facts = [d.displayPhone, d.verifiedName, source(d)].filter(Boolean).join(' · ');
+        if (d.platform && d.platform !== 'CLOUD_API') return tr('{facts}. The number is not on WhatsApp’s Cloud API: connect it again.', { facts });
+        const warns = [];
+        if (d.status && d.status !== 'CONNECTED') warns.push(tr('Meta says the number is {status}.', { status: String(d.status).toLowerCase().replace(/_/g, ' ') }));
+        if (d.nameStatus === 'DECLINED') warns.push(tr('Meta declined the display name.'));
+        if (d.quality === 'RED') warns.push(tr('Meta rates the number’s quality low.'));
+        return [facts + '.'].concat(warns).join(' ');
+      }
+    case 'token':
+      if (st.state === 'skip') return d.source ? tr('Needs META_APP_ID and META_APP_SECRET.') : tr('Checked once a number is connected.');
+      if (st.error) return tr('Meta did not check it ({why}). Connect the number again.', { why: st.error });
+      if (!d.valid) return tr('It no longer works: connect the number again.');
+      if ((d.lacking || []).length) return tr('It lacks {scopes}: connect the number again and allow WhatsApp.', { scopes: d.lacking.join(', ') });
+      if (d.expiresAt) return st.state === 'warn' ? tr('It runs out {when}: connect the number again before then.', { when: ago(d.expiresAt) }) : tr('Valid until {date}.', { date: fmtDate(d.expiresAt) });
+      return tr('Valid, and it does not run out.');
+    case 'subscribed':
+      if (st.state === 'skip') return d.noAccount ? tr('The account’s ID is not known: connect the number, or set WHATSAPP_BUSINESS_ACCOUNT_ID on Render.') : tr('Checked once a number is connected.');
+      if (st.error) return tr('Meta did not say ({why}).', { why: st.error });
+      return st.state === 'ok' ? tr('Yes.') : tr('No: the account’s messages are not sent to this app.');
+    case 'receiving':
+      if (d.signature) return tr('Meta is sending, but its signature does not match META_APP_SECRET on Render: the secret there is not this app’s. Copy it again from Meta → App settings → Basic.');
+      if (st.state === 'ok') return [tr('Last call from Meta {when}', { when: ago(d.lastAt) }), d.count === 1 ? tr('1 received') : tr('{n} received', { n: d.count }),
+        d.lastCustomerAt ? tr('last customer message {when}', { when: ago(d.lastCustomerAt) }) : null].filter(Boolean).join(' · ') + '.';
+      return tr('Nothing has arrived yet. Send a WhatsApp message to the number from a personal phone, wait a minute and check again. If nothing comes, make sure the app is Published (Live) in Meta: in development mode Meta sends no real messages.');
+    default: return '';
+  }
+}
+
+function SetupCheck({ onToast, onChanged }) {
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  const run = useCallback(async () => {
+    setBusy('check'); setError(null);
+    try { setRes(await api.get('/whatsapp-connect/check')); } catch (err) { setError(err.message); } finally { setBusy(null); }
+  }, []);
+  useEffect(() => { run(); }, [run]);
+  async function fix(kind) {
+    setBusy(kind); setError(null);
+    try {
+      const out = await api.post(kind === 'webhook' ? '/whatsapp-connect/webhook' : '/whatsapp-connect/subscribe');
+      setRes(out);
+      if (onToast) onToast(kind === 'webhook' ? tr('Meta now sends WhatsApp messages to the OS.') : tr('The app is subscribed to the number’s account.'));
+      if (onChanged) onChanged();
+    } catch (err) { setError(err.message); } finally { setBusy(null); }
+  }
+  const bad = res ? res.steps.filter((x) => x.state === 'bad').length : 0;
+  return (
+    <div className="wac-card wac-check" id="wa-check">
+      <div className="wac-check-head">
+        <div>
+          <h4>{tr('Check the setup')}</h4>
+          <span className="dk-muted tl-small">{tr('Asks Meta whether everything a WhatsApp message needs on its way to the OS is in place.')}</span>
+        </div>
+        {res && <Status tone={bad ? 'bad' : 'good'}>{bad ? (bad === 1 ? tr('1 step to put right') : tr('{n} steps to put right', { n: bad })) : tr('Everything is in place')}</Status>}
+        <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={run}>{busy === 'check' ? tr('Checking…') : tr('Check again')}</button>
+      </div>
+      {error && <p className="wac-err"><Icon name="warn" /> {error}</p>}
+      {!res ? <p className="eyebrow">{tr('Asking Meta…')}</p> : (
+        <ol className="wac-check-list">
+          {res.steps.map((st) => (
+            <li key={st.key} className={'wac-step is-' + st.state}>
+              <span className="wac-step-mark" aria-hidden="true">{st.state === 'ok' ? '✓' : st.state === 'bad' ? '✕' : st.state === 'warn' ? '!' : st.state === 'wait' ? '…' : '–'}</span>
+              <div className="wac-step-main">
+                <strong>{STEP_TITLE[st.key] ? STEP_TITLE[st.key]() : st.key}</strong>
+                <span className="tl-small">{stepText(st)}</span>
+                {st.fix && FIX_LABEL[st.fix] && <button type="button" className="btn btn-primary wac-step-fix" disabled={!!busy} onClick={() => fix(st.fix)}>{busy === st.fix ? tr('Asking Meta…') : FIX_LABEL[st.fix]()}</button>}
+                {st.fix === 'connect' && st.key !== 'number' && <span className="tl-small dk-muted">{tr('Use “Disconnect”, then connect the number again above.')}</span>}
+                {st.key === 'webhook' && st.state !== 'ok' && !st.fix && st.state !== 'skip' && <span className="tl-small dk-muted">{tr('Set WHATSAPP_VERIFY_TOKEN on Render first; then this button appears.')}</span>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      {res && <p className="dk-muted tl-small">{tr('Checked {when}. The webhook address is {url}.', { when: ago(res.checkedAt), url: res.webhookUrl })}</p>}
+    </div>
   );
 }
 

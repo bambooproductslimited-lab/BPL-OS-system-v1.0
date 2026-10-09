@@ -15,4 +15,8 @@ router.post('/test-message', wrap(function (req) { return connect.sendTest(req.c
 router.get('/templates', wrap(function (req) { return connect.listTemplates(req.ctx); }));
 router.post('/templates', wrap(function (req) { return connect.createTemplate(req.ctx, req.body || {}); }));
 router.delete('/templates/:name', wrap(function (req) { return connect.deleteTemplate(req.ctx, req.params.name); }));
+// The setup check, and the two things it can put right.
+router.get('/check', wrap(function (req) { return connect.check(req.ctx); }));
+router.post('/webhook', wrap(function (req) { return connect.setWebhook(req.ctx); }));
+router.post('/subscribe', wrap(function (req) { return connect.subscribeAccount(req.ctx); }));
 module.exports = router;

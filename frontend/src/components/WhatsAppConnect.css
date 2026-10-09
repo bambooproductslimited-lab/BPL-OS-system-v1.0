@@ -39,3 +39,22 @@
 .wac-tpl-body { color: var(--color-text-muted); overflow-wrap: anywhere; }
 .wac-new { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--color-divider, var(--color-border)); }
 @media (max-width: 520px) { .wac-tools { grid-template-columns: minmax(0, 1fr); } }
+
+/* the setup check */
+.wac-check { margin-top: 12px; }
+.wac-check-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.wac-check-head > div { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 2px; }
+.wac-check-head h4 { margin: 0; font-size: 15px; }
+.wac-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wac-step { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--color-divider, var(--color-border)); }
+.wac-step:first-child { border-top: 0; }
+.wac-step-mark { flex: none; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; font-size: 13px; font-weight: 900; color: #fff; background: var(--color-text-faint, #8a948f); }
+.wac-step.is-ok .wac-step-mark { background: #1f9d55; }
+.wac-step.is-bad .wac-step-mark { background: var(--color-danger); }
+.wac-step.is-warn .wac-step-mark { background: #c27c0e; }
+.wac-step.is-wait .wac-step-mark { background: #2a78d6; }
+.wac-step-main { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.wac-step-main strong { font-size: 13.5px; }
+.wac-step.is-bad .wac-step-main > .tl-small:first-of-type { color: var(--dk-bad, var(--color-danger)); }
+.wac-step.is-skip { opacity: .7; }
+.wac-step-fix { margin-top: 2px; padding: 5px 12px; font-size: 12.5px; }

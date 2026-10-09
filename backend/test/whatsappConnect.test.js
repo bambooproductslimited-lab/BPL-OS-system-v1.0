@@ -197,3 +197,101 @@ test('a test message (a template, so any phone works) and message templates, for
   await access.load();
   await assert.rejects(connect.sendTest(admin, { to: '0205550711' }), /No WhatsApp number is set up/);
 });
+
+// ── the setup check ──────────────────────────────────────────────────
+// A Meta where every step can be made right or wrong.
+function checkMeta(o) {
+  o = o || {};
+  var base = fakeMeta();
+  return async function (url, opt) {
+    var method = (opt && opt.method) || 'GET';
+    calls.push({ url: url, method: method, body: opt && opt.body, auth: opt && opt.headers && opt.headers.Authorization });
+    var reply = function (status, data) { return { ok: status < 400, status: status, json: async function () { return data; } }; };
+    if (/\/zq-app\?fields=id,name/.test(url)) return o.badSecret ? reply(400, { error: { message: 'Error validating client secret.' } }) : reply(200, { id: 'zq-app', name: 'Zq OS Tracker' });
+    if (/\/zq-app\/subscriptions/.test(url) && method === 'POST') return o.noSmbFields && /smb_message_echoes/.test(String(opt.body)) ? reply(400, { error: { message: 'Invalid field smb_message_echoes' } }) : reply(200, { success: true });
+    if (/\/zq-app\/subscriptions/.test(url)) return reply(200, { data: o.noWebhook ? [] : [{ object: 'whatsapp_business_account', callback_url: o.wrongUrl ? 'https://zq.example.com/hook' : 'https://bamboo-os-backend.onrender.com/api/marketing/whatsapp/webhook', active: true,
+      fields: (o.fewFields ? ['messages'] : ['messages', 'smb_message_echoes', 'history', 'smb_app_state_sync', 'phone_number_quality_update', 'account_update', 'message_template_status_update']).map(function (n) { return { name: n, version: 'v21.0' }; }) }] });
+    if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, expires_at: 0, scopes: o.noScope ? ['business_management'] : ['business_management', 'whatsapp_business_messaging', 'whatsapp_business_management'] } });
+    if (/\/subscribed_apps$/.test(url) && method === 'GET') return reply(200, { data: o.notSubscribed ? [] : [{ whatsapp_business_api_data: { id: 'zq-app', name: 'Zq OS Tracker' } }] });
+    if (/fields=display_phone_number/.test(url)) return reply(200, { display_phone_number: '+233 20 555 0700', verified_name: 'Zq Bamboo Test', status: o.flagged ? 'FLAGGED' : 'CONNECTED', platform_type: 'CLOUD_API', quality_rating: 'GREEN', name_status: 'APPROVED' });
+    return base(url, opt);
+  };
+}
+function stepOf(r, key) { return r.steps.find(function (s) { return s.key === key; }); }
+
+test('the setup check: each step Meta has to have in place, and what to do when one is not', async function () {
+  await pool.query("DELETE FROM crm_channel_state WHERE key = 'whatsapp:webhook'");
+  await pool.query("INSERT INTO whatsapp_connection (id, waba_id, phone_number_id, display_phone, verified_name, access_token, coexistence, connected_at) VALUES (1, 'zq-waba', 'zq-phone', '+233 20 555 0700', 'Zq Bamboo Test', 'zq-business-token', true, now()) ON CONFLICT (id) DO NOTHING");
+  await access.load();
+
+  connect.setFetchForTests(checkMeta());
+  var r = await connect.check(admin);
+  assert.deepEqual(r.steps.map(function (s) { return s.key + ':' + s.state; }), ['settings:ok', 'app:ok', 'webhook:ok', 'number:ok', 'token:ok', 'subscribed:ok', 'receiving:wait']);
+  assert.equal(r.ready, true);
+  assert.equal(stepOf(r, 'app').data.name, 'Zq OS Tracker');
+  assert.equal(stepOf(r, 'token').data.expiresAt, null, 'a token that never expires');
+  // The app token is the id and secret; the number's token is the business token.
+  assert.ok(calls.some(function (c) { return /debug_token\?input_token=zq-business-token&access_token=zq-app%7Czq-secret/.test(c.url); }));
+
+  // Nothing pointed at the OS yet: the button sets it, with every field.
+  connect.setFetchForTests(checkMeta({ noWebhook: true }));
+  r = await connect.check(admin);
+  assert.deepEqual([stepOf(r, 'webhook').state, stepOf(r, 'webhook').fix, r.ready], ['bad', 'webhook', false]);
+  calls = [];
+  await connect.setWebhook(admin);
+  var post = calls.find(function (c) { return c.method === 'POST' && /\/zq-app\/subscriptions$/.test(c.url); });
+  var form = new URLSearchParams(post.body);
+  assert.deepEqual([form.get('object'), form.get('callback_url'), form.get('verify_token')], ['whatsapp_business_account', 'https://bamboo-os-backend.onrender.com/api/marketing/whatsapp/webhook', 'zq-phrase']);
+  assert.ok(form.get('fields').split(',').indexOf('history') >= 0);
+  // Meta not offering the WhatsApp Business app fields: the messages still.
+  connect.setFetchForTests(checkMeta({ noWebhook: true, noSmbFields: true }));
+  var set = await connect.setWebhook(admin);
+  assert.deepEqual(set.webhookFields, ['messages', 'phone_number_quality_update', 'account_update', 'message_template_status_update']);
+  // Pointed elsewhere, or only messages.
+  connect.setFetchForTests(checkMeta({ wrongUrl: true }));
+  assert.equal(stepOf(await connect.check(admin), 'webhook').state, 'bad');
+  connect.setFetchForTests(checkMeta({ fewFields: true }));
+  assert.equal(stepOf(await connect.check(admin), 'webhook').state, 'warn');
+
+  // A wrong secret; a token that no longer works or lacks WhatsApp; the account not subscribed; a flagged number.
+  connect.setFetchForTests(checkMeta({ badSecret: true }));
+  r = await connect.check(admin);
+  assert.deepEqual([stepOf(r, 'app').state, stepOf(r, 'webhook').state], ['bad', 'skip']);
+  assert.match(stepOf(r, 'app').error, /client secret/);
+  connect.setFetchForTests(checkMeta({ badToken: true }));
+  assert.deepEqual([stepOf(await connect.check(admin), 'token').state, stepOf(await connect.check(admin), 'token').fix], ['bad', 'connect']);
+  connect.setFetchForTests(checkMeta({ noScope: true }));
+  assert.deepEqual(stepOf(await connect.check(admin), 'token').data.lacking, ['whatsapp_business_messaging', 'whatsapp_business_management']);
+  connect.setFetchForTests(checkMeta({ notSubscribed: true }));
+  r = await connect.check(admin);
+  assert.deepEqual([stepOf(r, 'subscribed').state, stepOf(r, 'subscribed').fix], ['bad', 'subscribe']);
+  calls = [];
+  await connect.subscribeAccount(admin);
+  assert.ok(calls.some(function (c) { return c.method === 'POST' && /\/zq-waba\/subscribed_apps$/.test(c.url) && c.auth === 'Bearer zq-business-token'; }));
+  connect.setFetchForTests(checkMeta({ flagged: true }));
+  assert.equal(stepOf(await connect.check(admin), 'number').state, 'warn');
+
+  // What arrives: a call signed with another secret, then a good one.
+  connect.setFetchForTests(checkMeta());
+  await whatsapp.noteWebhook(false);
+  r = await connect.check(admin);
+  assert.deepEqual([stepOf(r, 'receiving').state, stepOf(r, 'receiving').data.signature], ['bad', true]);
+  await new Promise(function (res) { setTimeout(res, 20); });
+  await whatsapp.noteWebhook(true);
+  r = await connect.check(admin);
+  assert.equal(stepOf(r, 'receiving').state, 'ok');
+  assert.equal(stepOf(r, 'receiving').data.count, 1);
+
+  // Settings missing on Render.
+  config.whatsapp.verifyToken = '';
+  r = await connect.check(admin);
+  assert.deepEqual(stepOf(r, 'settings').data.missing, ['WHATSAPP_VERIFY_TOKEN']);
+  await assert.rejects(connect.setWebhook(admin), /WHATSAPP_VERIFY_TOKEN/);
+  config.whatsapp.verifyToken = 'zq-phrase';
+  var nobody = { can: function () { return false; }, employee: null };
+  await assert.rejects(connect.check(nobody), /settings.manage/);
+  await assert.rejects(connect.setWebhook(nobody), /settings.manage/);
+
+  await pool.query("DELETE FROM crm_channel_state WHERE key = 'whatsapp:webhook'");
+  await pool.query('DELETE FROM whatsapp_connection'); await access.load();
+});

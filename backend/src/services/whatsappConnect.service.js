@@ -24,6 +24,14 @@ var access = require('./whatsappAccess');
 
 var GRAPH = 'https://graph.facebook.com/v21.0';
 var SYNC_HOURS = 24;
+var WEBHOOK_URL = 'https://bamboo-os-backend.onrender.com/api/marketing/whatsapp/webhook';
+// The webhook fields the OS reads: the messages; with the number kept in the
+// WhatsApp Business app, the replies typed on the phone, the past chats and
+// the saved contacts; and Meta's word on the number, account and templates
+// (whatsappAlerts.service.js).
+var FIELDS = ['messages', 'smb_message_echoes', 'history', 'smb_app_state_sync', 'phone_number_quality_update', 'account_update', 'message_template_status_update'];
+var FIELDS_BASIC = ['messages', 'phone_number_quality_update', 'account_update', 'message_template_status_update'];
+function appToken() { return config.meta.appId + '|' + config.meta.appSecret; }
 
 var fetchImpl = null; // tests replace Meta
 function setFetchForTests(f) { fetchImpl = f; }
@@ -68,7 +76,7 @@ async function info(ctx) {
     appId: config.meta.appId || null, configId: config.meta.waConfigId || null,
     ready: !!(config.meta.appId && config.meta.appSecret && config.meta.waConfigId),
     missing: [!config.meta.appId && 'META_APP_ID', !config.meta.appSecret && 'META_APP_SECRET', !config.meta.waConfigId && 'META_WA_CONFIG_ID', !config.whatsapp.verifyToken && 'WHATSAPP_VERIFY_TOKEN'].filter(Boolean),
-    webhookUrl: 'https://bamboo-os-backend.onrender.com/api/marketing/whatsapp/webhook',
+    webhookUrl: WEBHOOK_URL,
     connection: rowOut(await current()),
     fromEnv: a && a.source === 'env' ? { phoneNumberId: a.phoneNumberId } : null,
     // What the test message and the templates screen can use.
@@ -170,6 +178,133 @@ async function deleteTemplate(ctx, name) {
   return { deleted: true };
 }
 
+// ── the setup check ──────────────────────────────────────────────────
+// Asks Meta, step by step, whether everything a WhatsApp message needs to
+// reach the OS is in place, and says which step is not: the settings on
+// Render, the app's id and secret, the app's webhook, the number, the
+// token, the account's subscription to the app, and what has arrived.
+// Each step: { key, state: ok | warn | bad | wait | skip, data, error, fix }
+// (fix: 'webhook' | 'subscribe' | 'connect' — what the card offers).
+var MESSAGING_SCOPES = ['whatsapp_business_messaging', 'whatsapp_business_management'];
+async function check(ctx) {
+  need(ctx);
+  var steps = [];
+  function add(key, state, data, error, fix) { steps.push({ key: key, state: state, data: data || {}, error: error || null, fix: fix || null }); }
+  var missing = [!config.meta.appId && 'META_APP_ID', !config.meta.appSecret && 'META_APP_SECRET', !config.meta.waConfigId && 'META_WA_CONFIG_ID', !config.whatsapp.verifyToken && 'WHATSAPP_VERIFY_TOKEN'].filter(Boolean);
+  add('settings', missing.length ? 'bad' : 'ok', { missing: missing });
+
+  var app = null;
+  if (!config.meta.appId || !config.meta.appSecret) add('app', 'skip');
+  else {
+    try { app = await graph('/' + encodeURIComponent(config.meta.appId) + '?fields=id,name&access_token=' + encodeURIComponent(appToken())); add('app', 'ok', { name: app.name || '' }); }
+    catch (e) { add('app', 'bad', {}, e.message); }
+  }
+
+  if (!app) add('webhook', 'skip');
+  else {
+    try {
+      var subs = await graph('/' + encodeURIComponent(config.meta.appId) + '/subscriptions?access_token=' + encodeURIComponent(appToken()));
+      var wa = (subs.data || []).find(function (x) { return x.object === 'whatsapp_business_account'; });
+      if (!wa) add('webhook', 'bad', { set: false, url: WEBHOOK_URL }, null, config.whatsapp.verifyToken ? 'webhook' : null);
+      else {
+        var names = (wa.fields || []).map(function (f) { return typeof f === 'string' ? f : f.name; });
+        var lacking = FIELDS.filter(function (f) { return names.indexOf(f) < 0; });
+        var data = { set: true, url: wa.callback_url || '', expected: WEBHOOK_URL, active: wa.active !== false, fields: names, lacking: lacking };
+        var fixable = config.whatsapp.verifyToken ? 'webhook' : null;
+        if (!data.active || data.url !== WEBHOOK_URL || names.indexOf('messages') < 0) add('webhook', 'bad', data, null, fixable);
+        else if (lacking.length) add('webhook', 'warn', data, null, fixable);
+        else add('webhook', 'ok', data);
+      }
+    } catch (e) { add('webhook', 'bad', {}, e.message, config.whatsapp.verifyToken ? 'webhook' : null); }
+  }
+
+  var a = access.get();
+  if (!a) {
+    add('number', 'bad', {}, null, 'connect');
+    add('token', 'skip'); add('subscribed', 'skip');
+  } else {
+    var num = null;
+    try { num = await graph('/' + a.phoneNumberId + '?fields=' + encodeURIComponent('display_phone_number,verified_name,status,name_status,quality_rating,platform_type,messaging_limit_tier'), a.token); }
+    catch (e) {
+      try { num = await graph('/' + a.phoneNumberId + '?fields=display_phone_number,verified_name', a.token); }
+      catch (e2) { add('number', 'bad', { source: a.source }, e2.message, 'connect'); }
+    }
+    if (num) {
+      var nd = { source: a.source, coexistence: !!a.coexistence, displayPhone: num.display_phone_number || a.displayPhone || '', verifiedName: num.verified_name || '',
+        status: num.status || null, nameStatus: num.name_status || null, quality: num.quality_rating || null, platform: num.platform_type || null, tier: num.messaging_limit_tier || null };
+      var nstate = nd.platform && nd.platform !== 'CLOUD_API' ? 'bad'
+        : (nd.status && nd.status !== 'CONNECTED') || nd.nameStatus === 'DECLINED' || nd.quality === 'RED' ? 'warn' : 'ok';
+      add('number', nstate, nd);
+    }
+    if (!config.meta.appId || !config.meta.appSecret) add('token', 'skip');
+    else {
+      try {
+        var dbg = (await graph('/debug_token?input_token=' + encodeURIComponent(a.token) + '&access_token=' + encodeURIComponent(appToken()))).data || {};
+        var lackingScopes = MESSAGING_SCOPES.filter(function (sc) { return (dbg.scopes || []).indexOf(sc) < 0; });
+        var expires = dbg.expires_at ? new Date(dbg.expires_at * 1000) : null;
+        var td = { valid: !!dbg.is_valid, expiresAt: expires, lacking: lackingScopes, source: a.source };
+        add('token', !dbg.is_valid || lackingScopes.length ? 'bad' : expires && expires.getTime() < Date.now() + 7 * 86400000 ? 'warn' : 'ok', td, null,
+          !dbg.is_valid || lackingScopes.length || expires ? 'connect' : null);
+      } catch (e) { add('token', 'bad', { source: a.source }, e.message, 'connect'); }
+    }
+    if (!a.wabaId) add('subscribed', 'skip', { noAccount: true });
+    else {
+      try {
+        var sa = await graph('/' + a.wabaId + '/subscribed_apps', a.token);
+        var appIds = (sa.data || []).map(function (x) { return String((x.whatsapp_business_api_data && x.whatsapp_business_api_data.id) || x.id || ''); });
+        add('subscribed', appIds.indexOf(String(config.meta.appId)) >= 0 ? 'ok' : 'bad', { apps: appIds.length }, null, appIds.indexOf(String(config.meta.appId)) >= 0 ? null : 'subscribe');
+      } catch (e) { add('subscribed', 'bad', {}, e.message, 'subscribe'); }
+    }
+  }
+
+  // What has arrived: any message from Meta (whatsapp.routes.js notes each
+  // one), and the last from a customer.
+  var hook = (await pool.query("SELECT last_ok_at, last_run_at, last_error, items FROM crm_channel_state WHERE key = 'whatsapp:webhook'")).rows[0] || null;
+  var lastIn = (await pool.query(
+    "SELECT max(m.sent_at) FILTER (WHERE m.direction = 'in') AS t FROM crm_messages m JOIN crm_conversations c ON c.id = m.conversation_id WHERE c.channel = 'whatsapp' AND NOT c.imported")).rows[0];
+  var rd = { lastAt: hook ? hook.last_ok_at : null, count: hook ? Number(hook.items) : 0, lastCustomerAt: lastIn ? lastIn.t : null };
+  if (hook && hook.last_error === 'signature' && (!hook.last_ok_at || new Date(hook.last_run_at) > new Date(hook.last_ok_at))) add('receiving', 'bad', Object.assign(rd, { signature: true, badAt: hook.last_run_at }));
+  else add('receiving', rd.lastAt ? 'ok' : 'wait', rd);
+
+  var blocking = steps.filter(function (x) { return x.state === 'bad'; }).length;
+  return { steps: steps, ready: !blocking, checkedAt: new Date(), webhookUrl: WEBHOOK_URL };
+}
+
+// Points the app's WhatsApp webhook at the OS (Meta then calls it once
+// with the verify phrase, which whatsapp.routes.js answers).
+async function setWebhook(ctx) {
+  need(ctx);
+  if (!config.meta.appId || !config.meta.appSecret) fail('invalid', 'META_APP_ID and META_APP_SECRET must be set on Render first.');
+  if (!config.whatsapp.verifyToken) fail('invalid', 'WHATSAPP_VERIFY_TOKEN must be set on Render first.');
+  async function post(fields) {
+    var body = new URLSearchParams({ object: 'whatsapp_business_account', callback_url: WEBHOOK_URL, verify_token: config.whatsapp.verifyToken,
+      fields: fields.join(','), include_values: 'true', access_token: appToken() });
+    return graph('/' + encodeURIComponent(config.meta.appId) + '/subscriptions', null, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
+  }
+  var used = FIELDS;
+  try { await post(FIELDS); }
+  catch (e) {
+    // Fields only for numbers kept in the WhatsApp Business app may not be
+    // offered to this app yet: the messages and Meta's notices still are.
+    try { used = FIELDS_BASIC; await post(FIELDS_BASIC); }
+    catch (e2) { fail('invalid', 'Meta did not set the webhook: ' + e2.message); }
+  }
+  await audit(pool, ctx, 'whatsapp.webhook', 'whatsapp_connection', config.meta.appId, 'Pointed the app\'s WhatsApp webhook at the OS (' + used.join(', ') + ').');
+  return Object.assign(await check(ctx), { webhookFields: used });
+}
+
+// Subscribes the app to the number's WhatsApp Business Account, so its
+// messages come to the webhook (also done when connecting).
+async function subscribeAccount(ctx) {
+  need(ctx);
+  var a = access.get();
+  if (!a) fail('invalid', 'No WhatsApp number is connected.');
+  if (!a.wabaId) fail('invalid', 'The WhatsApp Business Account ID isn\'t known: connect the number above, or set WHATSAPP_BUSINESS_ACCOUNT_ID on Render.');
+  try { await graph('/' + a.wabaId + '/subscribed_apps', a.token, { method: 'POST' }); } catch (e) { fail('invalid', 'Meta did not subscribe the app: ' + e.message); }
+  await audit(pool, ctx, 'whatsapp.subscribe', 'whatsapp_connection', a.wabaId, 'Subscribed the app to the WhatsApp Business Account\'s messages.');
+  return check(ctx);
+}
+
 // Ask Meta to send the contacts saved in the app, then the past chats.
 async function requestSync(phoneNumberId, token) {
   var out = { contacts: null, history: null, error: null };
@@ -252,4 +387,4 @@ async function disconnect(ctx) {
   return info(ctx);
 }
 
-module.exports = { info: info, finish: finish, resync: resync, disconnect: disconnect, sendTest: sendTest, listTemplates: listTemplates, createTemplate: createTemplate, deleteTemplate: deleteTemplate, setFetchForTests: setFetchForTests };
+module.exports = { info: info, finish: finish, resync: resync, disconnect: disconnect, sendTest: sendTest, listTemplates: listTemplates, createTemplate: createTemplate, deleteTemplate: deleteTemplate, check: check, setWebhook: setWebhook, subscribeAccount: subscribeAccount, setFetchForTests: setFetchForTests };
