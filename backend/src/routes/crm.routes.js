@@ -27,6 +27,7 @@ router.get('/overview', h(function (req) { return crm.overview(req.ctx, req.quer
 router.get('/executive', h(function (req) { return crmExecutive.summary(req.ctx, req.query); }));
 // A rep's board: leads, prospects and customers ranked by what needs them (crmBoard.service.js).
 router.get('/board', h(function (req) { return crmBoard.board(req.ctx, req.query); }));
+router.get('/board/day', h(function (req) { return crmBoard.myDay(req.ctx, req.query); }));
 router.get('/settings', h(function (req) { return crm.getSettings(req.ctx); }));
 router.put('/settings', h(function (req) { return crm.saveSettings(req.ctx, req.body); }));
 router.get('/people', h(function (req) { return crm.people(req.ctx); }));

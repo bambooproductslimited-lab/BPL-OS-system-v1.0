@@ -29,6 +29,7 @@ router.get('/reps', wrap(function (req) { return profiles.reps(req.ctx); }));
 router.post('/assign', wrap(function (req) { return profiles.assignRep(req.ctx, req.body || {}); }));
 
 // the inbox
+router.get('/inbox/pulse', wrap(function (req) { return require('../services/crmPulse.service').pulse(req.ctx); }));
 router.get('/conversations', wrap(function (req) { return inbox.listConversations(req.ctx, req.query); }));
 router.get('/conversations/:id', wrap(function (req) { return inbox.getConversation(req.ctx, req.params.id); }));
 router.post('/conversations/:id/reply', wrap(function (req) { return inbox.reply(req.ctx, req.params.id, req.body || {}); }));

@@ -539,6 +539,48 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
   }
 });
 
+test('the inbox\'s pulse: how fast customers get an answer, who waits longest, when they write', async function () {
+  var pulse = require('../src/services/crmPulse.service');
+  var before = await pulse.pulse(repACtx);
+  var now = Date.now(), min = 60000;
+  async function conv(channel, key, name, imported) {
+    return (await pool.query("INSERT INTO crm_conversations (channel, external_thread_id, contact_name, status, imported) VALUES ($1, $2, $3, 'open', $4) RETURNING id", [channel, key, name, !!imported])).rows[0].id;
+  }
+  async function msgAt(c, dir, minsAgo, by) {
+    await pool.query("INSERT INTO crm_messages (conversation_id, direction, body, sent_at, sent_by) VALUES ($1, $2, 'Zcrm pulse', $3, $4)", [c, dir, new Date(now - minsAgo * min), by || null]);
+    await pool.query('UPDATE crm_conversations SET last_direction = $2, last_message_at = GREATEST(COALESCE(last_message_at, $3), $3) WHERE id = $1', [c, dir, new Date(now - minsAgo * min)]);
+  }
+  // WhatsApp: answered in 30 minutes by rep A, then a new question, not answered yet.
+  var w = await conv('whatsapp', 'zcrm-pulse-wa', 'Zcrm Pulse Ama');
+  await msgAt(w, 'in', 180); await msgAt(w, 'out', 150, repA.employeeId); await msgAt(w, 'in', 50);
+  // Instagram: two messages in one turn, answered from the phone 3 hours later.
+  var g = await conv('instagram', 'zcrm-pulse-ig', 'Zcrm Pulse Kofi');
+  await msgAt(g, 'in', 300); await msgAt(g, 'in', 299); await msgAt(g, 'out', 120);
+  // An imported chat says nothing about how fast we answer now.
+  var x = await conv('whatsapp', 'zcrm-pulse-old', 'Zcrm Pulse Old', true);
+  await msgAt(x, 'in', 40);
+
+  var after = await pulse.pulse(repACtx);
+  var sum = function (xs, f) { return xs.reduce(function (a, v) { return a + f(v); }, 0); };
+  assert.equal(after.reply.turns - before.reply.turns, 3, 'three turns: two on WhatsApp, one on Instagram');
+  assert.equal(after.reply.answered - before.reply.answered, 2);
+  var mine = after.repliers.find(function (r) { return r.id === repA.employeeId; });
+  assert.deepEqual([mine.replies, mine.median], [1, 30], 'rep A answered once, in 30 minutes');
+  assert.ok(!after.repliers.some(function (r) { return r.name === ''; }));
+  var ch = function (p, k) { return p.channels.find(function (c) { return c.channel === k; }).in; };
+  assert.deepEqual([ch(after, 'whatsapp') - ch(before, 'whatsapp'), ch(after, 'instagram') - ch(before, 'instagram')], [2, 2]);
+  assert.equal(sum(after.days, function (d) { return d.in; }) - sum(before.days, function (d) { return d.in; }), 4);
+  assert.equal(sum(after.heat.grid, function (r) { return sum(r, function (n) { return n; }); }) - sum(before.heat.grid, function (r) { return sum(r, function (n) { return n; }); }), 4);
+  assert.equal(after.heat.grid.length, 7);
+  assert.equal(after.heat.grid[0].length, 24);
+  // Waiting: the WhatsApp customer (not the imported one), the longest first.
+  assert.ok(after.waiting.longest.some(function (c) { return c.id === w; }));
+  assert.ok(!after.waiting.longest.some(function (c) { return c.id === x; }));
+  var times = after.waiting.longest.map(function (c) { return new Date(c.since).getTime(); });
+  assert.deepEqual(times, times.slice().sort(function (a, b) { return a - b; }));
+  await assert.rejects(pulse.pulse({ can: function () { return false; } }), /crm\.read/);
+});
+
 test('Facebook and Instagram messages also come in through Meta\'s webhook, as they are sent', async function () {
   var lookups = [];
   meta.setFetchForTests(async function (url) {

@@ -571,6 +571,10 @@ test('the sales board: three lanes ranked by what needs the rep, and points for 
   await pool.query("UPDATE crm_lead_notes SET at = now() - interval '20 days' WHERE lead_id = $1", [overdue]);   // Yaw's call was long ago
 
   var b = await crmBoard.board(ama, {});
+  // The day alone (the follow-ups page's banner): the same points, streak and ranking.
+  var day = await crmBoard.myDay(ama, {});
+  assert.deepEqual([day.today, day.streak, day.goal, day.rank, day.rep.id], [b.progress.today, b.progress.streak, b.progress.goal, b.progress.rank, me]);
+  await assert.rejects(crmBoard.myDay(ama, { rep: 'all' }), /crm\.assign/);
   var keys = function (lane) { return b.lanes[lane].map(function (c) { return c.name; }); };
   var cardOf = function (name) { return ['lead', 'prospect', 'customer'].map(function (l) { return b.lanes[l]; }).flat().find(function (c) { return c.name === name; }); };
   var types = function (name) { return cardOf(name).signals.map(function (s) { return s.type; }); };

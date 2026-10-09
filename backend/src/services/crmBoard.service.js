@@ -324,4 +324,12 @@ async function board(ctx, q) {
   };
 }
 
-module.exports = { board: board, DAILY_GOAL: DAILY_GOAL, POINTS: POINTS };
+// Just the day's points, streak and team ranking (the follow-ups page's
+// banner), without ranking every lead and customer.
+async function myDay(ctx, q) {
+  need(ctx, 'crm.read');
+  var sc = await scope(ctx, q || {});
+  return Object.assign({ rep: sc.rep }, await progress(sc, []));
+}
+
+module.exports = { board: board, myDay: myDay, DAILY_GOAL: DAILY_GOAL, POINTS: POINTS };

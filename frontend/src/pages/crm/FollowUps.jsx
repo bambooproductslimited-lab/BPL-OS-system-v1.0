@@ -17,6 +17,7 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
   const navigate = useNavigate();
   const { can } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const c = item.customer;
   const l = item.lead;
   const top = item.reasons[0];
@@ -32,22 +33,27 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
   else if (top.type === 'quote') primary = { label: tr('Open the quotation'), run: () => navigate('/quotations?open=' + top.quotationId) };
   else if (top.type === 'lead') primary = { label: tr('Open the lead'), run: () => navigate('/crmleads?lead=' + top.leadId) };
 
+  // Handled: the card slides away, then the list is read again.
+  function away(text, kind) {
+    setLeaving(true);
+    setTimeout(() => { if (onAfter) onAfter(text, kind); }, 280);
+  }
   async function snooze(days) {
     if (!c) return;
     setBusy(true);
     try {
       const d = new Date(); d.setUTCDate(d.getUTCDate() + days);
       await api.put('/crm/profiles/' + c.id + '/follow-up', { on: d.toISOString().slice(0, 10), note: c.followUpNote || '' });
-      if (onAfter) onAfter(tr('Next follow-up with {name} set.', { name }));
+      away(tr('Next follow-up with {name} set.', { name }), 'snooze');
     } catch (err) { if (onAfter) onAfter(err.message); } finally { setBusy(false); }
   }
   async function done() {
     setBusy(true);
-    try { await api.put('/crm/profiles/' + c.id + '/follow-up', { on: null }); if (onAfter) onAfter(tr('Follow-up with {name} done.', { name })); } catch (err) { if (onAfter) onAfter(err.message); } finally { setBusy(false); }
+    try { await api.put('/crm/profiles/' + c.id + '/follow-up', { on: null }); away(tr('Follow-up with {name} done.', { name }), 'done'); } catch (err) { if (onAfter) onAfter(err.message); } finally { setBusy(false); }
   }
 
   return (
-    <article className={'hub-fu is-' + tone + (compact ? ' is-compact' : '')}>
+    <article className={'hub-fu is-' + tone + ' is-r-' + item.top + (compact ? ' is-compact' : '') + (leaving ? ' is-leaving' : '')}>
       <header className="hub-fu-head">
         <CustMark name={name} size={compact ? 36 : 44} />
         <div className="hub-fu-who">
@@ -87,7 +93,14 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
         <ContactButtons name={name} phone={phone} email={email} />
         {c && <button type="button" className="btn btn-secondary" onClick={() => onOpenProfile(c.id)}>{tr('Profile')}</button>}
         {!compact && c && can('crm.manage') && top.type === 'planned' && <button type="button" className="dk-link" disabled={busy} onClick={done}><Icon name="check" /> {tr('Done')}</button>}
-        {!compact && c && can('crm.manage') && <button type="button" className="dk-link" disabled={busy} onClick={() => snooze(7)}>{tr('Again in a week')}</button>}
+        {!compact && c && can('crm.manage') && (
+          <span className="hub-fu-snooze" role="group" aria-label={tr('Follow up again')}>
+            <span className="dk-muted tl-small">{tr('Again:')}</span>
+            <button type="button" disabled={busy} onClick={() => snooze(1)}>{tr('tomorrow')}</button>
+            <button type="button" disabled={busy} onClick={() => snooze(3)}>{tr('in 3 days')}</button>
+            <button type="button" disabled={busy} onClick={() => snooze(7)}>{tr('in a week')}</button>
+          </span>
+        )}
       </footer>
     </article>
   );
