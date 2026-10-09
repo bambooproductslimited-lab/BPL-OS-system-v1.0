@@ -397,6 +397,7 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
       if (/\/zcrm-page\?fields=/.test(url)) return reply(200, { name: 'Zcrm Bamboo Page', instagram_business_account: o.noIg ? undefined : { id: 'zcrm-ig', username: 'zcrm_bamboo' } });
       if (/\/debug_token\?/.test(url)) return reply(200, { data: { is_valid: !o.badToken, scopes: o.noMessages ? ['pages_show_list', 'instagram_basic'] : ['pages_show_list', 'pages_messaging', 'instagram_basic', 'instagram_manage_messages'] } });
       if (/platform=instagram&limit=5/.test(url)) return o.igOff ? reply(400, { error: { message: 'To access Instagram messages, turn on Allow access to messages.', code: 230 } }) : reply(200, { data: [{ id: 'c1', updated_time: new Date().toISOString() }] });
+      if (/platform=messenger&limit=5/.test(url) && o.fbOff) return reply(400, { error: { message: '(#200) Requires permission: pages_messaging', code: 200 } });
       if (/platform=messenger&limit=5/.test(url)) return reply(200, { data: [{ id: 'c2', updated_time: new Date().toISOString() }, { id: 'c3', updated_time: new Date().toISOString() }] });
       return reply(404, { error: { message: 'not faked: ' + url } });
     };
@@ -412,6 +413,21 @@ test('Facebook & Instagram messages: the setup check says which step is not righ
     meta.setFetchForTests(fakeMeta({ noMessages: true }));
     r = await meta.check(admin);
     assert.deepEqual([st(r, 'token').state, st(r, 'token').fix, st(r, 'token').data.lacking], ['bad', 'connect', ['pages_messaging', 'instagram_manage_messages']]);
+    // Meta then refuses the chats too: said to follow from the token, not the Instagram setting.
+    meta.setFetchForTests(fakeMeta({ noMessages: true, igOff: true, fbOff: true }));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'messenger').state, st(r, 'messenger').data.becauseToken, st(r, 'instagram').state, st(r, 'instagram').data.becauseToken], ['bad', true, 'bad', true]);
+    meta.setFetchForTests(fakeMeta({ igOff: true }));
+    assert.equal(st(await meta.check(admin), 'instagram').data.becauseToken, false, 'with the permission, it is the Instagram setting');
+    // Connected before the OS asked for messages: the read leaves it alone, and the check says so.
+    var keepScope = (await pool.query("SELECT scope FROM marketing_oauth_tokens WHERE channel_key = 'facebook'")).rows[0].scope;
+    await pool.query("UPDATE marketing_oauth_tokens SET scope = 'pages_show_list,instagram_basic' WHERE channel_key = 'facebook'");
+    meta.setFetchForTests(fakeMeta({ noMessages: true }));
+    r = await meta.check(admin);
+    assert.deepEqual([st(r, 'arriving').data.facebook.notAsked, st(r, 'arriving').data.instagram.notAsked, st(r, 'arriving').fix], [true, true, null]);
+    await pool.query("UPDATE marketing_oauth_tokens SET scope = $1 WHERE channel_key = 'facebook'", [keepScope]);
+    meta.setFetchForTests(fakeMeta());
+    assert.equal(st(await meta.check(admin), 'arriving').data.facebook.notAsked, false);
     meta.setFetchForTests(fakeMeta({ igOff: true }));
     r = await meta.check(admin);
     assert.equal(st(r, 'instagram').state, 'bad');

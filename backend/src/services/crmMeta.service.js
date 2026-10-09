@@ -170,7 +170,7 @@ async function check(ctx) {
   }
 
   var fb = await access('facebook');
-  var pageInfo = null, scopes = null;
+  var pageInfo = null, scopes = null, lacking = [];
   if (!fb) {
     add('page', 'bad', {}, null, 'connect');
     ['token', 'messenger', 'instagram'].forEach(function (k) { add(k, 'skip'); });
@@ -186,7 +186,7 @@ async function check(ctx) {
         var d = (await graph('/debug_token?input_token=' + encodeURIComponent(fb.token), appToken)).data || {};
         scopes = d.scopes || [];
         var want = NEED_FB.concat(pageInfo && pageInfo.instagram_business_account ? NEED_IG : []);
-        var lacking = want.filter(function (x) { return scopes.indexOf(x) < 0; });
+        lacking = want.filter(function (x) { return scopes.indexOf(x) < 0; });
         add('token', !d.is_valid || lacking.length ? 'bad' : 'ok', { valid: !!d.is_valid, lacking: lacking, configId: !!config.meta.pagesConfigId }, null, !d.is_valid || lacking.length ? 'connect' : null);
       } catch (e) { add('token', 'bad', {}, e.message, 'connect'); }
     }
@@ -194,7 +194,7 @@ async function check(ctx) {
     try {
       var mc = await graph('/' + fb.pageId + '/conversations?platform=messenger&limit=5&fields=id,updated_time', fb.token);
       add('messenger', 'ok', { seen: (mc.data || []).length, latest: mc.data && mc.data[0] ? mc.data[0].updated_time : null });
-    } catch (e) { add('messenger', 'bad', {}, e.message); }
+    } catch (e) { add('messenger', 'bad', { becauseToken: lacking.indexOf('pages_messaging') >= 0 }, e.message); }
 
     var igLinked = pageInfo && pageInfo.instagram_business_account;
     var igRow = await access('instagram');
@@ -204,7 +204,7 @@ async function check(ctx) {
       try {
         var ic = await graph('/' + fb.pageId + '/conversations?platform=instagram&limit=5&fields=id,updated_time', fb.token);
         add('instagram', 'ok', { username: igLinked.username || '', seen: (ic.data || []).length, latest: ic.data && ic.data[0] ? ic.data[0].updated_time : null });
-      } catch (e) { add('instagram', 'bad', { username: igLinked.username || '' }, e.message); }
+      } catch (e) { add('instagram', 'bad', { username: igLinked.username || '', becauseToken: lacking.indexOf('instagram_manage_messages') >= 0 }, e.message); }
     }
   }
 
@@ -222,11 +222,14 @@ async function check(ctx) {
     var st = states.find(function (x) { return x.key === ch; }) || null;
     var li = lastIn.find(function (x) { return x.channel === ch; }) || null;
     arriving[ch] = { lastReadAt: st ? st.last_ok_at : null, error: st && st.last_error && (!st.last_ok_at || new Date(st.last_run_at) > new Date(st.last_ok_at)) ? st.last_error : null,
-      received: li ? li.n : 0, lastCustomerAt: li ? li.t : null };
+      received: li ? li.n : 0, lastCustomerAt: li ? li.t : null,
+      // Connected before the OS asked for messages: the 3-minute read leaves it alone.
+      notAsked: !!(fb && fb.scope.indexOf(NEEDS[ch]) < 0) };
   });
   var anyErr = arriving.facebook.error || arriving.instagram.error;
   var anyRead = arriving.facebook.lastReadAt || arriving.instagram.lastReadAt;
-  add('arriving', anyErr ? 'bad' : anyRead ? 'ok' : 'wait', arriving, null, fb ? 'sync' : null);
+  var noneAsked = arriving.facebook.notAsked && arriving.instagram.notAsked;
+  add('arriving', anyErr ? 'bad' : anyRead ? 'ok' : 'wait', arriving, null, fb && !noneAsked ? 'sync' : null);
 
   return { steps: steps, ready: !steps.some(function (x) { return x.state === 'bad'; }), checkedAt: new Date() };
 }

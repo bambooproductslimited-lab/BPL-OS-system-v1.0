@@ -39,6 +39,7 @@ function recent(d) {
 
 function channelLine(label, c) {
   if (!c) return null;
+  if (c.notAsked) return tr('{channel}: not read — connect with Facebook again first.', { channel: label });
   if (c.error) return tr('{channel}: the last read failed ({why}).', { channel: label, why: c.error });
   if (!c.lastReadAt) return tr('{channel}: not read yet.', { channel: label });
   return [tr('{channel}: read {when}', { channel: label, when: ago(c.lastReadAt) }),
@@ -69,17 +70,20 @@ function stepText(st, steps) {
       return tr('Valid: the OS may read the chats and answer them.');
     case 'messenger':
       if (st.state === 'skip') return tr('Checked once a Page is connected.');
+      if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks pages_messaging. This follows from the step above: once it is right, this one is too.');
       if (st.error) return tr('Meta refused to show the Page’s chats ({why}). Connect with Facebook again and leave every permission ticked.', { why: st.error });
       return tr('The OS can read them: {recent}.', { recent: recent(d) });
     case 'instagram':
       if (st.state === 'skip') return tr('Checked once a Page is connected.');
       if (d.noAccount) return tr('No Instagram account is linked to the Page. In the Instagram app, switch the company account to a Professional account; then link it to the Page (Facebook Page → Settings → Linked accounts → Instagram) and connect with Facebook again.');
       if (d.notSaved) return tr('The Page’s Instagram account @{ig} is not connected in the OS yet. Connect with Facebook again: it comes with the Page.', { ig: d.username || '—' });
+      if (st.error && d.becauseToken) return tr('Meta refused, because the Page token lacks instagram_manage_messages. This follows from the step above: once it is right, check again.');
       if (st.error) return tr('Meta refused @{ig}’s direct messages ({why}). In the Instagram app: Settings → Messages and story replies → Message controls → Connected tools → turn on “Allow access to messages”, then check again.', { ig: d.username || '—', why: st.error });
       return tr('@{ig}: the OS can read them: {recent}.', { ig: d.username || '—', recent: recent(d) });
     case 'review':
       return tr('Until Meta’s App Review approves pages_messaging and instagram_manage_messages, Meta only passes on messages from people with a role on the app (Meta for Developers → App roles). Test with such an account; customers’ messages come in once Meta approves.');
     case 'arriving':
+      if (st.state === 'wait' && st.data.facebook && st.data.facebook.notAsked && st.data.instagram && st.data.instagram.notAsked) return tr('Not reading yet: the Page was connected before the OS asked for permission to read messages. Connect with Facebook again (above); reading starts within 3 minutes.');
       if (st.state === 'wait') return tr('Nothing read yet. The OS reads every 3 minutes once the Page is connected; press “Read messages now” to read at once.');
       return null;
     default: return '';
