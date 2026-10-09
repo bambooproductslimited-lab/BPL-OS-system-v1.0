@@ -13,6 +13,7 @@
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var app = require('../src/app');
+var config = require('../src/config');
 
 var server;
 var base;
@@ -49,6 +50,31 @@ test('meta oauth: callback with an invalid/expired state redirects to the choose
   assert.equal(res.status, 302);
   var location = res.headers.get('location');
   assert.match(location, /meta=error/);
+});
+
+test('meta oauth: back to the OS address the person started from, never one off the list', async function () {
+  var admin = await login('kelvin.duho@bplghana.com');
+  var keep = Object.assign({}, config.meta);
+  Object.assign(config.meta, { appId: 'zq-app', appSecret: 'zq-secret', redirectUri: 'https://zq-api.example/api/marketing/oauth/meta/callback', configured: true });
+  config.corsOrigin.push('https://zq-os.example');
+  try {
+    async function startFrom(origin) {
+      var r = await fetch(base + '/api/marketing/oauth/meta/start', { method: 'POST', headers: Object.assign({ Origin: origin }, authed(admin)) });
+      assert.equal(r.status, 200);
+      return new URL((await r.json()).url).searchParams.get('state');
+    }
+    async function landing(state) {
+      var r = await fetch(base + '/api/marketing/oauth/meta/callback?error=access_denied&state=' + state, { redirect: 'manual' });
+      return r.headers.get('location');
+    }
+    assert.match(await landing(await startFrom('https://zq-os.example')), /^https:\/\/zq-os\.example\/socialtracker\?meta=error/);
+    var elsewhere = await landing(await startFrom('https://zq-not-ours.example'));
+    assert.ok(!/zq-not-ours/.test(elsewhere), 'an address not on the list is never used');
+    assert.ok(elsewhere.indexOf(config.appUrl) === 0, 'the usual OS address instead');
+  } finally {
+    config.corsOrigin.splice(config.corsOrigin.indexOf('https://zq-os.example'), 1);
+    Object.assign(config.meta, keep);
+  }
 });
 
 test('meta pages: fails cleanly with a missing/expired pending token, never crashes', async function () {

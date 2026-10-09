@@ -5,6 +5,7 @@ var metaOAuthService = require('../services/metaOAuth.service');
 var youtubeOAuthService = require('../services/youtubeOAuth.service');
 var twitchOAuthService = require('../services/twitchOAuth.service');
 var config = require('../config');
+var { pool } = require('../db/pool');
 
 // OAuth redirect endpoints, mounted at /api/marketing/oauth in app.js (a
 // separate mount from marketing.routes.js's /api/marketing, which applies
@@ -20,6 +21,26 @@ var config = require('../config');
 
 var router = express.Router();
 
+// Back to the OS address the person started from (one of CORS_ORIGIN's),
+// kept with the sign-in's one-time state — not simply the first address on
+// the list, which may be an old one they are not signed in on.
+function originOf(req) {
+  var o = String(req.get('origin') || '').replace(/\/+$/, '');
+  return o && config.corsOrigin.some(function (x) { return x.replace(/\/+$/, '') === o; }) ? o : null;
+}
+async function remember(req, out) {
+  var o = originOf(req);
+  var m = /[?&]state=([^&]+)/.exec((out && out.url) || '');
+  if (o && m) await pool.query('UPDATE marketing_oauth_states SET return_to = $1 WHERE state = $2', [o, decodeURIComponent(m[1])]);
+  return out;
+}
+// Read before the service uses up the state.
+async function targetFor(state) {
+  var r = null;
+  try { r = state ? (await pool.query('SELECT return_to FROM marketing_oauth_states WHERE state = $1', [String(state)])).rows[0] : null; } catch (e) { r = null; }
+  return (r && r.return_to) || config.appUrl || config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+}
+
 // Back to the tracker, on the company whose account was just connected.
 function back(target, companyCode, query) {
   var q = new URLSearchParams(query);
@@ -28,11 +49,11 @@ function back(target, companyCode, query) {
 }
 
 router.post('/tiktok/start', requireAuth, async function (req, res, next) {
-  try { res.json(await tiktokOAuthService.startAuth(req.ctx, (req.body || {}).channel)); } catch (e) { next(e); }
+  try { res.json(await remember(req, await tiktokOAuthService.startAuth(req.ctx, (req.body || {}).channel))); } catch (e) { next(e); }
 });
 
 router.get('/tiktok/callback', async function (req, res) {
-  var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+  var target = await targetFor(req.query.state);
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
     var done = await tiktokOAuthService.handleCallback(req.query.code, req.query.state);
@@ -43,14 +64,14 @@ router.get('/tiktok/callback', async function (req, res) {
 });
 
 router.post('/meta/start', requireAuth, async function (req, res, next) {
-  try { res.json(await metaOAuthService.startAuth(req.ctx, (req.body || {}).company)); } catch (e) { next(e); }
+  try { res.json(await remember(req, await metaOAuthService.startAuth(req.ctx, (req.body || {}).company))); } catch (e) { next(e); }
 });
 
 // Meta's callback can't finish the connection by itself (the user may
 // admin more than one Facebook Page) — it hands off to the frontend's
 // "choose a Page" step via a pending token instead of connecting outright.
 router.get('/meta/callback', async function (req, res) {
-  var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+  var target = await targetFor(req.query.state);
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
     var result = await metaOAuthService.handleCallback(req.query.code, req.query.state);
@@ -61,11 +82,11 @@ router.get('/meta/callback', async function (req, res) {
 });
 
 router.post('/youtube/start', requireAuth, async function (req, res, next) {
-  try { res.json(await youtubeOAuthService.startAuth(req.ctx, (req.body || {}).channel)); } catch (e) { next(e); }
+  try { res.json(await remember(req, await youtubeOAuthService.startAuth(req.ctx, (req.body || {}).channel))); } catch (e) { next(e); }
 });
 
 router.get('/youtube/callback', async function (req, res) {
-  var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+  var target = await targetFor(req.query.state);
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
     var done = await youtubeOAuthService.handleCallback(req.query.code, req.query.state);
@@ -76,11 +97,11 @@ router.get('/youtube/callback', async function (req, res) {
 });
 
 router.post('/twitch/start', requireAuth, async function (req, res, next) {
-  try { res.json(await twitchOAuthService.startAuth(req.ctx)); } catch (e) { next(e); }
+  try { res.json(await remember(req, await twitchOAuthService.startAuth(req.ctx))); } catch (e) { next(e); }
 });
 
 router.get('/twitch/callback', async function (req, res) {
-  var target = config.corsOrigin[0] || 'https://blueviolet-ant-812811.hostingersite.com';
+  var target = await targetFor(req.query.state);
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
     await twitchOAuthService.handleCallback(req.query.code, req.query.state);
