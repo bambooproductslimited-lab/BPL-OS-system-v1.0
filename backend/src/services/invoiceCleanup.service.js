@@ -13,7 +13,9 @@ var pokiInvoices = require('./pokiInvoices.service');
 // Several invoices, one action, one reason:
 //   paid      — the money came in: a payment of what is left, with its
 //               receipt (not emailed: the customer would get receipts for
-//               money paid long ago);
+//               money paid long ago), dated either the day each bill was
+//               due (paidOn 'due': money that came in long ago, so it does
+//               not count as money in this week) or one date given;
 //   write_off — the money will not come: a credit note for what is left,
 //               so the invoice stays (and stays delivered) but owes nothing;
 //   void      — the sale never happened: only an invoice with no payments,
@@ -71,17 +73,20 @@ async function run(ctx, p, side) {
   if (!ids.length) fail('invalid', 'Tick at least one invoice.');
   if (ids.length > MAX) fail('invalid', 'At most ' + MAX + ' invoices at a time.');
   if (ids.some(function (x) { return !UUID.test(String(x)); })) fail('invalid', 'One of the invoices is not valid.');
-  var method = null, date = null;
+  var method = null, date = null, onDue = false;
   if (action === 'paid') {
     method = V.oneOf(p.method || 'bank_transfer', METHODS, 'Payment method');
-    date = V.date(p.date || todayISO(), 'Payment date');
-    if (date > todayISO()) fail('invalid', 'The payment date cannot be in the future.');
+    onDue = p.paidOn === 'due';
+    if (!onDue) {
+      date = V.date(p.date || todayISO(), 'Payment date');
+      if (date > todayISO()) fail('invalid', 'The payment date cannot be in the future.');
+    }
   }
 
   // Only this side's invoices (not another company's).
   var args = [ids];
   var rows = (await pool.query(
-    'SELECT i.id, i.invoice_no, i.currency, i.balance_due, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    'SELECT i.id, i.invoice_no, i.currency, i.balance_due, i.due_date, i.issued_at, c.name AS customer_name FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
     'WHERE i.id = ANY($1::uuid[]) AND ' + side.scope(function (v) { args.push(v); return '$' + args.length; }), args)).rows;
   var byId = {};
   rows.forEach(function (r) { byId[r.id] = r; });
@@ -96,9 +101,13 @@ async function run(ctx, p, side) {
         // The balance as it is now, not as the page last saw it.
         var due = money((await pool.query('SELECT balance_due FROM invoices WHERE id = $1', [r.id])).rows[0].balance_due);
         if (due <= 0) fail('conflict', 'Nothing is owed on this invoice.');
+        // The day it was due (or issued), never later than today.
+        var on = date;
+        if (onDue) { on = String(r.due_date || r.issued_at).slice(0, 10); if (on > todayISO()) on = todayISO(); }
         var paid = await side.pay(r.id, {
-          amount: due, method: method, date: date, reference: 'Clean-up', notes: reason, noReceiptEmail: true
+          amount: due, method: method, date: on, reference: 'Clean-up', notes: reason, noReceiptEmail: true
         });
+        out.date = on;
         out.amount = due;
         out.made = paid.receipt.receiptNo;
       } else if (action === 'write_off') {

@@ -8,6 +8,10 @@ router.use(requireAuth);
 router.get('/', async function (req, res, next) {
   try { res.json(await paymentsService.list(req.ctx)); } catch (e) { next(e); }
 });
+// A payment on the wrong day moves to the day the money came in: { date, reason }.
+router.patch('/:id', async function (req, res, next) {
+  try { res.json(await paymentsService.changeDate(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
 router.delete('/:id', async function (req, res, next) {
   try { res.json(await paymentsService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }
 });

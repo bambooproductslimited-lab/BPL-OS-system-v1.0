@@ -7,6 +7,7 @@ import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import ReceiptPreview from '../components/ReceiptPreview';
+import PaymentDateDialog from '../components/PaymentDateDialog';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr, msg, docTr } from '../lib/i18n.jsx';
@@ -65,6 +66,7 @@ export default function PaymentsPage() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [dateTarget, setDateTarget] = useState(null);
   const [detail, setDetail] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
@@ -177,6 +179,7 @@ export default function PaymentsPage() {
     return [
       { label: tr('Open'), onClick: () => setDetail(p.id) },
       receiptByPaymentId[p.id] && { label: tr('Preview receipt'), onClick: () => openReceipt(p) },
+      canManage && p.source !== 'square' && p.source !== 'refund' && { label: tr('Change date'), onClick: () => setDateTarget(p) },
       canManage && { label: tr('Delete'), onClick: () => setDeleteTarget(p), danger: true }
     ].filter(Boolean);
   }
@@ -316,6 +319,7 @@ export default function PaymentsPage() {
             </div>
             <div className="dialog-actions tl-actions">
               {canManage && <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(cur)}>{tr('Delete')}</button>}
+              {canManage && cur.source !== 'square' && cur.source !== 'refund' && <button type="button" className="btn btn-secondary" onClick={() => setDateTarget(cur)}>{tr('Change date')}</button>}
               <Link className="btn btn-secondary" to={'/invoices?open=' + cur.invoiceId}>{tr('Open {no}', { no: cur.invoiceNo })}</Link>
               {receiptByPaymentId[cur.id] && <button type="button" className="btn btn-primary" onClick={() => openReceipt(cur)}>{tr('Preview receipt')}</button>}
             </div>
@@ -334,6 +338,11 @@ export default function PaymentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {dateTarget && (
+        <PaymentDateDialog payment={dateTarget} onClose={() => setDateTarget(null)}
+          onSaved={(r) => { setToast(tr('Payment on {invoiceNo} moved to {date}.', { invoiceNo: dateTarget.invoiceNo, date: fmtDate(r.date) })); setDateTarget(null); load(); }} />
       )}
 
       {previewR && (

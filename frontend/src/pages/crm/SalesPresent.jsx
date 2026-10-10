@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
+import PaymentDateDialog from '../../components/PaymentDateDialog';
+import { fmtDate } from '../../components/DashKit';
 import SlideDeck, { addDays, mondayOf, recentWeeks, weekLabel } from '../../components/SlideDeck';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import CustomerProfile from './CustomerProfile';
@@ -15,9 +18,50 @@ import './SalesPresent.css';
 // answered yet marked — then what moved (new prospects, won, lost and why),
 // sales and money in against last week, the team side by side, and what is
 // due next week. A lead's card opens the lead over the slides; a new
-// inbox writer's card opens their profile.
+// inbox writer's card opens their profile; "Money in" lists the week's
+// payments, and one recorded on the wrong day can be moved to the day the
+// money came in (components/PaymentDateDialog.jsx).
 
 const PER_SLIDE = 8;
+const METHOD_WORD = { cash: () => tr('Cash'), bank_transfer: () => tr('Bank transfer'), mobile_money: () => tr('Mobile money'), card: () => tr('Card'), cheque: () => tr('Cheque'), other: () => tr('Other') };
+
+// The payments behind "money in" for the week, each one movable.
+function WeekPayments({ list, range, canMove, onMove, onClose, note }) {
+  const total = list.reduce((a, x) => a + x.amount, 0);
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog ssr-pay" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={tr('Money in this week')}>
+        <div className="ssr-pay-head">
+          <div>
+            <h2>{tr('Money in this week')}</h2>
+            <p className="dk-muted tl-small">{range} · {list.length === 1 ? tr('1 payment') : tr('{n} payments', { n: list.length })} · {ghs(total)}</p>
+          </div>
+          <button type="button" className="tl-close" onClick={onClose} aria-label={tr('Close')}>×</button>
+        </div>
+        <p className="ssr-pay-help">{tr('A payment that did not come in this week — typed in late with today\'s date, or settled in a clean-up — can be moved to the day the money really came in. It then leaves this week\'s money in.')}</p>
+        {note && <p className="ssr-pay-done" role="status">{note}</p>}
+        {list.length ? (
+          <ul className="ssr-pay-list">
+            {list.map((x) => (
+              <li key={x.id}>
+                <span className="ssr-pay-date">{fmtDate(x.date)}</span>
+                <span className="ssr-pay-main">
+                  <strong>{x.customerName}</strong>
+                  <span className="dk-muted tl-small">{[x.invoiceNo + ' · ' + tr('issued {date}', { date: fmtDate(x.invoiceIssued) }), METHOD_WORD[x.method] ? METHOD_WORD[x.method]() : x.method, x.reference, x.receivedByName ? tr('recorded by {name}', { name: x.receivedByName }) : null].filter(Boolean).join(' · ')}</span>
+                  {(x.reference === 'Clean-up' || x.source === 'square') && <span className="ssr-pay-tags">{x.reference === 'Clean-up' && <em>{tr('From a clean-up of old bills')}</em>}{x.source === 'square' && <em>{tr('From Square')}</em>}</span>}
+                </span>
+                <b className="ssr-pay-amount">{ghs(x.amount)}</b>
+                {canMove && x.source !== 'square' && x.source !== 'refund'
+                  ? <button type="button" className="btn btn-secondary tl-btn" onClick={() => onMove(x)}>{tr('Change date')}</button>
+                  : <span />}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="dk-muted">{tr('No payments came in this week.')}</p>}
+      </div>
+    </div>
+  );
+}
 const PHASE_WORD = { lead: () => tr('Lead'), prospect: () => tr('Prospect'), won: () => tr('Won, waiting for payment'), customer: () => tr('Customer'), lost: () => tr('Lost') };
 function chunk(list, n) { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; }
 function weekday(iso, long) { return new Date(iso + 'T00:00').toLocaleDateString(activeIntlLocale(), long ? { weekday: 'long' } : { weekday: 'short' }); }
@@ -100,7 +144,8 @@ export default function SalesPresent({ onClose }) {
   const [weekFrom, setWeekFrom] = useState(thisMonday);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(null); // { kind: 'lead' | 'customer', id }
+  const [open, setOpen] = useState(null); // { kind: 'lead' | 'customer' | 'payments' | 'payDate', id, payment, note }
+  const { can } = useAuth();
   const { settings, people } = useCrmBasics();
   const { reps } = useReps();
 
@@ -278,14 +323,19 @@ export default function SalesPresent({ onClose }) {
       );
     }
     if (sl.kind === 'money') {
-      const fact = (label, value, now, before, isMoney, note) => (
-        <div className="ssr-kpi">
-          <span className="ssr-kpi-label">{label}</span>
-          <b className={isMoney ? 'ssr-money' : ''}>{value}</b>
-          {before !== undefined && <Change now={now} before={before} money={isMoney} />}
-          {note && <span className="ssr-kpi-note">{note}</span>}
-        </div>
-      );
+      const fact = (label, value, now, before, isMoney, note, onClick) => {
+        const Tag = onClick ? 'button' : 'div';
+        return (
+          <Tag type={onClick ? 'button' : undefined} className={'ssr-kpi' + (onClick ? ' is-link' : '')} onClick={onClick}>
+            <span className="ssr-kpi-label">{label}</span>
+            <b className={isMoney ? 'ssr-money' : ''}>{value}</b>
+            {before !== undefined && <Change now={now} before={before} money={isMoney} />}
+            {note && <span className="ssr-kpi-note">{note}</span>}
+          </Tag>
+        );
+      };
+      const pays = data.paymentsIn || [];
+      const cleanUps = pays.filter((x) => x.reference === 'Clean-up').length;
       return (
         <div className="wop-sum">
           <header className="wop-head">
@@ -295,7 +345,9 @@ export default function SalesPresent({ onClose }) {
           </header>
           <div className="ssr-kpis">
             {fact(tr('Sold'), ghs(m.sales), m.sales, b.sales, true, m.invoices === 1 ? tr('1 invoice') : tr('{n} invoices', { n: m.invoices }))}
-            {fact(tr('Money in'), ghs(m.cash), m.cash, b.cash, true)}
+            {fact(tr('Money in'), ghs(m.cash), m.cash, b.cash, true,
+              <>{pays.length === 1 ? tr('1 payment — press to see it') : tr('{n} payments — press to see them', { n: pays.length })}{cleanUps ? <span className="ssr-kpi-warn"> · {cleanUps === 1 ? tr('1 from a clean-up of old bills') : tr('{n} from a clean-up of old bills', { n: cleanUps })}</span> : null}</>,
+              () => setOpen({ kind: 'payments' }))}
             {fact(tr('Customers who bought'), String(m.buyers), m.buyers, b.buyers, false, tr('{new} new · {returning} came back', { new: m.newBuyers, returning: m.returningBuyers }))}
             {fact(tr('Quotations sent'), String(m.quotesSent), m.quotesSent, b.quotesSent, false, m.quotesSent ? tr('worth {amount}', { amount: ghs(m.quotesValue) }) : null)}
             {fact(tr('Quotations accepted'), String(m.quotesWon), m.quotesWon, b.quotesWon, false, m.quotesWon ? tr('worth {amount}', { amount: ghs(m.quotesWonValue) }) : null)}
@@ -380,6 +432,18 @@ export default function SalesPresent({ onClose }) {
         <LeadDialog leadId={open.id} settings={settings} people={people} onClose={() => setOpen(null)} onChanged={load} />
       )}
       {open && open.kind === 'customer' && <CustomerProfile id={open.id} reps={reps} onClose={() => setOpen(null)} onChanged={load} />}
+      {open && (open.kind === 'payments' || open.kind === 'payDate') && data && (
+        <WeekPayments list={data.paymentsIn || []} range={range} canMove={can('invoice.manage')} note={open.note}
+          onMove={(x) => setOpen({ kind: 'payDate', payment: x })} onClose={() => setOpen(null)} />
+      )}
+      {open && open.kind === 'payDate' && (
+        <PaymentDateDialog payment={open.payment} onClose={() => setOpen({ kind: 'payments' })}
+          onSaved={async (r) => {
+            const note = tr('{amount} from {name} moved to {date}.', { name: open.payment.customerName, amount: ghs(open.payment.amount), date: fmtDate(r.date) });
+            await load();
+            setOpen({ kind: 'payments', note });
+          }} />
+      )}
     </>
   );
 }

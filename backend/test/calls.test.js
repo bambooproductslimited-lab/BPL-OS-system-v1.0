@@ -259,7 +259,8 @@ test('a call rings on phones with the OS closed: an urgent pop-up with Decline, 
     assert.deepEqual(missed.map(function (s) { return s.emp; }), [ids.faith]);
     assert.match(missed[0].payload.title, /^Missed video call from /);
     assert.equal(missed[0].opts.topic, c.id.replace(/-/g, ''), 'replaces the undelivered ring');
-    var bell = (await pool.query('SELECT title, link FROM notifications WHERE employee_id = $1 ORDER BY at DESC LIMIT 1', [ids.faith])).rows[0];
+    // Her latest chat notification (other tests running alongside may add a stock alert for her at the same moment).
+    var bell = (await pool.query("SELECT title, link FROM notifications WHERE employee_id = $1 AND link LIKE 'chat:%' ORDER BY at DESC LIMIT 1", [ids.faith])).rows[0];
     assert.match(bell.title, /^Missed video call from /);
     assert.equal(bell.link, 'chat:' + groupId);
 

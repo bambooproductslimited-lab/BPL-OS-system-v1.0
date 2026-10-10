@@ -16,6 +16,7 @@ test.before(async function () {
   cust = await customers.create(boss, { name: 'Zqp Crate Co', phone: '0240000701', email: 'zqp@example.com', category: 'active' });
 });
 test.after(async function () {
+  await pool.query("DELETE FROM audit_logs WHERE action = 'payment.redate' AND summary LIKE '%Zqp Crate Co%'");
   await pool.query('DELETE FROM payments WHERE customer_id = $1', [cust.id]);
   await pool.query("DELETE FROM document_line_items WHERE document_id IN (SELECT id FROM invoices WHERE customer_id = $1)", [cust.id]);
   await pool.query('DELETE FROM invoices WHERE customer_id = $1', [cust.id]);
@@ -56,4 +57,32 @@ test('removing a payment restores the balance and removes its receipt', async fu
   assert.equal(Number(row.balance_due), 50);
   assert.equal(row.paid_at, null);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM receipts WHERE payment_id = $1', [r.payment.id])).rows[0].n, 0);
+});
+
+test('a payment on the wrong day moves to the day the money came in, with its receipt, and the log says why', async function () {
+  var inv = await invoices.createManual(boss, { customerId: cust.id, items: [{ description: 'Zqp pallet', qty: 1, unitPrice: 300 }] });
+  var first = await invoices.recordPayment(boss, inv.id, { amount: 100, method: 'cash', date: '2026-01-05' });
+  var last = await invoices.recordPayment(boss, inv.id, { amount: 200, method: 'cash' }); // recorded today, by mistake
+  var moved = await payments.changeDate(boss, last.payment.id, { date: '2026-01-20', reason: 'Zqp: paid in January, recorded late' });
+  assert.deepEqual([moved.date, moved.was.length], ['2026-01-20', 10]);
+  var p = (await pool.query('SELECT date FROM payments WHERE id = $1', [last.payment.id])).rows[0];
+  var r = (await pool.query('SELECT date FROM receipts WHERE payment_id = $1', [last.payment.id])).rows[0];
+  var i = (await pool.query('SELECT paid_at, status FROM invoices WHERE id = $1', [inv.id])).rows[0];
+  assert.deepEqual([String(p.date).slice(0, 10), String(r.date).slice(0, 10), i.status, String(i.paid_at).slice(0, 10)], ['2026-01-20', '2026-01-20', 'paid', '2026-01-20'], 'the receipt and the paid date follow');
+  var log = (await pool.query("SELECT summary FROM audit_logs WHERE action = 'payment.redate' AND entity_id = $1", [inv.id])).rows[0];
+  assert.match(log.summary, /from \d{4}-\d{2}-\d{2} to 2026-01-20: Zqp: paid in January, recorded late/);
+  assert.equal((await payments.list(boss)).find(function (x) { return x.id === first.payment.id; }).source, 'manual');
+
+  // What it will not do.
+  await assert.rejects(payments.changeDate(boss, last.payment.id, { date: '2099-01-01', reason: 'x' }), /future/);
+  await assert.rejects(payments.changeDate(boss, last.payment.id, { date: '2026-01-02' }), /Reason is required/);
+  await assert.rejects(payments.changeDate(boss, last.payment.id, { date: '2026-01-20', reason: 'x' }), /already on that date/);
+  await pool.query("UPDATE payments SET source = 'square' WHERE id = $1", [first.payment.id]);
+  await assert.rejects(payments.changeDate(boss, first.payment.id, { date: '2026-01-02', reason: 'x' }), /Square/);
+  await pool.query("UPDATE payments SET source = 'manual' WHERE id = $1", [first.payment.id]);
+  var reader = Object.assign(Object.create(Object.getPrototypeOf(boss)), boss, { can: function (x) { return x === 'invoice.read'; } });
+  await assert.rejects(payments.changeDate(reader, first.payment.id, { date: '2026-01-02', reason: 'x' }), /invoice\.manage/);
+  var pokiOnly = Object.assign(Object.create(Object.getPrototypeOf(boss)), boss, { can: function (x) { return x === 'poki.manage'; } });
+  await assert.rejects(payments.changeDate(pokiOnly, first.payment.id, { date: '2026-01-02', reason: 'x' }), /invoice\.manage/, 'a Poki manager does not move Bamboo Products\' payments');
+  await assert.rejects(payments.changeDate(boss, '00000000-0000-0000-0000-000000000000', { date: '2026-01-02', reason: 'x' }), /not found/);
 });

@@ -153,6 +153,21 @@ async function week(ctx, query) {
   // ── the money ──────────────────────────────────────────────────────
   var money = await executive._money(co, from, to);
   var moneyBefore = await executive._money(co, prev.from, prev.to);
+  // The payments behind "money in", so one on the wrong day can be seen and
+  // moved (payments.service.js changeDate).
+  var S0 = executive._sql;
+  var qp = { args: [] };
+  function pp(v) { qp.args.push(v); return '$' + qp.args.length; }
+  var paymentsIn = (await pool.query(
+    'SELECT p.id, p.date, p.amount, p.currency, p.method, p.reference, p.notes, p.source, i.id AS invoice_id, i.invoice_no, i.issued_at, c.name AS customer_name, ' +
+    '  e.first_name, e.last_name FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id LEFT JOIN employees e ON e.id = p.received_by ' +
+    'WHERE ' + S0.SALE + ' AND p.date BETWEEN ' + pp(from) + ' AND ' + pp(to) + ' AND ' + crm._invoiceScope(co, pp) + ' ORDER BY p.date, p.amount DESC', qp.args)).rows
+    .map(function (r) {
+      return {
+        id: r.id, date: dateOnly(r.date), amount: r2(r.amount), currency: r.currency, method: r.method, reference: r.reference || '', notes: r.notes || '', source: r.source,
+        invoiceId: r.invoice_id, invoiceNo: r.invoice_no, invoiceIssued: dateOnly(r.issued_at), customerName: r.customer_name, receivedByName: personName(r.first_name, r.last_name) || null
+      };
+    });
 
   // ── site visits ────────────────────────────────────────────────────
   var visitRows = (await pool.query(
@@ -223,7 +238,7 @@ async function week(ctx, query) {
       list: list, inbox: inbox
     },
     moved: { prospects: moved.prospects, won: moved.won, lost: moved.lost, lostReasons: reasons },
-    money: money, moneyBefore: moneyBefore,
+    money: money, moneyBefore: moneyBefore, paymentsIn: paymentsIn,
     visits: visits,
     followUps: { overdue: fu.overdue, nextWeek: fu.next_week, none: fu.none },
     quotesExpiringNextWeek: { n: expiring.n, value: r2(expiring.v) },

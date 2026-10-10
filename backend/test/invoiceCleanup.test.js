@@ -64,6 +64,18 @@ test('recorded as paid: what is left on each, with a receipt, on the date and by
   assert.match(log.summary, /2 invoice\(s\) recorded as paid \(GHS 1000\.00\)/);
 });
 
+test('recorded as paid on the day each was due: old money does not count as money in this week', async function () {
+  var a = await invoiceOf(400), b = await invoiceOf(600);
+  await pool.query("UPDATE invoices SET issued_at = '2025-03-01', due_date = '2025-03-15' WHERE id = $1", [a.id]);
+  await pool.query("UPDATE invoices SET issued_at = '2025-04-01', due_date = NULL WHERE id = $1", [b.id]);
+  var r = await cleanupSvc.apply(admin, { invoiceIds: [a.id, b.id], action: 'paid', method: 'cash', paidOn: 'due', reason: 'ZIC test: paid long ago' });
+  assert.equal(r.done, 2);
+  assert.deepEqual(r.results.map(function (x) { return x.date; }), ['2025-03-15', '2025-04-01'], 'the due date, or the issue date when there is none');
+  var dates = (await pool.query('SELECT invoice_id, date FROM payments WHERE invoice_id = ANY($1::uuid[])', [[a.id, b.id]])).rows;
+  assert.deepEqual(dates.map(function (x) { return String(x.date).slice(0, 10); }).sort(), ['2025-03-15', '2025-04-01']);
+  assert.equal(String((await row(a.id)).paid_at).slice(0, 10), '2025-03-15');
+});
+
 test('written off: a credit note for what is left; the invoice keeps its total and owes nothing', async function () {
   var a = await invoiceOf(1200), b = await invoiceOf(7260);
   await invoices.recordPayment(admin, b.id, { amount: 7000, method: 'bank_transfer' });

@@ -74,6 +74,8 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
   const [action, setAction] = useState('write_off');
   const [method, setMethod] = useState('bank_transfer');
   const [date, setDate] = useState(todayIso());
+  // Old bills paid long ago: dated the day each was due, so they do not count as money in this week.
+  const [paidOn, setPaidOn] = useState('due');
   const [reason, setReason] = useState('');
   const [step, setStep] = useState('pick'); // pick → confirm → done
   const [saving, setSaving] = useState(false);
@@ -101,14 +103,14 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
     paid: (n) => (n === 1 ? tr('Record 1 invoice as paid') : tr('Record {n} invoices as paid', { n })),
     void: (n) => (n === 1 ? tr('Void 1 invoice') : tr('Void {n} invoices', { n }))
   }[action];
-  const canGo = willDo.length > 0 && reason.trim() && !(action === 'paid' && (!date || date > todayIso()));
+  const canGo = willDo.length > 0 && reason.trim() && !(action === 'paid' && paidOn === 'one' && (!date || date > todayIso()));
 
   async function run() {
     setSaving(true); setError(null);
     try {
       const res = await api.post(rent ? '/poki/invoices/cleanup' : '/invoices/cleanup', {
         invoiceIds: ticked.map((inv) => inv.id), action, reason: reason.trim(),
-        method: action === 'paid' ? method : undefined, date: action === 'paid' ? date : undefined
+        method: action === 'paid' ? method : undefined, paidOn: action === 'paid' ? paidOn : undefined, date: action === 'paid' && paidOn === 'one' ? date : undefined
       });
       setResult(res); setStep('done');
       if (onDone) onDone(res);
@@ -168,7 +170,7 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
               <div>
                 <strong>{verb(willDo.length)} · {moneyBreakdown(sumOf(willDo))}</strong>
                 <p>{tr(act.what)}</p>
-                {action === 'paid' && <p>{tr('Paid by {method} on {date}.', { method: tr(METHODS.find((m) => m[0] === method)[1]), date: fmtDate(date) })}</p>}
+                {action === 'paid' && <p>{paidOn === 'due' ? tr('Paid by {method}, each on the day it was due.', { method: tr(METHODS.find((m) => m[0] === method)[1]) }) : tr('Paid by {method} on {date}.', { method: tr(METHODS.find((m) => m[0] === method)[1]), date: fmtDate(date) })}</p>}
                 <p className="icu-why">“{reason.trim()}”</p>
                 {action === 'void' && withPayments.length > 0 && <p>{withPayments.length === 1 ? tr('1 ticked invoice has payments, so it will be left as it is.') : tr('{n} ticked invoices have payments, so they will be left as they are.', { n: withPayments.length })}</p>}
                 <p className="icu-small">{tr('This cannot be undone from here. It is recorded in the audit log under your name.')}</p>
@@ -252,9 +254,17 @@ export default function InvoiceCleanupDialog({ invoices, onClose, onDone, startD
                     </select>
                   </label>
                   <label className="field">
-                    <span className="field-label">{tr('On')}</span>
-                    <input className="input" type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} />
-                    <small className="icu-small">{tr('When the money came in, if you know it; otherwise today.')}</small>
+                    <span className="field-label">{tr('Dated')}</span>
+                    <select className="input" value={paidOn} onChange={(e) => setPaidOn(e.target.value)}>
+                      <option value="due">{tr('The day each bill was due')}</option>
+                      <option value="one">{tr('One date I choose')}</option>
+                    </select>
+                    {paidOn === 'one'
+                      ? <input className="input" type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} aria-label={tr('On')} />
+                      : null}
+                    <small className="icu-small">{paidOn === 'due'
+                      ? tr('Money that came in long ago is dated when it was due, so it does not count as money in this week.')
+                      : tr('When the money came in. Today counts it as money in this week.')}</small>
                   </label>
                 </div>
               )}
