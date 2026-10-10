@@ -543,3 +543,24 @@ i.is-late { background: var(--wo-s2); }
 .wo-pmdlg-keep > input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--color-accent); }
 .wo-pmdlg-name { width: 11rem; padding: 4px 8px; font-size: 13px; }
 .wo-filtered .dk-link { margin-left: 4px; }
+
+/* the sheet again: what it brings up to date, and names to correct */
+.wo-import-heads.is-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.wo-import-heads .is-update { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent); }
+.wo-import-section.is-update { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); display: flex; flex-direction: column; gap: 8px; }
+.wo-import-section.is-update summary { font-size: 13px; }
+.wo-import-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.wo-import-check input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--color-accent); }
+.wo-import-check > span { display: flex; flex-direction: column; gap: 2px; }
+.wo-import-moves { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wo-import-moves li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; background: color-mix(in srgb, var(--color-text) 4%, var(--color-bg)); }
+.wo-import-moves li > span:first-child { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); }
+.wo-move-from { text-decoration: line-through; color: var(--color-text-muted); }
+.wo-import-changes { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.wo-import-changes li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; padding-bottom: 6px; border-bottom: 1px dashed var(--color-border); }
+.wo-import-changes li > .wo-small { flex-basis: 100%; }
+.wo-import-title { min-width: 0; overflow-wrap: anywhere; }
+.wo-could-be { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--color-text-muted); }
+.wo-could-chip { padding: 2px 9px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 700; color: var(--color-text); background: var(--color-bg); border: 1px solid var(--color-border); cursor: pointer; }
+.wo-could-chip:hover, .wo-could-chip.is-on { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg)); }
+@media (max-width: 640px) { .wo-import-heads.is-four { grid-template-columns: 1fr 1fr; } }

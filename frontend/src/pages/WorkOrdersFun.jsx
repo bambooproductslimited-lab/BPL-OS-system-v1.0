@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import Photo from '../components/Photo';
 import RowMenu from '../components/RowMenu';
@@ -511,6 +511,7 @@ export function WoImport({ employees, onClose, onDone }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [aliases, setAliases] = useState({});
+  const [update, setUpdate] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const staff = employees.slice().sort((a, b) => (a.firstName + a.lastName).localeCompare(b.firstName + b.lastName));
@@ -521,6 +522,7 @@ export function WoImport({ employees, onClose, onDone }) {
     const given = {};
     Object.keys(aliases).forEach((k) => { if (aliases[k]) given[k] = aliases[k]; });
     fd.append('aliases', JSON.stringify(given));
+    fd.append('update', update ? '1' : '0');
     return fd;
   }
   async function pick(f) {
@@ -529,6 +531,12 @@ export function WoImport({ employees, onClose, onDone }) {
     setBusy(true);
     try { setPreview(await api.upload('/tasks/import/preview', form(f))); } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
+  // A name said to be someone else: the preview is worked out again with it.
+  useEffect(() => {
+    if (!file || !preview) return undefined;
+    const t = setTimeout(() => { api.upload('/tasks/import/preview', form(file)).then(setPreview).catch((err) => setError(err.message)); }, 300);
+    return () => clearTimeout(t);
+  }, [aliases]); // eslint-disable-line react-hooks/exhaustive-deps
   async function run() {
     setBusy(true); setError(null);
     try { onDone(await api.upload('/tasks/import', form(file))); } catch (err) { setError(err.message); } finally { setBusy(false); }
@@ -536,6 +544,23 @@ export function WoImport({ employees, onClose, onDone }) {
   const unknown = preview ? preview.people.filter((p) => !p.employeeId) : [];
   const known = preview ? preview.people.filter((p) => p.employeeId) : [];
   const statuses = preview ? Object.keys(preview.byStatus).sort((a, b) => preview.byStatus[b] - preview.byStatus[a]) : [];
+  const up = preview ? preview.updates : null;
+  const toUpdate = up && update ? up.total : 0;
+  const changeText = (c) => {
+    if (c.what === 'status') return tr('status: {from} → {to}', { from: woStatusLabel(c.from), to: woStatusLabel(c.to) });
+    if (c.what === 'closed') return tr('closed on: {from} → {to}', { from: c.from ? fmtDate(c.from) : '—', to: fmtDate(c.to) });
+    if (c.what === 'due') return tr('due: {from} → {to}', { from: c.from ? fmtDate(c.from) : '—', to: fmtDate(c.to) });
+    if (c.what === 'issued') return tr('issued: {from} → {to}', { from: c.from ? fmtDate(c.from) : '—', to: fmtDate(c.to) });
+    if (c.what === 'pm') return tr('project manager: {from} → {to}', { from: c.from, to: c.to });
+    return tr('prepared by: {from} → {to}', { from: c.from, to: c.to });
+  };
+  const KEPT = { status: () => tr('status'), closed: () => tr('closing date'), due: () => tr('due date'), issued: () => tr('date issued'), pm: () => tr('project manager'), prepared: () => tr('prepared by') };
+  const nameSelect = (p) => (
+    <select className="input" value={aliases[p.name] !== undefined ? aliases[p.name] : (p.employeeId || '')} onChange={(e) => setAliases({ ...aliases, [p.name]: e.target.value })} aria-label={tr('Who is {name}?', { name: p.name })}>
+      <option value="">{tr('Keep as written')}</option>
+      {staff.map((e) => <option key={e.id} value={e.id}>{e.firstName + ' ' + e.lastName}</option>)}
+    </select>
+  );
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -552,14 +577,46 @@ export function WoImport({ employees, onClose, onDone }) {
 
         {preview && (
           <div className="wo-import-body">
-            <div className="wo-import-heads">
-              <div><strong>{preview.toAdd}</strong><span>{tr('work orders to add')}</span></div>
-              <div><strong>{preview.already}</strong><span>{tr('already in the OS, left as they are')}</span></div>
-              <div><strong>{preview.from ? fmtDate(preview.from) : '—'}</strong><span>{preview.to ? tr('to {date}', { date: fmtDate(preview.to) }) : ''}</span></div>
+            <div className="wo-import-heads is-four">
+              <div><strong>{preview.toAdd}</strong><span>{tr('new work orders to add')}</span></div>
+              <div className={up.total ? 'is-update' : ''}><strong>{up.total}</strong><span>{tr('in the OS, changed on the sheet since')}</span></div>
+              <div><strong>{preview.already - up.total}</strong><span>{tr('in the OS, nothing new')}</span></div>
+              <div><strong>{preview.from ? fmtDate(preview.from) : '—'}</strong><span>{preview.to ? tr('to {date}', { date: fmtDate(preview.to) }) : tr('new ones issued')}</span></div>
             </div>
             <p className="wo-small">{tr('Tabs read:')} {preview.tabs.map((x) => tr('“{name}” — {kind}, {n} rows', { name: x.name, kind: (KIND[x.kind] || (() => x.kind))(), n: x.rows })).join(' · ')}</p>
-            {statuses.length > 0 && <div className="wo-import-statuses">{statuses.map((s) => <span key={s} className="wo-import-status"><StatusPill status={s} /> {preview.byStatus[s]}</span>)}</div>}
+            {statuses.length > 0 && <div className="wo-import-statuses"><span className="dk-muted wo-small">{tr('New ones:')}</span> {statuses.map((s) => <span key={s} className="wo-import-status"><StatusPill status={s} /> {preview.byStatus[s]}</span>)}</div>}
             {preview.renumber && <p className="wo-note">{tr('Numbers are given in date order, oldest first, so the sheet’s first WO becomes WO-0001. Work orders already in the OS are numbered in with them.')}</p>}
+
+            {up.total > 0 && (
+              <section className="wo-import-section is-open is-update">
+                <label className="wo-import-check">
+                  <input type="checkbox" checked={update} onChange={(e) => setUpdate(e.target.checked)} />
+                  <span><strong>{tr('Bring {n} work orders up to date with the sheet', { n: up.total })}</strong><span className="dk-muted wo-small">{tr('Their status and closing date, due and issued dates, project manager and who prepared them, as the sheet has them now.')}</span></span>
+                </label>
+                {Object.keys(up.toStatus).length > 0 && <div className="wo-import-statuses">{Object.keys(up.toStatus).sort((a, b) => up.toStatus[b] - up.toStatus[a]).map((s) => <span key={s} className="wo-import-status">→ <StatusPill status={s} /> {up.toStatus[s]}</span>)}</div>}
+                {up.pm.length > 0 && (
+                  <ul className="wo-import-moves">
+                    {up.pm.map((m) => <li key={m.from + m.to}><span>{tr('Project manager')}</span><span className="wo-move-from">{m.from}</span><span aria-hidden="true">→</span><strong>{m.to}</strong><span className="dk-muted">{tr('{n} WOs', { n: m.n })}</span></li>)}
+                  </ul>
+                )}
+                {(up.dates > 0 || up.prepared > 0) && <p className="wo-small dk-muted">{[up.dates ? tr('{n} with new dates', { n: up.dates }) : null, up.prepared ? tr('{n} with who prepared them', { n: up.prepared }) : null].filter(Boolean).join(' · ')}</p>}
+                <details>
+                  <summary>{up.total > up.list.length ? tr('The latest {n}, one by one', { n: up.list.length }) : tr('Each one')}</summary>
+                  <ul className="wo-import-changes">
+                    {up.list.map((u) => <li key={u.woNo}><strong>{u.woNo}</strong> <span className="wo-import-title">{u.title}</span><span className="dk-muted wo-small">{u.changes.map(changeText).join(' · ')}</span></li>)}
+                  </ul>
+                </details>
+              </section>
+            )}
+            {up.kept > 0 && (
+              <details className="wo-import-section">
+                <summary>{tr('{n} kept as they are in the OS — changed there since', { n: up.kept })}</summary>
+                <p className="dk-muted wo-small">{tr('Someone changed these in the OS after the import, so the OS keeps what it has for what was changed there. Change them by hand if the sheet is right.')}</p>
+                <ul className="wo-import-changes">
+                  {up.keptList.map((k) => <li key={k.woNo}><strong>{k.woNo}</strong> <span className="wo-import-title">{k.title}</span><span className="dk-muted wo-small">{tr('kept: {what}', { what: k.what.map((w) => (KEPT[w] || (() => w))()).join(', ') })}</span></li>)}
+                </ul>
+              </details>
+            )}
 
             {preview.requestedFor.length > 0 && (
               <details className="wo-import-section">
@@ -575,15 +632,14 @@ export function WoImport({ employees, onClose, onDone }) {
             {unknown.length > 0 && (
               <section className="wo-import-section is-open">
                 <h3>{tr('Names to match — {n}', { n: unknown.length })}</h3>
-                <p className="dk-muted wo-small">{tr('These names on the sheet aren’t one person in the directory. Pick who each one is, and the OS will know them next time; any left blank are kept as written on the work order.')}</p>
+                <p className="dk-muted wo-small">{tr('These names on the sheet aren’t one person in the directory, or could be more than one. Pick who each one is, and the OS will know them next time; any left blank are kept as written on the work order.')}</p>
                 <ul className="wo-import-list is-names">
                   {unknown.map((p) => (
                     <li key={p.name}>
-                      <span><strong>{p.name}</strong> <span className="dk-muted">{p.roles.map((r) => (ROLE[r] || (() => r))()).join(', ')} · {tr('{n} WOs', { n: p.n })}</span></span>
-                      <select className="input" value={aliases[p.name] || ''} onChange={(e) => setAliases({ ...aliases, [p.name]: e.target.value })} aria-label={tr('Who is {name}?', { name: p.name })}>
-                        <option value="">{tr('Keep as written')}</option>
-                        {staff.map((e) => <option key={e.id} value={e.id}>{e.firstName + ' ' + e.lastName}</option>)}
-                      </select>
+                      <span><strong>{p.name}</strong> <span className="dk-muted">{p.roles.map((r) => (ROLE[r] || (() => r))()).join(', ')} · {tr('{n} WOs', { n: p.n })}</span>
+                        {p.couldBe && p.couldBe.length > 0 && <span className="wo-could-be">{tr('Could be:')} {p.couldBe.map((c) => <button key={c.id} type="button" className={'wo-could-chip' + (aliases[p.name] === c.id ? ' is-on' : '')} onClick={() => setAliases({ ...aliases, [p.name]: c.id })}>{c.name}</button>)}</span>}
+                      </span>
+                      {nameSelect(p)}
                     </li>
                   ))}
                 </ul>
@@ -591,9 +647,9 @@ export function WoImport({ employees, onClose, onDone }) {
             )}
             {known.length > 0 && (
               <details className="wo-import-section">
-                <summary>{tr('Matched to staff — {n} names', { n: known.length })}</summary>
-                <ul className="wo-import-list">
-                  {known.map((p) => <li key={p.name}><span>{p.name}</span><span className="dk-muted">{tr('{n} WOs', { n: p.n })}</span><span className="wo-match">→ {p.employeeName}</span></li>)}
+                <summary>{tr('Matched to staff — {n} names (change any that are wrong)', { n: known.length })}</summary>
+                <ul className="wo-import-list is-names">
+                  {known.map((p) => <li key={p.name}><span><strong>{p.name}</strong> <span className="dk-muted">{p.roles.map((r) => (ROLE[r] || (() => r))()).join(', ')} · {tr('{n} WOs', { n: p.n })}</span></span>{nameSelect(p)}</li>)}
                 </ul>
               </details>
             )}
@@ -602,8 +658,8 @@ export function WoImport({ employees, onClose, onDone }) {
 
         <div className="dialog-actions">
           <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
-          <button type="button" className="btn btn-primary" disabled={!preview || !preview.toAdd || busy} onClick={run}>
-            {busy && preview ? tr('Importing…') : preview && preview.toAdd ? tr('Import {n} work orders', { n: preview.toAdd }) : tr('Import')}
+          <button type="button" className="btn btn-primary" disabled={!preview || (!preview.toAdd && !toUpdate) || busy} onClick={run}>
+            {busy && preview ? tr('Importing…') : !preview ? tr('Import') : preview.toAdd && toUpdate ? tr('Add {n} and update {m}', { n: preview.toAdd, m: toUpdate }) : preview.toAdd ? tr('Import {n} work orders', { n: preview.toAdd }) : toUpdate ? tr('Update {n} work orders', { n: toUpdate }) : tr('Nothing new on the sheet')}
           </button>
         </div>
       </div>

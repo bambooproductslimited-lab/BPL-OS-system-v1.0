@@ -239,6 +239,98 @@ test('the WO sheet: tabs matched by timestamp, statuses, people and companies, n
   assert.equal((await woImport.run(boss, file, {})).added, 0);
 });
 
+// A later copy of a sheet: three WOs with their Stage row each.
+async function laterSheet(rows) {
+  var wb = new ExcelJS.Workbook();
+  var formHead = ['0.', 'Email Address', 'customer name', 'SO Link', 'Item number', 'Description of WO', 'Quantity', 'Specification and Link', 'Material Needed',
+    'Project Manager', 'Team Members', 'Process', 'Images', 'Other', 'Prepared by', 'Date Issued', 'Estimate Date Due', 'Material Quantity', 'Material Specification', 'Images 2', 'Other Attachments', 'Contact'];
+  var form = wb.addWorksheet('Form Responses 1');
+  form.addRow(formHead);
+  var stage = wb.addWorksheet('Stage');
+  stage.addRow(['Open Date', 'Est. Due Date', 'Closed', 'Status', 'Week', 'Index', 'Timestamp'].concat(formHead.slice(1)));
+  rows.forEach(function (r) {
+    var line = [r.ts, '', 'BPL', '', '', r.title, 1, '', '', r.pm, '', '', '', '', r.prepared || 'Kelvin', r.issued, r.due, '', '', '', '', ''];
+    form.addRow(line);
+    stage.addRow([r.issued, r.due, r.closed || '', r.status, '', '', new Date(r.ts.getTime() + 400)].concat(line.slice(1)));
+  });
+  return { buffer: await wb.xlsx.writeBuffer() };
+}
+
+test('the sheet again, later: its changes reach the WOs already in the OS, unless changed in the OS; look-alike names are asked', async function () {
+  var dept = (await pool.query('SELECT department_id FROM employees WHERE id = $1', [pmId])).rows[0].department_id;
+  async function emp(code, first, last) {
+    return (await pool.query("INSERT INTO employees (code, first_name, last_name, email, department_id, hire_date) VALUES ($1,$2,$3,$4,$5,'2025-01-01') RETURNING id",
+      [code, first, last, code.toLowerCase() + '@wox.example', dept])).rows[0].id;
+  }
+  var tugah = await emp('WOX-T', 'Zqisrael', 'Tugah');
+  var omoz = await emp('WOX-O', 'Zqisreal', 'Omoz');     // the same first name, misspelled
+  function at(day) { return new Date(Date.UTC(2030, 3, day, 9, 5, 0, 100)); }
+  function d(day) { return new Date(Date.UTC(2030, 3, day)); }
+  try {
+    var first = await laterSheet([
+      { ts: at(2), title: 'Wox gate', pm: 'Zqisrael', issued: d(2), due: d(5), status: 'In Process' },
+      { ts: at(3), title: 'Wox bench', pm: 'Faith', issued: d(3), due: d(6), status: 'In Process' },
+      { ts: at(4), title: 'Wox table', pm: 'Faith', issued: d(4), due: d(7), status: 'In Process' }
+    ]);
+    // "Zqisrael" is one person's first name and someone else's misspelled: not guessed.
+    var p = await woImport.preview(boss, first, {});
+    var name = p.people.find(function (x) { return x.name === 'Zqisrael'; });
+    assert.equal(name.employeeId, null);
+    assert.deepEqual(name.couldBe.map(function (x) { return x.id; }).sort(), [tugah, omoz].sort());
+    // Imported as it went wrong before: given to the wrong one.
+    assert.equal((await woImport.run(boss, first, { aliases: JSON.stringify({ Zqisrael: tugah }) })).added, 3);
+    var got = (await pool.query("SELECT id, wo_no FROM tasks WHERE sheet_stamp >= '2030-04-01' AND sheet_stamp < '2030-05-01' ORDER BY sheet_stamp")).rows;
+    assert.equal((await tasks.get(boss, got[0].id)).projectManager.id, tugah);
+    // In the OS, someone put the table up for checking.
+    await tasks.setStatus(boss, got[2].id, 'under_review');
+
+    var later = await laterSheet([
+      { ts: at(2), title: 'Wox gate', pm: 'Zqisrael', issued: d(2), due: d(5), status: 'Completed', closed: d(6) },
+      { ts: at(3), title: 'Wox bench', pm: 'Faith', issued: d(3), due: d(6), status: 'Cancelled', closed: d(7) },
+      { ts: at(4), title: 'Wox table', pm: 'Faith', issued: d(4), due: d(9), status: 'In Process' },
+      { ts: at(8), title: 'Wox new one', pm: 'Zqisrael', issued: d(8), due: d(9), status: 'In Process' }
+    ]);
+    var right = JSON.stringify({ Zqisrael: omoz });
+    var pv = await woImport.preview(boss, later, { aliases: right });
+    assert.equal(pv.toAdd, 1);
+    assert.equal(pv.updates.total, 3);
+    assert.deepEqual(pv.updates.toStatus, { completed: 1, cancelled: 1 });
+    assert.deepEqual(pv.updates.pm, [{ from: 'Zqisrael Tugah', to: 'Zqisreal Omoz', n: 1 }]);
+    assert.equal(pv.updates.kept, 1, 'the table\'s status was changed in the OS: kept');
+    assert.deepEqual(pv.updates.keptList[0].what, ['status']);
+    var gate = pv.updates.list.find(function (x) { return x.title === 'Wox gate'; });
+    assert.deepEqual(gate.changes.map(function (c) { return c.what; }), ['status', 'pm']);
+
+    // Asked not to: only the new one comes in.
+    var none = await woImport.run(boss, later, { aliases: right, update: '0' });
+    assert.deepEqual([none.added, none.updated], [1, 0]);
+    assert.equal((await tasks.get(boss, got[0].id)).status, 'in_progress');
+
+    var r = await woImport.run(boss, later, { aliases: right });
+    assert.deepEqual([r.added, r.updated], [0, 3]);
+    var gate2 = await tasks.get(boss, got[0].id);
+    assert.deepEqual([gate2.status, new Date(gate2.completedAt).toISOString().slice(0, 10), gate2.projectManager.id], ['completed', new Date(Date.UTC(2030, 3, 6, 12)).toISOString().slice(0, 10), omoz]);
+    var bench = await tasks.get(boss, got[1].id);
+    assert.equal(bench.status, 'cancelled');
+    var table = await tasks.get(boss, got[2].id);
+    assert.deepEqual([table.status, table.dueDate], ['under_review', '2030-04-09'], 'its status stays, its new due date comes');
+    var fresh = (await pool.query("SELECT project_manager_id FROM tasks WHERE sheet_stamp >= '2030-04-08' AND sheet_stamp < '2030-04-09'")).rows[0];
+    assert.equal(fresh.project_manager_id, omoz);
+    assert.equal((await pool.query("SELECT employee_id FROM crm_name_aliases WHERE name_key = 'zqisrael'")).rows[0].employee_id, omoz, 'remembered');
+    assert.ok((await pool.query("SELECT 1 FROM notifications WHERE employee_id = $1 AND body LIKE 'From the work-order sheet%'", [omoz])).rows.length, 'the right one is told');
+    assert.ok((await pool.query("SELECT 1 FROM audit_logs WHERE action = 'task.sheet' AND entity_id = $1", [String(got[0].id)])).rows.length);
+
+    // Once more: nothing left to bring in.
+    var again = await woImport.preview(boss, later, {});
+    assert.deepEqual([again.toAdd, again.updates.total], [0, 0]);
+  } finally {
+    await pool.query("DELETE FROM tasks WHERE sheet_stamp >= '2030-04-01' AND sheet_stamp < '2030-05-01'");
+    await pool.query("DELETE FROM crm_name_aliases WHERE name_key = 'zqisrael'");
+    await pool.query('DELETE FROM notifications WHERE employee_id = ANY($1)', [[tugah, omoz]]);
+    await pool.query('DELETE FROM employees WHERE id = ANY($1)', [[tugah, omoz]]);
+  }
+});
+
 test('only someone who may issue WOs can import them, and only a workbook', async function () {
   await assert.rejects(woImport.preview(await ctxFor('alice.kamau@bplghana.com'), { buffer: Buffer.from('x') }, {}), /not allow/);
   await assert.rejects(woImport.preview(boss, { buffer: Buffer.from('not a workbook') }, {}), /couldn’t be read/);

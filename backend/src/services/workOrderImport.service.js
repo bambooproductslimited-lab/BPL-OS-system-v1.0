@@ -2,6 +2,7 @@ var ExcelJS = require('exceljs');
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
+var { notify } = require('../utils/notify');
 
 // Brings the workshop's work-order sheet into the OS (migration 0136): the
 // Google Sheet behind the WO form, downloaded as .xlsx. Its tabs are
@@ -20,8 +21,14 @@ var { audit } = require('../utils/audit');
 // staff are matched to the directory (a first name used by one person
 // only, or a name someone has said is them); names that can't be matched
 // are kept as written. Every WO keeps the form's timestamp, so importing
-// the same workbook again adds nothing twice; WOs already brought in are
-// left as they are (they may have been worked on in the OS since).
+// the same workbook again adds nothing twice.
+//
+// WOs already brought in are brought up to date from the sheet — the
+// workshop may still keep it while the OS catches on: status and the date
+// it closed, the due and issued dates, the project manager and who
+// prepared it. A WO changed in the OS since (its status, or the WO edited,
+// or its project manager changed by hand) keeps what the OS has; the
+// preview lists both.
 
 var MAX_ROWS = 5000;
 var NEAR_MS = 1500;
@@ -175,7 +182,7 @@ function finish(w) {
   var team = splitNames(w.d.team);
   splitNames(a.who).forEach(function (n) { if (!team.some(function (t) { return norm(t) === norm(n); })) team.push(n); });
   return {
-    ts: w.ts, d: w.d, status: status, issued: issued, due: w.d.due,
+    ts: w.ts, d: w.d, status: status, saysStatus: !!(from.status || from.closed), issued: issued, due: w.d.due,
     closed: status === 'completed' || status === 'cancelled' ? (from.closed || s.closed || a.closed || w.d.due || issued) : null,
     workers: a.workers || null, workDays: a.days || null, team: team
   };
@@ -188,6 +195,17 @@ function splitNames(s) {
 
 function nameKey(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
 
+// "Isreal" for "Israel": the same letters, two side by side swapped — how a
+// name is most often misspelled. A first name that one person has while
+// someone else has it misspelled is not taken for either: the person
+// importing says who it is, once.
+function swapped(a, b) {
+  if (a.length !== b.length || a.length < 4 || a === b) return false;
+  var i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  return i < a.length - 1 && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+}
+
 async function staffMatcher(extraAliases) {
   var emps = (await pool.query("SELECT id, first_name, last_name FROM employees WHERE status <> 'terminated'")).rows;
   var aliases = {};
@@ -195,7 +213,7 @@ async function staffMatcher(extraAliases) {
   Object.keys(extraAliases || {}).forEach(function (k) { aliases[nameKey(k)] = extraAliases[k]; });
   var byId = {};
   emps.forEach(function (e) { byId[e.id] = e; });
-  return function (name) {
+  var match = function (name) {
     var alias = aliases[nameKey(name)];
     if (alias && byId[alias]) return alias;
     var n = norm(name);
@@ -203,10 +221,20 @@ async function staffMatcher(extraAliases) {
     var full = emps.filter(function (e) { return norm(e.first_name + ' ' + e.last_name) === n; });
     if (full.length === 1) return full[0].id;
     var first = emps.filter(function (e) { return norm(e.first_name) === n || norm(e.first_name).split(' ')[0] === n; });
-    if (first.length === 1) return first[0].id;
+    var lookAlike = emps.some(function (e) { return first.indexOf(e) < 0 && swapped(norm(e.first_name).split(' ')[0], n); });
+    if (first.length === 1 && !lookAlike) return first[0].id;
+    if (first.length || lookAlike) return null;
     var last = emps.filter(function (e) { return norm(e.last_name) === n; });
     return last.length === 1 ? last[0].id : null;
   };
+  match.couldBe = function (name) {
+    var n = norm(name);
+    if (!n) return [];
+    var w = n.split(' ')[0];
+    return emps.filter(function (e) { var f = norm(e.first_name).split(' ')[0]; return f === w || swapped(f, w); })
+      .slice(0, 6).map(function (e) { return { id: e.id, name: (e.first_name + ' ' + e.last_name).trim() }; });
+  };
+  return match;
 }
 
 // Who a WO is for: one of our companies ("BPL", "poki", "Star bar",
@@ -247,7 +275,59 @@ async function plan(file, aliases) {
   var matchStaff = await staffMatcher(aliases);
   var matchFor = await forMatcher();
   var fresh = wos.filter(function (w) { return !already(w.ts); });
-  return { sheets: sheets, wos: wos, fresh: fresh, matchStaff: matchStaff, matchFor: matchFor, firstImport: stamps.length === 0 };
+  var known = await updates(wos.filter(function (w) { return already(w.ts); }), matchStaff);
+  return { sheets: sheets, wos: wos, fresh: fresh, updates: known.updates, kept: known.kept, matchStaff: matchStaff, matchFor: matchFor, firstImport: stamps.length === 0 };
+}
+
+// ── WOs already in the OS: what changed on the sheet since ─────────────
+function dayOf(v) { return v ? new Date(v).toISOString().slice(0, 10) : null; }
+async function updates(sheetWos, matchStaff) {
+  if (!sheetWos.length) return { updates: [], kept: [] };
+  var rows = (await pool.query(
+    'SELECT id, wo_no, title, status, completed_at, cancelled_at, due_date::text AS due, issued_on::text AS issued, project_manager_id, pm_name, created_by, prepared_by_name, sheet_stamp ' +
+    'FROM tasks WHERE sheet_stamp IS NOT NULL ORDER BY sheet_stamp')).rows;
+  var times = rows.map(function (r) { return new Date(r.sheet_stamp).getTime(); });
+  function find(ts) {
+    var t = ts.getTime(), lo = 0, hi = rows.length - 1, best = null, gap = NEAR_MS + 1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1, g = Math.abs(times[mid] - t);
+      if (g < gap) { gap = g; best = rows[mid]; }
+      if (times[mid] < t) lo = mid + 1; else hi = mid - 1;
+    }
+    return gap <= NEAR_MS ? best : null;
+  }
+  // What was changed in the OS since: the status, the project manager by
+  // hand, or the WO edited (which may have changed anything).
+  var edited = {};
+  (await pool.query("SELECT entity_id, action, summary FROM audit_logs WHERE entity = 'task' AND action IN ('task.status', 'task.update') AND entity_id = ANY($1)",
+    [rows.map(function (r) { return String(r.id); })])).rows.forEach(function (a) {
+    var e = edited[a.entity_id] = edited[a.entity_id] || { status: false, pm: false, other: false };
+    if (a.action === 'task.status') e.status = true;
+    else if (/^Project manager of /.test(a.summary || '')) e.pm = true;
+    else { e.other = true; e.pm = true; }
+  });
+  var out = [], kept = [];
+  sheetWos.forEach(function (w) {
+    var t = find(w.ts);
+    if (!t) return;
+    var e = edited[String(t.id)] || { status: false, pm: false, other: false };
+    var ch = {}, keep = [];
+    if (w.saysStatus && w.status !== t.status) {
+      if (e.status || e.other) keep.push('status'); else ch.status = w.status;
+    } else if (w.saysStatus && w.closed && (t.status === 'completed' || t.status === 'cancelled')) {
+      var was = dayOf(t.status === 'completed' ? t.completed_at : t.cancelled_at);
+      if (was !== w.closed) { if (e.status || e.other) keep.push('closed'); else ch.closed = w.closed; }
+    }
+    if (w.due && w.due !== t.due) { if (e.other) keep.push('due'); else ch.due = w.due; }
+    if (w.issued && w.issued !== t.issued) { if (e.other) keep.push('issued'); else ch.issued = w.issued; }
+    var pmId = w.d.pm ? matchStaff(w.d.pm) : null;
+    if (pmId && pmId !== t.project_manager_id) { if (e.pm) keep.push('pm'); else ch.pm = pmId; }
+    var prepId = w.d.preparedBy ? matchStaff(w.d.preparedBy) : null;
+    if (prepId && prepId !== t.created_by) { if (e.other) keep.push('prepared'); else ch.prepared = prepId; }
+    if (Object.keys(ch).length) out.push({ w: w, t: t, ch: ch });
+    if (keep.length) kept.push({ w: w, t: t, keep: keep });
+  });
+  return { updates: out, kept: kept };
 }
 
 async function summary(p) {
@@ -265,23 +345,59 @@ async function summary(p) {
     var fk = norm(f) || '';
     forNames[fk] = forNames[fk] || { name: f, n: 0, match: p.matchFor(f) };
     forNames[fk].n++;
+  });
+  // The names on the whole sheet (a name says who it is on the WOs already
+  // in the OS too, which are brought up to date with it).
+  p.wos.forEach(function (w) {
     note(w.d.pm, 'pm');
     w.team.forEach(function (n) { note(n, 'team'); });
     note(w.d.preparedBy, 'prepared');
   });
   var people = Object.keys(names).map(function (k) { return names[k]; });
   var ids = people.map(function (x) { return x.employeeId; }).filter(Boolean);
+  p.updates.forEach(function (u) { [u.t.project_manager_id, u.ch.pm, u.t.created_by, u.ch.prepared].forEach(function (x) { if (x) ids.push(x); }); });
   var emps = {};
   if (ids.length) (await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1)', [ids])).rows.forEach(function (e) { emps[e.id] = e.first_name + ' ' + e.last_name; });
   var days = p.fresh.map(function (w) { return w.issued; }).sort();
+  function who(id, written) { return id ? emps[id] || '—' : written || '—'; }
+  var toStatus = {}, pmMoves = {}, prepared = 0, dates = 0;
+  p.updates.forEach(function (u) {
+    if (u.ch.status) toStatus[u.ch.status] = (toStatus[u.ch.status] || 0) + 1;
+    if (u.ch.pm) { var k = who(u.t.project_manager_id, u.t.pm_name) + '→' + who(u.ch.pm); pmMoves[k] = (pmMoves[k] || 0) + 1; }
+    if (u.ch.prepared) prepared++;
+    if (u.ch.due || u.ch.issued || u.ch.closed) dates++;
+  });
+  function woNo(n) { return 'WO-' + String(n).padStart(4, '0'); }
+  var CHANGE = { status: 1, closed: 2, due: 3, issued: 4, pm: 5, prepared: 6 };
   return {
     tabs: p.sheets.map(function (s) { return { name: s.name, kind: s.kind, rows: s.rows.length }; }),
     found: p.wos.length, already: p.wos.length - p.fresh.length, toAdd: p.fresh.length,
     from: days[0] || null, to: days[days.length - 1] || null, byStatus: byStatus, renumber: p.firstImport && p.fresh.length > 0,
     requestedFor: Object.keys(forNames).map(function (k) { var x = forNames[k]; return { name: x.name, n: x.n, matched: x.match ? x.match.label : null }; })
       .sort(function (a, b) { return b.n - a.n; }).slice(0, 40),
-    people: people.map(function (x) { return { name: x.name, n: x.n, roles: x.roles, employeeId: x.employeeId, employeeName: x.employeeId ? emps[x.employeeId] : null }; })
-      .sort(function (a, b) { return (a.employeeId ? 1 : 0) - (b.employeeId ? 1 : 0) || b.n - a.n; })
+    people: people.map(function (x) {
+      return { name: x.name, n: x.n, roles: x.roles, employeeId: x.employeeId, employeeName: x.employeeId ? emps[x.employeeId] : null, couldBe: x.employeeId ? [] : p.matchStaff.couldBe(x.name) };
+    }).sort(function (a, b) { return (a.employeeId ? 1 : 0) - (b.employeeId ? 1 : 0) || b.n - a.n; }),
+    // WOs already in the OS that the sheet brings up to date.
+    updates: {
+      total: p.updates.length, toStatus: toStatus, prepared: prepared, dates: dates,
+      pm: Object.keys(pmMoves).map(function (k) { var x = k.split('→'); return { from: x[0], to: x[1], n: pmMoves[k] }; }).sort(function (a, b) { return b.n - a.n; }),
+      list: p.updates.slice().sort(function (a, b) { return b.t.wo_no - a.t.wo_no; }).slice(0, 60).map(function (u) {
+        return {
+          woNo: woNo(u.t.wo_no), title: u.t.title,
+          changes: Object.keys(u.ch).sort(function (a, b) { return CHANGE[a] - CHANGE[b]; }).map(function (k) {
+            if (k === 'status') return { what: 'status', from: u.t.status, to: u.ch.status };
+            if (k === 'closed') return { what: 'closed', from: dayOf(u.t.status === 'completed' ? u.t.completed_at : u.t.cancelled_at), to: u.ch.closed };
+            if (k === 'due') return { what: 'due', from: u.t.due, to: u.ch.due };
+            if (k === 'issued') return { what: 'issued', from: u.t.issued, to: u.ch.issued };
+            if (k === 'pm') return { what: 'pm', from: who(u.t.project_manager_id, u.t.pm_name), to: who(u.ch.pm) };
+            return { what: 'prepared', from: who(u.t.created_by, u.t.prepared_by_name), to: who(u.ch.prepared) };
+          })
+        };
+      }),
+      kept: p.kept.length,
+      keptList: p.kept.slice(0, 20).map(function (k) { return { woNo: woNo(k.t.wo_no), title: k.t.title, what: k.keep }; })
+    }
   };
 }
 
@@ -359,10 +475,44 @@ async function run(ctx, file, body) {
       await db.query('UPDATE tasks t SET wo_no = x.n FROM (SELECT id, row_number() OVER (ORDER BY created_at, wo_no) AS n FROM tasks) x WHERE x.id = t.id AND t.wo_no <> x.n');
     }
     await db.query("SELECT setval('tasks_wo_no_seq', greatest(coalesce((SELECT max(wo_no) FROM tasks), 0), 1), (SELECT count(*) > 0 FROM tasks))");
-    await audit(db, ctx, 'task.import', 'task', 'sheet', 'Imported ' + n + ' work orders from the sheet.');
-    return n;
+
+    // The WOs already in the OS, brought up to date with the sheet.
+    var updated = 0, gained = {};
+    if (!body || String(body.update) !== '0') {
+      for (var u = 0; u < p.updates.length; u++) {
+        var up = p.updates[u], c = up.ch, sets = [], vals = [], said = [];
+        var set = function (col, v) { vals.push(v); sets.push(col + ' = $' + vals.length); };
+        var closedAt = up.w.closed ? up.w.closed + 'T12:00:00Z' : null;
+        if (c.status) {
+          set('status', c.status);
+          set('completed_at', c.status === 'completed' ? closedAt : null);
+          set('cancelled_at', c.status === 'cancelled' ? closedAt : null);
+          said.push('status ' + c.status.replace(/_/g, ' '));
+        } else if (c.closed) {
+          set(up.t.status === 'completed' ? 'completed_at' : 'cancelled_at', closedAt);
+          said.push('closed on ' + c.closed);
+        }
+        if (c.due) { set('due_date', c.due); said.push('due ' + c.due); }
+        if (c.issued) { set('issued_on', c.issued); said.push('issued ' + c.issued); }
+        if (c.pm) { set('project_manager_id', c.pm); set('pm_name', ''); said.push('project manager'); gained[c.pm] = (gained[c.pm] || []).concat([up.t]); }
+        if (c.prepared) { set('created_by', c.prepared); set('prepared_by_name', ''); said.push('prepared by'); }
+        vals.push(up.t.id);
+        await db.query('UPDATE tasks SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals);
+        await audit(db, ctx, 'task.sheet', 'task', up.t.id, 'Brought ' + 'WO-' + String(up.t.wo_no).padStart(4, '0') + ' up to date from the sheet: ' + said.join(', ') + '.');
+        updated++;
+      }
+      // Each new project manager is told once.
+      for (var pmKey in gained) {
+        var list = gained[pmKey];
+        if (pmKey === meId) continue;
+        await notify(db, pmKey, list.length === 1 ? 'You manage WO-' + String(list[0].wo_no).padStart(4, '0') : 'You manage ' + list.length + ' more work orders',
+          list.length === 1 ? 'From the work-order sheet: you are its project manager.' : 'From the work-order sheet: you are their project manager.', list.length === 1 ? 'tasks:' + list[0].id : 'tasks');
+      }
+    }
+    await audit(db, ctx, 'task.import', 'task', 'sheet', 'Imported ' + n + ' work orders from the sheet' + (updated ? ', and brought ' + updated + ' up to date' : '') + '.');
+    return { n: n, updated: updated };
   });
-  return Object.assign(s, { added: added });
+  return Object.assign(s, { added: added.n, updated: added.updated });
 }
 
 module.exports = { preview: preview, run: run, _merge: merge, _statusOf: statusOf };

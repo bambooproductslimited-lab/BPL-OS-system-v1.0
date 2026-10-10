@@ -526,7 +526,7 @@ export default function WorkOrdersPage() {
   }
   function imported(result) {
     setImportOpen(false);
-    setToast(tr('{n} work orders imported from the sheet.', { n: result.added }));
+    setToast(result.updated ? tr('{n} work orders imported and {m} brought up to date from the sheet.', { n: result.added, m: result.updated }) : tr('{n} work orders imported from the sheet.', { n: result.added }));
     if (scope !== 'all') pickScope('all'); else load();
   }
 
