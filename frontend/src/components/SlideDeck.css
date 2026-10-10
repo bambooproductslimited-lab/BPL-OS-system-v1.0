@@ -1,8 +1,10 @@
-/* The Saturday review (WorkOrdersPresent.jsx): slides on a dark stage, as
-   on a TV or projector, whatever the app's theme. Each status keeps its own
-   colour and is always written beside it; on time / late use the
-   validated pair with a legend. Text inside a slide is sized to the slide
-   (cqw), so it reads the same on a laptop or a big screen. */
+/* The Saturday reviews (SlideDeck.jsx; the work orders' in
+   pages/WorkOrdersPresent.jsx, the sales team's in
+   pages/crm/SalesPresent.jsx with SalesPresent.css): slides on a dark
+   stage, as on a TV or projector, whatever the app's theme. Each status
+   keeps its own colour and is always written beside it; on time / late use
+   the validated pair with a legend. Text inside a slide is sized to the
+   slide (cqw), so it reads the same on a laptop or a big screen. */
 .wop {
   --stage: #0b1210; --slide: #111c18; --panel: #17251f; --line: rgba(255, 255, 255, .1);
   --ink: #f2f5f3; --muted: #a9b7b0; --faint: #7d8b84;

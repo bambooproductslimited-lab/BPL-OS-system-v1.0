@@ -1,18 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import PrintLayer from '../components/PrintLayer';
+import { useMemo, useState } from 'react';
+import SlideDeck, { recentWeeks, weekLabel } from '../components/SlideDeck';
 import Photo from '../components/Photo';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
 import { ForBadge, addDays, daysBetween, forName, isoDay, nextLabel, pmOf, shortDate } from './WorkOrdersFun';
-import './WorkOrdersPresent.css';
 
 // The Saturday review: the week's work orders as slides to show on a
 // screen, in three parts — what was completed this week, what is in
 // process, and what is pending (not started or held up), late ones first
-// — with the numbers that sum them up. Arrow keys or the
-// buttons move through it; F is full screen; it prints one slide a page.
-// A card opens its work order over the slides (onOpen).
+// — with the numbers that sum them up. The slide show itself (keys, full
+// screen, printing) is components/SlideDeck.jsx. A card opens its work
+// order over the slides (onOpen).
 
 const PER_SLIDE = 6;
 // The open work orders in two parts: being made (or made and waiting for
@@ -23,14 +22,6 @@ function dayOf(ts) { return ts ? isoDay(new Date(ts)) : null; }
 function monday(iso) { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return isoDay(d); }
 function chunk(list, n) { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; }
 function median(nums) { if (!nums.length) return null; const s = nums.slice().sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2); }
-function weekLabel(from, to) {
-  const a = new Date(from + 'T00:00'), b = new Date(to + 'T00:00');
-  const loc = activeIntlLocale();
-  const end = b.toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' });
-  return a.getMonth() === b.getMonth() && !/^(zh|ja)/.test(loc)
-    ? a.toLocaleDateString(loc, { day: 'numeric' }) + ' – ' + end
-    : a.toLocaleDateString(loc, { day: 'numeric', month: 'long' }) + ' – ' + end;
-}
 
 // One work order on a slide.
 function PCard({ t, today, mode, onOpen }) {
@@ -88,9 +79,6 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
   const today = isoDay(new Date());
   const thisMonday = monday(today);
   const [weekFrom, setWeekFrom] = useState(thisMonday);
-  const [at, setAt] = useState(0);
-  const [printing, setPrinting] = useState(false);
-  const stageRef = useRef(null);
   const weekTo = addDays(weekFrom, 6);
   const nextFrom = addDays(weekTo, 1), nextTo = addDays(weekTo, 7);
 
@@ -151,42 +139,7 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
     s.push({ key: 'end', kind: 'end' });
     return s;
   }, [data]);
-  const cur = Math.min(at, slides.length - 1);
-
-  useEffect(() => { setAt(0); }, [weekFrom]);
-  useEffect(() => {
-    function onKey(e) {
-      if (paused || e.target.closest('select, input, textarea')) return;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); setAt((i) => Math.min(i + 1, slides.length - 1)); }
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); setAt((i) => Math.max(i - 1, 0)); }
-      else if (e.key === 'Home') setAt(0);
-      else if (e.key === 'End') setAt(slides.length - 1);
-      else if (e.key === 'Escape' && !document.fullscreenElement) onClose();
-      else if (e.key === 'f' || e.key === 'F') fullScreen();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!printing) return undefined;
-    const done = () => setPrinting(false);
-    window.addEventListener('afterprint', done);
-    const id = setTimeout(() => window.print(), 300);
-    return () => { clearTimeout(id); window.removeEventListener('afterprint', done); };
-  }, [printing]);
-
-  // The whole page goes full screen, not only the slides, so a work order
-  // opened from a card still shows over them.
-  function fullScreen() {
-    const el = document.documentElement;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-  }
-
-  const weeks = [0, 1, 2, 3].map((n) => {
-    const from = addDays(thisMonday, -7 * n);
-    return { from, label: n === 0 ? tr('This week ({dates})', { dates: weekLabel(from, addDays(from, 6)) }) : n === 1 ? tr('Last week ({dates})', { dates: weekLabel(from, addDays(from, 6)) }) : weekLabel(from, addDays(from, 6)) };
-  });
+  const weeks = recentWeeks(thisMonday);
   const range = weekLabel(weekFrom, weekTo);
   const pct = data.done.length ? Math.round(((data.done.length - data.late.length) / data.done.length) * 100) : null;
 
@@ -323,37 +276,7 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
   }
 
   return (
-    <PrintLayer>
-      <div className={'wop' + (printing ? ' is-printing' : '')} ref={stageRef} role="dialog" aria-modal="true" aria-label={tr('Saturday review')}>
-        <div className="wop-bar no-print">
-          <strong className="wop-brand">{tr('Saturday review')}</strong>
-          <select className="wop-week" value={weekFrom} onChange={(e) => setWeekFrom(e.target.value)} aria-label={tr('Which week')}>
-            {weeks.map((w) => <option key={w.from} value={w.from}>{w.label}</option>)}
-          </select>
-          <span className="wop-fill" />
-          <button type="button" className="wop-btn" onClick={fullScreen} title={tr('Full screen (F)')}>{tr('Full screen')}</button>
-          <button type="button" className="wop-btn" onClick={() => setPrinting(true)}>{tr('Print or save as PDF')}</button>
-          <button type="button" className="wop-btn is-close" onClick={onClose} aria-label={tr('Close')}>×</button>
-        </div>
-        {printing ? (
-          <div className="wop-print">
-            {slides.map((sl) => <section key={sl.key} className={'wop-slide is-' + sl.kind}>{render(sl)}</section>)}
-          </div>
-        ) : (
-          <div className="wop-stage">
-            <section key={slides[cur].key} className={'wop-slide is-' + slides[cur].kind}>{render(slides[cur])}</section>
-          </div>
-        )}
-        <p className="wop-turn no-print">{tr('Best on a TV or laptop, or with the phone turned sideways.')}</p>
-        <div className="wop-nav no-print">
-          <button type="button" className="wop-btn" disabled={cur === 0} onClick={() => setAt(cur - 1)} aria-label={tr('Previous slide')}>←</button>
-          <span className="wop-dots">
-            {slides.map((sl, i) => <button key={sl.key} type="button" className={'wop-dot' + (i === cur ? ' is-on' : '')} onClick={() => setAt(i)} aria-label={tr('Slide {n}', { n: i + 1 })} />)}
-          </span>
-          <span className="wop-count">{tr('{a} of {b}', { a: cur + 1, b: slides.length })}</span>
-          <button type="button" className="wop-btn" disabled={cur === slides.length - 1} onClick={() => setAt(cur + 1)} aria-label={tr('Next slide')}>→</button>
-        </div>
-      </div>
-    </PrintLayer>
+    <SlideDeck brand={tr('Saturday review')} weeks={weeks} weekFrom={weekFrom} onWeek={setWeekFrom}
+      slides={slides} render={render} onClose={onClose} paused={paused} />
   );
 }

@@ -6,6 +6,7 @@ import { Change, Empty, Glossary, Hero, Icon, Insights, LinkButton, RankList, Ro
 import { activeIntlLocale, tr, msg } from '../../lib/i18n.jsx';
 import { PROSPECT_STAGES, STAGES, ImportDialog, LeadDialog, NewLeadDialog, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, followUpText, ghs, monthLabel, stage, todayISO, useCrmBasics, usePerms, visitLabel } from './crmShared';
 import { channelLabel } from './crmHubShared';
+import { SalesReviewButton } from './SalesPresent';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -152,9 +153,10 @@ export default function CrmOverviewPage() {
 
       <Hero eyebrow={x.company || tr('Sales')} title={tr('How sales are going')}
         sub={tr('Sales, money in, what customers owe, the team and the customers, against {prev}. Every figure comes from the OS invoices, payments, quotations and inbox. Press a number to see behind it.', { prev: prevName })}
-        actions={canManage && <>
-          <button type="button" className="btn btn-primary" onClick={() => setDialog({ kind: 'new' })}>{tr('Add a lead')}</button>
-          <button type="button" className="btn btn-secondary" onClick={() => setDialog({ kind: 'import' })}>{tr('Import from a spreadsheet')}</button>
+        actions={<>
+          {canManage && <button type="button" className="btn btn-primary" onClick={() => setDialog({ kind: 'new' })}>{tr('Add a lead')}</button>}
+          <SalesReviewButton />
+          {canManage && <button type="button" className="btn btn-secondary" onClick={() => setDialog({ kind: 'import' })}>{tr('Import from a spreadsheet')}</button>}
         </>}
         stats={[
           { icon: 'cash', value: ghs(n.sales), label: tr('sold {period}', { period: periodName }), note: <Change now={n.sales} before={b.sales} label={prevName} />, onClick: () => jump('ex-trend') },

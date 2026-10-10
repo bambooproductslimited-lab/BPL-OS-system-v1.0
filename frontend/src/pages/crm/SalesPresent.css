@@ -1,0 +1,119 @@
+/* The sales team's Saturday review (SalesPresent.jsx), on the slide stage
+   of components/SlideDeck.css. Two series only — leads on the list (blue)
+   and new people who messaged the inbox (amber), a validated pair, always
+   with a key; every other bar is one colour and labelled. A phase or
+   "not answered yet" is always written, the colour only beside it. */
+.wop.is-sales {
+  --accent: #6ea8ff; --list: #4a86e0; --inbox: #b97f1c; --bar: #4a86e0;
+  --ph-lead: #8db8ff; --ph-prospect: #c4a6ff; --ph-won: #f5a3c7; --ph-customer: #4ade80; --ph-lost: #a3aab3;
+  background: radial-gradient(120% 80% at 10% 0%, #14264a 0%, #0b1018 55%) #0b1018;
+}
+.wop.is-sales .wop-slide { background: linear-gradient(160deg, #142036 0%, #101826 60%); }
+.wop.is-sales { --panel: #172238; }
+.wop.is-sales .wop-cover h1 { background: linear-gradient(90deg, #f2f5f3, #9cc2ff); -webkit-background-clip: text; background-clip: text; }
+
+.ssr-eb-lead { color: var(--accent); }
+.ssr-eb-prospect { color: var(--ph-prospect); }
+.wop-tile.is-lead { border-top-color: var(--accent); } .wop-tile.is-lead b { color: var(--accent); }
+.wop-tile.is-prospect { border-top-color: var(--ph-prospect); } .wop-tile.is-prospect b { color: var(--ph-prospect); }
+.wop-tile.is-money { border-top-color: var(--good); }
+.wop-tile b.ssr-money { font-size: 2.6cqw; line-height: 1.15; overflow-wrap: anywhere; }
+.ssr-change { font-size: 1.15cqw; font-weight: 700; color: var(--muted); }
+.ssr-change.is-up { color: var(--good); } .ssr-change.is-down { color: var(--bad); }
+
+/* bars, one colour, labelled */
+.ssr-hbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .9cqw; }
+.ssr-hbars li { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 3cqw; align-items: center; gap: .9cqw; font-size: 1.25cqw; }
+.ssr-hbar-label { line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ssr-hbar-track { height: 1.3cqw; border-radius: 999px; background: var(--line); overflow: hidden; }
+.ssr-hbar-track span { display: block; height: 100%; border-radius: 999px; background: var(--bar); }
+.ssr-hbar-track span.is-inbox { background: var(--inbox); }
+.ssr-hbars b { text-align: right; font-variant-numeric: tabular-nums; }
+.ssr-none { margin: 0; font-size: 1.35cqw; color: var(--muted); }
+.ssr-three { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.6cqw; }
+.ssr-h3-gap { margin-top: 2cqw !important; }
+
+/* stacked columns: weeks, days */
+.ssr-cols { flex: 1; min-height: 8cqw; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: .8cqw; align-items: end; }
+.ssr-col { height: 100%; display: grid; grid-template-rows: 1fr auto; justify-items: center; gap: .5cqw; min-width: 0; }
+.ssr-col-bar { width: 64%; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.ssr-col-bar b { margin-bottom: .3cqw; text-align: center; font-size: 1.4cqw; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ssr-col-bar i { display: block; border-radius: .4cqw; min-height: 0; }
+.ssr-col-bar i:not([style*='height: 0']) { min-height: 2px; }
+.ssr-col-bar i.is-list { background: var(--list); }
+.ssr-col-bar i.is-inbox { background: var(--inbox); }
+.ssr-col small { font-size: 1.05cqw; color: var(--muted); white-space: nowrap; }
+.ssr-col.is-now small { color: var(--ink); font-weight: 800; }
+.ssr-col.is-now small::after { content: ''; display: block; height: 2px; margin-top: .3cqw; border-radius: 2px; background: var(--accent); }
+.ssr-key { list-style: none; margin: 1.2cqw 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .6cqw 2cqw; font-size: 1.2cqw; color: var(--muted); }
+.ssr-key li { display: inline-flex; align-items: center; gap: .6cqw; }
+.ssr-key i { width: 1.1cqw; height: 1.1cqw; border-radius: .3cqw; }
+.ssr-key i.is-list { background: var(--list); } .ssr-key i.is-inbox { background: var(--inbox); }
+.ssr-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2cqw; margin-top: 1.4cqw; }
+.ssr-facts div { display: flex; align-items: baseline; gap: .8cqw; }
+.ssr-facts b { font-size: 2.6cqw; line-height: 1; font-variant-numeric: tabular-nums; }
+.ssr-facts span { font-size: 1.15cqw; color: var(--muted); }
+
+/* every new lead as a card */
+.ssr-h2-note { margin-left: 1.4cqw; padding: .2cqw 1cqw; border-radius: 999px; font-size: 1.3cqw; vertical-align: middle; color: #fff; background: color-mix(in srgb, var(--bad) 75%, transparent); }
+.ssr-cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1.2cqw; }
+.ssr-card { position: relative; display: flex; flex-direction: column; gap: .5cqw; min-width: 0; min-height: 0; padding: 1.2cqw 1.3cqw 1.1cqw 1.6cqw; border-radius: 1.1cqw; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+.ssr-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: .4cqw; background: var(--accent); }
+.ssr-card.is-waiting::before { background: var(--bad); }
+.ssr-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.ssr-card-top { display: flex; align-items: center; justify-content: space-between; gap: .6cqw; min-width: 0; }
+.ssr-day { font-size: 1.05cqw; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.ssr-src { min-width: 0; padding: .1cqw .7cqw; border-radius: 999px; font-size: 1cqw; font-weight: 800; background: rgba(255, 255, 255, .08); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-card-name { font-size: 1.55cqw; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-card-co { margin-top: -.3cqw; font-size: 1.1cqw; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-card-item { font-size: 1.25cqw; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ssr-card-item em { font-style: normal; color: var(--faint); }
+.ssr-card-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: .6cqw; min-width: 0; }
+.ssr-card-rep { min-width: 0; font-size: 1.05cqw; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-pill { flex: none; display: inline-flex; align-items: center; gap: .4cqw; padding: .15cqw .7cqw; border-radius: 999px; font-size: .95cqw; font-weight: 800; color: var(--pc, var(--ink)); border: 1px solid color-mix(in srgb, var(--pc, var(--ink)) 50%, transparent); }
+.ssr-pill::before { content: ''; width: .6cqw; height: .6cqw; border-radius: 50%; background: var(--pc, var(--ink)); }
+.ssr-pill.is-bad { --pc: var(--bad); } .ssr-pill.is-lead { --pc: var(--ph-lead); } .ssr-pill.is-prospect { --pc: var(--ph-prospect); }
+.ssr-pill.is-won { --pc: var(--ph-won); } .ssr-pill.is-customer { --pc: var(--ph-customer); } .ssr-pill.is-lost { --pc: var(--ph-lost); }
+
+/* what moved */
+.ssr-moved h3 { display: flex; align-items: baseline; gap: .8cqw; color: var(--ink) !important; font-size: 1.6cqw !important; }
+.ssr-moved h3 b { font-size: 3.4cqw; line-height: 1; font-variant-numeric: tabular-nums; }
+.ssr-moved.is-prospect h3 b { color: var(--ph-prospect); } .ssr-moved.is-good h3 b { color: var(--good); } .ssr-moved.is-bad h3 b { color: var(--bad); }
+.ssr-names { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5cqw; min-height: 0; overflow: hidden; }
+.ssr-names button { width: 100%; display: flex; flex-direction: column; gap: .15cqw; padding: .6cqw .8cqw; border-radius: .8cqw; border: 1px solid transparent; background: rgba(255, 255, 255, .04); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ssr-names button:hover { border-color: var(--line); }
+.ssr-names strong { font-size: 1.3cqw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-names span { font-size: 1.05cqw; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-more { font-size: 1.1cqw; color: var(--muted); padding: .3cqw .8cqw; }
+
+/* sales and money in */
+.ssr-kpis { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1.4cqw; }
+.ssr-kpi { display: flex; flex-direction: column; gap: .5cqw; min-width: 0; padding: 1.6cqw 1.8cqw; border-radius: 1.3cqw; background: var(--panel); border: 1px solid var(--line); }
+.ssr-kpi-label { font-size: 1.3cqw; font-weight: 700; color: var(--muted); }
+.ssr-kpi b { font-size: 3.6cqw; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ssr-kpi b.ssr-money { font-size: 2.8cqw; overflow-wrap: anywhere; }
+.ssr-kpi-note { margin-top: auto; font-size: 1.15cqw; color: var(--muted); }
+.ssr-warn-note { color: var(--warn) !important; }
+
+/* next week */
+.ssr-visits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .8cqw; }
+.ssr-visits li { display: grid; grid-template-columns: 12cqw 1fr; gap: .2cqw 1cqw; font-size: 1.35cqw; }
+.ssr-visits li > span { color: var(--accent); font-weight: 800; }
+.ssr-visits em { grid-column: 2; font-style: normal; font-size: 1.1cqw; color: var(--muted); }
+
+.ssr-open-btn { display: inline-flex; align-items: center; gap: 6px; }
+.ssr-open-btn svg { width: 14px; height: 14px; }
+.ssr-loading { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); z-index: 16; padding: 12px 20px; border-radius: 12px; font-weight: 700; color: #f2f5f3; background: #172238; border: 1px solid rgba(255, 255, 255, .12); }
+
+@media print {
+  .wop.is-sales {
+    --accent: #2a63c9; --list: #2a63c9; --inbox: #b06d00; --bar: #2a63c9; --panel: #f3f5f8;
+    --ph-lead: #2a63c9; --ph-prospect: #7a4fd6; --ph-won: #c2417e; --ph-customer: #1a8f4c; --ph-lost: #6b7280;
+    background: #fff;
+  }
+  .wop.is-sales .wop-slide { background: #fff; }
+  .wop.is-sales .wop-cover h1 { background: none; color: var(--ink); }
+  .ssr-src, .ssr-names button { background: rgba(0, 0, 0, .05); }
+  .ssr-h2-note { color: #fff; background: var(--bad); }
+}

@@ -278,4 +278,8 @@ async function summary(ctx, query) {
   };
 }
 
-module.exports = { summary: summary };
+module.exports = {
+  summary: summary,
+  // for the Saturday sales review (crmWeekly.service.js)
+  _money: money, _quoteScope: quoteScope, _sql: { SALE: SALE, REP: REP, FROM_INV: FROM_INV }
+};

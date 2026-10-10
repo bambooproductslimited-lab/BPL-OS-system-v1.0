@@ -6,6 +6,7 @@ import { Empty, Glossary, Hero, Icon, Section, fmtDate } from '../../components/
 import SearchInput, { matchesQuery } from '../../components/SearchInput';
 import { tr } from '../../lib/i18n.jsx';
 import { LEAD_STAGES, OPEN_STAGES, PHASES, PROSPECT_STAGES, ImportDialog, LeadDialog, NewLeadDialog, PhaseTag, StageTag, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, daysUntil, followUpClass, followUpText, ghs, stage, todayISO, useCrmBasics, usePerms } from './crmShared';
+import { SalesReviewButton } from './SalesPresent';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -146,9 +147,10 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           : tr('Everyone who comes in: enquiries from every channel, and contacts from fairs, events and lists. Answer them, find out what they need, and once it is a real job, make them a prospect.')}
         actions={isP
           ? <button type="button" className="btn btn-secondary" onClick={() => navigate('/crmleads')}>{tr('Leads')}</button>
-          : canManage && <>
-            <button type="button" className="btn btn-primary" onClick={() => setDialog({ kind: 'new' })}>{tr('Add a lead')}</button>
-            <button type="button" className="btn btn-secondary" onClick={() => setDialog({ kind: 'import' })}>{tr('Import from a spreadsheet')}</button>
+          : <>
+            {canManage && <button type="button" className="btn btn-primary" onClick={() => setDialog({ kind: 'new' })}>{tr('Add a lead')}</button>}
+            <SalesReviewButton />
+            {canManage && <button type="button" className="btn btn-secondary" onClick={() => setDialog({ kind: 'import' })}>{tr('Import from a spreadsheet')}</button>}
           </>}
         stats={isP ? [
           { icon: 'people', value: String(working.length), label: tr('prospects being worked on'), note: tr('{n} have our quotation', { n: count('quote_sent') }), onClick: () => setParam('stage', '') },
