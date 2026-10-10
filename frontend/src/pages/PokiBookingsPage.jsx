@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -14,16 +14,18 @@ import './ToolRoomPage.css';
 import './RestaurantsPage.css';
 import './PokiPages.css';
 import './PokiRentals.css';
+import { LeaseBar, PkBanner } from './PokiFun';
 
 // Bookings — who occupies which unit, for how long, on what terms. A booking
 // is a block of time bought up front (so many months plus so many days) and
-// invoiced once, when it is made. Same "explains itself" layout as the
-// dashboards (components/DashKit.jsx): the key numbers (running now,
-// starting soon, ending soon, not fully paid), what stands out (bookings
+// invoiced once, when it is made. The Poki Properties banner (PokiFun.jsx)
+// rings how many running bookings are paid in full, with running now,
+// starting soon, ending soon and not fully paid; then what stands out (bookings
 // ending with no renewal, drafts whose start date has passed, tenants in
 // without having paid, deposits waiting to be returned, bookings with no
 // agreement), a timeline of every unit against the months so gaps and
-// overlaps show at a glance, and the bookings as cards or a list. A booking
+// overlaps show at a glance, and the bookings as cards (a running one with a
+// bar to its end date) or a list. A booking
 // opens with its money (invoiced, paid, owed), its deposit and the actions:
 // activate, edit, record the deposit, renew, end, refund the deposit, and
 // the tenancy agreement (generated from the template, edited, printed).
@@ -431,6 +433,14 @@ export default function PokiBookingsPage() {
     { icon: 'owed', value: String(owing.length), label: tr('not fully paid'), note: moneyBreakdown(sumBy(owing, (b) => b.balanceTotal), tr('everything paid')), tone: inUnpaid.length ? 'bad' : owing.length ? 'alert' : 'good', onClick: () => showOnly('owing') }
   ];
 
+  const paidRunning = running.filter((b) => !(b.balanceTotal > 0)).length;
+  const paidPct = running.length ? Math.round((paidRunning / running.length) * 100) : 0;
+  const ring = {
+    value: paidRunning, max: running.length, big: paidPct + '%', small: tr('paid in full'),
+    caption: tr('{a} of {b} running bookings paid in full', { a: paidRunning, b: running.length }),
+    tone: paidPct >= 90 ? 'good' : paidPct >= 60 ? 'warm' : 'hot'
+  };
+
   const insights = [];
   if (lateDrafts.length) insights.push({ tone: 'bad', icon: 'calendar', text: lateDrafts.length === 1 ? tr('{bookingNo} for {tenant} was due to start {date} but was never activated.', { bookingNo: lateDrafts[0].bookingNo, tenant: lateDrafts[0].tenantName, date: fmtDate(lateDrafts[0].startDate) }) : tr('{n} bookings were due to start but were never activated.', { n: lateDrafts.length }), action: canManage && lateDrafts.length === 1 ? { label: tr('Activate'), run: () => act(lateDrafts[0], '/activate', {}, tr('Booking activated — the unit is now occupied.')) } : { label: tr('Show them'), run: () => showOnly('late') } });
   if (inUnpaid.length) insights.push({ tone: 'bad', icon: 'owed', text: inUnpaid.length === 1 ? tr('{tenant} is in {unit} with {amount} of the booking still unpaid.', { tenant: inUnpaid[0].tenantName, unit: inUnpaid[0].unitCode, amount: money(inUnpaid[0].balanceTotal, inUnpaid[0].currency) }) : tr('{n} tenants are in with their booking not fully paid.', { n: inUnpaid.length }), action: { label: tr('Show them'), run: () => showOnly('owing') } });
@@ -479,11 +489,12 @@ export default function PokiBookingsPage() {
     <div className="dk tl pk">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Poki Rentals')}
+      <PkBanner
+        eyebrow={tr('Poki Properties')}
         title={tr('Bookings')}
         sub={tr('Who is in which unit, from when to when, and on what terms. A booking is paid for up front and invoiced once, when it is made. Press a number to show only those.')}
         actions={canManage && <button type="button" className="btn btn-primary" disabled={!tenants.length || !units.length} onClick={() => openBooking(null)}>{tr('New booking')}</button>}
+        ring={running.length ? ring : null}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
@@ -535,6 +546,7 @@ export default function PokiBookingsPage() {
                     {isRunning(b) && !b.agreementGeneratedAt && <Status tone="muted">{tr('No agreement')}</Status>}
                   </div>
                   <span className="dk-muted tl-small">{fmtDate(b.startDate)} – {fmtDate(b.endDate)} · {b.durationLabel}</span>
+                  {isRunning(b) && <LeaseBar start={b.startDate} end={b.endDate} />}
                   <span className={'tl-stock' + (b.balanceTotal > 0 ? ' is-low' : '')}>
                     <span className="tl-stock-row"><strong>{b.balanceTotal > 0 ? tr('{amount} to pay', { amount: money(b.balanceTotal, b.currency) }) : tr('Paid in full')}</strong><span className="dk-muted">{tr('of {amount}', { amount: money(b.invoicedTotal || b.rentTotal, b.currency) })}</span></span>
                     <span className="tl-stock-bar" aria-hidden="true"><span style={{ width: paidPct + '%' }} /></span>

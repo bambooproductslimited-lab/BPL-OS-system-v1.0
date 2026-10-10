@@ -11,7 +11,7 @@ import './InvoiceCleanupDialog.css';
 // say what happened and why, and each is recorded as paid, written off with
 // a credit note, or voided, under the same rules as doing it by hand. What
 // cannot be done is listed with why; the rest still go through.
-// rent: Poki Rentals' rent and utility bills (Rent & utilities, POST
+// rent: Poki Properties' rent and utility bills (Rent & utilities, POST
 // /poki/invoices/cleanup), in a landlord's words: tenants and bills.
 
 const AGES = [[90, msg('Over 3 months')], [180, msg('Over 6 months')], [365, msg('Over a year')], [730, msg('Over 2 years')]];

@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
+import { Glossary, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -13,16 +13,18 @@ import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
 import './PokiRentals.css';
+import { LeaseBar, PkBanner } from './PokiFun';
 
 // Poki's tenant register. Deliberately separate from Bamboo Products'
 // client list: a tenant carries things a sales customer doesn't (ID
 // document, next of kin, employer). Underneath, a tenant extends a customer
 // row scoped to Poki, which is what lets rent invoices work unchanged.
-// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
-// the key numbers (tenants in residence, owing, prospects, missing ID), what
-// stands out (who is behind and by how long, tenancies ending, prospects
-// never booked, missing ID or next of kin), and the tenants as cards or a
-// list — each with what they owe, a call or WhatsApp button, and a window
+// The Poki Properties banner (PokiFun.jsx) rings how many of those in
+// residence are paid up, with tenants in residence, owing, prospects and
+// missing ID; then what stands out (who is behind and by how long,
+// tenancies ending, prospects never booked, missing ID or next of kin), and
+// the tenants as cards or a list — each with a bar running to the end of
+// their lease, what they owe, a call or WhatsApp button, and a window
 // with their details, every booking and what they have paid
 // (poki.service.js listTenants).
 
@@ -157,6 +159,14 @@ export default function PokiTenantsPage() {
     { icon: 'doc', value: String(noId.length), label: tr('with no ID on file'), note: noKin.length ? tr('{n} in residence with no one to call', { n: noKin.length }) : tr('everyone reachable'), tone: noId.length ? 'alert' : '', onClick: () => showOnly('noid') }
   ];
 
+  const paidUp = living.filter((t) => !owes(t)).length;
+  const paidPct = living.length ? Math.round((paidUp / living.length) * 100) : 0;
+  const ring = {
+    value: paidUp, max: living.length, big: paidPct + '%', small: tr('paid up'),
+    caption: tr('{a} of {b} in residence owe nothing', { a: paidUp, b: living.length }),
+    tone: paidPct >= 90 ? 'good' : paidPct >= 60 ? 'warm' : 'hot'
+  };
+
   const insights = [];
   if (behind.length) insights.push({ tone: 'bad', icon: 'owed', text: behind.length === 1 ? tr('{name} is {days} days behind and owes {amount}.', { name: behind[0].name, days: behind[0].daysOverdue, amount: moneyBreakdown(behind[0].overdue) }) : tr('{n} tenants are behind; {name} the longest, {days} days.', { n: behind.length, name: behind[0].name, days: behind[0].daysOverdue }), action: { label: behind.length === 1 ? tr('Open') : tr('Show them'), run: () => (behind.length === 1 ? setDetail(behind[0].id) : showOnly('behind')) } });
   if (ending.length) insights.push({ tone: 'warn', icon: 'calendar', text: ending.length === 1 ? tr('{name}\'s booking ends {date}. Ask whether they are renewing.', { name: ending[0].name, date: fmtDate(ending[0].currentEnd) }) : tr('{n} tenants\' bookings end in the next 30 days.', { n: ending.length }), action: { label: tr('Show them'), run: () => showOnly('ending') } });
@@ -206,11 +216,12 @@ export default function PokiTenantsPage() {
     <div className="dk tl pk">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Poki Rentals')}
+      <PkBanner
+        eyebrow={tr('Poki Properties')}
         title={tr('Tenants')}
         sub={tr('The people and companies renting from Poki: where each one lives, what they owe, and how to reach them — and who to call if something happens. Press a number to show only those.')}
         actions={canManage && <button type="button" className="btn btn-primary" onClick={() => openDialog(null)}>{tr('Add tenant')}</button>}
+        ring={living.length ? ring : null}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
@@ -254,6 +265,7 @@ export default function PokiTenantsPage() {
                     <Status tone={st.tone}>{st.text}</Status>
                     {t.overdue && t.overdue.length > 0 && <Status tone="bad">{tr('{days} days behind', { days: t.daysOverdue })}</Status>}
                   </div>
+                  {inResidence(t) && t.currentStart && <LeaseBar start={t.currentStart} end={t.currentEnd} />}
                   <div className="tl-foot">
                     <span className="tl-small">{owes(t) ? <><strong className="pk-owe">{moneyBreakdown(t.owed)}</strong> <span className="dk-muted">{tr('owed')}</span></> : <span className="dk-muted">{t.bookings ? tr('Paid up') : t.phone || t.email || tr('no phone')}</span>}</span>
                     <ContactButtons name={t.name} phone={t.phone} email={t.email} />

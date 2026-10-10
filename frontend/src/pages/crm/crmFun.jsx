@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import './crmFun.css';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 
 // The lively bits the Inbox and the follow-ups share (CrmInboxPage.jsx,
 // CrmFollowUpsPage.jsx): how long someone has waited, said and coloured by
 // how urgent it is; a progress ring; and confetti for a cleared inbox or a
-// finished round. Styles in CrmInbox.css (.fun-*).
+// finished round. Styles in crmFun.css (.fun-*).
 
 export function minutesSince(iso) { return iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)) : 0; }
 

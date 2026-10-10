@@ -24,7 +24,7 @@ var pokiInvoices = require('./pokiInvoices.service');
 // each invoice (with the reason) and one for the whole clean-up.
 //
 // Two sides: Bamboo Products' invoices (apply, invoice.manage, the Invoices
-// page) and Poki Rentals' rent and utility bills (applyPoki, poki.manage,
+// page) and Poki Properties' rent and utility bills (applyPoki, poki.manage,
 // Rent & utilities), each only ever touching its own company's invoices and
 // going through its own rules — a Poki bill through pokiInvoices.service.js,
 // so a rent bill paid off still marks the booking's deposit as held, and a
@@ -50,7 +50,7 @@ async function apply(ctx, p) {
   });
 }
 
-// Poki Rentals' rent and utility bills (Rent & utilities).
+// Poki Properties' rent and utility bills (Rent & utilities).
 async function applyPoki(ctx, p) {
   poki.canManage(ctx);
   var pokiId = await poki.pokiCompanyId();

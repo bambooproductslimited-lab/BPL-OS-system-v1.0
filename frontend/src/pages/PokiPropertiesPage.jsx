@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
 import { msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -13,16 +13,19 @@ import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
 import './PokiRentals.css';
+import { LeaseBar, PkBanner, UnitMosaic } from './PokiFun';
 
 // Properties and the units inside them. A unit is the thing that actually
 // gets let — a flat, a room, an office, a shop, a warehouse bay — so this is
-// where the asking rent and the utility arrangement are set. Same "explains
-// itself" layout as the dashboards (components/DashKit.jsx): the key numbers
-// (properties, how much is let, what stands empty and the rent it would
-// bring, what is held back), what stands out (units empty a long time, a
-// property with nothing let, units with no rent set), the properties as
-// cards with their occupancy, and the units as cards or a list. A unit
-// opens with who is in it, when that ends, and every booking it has had.
+// where the asking rent and the utility arrangement are set. The Poki
+// Properties banner (PokiFun.jsx) rings how much is let, with the
+// properties, what stands empty and the rent it would bring, what comes free
+// and what is held back; then what stands out (units empty a long time, a
+// property with nothing let, units with no rent set), every unit as a
+// coloured tile, the properties as cards with their occupancy, and the
+// units as cards (with a bar running to the end of the lease) or a list. A
+// unit opens with who is in it, when that ends, and every booking it has
+// had; ?unit= opens one straight away (the overview's tiles link here).
 // Occupancy is never set by hand: it follows the unit's bookings
 // (poki.service.js). A unit can be held back — reserved, under maintenance,
 // unavailable — when nobody is in it.
@@ -81,6 +84,7 @@ export default function PokiPropertiesPage() {
   const { can } = useAuth();
   const canManage = can('poki.manage');
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
 
   const [properties, setProperties] = useState([]);
   const [units, setUnits] = useState([]);
@@ -114,6 +118,12 @@ export default function PokiPropertiesPage() {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const id = params.get('unit');
+    if (!id || !units.length) return;
+    if (units.some((u) => u.id === id)) setDetail(id);
+    setParams({}, { replace: true });
+  }, [units]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 4000);
@@ -204,11 +214,16 @@ export default function PokiPropertiesPage() {
 
   function showOnly(key) { setChip(chip === key ? 'all' : key); jump('pk-units'); }
   const stats = [
-    { icon: 'drawer', value: String(activeProps.length), label: activeProps.length === 1 ? tr('property') : tr('properties'), note: liveUnits.length === 1 ? tr('1 unit') : tr('{n} units', { n: liveUnits.length }), onClick: () => jump('pk-props') },
-    { icon: 'check', value: pct + '%', label: tr('of units let'), note: tr('{occupied} of {total} units let', { occupied: let_.length, total: liveUnits.length }), tone: pct >= 90 ? 'good' : '', onClick: () => showOnly('let') },
+    { icon: 'building', value: String(activeProps.length), label: activeProps.length === 1 ? tr('property') : tr('properties'), note: liveUnits.length === 1 ? tr('1 unit') : tr('{n} units', { n: liveUnits.length }), onClick: () => jump('pk-props') },
     { icon: 'warn', value: String(empty.length), label: tr('units empty'), note: emptyRentText ? tr('{rent} a month not coming in', { rent: emptyRentText }) : tr('nothing empty'), tone: longEmpty.length ? 'alert' : '', onClick: () => showOnly('empty') },
+    { icon: 'calendar', value: String(endingSoon.length), label: tr('coming free in 30 days'), note: endingSoon.length ? tr('renew them or start re-letting') : tr('nothing ends this month'), onClick: () => showOnly('ending') },
     { icon: 'clock', value: String(held.length), label: tr('held back'), note: tr('reserved, maintenance or unavailable'), onClick: () => showOnly('held') }
   ];
+  const ring = {
+    value: let_.length, max: liveUnits.length, big: pct + '%', small: tr('let'),
+    caption: tr('{occupied} of {total} units let', { occupied: let_.length, total: liveUnits.length }),
+    tone: pct >= 90 ? 'good' : pct >= 60 ? 'warm' : 'hot'
+  };
 
   const insights = [];
   if (longEmpty.length) insights.push({ tone: 'warn', icon: 'drawer', text: longEmpty.length === 1 ? tr('{unit} at {property} has stood empty for {days} days — {rent} a month not coming in.', { unit: longEmpty[0].code, property: longEmpty[0].propertyName, days: emptyDays(longEmpty[0]), rent: money(longEmpty[0].baseRent, longEmpty[0].currency) }) : tr('{n} units have stood empty for over a month — {rent} a month not coming in.', { n: longEmpty.length, rent: emptyRentText }), action: canManage ? { label: tr('Make a letting offer'), run: () => navigate('/pokiestimates') } : { label: tr('Show them'), run: () => showOnly('empty') } });
@@ -246,8 +261,8 @@ export default function PokiPropertiesPage() {
     <div className="dk tl pk">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Poki Rentals')}
+      <PkBanner
+        eyebrow={tr('Poki Properties')}
         title={tr('Properties & units')}
         sub={tr('Every building and the units in it that are let: who is in each one, when that ends, what stands empty and what it would bring in. Press a number to show only those.')}
         actions={canManage && (
@@ -256,9 +271,16 @@ export default function PokiPropertiesPage() {
             <button type="button" className="btn btn-secondary" onClick={() => openProperty(null)}>{tr('Add property')}</button>
           </>
         )}
+        ring={liveUnits.length ? ring : null}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
+
+      {liveUnits.length > 0 && (
+        <Section id="pk-map" title={tr('Every unit at a glance')} sub={tr('One tile per unit, coloured by what it is doing today. Press a tile to open the unit.')} card>
+          <UnitMosaic units={liveUnits} onPick={(u) => setDetail(u.id)} />
+        </Section>
+      )}
 
       <Section id="pk-props" title={tr('Properties')} sub={tr('Press a property to see its units.')}
         action={properties.length > activeProps.length && (
@@ -352,6 +374,7 @@ export default function PokiPropertiesPage() {
                     {u.status === 'occupied'
                       ? <div className="tl-who"><span className="tl-place" aria-hidden="true">☺</span><span>{u.tenantName}</span></div>
                       : <div className="tl-who dk-muted"><span>{specs(u)}</span></div>}
+                    {u.status === 'occupied' && u.bookingStart && <LeaseBar start={u.bookingStart} end={u.bookingEnd} />}
                     <div className="tl-foot">
                       <span className="tl-small"><strong>{money(u.status === 'occupied' && u.bookingMonthly ? u.bookingMonthly : u.baseRent, u.currency)}</strong> <span className="dk-muted">{tr('per month')}</span>
                         {u.currency !== BASE_CURRENCY && Number(u.fxRate) > 0 && <span className="dk-muted"> · = {money((u.status === 'occupied' && u.bookingMonthly ? u.bookingMonthly : u.baseRent) * u.fxRate, BASE_CURRENCY)}</span>}

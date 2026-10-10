@@ -1,4 +1,4 @@
-/* Poki Rentals, redesigned (PokiDashboardPage.jsx and the other Poki
+/* Poki Properties, redesigned (PokiDashboardPage.jsx and the other Poki
    screens as they move over). Built from the shared dashboard pieces
    (components/DashKit.css), the chips and contact buttons in
    EmployeesPage.css, the tool room's cards, forms and windows
@@ -21,6 +21,7 @@
   .pk-list li { flex-wrap: wrap; }
   .pk-list-side { max-width: none; justify-content: flex-start; }
   .pk .rs-row { flex-wrap: wrap; }
+  .pk .rs-row > .rs-row-open { flex-basis: 100%; }
   .pk-contact { padding: 0 14px 10px; }
 }
 

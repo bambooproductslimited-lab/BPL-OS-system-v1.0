@@ -155,7 +155,7 @@ function rowToUnit(r) {
     baseRent: Number(r.base_rent), currency: r.currency, fxRate: Number(r.fx_rate), dailyRate: Number(r.daily_rate),
     utilityMode: r.utility_mode, fixedUtilityAmount: Number(r.fixed_utility_amount), apportionShare: Number(r.apportion_share),
     status: r.status, amenities: r.amenities, notes: r.notes, active: r.active,
-    tenantName: r.tenant_name || null, bookingId: r.booking_id || null, bookingEnd: r.booking_end || null,
+    tenantName: r.tenant_name || null, bookingId: r.booking_id || null, bookingStart: dateOnly(r.booking_start), bookingEnd: r.booking_end || null,
     bookingRent: r.booking_rent != null ? Number(r.booking_rent) : null,
     bookingMonthly: r.booking_monthly != null ? Number(r.booking_monthly) : null, bookingNo: r.booking_no || null,
     tenantId: r.tenant_id || null, tenantPhone: r.tenant_phone || null, tenantEmail: r.tenant_email || null,
@@ -169,7 +169,7 @@ function rowToUnit(r) {
 // Also: when the unit was last let (the day its last booking ended), the
 // next booking waiting to start on it, and how many repairs are open.
 var UNIT_SELECT =
-  'SELECT u.*, p.name AS property_name, l.id AS booking_id, l.end_date AS booking_end, l.rent_total AS booking_rent, ' +
+  'SELECT u.*, p.name AS property_name, l.id AS booking_id, l.start_date AS booking_start, l.end_date AS booking_end, l.rent_total AS booking_rent, ' +
   '       l.monthly_rate AS booking_monthly, l.booking_no, l.tenant_id AS tenant_id, ' +
   '       c.name AS tenant_name, c.phone AS tenant_phone, c.email AS tenant_email, ' +
   "       (SELECT MAX(COALESCE(b.terminated_on, b.end_date)) FROM poki_bookings b WHERE b.unit_id = u.id AND b.status IN ('terminated', 'expired', 'renewed')) AS last_let_end, " +
@@ -358,6 +358,7 @@ async function listTenants(ctx) {
   var stays = await pool.query(
     'SELECT l.tenant_id, COUNT(*) AS bookings, MIN(l.start_date) AS since, ' +
     "  MAX(l.end_date) FILTER (WHERE l.status = 'active') AS current_end, " +
+    "  MIN(l.start_date) FILTER (WHERE l.status = 'active') AS current_start, " +
     "  MIN(l.start_date) FILTER (WHERE l.status IN ('draft', 'active') AND l.start_date > $1) AS next_start, " +
     '  COALESCE(SUM(l.deposit_held - l.deposit_refunded), 0) AS deposit_held ' +
     "FROM poki_bookings l WHERE l.status <> 'draft' OR l.start_date > $1 GROUP BY 1", [today]);
@@ -376,6 +377,7 @@ async function listTenants(ctx) {
     t.bookings = st ? Number(st.bookings) : 0;
     t.since = st ? dateOnly(st.since) : null;
     t.currentEnd = st ? dateOnly(st.current_end) : null;
+    t.currentStart = st ? dateOnly(st.current_start) : null;
     t.nextStart = st ? dateOnly(st.next_start) : null;
     t.depositHeld = st ? money(st.deposit_held) : 0;
     t.createdAt = r.created_at || null;

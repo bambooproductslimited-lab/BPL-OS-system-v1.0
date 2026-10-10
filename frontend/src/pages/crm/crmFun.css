@@ -1,0 +1,28 @@
+/* The lively bits the Inbox, the follow-ups and the Poki Properties screens
+   share (crmFun.jsx): how long someone has waited, a progress ring and
+   confetti. Urgency (fresh, warm, hot) is always written beside its colour. */
+
+.fun-wait { --w: #1a7f37; display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums;
+  color: var(--w); background: color-mix(in srgb, var(--w) 12%, var(--color-bg)); border: 1px solid color-mix(in srgb, var(--w) 30%, transparent); }
+.fun-wait.is-warm { --w: #a86400; }
+.fun-wait.is-hot { --w: #c92a1d; }
+:root[data-theme='dark'] .fun-wait { --w: #4ade80; }
+:root[data-theme='dark'] .fun-wait.is-warm { --w: #f5b83d; }
+:root[data-theme='dark'] .fun-wait.is-hot { --w: #ff7a6b; }
+.fun-wait-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--w); }
+.fun-wait.is-hot .fun-wait-dot { animation: fun-pulse 1.4s ease-in-out infinite; }
+@keyframes fun-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--w) 55%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
+
+.fun-ring { --rf: var(--color-accent); position: relative; display: inline-grid; place-items: center; flex: none; }
+.fun-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fun-ring-track { fill: none; stroke: color-mix(in srgb, currentColor 16%, transparent); }
+.fun-ring-fill { fill: none; stroke: var(--rf); stroke-linecap: round; transition: stroke-dasharray .8s cubic-bezier(.2, .8, .2, 1); }
+.fun-ring.is-good { --rf: #34d399; }
+.fun-ring.is-warm { --rf: #f5b83d; }
+.fun-ring.is-hot { --rf: #ff7a6b; }
+.fun-ring-in { position: relative; display: flex; flex-direction: column; align-items: center; line-height: 1.05; text-align: center; }
+
+.fun-confetti { position: fixed; inset: 0; pointer-events: none; z-index: 4000; overflow: hidden; }
+.fun-confetti i { position: absolute; top: -20px; border-radius: 2px; animation-name: fun-fall; animation-timing-function: cubic-bezier(.25, .6, .4, 1); animation-fill-mode: forwards; }
+@keyframes fun-fall { to { transform: translate(var(--drift), 105vh) rotate(var(--rot)); opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .fun-wait.is-hot .fun-wait-dot, .fun-ring-fill { animation: none; transition: none; } }

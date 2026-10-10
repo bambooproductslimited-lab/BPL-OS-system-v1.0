@@ -61,7 +61,10 @@ const PATHS = {
   card: <><rect x="3" y="5.5" width="18" height="13" rx="1.5" /><path d="M3 10h18M6.5 15h4" /></>,
   send: <path d="m4 12 16-7-6 16-2.5-6.5z" />,
   layers: <><path d="m12 4 8.5 4.5L12 13 3.5 8.5z" /><path d="m3.5 12.5 8.5 4.5 8.5-4.5" /><path d="m3.5 16.5 8.5 4.5 8.5-4.5" /></>,
-  mail: <><rect x="3" y="5.5" width="18" height="13" rx="1.5" /><path d="m3.5 7 8.5 6.5L20.5 7" /></>
+  mail: <><rect x="3" y="5.5" width="18" height="13" rx="1.5" /><path d="m3.5 7 8.5 6.5L20.5 7" /></>,
+  building: <><path d="M4.5 20.5V5.5l8-2v17M12.5 8.5l7 2v10M3 20.5h18" /><path d="M7.5 8h2M7.5 11.5h2M7.5 15h2M15.5 13h1.5M15.5 16.5h1.5" /></>,
+  key: <><circle cx="8" cy="15" r="4" /><path d="m11 12 8.5-8.5M16 7l2.5 2.5M14 9l2 2" /></>,
+  wrench: <path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4 17l3 3 5.4-5.4a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.4-.6-.6-2.4z" />
 };
 export function Icon({ name }) {
   return (

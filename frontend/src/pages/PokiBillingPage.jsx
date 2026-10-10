@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { Glossary, Hero, Insights, Section, Status, jump } from '../components/DashKit';
+import { Glossary, Insights, Section, Status, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import DocPreview from '../components/DocPreview';
 import CreditNoteDialog from '../components/CreditNoteDialog';
@@ -20,6 +20,7 @@ import './ToolRoomPage.css';
 import './RestaurantsPage.css';
 import './PokiPages.css';
 import './PokiRentals.css';
+import { PkBanner } from './PokiFun';
 import RowMenu from '../components/RowMenu';
 
 import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
@@ -28,10 +29,10 @@ import { codeLabel } from '../lib/codeLabels.js';
 // Rent & utilities — the billing desk. Rent is invoiced when a booking is
 // made (it is paid for up front), so what happens here is: taking payments
 // against invoices, raising one-off charges, and turning meter readings and
-// shared building bills into utility invoices. Same "explains itself"
-// layout as the dashboards (components/DashKit.jsx): the key numbers (owed
-// and overdue, collected this month, readings not billed yet, shared bills
-// not charged), what stands out (the most overdue invoice, readings waiting,
+// shared building bills into utility invoices. The Poki Properties banner
+// (PokiFun.jsx) rings how much of the last twelve months' billing came in,
+// with owed and overdue, collected this month, readings not billed yet and
+// shared bills not charged; then what stands out (the most overdue invoice, readings waiting,
 // metered units with no meter, meters not read for over a month), and two
 // views — Invoices (with a call or WhatsApp button to chase the tenant and
 // payment recorded in place) and Utilities (meters, readings, shared bills).
@@ -339,6 +340,21 @@ export default function PokiBillingPage() {
     { icon: 'doc', value: String(masterOpen.length), label: tr('shared bills not charged'), note: tr('building bills split across units'), tone: masterOpen.length ? 'alert' : '', onClick: () => { setView('utilities'); setTimeout(() => jump('pk-master'), 0); } }
   ];
 
+  // Twelve months of billing against what came in, in the currency most of
+  // it is in (the ring); never added across currencies.
+  const yearOf = (list) => { const m = {}; (list || []).forEach((r) => { m[r.currency] = (m[r.currency] || 0) + r.amount; }); return m; };
+  const billedYear = yearOf(overview && overview.billedByMonth);
+  const collectedYear = yearOf(overview && overview.collectedByMonth);
+  const ringCurrency = billedYear.GHS ? 'GHS' : Object.keys(billedYear)[0];
+  const billedAmt = ringCurrency ? billedYear[ringCurrency] : 0;
+  const collectedAmt = ringCurrency ? (collectedYear[ringCurrency] || 0) : 0;
+  const collectedPct = billedAmt > 0 ? Math.min(100, Math.round((collectedAmt / billedAmt) * 100)) : 0;
+  const ring = {
+    value: Math.min(collectedAmt, billedAmt), max: billedAmt, big: collectedPct + '%', small: tr('collected'),
+    caption: tr('{collected} of {billed} billed over twelve months', { collected: money(collectedAmt, ringCurrency), billed: money(billedAmt, ringCurrency) }),
+    tone: collectedPct >= 90 ? 'good' : collectedPct >= 70 ? 'warm' : 'hot'
+  };
+
   const insights = [];
   if (overdue.length) {
     const w = overdue[0];
@@ -387,8 +403,8 @@ export default function PokiBillingPage() {
     <div className="dk tl pk">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Poki Rentals')}
+      <PkBanner
+        eyebrow={tr('Poki Properties')}
         title={tr('Rent & utilities')}
         sub={tr('Take payments against what tenants owe, raise one-off charges, and turn meter readings and shared building bills into utility invoices. Rent itself is invoiced when a booking is made. Press a number to go to it.')}
         actions={canManage && (
@@ -398,6 +414,7 @@ export default function PokiBillingPage() {
             {meters.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setForm({ meterId: meters[0].id, periodStart: '', periodEnd: '', currentReading: '' }); setDialogError(null); setDialog('reading'); }}>{tr('Record reading')}</button>}
           </>
         )}
+        ring={billedAmt > 0 ? ring : null}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />

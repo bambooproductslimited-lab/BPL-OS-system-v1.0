@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
-import { Glossary, Hero, Insights, PairBars, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { Glossary, Insights, PairBars, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -11,22 +11,21 @@ import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
 import './PokiRentals.css';
+import { NextDays, PkBanner, UnitMosaic, daysUntil } from './PokiFun';
+import { Confetti } from './crm/crmFun';
 
-// Poki Rentals — the overview a landlord opens first. Same "explains
-// itself" layout as the dashboards (components/DashKit.jsx): the key
-// numbers (how much of the portfolio is let, the monthly rent roll, what is
-// owed, open repairs), what stands out (rent overdue, tenancies ending with
+// Poki Properties — the overview a landlord opens first. The sunset banner
+// (PokiFun.jsx) rings how much of the portfolio is let, with the monthly
+// rent roll, what is owed, open repairs and who moves in; then what stands
+// out (rent overdue, tenancies ending with
 // no renewal, units standing empty and the rent they are losing, move-ins
 // coming, urgent repairs), what was billed against what came in over twelve
-// months, occupancy by property, and the lists to act on: arrears (with a
-// call or WhatsApp button), tenancies ending, units empty, move-ins.
+// months, every unit as a coloured tile, the next 90 days of move-ins and
+// endings on a strip, occupancy by property, and the lists to act on:
+// arrears (with a call or WhatsApp button), tenancies ending, units empty,
+// move-ins. Fully let gets a little confetti.
 // Amounts are kept per currency, never added across currencies.
 
-function daysUntil(iso) {
-  if (!iso) return null;
-  const t = new Date(); t.setHours(0, 0, 0, 0);
-  return Math.round((new Date(String(iso).slice(0, 10) + 'T00:00') - t) / 86400000);
-}
 function monthLabel(ym) { return new Date(ym + '-01T00:00').toLocaleDateString(activeIntlLocale(), { month: 'short' }); }
 
 export default function PokiDashboardPage() {
@@ -36,14 +35,16 @@ export default function PokiDashboardPage() {
   const [data, setData] = useState(null);
   const [arrears, setArrears] = useState(null);
   const [properties, setProperties] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [burst, setBurst] = useState(0);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [o, a, p] = await Promise.all([api.get('/poki/overview'), api.get('/poki/arrears'), api.get('/poki/properties')]);
-      setData(o); setArrears(a); setProperties(p);
+      const [o, a, p, us] = await Promise.all([api.get('/poki/overview'), api.get('/poki/arrears'), api.get('/poki/properties'), api.get('/poki/units')]);
+      setData(o); setArrears(a); setProperties(p); setUnits(us);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -51,6 +52,12 @@ export default function PokiDashboardPage() {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Confetti when every unit is let — once a session, not on every visit.
+  useEffect(() => {
+    if (!data || !data.units.total || data.units.occupied !== data.units.total) return;
+    try { if (sessionStorage.getItem('bos.pokiFullyLet')) return; sessionStorage.setItem('bos.pokiFullyLet', '1'); } catch { /* storage blocked: still celebrate */ }
+    setBurst(Date.now());
+  }, [data]);
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
   if (error) return <div className="error-banner">{error}</div>;
@@ -79,11 +86,21 @@ export default function PokiDashboardPage() {
   const yearCollected = chart.reduce((s, r) => s + r.b, 0);
   const hasMoney = yearBilled > 0 || yearCollected > 0;
 
+  const fullyLet = u.total > 0 && u.occupied === u.total;
   const stats = [
-    { icon: 'check', value: u.occupancyRate + '%', label: tr('of units let'), note: tr('{occupied} of {total} units let', { occupied: u.occupied, total: u.total }), onClick: () => navigate('/pokiproperties') },
     { icon: 'cash', value: moneyBreakdown(data.monthlyRecurringRevenue, money(0)), label: tr('rent roll a month'), note: tr('from bookings let by the month'), onClick: () => navigate('/pokibookings') },
     { icon: 'owed', value: moneyBreakdown(data.outstanding, money(0)), label: tr('owed by tenants'), note: data.overdueCount ? (data.overdueCount === 1 ? tr('{amount} of it overdue (1 invoice)', { amount: moneyBreakdown(data.overdueAmount, money(0)) }) : tr('{amount} of it overdue ({n} invoices)', { amount: moneyBreakdown(data.overdueAmount, money(0)), n: data.overdueCount })) : tr('nothing past its due date'), tone: data.overdueCount ? 'bad' : '', onClick: () => jump('pk-arrears') },
-    { icon: 'warn', value: String(data.openMaintenance), label: tr('repairs open'), note: data.urgentMaintenance ? tr('{n} high or urgent', { n: data.urgentMaintenance }) : tr('none urgent'), tone: data.urgentMaintenance ? 'alert' : '', onClick: () => navigate('/pokimaintenance') }
+    { icon: 'wrench', value: String(data.openMaintenance), label: tr('repairs open'), note: data.urgentMaintenance ? tr('{n} high or urgent', { n: data.urgentMaintenance }) : tr('none urgent'), tone: data.urgentMaintenance ? 'alert' : '', onClick: () => navigate('/pokimaintenance') },
+    { icon: 'key', value: String(data.upcomingBookings.length), label: tr('moving in, next 30 days'), note: ending30.length ? (ending30.length === 1 ? tr('1 booking ends in 30 days') : tr('{n} bookings end in 30 days', { n: ending30.length })) : tr('none ending in 30 days'), tone: ending30.length ? 'alert' : '', onClick: () => jump('pk-next') }
+  ];
+  const ring = {
+    value: u.occupied, max: u.total, big: Math.round(u.occupancyRate) + '%', small: tr('let'),
+    caption: fullyLet ? tr('Every unit is let') : tr('{occupied} of {total} units let', { occupied: u.occupied, total: u.total }),
+    tone: u.occupancyRate >= 90 ? 'good' : u.occupancyRate >= 60 ? 'warm' : 'hot'
+  };
+  const nextItems = [
+    ...data.upcomingBookings.map((b) => ({ date: b.startDate, kind: 'in', label: b.unitCode, title: tr('{tenant} moves into {unit} on {date}.', { tenant: b.tenantName, unit: b.unitCode, date: fmtDate(b.startDate) }) })),
+    ...data.expiringBookings.map((b) => ({ date: b.endDate, kind: 'out', label: b.unitCode, title: tr('{tenant}\'s booking on {unit} ends {date}.', { tenant: b.tenantName, unit: b.unitCode, date: fmtDate(b.endDate) }) }))
   ];
 
   const insights = [];
@@ -105,19 +122,38 @@ export default function PokiDashboardPage() {
 
   return (
     <div className="dk tl pk">
-      <Hero
+      <Confetti burst={burst} />
+      <PkBanner
         eyebrow={new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-        title={tr('Poki Rentals')}
-        sub={tr('The properties and units, who is in them, what they pay and what they owe. See what is ending, what stands empty and what needs repairing. Press a number to go to it.')}
+        title={tr('Poki Properties')}
+        sub={(
+          <>
+            {fullyLet && <span className="pkf-celebrate">🎉 {tr('Fully let!')}</span>}{fullyLet && ' '}
+            {tr('The properties and units, who is in them, what they pay and what they owe. See what is ending, what stands empty and what needs repairing. Press a number to go to it.')}
+          </>
+        )}
         actions={(
           <>
             {canManage && <Link className="btn btn-primary" to="/pokibookings">{tr('New booking')}</Link>}
             <Link className="btn btn-secondary" to="/pokibilling">{tr('Rent & utilities')}</Link>
           </>
         )}
+        ring={u.total ? ring : null}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
+
+      {units.some((x) => x.active !== false) && (
+        <Section id="pk-map" title={tr('Every unit at a glance')} sub={tr('One tile per unit, coloured by what it is doing today. Press a tile to open the unit.')} card>
+          <UnitMosaic units={units} onPick={(x) => navigate('/pokiproperties?unit=' + x.id)} />
+        </Section>
+      )}
+
+      {nextItems.length > 0 && (
+        <Section id="pk-next" title={tr('The next 90 days')} sub={tr('Who moves in over the next 30 days and which bookings end over the next 90. Hover a marker for the tenant.')} card>
+          <NextDays items={nextItems} />
+        </Section>
+      )}
 
       {hasMoney && (
         <Section id="pk-money" title={tr('Billed and collected')} sub={tr('The last twelve months, in {currency}: what was invoiced and what tenants paid.', { currency: mainCurrency }) + (currencies.length > 1 ? ' ' + tr('Other currencies are on the Rent & utilities screen.') : '')} card>

@@ -4,24 +4,26 @@ import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { Glossary, Hero, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
-import { money } from '../lib/currency';
+import { Glossary, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { money, moneyBreakdown } from '../lib/currency';
 import { msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './PokiRentals.css';
+import { PkBanner } from './PokiFun';
 
 // Repairs and issues logged against a unit; the tenant in it at the time is
 // attached automatically. Where the tenant is liable (a broken window rather
 // than a failing water heater) the cost can be recharged on its own invoice,
-// once (pokiBilling.service.js, migration 0091). Same "explains itself"
-// layout as the dashboards (components/DashKit.jsx): the key numbers (open,
-// urgent, waiting longest, spent this year), what stands out (urgent repairs
-// untouched, repairs open a long time, nobody assigned, costs the tenant is
-// liable for not yet charged, units that keep breaking), where the money
-// goes by property, and the requests as cards — each with who reported it,
-// who is fixing it and a call or WhatsApp button for the tenant.
+// once (pokiBilling.service.js, migration 0091). The Poki Properties banner
+// (PokiFun.jsx) rings how many of this year's repairs are fixed, with open,
+// urgent, waiting longest and spent this year; then what stands out (urgent
+// repairs untouched, repairs open a long time, nobody assigned, costs the
+// tenant is liable for not yet charged, units that keep breaking), the
+// requests as a board (waiting → being fixed → fixed in the last 30 days)
+// or as cards — each with who reported it, who is fixing it and a call or
+// WhatsApp button for the tenant — and where the money goes by property.
 
 const PRIORITIES = [{ key: 'low', label: msg('Low') }, { key: 'normal', label: msg('Normal') }, { key: 'high', label: msg('High') }, { key: 'urgent', label: msg('Urgent') }];
 const STATUSES = [{ key: 'open', label: msg('Open') }, { key: 'in_progress', label: msg('In progress') }, { key: 'resolved', label: msg('Resolved') }, { key: 'closed', label: msg('Closed') }, { key: 'cancelled', label: msg('Cancelled') }];
@@ -33,6 +35,8 @@ function daysSince(iso) {
   const t = new Date(); t.setHours(0, 0, 0, 0);
   return Math.round((t - new Date(String(iso).slice(0, 10) + 'T00:00')) / 86400000);
 }
+function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
 function isOpen(r) { return r.status === 'open' || r.status === 'in_progress'; }
 function isDone(r) { return r.status === 'resolved' || r.status === 'closed'; }
 function unCharged(r) { return r.chargeToTenant && r.cost > 0 && r.bookingId && (!r.chargeInvoiceId || r.chargeInvoiceStatus === 'void'); }
@@ -50,6 +54,7 @@ export default function PokiMaintenancePage() {
   const [toast, setToast] = useState(null);
   const [search, setSearch] = useState('');
   const [chip, setChip] = useState('open');
+  const [view, setView] = useState(() => readPref('bos.pokiRepairsView', 'board'));
   const [busy, setBusy] = useState(false);
 
   const [dialog, setDialog] = useState(null); // { id?, resolve? }
@@ -146,22 +151,34 @@ export default function PokiMaintenancePage() {
   const toCharge = requests.filter(unCharged);
   const year = String(new Date().getFullYear());
   const doneThisYear = requests.filter((r) => isDone(r) && String(r.resolvedOn || r.reportedOn).slice(0, 4) === year);
-  const spentYear = doneThisYear.reduce((s, r) => s + r.cost, 0);
-  const recharged = requests.filter((r) => r.chargeInvoiceId && r.chargeInvoiceStatus !== 'void' && String(r.reportedOn).slice(0, 4) === year).reduce((s, r) => s + r.cost, 0);
+  // kept per currency, never added across currencies
+  const perCurrency = (list) => { const m = {}; list.forEach((r) => { if (r.cost) m[r.currency || 'GHS'] = (m[r.currency || 'GHS'] || 0) + r.cost; }); return Object.entries(m).map(([currency, amount]) => ({ currency, amount })); };
+  const spentYear = perCurrency(doneThisYear);
+  const recharged = perCurrency(requests.filter((r) => r.chargeInvoiceId && r.chargeInvoiceStatus !== 'void' && String(r.reportedOn).slice(0, 4) === year));
   const perUnit = {};
   requests.filter((r) => daysSince(r.reportedOn) <= 180 && r.status !== 'cancelled').forEach((r) => { perUnit[r.unitId] = (perUnit[r.unitId] || []).concat(r); });
   const repeat = Object.values(perUnit).filter((l) => l.length >= 3).sort((x, y) => y.length - x.length);
+  // by property, in the currency most of it was spent in; any other is noted
+  const spendCurrency = spentYear.slice().sort((x, y) => (y.currency === 'GHS') - (x.currency === 'GHS') || y.amount - x.amount).map((c) => c.currency)[0] || 'GHS';
+  const otherSpend = spentYear.filter((c) => c.currency !== spendCurrency);
   const byProperty = {};
-  doneThisYear.forEach((r) => { byProperty[r.propertyName] = (byProperty[r.propertyName] || 0) + r.cost; });
-  const propRows = Object.entries(byProperty).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]).map(([name, v]) => ({ key: name, name, value: v, amount: money(v) }));
+  doneThisYear.filter((r) => (r.currency || 'GHS') === spendCurrency).forEach((r) => { byProperty[r.propertyName] = (byProperty[r.propertyName] || 0) + r.cost; });
+  const propRows = Object.entries(byProperty).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]).map(([name, v]) => ({ key: name, name, value: v, amount: money(v, spendCurrency) }));
 
   function showOnly(key) { setChip(chip === key ? 'open' : key); jump('pk-reqs'); }
   const stats = [
     { icon: 'warn', value: String(open.length), label: tr('repairs open'), note: open.filter((r) => r.status === 'in_progress').length ? tr('{n} being worked on', { n: open.filter((r) => r.status === 'in_progress').length }) : tr('none started yet'), onClick: () => showOnly('open') },
     { icon: 'clock', value: String(urgent.length), label: tr('high or urgent'), note: untouched.length ? tr('{n} not started', { n: untouched.length }) : tr('all being handled'), tone: untouched.length ? 'bad' : urgent.length ? 'alert' : '', onClick: () => showOnly('urgent') },
     { icon: 'calendar', value: oldest ? tr('{n} days', { n: daysSince(oldest.reportedOn) }) : '—', label: tr('longest waiting'), note: oldest ? oldest.unitCode + ' · ' + oldest.title : tr('nothing waiting'), tone: oldest && daysSince(oldest.reportedOn) >= 14 ? 'alert' : '', onClick: () => showOnly('long') },
-    { icon: 'cash', value: money(spentYear), label: tr('spent on repairs this year'), note: recharged ? tr('{amount} of it charged to tenants', { amount: money(recharged) }) : tr('none charged to tenants'), onClick: () => jump('pk-spend') }
+    { icon: 'cash', value: moneyBreakdown(spentYear, money(0)), label: tr('spent on repairs this year'), note: recharged.length ? tr('{amount} of it charged to tenants', { amount: moneyBreakdown(recharged) }) : tr('none charged to tenants'), onClick: () => jump('pk-spend') }
   ];
+
+  const fixedPct = doneThisYear.length + open.length ? Math.round((doneThisYear.length / (doneThisYear.length + open.length)) * 100) : 0;
+  const ring = {
+    value: doneThisYear.length, max: doneThisYear.length + open.length, big: fixedPct + '%', small: tr('fixed'),
+    caption: tr('{a} fixed this year, {b} still open', { a: doneThisYear.length, b: open.length }),
+    tone: fixedPct >= 80 ? 'good' : fixedPct >= 50 ? 'warm' : 'hot'
+  };
 
   const insights = [];
   if (untouched.length) insights.push({ tone: 'bad', icon: 'warn', text: untouched.length === 1 ? tr('{priority}: “{title}” at {unit} was reported {n} days ago and nobody has started on it.', { priority: codeLabel(untouched[0].priority), title: untouched[0].title, unit: untouched[0].unitCode, n: daysSince(untouched[0].reportedOn) }) : tr('{n} high or urgent repairs have not been started.', { n: untouched.length }), action: canManage && untouched.length === 1 ? { label: tr('Start it'), run: () => setStatus(untouched[0], 'in_progress') } : { label: tr('Show them'), run: () => showOnly('urgent') } });
@@ -201,20 +218,68 @@ export default function PokiMaintenancePage() {
   }
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
+  // The board: what is waiting, what is being fixed (both follow the chips
+  // and the search) and what was fixed in the last 30 days. Done, cancelled
+  // and to-charge are lists, so those chips show the cards.
+  const asBoard = view === 'board' && !['done', 'cancelled', 'charge'].includes(chip);
+  const fixedLately = requests.filter((r) => isDone(r) && daysSince(r.resolvedOn || r.reportedOn) <= 30)
+    .filter((r) => matchesQuery(search, r.title, r.unitCode, r.propertyName, r.tenantName, r.category, r.reportedBy, r.assignedToName))
+    .sort((x, y) => String(y.resolvedOn || '').localeCompare(String(x.resolvedOn || '')));
+  const lanes = [
+    { key: 'open', cls: 'is-open', title: tr('Waiting'), sub: tr('reported, not started'), list: visible.filter((r) => r.status === 'open'), empty: tr('Nothing waiting 🎉') },
+    { key: 'doing', cls: 'is-doing', title: tr('Being fixed'), sub: tr('someone is on it'), list: visible.filter((r) => r.status === 'in_progress'), empty: tr('Nothing in progress') },
+    { key: 'done', cls: 'is-done', title: tr('Fixed lately'), sub: tr('the last 30 days'), list: fixedLately, empty: tr('Nothing fixed in the last 30 days') }
+  ];
+  function card(r) {
+    const st = stateOf(r);
+    return (
+      <article key={r.id} className={'tl-card' + (isOpen(r) && r.priority === 'urgent' ? ' st-late' : isOpen(r) && r.priority === 'high' ? ' st-low' : '') + (r.status === 'cancelled' ? ' st-retired' : '')}>
+        <div className="tl-card-open pk-static">
+          <span className={'pk-unit-code' + (isOpen(r) ? '' : ' is-let')}>{r.unitCode}</span>
+          <span className="tl-card-head">
+            <span className="dk-muted tl-small">{r.propertyName} · {r.category}</span>
+            <span className="tl-name">{r.title}</span>
+          </span>
+        </div>
+        {actionsFor(r).length > 0 && <span className="tl-menu"><RowMenu actions={actionsFor(r)} /></span>}
+        <div className="tl-tags">
+          {isOpen(r) && r.priority !== 'normal' && <Status tone={priorityTone(r.priority)}>{codeLabel(r.priority)}</Status>}
+          <Status tone={st.tone}>{st.text}</Status>
+          {r.chargeInvoiceNo && r.chargeInvoiceStatus !== 'void' && <Status tone="info">{tr('Charged · {no}', { no: r.chargeInvoiceNo })}</Status>}
+          {unCharged(r) && <Status tone="warn">{tr('Tenant to pay — not charged')}</Status>}
+        </div>
+        {r.description && <p className="dk-muted tl-small pk-desc">{r.description}</p>}
+        <span className="dk-muted tl-small">{[r.reportedBy && tr('reported by {name}', { name: r.reportedBy }), r.assignedToName ? tr('{name} is on it', { name: r.assignedToName }) : isOpen(r) ? tr('nobody assigned') : null, r.resolutionNotes].filter(Boolean).join(' · ')}</span>
+        <div className="tl-foot">
+          <span className="tl-small">{r.cost > 0 ? <strong>{money(r.cost, r.currency)}</strong> : <span className="dk-muted">{tr('no cost recorded')}</span>}{r.tenantName ? <span className="dk-muted"> · {r.tenantName}</span> : <span className="dk-muted"> · {tr('vacant')}</span>}</span>
+          {r.tenantName && <ContactButtons name={r.tenantName} phone={r.tenantPhone} email={r.tenantEmail} />}
+        </div>
+      </article>
+    );
+  }
+
   return (
     <div className="dk tl pk">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Poki Rentals')}
+      <PkBanner
+        eyebrow={tr('Poki Properties')}
         title={tr('Maintenance')}
         sub={tr('Repairs and problems reported in the units: what is waiting, what is urgent, who is fixing it and what it cost. A repair the tenant caused can be charged to them. Press a number to show only those.')}
         actions={canManage && <button type="button" className="btn btn-primary" disabled={!units.length} onClick={() => openDialog(null)}>{tr('Log request')}</button>}
+        ring={doneThisYear.length + open.length ? ring : null}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
 
-      <Section id="pk-reqs" title={tr('Requests')} sub={tr('Most urgent first. Press ⋮ to start, finish or charge a repair.')}>
+      <Section id="pk-reqs" title={tr('Requests')} sub={tr('Most urgent first. Press ⋮ to start, finish or charge a repair.')}
+        action={(
+          <div className="ppl-view" role="radiogroup" aria-label={tr('View')}>
+            {[['board', tr('Board')], ['cards', tr('Cards')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={view === k} className={view === k ? 'is-on' : ''} onClick={() => { setView(k); writePref('bos.pokiRepairsView', k); }}>{label}</button>
+            ))}
+          </div>
+        )}>
         <div className="tl-tools"><div className="tl-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search requests…')} /></div></div>
         <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
           {chips.map(([key, label, c]) => (
@@ -223,46 +288,33 @@ export default function PokiMaintenancePage() {
             </button>
           ))}
         </div>
-        {!visible.length ? (
+        {asBoard && requests.length ? (
+          <div className="pkf-lanes">
+            {lanes.map((l) => (
+              <section key={l.key} className={'pkf-lane ' + l.cls} aria-label={l.title}>
+                <header className="pkf-lane-head">
+                  <span className="pkf-lane-dot" aria-hidden="true" />
+                  <div><h3>{l.title}</h3><span className="dk-muted tl-small">{l.sub}</span></div>
+                  <span className="pkf-lane-n">{l.list.length}</span>
+                </header>
+                {l.list.length ? l.list.slice(0, l.key === 'done' ? 8 : 50).map(card) : <p className="pkf-lane-empty">{l.empty}</p>}
+              </section>
+            ))}
+          </div>
+        ) : !visible.length ? (
           <div className="dk-empty tl-empty">
             <p>{requests.length ? tr('Try a different search or status filter.') : tr('Log repairs and issues against the unit they affect — the current tenant is attached automatically.')}</p>
             {canManage && !requests.length && units.length > 0 && <button type="button" className="btn btn-primary" onClick={() => openDialog(null)}>{tr('Log request')}</button>}
           </div>
         ) : (
           <div className="tl-grid">
-            {visible.map((r) => {
-              const st = stateOf(r);
-              return (
-                <article key={r.id} className={'tl-card' + (isOpen(r) && r.priority === 'urgent' ? ' st-late' : isOpen(r) && r.priority === 'high' ? ' st-low' : '') + (r.status === 'cancelled' ? ' st-retired' : '')}>
-                  <div className="tl-card-open pk-static">
-                    <span className={'pk-unit-code' + (isOpen(r) ? '' : ' is-let')}>{r.unitCode}</span>
-                    <span className="tl-card-head">
-                      <span className="dk-muted tl-small">{r.propertyName} · {r.category}</span>
-                      <span className="tl-name">{r.title}</span>
-                    </span>
-                  </div>
-                  {actionsFor(r).length > 0 && <span className="tl-menu"><RowMenu actions={actionsFor(r)} /></span>}
-                  <div className="tl-tags">
-                    {isOpen(r) && r.priority !== 'normal' && <Status tone={priorityTone(r.priority)}>{codeLabel(r.priority)}</Status>}
-                    <Status tone={st.tone}>{st.text}</Status>
-                    {r.chargeInvoiceNo && r.chargeInvoiceStatus !== 'void' && <Status tone="info">{tr('Charged · {no}', { no: r.chargeInvoiceNo })}</Status>}
-                    {unCharged(r) && <Status tone="warn">{tr('Tenant to pay — not charged')}</Status>}
-                  </div>
-                  {r.description && <p className="dk-muted tl-small pk-desc">{r.description}</p>}
-                  <span className="dk-muted tl-small">{[r.reportedBy && tr('reported by {name}', { name: r.reportedBy }), r.assignedToName ? tr('{name} is on it', { name: r.assignedToName }) : isOpen(r) ? tr('nobody assigned') : null, r.resolutionNotes].filter(Boolean).join(' · ')}</span>
-                  <div className="tl-foot">
-                    <span className="tl-small">{r.cost > 0 ? <strong>{money(r.cost, r.currency)}</strong> : <span className="dk-muted">{tr('no cost recorded')}</span>}{r.tenantName ? <span className="dk-muted"> · {r.tenantName}</span> : <span className="dk-muted"> · {tr('vacant')}</span>}</span>
-                    {r.tenantName && <ContactButtons name={r.tenantName} phone={r.tenantPhone} email={r.tenantEmail} />}
-                  </div>
-                </article>
-              );
-            })}
+            {visible.map(card)}
           </div>
         )}
       </Section>
 
       {propRows.length > 0 && (
-        <Section id="pk-spend" title={tr('Where the money went')} sub={tr('Repairs finished this year, by property.')} card>
+        <Section id="pk-spend" title={tr('Where the money went')} sub={tr('Repairs finished this year, by property, in {currency}.', { currency: spendCurrency }) + (otherSpend.length ? ' ' + tr('Also spent: {amount}.', { amount: moneyBreakdown(otherSpend) }) : '')} card>
           <RankList rows={propRows} />
         </Section>
       )}

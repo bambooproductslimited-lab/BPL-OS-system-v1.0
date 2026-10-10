@@ -13,7 +13,7 @@ const AREAS = [
   ['people', msg('People, attendance and leave')],
   ['box', msg('Production, stock and suppliers')],
   ['doc', msg('Quotations, invoices and payments')],
-  ['plate', msg('Restaurants and Poki Rentals')],
+  ['plate', msg('Restaurants and Poki Properties')],
   ['chart', msg('Finance, payroll and reports')],
   ['spark', msg('An AI assistant that knows the business')]
 ];

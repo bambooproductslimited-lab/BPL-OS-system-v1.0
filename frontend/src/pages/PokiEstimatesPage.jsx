@@ -8,11 +8,12 @@ import DocPreview from '../components/DocPreview';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import ContactButtons from '../components/ContactButtons';
-import { Glossary, Hero, Insights, Section, Status, jump } from '../components/DashKit';
+import { Glossary, Insights, Section, Status, jump } from '../components/DashKit';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './PokiPages.css';
 import './PokiRentals.css';
+import { Pipeline, PkBanner } from './PokiFun';
 import RowMenu from '../components/RowMenu';
 import RecordDialog from '../components/RecordDialog';
 import { itemsForDialog, totalsForDialog } from '../lib/docItems';
@@ -35,13 +36,13 @@ import { codeLabel } from '../lib/codeLabels.js';
 // unit. Draft, not active: activating is the deliberate step that checks
 // the unit is still free and flips it to occupied.
 //
-// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
-// the key numbers (drafts not sent, offers out waiting for an answer, offers
-// accepted this year and how many of the offers sent that is, empty units
-// with no offer out), what stands out (an offer past its date, one sent a
-// week ago with no answer, a unit on an offer that has since been let),
-// and the offers as cards or a list, with a call or WhatsApp button to
-// chase the prospect.
+// The Poki Properties banner (PokiFun.jsx) rings how many of this year's
+// offers were accepted, with drafts not sent, offers out waiting for an
+// answer and empty units with no offer out; then what stands out (an offer
+// past its date, one sent a week ago with no answer, a unit on an offer
+// that has since been let), the pipeline from draft to booking, and the
+// offers as cards or a list, with a call or WhatsApp button to chase the
+// prospect.
 
 const KINDS = [
   { value: 'letting', label: msg('Letting offer') },
@@ -356,6 +357,21 @@ export default function PokiEstimatesPage() {
     { icon: 'drawer', value: String(emptyNoOffer.length), label: tr('empty units with no offer'), note: emptyNoOffer.length ? emptyNoOffer.slice(0, 3).map((u) => u.code).join(', ') + (emptyNoOffer.length > 3 ? '…' : '') : tr('every empty unit is on offer'), tone: emptyNoOffer.length ? 'alert' : 'good', onClick: () => canManage && emptyNoOffer.length && tenants.length && openOffer(null) }
   ];
 
+  const acceptPct = decided.length ? Math.round((accepted.length / decided.length) * 100) : 0;
+  const ring = {
+    value: accepted.length, max: decided.length, big: acceptPct + '%', small: tr('accepted'),
+    caption: tr('{a} of {b} offers made this year', { a: accepted.length, b: decided.length }),
+    tone: acceptPct >= 60 ? 'good' : acceptPct >= 30 ? 'warm' : 'hot'
+  };
+  const converted = estimates.filter((e) => e.status === 'converted');
+  const archived = estimates.filter((e) => e.status === 'archived');
+  const steps = [
+    { key: 'draft', label: tr('Draft'), n: drafts.length, note: tr('costed, not sent yet'), onClick: drafts.length ? () => showOnly('draft') : null, on: chip === 'draft' },
+    { key: 'sent', label: tr('Waiting for an answer'), n: waiting.length, note: lapsed.length ? tr('and {n} past their date', { n: lapsed.length }) : tr('sent to the prospect'), onClick: waiting.length ? () => showOnly('sent') : null, on: chip === 'sent' },
+    { key: 'converted', label: tr('Became a booking'), n: converted.length, note: tr('{n} this year', { n: accepted.length }), onClick: converted.length ? () => showOnly('converted') : null, on: chip === 'converted' },
+    { key: 'archived', label: tr('Archived'), n: archived.length, note: tr('turned down or withdrawn'), onClick: archived.length ? () => showOnly('archived') : null, on: chip === 'archived' }
+  ];
+
   const insights = [];
   if (takenElsewhere.length) insights.push({ tone: 'bad', icon: 'warn', text: takenElsewhere.length === 1 ? tr('{no} offers {unit}, which has since been let. Withdraw it or offer another unit.', { no: takenElsewhere[0].estimateNo, unit: takenElsewhere[0].unitCode }) : tr('{n} open offers are for units that have since been let.', { n: takenElsewhere.length }), action: { label: tr('Show them'), run: () => showOnly('taken') } });
   if (lapsed.length) insights.push({ tone: 'warn', icon: 'calendar', text: lapsed.length === 1 ? tr('The offer to {name} for {unit} ran out on {date}.', { name: lapsed[0].customerName, unit: lapsed[0].unitCode || '—', date: fmtDate(lapsed[0].validUntil) }) : tr('{n} offers are past the date they were valid until.', { n: lapsed.length }), action: { label: tr('Show them'), run: () => showOnly('lapsed') } });
@@ -390,14 +406,21 @@ export default function PokiEstimatesPage() {
     <div className="dk tl pk">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Poki Rentals')}
+      <PkBanner
+        eyebrow={tr('Poki Properties')}
         title={tr('Letting offers')}
         sub={tr('What a unit costs to take, quoted to a prospect before any booking exists — costed from the unit\'s own rent, deposit and utilities. Accepted, it becomes a draft booking. Press a number to show only those.')}
         actions={canManage && <button type="button" className="btn btn-primary" disabled={!tenants.length} onClick={() => openOffer(null)}>{tr('New offer')}</button>}
-        stats={stats} />
+        ring={decided.length ? ring : null}
+        stats={decided.length ? stats.map((x) => (x.icon !== 'check' ? x : { icon: 'calendar', value: String(lapsed.length), label: tr('past their date'), note: lapsed.length ? tr('send a fresh offer or withdraw them') : tr('every offer out is in date'), tone: lapsed.length ? 'alert' : '', onClick: () => showOnly('lapsed') })) : stats} />
 
       <Insights items={insights.slice(0, 5)} />
+
+      {estimates.length > 0 && (
+        <Section id="pk-pipe" title={tr('From offer to booking')} sub={tr('An offer is costed as a draft, sent to the prospect, and once accepted becomes a booking. Press a step to show only those.')}>
+          <Pipeline steps={steps} />
+        </Section>
+      )}
 
       <Section id="pk-offers" title={tr('Offers')} sub={tr('Press an offer for its lines and totals.')}
         action={(

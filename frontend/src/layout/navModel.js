@@ -47,7 +47,7 @@ export const NAV_GROUPS = [
     // Guests, the order log for phone/WhatsApp/Bolt orders, feedback (pages/RestaurantCrmPage.jsx).
     { key: 'restaurantcrm', label: msg('Guest CRM'), perm: 'restaurant.read', icon: 'users' }
   ] },
-  { label: msg('Poki Rentals'), items: [
+  { label: msg('Poki Properties'), items: [
     { key: 'pokidash', label: msg('Overview'), perm: 'poki.read', icon: 'chart' },
     { key: 'pokiproperties', label: msg('Properties & units'), perm: 'poki.read', icon: 'building' },
     { key: 'pokitenants', label: msg('Tenants'), perm: 'poki.read', icon: 'users' },

@@ -96,6 +96,7 @@ test('a unit says when it was last let, when its next booking starts, who is in 
   var uf = units.find(function (u) { return u.id === f.id; });
   assert.deepEqual([ue.lastLetEnd, ue.nextBookingStart, ue.status, ue.openRequests], [day(-25), day(5), 'vacant', 0]);
   assert.deepEqual([uf.status, uf.tenantName, uf.tenantPhone, uf.bookingNo, uf.bookingMonthly, uf.openRequests], ['occupied', MARK + ' Resident', '0240000097', live.bookingNo, 1300, 1]);
+  assert.deepEqual([uf.bookingStart, ue.bookingStart], [day(-10), null], 'when the booking running on it began (the lease bar)');
   await pool.query('DELETE FROM poki_maintenance_requests WHERE unit_id = $1', [f.id]);
 });
 
@@ -116,7 +117,8 @@ test('a tenant carries what they owe, how overdue, what they have paid and when 
   assert.deepEqual(t.owed, [{ currency: 'GHS', amount: left }]);
   assert.deepEqual(t.overdue, [{ currency: 'GHS', amount: left }]);
   assert.deepEqual([t.daysOverdue, t.paid[0].amount, t.bookings, t.since, t.currentEnd], [12, 1000, 1, day(-40), b.endDate.slice(0, 10)]);
-  assert.deepEqual([p.owed, p.bookings, p.currentEnd, p.status], [[], 0, null, 'prospect']);
+  assert.equal(t.currentStart, day(-40), 'when the booking they are in began (the lease bar)');
+  assert.deepEqual([p.owed, p.bookings, p.currentEnd, p.currentStart, p.status], [[], 0, null, null, 'prospect']);
 });
 
 test('a repair is charged to the tenant once; voiding that invoice lets it be charged again', async function () {
