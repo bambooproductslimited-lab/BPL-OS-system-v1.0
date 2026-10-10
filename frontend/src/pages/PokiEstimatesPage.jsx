@@ -245,7 +245,7 @@ export default function PokiEstimatesPage() {
     if (!window.confirm(tr('Delete {estimateNo}?', { estimateNo: est.estimateNo }))) return;
     setBusyId(est.id);
     try {
-      await api.delete('/poki/estimates/' + est.id);
+      await api.del('/poki/estimates/' + est.id);
       setToast(tr('Deleted {estimateNo}.', { estimateNo: est.estimateNo }));
       await load();
     } catch (err) {

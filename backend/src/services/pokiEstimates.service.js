@@ -411,8 +411,12 @@ async function remove(ctx, id) {
   poki.canManage(ctx);
   var existing = await get(ctx, id);
   if (existing.status === 'converted') fail('conflict', 'Cannot delete an offer that has become booking ' + existing.bookingNo + '.');
-  await pool.query('DELETE FROM estimates WHERE id = $1', [id]);
-  await audit(pool, ctx, 'poki.estimate.delete', 'estimate', id, 'Deleted estimate ' + existing.estimateNo + '.');
+  await withTransaction(async function (client) {
+    // Its lines go with it (they point at it by id only, no foreign key).
+    await client.query("DELETE FROM document_line_items WHERE document_type = 'estimate' AND document_id = $1", [id]);
+    await client.query('DELETE FROM estimates WHERE id = $1', [id]);
+    await audit(client, ctx, 'poki.estimate.delete', 'estimate', id, 'Deleted estimate ' + existing.estimateNo + '.');
+  });
   return true;
 }
 

@@ -133,8 +133,12 @@ async function remove(ctx, id) {
   var es = res.rows[0];
   if (!es) fail('notfound', 'Estimate not found.');
   if (es.status === 'converted') fail('conflict', 'Cannot delete an estimate that has already been converted to a quotation.');
-  await pool.query('DELETE FROM estimates WHERE id = $1', [id]);
-  await audit(pool, ctx, 'estimate.delete', 'estimate', id, 'Deleted estimate ' + es.estimate_no + '.');
+  await withTransaction(async function (client) {
+    // Its lines go with it (they point at it by id only, no foreign key).
+    await client.query("DELETE FROM document_line_items WHERE document_type = 'estimate' AND document_id = $1", [id]);
+    await client.query('DELETE FROM estimates WHERE id = $1', [id]);
+    await audit(client, ctx, 'estimate.delete', 'estimate', id, 'Deleted estimate ' + es.estimate_no + '.');
+  });
   return true;
 }
 
