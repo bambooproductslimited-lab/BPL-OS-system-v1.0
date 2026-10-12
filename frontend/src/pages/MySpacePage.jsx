@@ -5,34 +5,31 @@ import LeavePool from '../components/LeavePool';
 import { useAuth } from '../auth/AuthContext';
 import TwoStepSettings from '../components/TwoStepSettings';
 import Photo from '../components/Photo';
-import { Glossary, Hero, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { Glossary, Icon, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { woStatusLabel } from '../lib/workOrders.js';
 import './ToolRoomPage.css';
 import './MySpacePage.css';
+import './MySpaceFun.css';
+import { ComingUp, Fortnight, MeBanner, PayCard, Tile, Week, longDay, skyOf } from './MySpaceFun';
 
 // My space — the signed-in person's own day, leave, work, money and
-// account, in the same "explains itself" layout as the dashboards
-// (components/DashKit.jsx): leave days left, how often they were on time
-// this month, open tasks, money owed to them or their last pay; what needs
-// them (clock in, overdue tasks, announcements to confirm, approvals
-// waiting, leave to plan, two-step sign-in off); then today's clock with the
-// last two weeks, leave balances and requests, tasks, claims, purchase
-// requests and payslips, and their profile and sign-in safety
+// account: a banner whose sky follows the time of day with their live clock
+// and how far through their shift they are; tiles for leave left, on time
+// this month, open work orders and money; what needs them (clock in,
+// overdue work, announcements to confirm, approvals waiting, leave to plan,
+// two-step sign-in off); the fortnight with their on-time run and this
+// week's hours; what is coming up (leave, payday, holiday, birthday, work
+// anniversary); leave, work orders, payslips split into take-home and
+// deductions, claims; and an ID card with their team and sign-in safety
 // (GET /api/me/overview — mySpace.service.js — only ever their own).
+// The livelier pieces are in MySpaceFun.jsx.
 //
 // Clock in / out needs attendance.self; everything else is self-service.
 // Payslips appear once payroll has approved the run.
 
-function fmtElapsed(hhmm, now) {
-  const [h, m] = hhmm.split(':').map(Number);
-  const start = new Date(now);
-  start.setHours(h, m, 0, 0);
-  const diffMs = Math.max(0, now.getTime() - start.getTime());
-  return Math.floor(diffMs / 3600000) + 'h ' + Math.floor((diffMs % 3600000) / 60000) + 'm';
-}
 function useClock() {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -56,7 +53,6 @@ function toMinutes(hhmm) { const [h, m] = String(hhmm).split(':').map(Number); r
 function greeting(now, name) { const h = now.getHours(); return h < 12 ? tr('Good morning, {name}', { name }) : h < 17 ? tr('Good afternoon, {name}', { name }) : tr('Good evening, {name}', { name }); }
 function isoDay(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
-const DAY_TONE = { present: 'good', late: 'warn', absent: 'bad', half_day: 'info' };
 const TASK_DONE = ['done', 'completed'];
 const EMPTY_PW = { currentPassword: '', newPassword: '', confirm: '' };
 
@@ -157,7 +153,7 @@ export default function MySpacePage() {
   const p = data.profile;
   const att = data.todayAttendance;
   const onDuty = !!(att && !att.clockOut);
-  const shiftText = data.shift.start ? (data.shift.name ? data.shift.name + ' · ' : '') + data.shift.start + '–' + (data.shift.end || '?') : ((session && session.employee && session.employee.shift) || tr('No shift set'));
+  const shiftText = data.shift.start ? (data.shift.name && !data.shift.name.includes(data.shift.start) ? data.shift.name + ' · ' : '') + data.shift.start + '–' + (data.shift.end || '?') : ((session && session.employee && session.employee.shift) || tr('No shift set'));
   // With a yearly total (LeavePool.jsx), the types in it are counted there.
   const lpool = data.leavePool && data.leavePool.inEffect ? data.leavePool : null;
   const ownBalances = lpool ? data.balances.filter((b) => !b.inPool) : data.balances;
@@ -167,10 +163,8 @@ export default function MySpacePage() {
   const entitled = lpool ? Math.max(0, lpool.available) : paid.reduce((s, b) => s + b.entitled, 0);
   const onTime = data.month.days ? Math.round(((data.month.days - data.month.late) / data.month.days) * 100) : null;
   const overdue = data.tasks.filter((t) => t.dueDate && dayNum(t.dueDate) < todayNum());
-  const dueSoon = data.tasks.filter((t) => t.dueDate && dayNum(t.dueDate) >= todayNum() && dayNum(t.dueDate) - todayNum() <= 7);
   const owed = data.claims.filter((c) => c.status === 'approved');
   const owedTotal = owed.reduce((s, c) => s + c.amount, 0);
-  const waitingClaims = data.claims.filter((c) => c.status === 'pending');
   const lastPay = data.payslips[0];
   const pendingLeave = data.leave.filter((l) => l.status === 'pending');
   const toConfirm = data.announcements.filter((a) => a.requiresAck && !a.acknowledged);
@@ -181,15 +175,6 @@ export default function MySpacePage() {
   const yearEnd = now.getMonth() >= 9 && leftDays > 5;
   const recentNo = data.leave.filter((l) => l.status === 'rejected' && l.decisionNote && l.decidedAt && Date.now() - new Date(l.decidedAt).getTime() < 14 * 86400000);
   const years = p.hireDate ? Math.floor((todayNum() - dayNum(p.hireDate)) / 365.25) : null;
-
-  const stats = [
-    { icon: 'calendar', value: String(leftDays), label: tr('days of paid leave left'), note: pendingDays ? tr('{n} more waiting for a decision', { n: pendingDays }) : tr('of {n} this year', { n: entitled }), onClick: () => jump('msp-leave') },
-    { icon: 'clock', value: onTime === null ? '—' : onTime + '%', label: tr('on time this month'), note: tr('{days} days · {hours} hours worked', { days: data.month.days, hours: data.month.hours }), tone: onTime === null ? '' : onTime >= 90 ? 'good' : onTime < 70 ? 'warn' : '', onClick: () => jump('msp-day') },
-    { icon: 'check', value: String(data.tasks.length), label: tr('work orders open for you'), note: overdue.length ? tr('{n} overdue', { n: overdue.length }) : tr('{n} done this month', { n: data.tasksDoneThisMonth }), tone: overdue.length ? 'bad' : '', onClick: () => jump('msp-work') },
-    owedTotal
-      ? { icon: 'cash', value: money(owedTotal, 'GHS'), label: tr('approved claims not paid yet'), note: owed.length === 1 ? tr('1 claim') : tr('{n} claims', { n: owed.length }), tone: 'info', onClick: () => jump('msp-money') }
-      : { icon: 'cash', value: lastPay ? money(lastPay.net, 'GHS') : '—', label: tr('last take-home pay'), note: lastPay ? tr('for {from} – {to}', { from: fmtDate(lastPay.periodStart), to: fmtDate(lastPay.periodEnd) }) : tr('no payslip yet'), onClick: () => jump('msp-money') }
-  ];
 
   const insights = [];
   if (lateNow) insights.push({ tone: 'warn', icon: 'clock', text: tr('You haven\'t clocked in yet today. Your shift started at {time}.', { time: data.shift.start }), action: { label: tr('Clock in'), run: clockIn } });
@@ -209,93 +194,97 @@ export default function MySpacePage() {
   // The last 14 days, today last, with gaps shown as days without a record.
   const byDate = Object.fromEntries(data.recent.map((r) => [r.date, r]));
   const strip = [];
-  for (let i = 13; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); strip.push({ date: isoDay(d), row: byDate[isoDay(d)] || null, weekday: d.getDay() }); }
+  for (let i = 13; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); strip.push({ date: isoDay(d), row: byDate[isoDay(d)] || null, weekday: d.getDay(), today: i === 0 }); }
+
+  const f = data.fun || { streak: 0, bestStreak: 0, week: [], weekHours: 0, lastWeekHours: 0, team: { size: 0, people: [] } };
+  const sky = skyOf(now);
+  const todayIso = data.today || isoDay(now);
+  const tiles = [
+    { icon: 'calendar', value: String(leftDays), label: tr('days of paid leave left'), note: pendingDays ? tr('{n} more waiting for a decision', { n: pendingDays }) : tr('of {n} this year', { n: entitled }), ring: entitled ? leftDays / entitled : null, tone: 'leave', onClick: () => jump('msp-leave') },
+    { icon: 'clock', value: onTime === null ? '—' : onTime + '%', label: tr('on time this month'), note: tr('{days} days · {hours} hours worked', { days: data.month.days, hours: data.month.hours }), ring: onTime === null ? null : onTime / 100, tone: onTime === null ? 'time' : onTime >= 90 ? 'time' : onTime < 70 ? 'warn' : 'time', onClick: () => jump('msp-day') },
+    { icon: 'check', value: String(data.tasks.length), label: tr('work orders open for you'), note: overdue.length ? tr('{n} overdue', { n: overdue.length }) : tr('{n} done this month', { n: data.tasksDoneThisMonth }), tone: overdue.length ? 'bad' : 'work', onClick: () => jump('msp-work') },
+    owedTotal
+      ? { icon: 'cash', value: money(owedTotal, 'GHS'), label: tr('approved claims not paid yet'), note: owed.length === 1 ? tr('1 claim') : tr('{n} claims', { n: owed.length }), tone: 'money', onClick: () => jump('msp-money') }
+      : { icon: 'cash', value: lastPay ? money(lastPay.net, 'GHS') : '—', label: tr('last take-home pay'), note: lastPay ? tr('for {from} – {to}', { from: fmtDate(lastPay.periodStart), to: fmtDate(lastPay.periodEnd) }) : tr('no payslip yet'), tone: 'money', onClick: () => jump('msp-money') }
+  ];
+
+  // What is coming up, soonest first.
+  const coming = [];
+  if (f.nextLeave) coming.push(f.nextLeave.onNow
+    ? { key: 'leave', glyph: 'plane', days: 0, tone: 'leave', label: tr('You are on {type}', { type: f.nextLeave.type.toLowerCase() }), date: tr('until {date}', { date: fmtDate(f.nextLeave.endDate) }) }
+    : { key: 'leave', glyph: 'plane', days: f.nextLeave.daysTo, tone: 'leave', label: tr('Your {type} starts', { type: f.nextLeave.type.toLowerCase() }), date: longDay(f.nextLeave.startDate) + ' · ' + (f.nextLeave.days === 1 ? tr('1 day') : tr('{n} days', { n: f.nextLeave.days })) });
+  if (lastPay && lastPay.status !== 'paid' && lastPay.payDate && String(lastPay.payDate).slice(0, 10) >= todayIso) coming.push({ key: 'pay', glyph: 'cash', days: Math.round((new Date(String(lastPay.payDate).slice(0, 10) + 'T00:00') - new Date(todayIso + 'T00:00')) / 86400000), tone: 'money', label: tr('Payday'), date: longDay(lastPay.payDate) + ' · ' + money(lastPay.net, 'GHS') });
+  if (f.nextHoliday) coming.push({ key: 'holiday', glyph: 'flag', days: f.nextHoliday.daysTo, tone: 'holiday', label: f.nextHoliday.name, date: longDay(f.nextHoliday.date) });
+  if (f.birthday) coming.push({ key: 'birthday', glyph: 'cake', days: f.birthday.daysTo, tone: 'birthday', label: f.birthday.daysTo === 0 ? tr('Happy birthday!') : tr('Your birthday'), date: longDay(f.birthday.date) });
+  if (f.anniversary) coming.push({ key: 'anniversary', glyph: 'medal', days: f.anniversary.daysTo, tone: 'anniversary', label: f.anniversary.years === 1 ? tr('1 year with us') : tr('{n} years with us', { n: f.anniversary.years }), date: longDay(f.anniversary.date) });
+  coming.sort((a, b) => a.days - b.days);
+
+  const safety = [
+    { ok: true, label: tr('Password'), text: tr('Set. Change it if anyone else may know it.') },
+    { ok: !!twoStepOn, label: tr('Two-step sign-in'), text: twoStepOn ? [data.account.twoStep.app && tr('authenticator app'), data.account.twoStep.sms && tr('text message'), data.account.twoStep.email && tr('email code')].filter(Boolean).join(', ') : tr('Off — password only') },
+    { ok: true, neutral: !data.account.claudeConnected, label: tr('Claude app'), text: data.account.claudeConnected ? tr('Connected') : tr('Not connected') }
+  ];
+  const strong = safety.filter((s) => s.ok && !s.neutral).length;
 
   return (
-    <div className="dk tl msp">
+    <div className="dk tl msp msx">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('My space')}
-        title={greeting(now, p.firstName)}
-        sub={tr('Your day, your leave, your work and your pay, in one place. Only you see this page. Press a number to go to it.')}
-        actions={canSelf && (
-          att && !att.clockOut
-            ? <button type="button" className="btn btn-secondary" disabled={clocking} onClick={clockOut}>{tr('Clock out')}</button>
-            : !att ? <button type="button" className="btn btn-primary" disabled={clocking} onClick={clockIn}>{tr('Clock in')}</button> : null
-        )}
-        stats={stats} />
+      <MeBanner sky={sky} eyebrow={tr('My space') + ' · ' + longDay(todayIso)} title={greeting(now, p.firstName)}
+        sub={[p.title, p.department, p.company].filter(Boolean).join(' · ') || tr('Your day, your leave, your work and your pay, in one place. Only you see this page.')}
+        person={p}
+        clock={{ now, att, shift: data.shift, onDuty, canSelf, clocking, onIn: clockIn, onOut: clockOut }} />
+
+      <div className="msx-tiles">{tiles.map((t, i) => <Tile key={i} {...t} />)}</div>
 
       <Insights items={insights.slice(0, 5)} />
 
-      <Section id="msp-day" title={tr('Today')} sub={tr('Your clock, and the last two weeks.')}>
-        <div className="myspace-top">
-          <section className="card myspace-clock">
-            <div className="myspace-clock-head">
-              <div className="myspace-eyebrow">{tr('Today ·')} {shiftText}</div>
-              <div className={'myspace-status-pill' + (onDuty ? ' myspace-status-pill-on' : '')}>
-                <span className="myspace-status-dot" />
-                {onDuty ? tr('On duty') : att ? tr('Shift complete') : tr('Not clocked in')}
-              </div>
-            </div>
-            <div className="myspace-live-time">{now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
-            <div className="myspace-headline">{att ? (att.clockOut ? att.clockIn + ' → ' + att.clockOut : tr('On duty since {time}', { time: att.clockIn })) : tr('Not clocked in')}</div>
-            <div className="myspace-detail">
-              {att ? (att.status === 'late' ? tr('Recorded as late.') : tr('Recorded as present.')) : tr('Clock in to start today’s record.')}
-              {onDuty && tr(' · {elapsed} so far', { elapsed: fmtElapsed(att.clockIn, now) })}
-            </div>
-            {canSelf && (
-              <div className="myspace-actions">
-                <button type="button" className="btn btn-primary" disabled={!!att || clocking} onClick={clockIn}>{tr('Clock in')}</button>
-                <button type="button" className="btn btn-secondary" disabled={!att || !!att.clockOut || clocking} onClick={clockOut}>{tr('Clock out')}</button>
-              </div>
-            )}
-          </section>
-          <div className="msp-month card">
-            <div className="msp-month-nums">
-              <div><strong>{data.month.days}</strong><span>{tr('days worked this month')}</span></div>
-              <div><strong>{data.month.late}</strong><span>{tr('late')}</span></div>
-              <div><strong>{data.month.hours}</strong><span>{tr('hours')}</span></div>
-              {data.month.autoOut > 0 && <div><strong>{data.month.autoOut}</strong><span>{tr('clocked out by the system')}</span></div>}
-            </div>
-            <ol className="msp-strip" aria-label={tr('The last 14 days')}>
-              {strip.map((d) => (
-                <li key={d.date} className={'msp-day is-' + (d.row ? d.row.status : d.weekday === 0 ? 'off' : 'none')} title={fmtDate(d.date) + (d.row ? ': ' + codeLabel(d.row.status) + ' ' + (d.row.clockIn || '') + (d.row.clockOut ? '–' + d.row.clockOut : '') : '')}>
-                  <span className="msp-day-bar" />
-                  <span className="msp-day-n">{new Date(d.date + 'T12:00').getDate()}</span>
-                </li>
-              ))}
-            </ol>
-            <div className="msp-legend dk-muted tl-small">
-              <span><i className="is-present" />{tr('On time')}</span><span><i className="is-late" />{tr('Late')}</span><span><i className="is-absent" />{tr('Absent')}</span><span><i className="is-none" />{tr('No record')}</span>
-            </div>
-          </div>
+      <Section id="msp-day" title={tr('Your fortnight and your week')} sub={tr('Each of the last 14 days, your on-time run, and the hours you have worked this week.')}>
+        <div className="msx-two">
+          <Fortnight strip={strip} month={data.month} streak={f.streak} best={f.bestStreak} />
+          <Week week={f.week} total={f.weekHours} last={f.lastWeekSoFar !== undefined ? f.lastWeekSoFar : f.lastWeekHours} today={todayIso}
+            live={onDuty && att.date === todayIso ? Math.max(0, (now - new Date(att.date + 'T' + att.clockIn + ':00')) / 3600000) : 0} />
         </div>
       </Section>
 
+      {coming.length > 0 && (
+        <Section title={tr('Coming up for you')} sub={tr('Your next leave, payday, public holiday, birthday and work anniversary, counted down.')}>
+          <ComingUp items={coming} />
+        </Section>
+      )}
+
       <Section id="msp-leave" title={tr('Leave')} sub={tr('What you have left this year and what you asked for.')} action={<Link className="btn btn-secondary" to="/leave">{tr('Request leave')}</Link>}>
         {lpool && <LeavePool pool={lpool} mine />}
-        <div className="myspace-balance-grid">
-          {ownBalances.map((b) => {
-            const pct = b.entitled > 0 ? Math.min(100, Math.round((b.used / b.entitled) * 100)) : 0;
-            return (
-              <div className="myspace-balance-card" key={b.leaveTypeId}>
-                <div className="myspace-balance-name">{b.name}{!b.paid && <span className="dk-muted tl-small"> · {tr('unpaid')}</span>}</div>
-                <div className="myspace-balance-remaining">{b.left}<span className="myspace-balance-unit">{' '}{tr('/ {entitled} left', { entitled: b.entitled })}</span></div>
-                <div className="myspace-balance-track"><div className="myspace-balance-bar" style={{ width: pct + '%' }} /></div>
-                <div className="myspace-balance-used">{tr('{used} used', { used: b.used })}{b.pending ? ' · ' + tr('{n} waiting', { n: b.pending }) : ''}</div>
-              </div>
-            );
-          })}
-        </div>
+        {ownBalances.length > 0 && (
+          <div className="msx-leaves">
+            {ownBalances.map((b) => {
+              const share = b.entitled > 0 ? Math.max(0, Math.min(1, b.left / b.entitled)) : 0;
+              const r = 30, c = 2 * Math.PI * r;
+              return (
+                <div className="msx-leave" key={b.leaveTypeId}>
+                  <span className="msx-leave-ring" role="img" aria-label={tr('{left} of {entitled} left', { left: b.left, entitled: b.entitled })}>
+                    <svg viewBox="0 0 72 72" width="72" height="72"><circle cx="36" cy="36" r={r} className="msx-ring-track" /><circle cx="36" cy="36" r={r} className="msx-ring-fill" strokeDasharray={c} strokeDashoffset={c * (1 - share)} transform="rotate(-90 36 36)" /></svg>
+                    <b>{b.left}</b>
+                  </span>
+                  <span className="msx-leave-text">
+                    <strong>{b.name}{!b.paid && <small> · {tr('unpaid')}</small>}</strong>
+                    <span>{tr('{left} of {entitled} left', { left: b.left, entitled: b.entitled })}</span>
+                    <small>{tr('{used} used', { used: b.used })}{b.pending ? ' · ' + tr('{n} waiting', { n: b.pending }) : ''}</small>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {!data.balances.length && !lpool && <p className="dk-muted">{tr('No leave balances set up yet.')}</p>}
         {data.leave.length > 0 && (
-          <ul className="msp-list">
+          <ul className="msx-list">
             {data.leave.slice(0, 8).map((l) => (
-              <li key={l.id}>
-                <span className="msp-main">
+              <li key={l.id} className={'is-' + l.status}>
+                <span className="msx-list-icon"><Icon name="calendar" /></span>
+                <span className="msx-main">
                   <strong>{l.typeName} · {l.days === 1 ? tr('1 day') : tr('{n} days', { n: l.days })}</strong>
-                  <span className="dk-muted tl-small">{fmtDate(l.startDate)}{l.endDate !== l.startDate ? ' → ' + fmtDate(l.endDate) : ''}{l.decisionNote ? ' · “' + l.decisionNote + '”' : ''}</span>
+                  <span className="msx-muted">{fmtDate(l.startDate)}{l.endDate !== l.startDate ? ' → ' + fmtDate(l.endDate) : ''}{l.decisionNote ? ' · “' + l.decisionNote + '”' : ''}</span>
                 </span>
                 <Status tone={l.status === 'approved' ? 'good' : l.status === 'rejected' ? 'bad' : l.status === 'pending' ? 'warn' : 'muted'}>{codeLabel(l.status)}</Status>
                 {l.status === 'pending' && <button type="button" className="msp-link" onClick={() => cancelLeave(l)}>{tr('Cancel')}</button>}
@@ -307,34 +296,58 @@ export default function MySpacePage() {
 
       <Section id="msp-work" title={tr('My work orders')} sub={tr('Open work orders you are on or manage, soonest due first.')} action={<Link className="btn btn-secondary" to="/tasks">{tr('Open work orders')}</Link>}>
         {!data.tasks.length ? <div className="dk-empty"><p>{tr('No open work orders. Nice.')}</p></div> : (
-          <ul className="msp-list">
-            {data.tasks.slice(0, 10).map((t) => {
-              const late = t.dueDate && dayNum(t.dueDate) < todayNum();
-              const soon = dueSoon.includes(t);
+          <div className="msx-wos">
+            {data.tasks.slice(0, 9).map((t) => {
+              const days = t.dueDate ? dayNum(t.dueDate) - todayNum() : null;
+              const late = days !== null && days < 0;
+              const soon = days !== null && days >= 0 && days <= 7;
               return (
-                <li key={t.id} className={late ? 'is-late' : ''}>
-                  <span className="msp-main">
-                    <strong><Link className="msp-wo-link" to={'/tasks?open=' + t.id}>{t.number ? <span className="msp-wo">{t.number}</span> : null}{t.title}</Link></strong>
-                    <span className="dk-muted tl-small">{[t.managing ? tr('you manage it') : null, t.project, t.dueDate ? tr('due {date}', { date: fmtDate(t.dueDate) }) : tr('no due date')].filter(Boolean).join(' · ')}</span>
+                <Link key={t.id} to={'/tasks?open=' + t.id} className={'msx-wo' + (late ? ' is-late' : soon ? ' is-soon' : '')}>
+                  <span className="msx-wo-top">{t.number && <span className="msp-wo">{t.number}</span>}{t.priority === 'high' && <Status tone="bad">{tr('High priority')}</Status>}<span style={{ flex: 1 }} />{t.managing && <span className="msx-muted">{tr('you manage it')}</span>}</span>
+                  <strong>{t.title}</strong>
+                  {t.project && <span className="msx-muted">{t.project}</span>}
+                  <span className="msx-wo-due">
+                    <span className={'msx-due' + (late ? ' is-late' : soon ? ' is-soon' : '')}>
+                      {days === null ? tr('no due date') : late ? (days === -1 ? tr('1 day late') : tr('{n} days late', { n: -days })) : days === 0 ? tr('due today') : days === 1 ? tr('due tomorrow') : tr('due in {n} days', { n: days })}
+                    </span>
+                    <Status tone={late ? 'bad' : TASK_DONE.includes(t.status) ? 'good' : 'muted'}>{woStatusLabel(t.status)}</Status>
                   </span>
-                  {t.priority === 'high' && <Status tone="bad">{tr('High priority')}</Status>}
-                  <Status tone={late ? 'bad' : soon ? 'warn' : TASK_DONE.includes(t.status) ? 'good' : 'muted'}>{late ? tr('Overdue') : woStatusLabel(t.status)}</Status>
-                </li>
+                </Link>
               );
             })}
-          </ul>
+          </div>
         )}
       </Section>
 
-      <Section id="msp-money" title={tr('My money')} sub={tr('Your expense claims, purchase requests and payslips.')} action={<Link className="btn btn-secondary" to="/expenses">{tr('New expense claim')}</Link>}>
-        <div className="msp-money">
-          <div>
+      <Section id="msp-money" title={tr('My money')} sub={tr('Your payslips, expense claims and purchase requests.')} action={<Link className="btn btn-secondary" to="/expenses">{tr('New expense claim')}</Link>}>
+        <div className="msx-two">
+          <div className="msx-card">
+            <h4 className="msp-h4">{tr('Payslips')}</h4>
+            {!data.payslips.length ? <p className="dk-muted">{tr('Your payslips show here once payroll approves a pay run.')}</p> : (
+              <>
+                <PayCard slip={data.payslips[0]} />
+                {data.payslips.length > 1 && (
+                  <ul className="msx-list">
+                    {data.payslips.slice(1).map((s) => (
+                      <li key={s.runNo}>
+                        <span className="msx-list-icon"><Icon name="cash" /></span>
+                        <span className="msx-main"><strong>{fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}</strong><span className="msx-muted">{tr('{days} days · gross {gross}', { days: s.daysWorked, gross: money(s.gross, 'GHS') })}</span></span>
+                        <span className="msp-net"><strong>{money(s.net, 'GHS')}</strong><span className="msx-muted">{s.status === 'paid' ? tr('paid {date}', { date: fmtDate(s.payDate) }) : tr('to be paid {date}', { date: fmtDate(s.payDate) })}</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+          <div className="msx-card">
             <h4 className="msp-h4">{tr('Expense claims')}</h4>
             {!data.claims.length ? <p className="dk-muted">{tr('No claims yet.')}</p> : (
-              <ul className="msp-list">
+              <ul className="msx-list">
                 {data.claims.slice(0, 6).map((c) => (
                   <li key={c.id}>
-                    <span className="msp-main"><strong>{c.category} · {money(c.amount, 'GHS')}</strong><span className="dk-muted tl-small">{fmtDate(c.date)}{c.note ? ' · “' + c.note + '”' : ''}{!c.hasReceipt && c.status === 'pending' ? ' · ' + tr('no receipt attached') : ''}</span></span>
+                    <span className="msx-list-icon"><Icon name="receipt" /></span>
+                    <span className="msx-main"><strong>{c.category} · {money(c.amount, 'GHS')}</strong><span className="msx-muted">{fmtDate(c.date)}{c.note ? ' · “' + c.note + '”' : ''}{!c.hasReceipt && c.status === 'pending' ? ' · ' + tr('no receipt attached') : ''}</span></span>
                     <Status tone={c.status === 'paid' ? 'good' : c.status === 'approved' ? 'info' : c.status === 'rejected' ? 'bad' : 'warn'}>{c.status === 'approved' ? tr('Approved · to pay out') : c.status === 'paid' ? tr('Paid out') : codeLabel(c.status)}</Status>
                   </li>
                 ))}
@@ -343,10 +356,11 @@ export default function MySpacePage() {
             {data.purchases.length > 0 && (
               <>
                 <h4 className="msp-h4">{tr('Purchase requests')}</h4>
-                <ul className="msp-list">
+                <ul className="msx-list">
                   {data.purchases.slice(0, 5).map((r) => (
                     <li key={r.id}>
-                      <span className="msp-main"><strong>{r.quantity} × {r.item}</strong><span className="dk-muted tl-small">{fmtDate(r.createdAt)} · {tr('about {amount}', { amount: money(r.estimatedPrice, 'GHS') })}</span></span>
+                      <span className="msx-list-icon"><Icon name="bag" /></span>
+                      <span className="msx-main"><strong>{r.quantity} × {r.item}</strong><span className="msx-muted">{fmtDate(r.createdAt)} · {tr('about {amount}', { amount: money(r.estimatedPrice, 'GHS') })}</span></span>
                       <Status tone={r.status === 'rejected' ? 'bad' : r.status === 'pending' ? 'warn' : 'good'}>{codeLabel(r.status)}</Status>
                     </li>
                   ))}
@@ -354,57 +368,65 @@ export default function MySpacePage() {
               </>
             )}
           </div>
-          <div>
-            <h4 className="msp-h4">{tr('Payslips')}</h4>
-            {!data.payslips.length ? <p className="dk-muted">{tr('Your payslips show here once payroll approves a pay run.')}</p> : (
-              <ul className="msp-list">
-                {data.payslips.map((s) => (
-                  <li key={s.runNo}>
-                    <span className="msp-main">
-                      <strong>{fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}</strong>
-                      <span className="dk-muted tl-small">{s.payeByCompany
-                        ? tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}, paid by the company', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })
-                        : tr('{days} days · gross {gross} · SSNIT {ssnit} · PAYE {paye}', { days: s.daysWorked, gross: money(s.gross, 'GHS'), ssnit: money(s.ssnit, 'GHS'), paye: money(s.paye, 'GHS') })}</span>
-                      {s.salaried && <span className="dk-muted tl-small">{tr('Basic {basic} + allowance {allowance}', { basic: money(s.basic, 'GHS'), allowance: money(s.allowance, 'GHS') })}</span>}
-                    </span>
-                    <span className="msp-net"><strong>{money(s.net, 'GHS')}</strong><span className="dk-muted tl-small">{s.status === 'paid' ? tr('paid {date}', { date: fmtDate(s.payDate) }) : tr('to be paid {date}', { date: fmtDate(s.payDate) })}</span></span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
       </Section>
 
-      <Section id="msp-account" title={tr('About me')} sub={tr('Your record and how you sign in. Ask HR if something here is wrong.')}>
-        <div className="msp-about">
-          <div className="card msp-profile">
-            <div className="tl-detail-head">
-              <Photo id={p.id} name={p.name} photo={p.photo} size={56} />
+      <Section id="msp-account" title={tr('About me')} sub={tr('Your record, your team and how you sign in. Ask HR if something here is wrong.')}>
+        <div className="msx-about">
+          <div className="msx-idcard">
+            <div className="msx-idcard-band"><span>{p.company || 'Bamboo OS'}</span><span>{p.code}</span></div>
+            <div className="msx-idcard-who">
+              <span className="msx-idcard-photo"><Photo id={p.id} name={p.name} photo={p.photo} size={84} /></span>
               <div>
-                <span className="dk-muted tl-small">{p.code}</span>
-                <h3 className="msp-name">{p.name}</h3>
-                <span className="dk-muted tl-small">{[p.title, p.department, p.company].filter(Boolean).join(' · ')}</span>
+                <h3>{p.name}</h3>
+                <span>{[p.title, p.department].filter(Boolean).join(' · ')}</span>
+                {years !== null && <span className="msx-badge">{years === 0 ? tr('New this year') : years === 1 ? tr('1 year with us') : tr('{n} years with us', { n: years })}</span>}
               </div>
             </div>
-            <dl className="tl-facts">
+            <dl className="msx-facts">
               <div><dt>{tr('Manager')}</dt><dd>{p.manager || '—'}</dd></div>
-              <div><dt>{tr('With us since')}</dt><dd>{p.hireDate ? fmtDate(p.hireDate) + (years ? ' · ' + (years === 1 ? tr('1 year') : tr('{n} years', { n: years })) : '') : '—'}</dd></div>
+              <div><dt>{tr('With us since')}</dt><dd>{p.hireDate ? fmtDate(p.hireDate) : '—'}</dd></div>
               <div><dt>{tr('Shift')}</dt><dd>{shiftText}</dd></div>
+              <div><dt>{tr('Employment')}</dt><dd>{p.employmentType ? codeLabel(p.employmentType) : '—'}</dd></div>
               <div><dt>{tr('Phone')}</dt><dd>{p.phone || '—'}</dd></div>
               <div><dt>{tr('Email')}</dt><dd className="msp-wrap">{p.email || '—'}</dd></div>
-              <div><dt>{tr('Employment')}</dt><dd>{p.employmentType ? codeLabel(p.employmentType) : '—'}</dd></div>
             </dl>
           </div>
-          <div className="card msp-profile">
-            <h4 className="msp-h4">{tr('Signing in')}</h4>
-            <dl className="tl-facts">
-              <div><dt>{tr('Login email')}</dt><dd className="msp-wrap">{data.account.email}</dd></div>
-              <div><dt>{tr('Roles')}</dt><dd>{(data.account.roles || []).join(', ') || '—'}</dd></div>
-              <div><dt>{tr('Two-step sign-in')}</dt><dd>{twoStepOn ? [data.account.twoStep.app && tr('authenticator app'), data.account.twoStep.sms && tr('text message'), data.account.twoStep.email && tr('email code')].filter(Boolean).join(', ') : tr('Off — password only')}</dd></div>
-              <div><dt>{tr('Claude app')}</dt><dd>{data.account.claudeConnected ? tr('Connected') : tr('Not connected')}</dd></div>
-            </dl>
-            <button type="button" className="btn btn-secondary" onClick={() => { setPwError(null); setPw(EMPTY_PW); setPwOpen(true); }}>{tr('Change password')}</button>
+          <div className="msx-side">
+            {f.team && f.team.size > 0 && (
+              <div className="msx-card msx-team">
+                <h4 className="msp-h4">{tr('Your team')}{p.department ? ' · ' + p.department : ''}</h4>
+                <div className="msx-team-faces">
+                  {f.team.people.map((m) => (
+                    <span key={m.id} className="msx-mate" title={m.name + (m.title ? ' · ' + m.title : '')}>
+                      <Photo id={m.id} name={m.name} photo={m.photo} size={44} />
+                      <small>{m.name.split(' ').slice(-2).join(' ')}</small>
+                    </span>
+                  ))}
+                  {f.team.size > f.team.people.length && <span className="msx-mate is-more"><span>+{f.team.size - f.team.people.length}</span><small>{tr('more')}</small></span>}
+                </div>
+                <p className="msx-muted">{f.team.size === 1 ? tr('1 other person works in your department.') : tr('{n} other people work in your department.', { n: f.team.size })}{p.manager ? ' ' + tr('Your manager is {name}.', { name: p.manager }) : ''}</p>
+              </div>
+            )}
+            <div className="msx-card msx-safety">
+              <div className="msx-safety-head">
+                <span className={'msx-shield' + (twoStepOn ? ' is-good' : ' is-warn')} aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z" /><path d={twoStepOn ? 'm8.5 12 2.5 2.5 4.5-5' : 'M12 8v5M12 16h.01'} /></svg></span>
+                <span><strong>{twoStepOn ? tr('Your account is well protected') : tr('Your account could be safer')}</strong><small>{tr('{n} of 2 protections on', { n: strong })} · {tr('Login email')}: {data.account.email}</small></span>
+              </div>
+              <ul className="msx-checks">
+                {safety.map((s) => (
+                  <li key={s.label} className={s.neutral ? 'is-neutral' : s.ok ? 'is-ok' : 'is-off'}>
+                    <span className="msx-check" aria-hidden="true">{s.neutral ? '–' : s.ok ? '✓' : '!'}</span>
+                    <span><b>{s.label}</b><small>{s.text}</small></span>
+                  </li>
+                ))}
+              </ul>
+              <div className="msx-row">
+                <span className="msx-muted">{tr('Roles')}: {(data.account.roles || []).join(', ') || '—'}</span>
+                <span style={{ flex: 1 }} />
+                <button type="button" className="btn btn-secondary" onClick={() => { setPwError(null); setPw(EMPTY_PW); setPwOpen(true); }}>{tr('Change password')}</button>
+              </div>
+            </div>
           </div>
         </div>
         <h4 className="msp-h4">{tr('Two-step sign-in')}</h4>

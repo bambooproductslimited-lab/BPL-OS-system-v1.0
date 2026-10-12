@@ -79,6 +79,7 @@ async function overview(ctx) {
     '  EXISTS (SELECT 1 FROM mcp_oauth_tokens t WHERE t.user_id = users.id AND t.revoked_at IS NULL AND t.expires_at > now()) AS claude ' +
     'FROM users WHERE id = $1', [ctx.user.id])).rows[0];
   var unread = (await pool.query('SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND NOT read', [emp])).rows[0].n;
+  var fun = await funFacts(emp, profile, today);
 
   return {
     today: today,
@@ -117,8 +118,81 @@ async function overview(ctx) {
     account: {
       email: account.email, lastLoginAt: account.last_login_at, since: account.created_at, roles: ctx.roleNames,
       twoStep: { app: !!account.totp_enabled_at, sms: !!account.sms_two_step_at, email: !!account.email_two_step_at }, claudeConnected: !!account.claude
-    }
+    },
+    fun: fun
   };
 }
 
-module.exports = { overview: overview };
+// The livelier bits of My space, all about the person themselves: how many
+// of their clock-ins in a row were on time (and their best run in the last
+// four months), this week's hours day by day against last week's, what is
+// coming up for them (their next approved leave, the company's next public
+// holiday, their birthday and work anniversary) and their team (names and
+// photos, as Messages shows them to everyone).
+function dayDiff(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }
+// The next yearly date of a YYYY-MM-DD, from today (29 February falls on
+// 28 February in other years).
+function nextYearly(isoDate, today) {
+  if (!isoDate) return null;
+  var y = Number(today.slice(0, 4)), md = String(isoDate).slice(5, 10);
+  function at(year) { var v = year + '-' + md; return md === '02-29' && !(year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) ? year + '-02-28' : v; }
+  var next = at(y) >= today ? at(y) : at(y + 1);
+  return { date: next, daysTo: dayDiff(today, next), years: Number(next.slice(0, 4)) - Number(String(isoDate).slice(0, 4)) };
+}
+async function funFacts(emp, profile, today) {
+  var monday = (function () { var d = new Date(today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return iso(d); })();
+  var lastMonday = iso(new Date(Date.parse(monday + 'T00:00:00Z') - 7 * 86400000));
+  var q = await Promise.all([
+    pool.query("SELECT to_char(date, 'YYYY-MM-DD') AS date, bool_or(status = 'late') AS late, bool_or(status = 'absent') AS absent, bool_or(status IN ('present', 'half_day')) AS present " +
+      'FROM attendance WHERE employee_id = $1 AND date >= CURRENT_DATE - 120 GROUP BY date ORDER BY date DESC', [emp]),
+    pool.query("SELECT to_char(date, 'YYYY-MM-DD') AS date, CASE WHEN bool_or(status = 'late') THEN 'late' WHEN bool_or(status = 'absent') THEN 'absent' ELSE max(status) END AS status, " +
+      '  COALESCE(sum(EXTRACT(EPOCH FROM ((COALESCE(clock_out_date, date) + clock_out) - (date + clock_in))) / 3600) FILTER (WHERE clock_in IS NOT NULL AND clock_out IS NOT NULL), 0)::float AS hours, ' +
+      '  bool_or(clock_in IS NOT NULL AND clock_out IS NULL) AS open ' +
+      'FROM attendance WHERE employee_id = $1 AND date >= $2 GROUP BY date', [emp, lastMonday]),
+    profile.department_id ? pool.query("SELECT to_char(h.date, 'YYYY-MM-DD') AS date, h.name FROM holidays h JOIN departments d ON d.company_id = h.company_id WHERE d.id = $1 AND h.date >= CURRENT_DATE ORDER BY h.date LIMIT 1", [profile.department_id]) : { rows: [] },
+    pool.query("SELECT to_char(lr.start_date, 'YYYY-MM-DD') AS start_date, to_char(lr.end_date, 'YYYY-MM-DD') AS end_date, lr.days, lt.name FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id " +
+      "WHERE lr.employee_id = $1 AND lr.status = 'approved' AND lr.end_date >= CURRENT_DATE ORDER BY lr.start_date LIMIT 1", [emp]),
+    profile.department_id ? pool.query("SELECT id, first_name, last_name, position_title, photo_key, photo_updated_at, count(*) OVER ()::int AS total FROM employees " +
+      "WHERE department_id = $1 AND status = 'active' AND id <> $2 ORDER BY (photo_key IS NULL), first_name, last_name LIMIT 8", [profile.department_id, emp]) : { rows: [] }
+  ]);
+  // Streaks over the days they clocked in (days off do not break a run;
+  // a late or absent day does).
+  var days = q[0].rows, current = 0, best = 0, run = 0, counting = true;
+  days.forEach(function (d) {
+    var good = d.present && !d.late && !d.absent;
+    if (good) { run++; if (counting) current++; } else { run = 0; counting = false; }
+    if (run > best) best = run;
+  });
+  var byDate = {}; q[1].rows.forEach(function (r) { byDate[r.date] = r; });
+  var week = [], weekHours = 0, lastWeekHours = 0;
+  for (var i = 0; i < 7; i++) {
+    var d = iso(new Date(Date.parse(monday + 'T00:00:00Z') + i * 86400000));
+    var r = byDate[d];
+    week.push({ date: d, hours: r ? Math.round(r.hours * 10) / 10 : 0, status: r ? r.status : null, open: !!(r && r.open), future: d > today });
+    weekHours += r ? r.hours : 0;
+  }
+  // Last week, whole and up to the same weekday as today, so a week in
+  // progress is compared with the same days of the one before.
+  var sameDayLastWeek = iso(new Date(Date.parse(today + 'T00:00:00Z') - 7 * 86400000)), lastWeekSoFar = 0;
+  q[1].rows.forEach(function (r2) { if (r2.date < monday) { lastWeekHours += r2.hours; if (r2.date <= sameDayLastWeek) lastWeekSoFar += r2.hours; } });
+  var leave = q[3].rows[0];
+  var hire = profile.hire_date ? String(profile.hire_date instanceof Date ? iso(profile.hire_date) : profile.hire_date).slice(0, 10) : null;
+  var born = profile.date_of_birth ? String(profile.date_of_birth instanceof Date ? iso(profile.date_of_birth) : profile.date_of_birth).slice(0, 10) : null;
+  var anniversary = hire ? nextYearly(hire, today) : null;
+  if (anniversary && anniversary.years < 1) anniversary = null;
+  var birthday = born ? nextYearly(born, today) : null;
+  var team = q[4].rows;
+  return {
+    streak: current, bestStreak: best,
+    week: week, weekHours: Math.round(weekHours * 10) / 10, lastWeekHours: Math.round(lastWeekHours * 10) / 10, lastWeekSoFar: Math.round(lastWeekSoFar * 10) / 10,
+    nextLeave: leave ? { startDate: leave.start_date, endDate: leave.end_date, days: Number(leave.days), type: leave.name, daysTo: Math.max(0, dayDiff(today, leave.start_date)), onNow: leave.start_date <= today } : null,
+    nextHoliday: q[2].rows[0] ? { date: q[2].rows[0].date, name: q[2].rows[0].name, daysTo: dayDiff(today, q[2].rows[0].date) } : null,
+    birthday: birthday ? { date: birthday.date, daysTo: birthday.daysTo } : null,
+    anniversary: anniversary,
+    team: { size: team.length ? team[0].total : 0, people: team.map(function (t) {
+      return { id: t.id, name: t.first_name + ' ' + t.last_name, title: t.position_title || '', photo: t.photo_key ? (t.photo_updated_at ? new Date(t.photo_updated_at).getTime() : 1) : null };
+    }) }
+  };
+}
+
+module.exports = { overview: overview, _nextYearly: nextYearly };
