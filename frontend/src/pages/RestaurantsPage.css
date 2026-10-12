@@ -1,8 +1,9 @@
 /* Restaurants (RestaurantsPage.jsx). Built from the shared dashboard pieces
    (components/DashKit.css), the chips in EmployeesPage.css and the tool
-   room's cards, forms and windows (ToolRoomPage.css); these are the view
-   tabs, the bar charts, the menu dishes, the order and drawer lists, tables
-   and guests, and the receipt-style windows. */
+   room's forms and windows (ToolRoomPage.css); these are the view tabs and
+   lists other pages borrow, the bar charts, the menu item window and the
+   receipt-style windows. The page's own look — banner, dishes, stock jars,
+   drawer receipts, floor plan — is in RestaurantFun.css. */
 
 .rs-square { padding: 10px 14px; border-radius: var(--dk-r); background: var(--color-bg-subtle); font-size: 13px; }
 .rs-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
@@ -52,53 +53,14 @@
 .rs-row-menu .row-menu-btn { width: 28px; height: 28px; }
 .rs-pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
-/* the menu */
+/* menu groups; the photo in the menu item window */
 .rs-group { display: flex; flex-direction: column; gap: 10px; }
 .rs-group + .rs-group { margin-top: 6px; }
-.rs-group-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
-.rs-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; }
-.rs-dish { position: relative; display: flex; gap: 12px; align-items: flex-start; min-width: 0; padding: 12px; padding-right: 40px; border: 1px solid var(--color-border); border-radius: var(--dk-r); background: var(--color-bg); }
-.rs-dish.is-off { opacity: 0.6; }
-.rs-dish-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.rs-dish-name { font-weight: 700; overflow-wrap: anywhere; }
-.rs-dish-price { font-weight: 700; color: var(--color-accent-700); font-variant-numeric: tabular-nums; }
-:root[data-theme='dark'] .rs-dish-price { color: var(--color-accent); }
-.rs-dish-main { flex: 1; }
-.rs-dish-vars li:last-child { border-bottom: 0; }
-.rs-dish-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin: 2px 0; padding: 3px 6px 3px 9px; font: inherit; font-size: 12px; font-weight: 700; color: var(--color-text-muted); background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 999px; cursor: pointer; }
-.rs-dish-toggle:hover { color: var(--color-text); border-color: var(--color-text-muted); }
-.rs-dish-toggle svg { width: 14px; height: 14px; transition: transform 0.15s ease; }
-.rs-dish-toggle.is-open { color: var(--color-accent-700); border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg)); }
-:root[data-theme='dark'] .rs-dish-toggle.is-open { color: var(--color-accent); }
-.rs-dish-toggle.is-open svg { transform: rotate(180deg); }
-.rs-dish { flex-wrap: wrap; }
-.rs-menu-grid { align-items: start; }
-.rs-dish-vars { flex: 0 0 100%; margin: 0 -28px 0 0; list-style: none; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--color-divider); animation: rs-vars-in 0.18s ease; }
-.rs-dish-vars li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--color-divider); }
-.rs-dish-vars li span { min-width: 0; overflow-wrap: anywhere; }
-.rs-dish-vars li strong { flex: none; font-variant-numeric: tabular-nums; }
-.rs-dish-vars li.is-cheapest strong { color: var(--color-accent-700); }
-:root[data-theme='dark'] .rs-dish-vars li.is-cheapest strong { color: var(--color-accent); }
-@keyframes rs-vars-in { from { opacity: 0; transform: translateY(-4px); } }
-.rs-sold { color: var(--color-text); font-weight: 600; }
-.rs-dish-menu { position: absolute; top: 8px; right: 8px; }
-.rs-dish-menu .row-menu-btn { width: 28px; height: 28px; }
 .rs-plate { flex: none; border-radius: 12px; object-fit: cover; background: var(--color-bg-subtle); }
 .rs-plate.is-empty { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; font-family: var(--font-heading); font-size: 22px; font-weight: 700; color: var(--color-text-faint); border: 1px dashed var(--color-border); }
-.tl-badge.is-food { --b: #c2571a; }
 
-/* tables and guests */
-.rs-tables { display: flex; flex-wrap: wrap; gap: 8px; }
-.rs-table { display: inline-flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg); font-size: 13px; }
-.rs-table.is-off { opacity: 0.6; border-style: dashed; }
-.rs-table .row-menu-btn { width: 26px; height: 26px; }
+/* guests */
 .rs-guest-search { margin-bottom: 8px; }
-.rs-guests { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.rs-guests li { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
-.rs-guests li + li { border-top: 1px solid var(--color-divider); }
-.rs-guest-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.rs-guest-main strong { overflow-wrap: anywhere; }
-.rs-guests .row-menu-btn { width: 28px; height: 28px; }
 
 /* windows: menu item photo and variations, receipt lines */
 .rs-photo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -119,7 +81,6 @@
 .rs-lines .rs-total strong { font-size: 15px; }
 
 @media (max-width: 640px) {
-  .rs-menu-grid { grid-template-columns: minmax(0, 1fr); }
   .rs-views { align-self: stretch; }
   .rs-view { flex: 1 1 auto; justify-content: center; padding: 8px 10px; }
   .rs-bars { height: 150px; }
@@ -216,3 +177,8 @@
   .rr-shift-row button { grid-column: 1 / -1; }
   .rs-bars.is-months .rs-bar-col:not(:nth-child(3n)):not(.is-current) .rs-bar-label { visibility: hidden; }
 }
+
+/* the day-by-day chart: weekends shaded, a dashed line at the average */
+.rs-bar-col.is-weekend .rs-bar-track { border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.rs-bars-avg { position: absolute; left: 0; right: 0; bottom: calc(18px + (100% - 36px) * var(--a)); z-index: 2; border-top: 2px dashed color-mix(in srgb, var(--color-text) 45%, transparent); pointer-events: none; }
+.rs-bars-avg span { position: absolute; right: 0; bottom: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg); font-size: 11px; font-weight: 700; color: var(--color-text-muted); white-space: nowrap; }

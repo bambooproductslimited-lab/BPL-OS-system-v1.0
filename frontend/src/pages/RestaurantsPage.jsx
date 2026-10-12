@@ -4,13 +4,17 @@ import { useAuth } from '../auth/AuthContext';
 import ContactButtons from '../components/ContactButtons';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { CompanySwitcher, Glossary, Hero, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import Photo from '../components/Photo';
+import { CompanySwitcher, Glossary, Icon, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { shrinkPhoto } from '../lib/chatMedia';
+import { restaurantLogoUrl } from '../lib/restaurantLogos';
+import { Confetti } from './crm/crmFun';
 import RestaurantReport from './RestaurantReport';
 import Bars from './RestaurantBars';
+import { DishArt, Donut, Glyph, HeatGrid, Jar, Leaderboard, MoreRanks, Podium, RsfBanner, ViewTabs, tableShape, weekdayText } from './RestaurantFun';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -27,15 +31,18 @@ import './RestaurantsPage.css';
 //     leave tens of thousands);
 //   Report — the monthly analysis by kitchen group, shift and hour, the
 //     best-selling items and the kitchen bonus (RestaurantReport.jsx);
-//   Menu — what the till sells, with what each item sold in 30 days;
+//   Menu — what the till sells, with what each item sold in 30 days, and
+//     each dish sorted by how often it sells and its price (stars,
+//     workhorses, puzzles, sleepers);
 //   Stock — food and supplies together: record a delivery, what was used,
 //     thrown away or counted, and each item's history (migration 0090);
 //   Cash drawers — each shift's count against what should be in the drawer;
 //   Tables & guests.
 // Orders are only ever created by the till (RestaurantPosPage.jsx, /pos);
 // this page reads them and can void one. Figures come from
-// restaurantOverview.service.js. The cards and dialogs use the tool room's
-// pieces (ToolRoomPage.css).
+// restaurantOverview.service.js. The banner, the charts, the dish cards,
+// stock jars, drawer receipts and floor plan are in RestaurantFun.jsx; the
+// windows use the tool room's pieces (ToolRoomPage.css).
 
 const VIEWS = ['sales', 'report', 'menu', 'stock', 'drawers', 'tables'];
 const STOCK_KINDS = [
@@ -79,12 +86,29 @@ function drawerState(s) {
   return s.difference < 0 ? { tone: 'bad', text: tr('Short {amount}', { amount: money(-s.difference) }) } : { tone: 'warn', text: tr('Over {amount}', { amount: money(s.difference) }) };
 }
 
-// One series of bars: a day or an hour each. The height is the value; the
-// highlighted bar is today. Hover (or focus) shows the figures.
-function Plate({ m, size = 56 }) {
-  if (m.photoUrl) return <img className="rs-plate" src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" style={{ width: size, height: size }} />;
-  return <span className="rs-plate is-empty" style={{ width: size, height: size }} aria-hidden="true">{String(m.name || '?').trim().charAt(0).toUpperCase()}</span>;
+function clock(ts) { return new Date(ts).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }); }
+function dayKey(ts) { const d = new Date(ts); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function dayTitle(ts) {
+  const d = new Date(ts), t = new Date();
+  if (dayKey(d) === dayKey(t)) return tr('Today');
+  t.setDate(t.getDate() - 1);
+  if (dayKey(d) === dayKey(t)) return tr('Yesterday');
+  return d.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
 }
+function median(list) {
+  const a = list.slice().sort((x, y) => x - y);
+  if (!a.length) return 0;
+  return a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2;
+}
+// A colour for each menu category on the dish cards and the category
+// chips — always shown beside the category's name.
+const CAT_HUES = ['#d9622b', '#2a78d6', '#1a9c6c', '#c2417e', '#c98a00', '#7a5af0', '#0f8f86', '#8a5a2b'];
+// How people pay: three colours from the validated categorical set, one per
+// way of paying wherever it shows (RestaurantFun.css --rsf-s*); bank
+// transfers, cheques and the rest are folded into one grey "Other ways" —
+// a fourth colour could not be told apart from these three.
+const PAY_COLOR = { cash: 'var(--rsf-s3)', mobile_money: 'var(--rsf-s4)', card: 'var(--rsf-s1)' };
+const PAY_ICON = { cash: 'cash', mobile_money: 'phone', card: 'card', bank_transfer: 'building', cheque: 'doc' };
 
 export default function RestaurantsPage() {
   const { can } = useAuth();
@@ -228,6 +252,17 @@ export default function RestaurantsPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+  // Confetti, once a day, when today has overtaken the same weekday last
+  // week by this time of day.
+  const [burst, setBurst] = useState(0);
+  useEffect(() => {
+    if (!ov || !ov.lastWeekSoFar || !current) return;
+    const today = ov.days[ov.days.length - 1];
+    if (!(ov.lastWeekSoFar.sales > 0 && today && today.sales >= ov.lastWeekSoFar.sales)) return;
+    const key = 'bos.rsf.ahead.' + current.code + '.' + ov.today;
+    try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { /* shown again next time */ }
+    setBurst(Date.now());
+  }, [ov]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setStockMoves(null);
     if (!stockDetail) return;
@@ -425,12 +460,20 @@ export default function RestaurantsPage() {
   const recentShort = allDrawers.filter((d) => d.status === 'closed' && d.difference !== null && d.difference < -1);
   const best = ov && ov.items[0];
 
+  const lw = ov && ov.lastWeekSoFar ? ov.lastWeekSoFar : { sales: 0, orders: 0 };
   const stats = [
-    { icon: 'cash', value: money(todayRow.sales), label: tr('sales today'), note: (todayRow.orders === 1 ? tr('1 order') : tr('{n} orders', { n: todayRow.orders })) + ' · ' + tr('{amount} last {day}', { amount: money(lastWeekRow.sales), day: weekday }), onClick: () => pickView('sales') },
     { icon: 'up', value: money(month.sales), label: tr('sales this month'), note: monthPct === null ? tr('nothing to compare with last month') : monthPct >= 0 ? tr('{n}% up on the same days last month', { n: monthPct }) : tr('{n}% down on the same days last month', { n: -monthPct }), tone: monthPct !== null && monthPct < -10 ? 'alert' : monthPct !== null && monthPct > 0 ? 'good' : '', onClick: () => pickView('sales') },
     { icon: 'warn', value: String(low.length), label: tr('stock items to reorder'), note: expiring.length ? (expiring.length === 1 ? tr('1 food item expiring') : tr('{n} food items expiring', { n: expiring.length })) : tr('nothing expiring'), tone: expired.length ? 'bad' : low.length || expiring.length ? 'alert' : '', onClick: () => { setStockChip(low.length ? 'low' : 'all'); pickView('stock'); } },
     { icon: 'drawer', value: String(openDrawers.length), label: tr('cash drawers open'), note: !lastClosed ? tr('no drawer counted yet') : Math.abs(lastClosed.difference) < 0.01 ? tr('last count was exact') : lastClosed.difference < 0 ? tr('last count short by {amount}', { amount: money(-lastClosed.difference) }) : tr('last count over by {amount}', { amount: money(lastClosed.difference) }), tone: lastClosed && lastClosed.difference < -1 ? 'bad' : '', onClick: () => pickView('drawers') }
   ];
+  // Today against the same weekday last week, up to this time of day.
+  const ring = lw.sales > 0
+    ? { value: todayRow.sales, max: lw.sales, big: Math.round((todayRow.sales / lw.sales) * 100) + '%', small: tr('of last {day} by now', { day: weekday }), tone: todayRow.sales >= lw.sales ? 'good' : '',
+      caption: tr('{amount} so far today; {before} by this time last {day}.', { amount: money(todayRow.sales), before: money(lw.sales), day: weekday }) }
+    : { value: todayRow.orders ? 1 : 0, max: 1, big: String(todayRow.orders), small: todayRow.orders === 1 ? tr('order today') : tr('orders today'), caption: tr('{amount} so far today.', { amount: money(todayRow.sales) }) };
+  const live = openDrawers.length
+    ? { on: true, text: tr('Till open · {name} since {time}', { name: openDrawers[0].cashierName, time: clock(openDrawers[0].openedAt) }) }
+    : { on: false, text: tr('Till closed: no cash drawer is open') };
 
   const insights = [];
   if (expired.length) insights.push({ tone: 'bad', icon: 'warn', text: expired.length === 1 ? tr('{name} has passed its use-by date ({qty} left). Throw it away and record it.', { name: expired[0].name, qty: qtyText(expired[0].stockQty, expired[0].unit) }) : tr('{n} food items have passed their use-by date.', { n: expired.length }), action: canManage && expired.length === 1 ? { label: tr('Record it'), run: () => openMove(expired[0], 'wasted') } : { label: tr('Show them'), run: () => { setStockChip('expiring'); pickView('stock'); } } });
@@ -445,11 +488,14 @@ export default function RestaurantsPage() {
   if (noPhoto.length && noPhoto.length < activeMenu.length) insights.push({ tone: 'info', icon: 'info', text: noPhoto.length === 1 ? tr('{name} has no photo, so the till shows it as a plain tile.', { name: noPhoto[0].name }) : tr('{n} menu items have no photo, so the till shows them as plain tiles. Import from Square brings any picture they have there.', { n: noPhoto.length }), action: { label: tr('Show them'), run: () => { setMenuChip('nophoto'); pickView('menu'); } } });
   if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Nothing needs attention: stock is fine and the drawers add up.') });
 
+  // ── the menu ──
   const menuCategories = Array.from(new Set(menuItems.map((m) => m.category))).sort();
+  const catHue = (cat) => CAT_HUES[Math.max(0, menuCategories.indexOf(cat)) % CAT_HUES.length];
   const menuTest = {
     active: (m) => m.active, unsold: (m) => unsold.includes(m), nophoto: (m) => m.active && !m.photoUrl, disabled: (m) => !m.active
   };
-  const menuVisible = menuItems.filter(menuTest[menuChip] || menuTest.active)
+  const inChip = menuItems.filter(menuTest[menuChip] || menuTest.active);
+  const menuVisible = inChip
     .filter((m) => !menuCategory || m.category === menuCategory)
     .filter((m) => matchesQuery(menuSearch, m.name, m.category));
   const menuGroups = [];
@@ -458,7 +504,29 @@ export default function RestaurantsPage() {
     if (!g) { g = { category: m.category, items: [] }; menuGroups.push(g); }
     g.items.push(m);
   });
+  const rankOf = new Map((ov ? ov.items : []).filter((i) => i.menuItemId).map((i, k) => [i.menuItemId, k]));
+  const maxQty = Math.max(1, ...Array.from(sold.values()).map((s) => s.qty));
+  // How each dish earns its place: how often it sells against the middle
+  // dish, and its price against the middle price, over 30 days.
+  const eng = activeMenu.map((m) => {
+    const s = sold.get(m.id);
+    return { m, qty: s ? s.qty : 0, price: s && s.qty ? s.revenue / s.qty : Number(m.price), revenue: s ? s.revenue : 0 };
+  });
+  const qMid = median(eng.map((r) => r.qty)), pMid = median(eng.map((r) => r.price));
+  const quads = { star: [], horse: [], puzzle: [], sleeper: [] };
+  eng.forEach((r) => {
+    const popular = r.qty > 0 && r.qty >= qMid, dear = r.price >= pMid;
+    quads[popular ? (dear ? 'star' : 'horse') : (dear ? 'puzzle' : 'sleeper')].push(r);
+  });
+  Object.values(quads).forEach((list) => list.sort((x, y) => y.revenue - x.revenue || x.m.name.localeCompare(y.m.name)));
+  const QUADS = [
+    ['star', tr('Stars'), tr('Sell a lot, at a good price. Keep them as they are and put them where guests look first.'), 'star'],
+    ['horse', tr('Workhorses'), tr('Sell a lot, but cheaply. A small price rise, or a side or drink that goes with them, adds up.'), 'bolt'],
+    ['puzzle', tr('Puzzles'), tr('A good price, but seldom ordered. A better photo or description, or the waiters recommending them, can wake them up.'), 'question'],
+    ['sleeper', tr('Sleepers'), tr('Cheap and seldom ordered. Candidates to change or take off, to keep the menu short and the kitchen quick.'), 'snooze']
+  ];
 
+  // ── stock ──
   const stockTest = {
     all: () => true, food: (it) => it.type === 'ingredient', supplies: (it) => it.type === 'supply',
     low: (it) => it.lowStock, expiring: (it) => expiring.includes(it)
@@ -466,19 +534,34 @@ export default function RestaurantsPage() {
   const stockVisible = stock.filter(stockTest[stockChip] || stockTest.all)
     .filter((it) => matchesQuery(stockSearch, it.name, it.category))
     .sort((x, y) => Number(y.lowStock) - Number(x.lowStock) || String(x.name).localeCompare(String(y.name)));
+  const stockLane = (it) => { const ex = expiryOf(it); return it.lowStock ? 'buy' : ex && ex.tone !== 'muted' ? 'use' : 'ok'; };
+  const stockLanes = ['all', 'food', 'supplies'].includes(stockChip) && !stockSearch
+    ? [['buy', tr('Running low: time to buy'), tr('At or below the reorder level.')], ['use', tr('Use these first'), tr('Expiring soon, or already past the use-by date.')], ['ok', tr('Stocked up'), tr('Nothing to do for now.')]]
+      .map(([k, title, sub]) => ({ key: k, title, sub, items: stockVisible.filter((it) => stockLane(it) === k) })).filter((l) => l.items.length)
+    : [{ key: 'list', items: stockVisible }];
 
   const views = [
-    ['sales', tr('Sales'), null],
-    ['report', tr('Report'), null],
-    ['menu', tr('Menu'), activeMenu.length],
-    ['stock', tr('Stock'), low.length + expiring.length || null],
-    ['drawers', tr('Cash drawers'), openDrawers.length || null],
-    ['tables', tr('Tables & guests'), null]
+    ['sales', tr('Sales'), null, 'sales'],
+    ['report', tr('Report'), null, 'report'],
+    ['menu', tr('Menu'), activeMenu.length, 'menu'],
+    ['stock', tr('Stock'), low.length + expiring.length || null, 'stock'],
+    ['drawers', tr('Cash drawers'), openDrawers.length || null, 'drawers'],
+    ['tables', tr('Tables & guests'), null, 'tables']
   ];
+
+  // ── sales ──
+  const pastDays = days.slice(0, -1);
+  const avgDay = pastDays.length ? pastDays.reduce((s, d) => s + d.sales, 0) / pastDays.length : 0;
+  const bestDay = days.reduce((b, d) => (!b || d.sales > b.sales ? d : b), null);
+  const weekdays = [0, 1, 2, 3, 4, 5, 6].map((dow) => {
+    const list = pastDays.filter((d) => (new Date(d.day + 'T00:00').getDay() + 6) % 7 === dow);
+    return { dow, avg: list.length ? list.reduce((s, d) => s + d.sales, 0) / list.length : 0 };
+  });
+  const topWeekday = weekdays.slice().sort((x, y) => y.avg - x.avg)[0];
   const dayRows = days.map((d, i) => {
     const date = new Date(d.day + 'T00:00');
     return {
-      key: d.day, value: d.sales, current: i === days.length - 1,
+      key: d.day, value: d.sales, current: i === days.length - 1, weekend: date.getDay() === 0 || date.getDay() === 6,
       label: i % 7 === days.length % 7 || i === days.length - 1 ? date.toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short' }) : '',
       tip: date.toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }) + ': ' + money(d.sales) + ' · ' + (d.orders === 1 ? tr('1 order') : tr('{n} orders', { n: d.orders }))
     };
@@ -490,9 +573,33 @@ export default function RestaurantsPage() {
     return { key: String(h), value: r.orders, label: hourLabel(h), tip: hourLabel(h) + ': ' + (r.orders === 1 ? tr('1 order') : tr('{n} orders', { n: r.orders })) + ' · ' + money(r.sales) };
   }) : [];
   const busiest = hours.length ? hours.slice().sort((x, y) => y.orders - x.orders)[0] : null;
-  const itemRows = (ov ? ov.items : []).slice(0, 8).map((i) => ({ key: i.key, name: i.name, value: i.revenue, amount: money(i.revenue), meta: tr('{qty} sold', { qty: qtyText(i.qty) }) }));
-  const payRows = (ov ? ov.payments : []).map((p) => ({ key: p.method, name: codeLabel(p.method), value: p.sales, amount: money(p.sales), meta: p.orders === 1 ? tr('1 order') : tr('{n} orders', { n: p.orders }) }));
-  const staffRows = (ov ? ov.staff : []).map((s) => ({ key: s.id, name: s.name, value: s.sales, amount: money(s.sales), meta: s.orders === 1 ? tr('1 order') : tr('{n} orders', { n: s.orders }) }));
+  const heat = ov && ov.heat ? ov.heat : [];
+  const menuById = new Map(menuItems.map((m) => [m.id, m]));
+  const topItems = (ov ? ov.items : []).slice(0, 8).map((i) => {
+    const dish = i.menuItemId ? menuById.get(i.menuItemId) : null;
+    return { key: i.key, name: i.name, qty: i.qty, qtyText: qtyText(i.qty), revenue: i.revenue, dish, hue: dish ? catHue(dish.category) : CAT_HUES[0], value: i.revenue, amount: money(i.revenue), meta: tr('{qty} sold', { qty: qtyText(i.qty) }) };
+  });
+  const payTotal = (ov ? ov.payments : []).reduce((s, p) => s + p.sales, 0);
+  const payPart = (key, name, list) => {
+    const sales = list.reduce((x, p) => x + p.sales, 0), n = list.reduce((x, p) => x + p.orders, 0);
+    return { key, name, value: sales, color: PAY_COLOR[key] || 'var(--rsf-other)', meta: money(sales) + ' · ' + (n === 1 ? tr('1 order') : tr('{n} orders', { n })) };
+  };
+  const payments = ov ? ov.payments : [];
+  const otherPay = payments.filter((p) => !PAY_COLOR[p.method]);
+  const payParts = payments.filter((p) => PAY_COLOR[p.method]).map((p) => payPart(p.method, codeLabel(p.method), [p]))
+    .concat(otherPay.length ? [payPart('other', otherPay.length === 1 ? codeLabel(otherPay[0].method) : tr('Other ways ({list})', { list: otherPay.map((p) => codeLabel(p.method)).join(', ') }), otherPay)] : []);
+  const orderDays = [];
+  orders.orders.forEach((o) => {
+    const key = dayKey(o.createdAt);
+    let g = orderDays.find((x) => x.key === key);
+    if (!g) { g = { key, label: dayTitle(o.createdAt), rows: [] }; orderDays.push(g); }
+    g.rows.push(o);
+  });
+
+  // ── drawers ──
+  const drawerTones = drawers.sessions.map((s) => drawerState({ status: s.session.status, difference: s.difference }).tone);
+  const drawerCount = (tone) => drawerTones.filter((t) => t === tone).length;
+
   const visibleGuests = guests.filter((g) => matchesQuery(guestSearch, g.name, g.phone, g.notes));
   const editingItem = menuDialog && menuDialog.id ? menuItems.find((m) => m.id === menuDialog.id) : null;
   const detailItem = stockDetail ? stock.find((it) => it.type === stockDetail.type && it.id === stockDetail.id) : null;
@@ -501,8 +608,9 @@ export default function RestaurantsPage() {
     ? (moveForm.kind === 'count' ? Number(moveForm.qty) : moveItem.stockQty + (moveForm.kind === 'received' ? 1 : -1) * Number(moveForm.qty)) : null;
 
   return (
-    <div className="dk tl rs">
+    <div className="dk tl rs rsf">
       {error && <div className="error-banner" role="alert">{error}</div>}
+      <Confetti burst={burst} />
 
       <CompanySwitcher companies={switcher} company={current.code} onPick={pickCompany}
         describe={(co) => (co.salesToday ? tr('{amount} today', { amount: money(co.salesToday) }) : co.menuItems === 1 ? tr('1 item on the menu') : tr('{n} items on the menu', { n: co.menuItems }))} />
@@ -515,16 +623,19 @@ export default function RestaurantsPage() {
         </div>
       )}
 
-      <Hero
+      <RsfBanner
+        logo={restaurantLogoUrl(current.code)}
         eyebrow={new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         title={current.name}
+        live={live}
         sub={tr('How the restaurant is selling, what is on the menu, the food and supplies in stock, and whether the cash drawers add up. Sales come from the till. Press a number to go to it.')}
         actions={(
           <>
-            <a className="btn btn-primary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
-            {canManage && <button type="button" className="btn btn-secondary" disabled={squareStarting || squareRunning} onClick={() => runSquareImport(false)}>{squareRunning ? tr('Importing from Square…') : tr('Import from Square')}</button>}
+            <a className="rsf-btn is-primary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
+            {canManage && <button type="button" className="rsf-btn is-ghost" disabled={squareStarting || squareRunning} onClick={() => runSquareImport(false)}>{squareRunning ? tr('Importing from Square…') : tr('Import from Square')}</button>}
           </>
         )}
+        ring={ov ? ring : null}
         stats={stats} />
 
       {squareError && <div className="error-banner">{squareError}</div>}
@@ -562,38 +673,46 @@ export default function RestaurantsPage() {
 
       <Insights items={insights.slice(0, 5)} />
 
-      <div id="rs-views" className="rs-views" role="tablist" aria-label={tr('Show')}>
-        {views.map(([k, label, n]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k} className={'rs-view' + (view === k ? ' is-on' : '')} onClick={() => pickView(k, false)}>
-            {label}{n ? <span className="ppl-chip-n">{n}</span> : null}
-          </button>
-        ))}
-      </div>
+      <ViewTabs views={views} view={view} onPick={(k) => pickView(k, false)} />
 
       {/* ── sales ── */}
       {view === 'sales' && (
         <>
-          <Section id="rs-days" title={tr('Sales, day by day')} sub={tr('The last 35 days; today on the right. Point at a day for its figures.')} card>
-            {hasSales ? <Bars rows={dayRows} format={money} label={tr('Sales, day by day')} className="is-days" /> : <p className="dk-muted tl-small">{tr('No sales in the last 35 days. Sales rung up on the till show here.')}</p>}
+          <Section id="rs-days" title={tr('Sales, day by day')} sub={tr('The last 35 days; today on the right, weekends shaded. Point at a day for its figures.')} card>
+            {hasSales ? (
+              <>
+                <div className="rsf-facts">
+                  <span className="rsf-fact"><small>{tr('Best day')}</small><strong>{money(bestDay.sales)}</strong><em>{new Date(bestDay.day + 'T00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'short' })}</em></span>
+                  <span className="rsf-fact"><small>{tr('A typical day')}</small><strong>{money(avgDay)}</strong><em>{tr('the average over the 34 days before today')}</em></span>
+                  {topWeekday && topWeekday.avg > 0 && <span className="rsf-fact"><small>{tr('Best day of the week')}</small><strong>{weekdayText(topWeekday.dow)}</strong><em>{tr('{amount} on average', { amount: money(topWeekday.avg) })}</em></span>}
+                </div>
+                <Bars rows={dayRows} format={money} label={tr('Sales, day by day')} className="is-days" avg={avgDay} avgLabel={tr('average {amount}', { amount: money(avgDay) })} />
+              </>
+            ) : <p className="dk-muted tl-small">{tr('No sales in the last 35 days. Sales rung up on the till show here.')}</p>}
           </Section>
           {hasSales && (
             <div className="dk-two">
               <Section title={tr('Best sellers')} sub={tr('The last 30 days, by what they brought in.')} card>
-                {itemRows.length ? <RankList rows={itemRows} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
+                {topItems.length ? (
+                  <>
+                    <Podium rows={topItems.slice(0, 3)} />
+                    {topItems.length > 3 && <MoreRanks rows={topItems.slice(3)} start={4} />}
+                  </>
+                ) : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
               </Section>
-              <Section title={tr('When it is busy')} sub={busiest ? tr('Orders by hour over 30 days; busiest at {hour}.', { hour: hourLabel(busiest.hour) }) : tr('Orders by hour over 30 days.')} card>
-                {hourRows.length ? <Bars rows={hourRows} format={(v) => String(v)} label={tr('When it is busy')} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
+              <Section title={tr('When it is busy')} sub={heat.length ? tr('Orders by weekday and hour over the last four weeks. The darker the square, the busier; point at one for its figure.') : busiest ? tr('Orders by hour over 30 days; busiest at {hour}.', { hour: hourLabel(busiest.hour) }) : tr('Orders by hour over 30 days.')} card>
+                {heat.length ? <HeatGrid heat={heat} /> : hourRows.length ? <Bars rows={hourRows} format={(v) => String(v)} label={tr('When it is busy')} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
               </Section>
               <Section title={tr('How people pay')} sub={tr('The last 30 days.')} card>
-                {payRows.length ? <RankList rows={payRows} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
+                {payParts.length ? <Donut parts={payParts} center={money(payTotal)} caption={tr('in 30 days')} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
               </Section>
               <Section title={tr('Who sells')} sub={tr('By waiter, or the cashier when no waiter was picked. The last 30 days.')} card>
-                {staffRows.length ? <RankList rows={staffRows} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
+                {ov && ov.staff.length ? <Leaderboard rows={ov.staff} /> : <p className="dk-muted tl-small">{tr('Nothing sold in 30 days.')}</p>}
               </Section>
             </div>
           )}
           <Section id="rs-orders" title={tr('Orders')} sub={tr('Newest first. Press an order for what was on it.')}>
-            <div className="rs-filter">
+            <div className="rs-filter rsf-filter">
               <label className="tl-label" htmlFor="rs-from">{tr('From')}</label>
               <input id="rs-from" type="date" className="input" value={ordersFrom} onChange={(e) => { setOrdersFrom(e.target.value); setOrdersOffset(0); }} />
               <label className="tl-label" htmlFor="rs-to">{tr('to')}</label>
@@ -607,23 +726,35 @@ export default function RestaurantsPage() {
               )}
             </div>
             {orders.orders.length ? (
-              <ul className="rs-list" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
-                {orders.orders.map((o) => (
-                  <li key={o.id} className={'rs-row' + (o.status === 'voided' ? ' is-void' : '')}>
-                    <button type="button" className="rs-row-open" onClick={() => openOrder(o.id)}>
-                      <span className="rs-row-main">
-                        <strong>{o.orderNo}</strong>
-                        <span className="dk-muted tl-small">{[when(o.createdAt), o.tableName, o.waiterName || o.cashierName, o.guestName].filter(Boolean).join(' · ')}</span>
-                      </span>
-                      <span className="rs-row-side">
-                        <strong className="rs-amount">{money(o.total)}</strong>
-                        {o.status === 'voided' ? <Status tone="bad">{tr('Voided')}</Status> : <span className="dk-muted tl-small">{codeLabel(o.paymentMethod)}</span>}
-                      </span>
-                    </button>
-                    {canManage && o.status === 'completed' && <span className="rs-row-menu"><RowMenu actions={[{ label: tr('Void'), onClick: () => voidOrder(o), danger: true }]} /></span>}
-                  </li>
+              <div className="rsf-orders" style={{ opacity: ordersLoading ? 0.6 : 1 }}>
+                {orderDays.map((g) => (
+                  <div key={g.key} className="rsf-day">
+                    <h4 className="rsf-day-head">{g.label}</h4>
+                    <ul className="rsf-tickets">
+                      {g.rows.map((o) => (
+                        <li key={o.id} className={'rsf-ticket' + (o.status === 'voided' ? ' is-void' : '')}>
+                          <button type="button" className="rsf-ticket-open" onClick={() => openOrder(o.id)}>
+                            <span className="rsf-ticket-time">{clock(o.createdAt)}</span>
+                            <span className="rsf-ticket-main">
+                              <strong>{o.orderNo}</strong>
+                              <span className="rsf-ticket-tags">
+                                {o.tableName && <span className="rsf-tag"><Glyph name="tables" />{o.tableName}</span>}
+                                {(o.waiterName || o.cashierName) && <span className="rsf-tag">{o.waiterName || o.cashierName}</span>}
+                                {o.guestName && <span className="rsf-tag is-guest">{o.guestName}</span>}
+                              </span>
+                            </span>
+                            <span className="rsf-ticket-side">
+                              <strong className="rs-amount">{money(o.total)}</strong>
+                              {o.status === 'voided' ? <Status tone="bad">{tr('Voided')}</Status> : <span className="rsf-pay" style={{ '--p': PAY_COLOR[o.paymentMethod] || 'var(--rsf-other)' }}><Icon name={PAY_ICON[o.paymentMethod] || 'receipt'} />{codeLabel(o.paymentMethod)}</span>}
+                            </span>
+                          </button>
+                          {canManage && o.status === 'completed' && <span className="rs-row-menu"><RowMenu actions={[{ label: tr('Void'), onClick: () => voidOrder(o), danger: true }]} /></span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
+              </div>
             ) : !ordersLoading && <p className="dk-muted tl-small">{ordersFrom || ordersTo ? tr('No sales in that date range') : tr('No sales yet — rung-up orders from the till will show here')}</p>}
             {orders.total > ORDERS_PAGE && (
               <div className="rs-pager">
@@ -642,15 +773,34 @@ export default function RestaurantsPage() {
       {/* ── menu ── */}
       {view === 'menu' && (
         <Section id="rs-menu" title={tr('Menu')} sub={tr('What the till sells, with what each item sold in the last 30 days.')}
-          action={canManage && <button type="button" className="btn btn-primary" onClick={() => openMenu(null)}>{tr('Add menu item')}</button>}>
+          action={canManage && <button type="button" className="rsf-btn is-primary is-solid" onClick={() => openMenu(null)}><Glyph name="plus" />{tr('Add menu item')}</button>}>
+          {hasSales && eng.length >= 4 && (
+            <section className="rsf-eng" aria-label={tr('How each dish earns its place')}>
+              <div className="rsf-eng-head">
+                <h4>{tr('How each dish earns its place')}</h4>
+                <p className="dk-muted">{tr('Each dish on the menu, by how often it sold in the last 30 days (more or less than the middle dish) and by its price (above or below the middle price). Press a dish to find it below.')}</p>
+              </div>
+              <div className="rsf-eng-grid">
+                {QUADS.map(([key, title, advice, glyph]) => (
+                  <div key={key} className={'rsf-quad is-' + key}>
+                    <div className="rsf-quad-head"><span className="rsf-quad-icon"><Glyph name={glyph} /></span><strong>{title}</strong><span className="rsf-quad-n">{quads[key].length}</span></div>
+                    <p className="rsf-quad-advice">{advice}</p>
+                    <div className="rsf-quad-dishes">
+                      {quads[key].slice(0, 6).map((r) => (
+                        <button key={r.m.id} type="button" className="rsf-chipdish" onClick={() => { setMenuChip('active'); setMenuCategory(''); setMenuSearch(r.m.name); }}>
+                          <DishArt m={r.m} hue={catHue(r.m.category)} small /><span>{r.m.name}</span>
+                        </button>
+                      ))}
+                      {quads[key].length > 6 && <span className="rsf-quad-more">{tr('+{n} more', { n: quads[key].length - 6 })}</span>}
+                      {!quads[key].length && <span className="dk-muted tl-small">{tr('None')}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <div className="tl-tools">
             <div className="tl-search"><SearchInput value={menuSearch} onChange={setMenuSearch} placeholder={tr('Search menu…')} /></div>
-            {menuCategories.length > 1 && (
-              <select className="input tl-select" value={menuCategory} onChange={(e) => setMenuCategory(e.target.value)} aria-label={tr('Category')}>
-                <option value="">{tr('All categories')}</option>
-                {menuCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            )}
           </div>
           <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
             {[['active', tr('On the menu'), activeMenu.length], ['unsold', tr('Not sold in 30 days'), unsold.length], ['nophoto', tr('No photo'), noPhoto.length], ['disabled', tr('Disabled'), menuItems.length - activeMenu.length]]
@@ -661,6 +811,18 @@ export default function RestaurantsPage() {
                 </button>
               ))}
           </div>
+          {menuCategories.length > 1 && (
+            <div className="rsf-cats" role="radiogroup" aria-label={tr('Category')}>
+              <button type="button" role="radio" aria-checked={!menuCategory} className={'rsf-cat' + (!menuCategory ? ' is-on' : '')} onClick={() => setMenuCategory('')}>
+                {tr('All categories')} <span className="rsf-cat-n">{inChip.length}</span>
+              </button>
+              {menuCategories.map((c) => (
+                <button key={c} type="button" role="radio" aria-checked={menuCategory === c} className={'rsf-cat' + (menuCategory === c ? ' is-on' : '')} style={{ '--cat': catHue(c) }} onClick={() => setMenuCategory(menuCategory === c ? '' : c)}>
+                  <i aria-hidden="true" />{c} <span className="rsf-cat-n">{inChip.filter((m) => m.category === c).length}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {!menuGroups.length ? (
             <div className="dk-empty tl-empty">
               <p>{menuItems.length ? tr('Nothing matches. Try another search or filter.') : tr('No menu items yet')}</p>
@@ -668,45 +830,57 @@ export default function RestaurantsPage() {
             </div>
           ) : menuGroups.map((g) => (
             <div key={g.category} className="rs-group">
-              <h3 className="rs-group-title">{g.category} <span className="ppl-chip-n">{g.items.length}</span></h3>
-              <div className="rs-menu-grid">
+              <h3 className="rsf-group-title" style={{ '--cat': catHue(g.category) }}><i aria-hidden="true" />{g.category} <span className="ppl-chip-n">{g.items.length}</span></h3>
+              <div className="rsf-dishes">
                 {g.items.map((m) => {
                   const s = sold.get(m.id);
                   const prices = m.variations.length ? m.variations.map((v) => Number(v.price)) : [Number(m.price)];
                   const lo = Math.min(...prices), hi = Math.max(...prices);
+                  const rank = rankOf.has(m.id) ? rankOf.get(m.id) : null;
+                  const open = openDishes.has(m.id);
+                  const vars = m.variations.length > 3 && !open ? m.variations.slice(0, 3) : m.variations;
                   return (
-                    <article key={m.id} className={'rs-dish' + (m.active ? '' : ' is-off')}>
-                      <Plate m={m} />
-                      <div className="rs-dish-main">
-                        <span className="rs-dish-name">{m.name}</span>
-                        <span className="rs-dish-price">{lo === hi ? money(lo) : tr('{from} to {to}', { from: money(lo), to: money(hi) })}</span>
-                        {m.variations.length > 0 && (
-                          <button type="button" className={'rs-dish-toggle' + (openDishes.has(m.id) ? ' is-open' : '')} aria-expanded={openDishes.has(m.id)} aria-controls={'rs-vars-' + m.id} onClick={() => toggleDish(m.id)}>
-                            {m.variations.length === 1 ? tr('1 variation') : tr('{n} variations', { n: m.variations.length })}
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                          </button>
-                        )}
-                        <span className={'tl-small ' + (s ? 'rs-sold' : 'dk-muted')}>{!m.active ? tr('Disabled — not on the till') : s ? tr('{qty} sold · {amount} in 30 days', { qty: qtyText(s.qty), amount: money(s.revenue) }) : hasSales ? tr('Not sold in 30 days') : ''}</span>
-                      </div>
-                      {m.variations.length > 0 && openDishes.has(m.id) && (
-                        <ul id={'rs-vars-' + m.id} className="rs-dish-vars">
-                          {m.variations.map((v) => (
-                            <li key={v.id} className={Number(v.price) === lo && lo !== hi ? 'is-cheapest' : ''}>
-                              <span>{v.name}</span>
-                              <strong>{money(Number(v.price))}</strong>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {canManage && (
-                        <span className="rs-dish-menu">
-                          <RowMenu actions={[
-                            { label: tr('Edit'), onClick: () => openMenu(m) },
-                            { label: m.active ? tr('Disable') : tr('Enable'), onClick: () => run(() => api.post('/restaurant/menu-items/' + m.id + '/active', { active: !m.active }), m.active ? tr('{name} is off the till.', { name: m.name }) : tr('{name} is back on the till.', { name: m.name })) },
-                            { label: tr('Delete'), onClick: () => run(() => api.del('/restaurant/menu-items/' + m.id), tr('Menu item removed.')), danger: true }
-                          ]} />
+                    <article key={m.id} className={'rsf-dish' + (m.active ? '' : ' is-off')} style={{ '--cat': catHue(m.category) }}>
+                      <div className="rsf-dish-art">
+                        <DishArt m={m} hue={catHue(m.category)} />
+                        <span className="rsf-dish-badges">
+                          {m.active && rank !== null && rank < 3 && <span className={'rsf-badge is-hot is-' + (rank + 1)}><Glyph name="fire" />{rank === 0 ? tr('Best seller') : tr('No. {n} seller', { n: rank + 1 })}</span>}
+                          {!m.active && <span className="rsf-badge is-off">{tr('Off the till')}</span>}
+                          {m.active && hasSales && !s && <span className="rsf-badge is-sleep"><Glyph name="snooze" />{tr('Not sold in 30 days')}</span>}
+                          {m.active && !m.photoUrl && <span className="rsf-badge is-photo"><Glyph name="camera" />{tr('No photo')}</span>}
                         </span>
-                      )}
+                        <span className="rsf-price">{lo === hi ? money(lo) : tr('from {price}', { price: money(lo) })}</span>
+                        {canManage && (
+                          <span className="rsf-dish-menu">
+                            <RowMenu actions={[
+                              { label: tr('Edit'), onClick: () => openMenu(m) },
+                              { label: m.active ? tr('Disable') : tr('Enable'), onClick: () => run(() => api.post('/restaurant/menu-items/' + m.id + '/active', { active: !m.active }), m.active ? tr('{name} is off the till.', { name: m.name }) : tr('{name} is back on the till.', { name: m.name })) },
+                              { label: tr('Delete'), onClick: () => run(() => api.del('/restaurant/menu-items/' + m.id), tr('Menu item removed.')), danger: true }
+                            ]} />
+                          </span>
+                        )}
+                      </div>
+                      <div className="rsf-dish-body">
+                        <h4 className="rsf-dish-name">{m.name}</h4>
+                        {m.variations.length > 0 && (
+                          <span className="rsf-vars" id={'rs-vars-' + m.id}>
+                            {vars.map((v) => <span key={v.id} className={'rsf-var' + (Number(v.price) === lo && lo !== hi ? ' is-cheapest' : '')}>{v.name} <b>{money(Number(v.price))}</b></span>)}
+                            {m.variations.length > 3 && (
+                              <button type="button" className="rsf-var is-more" aria-expanded={open} aria-controls={'rs-vars-' + m.id} onClick={() => toggleDish(m.id)}>
+                                {open ? tr('Fewer') : tr('+{n} more', { n: m.variations.length - 3 })}
+                              </button>
+                            )}
+                          </span>
+                        )}
+                        <span className="rsf-dish-sold">
+                          {!m.active ? <span className="dk-muted">{tr('Disabled — not on the till')}</span> : s ? (
+                            <>
+                              <span className="rsf-meter" aria-hidden="true"><i style={{ width: Math.max(4, Math.round((s.qty / maxQty) * 100)) + '%' }} /></span>
+                              <span>{tr('{qty} sold · {amount} in 30 days', { qty: qtyText(s.qty), amount: money(s.revenue) })}</span>
+                            </>
+                          ) : hasSales ? <span className="dk-muted">{tr('Not sold in 30 days')}</span> : null}
+                        </span>
+                      </div>
                     </article>
                   );
                 })}
@@ -718,13 +892,29 @@ export default function RestaurantsPage() {
 
       {/* ── stock ── */}
       {view === 'stock' && (
-        <Section id="rs-stock" title={tr('Stock')} sub={ov ? tr('Food and supplies worth {amount} on the shelves. In the last 30 days: {bought} bought, {wasted} thrown away.', { amount: money(ov.stock.foodValue + ov.stock.suppliesValue), bought: money(ov.stock.bought30), wasted: money(ov.stock.wasted30) }) : ''}
+        <Section id="rs-stock" title={tr('Stock')} sub={tr('Food and supplies on the shelves: each jar fills and empties with what was delivered, used, thrown away or counted. The line in the jar is the reorder level.')}
           action={canManage && (
             <span className="rs-actions">
-              <button type="button" className="btn btn-primary" onClick={() => openStockItem('ingredient', null)}>{tr('Add food item')}</button>
-              <button type="button" className="btn btn-secondary" onClick={() => openStockItem('supply', null)}>{tr('Add supply')}</button>
+              <button type="button" className="rsf-btn is-primary is-solid" onClick={() => openStockItem('ingredient', null)}><Glyph name="plus" />{tr('Add food item')}</button>
+              <button type="button" className="rsf-btn is-ghost is-solid" onClick={() => openStockItem('supply', null)}><Glyph name="plus" />{tr('Add supply')}</button>
             </span>
           )}>
+          {ov && (
+            <div className="rsf-pantry">
+              <div className="rsf-pan is-shelf">
+                <span className="rsf-pan-label">{tr('On the shelves')}</span>
+                <strong>{money(ov.stock.foodValue + ov.stock.suppliesValue)}</strong>
+                <span className="rsf-split" aria-hidden="true"><i className="is-food" style={{ flexGrow: ov.stock.foodValue }} /><i className="is-sup" style={{ flexGrow: ov.stock.suppliesValue }} /></span>
+                <span className="rsf-pan-note"><b className="is-food" />{tr('Food {amount}', { amount: money(ov.stock.foodValue) })} <b className="is-sup" />{tr('Supplies {amount}', { amount: money(ov.stock.suppliesValue) })}</span>
+              </div>
+              <div className="rsf-pan"><span className="rsf-pan-label"><Glyph name="plus" />{tr('Bought in 30 days')}</span><strong>{money(ov.stock.bought30)}</strong><span className="rsf-pan-note">{tr('deliveries recorded')}</span></div>
+              <div className="rsf-pan"><span className="rsf-pan-label"><Glyph name="minus" />{tr('Used in 30 days')}</span><strong>{money(ov.stock.used30)}</strong><span className="rsf-pan-note">{tr('at what it cost')}</span></div>
+              <div className={'rsf-pan' + (ov.stock.wasted30 > 0 ? ' is-bad' : ' is-good')}>
+                <span className="rsf-pan-label"><Icon name="warn" />{tr('Thrown away in 30 days')}</span><strong>{money(ov.stock.wasted30)}</strong>
+                <span className="rsf-pan-note">{ov.stock.bought30 > 0 ? tr('{n}% of what was bought', { n: Math.round((ov.stock.wasted30 / ov.stock.bought30) * 100) }) : ov.stock.wasted30 > 0 ? '' : tr('nothing wasted')}</span>
+              </div>
+            </div>
+          )}
           <div className="tl-tools"><div className="tl-search"><SearchInput value={stockSearch} onChange={setStockSearch} placeholder={tr('Search stock…')} /></div></div>
           <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
             {[['all', tr('All'), stock.length], ['food', tr('Food'), ingredients.length], ['supplies', tr('Supplies'), supplies.length], ['low', tr('To reorder'), low.length], ['expiring', tr('Expiring'), expiring.length]]
@@ -737,80 +927,96 @@ export default function RestaurantsPage() {
           </div>
           {!stockVisible.length ? (
             <div className="dk-empty tl-empty"><p>{stock.length ? tr('Nothing matches. Try another search or filter.') : tr('No stock tracked yet. Add the food and supplies you want to keep an eye on.')}</p></div>
-          ) : (
-            <div className="tl-grid">
-              {stockVisible.map((it) => {
-                const ex = expiryOf(it);
-                const full = Math.max(it.reorderLevel * 2, it.stockQty, 1);
-                return (
-                  <article key={it.type + it.id} className={'tl-card' + (ex && ex.tone === 'bad' ? ' st-late' : it.lowStock ? ' st-low' : '')}>
-                    <button type="button" className="tl-card-open" onClick={() => setStockDetail({ type: it.type, id: it.id })}>
-                      <span className={'tl-badge ' + (it.type === 'ingredient' ? 'is-food' : 'is-material')} style={{ width: 44, height: 44 }} aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                          {it.type === 'ingredient' ? <><path d="M4 12h16a8 8 0 0 1-16 0Z" /><path d="M8 8c0-1.5 1-2 1-3.5M12 8c0-1.5 1-2 1-3.5M16 8c0-1.5 1-2 1-3.5" /></> : <><path d="M12 3.5 20 8 12 12.5 4 8 12 3.5Z" /><path d="M4 8v8l8 4.5 8-4.5V8M12 12.5V21" /></>}
-                        </svg>
-                      </span>
-                      <span className="tl-card-head">
-                        <span className="dk-muted tl-small">{it.type === 'ingredient' ? tr('Food') : tr('Supply') + (it.category ? ' · ' + it.category : '')}</span>
-                        <span className="tl-name">{it.name}</span>
-                      </span>
-                    </button>
-                    {canManage && <span className="tl-menu"><RowMenu actions={[
-                      { label: tr('Record a delivery'), onClick: () => openMove(it, 'received') },
-                      { label: tr('Record what was used'), onClick: () => openMove(it, 'used') },
-                      { label: tr('Record what was thrown away'), onClick: () => openMove(it, 'wasted') },
-                      { label: tr('Count it'), onClick: () => openMove(it, 'count') },
-                      { label: tr('History'), onClick: () => setStockDetail({ type: it.type, id: it.id }) },
-                      { label: tr('Edit'), onClick: () => openStockItem(it.type, it) },
-                      { label: tr('Delete'), onClick: () => removeStockItem(it), danger: true }
-                    ]} /></span>}
-                    {(it.lowStock || ex) && (
-                      <div className="tl-tags">
-                        {it.lowStock && <Status tone="warn">{tr('Reorder')}</Status>}
-                        {ex && <Status tone={ex.tone}>{ex.text}</Status>}
+          ) : stockLanes.map((lane) => (
+            <div key={lane.key} className={'rsf-lane is-' + lane.key}>
+              {lane.title && <h3 className="rsf-lane-title"><i aria-hidden="true" />{lane.title} <span className="ppl-chip-n">{lane.items.length}</span><small>{lane.sub}</small></h3>}
+              <div className="rsf-stocks">
+                {lane.items.map((it) => {
+                  const ex = expiryOf(it);
+                  const tone = it.stockQty <= 0 || (ex && ex.tone === 'bad') ? 'bad' : it.lowStock || (ex && ex.tone === 'warn') ? 'warn' : 'good';
+                  return (
+                    <article key={it.type + it.id} className={'rsf-stock is-' + tone}>
+                      <button type="button" className="rsf-stock-open" onClick={() => setStockDetail({ type: it.type, id: it.id })}>
+                        <Jar qty={it.stockQty} reorder={it.reorderLevel} tone={tone} />
+                        <span className="rsf-stock-main">
+                          <span className="rsf-stock-kind">{it.type === 'ingredient' ? tr('Food') : tr('Supply') + (it.category ? ' · ' + it.category : '')}</span>
+                          <strong className="rsf-stock-name">{it.name}</strong>
+                          <span className="rsf-stock-qty">{qtyText(it.stockQty, it.unit)}</span>
+                          <span className="rsf-stock-meta">
+                            {[it.reorderLevel > 0 ? tr('reorder at {n}', { n: qtyText(it.reorderLevel) }) : null, it.daysLeft !== null ? (it.daysLeft === 1 ? tr('about 1 day left') : tr('about {n} days left', { n: it.daysLeft })) : null].filter(Boolean).join(' · ')}
+                          </span>
+                          {(it.lowStock || ex) && (
+                            <span className="tl-tags">
+                              {it.lowStock && <Status tone="warn">{tr('Reorder')}</Status>}
+                              {ex && <Status tone={ex.tone}>{ex.text}</Status>}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                      {canManage && <span className="rsf-stock-menu"><RowMenu actions={[
+                        { label: tr('Record a delivery'), onClick: () => openMove(it, 'received') },
+                        { label: tr('Record what was used'), onClick: () => openMove(it, 'used') },
+                        { label: tr('Record what was thrown away'), onClick: () => openMove(it, 'wasted') },
+                        { label: tr('Count it'), onClick: () => openMove(it, 'count') },
+                        { label: tr('History'), onClick: () => setStockDetail({ type: it.type, id: it.id }) },
+                        { label: tr('Edit'), onClick: () => openStockItem(it.type, it) },
+                        { label: tr('Delete'), onClick: () => removeStockItem(it), danger: true }
+                      ]} /></span>}
+                      <div className="rsf-stock-foot">
+                        <span className="rsf-stock-worth">
+                          {[money(it.value), it.used30 ? tr('{qty} used in 30 days', { qty: qtyText(it.used30, it.unit) }) : null, it.wasted30 ? tr('{qty} thrown away', { qty: qtyText(it.wasted30, it.unit) }) : null].filter(Boolean).join(' · ')}
+                        </span>
+                        {canManage && (
+                          <span className="rsf-quick">
+                            <button type="button" className="rsf-quick-btn is-in" onClick={() => openMove(it, 'received')} title={tr('Record a delivery')}><Glyph name="plus" />{tr('Delivery')}</button>
+                            <button type="button" className="rsf-quick-btn" onClick={() => openMove(it, 'used')} title={tr('Record what was used')}><Glyph name="minus" />{tr('Used')}</button>
+                          </span>
+                        )}
                       </div>
-                    )}
-                    <span className={'tl-stock' + (it.lowStock ? ' is-low' : '')}>
-                      <span className="tl-stock-row"><strong>{qtyText(it.stockQty, it.unit)}</strong>{it.reorderLevel > 0 && <span className="dk-muted">{tr('reorder at {n}', { n: qtyText(it.reorderLevel) })}</span>}</span>
-                      <span className="tl-stock-bar" aria-hidden="true"><span style={{ width: Math.min(100, Math.round((it.stockQty / full) * 100)) + '%' }} /></span>
-                    </span>
-                    <div className="tl-foot">
-                      <span className="dk-muted tl-small">
-                        {[money(it.value), it.used30 ? tr('{qty} used in 30 days', { qty: qtyText(it.used30, it.unit) }) : null, it.wasted30 ? tr('{qty} thrown away', { qty: qtyText(it.wasted30, it.unit) }) : null].filter(Boolean).join(' · ')}
-                      </span>
-                      {canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => openMove(it, it.lowStock ? 'received' : 'used')}>{tr('Record')}</button>}
-                    </div>
-                  </article>
-                );
-              })}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-          )}
+          ))}
         </Section>
       )}
 
       {/* ── cash drawers ── */}
       {view === 'drawers' && (
-        <Section id="rs-drawers" title={tr('Cash drawers')} sub={tr('Each shift on the till: the cash that should be in the drawer against what was counted when it closed.')}>
+        <Section id="rs-drawers" title={tr('Cash drawers')} sub={tr('Each shift on the till, as its receipt: the cash that should be in the drawer against what was counted when it closed. Press one for the full report.')}>
+          {drawers.sessions.length > 0 && (
+            <div className="rsf-drawer-sum">
+              <span className="rsf-dots" aria-hidden="true">{drawerTones.slice().reverse().map((t, i) => <i key={i} className={'is-' + t} />)}</span>
+              <span className="rsf-drawer-counts">
+                {drawerCount('good') > 0 && <span className="is-good"><b>{drawerCount('good')}</b> {tr('exact')}</span>}
+                {drawerCount('bad') > 0 && <span className="is-bad"><b>{drawerCount('bad')}</b> {tr('short')}</span>}
+                {drawerCount('warn') > 0 && <span className="is-warn"><b>{drawerCount('warn')}</b> {tr('over')}</span>}
+                {drawerCount('info') > 0 && <span className="is-info"><b>{drawerCount('info')}</b> {tr('open now')}</span>}
+                <span className="dk-muted">{tr('of the {n} shown, oldest on the left', { n: drawers.sessions.length })}</span>
+              </span>
+            </div>
+          )}
           {drawers.sessions.length ? (
-            <ul className="rs-list" style={{ opacity: drawersLoading ? 0.6 : 1 }}>
+            <div className="rsf-receipts" style={{ opacity: drawersLoading ? 0.6 : 1 }}>
               {drawers.sessions.map((s) => {
                 const st = drawerState({ status: s.session.status, difference: s.difference });
                 return (
-                  <li key={s.session.id} className={'rs-row' + (st.tone === 'bad' ? ' is-short' : '')}>
-                    <button type="button" className="rs-row-open" onClick={() => openDrawer(s.session.id)}>
-                      <span className="rs-row-main">
-                        <strong>{s.cashierName}</strong>
-                        <span className="dk-muted tl-small">{when(s.session.openedAt)}{s.session.closedAt ? ' – ' + when(s.session.closedAt) : ' · ' + tr('still open')}</span>
-                      </span>
-                      <span className="rs-row-side">
-                        <span className="rs-amount">{tr('expected {amount}', { amount: money(s.expected) })}</span>
-                        <Status tone={st.tone}>{st.text}</Status>
-                      </span>
-                    </button>
-                  </li>
+                  <button key={s.session.id} type="button" className={'rsf-receipt is-' + st.tone} onClick={() => openDrawer(s.session.id)}>
+                    <span className="rsf-receipt-paper">
+                    <span className="rsf-receipt-head">
+                      <Photo id={s.session.cashierId} name={s.cashierName} size={34} />
+                      <span><strong>{s.cashierName}</strong><small>{new Date(s.session.openedAt).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' })}</small></span>
+                    </span>
+                    <span className="rsf-receipt-time">{clock(s.session.openedAt)} – {s.session.closedAt ? clock(s.session.closedAt) : tr('still open')}</span>
+                    <span className="rsf-receipt-line"><span>{tr('Expected in Drawer')}</span><b>{money(s.expected)}</b></span>
+                    <span className="rsf-receipt-line"><span>{tr('Counted')}</span><b>{s.actual === null || s.actual === undefined ? '—' : money(s.actual)}</b></span>
+                    <span className="rsf-stamp">{st.text}</span>
+                    </span>
+                  </button>
                 );
               })}
-            </ul>
+            </div>
           ) : !drawersLoading && <p className="dk-muted tl-small">{tr('No drawer sessions yet — opened/closed on the till, they\'ll show here')}</p>}
           {drawers.total > DRAWER_PAGE && (
             <div className="rs-pager">
@@ -824,21 +1030,21 @@ export default function RestaurantsPage() {
 
       {/* ── tables & guests ── */}
       {view === 'tables' && (
-        <div className="dk-two">
-          <Section id="rs-tables" title={tr('Tables')} sub={tr('The tables a waiter can pick on the till.')} card
+        <div className="dk-two rsf-two">
+          <Section id="rs-tables" title={tr('Tables')} sub={tr('The tables a waiter can pick on the till, as seen from above.')} card
             action={canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setFormError(null); setTableDialog({ name: '' }); }}>{tr('Add table')}</button>}>
             {tables.length ? (
-              <div className="rs-tables">
+              <div className="rsf-floor">
                 {tables.map((t) => (
-                  <span key={t.id} className={'rs-table' + (t.status === 'active' ? '' : ' is-off')}>
-                    <strong>{t.name}</strong>
-                    {t.status !== 'active' && <span className="dk-muted tl-small">{tr('Archived')}</span>}
-                    {canManage && <RowMenu actions={[
+                  <div key={t.id} className={'rsf-table is-' + tableShape(t.name) + (t.status === 'active' ? '' : ' is-off')}>
+                    <span className="rsf-table-chairs" aria-hidden="true" />
+                    <span className="rsf-table-top"><strong>{t.name}</strong>{t.status !== 'active' && <small>{tr('Archived')}</small>}</span>
+                    {canManage && <span className="rsf-table-menu"><RowMenu actions={[
                       { label: tr('Rename'), onClick: () => { setFormError(null); setTableDialog({ id: t.id, name: t.name }); } },
                       { label: t.status === 'active' ? tr('Archive') : tr('Reactivate'), onClick: () => run(() => api.post('/restaurant/tables/' + t.id + '/active', { active: t.status !== 'active' }), t.status === 'active' ? tr('Table archived.') : tr('Table reactivated.')) },
                       { label: tr('Delete'), onClick: () => run(() => api.del('/restaurant/tables/' + t.id), tr('Table removed.')), danger: true }
-                    ]} />}
-                  </span>
+                    ]} /></span>}
+                  </div>
                 ))}
               </div>
             ) : <p className="dk-muted tl-small">{tr('No tables set up yet')}</p>}
@@ -847,10 +1053,15 @@ export default function RestaurantsPage() {
             action={canManage && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setFormError(null); setGuestDialog({ name: '', phone: '', notes: '' }); }}>{tr('Add guest')}</button>}>
             {guests.length > 6 && <div className="tl-search rs-guest-search"><SearchInput value={guestSearch} onChange={setGuestSearch} placeholder={tr('Search guests…')} /></div>}
             {visibleGuests.length ? (
-              <ul className="rs-guests">
+              <ul className="rsf-guests">
                 {visibleGuests.map((g) => (
-                  <li key={g.id}>
-                    <span className="rs-guest-main"><strong>{g.name}</strong>{(g.phone || g.notes) && <span className="dk-muted tl-small">{[g.phone, g.notes].filter(Boolean).join(' · ')}</span>}</span>
+                  <li key={g.id} className="rsf-guest">
+                    <span className="rsf-guest-face" style={{ background: avatarColor(g.name) }} aria-hidden="true">{initials(g.name)}</span>
+                    <span className="rsf-guest-main">
+                      <strong>{g.name}</strong>
+                      {g.phone && <span className="dk-muted tl-small">{g.phone}</span>}
+                      {g.notes && <span className="rsf-note">{g.notes}</span>}
+                    </span>
                     <ContactButtons name={g.name} phone={g.phone} />
                     {canManage && <RowMenu actions={[
                       { label: tr('Edit'), onClick: () => { setFormError(null); setGuestDialog({ id: g.id, name: g.name, phone: g.phone || '', notes: g.notes || '' }); } },

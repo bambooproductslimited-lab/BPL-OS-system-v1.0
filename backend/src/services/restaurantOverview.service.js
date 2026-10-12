@@ -3,8 +3,10 @@ var { fail } = require('../utils/errors');
 var restaurantPos = require('./restaurantPos.service');
 
 // The numbers at the top of the Restaurants page: how the restaurant is
-// selling (each of the last 35 days, this month against the same days last
-// month, the best sellers, when it is busiest, how people pay, who sells),
+// selling (each of the last 35 days, today against the same weekday last
+// week up to the same time, this month against the same days last month,
+// the best sellers, when it is busiest — by hour, and by weekday and hour
+// over the last four weeks — how people pay, who sells),
 // what was voided, the cash drawers, and what the stock is worth, was
 // bought and was thrown away. Only completed orders count as sales; a
 // voided order is counted apart. Days are UTC days — Ghana's own time.
@@ -81,7 +83,17 @@ async function overview(ctx, companyId) {
       [companyId]),
     pool.query(
       "SELECT m.item_type, m.item_id, sum(-m.delta) FILTER (WHERE m.kind = 'used') AS used, sum(-m.delta) FILTER (WHERE m.kind = 'wasted') AS wasted " +
-      "FROM restaurant_stock_moves m WHERE m.company_id = $1 AND m.created_at > now() - interval '30 days' AND m.kind IN ('used', 'wasted') GROUP BY 1, 2", [companyId])
+      "FROM restaurant_stock_moves m WHERE m.company_id = $1 AND m.created_at > now() - interval '30 days' AND m.kind IN ('used', 'wasted') GROUP BY 1, 2", [companyId]),
+    // The same weekday last week, only up to this time of day — so a
+    // morning is not measured against a whole day.
+    pool.query(
+      "SELECT count(*) AS orders, coalesce(sum(o.total), 0) AS sales FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' " +
+      'AND ' + DAY + " = $2 AND (o.created_at AT TIME ZONE 'UTC')::time <= ($3::timestamptz AT TIME ZONE 'UTC')::time", [companyId, iso(new Date(now.getTime() - 7 * 86400000)), now]),
+    // Weekday (0 Monday … 6 Sunday) by hour over the last four whole weeks
+    // and today's week so far is left out, so each weekday counts four times.
+    pool.query(
+      "SELECT (extract(isodow FROM o.created_at AT TIME ZONE 'UTC')::int - 1) AS dow, extract(hour FROM o.created_at AT TIME ZONE 'UTC')::int AS hour, count(*) AS orders " +
+      "FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' AND " + DAY + ' >= $2 AND ' + DAY + ' < $3 GROUP BY 1, 2', [companyId, iso(new Date(now.getTime() - 28 * 86400000)), today])
   ]);
 
   var byDay = {};
@@ -109,6 +121,8 @@ async function overview(ctx, companyId) {
       return { id: r.id, name: name(r.first_name, r.last_name), photo: r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null, orders: Number(r.orders), sales: num(r.sales) };
     }),
     hours: q[5].rows.map(function (r) { return { hour: r.hour, orders: Number(r.orders), sales: num(r.sales) }; }),
+    lastWeekSoFar: { day: iso(new Date(now.getTime() - 7 * 86400000)), orders: Number(q[9].rows[0].orders), sales: num(q[9].rows[0].sales) },
+    heat: q[10].rows.map(function (r) { return { dow: r.dow, hour: r.hour, orders: Number(r.orders) }; }),
     voided7: { orders: Number(q[6].rows[0].n), total: num(q[6].rows[0].total) },
     stock: {
       suppliesValue: num(stock.supplies_value), foodValue: num(stock.food_value),
@@ -117,7 +131,7 @@ async function overview(ctx, companyId) {
     },
     drawers: drawers.sessions.map(function (s) {
       return {
-        id: s.session.id, cashierName: s.cashierName, status: s.session.status, openedAt: s.session.openedAt, closedAt: s.session.closedAt,
+        id: s.session.id, cashierId: s.session.cashierId, cashierName: s.cashierName, status: s.session.status, openedAt: s.session.openedAt, closedAt: s.session.closedAt,
         expected: s.expected, actual: s.actual, difference: s.difference, cashSales: s.cashSales
       };
     })

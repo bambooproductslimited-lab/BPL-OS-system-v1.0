@@ -22,6 +22,7 @@ async function order(daysAgo, lines, opts) {
   var total = lines.reduce(function (s, l) { return s + l.qty * l.price; }, 0);
   var at = new Date(); at.setUTCDate(at.getUTCDate() - daysAgo); at.setUTCHours(opts.hour || 12, 0, 0, 0);
   if (at > new Date()) at = new Date(Date.now() - 60000);
+  if (opts.at) at = opts.at;
   var o = (await pool.query(
     'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, status, created_at) VALUES ($1,$2,$3,$4,$4,$5,$6,$7) RETURNING id',
     [companyId, 'ZQR-' + Date.now() + '-' + (seq++), cashierId, total, opts.method || 'cash', opts.status || 'completed', at]
@@ -103,5 +104,15 @@ test('the overview adds up sales by day and month, ranks what sells, and keeps v
   var cos = await overview.companies(viewer);
   var mine = cos.find(function (c) { return c.id === companyId; });
   assert.deepEqual([mine.menuItems, mine.orders30, mine.salesToday], [2, 3, 390]);
+  // a week ago: one order at the start of that day, before this time of
+  // day, and one at its very end, after it
+  var weekAgo = new Date(day(7) + 'T00:00:00Z');
+  await order(7, [{ id: beer.id, name: beer.name, qty: 1, price: 25 }], { at: weekAgo });
+  await order(7, [{ id: fish.id, name: fish.name, qty: 1, price: 120 }], { at: new Date(weekAgo.getTime() + 86399000) });
+  var o2 = await overview.overview(viewer, companyId);
+  assert.deepEqual([o2.lastWeekSoFar.day, o2.lastWeekSoFar.orders, o2.lastWeekSoFar.sales], [day(7), 1, 25], 'last week, only up to this time of day');
+  assert.equal(o2.heat.reduce(function (n, h) { return n + h.orders; }, 0), 3, 'the four weeks before today: yesterday\'s order and the two a week ago; not today\'s');
+  var sameDay = o2.heat.filter(function (h) { return h.dow === (new Date().getUTCDay() + 6) % 7; });
+  assert.deepEqual(sameDay.map(function (h) { return [h.hour, h.orders]; }).sort(), [[0, 1], [23, 1]], 'weekday 0 is Monday');
   await assert.rejects(function () { return overview.overview(viewer, null); }, /Choose a restaurant/);
 });
