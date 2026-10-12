@@ -4,20 +4,22 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
-import {
-  CompanySwitcher, Empty, Glossary, Hero, Icon, Insights, LinkButton, Row, Section,
-  avatarColor, fmtDate, initials, jump, pctChange
-} from '../components/DashKit';
-import './DashboardPage.css';
+import { CompanySwitcher, Empty, Glossary, Insights, LinkButton, Section, fmtDate, jump, pctChange } from '../components/DashKit';
+import { accentStyle, companyOrder } from './CompaniesFun';
+import { Activity, Arrivals, Celebrations, GroupCard, OvBanner, OvTile, PeopleCard, RestaurantCard, WaitTile, WeekTrend, skyOf } from './DashboardFun';
+import './DashboardFun.css';
 
 // The OS overview (GET /api/dashboard): a morning briefing that explains
-// itself, in the language of the finance and marketing dashboards. Every
-// company together by default, or one company at a time from the switcher
-// (?company=SB, remembered on this device). Leads with a greeting and four
-// numbers, then "what stands out" written from today's figures, today's
-// people (by group, who came in late, who has not clocked in, who is
-// away), the restaurants' tills, what is waiting across the business, and
-// the latest activity. Everything is only what the person may see.
+// itself, with some fun in it. Every company together by default, or one
+// company at a time from the switcher (?company=SB, remembered on this
+// device). A banner whose sky follows the time of day, with today's people
+// as a ring; four number tiles; "what stands out" written from today's
+// figures; how the morning's arrivals went and the last seven days; a card
+// per group; who came in late, who has not clocked in, who is away and
+// who is off soon; birthdays, work anniversaries and new joiners; the
+// restaurants' takings through the day; what is waiting across the
+// business; and the latest activity. Everything is only what the person
+// may see.
 
 const COMPANY_KEY = 'bos.overviewCompany';
 function initialCompany() {
@@ -26,8 +28,8 @@ function initialCompany() {
   try { return localStorage.getItem(COMPANY_KEY) || 'ALL'; } catch { return 'ALL'; }
 }
 
-function greeting() {
-  const h = new Date().getHours();
+function greeting(now) {
+  const h = now.getHours();
   if (h < 12) return tr('Good morning');
   if (h < 17) return tr('Good afternoon');
   return tr('Good evening');
@@ -49,9 +51,8 @@ function timeAgo(iso) {
 function lastWeekday() {
   return new Date(Date.now() - 7 * 86400000).toLocaleDateString(activeIntlLocale(), { weekday: 'long' });
 }
-
-function Person({ name }) {
-  return <span className="dk-avatar" style={{ background: avatarColor(name) }} aria-hidden="true">{initials(name)}</span>;
+function dayMonth(iso) {
+  return new Date(iso + 'T12:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 export default function DashboardPage() {
@@ -62,6 +63,7 @@ export default function DashboardPage() {
   const [lateAfter, setLateAfter] = useState('08:15');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [now, setNow] = useState(() => new Date());
 
   const load = useCallback(async () => {
     setError(null);
@@ -74,10 +76,14 @@ export default function DashboardPage() {
     }
   }, [company]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   // /settings also carries integration API keys, so it's gated behind
-  // employee.read (unlike /dashboard, which anyone signed in can load) — a
-  // viewer without it just keeps the default lateAfter.
+  // employee.read; the overview now brings the "late after" time itself,
+  // and this is only the fallback for an older server.
   useEffect(() => {
     api.get('/settings').then((s) => { if (s.lateAfter) setLateAfter(s.lateAfter); }).catch(() => {});
   }, []);
@@ -102,16 +108,28 @@ export default function DashboardPage() {
   if (!dash) return <div className="error-banner">{error}</div>;
 
   const d = dash;
+  const late = d.lateAfter || lateAfter;
+  const arrivals = d.arrivals || [];
+  const week = d.week || [];
   const firstName = session && session.employee ? session.employee.firstName : '';
   const scopeName = d.company.code === 'ALL' ? tr('the business') : d.company.name;
-  const rate = d.headcount ? Math.round((d.presentToday / d.headcount) * 100) : 0;
+  // People, not clock-ins: someone on two shifts counts once.
+  const inNow = d.arrivals ? arrivals.length : d.presentToday;
+  const rate = d.headcount ? Math.round((inNow / d.headcount) * 100) : 0;
   const waiting = d.approvalQueue + (d.pendingLeave || 0);
   const lowestGroup = d.departments.filter((g) => g.headcount >= 3).sort((a, b) => a.rate - b.rate)[0];
   const showCompany = d.company.code === 'ALL' && d.companies.length > 1;
+  const crowd = d.headcount > 1;
+  const sky = skyOf(now);
+  const finance = '/financedash' + (d.company.code !== 'ALL' ? '?company=' + d.company.code : '');
+
+  // Each company keeps its colour (the Companies page's order).
+  const accents = {};
+  companyOrder(d.companies).forEach((c, i) => { accents[c.code] = accentStyle(i); });
 
   const insights = [];
-  if (d.headcount > 1) {
-    insights.push({ tone: rate >= 90 ? 'good' : rate < 70 ? 'warn' : 'info', icon: 'people', text: tr('{present} of {headcount} people have clocked in today ({rate}%).', { present: d.presentToday, headcount: d.headcount, rate }) });
+  if (crowd) {
+    insights.push({ tone: rate >= 90 ? 'good' : rate < 70 ? 'warn' : 'info', icon: 'people', text: tr('{present} of {headcount} people have clocked in today ({rate}%).', { present: inNow, headcount: d.headcount, rate }) });
   }
   if (d.lateToday) {
     insights.push({ tone: 'warn', icon: 'clock', text: d.lateToday === 1 ? tr('1 person came in late today.') : tr('{n} people came in late today.', { n: d.lateToday }), action: { label: tr('See who'), run: () => jump('ov-late') } });
@@ -129,7 +147,7 @@ export default function DashboardPage() {
     insights.push({ tone: 'bad', icon: 'doc', text: d.myOverdueTasks === 1 ? tr('1 of your work orders is past its due date.') : tr('{n} of your work orders are past their due date.', { n: d.myOverdueTasks }), action: { label: tr('Open work orders'), run: () => navigate('/tasks') } });
   }
   if (d.overdueInvoices) {
-    insights.push({ tone: 'bad', icon: 'warn', text: d.overdueInvoices === 1 ? tr('1 invoice is overdue.') : tr('{n} invoices are overdue.', { n: d.overdueInvoices }), action: { label: tr('Finance dashboard'), run: () => navigate('/financedash' + (d.company.code !== 'ALL' ? '?company=' + d.company.code : '')) } });
+    insights.push({ tone: 'bad', icon: 'warn', text: d.overdueInvoices === 1 ? tr('1 invoice is overdue.') : tr('{n} invoices are overdue.', { n: d.overdueInvoices }), action: { label: tr('Finance dashboard'), run: () => navigate(finance) } });
   }
   (d.restaurants || []).forEach((r) => {
     if (r.salesToday) {
@@ -145,6 +163,11 @@ export default function DashboardPage() {
   if (d.lowStockCount) {
     insights.push({ tone: 'warn', icon: 'bag', text: d.lowStockCount === 1 ? tr('1 product is at or below its reorder level.') : tr('{n} products are at or below their reorder level.', { n: d.lowStockCount }), action: { label: tr('Open inventory'), run: () => navigate('/inventory') } });
   }
+  const todayCele = (d.celebrations || []).filter((c) => c.daysTo === 0 && !c.me);
+  if (todayCele.length) {
+    const c = todayCele[0];
+    insights.push({ tone: 'good', icon: 'spark', text: c.kind === 'birthday' ? tr('It is {name}\'s birthday today. Say happy birthday!', { name: c.name }) : tr('{name} has been with us {n} years today.', { name: c.name, n: c.years }), action: { label: tr('See celebrations'), run: () => jump('ov-cele') } });
+  }
 
   const tiles = [];
   if (d.lowStockCount != null) tiles.push({ key: 'stock', icon: 'bag', value: d.lowStockCount, label: tr('Products to reorder'), help: tr('Bamboo Products stock at or below its reorder level.'), route: '/inventory', alert: d.lowStockCount > 0 });
@@ -154,179 +177,159 @@ export default function DashboardPage() {
   if (d.assetsDueService != null) tiles.push({ key: 'assets', icon: 'clock', value: d.assetsDueService, label: tr('Assets due for service'), help: tr('Machines and vehicles due within 7 days.'), route: '/assets', alert: d.assetsDueService > 0 });
   if (d.outstandingInvoices != null && d.company.kind !== 'restaurant') tiles.push({ key: 'inv', icon: 'owed', value: moneyBreakdown(d.outstandingInvoices, money(0, d.currency)), label: tr('Owed by customers'), help: d.overdueInvoices ? tr('{n} invoice(s) overdue.', { n: d.overdueInvoices }) : tr('Nothing overdue.'), route: '/invoices', alert: d.overdueInvoices > 0 });
 
+  // The four numbers under the banner.
   const restaurantHere = d.company.kind === 'restaurant' && d.restaurants && d.restaurants[0];
+  const cele = d.celebrations || [];
   const stats = [
-    d.headcount
-      ? { icon: 'people', value: d.presentToday + '/' + d.headcount, label: tr('in today'), note: d.lateToday ? tr('{rate}% · {n} late', { rate, n: d.lateToday }) : tr('{rate}% of people', { rate }), onClick: () => jump('ov-people') }
-      : { icon: 'people', value: '—', label: tr('in today'), note: tr('no staff here that you can see') },
-    { icon: 'check', value: String(waiting), label: tr('waiting for you'), note: tr('{a} approvals · {l} leave requests', { a: d.approvalQueue, l: d.pendingLeave || 0 }), tone: waiting ? 'alert' : '', onClick: () => navigate('/approvals') },
-    { icon: 'doc', value: String(d.myOpenTasks), label: tr('your open work orders'), note: d.myOverdueTasks ? tr('{n} overdue', { n: d.myOverdueTasks }) : d.myTasksDueToday ? tr('{n} due today', { n: d.myTasksDueToday }) : tr('nothing overdue'), tone: d.myOverdueTasks ? 'bad' : '', onClick: () => navigate('/tasks') }
+    { icon: 'check', value: String(waiting), label: tr('waiting for you'), note: tr('{a} approvals · {l} leave requests', { a: d.approvalQueue, l: d.pendingLeave || 0 }), tone: waiting ? 'warn' : 'good', onClick: () => navigate('/approvals') },
+    { icon: 'doc', value: String(d.myOpenTasks), label: tr('your open work orders'), note: d.myOverdueTasks ? tr('{n} overdue', { n: d.myOverdueTasks }) : d.myTasksDueToday ? tr('{n} due today', { n: d.myTasksDueToday }) : tr('nothing overdue'),
+      ring: d.myOpenTasks ? (d.myOpenTasks - d.myOverdueTasks) / d.myOpenTasks : null, tone: d.myOverdueTasks ? 'bad' : 'info', onClick: () => navigate('/tasks') }
   ];
   if (restaurantHere) {
     const pct = pctChange(restaurantHere.salesToday, restaurantHere.salesSameDayLastWeek);
-    stats.push({ icon: 'cash', value: money(restaurantHere.salesToday, d.currency), label: tr('sales today'), note: pct === null ? tr('{n} orders today', { n: restaurantHere.ordersToday }) : tr('{pct}% against last {day}', { pct: (pct > 0 ? '+' : '') + pct, day: lastWeekday() }), onClick: () => navigate('/financedash?company=' + restaurantHere.code) });
+    stats.push({ icon: 'cash', value: money(restaurantHere.salesToday, d.currency), label: tr('sales today'), note: pct === null ? tr('{n} orders today', { n: restaurantHere.ordersToday }) : tr('{pct}% against last {day}', { pct: (pct > 0 ? '+' : '') + pct, day: lastWeekday() }), tone: 'money', onClick: () => jump('ov-rest') });
   } else if (d.outstandingInvoices != null) {
-    stats.push({ icon: 'owed', value: moneyBreakdown(d.outstandingInvoices, money(0, d.currency)), label: tr('owed by customers'), note: d.overdueInvoices ? tr('{n} invoice(s) overdue', { n: d.overdueInvoices }) : tr('nothing overdue'), tone: d.overdueInvoices ? 'bad' : '', onClick: () => navigate('/financedash' + (d.company.code !== 'ALL' ? '?company=' + d.company.code : '')) });
-  } else {
-    stats.push({ icon: 'calendar', value: String(d.onLeaveToday), label: tr('away on leave'), note: d.upcomingLeave.length ? tr('{n} more in the next 7 days', { n: d.upcomingLeave.length }) : tr('today'), onClick: () => jump('ov-away') });
+    stats.push({ icon: 'owed', value: moneyBreakdown(d.outstandingInvoices, money(0, d.currency)), label: tr('owed by customers'), note: d.overdueInvoices ? tr('{n} invoice(s) overdue', { n: d.overdueInvoices }) : tr('nothing overdue'), tone: d.overdueInvoices ? 'bad' : 'money', onClick: () => navigate(finance) });
+  }
+  stats.push({ icon: 'calendar', value: String(d.onLeaveToday), label: tr('away on leave'), note: d.upcomingLeave.length ? tr('{n} more in the next 7 days', { n: d.upcomingLeave.length }) : tr('nobody else in the next 7 days'), tone: 'leave', onClick: () => jump('ov-away') });
+  if (stats.length < 4) {
+    stats.push({ icon: 'spark', value: String(cele.length + (d.newJoiners || []).length), label: tr('celebrations this week'), note: tr('birthdays, work anniversaries and new faces'), tone: 'party', onClick: () => jump('ov-cele') });
   }
 
+  const onTime = Math.max(0, inNow - d.lateToday);
+  const absent = Math.max(0, d.headcount - inNow - d.onLeaveToday - d.notClockedIn);
+  const pulse = crowd ? {
+    total: d.headcount,
+    center: inNow + '/' + d.headcount,
+    caption: tr('in today'),
+    parts: [
+      { key: 'ontime', label: tr('On time'), n: onTime },
+      { key: 'late', label: tr('Late'), n: d.lateToday, onClick: () => jump('ov-late') },
+      { key: 'away', label: tr('On leave'), n: d.onLeaveToday, onClick: () => jump('ov-away') },
+      { key: 'notin', label: tr('Not in yet'), n: d.notClockedIn, onClick: () => jump('ov-notin') },
+      ...(absent ? [{ key: 'absent', label: tr('Marked absent'), n: absent }] : [])
+    ]
+  } : null;
+  const mySide = (
+    <div className="ovx-myday">
+      <strong>{d.myOpenTasks}</strong>
+      <span>{tr('your open work orders')}{d.myTasksDueToday ? ' · ' + tr('{n} due today', { n: d.myTasksDueToday }) : ''}</span>
+      <button type="button" className="ovx-hero-btn" onClick={() => navigate('/myspace')}>{tr('Open My Space')}</button>
+    </div>
+  );
+
+  const celeItems = [
+    ...cele.map((c) => ({
+      key: c.kind + c.id, glyph: c.kind === 'birthday' ? 'cake' : 'medal', tone: c.kind === 'birthday' ? 'birthday' : 'years', person: c, days: c.daysTo,
+      title: c.kind === 'birthday' ? (c.me ? tr('Your birthday') : tr('Birthday')) : (c.years === 1 ? tr('1 year with us') : tr('{n} years with us', { n: c.years })),
+      when: dayMonth(c.date) + (c.department ? ' · ' + c.department : '')
+    })),
+    ...(d.newJoiners || []).map((p) => ({
+      key: 'new' + p.id, glyph: 'wave', tone: 'new', person: p, days: null,
+      title: tr('New: say welcome!'), when: [p.title, p.department].filter(Boolean).join(' · ') + ' · ' + tr('joined {date}', { date: fmtDate(p.hireDate) })
+    }))
+  ];
+
+  const nowHour = now.getHours();
+
   return (
-    <div className="dk ov">
+    <div className="dk ovx">
       {error && <div className="error-banner" role="alert">{error}</div>}
       {switcher}
 
-      <Hero eyebrow={fmtToday()} title={greeting() + (firstName ? ', ' + firstName : '') + '.'}
+      <OvBanner sky={sky} now={now} me={d.me}
+        eyebrow={fmtToday() + ' · ' + (d.company.code === 'ALL' ? tr('All companies') : d.company.name)}
+        title={greeting(now) + (firstName ? ', ' + firstName : '')}
         sub={tr('Here is how {scope} is doing today: who is in, what is waiting for you, and what needs attention.', { scope: scopeName })}
-        stats={stats} />
+        online={d.online} onOnline={() => navigate('/messages')}
+        announcement={d.latestAnnouncement} onAnnouncement={() => navigate('/announcements')}
+        pulse={pulse} side={mySide} />
 
-      {d.latestAnnouncement && (
-        <button type="button" className="ov-announcement" onClick={() => navigate('/announcements')}>
-          <span className="ov-announcement-icon"><Icon name="send" /></span>
-          <span className="ov-announcement-text"><strong>{tr('Latest announcement')}</strong> {d.latestAnnouncement}</span>
-          <Icon name="arrow" />
-        </button>
-      )}
+      <div className="ovx-tiles">{stats.map((t, i) => <OvTile key={i} {...t} />)}</div>
 
       <Insights items={insights.slice(0, 9)} />
 
-      <Section id="ov-people" title={tr('Today\'s people')} sub={tr('Attendance by group. The bar shows how many have clocked in; late and away are counted separately.')}
-        action={<LinkButton onClick={() => navigate('/attendance')}>{tr('Open attendance')}</LinkButton>}>
+      {crowd && (
+        <Section id="ov-people" title={tr('How today is going')} sub={tr('When people arrived this morning, and the last seven days.')}
+          action={<LinkButton onClick={() => navigate('/attendance')}>{tr('Open attendance')}</LinkButton>}>
+          <div className="ovx-two">
+            <div className="ovx-card">
+              <h4 className="ovx-h4">{tr('This morning\'s arrivals')}</h4>
+              <Arrivals arrivals={arrivals} lateAfter={late} firstIn={d.firstInToday} />
+            </div>
+            <div className="ovx-card">
+              <h4 className="ovx-h4">{tr('The last seven days')}</h4>
+              <WeekTrend week={week} headcount={d.headcount} today={d.today} />
+            </div>
+          </div>
+        </Section>
+      )}
+
+      <Section id="ov-groups" title={tr('Groups today')} sub={tr('Each group\'s share in today, lowest first. Press a group to see its people.')}>
         {d.departments.length ? (
-          <div className="ov-groups">
-            {d.departments.slice().sort((a, b) => a.rate - b.rate).map((g) => (
-              <div key={g.companyCode + g.code} className="ov-group">
-                <div className="ov-group-top">
-                  <div className="ov-group-name">
-                    {g.name}
-                    {showCompany && <span className="ov-group-co">{g.company}</span>}
-                  </div>
-                  <strong className={'ov-group-rate' + (g.rate < 70 ? ' is-low' : g.rate < 90 ? ' is-mid' : '')}>{g.rate}%</strong>
-                </div>
-                <div className="dk-track" aria-hidden="true"><span className={g.rate < 70 ? 'is-low' : g.rate < 90 ? 'is-mid' : ''} style={{ width: g.rate + '%' }} /></div>
-                <div className="dk-muted ov-group-meta">
-                  {tr('{present} of {headcount} in', { present: g.present, headcount: g.headcount })}
-                  {g.late ? ' · ' + tr('{n} late', { n: g.late }) : ''}
-                  {g.onLeave ? ' · ' + tr('{n} away', { n: g.onLeave }) : ''}
-                </div>
-              </div>
+          <div className="ovx-groups">
+            {d.departments.slice().sort((a, b) => a.rate - b.rate || a.name.localeCompare(b.name)).map((g) => (
+              <GroupCard key={g.companyCode + g.code} g={g} accent={accents[g.companyCode]} showCompany={showCompany} onOpen={() => navigate('/people?company=' + encodeURIComponent(g.companyCode) + (g.id ? '&department=' + encodeURIComponent(g.id) : ''))} />
             ))}
           </div>
         ) : <Empty icon="people">{tr('No group attendance is visible to your role. Your own record is on My Space.')}</Empty>}
       </Section>
 
-      {d.headcount > 1 && (
-        <div className="dk-two">
-          <Section card id="ov-late" title={tr('Came in late')} sub={tr('Clocked in after their start time ({time} unless they have their own shift).', { time: lateAfter })}>
-            {d.lateList.length ? (
-              <ul className="dk-rows">
-                {d.lateList.map((p, i) => (
-                  <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={p.department}
-                    amount={p.clockIn} side={p.shiftStart ? tr('starts {time}', { time: p.shiftStart }) : ''} sideClass="is-warn" />
-                ))}
-              </ul>
-            ) : <Empty>{tr('Nobody was late today.')}</Empty>}
-          </Section>
-          <Section card title={tr('Not clocked in yet')} sub={tr('Not on leave and not clocked in. Some may simply start later.')}>
-            {d.notClockedInList.length ? (
-              <>
-                <ul className="dk-rows">
-                  {d.notClockedInList.map((p, i) => (
-                    <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={p.department}
-                      side={p.shiftStart ? tr('starts {time}', { time: p.shiftStart }) : ''} />
-                  ))}
-                </ul>
-                {d.notClockedIn > d.notClockedInList.length && <p className="dk-muted">{tr('and {n} more', { n: d.notClockedIn - d.notClockedInList.length })}</p>}
-              </>
-            ) : <Empty>{tr('Everyone expected today has clocked in.')}</Empty>}
-          </Section>
+      {crowd && (
+        <div className="ovx-boards">
+          <PeopleCard id="ov-late" tone="late" icon="clock" title={tr('Came in late')} sub={tr('After their start time ({time} unless they have their own shift).', { time: late })}
+            rows={d.lateList.map((p) => ({ ...p, meta: p.department, side: p.clockIn + (p.shiftStart ? ' · ' + tr('starts {time}', { time: p.shiftStart }) : ''), sideTone: 'late' }))}
+            more={Math.max(0, d.lateToday - d.lateList.length)} empty={tr('Nobody was late today.')} />
+          <PeopleCard id="ov-notin" tone="notin" icon="eye" title={tr('Not clocked in yet')} sub={tr('Not on leave and not clocked in. Some may simply start later.')}
+            rows={d.notClockedInList.map((p) => ({ ...p, meta: p.department, side: p.shiftStart ? tr('starts {time}', { time: p.shiftStart }) : '' }))}
+            more={Math.max(0, d.notClockedIn - d.notClockedInList.length)} empty={tr('Everyone expected today has clocked in.')} />
+          <PeopleCard id="ov-away" tone="away" icon="calendar" title={tr('Away today')} sub={tr('On approved leave.')}
+            rows={d.onLeaveList.map((p) => ({ ...p, meta: [p.department, p.type].filter(Boolean).join(' · '), side: p.until === d.today ? tr('back tomorrow') : tr('until {date}', { date: fmtDate(p.until) }) }))}
+            empty={tr('Nobody is on leave today.')} />
+          <PeopleCard tone="soon" icon="send" title={tr('Leave coming up')} sub={tr('Starting in the next 7 days, so cover can be planned.')}
+            rows={d.upcomingLeave.map((p) => ({ ...p, meta: [p.department, p.type].filter(Boolean).join(' · '), side: fmtDate(p.from) + ' – ' + fmtDate(p.until) }))}
+            empty={tr('No leave starts in the next 7 days.')} />
         </div>
       )}
 
-      {d.headcount > 1 && (
-        <div className="dk-two">
-          <Section card id="ov-away" title={tr('Away today')} sub={tr('On approved leave.')}>
-            {d.onLeaveList.length ? (
-              <ul className="dk-rows">
-                {d.onLeaveList.map((p, i) => (
-                  <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={[p.department, p.type].filter(Boolean).join(' · ')}
-                    side={p.until === d.today ? tr('back tomorrow') : tr('until {date}', { date: fmtDate(p.until) })} />
-                ))}
-              </ul>
-            ) : <Empty>{tr('Nobody is on leave today.')}</Empty>}
-          </Section>
-          <Section card title={tr('Leave coming up')} sub={tr('Starting in the next 7 days, so cover can be planned.')}>
-            {d.upcomingLeave.length ? (
-              <ul className="dk-rows">
-                {d.upcomingLeave.map((p, i) => (
-                  <Row key={i} lead={<Person name={p.name} />} title={p.name} meta={[p.department, p.type].filter(Boolean).join(' · ')}
-                    side={fmtDate(p.from) + ' – ' + fmtDate(p.until)} />
-                ))}
-              </ul>
-            ) : <Empty icon="calendar">{tr('No leave starts in the next 7 days.')}</Empty>}
-          </Section>
-        </div>
+      {celeItems.length > 0 && (
+        <Section id="ov-cele" title={tr('Celebrations and new faces')} sub={tr('Birthdays and work anniversaries in the next 7 days, and who joined in the last 30.')}>
+          <Celebrations items={celeItems} />
+        </Section>
       )}
 
       {d.restaurants && d.restaurants.length > 0 && (
-        <Section title={tr('Restaurants today')} sub={tr('What each till has taken so far today, against the same day last week.')}
+        <Section id="ov-rest" title={tr('Restaurants today')} sub={tr('What each till has taken so far today, hour by hour, against the same day last week.')}
           action={<LinkButton onClick={() => navigate('/restaurant')}>{tr('Open restaurants')}</LinkButton>}>
-          <div className="ov-restaurants">
-            {d.restaurants.map((r) => {
-              const pct = pctChange(r.salesToday, r.salesSameDayLastWeek);
-              return (
-                <button key={r.code} type="button" className="dk-card ov-restaurant" onClick={() => navigate('/financedash?company=' + r.code)}>
-                  <span className="ov-restaurant-name">{r.name}</span>
-                  <strong className="ov-restaurant-sales">{money(r.salesToday, d.currency)}</strong>
-                  <span className="dk-muted">{r.ordersToday === 1 ? tr('1 order today') : tr('{n} orders today', { n: r.ordersToday })}</span>
-                  <span className={'dk-change' + (pct === null ? ' is-none' : pct >= 0 ? ' is-good' : ' is-bad')}>
-                    {pct === null ? tr('nothing to compare with yet') : tr('{pct}% against last {day}', { pct: (pct > 0 ? '+' : '') + pct, day: lastWeekday() })}
-                  </span>
-                  {(r.lowStock > 0 || r.expiringSoon > 0) && (
-                    <span className="ov-restaurant-warn"><Icon name="warn" /> {[r.lowStock ? tr('{n} to reorder', { n: r.lowStock }) : '', r.expiringSoon ? tr('{n} expiring soon', { n: r.expiringSoon }) : ''].filter(Boolean).join(' · ')}</span>
-                  )}
-                </button>
-              );
-            })}
+          <div className="ovx-rests">
+            {d.restaurants.map((r) => (
+              <RestaurantCard key={r.code} r={r} currency={d.currency} lastDay={lastWeekday()} nowHour={nowHour}
+                change={pctChange(r.salesToday, r.salesSameDayLastWeek)} onOpen={() => navigate('/financedash?company=' + r.code)} />
+            ))}
           </div>
         </Section>
       )}
 
       {tiles.length > 0 && (
         <Section title={tr('Waiting across the business')} sub={tr('Things that need someone to act. Press one to open it.')}>
-          <div className="ov-tiles">
-            {tiles.map((t) => (
-              <button key={t.key} type="button" className={'ov-tile' + (t.alert ? ' is-alert' : '')} onClick={() => navigate(t.route)}>
-                <span className="ov-tile-icon"><Icon name={t.icon} /></span>
-                <span className="ov-tile-value">{t.value}</span>
-                <span className="ov-tile-label">{t.label}</span>
-                <span className="dk-muted ov-tile-help">{t.help}</span>
-              </button>
-            ))}
+          <div className="ovx-waits">
+            {tiles.slice().sort((a, b) => (b.alert ? 1 : 0) - (a.alert ? 1 : 0)).map((t) => <WaitTile key={t.key} t={t} onOpen={() => navigate(t.route)} />)}
           </div>
         </Section>
       )}
 
       {d.recentAudit.length > 0 && (
         <Section card title={tr('Latest activity')} sub={tr('The most recent changes made in the OS.')}>
-          <ol className="ov-activity">
-            {d.recentAudit.map((log) => (
-              <li key={log.id}>
-                <span className="ov-activity-dot" aria-hidden="true" />
-                <div>
-                  <div className="ov-activity-summary">{log.summary}</div>
-                  <div className="dk-muted ov-activity-meta">{(log.actorName || tr('System')) + ' · ' + timeAgo(log.at)}</div>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <Activity logs={d.recentAudit} ago={timeAgo} />
         </Section>
       )}
 
       <Glossary items={[
         [tr('In today'), tr('People who have clocked in today, out of everyone you can see.')],
-        [tr('Late'), tr('Clocked in after their start time: {time}, or their own shift start if they have one.', { time: lateAfter })],
+        [tr('Late'), tr('Clocked in after their start time: {time}, or their own shift start if they have one.', { time: late })],
         [tr('Not clocked in yet'), tr('Not on leave and no clock-in today. Night-shift and later-shift staff show here until they arrive.')],
+        [tr('First in today'), tr('Whoever clocked in earliest today, of everyone you can see.')],
+        [tr('Online now'), tr('Others with the OS open in the last two minutes.')],
         [tr('Waiting for you'), tr('Approvals in your queue (leave, expenses, purchases) and leave requests you can decide.')],
         [tr('Reorder level'), tr('The stock level at which more should be ordered.')],
         [tr('All companies'), tr('Every company you can see, together. Pick a company at the top to see only its people and figures.')]

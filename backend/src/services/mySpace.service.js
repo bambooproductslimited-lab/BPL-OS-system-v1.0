@@ -195,4 +195,4 @@ async function funFacts(emp, profile, today) {
   };
 }
 
-module.exports = { overview: overview, _nextYearly: nextYearly };
+module.exports = { overview: overview, nextYearly: nextYearly, _nextYearly: nextYearly };

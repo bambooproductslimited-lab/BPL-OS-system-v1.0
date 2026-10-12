@@ -2,11 +2,14 @@ var { pool } = require('../db/pool');
 var { visibleEmployee } = require('../middleware/rbac');
 var approvalsService = require('./approvals.service');
 var marketingChannels = require('./marketingChannels');
+var { nextYearly } = require('./mySpace.service');
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function isoPlus(t, days) { return new Date(new Date(t + 'T00:00:00Z').getTime() + days * 86400000).toISOString().slice(0, 10); }
 function dayStr(d) { return d ? (d.toISOString ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null; }
 function hhmm(t) { return t ? String(t).slice(0, 5) : null; }
+function photoOf(e) { return e.photo_key && e.photo_updated_at ? new Date(e.photo_updated_at).getTime() : null; }
+var ONLINE_MS = 2 * 60 * 1000; // the same "online" as Messages and the directory
 
 // kernel.js: handlers['dashboard.load'] -> GET /api/dashboard?company=
 //
@@ -27,7 +30,8 @@ async function load(ctx, companyCode) {
   function companyOfDept(deptId) { var d = deptById[deptId]; return d ? d.company_id : (bpl && bpl.id); }
 
   var empRes = await pool.query(
-    "SELECT id, first_name, last_name, department_id, manager_id, position_title, shift_start FROM employees WHERE status != 'terminated'"
+    "SELECT id, first_name, last_name, department_id, manager_id, position_title, shift_start, status, photo_key, photo_updated_at, last_seen_at, " +
+    "to_char(date_of_birth, 'YYYY-MM-DD') AS date_of_birth, to_char(hire_date, 'YYYY-MM-DD') AS hire_date FROM employees WHERE status != 'terminated'"
   );
   var visibleAll = [];
   for (var i = 0; i < empRes.rows.length; i++) {
@@ -64,6 +68,7 @@ async function load(ctx, companyCode) {
   var visibleById = {}; visible.forEach(function (e) { visibleById[e.id] = e; });
   function nameOf(e) { return e.first_name + ' ' + e.last_name; }
   function deptName(e) { return deptById[e.department_id] ? deptById[e.department_id].name : ''; }
+  function who(e) { return { id: e.id, name: nameOf(e), photo: photoOf(e), department: deptName(e) }; }
 
   var attRes = await pool.query('SELECT employee_id, status, clock_in FROM attendance WHERE date = $1', [t]);
   var inToday = attRes.rows.filter(function (a) { return visibleById[a.employee_id]; });
@@ -81,7 +86,7 @@ async function load(ctx, companyCode) {
   leaveRes.rows.forEach(function (l) {
     var e = visibleById[l.employee_id];
     if (!e) return;
-    var row = { name: nameOf(e), department: deptName(e), type: l.type || '', from: dayStr(l.start_date), until: dayStr(l.end_date) };
+    var row = Object.assign(who(e), { type: l.type || '', from: dayStr(l.start_date), until: dayStr(l.end_date) });
     if (row.from <= t) { onLeave.push(row); onLeaveIds[e.id] = true; } else upcomingLeave.push(row);
   });
 
@@ -89,10 +94,10 @@ async function load(ctx, companyCode) {
   var lateSeen = {};
   var late = inToday.filter(function (a) { return a.status === 'late' && !lateSeen[a.employee_id] && (lateSeen[a.employee_id] = true); }).map(function (a) {
     var e = visibleById[a.employee_id];
-    return { name: nameOf(e), department: deptName(e), clockIn: hhmm(a.clock_in), shiftStart: hhmm(e.shift_start) };
+    return Object.assign(who(e), { clockIn: hhmm(a.clock_in), shiftStart: hhmm(e.shift_start) });
   }).sort(function (x, y) { return String(y.clockIn).localeCompare(String(x.clockIn)); });
   var notIn = visible.filter(function (e) { return !clocked[e.id] && !onLeaveIds[e.id]; }).map(function (e) {
-    return { name: nameOf(e), department: deptName(e), shiftStart: hhmm(e.shift_start) };
+    return Object.assign(who(e), { shiftStart: hhmm(e.shift_start) });
   }).sort(function (x, y) { return String(x.shiftStart || '99').localeCompare(String(y.shiftStart || '99')) || x.name.localeCompare(y.name); });
 
   var approvalQueue = ctx.can('approval.act') ? await approvalsService.queue(ctx) : [];
@@ -106,7 +111,7 @@ async function load(ctx, companyCode) {
     var away = people.filter(function (e) { return onLeaveIds[e.id]; }).length;
     var company = companiesRes.rows.filter(function (c) { return c.id === d.company_id; })[0];
     departments.push({
-      name: d.name, code: d.code, company: company ? company.name : '', companyCode: company ? company.code : '',
+      id: d.id, name: d.name, code: d.code, company: company ? company.name : '', companyCode: company ? company.code : '',
       headcount: people.length, present: present, late: lateN, onLeave: away, rate: Math.round((present / people.length) * 100)
     });
   });
@@ -197,18 +202,70 @@ async function load(ctx, companyCode) {
         '(SELECT count(*) FROM restaurant_ingredients WHERE company_id = $1 AND active AND expiry_date IS NOT NULL AND expiry_date <= $2::date + 3)::int AS expiring',
         [r.id, t]
       );
+      var hours = await pool.query(
+        "SELECT extract(hour FROM created_at)::int AS h, coalesce(sum(total) FILTER (WHERE created_at::date = $2), 0) AS today, " +
+        "coalesce(sum(total) FILTER (WHERE created_at::date = $2::date - 7), 0) AS last_week FROM restaurant_orders " +
+        "WHERE company_id = $1 AND status = 'completed' AND created_at::date IN ($2::date, $2::date - 7) GROUP BY 1 ORDER BY 1",
+        [r.id, t]
+      );
       restaurants.push({
         code: r.code, name: r.name,
+        byHour: hours.rows.map(function (h) { return { hour: h.h, today: Number(h.today), lastWeek: Number(h.last_week) }; }),
         salesToday: Number(sales.rows[0].today), ordersToday: sales.rows[0].orders, salesSameDayLastWeek: Number(sales.rows[0].last_week),
         lowStock: stock.rows[0].low, expiringSoon: stock.rows[0].expiring
       });
     }
   }
 
-  var currency = ((await pool.query('SELECT currency FROM settings WHERE id = 1')).rows[0] || {}).currency || 'GHS';
+  var settings = (await pool.query('SELECT currency, late_after FROM settings WHERE id = 1')).rows[0] || {};
+  var currency = settings.currency || 'GHS';
+
+  // How the day went: each person's first clock-in today (on time or
+  // late) and who was in first; the last seven days' attendance; who has
+  // the OS open; birthdays and work anniversaries in the next seven days;
+  // and who joined in the last 30. All only among the people they may see.
+  var first = {};
+  inToday.forEach(function (a) {
+    if (!a.clock_in || a.status === 'absent') return;
+    var f = first[a.employee_id];
+    if (!f || hhmm(a.clock_in) < f.time) first[a.employee_id] = { time: hhmm(a.clock_in), late: a.status === 'late' };
+  });
+  var arrivals = Object.keys(first).map(function (id) { return first[id]; }).sort(function (x, y) { return x.time.localeCompare(y.time); });
+  var firstId = Object.keys(first).sort(function (x, y) { return first[x].time.localeCompare(first[y].time); })[0];
+  var firstInToday = firstId ? Object.assign(who(visibleById[firstId]), { time: first[firstId].time }) : null;
+
+  var weekRes = await pool.query(
+    "SELECT to_char(date, 'YYYY-MM-DD') AS date, employee_id, bool_or(status = 'late') AS late, bool_and(status = 'absent') AS absent " +
+    'FROM attendance WHERE date BETWEEN $1 AND $2 GROUP BY date, employee_id', [isoPlus(t, -6), t]
+  );
+  var byDay = {};
+  for (var w = -6; w <= 0; w++) byDay[isoPlus(t, w)] = { date: isoPlus(t, w), present: 0, late: 0 };
+  weekRes.rows.forEach(function (r) {
+    if (!visibleById[r.employee_id] || r.absent || !byDay[r.date]) return;
+    byDay[r.date].present++;
+    if (r.late) byDay[r.date].late++;
+  });
+
+  // Celebrations, new joiners and who is online: working staff only (not
+  // the inactive, such as a till's placeholder for a Square import).
+  var active = visible.filter(function (e) { return e.status === 'active'; });
+  var others = active.filter(function (e) { return e.id !== ctx.employee.id; });
+  var online = others.filter(function (e) { return e.last_seen_at && Date.now() - new Date(e.last_seen_at).getTime() < ONLINE_MS; });
+
+  var celebrations = [];
+  active.forEach(function (e) {
+    var b = nextYearly(e.date_of_birth, t);
+    if (b && b.daysTo <= 7) celebrations.push(Object.assign(who(e), { kind: 'birthday', date: b.date, daysTo: b.daysTo, me: e.id === ctx.employee.id }));
+    var a = e.hire_date && e.hire_date < t ? nextYearly(e.hire_date, t) : null;
+    if (a && a.daysTo <= 7 && a.years >= 1) celebrations.push(Object.assign(who(e), { kind: 'anniversary', date: a.date, daysTo: a.daysTo, years: a.years, me: e.id === ctx.employee.id }));
+  });
+  celebrations.sort(function (x, y) { return x.daysTo - y.daysTo || x.name.localeCompare(y.name); });
+  var newJoiners = active.filter(function (e) { return e.hire_date && e.hire_date <= t && e.hire_date >= isoPlus(t, -30); })
+    .map(function (e) { return Object.assign(who(e), { title: e.position_title || '', hireDate: e.hire_date }); })
+    .sort(function (x, y) { return y.hireDate.localeCompare(x.hireDate); });
 
   return {
-    today: t, currency: currency,
+    today: t, currency: currency, lateAfter: settings.late_after ? String(settings.late_after).slice(0, 5) : null,
     company: co ? { code: co.code, name: co.name, kind: co.kind } : { code: 'ALL', name: '', kind: 'all' },
     companies: listed.map(function (c) { return { code: c.code, name: c.name, kind: c.kind }; }),
     headcount: visible.length,
@@ -233,7 +290,14 @@ async function load(ctx, companyCode) {
     outstandingInvoices: outstandingInvoices,
     overdueInvoices: overdueInvoices,
     pendingExpenses: pendingExpenses,
-    restaurants: restaurants
+    restaurants: restaurants,
+    arrivals: arrivals,
+    firstInToday: firstInToday,
+    week: Object.keys(byDay).sort().map(function (k) { return byDay[k]; }),
+    me: (function () { var m = empRes.rows.filter(function (e) { return e.id === ctx.employee.id; })[0]; return m ? who(m) : null; })(),
+    online: { count: online.length, people: online.slice(0, 8).map(who) },
+    celebrations: celebrations.slice(0, 12),
+    newJoiners: newJoiners.slice(0, 8)
   };
 }
 
