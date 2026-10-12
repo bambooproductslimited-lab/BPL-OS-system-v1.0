@@ -793,6 +793,68 @@ async function groupPhoto(ctx, conversationId) {
 }
 
 // kernel.js: handlers['messages.unreadCount']
+// ── highlights ────────────────────────────────────────────────────────
+// For the page with no chat open: the reader's last seven days in messages
+// (sent and received, day by day), who they talk to most one-to-one this
+// month, their busiest chat this week, what was shared in their chats this
+// week, the reactions their messages got, and who has the OS open now.
+// Only the reader's current chats; "online" among everyone active, as the
+// directory already shows it.
+async function highlights(ctx) {
+  var mine = ctx.employee.id;
+  var MEMBER = 'JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.employee_id = $1 AND cm.left_at IS NULL ';
+  var q = await Promise.all([
+    pool.query("SELECT to_char(m.at::date, 'YYYY-MM-DD') AS d, count(*) FILTER (WHERE m.from_id = $1)::int AS sent, count(*) FILTER (WHERE m.from_id <> $1)::int AS received " +
+      'FROM messages m ' + MEMBER + "WHERE m.kind <> 'system' AND m.at >= CURRENT_DATE - 6 GROUP BY 1", [mine]),
+    pool.query("SELECT c.id, c.direct_key, count(*)::int AS n FROM messages m " + MEMBER + 'JOIN conversations c ON c.id = m.conversation_id ' +
+      "WHERE c.kind = 'direct' AND m.kind <> 'system' AND m.at >= now() - interval '30 days' GROUP BY c.id, c.direct_key ORDER BY n DESC, max(m.at) DESC LIMIT 6", [mine]),
+    pool.query("SELECT c.id, c.kind, c.name, c.direct_key, c.photo_key, c.photo_updated_at, count(*)::int AS n FROM messages m " + MEMBER + 'JOIN conversations c ON c.id = m.conversation_id ' +
+      "WHERE m.kind <> 'system' AND m.at >= CURRENT_DATE - 6 GROUP BY c.id ORDER BY n DESC, max(m.at) DESC LIMIT 1", [mine]),
+    pool.query("SELECT count(*) FILTER (WHERE a.kind = 'image')::int AS photos, count(*) FILTER (WHERE a.kind <> 'image')::int AS files FROM message_attachments a JOIN messages m ON m.id = a.message_id " +
+      MEMBER + 'WHERE m.deleted_at IS NULL AND m.at >= CURRENT_DATE - 6', [mine]),
+    pool.query('SELECT count(*)::int AS n FROM messages m ' + MEMBER + 'WHERE m.record IS NOT NULL AND m.deleted_at IS NULL AND m.at >= CURRENT_DATE - 6', [mine]),
+    pool.query('SELECT r.emoji, count(*)::int AS n FROM message_reactions r JOIN messages m ON m.id = r.message_id ' +
+      "WHERE m.from_id = $1 AND r.employee_id <> $1 AND r.created_at >= CURRENT_DATE - 6 GROUP BY r.emoji ORDER BY n DESC, r.emoji", [mine]),
+    pool.query("SELECT e.id, e.first_name, e.last_name, e.position_title, e.photo_key, e.photo_updated_at, e.last_seen_at FROM employees e " +
+      "WHERE e.status = 'active' AND e.id <> $1 AND e.last_seen_at > now() - interval '2 minutes' ORDER BY e.last_seen_at DESC", [mine])
+  ]);
+  function peerOf(key) { var p = key.split('|'); return p[0] === mine ? p[1] : p[0]; }
+  var busy = q[2].rows[0];
+  var peerIds = q[1].rows.map(function (r) { return peerOf(r.direct_key); });
+  if (busy && busy.kind === 'direct') peerIds.push(peerOf(busy.direct_key));
+  var peers = {};
+  (await employeeRows(peerIds)).forEach(function (e) { peers[e.id] = e; });
+  function personBit(e) { return { id: e.id, name: fullName(e), photo: e.photo_key ? version(e.photo_updated_at) : null, online: online(e.last_seen_at) }; }
+
+  var byDay = {};
+  q[0].rows.forEach(function (r) { byDay[r.d] = r; });
+  var week = [];
+  for (var i = 6; i >= 0; i--) {
+    var d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    week.push({ date: d, sent: byDay[d] ? byDay[d].sent : 0, received: byDay[d] ? byDay[d].received : 0 });
+  }
+  var busiest = null;
+  if (busy) {
+    if (busy.kind === 'direct') {
+      var pe = peers[peerOf(busy.direct_key)];
+      busiest = pe ? Object.assign(personBit(pe), { conversationId: busy.id, kind: 'direct', count: busy.n }) : null;
+    } else {
+      busiest = { conversationId: busy.id, kind: 'group', id: busy.id, name: busy.name, photo: busy.photo_key ? version(busy.photo_updated_at) : null, count: busy.n };
+    }
+  }
+  var reactions = q[5].rows;
+  return {
+    week: week,
+    sentThisWeek: week.reduce(function (s, d) { return s + d.sent; }, 0),
+    receivedThisWeek: week.reduce(function (s, d) { return s + d.received; }, 0),
+    topPeople: q[1].rows.map(function (r) { var e = peers[peerOf(r.direct_key)]; return e ? Object.assign(personBit(e), { conversationId: r.id, count: r.n }) : null; }).filter(Boolean),
+    busiest: busiest,
+    shared: { photos: q[3].rows[0].photos, files: q[3].rows[0].files, records: q[4].rows[0].n },
+    reactions: { count: reactions.reduce(function (s, r) { return s + r.n; }, 0), top: reactions.slice(0, 3).map(function (r) { return { emoji: r.emoji, count: r.n }; }) },
+    online: { count: q[6].rows.length, people: q[6].rows.slice(0, 12).map(function (e) { return Object.assign(personBit(e), { title: e.position_title || '' }); }) }
+  };
+}
+
 async function unreadCount(ctx) {
   var res = await pool.query(
     'SELECT count(*)::int AS n FROM conversation_members cm JOIN messages m ON m.conversation_id = cm.conversation_id ' +
@@ -803,7 +865,7 @@ async function unreadCount(ctx) {
 
 module.exports = {
   seenBy: seenBy, editMessage: editMessage, deleteMessage: deleteMessage, react: react, pin: pin, forward: forward,
-  typing: typing, pulse: pulse, search: search, shared: shared, REACTIONS: REACTIONS,
+  typing: typing, pulse: pulse, search: search, shared: shared, highlights: highlights, REACTIONS: REACTIONS,
   inbox: inbox, directory: directory, conversation: conversation, direct: direct,
   sendDirect: sendDirect, sendToConversation: sendToConversation,
   createGroup: createGroup, updateGroup: updateGroup, addMembers: addMembers, removeMember: removeMember, setAdmin: setAdmin,

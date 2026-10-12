@@ -132,6 +132,7 @@ var ALLOWED = {
   'GET /api/expenses/': 'own claims — scoped, asserted below',
   'GET /api/messages/': 'own conversations',
   'GET /api/messages/unread-count': 'own unread count',
+  'GET /api/messages/highlights': 'own chats only: your week in messages; online among the directory',
   'GET /api/messages/directory': 'staff directory: colleagues to message. Names and job titles only',
   'GET /api/messages/:peerId': 'own conversation with one colleague',
   'POST /api/messages/:peerId': 'internal messaging — staff may message each other by design',

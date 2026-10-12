@@ -17,7 +17,9 @@ import { useCalls } from '../components/calls/CallsContext';
 import CallIcon from '../components/calls/CallIcon';
 import { MeetingCard, ScheduleMeetingDialog, UpcomingMeetings } from '../components/calls/Meetings';
 import CallAlerts from '../components/calls/CallAlerts';
+import { ChatHero, OnlineStrip, Wave, Welcome } from './MessagesFun';
 import './MessagesPage.css';
+import './MessagesFun.css';
 
 // Chats: one-to-one and group conversations, with photos, videos, voice
 // notes and documents, and a photo for every person and group (backed by
@@ -39,6 +41,11 @@ import './MessagesPage.css';
 // in a chat in its info panel. An open chat asks /pulse every 2.5 s and
 // reloads only when something changed. New messages, reactions, typing and
 // pins animate, unless the reader asked for less motion.
+//
+// The livelier look (MessagesFun.jsx): a header card with how much is
+// unread, who is online now, chat wallpaper, gradient bubbles, a floating
+// composer, and a welcome page with your week in messages while no chat
+// is open.
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const POLL_MS = 6000;
@@ -340,6 +347,7 @@ export default function MessagesPage() {
   const [pinIndex, setPinIndex] = useState(0);
   const [shared, setShared] = useState(null);
   const [live, setLive] = useState(null); // the last pulse: { convId, typing, reads, online }
+  const [highlights, setHighlights] = useState(null);
   const [freshIds, setFreshIds] = useState(() => new Set());
   const seenRef = useRef({ convId: null, ids: new Set() });
   const typingSentRef = useRef(0);
@@ -402,6 +410,20 @@ export default function MessagesPage() {
     const t = setInterval(() => { if (document.visibilityState === 'visible') loadInbox(); }, POLL_MS);
     return () => clearInterval(t);
   }, [loadInbox]);
+  // Who is online (the directory), now and then; and the welcome page's
+  // week in messages whenever no chat is open.
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible') api.get('/messages/directory').then(setPeople).catch(() => {}); }, 30000);
+    return () => clearInterval(t);
+  }, []);
+  const noChat = !active;
+  useEffect(() => {
+    if (!noChat) return undefined;
+    const get = () => api.get('/messages/highlights').then(setHighlights).catch(() => {});
+    get();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') get(); }, 30000);
+    return () => clearInterval(t);
+  }, [noChat]);
   // The open chat asks what changed: it reloads when something did, and
   // otherwise just takes who is typing, how far people have read and who is online.
   const convId = conv && conv.id;
@@ -486,6 +508,16 @@ export default function MessagesPage() {
   useEffect(() => () => pending.forEach((p) => p.url && URL.revokeObjectURL(p.url)), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = useMemo(() => (conv ? buildItems(conv.messages) : []), [conv]);
+  // Each day in its own block, so its date stays pinned at the top only
+  // while that day is on screen.
+  const dayBlocks = useMemo(() => {
+    const out = [];
+    items.forEach((it) => {
+      if (it.type === 'day' || !out.length) out.push({ key: 'blk-' + it.key, items: [] });
+      out[out.length - 1].items.push(it);
+    });
+    return out;
+  }, [items]);
   // Live state: from the last pulse when there is one, else from the chat itself.
   const liveNow = live && conv && live.convId === conv.id ? live : null;
   const others = conv ? conv.members.filter((mb) => !mb.me) : [];
@@ -735,6 +767,9 @@ export default function MessagesPage() {
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
 
   const unreadTotal = inbox.reduce((n, c) => n + (c.unread || 0), 0);
+  const unreadChats = inbox.filter((c) => c.unread > 0);
+  const tabCount = { all: inbox.length, unread: unreadChats.length, groups: inbox.filter((c) => c.kind === 'group').length };
+  const onlinePeople = people.filter((p) => p.online);
   const visibleInbox = inbox
     .filter((c) => filter === 'all' || (filter === 'unread' ? c.unread > 0 : c.kind === 'group'))
     .filter((c) => matchesQuery(search, c.name, c.title, c.last && c.last.body));
@@ -779,21 +814,13 @@ export default function MessagesPage() {
       <div className="chat-panes" data-open={!!active} data-info={infoOpen && !!conv}>
         {/* ── chat list ── */}
         <aside className="chat-list">
-          <div className="chat-list-head">
-            <button type="button" className="chat-me" onClick={() => setDialog('myPhoto')} title={tr('Your photo')}>
-              <Photo id={me.id} name={myName} photo={myPhoto} size={40} />
-            </button>
-            <div className="chat-list-title">
-              <h2>{tr('Chats')}</h2>
-              <span className="chat-muted">{unreadTotal ? tr('{n} unread', { n: unreadTotal }) : tr('All caught up')}</span>
-            </div>
-            <button type="button" className="chat-icon-btn" onClick={() => { setGroupForm({ step: 1, members: [], name: '', description: '' }); setDialog('newGroup'); }} title={tr('New group')} aria-label={tr('New group')}><Icon name="group" /></button>
-            <button type="button" className="chat-icon-btn is-primary" onClick={() => setDialog('newChat')} title={tr('New chat')} aria-label={tr('New chat')}><Icon name="plus" /></button>
-          </div>
+          <ChatHero me={me} myName={myName} myPhoto={myPhoto} unread={unreadTotal} unreadChats={unreadChats.length} onPhoto={() => setDialog('myPhoto')}
+            onNewGroup={() => { setGroupForm({ step: 1, members: [], name: '', description: '' }); setDialog('newGroup'); }} onNewChat={() => setDialog('newChat')} />
           <div className="chat-list-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search chats and people…')} /></div>
+          {!search && <OnlineStrip people={onlinePeople} onOpen={(p) => open({ type: 'peer', id: p.id })} />}
           <div className="chat-tabs" role="tablist" aria-label={tr('Show')}>
             {[['all', tr('All')], ['unread', tr('Unread')], ['groups', tr('Groups')]].map(([k, label]) => (
-              <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label}</button>
+              <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label}{tabCount[k] > 0 && <span className="chx-tab-n">{tabCount[k]}</span>}</button>
             ))}
           </div>
           <CallAlerts />
@@ -879,12 +906,12 @@ export default function MessagesPage() {
                     <span className={'chat-muted chat-thread-sub' + subtitleClass}>{subtitle}</span>
                   </span>
                 </button>
-                <button type="button" className="chat-icon-btn" disabled={!calls.configured} onClick={() => calls.startCall(conv.id, 'voice', conv.name)}
+                <button type="button" className="chat-icon-btn chx-head-btn is-voice" disabled={!calls.configured} onClick={() => calls.startCall(conv.id, 'voice', conv.name)}
                   aria-label={tr('Voice call')} title={calls.configured ? tr('Voice call') : tr('Calls aren\'t set up yet')}><CallIcon name="phone" /></button>
-                <button type="button" className="chat-icon-btn" disabled={!calls.configured} onClick={() => calls.startCall(conv.id, 'video', conv.name)}
+                <button type="button" className="chat-icon-btn chx-head-btn is-video" disabled={!calls.configured} onClick={() => calls.startCall(conv.id, 'video', conv.name)}
                   aria-label={tr('Video call')} title={calls.configured ? tr('Video call') : tr('Calls aren\'t set up yet')}><CallIcon name="video" /></button>
-                <button type="button" className="chat-icon-btn" onClick={() => setBooking(true)} aria-label={tr('Book a meeting')} title={tr('Book a meeting')}><CallIcon name="calendar" /></button>
-                <button type="button" className="chat-icon-btn" onClick={() => setInfoOpen((v) => !v)} aria-label={isGroup ? tr('Group info') : tr('Contact info')} title={isGroup ? tr('Group info') : tr('Contact info')}><Icon name="info" /></button>
+                <button type="button" className="chat-icon-btn chx-head-btn is-meet" onClick={() => setBooking(true)} aria-label={tr('Book a meeting')} title={tr('Book a meeting')}><CallIcon name="calendar" /></button>
+                <button type="button" className="chat-icon-btn chx-head-btn" onClick={() => setInfoOpen((v) => !v)} aria-label={isGroup ? tr('Group info') : tr('Contact info')} title={isGroup ? tr('Group info') : tr('Contact info')}><Icon name="info" /></button>
               </header>
               {liveHere && !liveHere.inCall && (
                 <div className="chat-call-bar" role="status">
@@ -919,7 +946,7 @@ export default function MessagesPage() {
                     <p className="chat-muted">{tr('Messages, photos and files you send here are only seen by the people in this chat.')}</p>
                   </div>
                 )}
-                {items.map((it) => {
+                {dayBlocks.map((blk) => (<div className="chat-dayblock" key={blk.key}>{blk.items.map((it) => {
                   if (it.type === 'day') return <div className="chat-day" key={it.key}><span>{it.label}</span></div>;
                   if (it.type === 'system') {
                     const sm = it.message, meta = sm.meta || {};
@@ -990,7 +1017,7 @@ export default function MessagesPage() {
                       </div>
                     </div>
                   );
-                })}
+                })}</div>))}
                 <TypingBubble names={typingNames} isGroup={isGroup} />
                 <div ref={endRef} />
               </div>
@@ -1028,6 +1055,7 @@ export default function MessagesPage() {
                   <div className="chat-recording">
                     <span className="chat-rec-dot" aria-hidden="true" />
                     <span>{tr('Recording')} {secs(recording.seconds)}</span>
+                    <Wave />
                     <button type="button" className="btn btn-secondary chat-rec-cancel" onClick={() => stopRecording(true)}>{tr('Cancel')}</button>
                     <button type="button" className="chat-send" onClick={() => stopRecording(false)} aria-label={tr('Stop and send')} title={tr('Stop and send')}><Icon name="send" /></button>
                   </div>
@@ -1055,15 +1083,9 @@ export default function MessagesPage() {
               </form>
             </>
           ) : (
-            <div className="chat-placeholder">
-              <span className="chat-empty-icon is-big"><Icon name="chat" size={40} /></span>
-              <p className="chat-empty-title">{tr('Pick a chat, or start one')}</p>
-              <p className="chat-muted">{tr('Send messages, photos, videos, voice notes and documents to a colleague or a whole team.')}</p>
-              <div className="chat-empty-actions">
-                <button type="button" className="btn btn-primary" onClick={() => setDialog('newChat')}>{tr('New chat')}</button>
-                <button type="button" className="btn btn-secondary" onClick={() => setDialog('newGroup')}>{tr('New group')}</button>
-              </div>
-            </div>
+            <Welcome firstName={me.firstName} unread={unreadTotal} unreadChats={unreadChats.length} firstUnread={unreadChats[0] ? unreadChats[0].id : null} h={highlights}
+              onOpenConv={(id) => open({ type: 'conv', id })} onOpenPeer={(id) => open({ type: 'peer', id })}
+              onNewChat={() => setDialog('newChat')} onNewGroup={() => { setGroupForm({ step: 1, members: [], name: '', description: '' }); setDialog('newGroup'); }} />
           )}
         </section>
 
@@ -1096,6 +1118,11 @@ export default function MessagesPage() {
                     <h3 className="chat-info-name">{conv.name}{amAdmin && <button type="button" className="chat-icon-btn is-small" onClick={() => setEditing({ name: conv.name, description: conv.description || '' })} aria-label={tr('Edit group name and description')}><Icon name="edit" size={15} /></button>}</h3>
                     <p className="chat-muted">{isGroup ? tr('Group · {n} members', { n: conv.members.length }) : [conv.title, conv.department].filter(Boolean).join(' · ')}</p>
                     {isGroup && conv.description && <p className="chat-info-desc">{conv.description}</p>}
+                    <span className="chx-info-stats">
+                      <span><b>{shared ? shared.images.length : images.length}</b>{tr('photos')}</span>
+                      <span><b>{shared ? shared.files.length : sharedFiles.length}</b>{tr('files')}</span>
+                      <span><b>{shared ? shared.records.length : 0}</b>{tr('records')}</span>
+                    </span>
                   </>
                 )}
               </div>

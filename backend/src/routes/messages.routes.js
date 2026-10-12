@@ -36,6 +36,8 @@ function wrap(fn) { return async function (req, res, next) { try { await fn(req,
 router.get('/', wrap(async function (req, res) { res.json(await messagesService.inbox(req.ctx)); }));
 // kernel.js: handlers['messages.directory'] -> GET /api/messages/directory
 router.get('/directory', wrap(async function (req, res) { res.json(await messagesService.directory(req.ctx)); }));
+// The page with no chat open: your week in messages and who is around.
+router.get('/highlights', wrap(async function (req, res) { res.json(await messagesService.highlights(req.ctx)); }));
 // kernel.js: handlers['messages.unreadCount'] -> GET /api/messages/unread-count
 router.get('/unread-count', wrap(async function (req, res) { res.json({ count: await messagesService.unreadCount(req.ctx) }); }));
 
