@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
 import PeoplePicker from '../components/PeoplePicker';
+import PrintLayer from '../components/PrintLayer';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
@@ -985,8 +986,8 @@ export default function WorkOrdersPage() {
       )}
 
       {detail && (
-        <div className="dialog-backdrop wo-print-root" onClick={() => setDetail(null)}>
-          <div className="dialog wo-dialog wo-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-backdrop" onClick={() => setDetail(null)}>
+          <div className="dialog wo-dialog" onClick={(e) => e.stopPropagation()}>
             {detailError && <div className="error-banner">{detailError}</div>}
             {editing ? (
               <form onSubmit={saveEdit} className="wo-edit">
@@ -1037,8 +1038,19 @@ function Faces2({ t }) {
   );
 }
 
-// A WO opened: its sheet, as the workshop knows it.
-function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelete, commentDraft, setCommentDraft, postComment }) {
+// A WO opened: its sheet, as the workshop knows it. Print puts a copy of it
+// in the print layer (components/PrintLayer.jsx) — the sheet alone, without
+// the buttons — so the register behind the window is taken off the paper
+// rather than printed as blank sheets after it.
+function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelete, commentDraft, setCommentDraft, postComment, printOnly }) {
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!printing) return undefined;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    const id = setTimeout(() => window.print(), 150);
+    return () => { clearTimeout(id); window.removeEventListener('afterprint', done); };
+  }, [printing]);
   const due = dueInfo(d, today);
   const closedDay = d.completedAt ? dayOf(d.completedAt) : d.cancelledAt ? dayOf(d.cancelledAt) : null;
   const facts = (rows) => rows.filter(([, v]) => v !== null && v !== undefined && v !== '' && v !== false);
@@ -1076,16 +1088,18 @@ function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelet
         </div>
         <h2>{d.title}</h2>
         <span className="dk-muted">{[d.createdByName ? tr('prepared by {name}', { name: d.createdByName }) : null, tr('issued {date}', { date: fmtDate(d.issuedOn) })].filter(Boolean).join(' · ')}{(due.tone === 'bad' || due.tone === 'warn') && WO_OPEN(d) ? <> · <Status tone={due.tone}>{due.text}</Status></> : null}</span>
-        <button type="button" className="wo-close" onClick={onClose} aria-label={tr('Close')}>×</button>
+        {!printOnly && <button type="button" className="wo-close" onClick={onClose} aria-label={tr('Close')}>×</button>}
       </header>
 
-      <div className="wo-steps" role="radiogroup" aria-label={tr('Status')}>
-        {WO_STATUSES.map((s) => (
-          <button key={s} type="button" role="radio" aria-checked={d.status === s} className={'wo-step is-' + s + (d.status === s ? ' is-on' : '')} onClick={() => onStatus(s)}>
-            {woStatusLabel(s)}
-          </button>
-        ))}
-      </div>
+      {!printOnly && (
+        <div className="wo-steps" role="radiogroup" aria-label={tr('Status')}>
+          {WO_STATUSES.map((s) => (
+            <button key={s} type="button" role="radio" aria-checked={d.status === s} className={'wo-step is-' + s + (d.status === s ? ' is-on' : '')} onClick={() => onStatus(s)}>
+              {woStatusLabel(s)}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="wo-sheet-grid">
         {request.length > 0 && <dl className="wo-facts"><h4>{tr('The request')}</h4>{request.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
@@ -1100,13 +1114,15 @@ function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelet
       </div>
       {d.description ? <p className="wo-desc">{d.description}</p> : null}
 
-      <div className="wo-detail-actions">
-        {canManage && <button type="button" className="btn btn-secondary" onClick={onEdit}>{tr('Edit')}</button>}
-        <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{tr('Print')}</button>
-        {canManage && <button type="button" className="btn btn-secondary" onClick={onDelete}>{tr('Delete')}</button>}
-      </div>
+      {!printOnly && (
+        <div className="wo-detail-actions">
+          {canManage && <button type="button" className="btn btn-secondary" onClick={onEdit}>{tr('Edit')}</button>}
+          <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => setPrinting(true)}>{tr('Print')}</button>
+          {canManage && <button type="button" className="btn btn-secondary" onClick={onDelete}>{tr('Delete')}</button>}
+        </div>
+      )}
 
-      <section className="wo-thread">
+      {(!printOnly || d.comments.length > 0) && <section className="wo-thread">
         <h3>{tr('Comments')} <span className="dk-muted">{d.comments.length}</span></h3>
         {d.comments.length ? (
           <ul className="wo-comments-list">
@@ -1121,13 +1137,19 @@ function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelet
             ))}
           </ul>
         ) : <p className="dk-muted wo-small">{tr('No comments yet. Ask a question or post an update; the team, the project manager and whoever issued it are notified.')}</p>}
-        <form className="wo-compose" onSubmit={postComment}>
+        {!printOnly && <form className="wo-compose" onSubmit={postComment}>
           <textarea className="input" rows={2} value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} maxLength={1000}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); } }}
             placeholder={tr('Write a comment…')} aria-label={tr('Comment')} />
           <button className="btn btn-primary" type="submit" disabled={!commentDraft.trim()}>{tr('Post')}</button>
-        </form>
-      </section>
+        </form>}
+      </section>}
+
+      {printing && !printOnly && (
+        <PrintLayer>
+          <div className="wo wo-print-copy"><WoSheet d={d} today={today} myId={null} printOnly /></div>
+        </PrintLayer>
+      )}
     </>
   );
 }

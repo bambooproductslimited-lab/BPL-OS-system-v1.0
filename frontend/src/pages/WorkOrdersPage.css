@@ -516,14 +516,28 @@ i.is-late { background: var(--wo-s2); }
   .wo-import-list li, .wo-import-list.is-names li { grid-template-columns: 1fr; gap: 4px; }
 }
 
-/* The WO sheet prints on its own, for the workshop floor — unless the
-   Saturday review is printing (PrintLayer marks the body for it). */
+/* The WO sheet prints on its own, for the workshop floor: Print puts a copy
+   of it in the print layer (WoSheet printOnly), and the app is taken off the
+   paper with display. The old rules hid the page with visibility, which
+   kept its layout, so the register behind the window still used paper and
+   a one-page WO came out with blank sheets after it. The copy is always
+   light, on white, whatever the theme on screen. */
+.wo-print-copy { display: none; }
 @media print {
-  body:not(.has-print-layer) * { visibility: hidden; }
-  .wo-print-root, .wo-print-root .wo-sheet, .wo-print-root .wo-sheet * { visibility: visible; }
-  .wo-print-root { position: absolute; inset: 0; background: #fff; }
-  .wo-print-root .wo-sheet { position: absolute; left: 0; top: 0; width: 100%; max-height: none; overflow: visible; box-shadow: none; border: 0; }
-  .wo-sheet .wo-close, .wo-sheet .wo-detail-actions, .wo-sheet .wo-compose, .wo-sheet .wo-steps .wo-step:not(.is-on) { display: none; }
+  :root .print-layer .wo.wo-print-copy {
+    display: block; padding: 0; color: #201e1d; background: #fff;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    --color-bg: #fff; --color-bg-subtle: #f7f7f5; --color-text: #201e1d;
+    --color-text-muted: #6b6866; --color-border: #d9d6d1; --color-divider: #e4e2df;
+    --color-accent: #3f7d3b; --color-accent-700: #2f5f2c; --color-danger: #b3261e;
+    --wo-card: #fff; --wo-soft: #f6f6f5; --wo-line: #e0ddd9; --wo-shadow: none;
+    --wo-discussing: #7a5af0; --wo-not_started: #2a78d6; --wo-in_progress: #0f8f86; --wo-awaiting_material: #b87400;
+    --wo-waiting: #66758c; --wo-under_review: #c2417e; --wo-completed: #1a8f4c; --wo-cancelled: #8e959f;
+    --wo-late: #c2410c;
+  }
+  html:has(.wo-print-copy), html:has(.wo-print-copy) body { background: #fff; }
+  .wo-print-copy .wo-sheet-head { padding-right: 0; }
+  .wo-print-copy .wo-facts, .wo-print-copy .wo-desc, .wo-print-copy .wo-comments-list li { break-inside: avoid; }
 }
 
 /* A work order on its way: the window shows at once. */
