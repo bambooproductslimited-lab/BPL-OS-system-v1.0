@@ -187,6 +187,9 @@ app.use('/api/marketing/oauth', oauthRoutes);
 app.use('/api/marketing/whatsapp', whatsappRoutes);
 app.use('/api/marketing/meta', require('./routes/metaWebhook.routes'));
 app.use('/api/marketing', marketingRoutes);
+// The marketing department: campaigns, budget, requests, events, promotions,
+// brand kit, market and audiences (routes/mk.routes.js).
+app.use('/api/mk', require('./routes/mk.routes'));
 app.use('/api/kiosk', kioskRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/poki', pokiRoutes);

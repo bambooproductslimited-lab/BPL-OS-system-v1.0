@@ -73,6 +73,16 @@ import CrmCommissionsPage from './pages/crm/CrmCommissionsPage';
 import { CrmCustomersHub, CrmInboxHub } from './pages/crm/CrmTabs';
 import CrmHealthPage from './pages/crm/CrmHealthPage';
 import CrmMarketingPage from './pages/crm/CrmMarketingPage';
+import MkHomePage from './pages/marketing/MkHomePage';
+import MkCampaignsPage from './pages/marketing/MkCampaignsPage';
+import MkCalendarPage from './pages/marketing/MkCalendarPage';
+import MkRequestsPage from './pages/marketing/MkRequestsPage';
+import MkBudgetPage from './pages/marketing/MkBudgetPage';
+import MkEventsPage from './pages/marketing/MkEventsPage';
+import MkPromotionsPage from './pages/marketing/MkPromotionsPage';
+import MkAudiencesPage from './pages/marketing/MkAudiencesPage';
+import MkBrandPage from './pages/marketing/MkBrandPage';
+import MkMarketPage from './pages/marketing/MkMarketPage';
 
 // Every nav item gets a route so the shell is fully navigable now — screens
 // not yet built render a placeholder rather than a dead link, matching the
@@ -91,7 +101,8 @@ const BUILT_SCREENS = {
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
   pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage,
   crm: CrmOverviewPage, crmboard: CrmBoardPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
-  crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage
+  crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage,
+  mkhome: MkHomePage, mkcampaigns: MkCampaignsPage, mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage, mkbudget: MkBudgetPage, mkevents: MkEventsPage, mkpromotions: MkPromotionsPage, mkaudiences: MkAudiencesPage, mkbrand: MkBrandPage, mkmarket: MkMarketPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
   const Screen = BUILT_SCREENS[item.key];

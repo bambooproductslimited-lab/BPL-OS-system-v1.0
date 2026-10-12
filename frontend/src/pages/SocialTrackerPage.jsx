@@ -195,9 +195,12 @@ const POST_STATUSES = [
   { value: 'failed', label: msg('Failed') }
 ];
 const CAMPAIGN_STATUSES = [
+  { value: 'draft', label: msg('Draft') },
   { value: 'planned', label: msg('Planned') },
   { value: 'active', label: msg('Active') },
-  { value: 'completed', label: msg('Completed') }
+  { value: 'paused', label: msg('Paused') },
+  { value: 'completed', label: msg('Completed') },
+  { value: 'cancelled', label: msg('Cancelled') }
 ];
 const INBOX_KINDS = [
   { value: 'comment', label: msg('Comment') },

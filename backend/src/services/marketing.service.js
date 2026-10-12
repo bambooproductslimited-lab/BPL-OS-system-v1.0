@@ -186,6 +186,11 @@ async function logChannelStat(ctx, channelId, p) {
   return rowToChannelStat(res.rows[0]);
 }
 
+// The statuses a campaign can have; the department's Campaigns page
+// (mkCampaigns.service.js) adds draft, paused and cancelled to the three
+// the tracker began with.
+var CAMPAIGN_STATUSES = ['draft', 'planned', 'active', 'paused', 'completed', 'cancelled'];
+
 function rowToCampaign(r) {
   return {
     id: r.id, name: r.name, description: r.description, startDate: r.start_date, endDate: r.end_date,
@@ -213,7 +218,7 @@ async function checkCampaign(campaignId, companyId) {
 async function createCampaign(ctx, p) {
   requireManage(ctx);
   var name = V.text(p.name, 'Campaign name', 120);
-  var status = V.oneOf(p.status || 'planned', ['planned', 'active', 'completed'], 'Status');
+  var status = V.oneOf(p.status || 'planned', CAMPAIGN_STATUSES, 'Status');
   var co = await resolveCompany(p.company);
   var res = await pool.query(
     "INSERT INTO marketing_campaigns (name, description, start_date, end_date, status, created_by, company_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
@@ -227,7 +232,7 @@ async function createCampaign(ctx, p) {
 async function updateCampaign(ctx, id, p) {
   requireManage(ctx);
   var name = V.text(p.name, 'Campaign name', 120);
-  var status = V.oneOf(p.status || 'planned', ['planned', 'active', 'completed'], 'Status');
+  var status = V.oneOf(p.status || 'planned', CAMPAIGN_STATUSES, 'Status');
   var res = await pool.query(
     'UPDATE marketing_campaigns SET name = $1, description = $2, start_date = $3, end_date = $4, status = $5 WHERE id = $6 RETURNING *',
     [name, (p.description || '').trim().slice(0, 500), p.startDate || null, p.endDate || null, status, id]

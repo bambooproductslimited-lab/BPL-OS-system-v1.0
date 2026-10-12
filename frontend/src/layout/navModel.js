@@ -65,8 +65,22 @@ export const NAV_GROUPS = [
     { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
     { key: 'crmcustomers', label: msg('Customers & prospects'), perm: 'crm.read', icon: 'user' },
     { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
-    { key: 'crmmarketing', label: msg('Marketing ideas'), perm: 'crm.read', icon: 'sparkle' },
     { key: 'crmhealth', label: msg('Data health'), perm: 'crm.read', icon: 'shield' }
+  ] },
+  { label: msg('Marketing'), items: [
+    { key: 'mkhome', label: msg('Marketing home'), perm: 'marketing.read', icon: 'megaphone' },
+    { key: 'mkcampaigns', label: msg('Campaigns'), perm: 'marketing.read', icon: 'target' },
+    { key: 'mkcalendar', label: msg('Marketing calendar'), perm: 'marketing.read', icon: 'calendar' },
+    { key: 'socialtracker', label: msg('Social & content'), perm: 'marketing.read', icon: 'chat' },
+    { key: 'mkrequests', label: msg('Requests to marketing'), icon: 'checklist' },
+    { key: 'mkbudget', label: msg('Budget & spend'), perm: 'marketing.read', icon: 'cash' },
+    { key: 'mkevents', label: msg('Events'), perm: 'marketing.read', icon: 'bell' },
+    { key: 'mkpromotions', label: msg('Promotions & offers'), perm: 'marketing.read', icon: 'receipt' },
+    { key: 'mkaudiences', label: msg('Audiences'), perm: 'marketing.read', icon: 'users' },
+    { key: 'mkbrand', label: msg('Brand kit'), icon: 'sparkle' },
+    { key: 'mkmarket', label: msg('Competitors & market'), perm: 'marketing.read', icon: 'chart' },
+    { key: 'crmmarketing', label: msg('Content ideas'), perm: 'crm.read', icon: 'leaf' },
+    { key: 'marketing', label: msg('Customer journey'), perm: 'customer.read', icon: 'layers' }
   ] },
   { label: msg('Quotations & Invoicing'), items: [
     { key: 'qioverview', label: msg('Overview'), perm: 'report.read', icon: 'chart' },
@@ -90,8 +104,6 @@ export const NAV_GROUPS = [
     { key: 'financialreports', label: msg('Financial reports'), perm: 'report.read', icon: 'chart' }
   ] },
   { label: msg('Insights'), items: [
-    { key: 'marketing', label: msg('Marketing dashboard'), perm: 'customer.read', icon: 'chart' },
-    { key: 'socialtracker', label: msg('Social & campaign tracker'), perm: 'marketing.read', icon: 'megaphone' },
     { key: 'salesorders', label: msg('Sales orders'), perm: 'sales.read', icon: 'cart' }
   ] },
   { label: msg('Intelligence'), items: [
