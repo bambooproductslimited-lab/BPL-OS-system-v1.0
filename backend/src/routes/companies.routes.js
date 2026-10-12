@@ -10,6 +10,11 @@ router.get('/', async function (req, res, next) {
   try { res.json(await companiesService.list(req.ctx)); } catch (e) { next(e); }
 });
 
+// GET /api/companies/overview — the Companies page (companies.service.js overview()).
+router.get('/overview', async function (req, res, next) {
+  try { res.json(await companiesService.overview(req.ctx)); } catch (e) { next(e); }
+});
+
 router.post('/', async function (req, res, next) {
   try { res.status(201).json(await companiesService.save(req.ctx, null, req.body)); } catch (e) { next(e); }
 });

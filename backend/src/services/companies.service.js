@@ -2,6 +2,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var { visibleEmployee } = require('../middleware/rbac');
 
 // Companies are the new top-level org unit — "Group" in the UI becomes
 // "Company" (see migration 0032). Departments belong to exactly one
@@ -80,4 +81,75 @@ async function remove(ctx, id) {
   return true;
 }
 
-module.exports = { list: list, save: save, remove: remove };
+// GET /api/companies/overview — the Companies page: the list above, and
+// for each company and department how many are in today (clocked in) and
+// still in now, on approved leave today, joined this year, the average
+// years with us, the newest and longest-serving person, and a few faces.
+// Counts cover everyone (like the list's headcount); names and faces only
+// people the caller may see. In-today needs attendance.read.all.
+function photoOf(r) { return r.photo_key && r.photo_updated_at ? new Date(r.photo_updated_at).getTime() : null; }
+function years(hire, today) {
+  if (!hire) return null;
+  return Math.max(0, (new Date(today + 'T00:00:00Z') - new Date(String(hire).slice(0, 10) + 'T00:00:00Z')) / (365.25 * 86400000));
+}
+async function overview(ctx) {
+  var companies = await list(ctx);
+  var seeAttendance = ctx.can('attendance.read.all');
+  var today = (await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS d")).rows[0].d;
+  var yearStart = today.slice(0, 4) + '-01-01';
+  var q = await Promise.all([
+    pool.query("SELECT e.id, e.first_name, e.last_name, e.department_id, e.manager_id, e.photo_key, e.photo_updated_at, " +
+      "to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, e.position_title FROM employees e WHERE e.status = 'active' " +
+      'ORDER BY (e.photo_key IS NULL), e.first_name, e.last_name'),
+    pool.query("SELECT DISTINCT employee_id FROM leave_requests WHERE status = 'approved' AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE"),
+    seeAttendance ? pool.query('SELECT employee_id, bool_or(clock_out IS NULL) AS in_now FROM attendance WHERE date = CURRENT_DATE AND clock_in IS NOT NULL GROUP BY employee_id') : { rows: [] }
+  ]);
+  var onLeave = {}; q[1].rows.forEach(function (r) { onLeave[r.employee_id] = true; });
+  var att = {}; q[2].rows.forEach(function (r) { att[r.employee_id] = r.in_now ? 'now' : 'left'; });
+  var byDept = {};
+  for (var i = 0; i < q[0].rows.length; i++) {
+    var r = q[0].rows[i];
+    var seen = await visibleEmployee(ctx, { id: r.id, department_id: r.department_id, manager_id: r.manager_id });
+    (byDept[r.department_id] = byDept[r.department_id] || []).push({ r: r, seen: seen });
+  }
+  function facts(people) {
+    var withHire = people.filter(function (p) { return p.r.hire_date; });
+    // The newest and longest-serving of everyone, named only if the
+    // caller may see them.
+    var byHire = withHire.slice().sort(function (a, b) { return a.r.hire_date < b.r.hire_date ? -1 : 1; });
+    function who(p) { return p && p.seen ? { id: p.r.id, name: p.r.first_name + ' ' + p.r.last_name, photo: photoOf(p.r), hireDate: p.r.hire_date, title: p.r.position_title || '' } : null; }
+    return {
+      people: people.length,
+      inToday: seeAttendance ? people.filter(function (p) { return att[p.r.id]; }).length : null,
+      inNow: seeAttendance ? people.filter(function (p) { return att[p.r.id] === 'now'; }).length : null,
+      onLeave: people.filter(function (p) { return onLeave[p.r.id]; }).length,
+      newThisYear: withHire.filter(function (p) { return p.r.hire_date >= yearStart; }).length,
+      averageYears: withHire.length ? Math.round(withHire.reduce(function (s, p) { return s + years(p.r.hire_date, today); }, 0) / withHire.length * 10) / 10 : null,
+      newest: who(byHire[byHire.length - 1]),
+      longestServing: who(byHire[0])
+    };
+  }
+  var group = [];
+  companies.forEach(function (c) {
+    var all = [];
+    c.departments.forEach(function (d) {
+      var people = byDept[d.id] || [];
+      all = all.concat(people);
+      var f = facts(people);
+      d.inToday = f.inToday; d.inNow = f.inNow; d.onLeave = f.onLeave; d.newThisYear = f.newThisYear; d.averageYears = f.averageYears;
+      d.faces = people.filter(function (p) { return p.seen; }).slice(0, 6).map(function (p) { return { id: p.r.id, name: p.r.first_name + ' ' + p.r.last_name, photo: photoOf(p.r) }; });
+      d.hiddenPeople = people.filter(function (p) { return !p.seen; }).length;
+    });
+    group = group.concat(all);
+    Object.assign(c, facts(all));
+  });
+  var g = facts(group);
+  return {
+    today: today, canSeeAttendance: seeAttendance, canManage: ctx.can('department.manage'),
+    totals: { companies: companies.length, departments: companies.reduce(function (s, c) { return s + c.departments.length; }, 0), people: g.people, inToday: g.inToday,
+      inNow: g.inNow, onLeave: g.onLeave, newThisYear: g.newThisYear, averageYears: g.averageYears, newest: g.newest, longestServing: g.longestServing },
+    companies: companies
+  };
+}
+
+module.exports = { list: list, overview: overview, save: save, remove: remove };

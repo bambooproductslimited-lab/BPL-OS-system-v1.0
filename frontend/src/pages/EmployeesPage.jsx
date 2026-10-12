@@ -146,7 +146,8 @@ export default function EmployeesPage() {
     const fromUrl = new URLSearchParams(window.location.search).get('company');
     return fromUrl ? fromUrl.toUpperCase() : readPref('bos.peopleCompany', 'ALL');
   });
-  const [deptFilter, setDeptFilter] = useState('');
+  // ?department= (from the Companies page) opens on that one department.
+  const [deptFilter, setDeptFilter] = useState(() => new URLSearchParams(window.location.search).get('department') || '');
   const [chip, setChip] = useState(''); // '' | 'leave' | 'new' | 'incomplete' | 'nologin' | 'inactive'
   const [sort, setSort] = useState(() => readPref('bos.peopleSort', 'name'));
   const [view, setView] = useState(() => readPref('bos.peopleView', 'cards'));

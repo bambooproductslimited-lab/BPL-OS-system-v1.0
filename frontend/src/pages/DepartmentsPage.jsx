@@ -4,20 +4,21 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import Photo from '../components/Photo';
-import { Glossary, Hero, Icon, Insights, Section, Status, avatarColor, initials, jump } from '../components/DashKit';
-import { restaurantLogoUrl } from '../lib/restaurantLogos';
+import { Glossary, Insights, Section, Status, jump } from '../components/DashKit';
+import { CoBanner, CompanyMark, Faces, GlanceTile, MiniRing, ShiftChip, ShiftClock, accentStyle, companyOrder, joined, years } from './CompaniesFun';
 import './EmployeesPage.css';
 import './DepartmentsPage.css';
+import './CompaniesFun.css';
 import RowMenu from '../components/RowMenu';
 
 import { tr } from '../lib/i18n.jsx';
 // Companies and their departments (and each department's shift times).
-// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
-// a header with the key numbers (press one to show only those
-// departments), what stands out, then a card per company listing its
-// departments with their manager, headcount and shift times. Adding and
-// editing companies, departments and shifts works as before, in the
-// dialogs below.
+// An org-chart banner with how many are in today, what stands out, a tile
+// per company with its team make-up, the 24-hour "who works when" of every
+// shift time, then each company with its departments as cards: manager,
+// faces, who is in today, shift times (backend companies.service.js
+// overview()). Adding and editing companies, departments and shifts works
+// as before, in the dialogs below.
 
 const EMPTY_COMPANY_FORM = { name: '', code: '' };
 const EMPTY_DEPT_FORM = { code: '', name: '', companyId: '', managerId: '' };
@@ -30,6 +31,8 @@ export default function DepartmentsPage() {
   const [chip, setChip] = useState(''); // '' | 'nomanager' | 'noshifts' | 'empty'
 
   const [companies, setCompanies] = useState([]);
+  const [view, setView] = useState(null); // the overview: today, totals, canSeeAttendance
+  const [now, setNow] = useState(() => new Date());
   const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -64,8 +67,9 @@ export default function DepartmentsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const list = await api.get('/companies');
-      setCompanies(list);
+      const o = await api.get('/companies/overview');
+      setView(o);
+      setCompanies(o.companies);
       if (canManage) {
         const employees = await api.get('/employees');
         setManagers(employees.map((e) => ({ id: e.id, name: e.firstName + ' ' + e.lastName })));
@@ -78,6 +82,8 @@ export default function DepartmentsPage() {
   }, [canManage]);
 
   useEffect(() => { load(); }, [load]);
+  // The time now moves along the shift clock.
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -242,10 +248,14 @@ export default function DepartmentsPage() {
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
+  if (!view) return <div className="dk cof">{error && <div className="error-banner" role="alert">{error}</div>}</div>;
 
   // ── what the page shows ────────────────────────────────────────────
+  const ordered = companyOrder(companies);
+  const indexOf = (c) => ordered.findIndex((x) => x.id === c.id);
+  const t = view.totals;
+  const seeAtt = view.canSeeAttendance;
   const allDepts = companies.flatMap((c) => c.departments.map((d) => ({ ...d, company: c })));
-  const people = allDepts.reduce((n, d) => n + d.headcount, 0);
   const shiftTotal = allDepts.reduce((n, d) => n + d.shiftCount, 0);
   const hasManager = (d) => !!d.managerId;
   const noManager = allDepts.filter((d) => !hasManager(d) && d.headcount > 0);
@@ -256,24 +266,30 @@ export default function DepartmentsPage() {
     noshifts: (d) => !d.shiftCount && d.headcount > 0,
     empty: (d) => d.headcount === 0
   };
-  const filtered = companies
+  const filtered = ordered
     .map((c) => {
       const companyHit = matchesQuery(search, c.code, c.name);
       const depts = c.departments
         .filter((d) => !chip || deptTest[chip](d))
-        .filter((d) => companyHit || matchesQuery(search, d.code, d.name, d.managerName, ...d.shifts.map((s) => s.name)))
+        .filter((d) => companyHit || matchesQuery(search, d.code, d.name, d.managerName, ...d.shifts.map((s) => s.name), ...(d.faces || []).map((f) => f.name)))
         .sort((a, b) => b.headcount - a.headcount || a.name.localeCompare(b.name));
-      return { ...c, shown: depts, people: c.departments.reduce((n, d) => n + d.headcount, 0), shifts: c.departments.reduce((n, d) => n + d.shiftCount, 0) };
+      return { ...c, shown: depts, shifts: c.departments.reduce((n, d) => n + d.shiftCount, 0) };
     })
-    .filter((c) => (chip ? c.shown.length : (matchesQuery(search, c.code, c.name) || c.shown.length)))
-    .sort((a, b) => (a.code === 'BPL' ? -1 : b.code === 'BPL' ? 1 : a.name.localeCompare(b.name)));
+    .filter((c) => (chip ? c.shown.length : (matchesQuery(search, c.code, c.name) || c.shown.length)));
 
   function showOnly(key) { setChip(chip === key ? '' : key); jump('co-list'); }
-  const stats = [
-    { icon: 'drawer', value: String(companies.length), label: companies.length === 1 ? tr('company') : tr('companies'), note: tr('{n} departments', { n: allDepts.length }), onClick: () => { setChip(''); jump('co-list'); } },
-    { icon: 'people', value: String(people), label: tr('people'), note: tr('active staff in all companies'), onClick: () => navigate('/people') },
-    { icon: 'warn', value: String(noManager.length), label: tr('without a manager'), note: tr('departments with staff'), tone: noManager.length ? 'alert' : '', onClick: () => showOnly('nomanager') },
-    { icon: 'clock', value: String(shiftTotal), label: tr('shift times'), note: noShifts.length ? tr('{n} departments have none', { n: noShifts.length }) : tr('every department has one'), onClick: () => showOnly('noshifts') }
+  const expected = Math.max(0, t.people - t.onLeave);
+  const withStaff = allDepts.filter((d) => d.headcount > 0);
+  const ring = seeAtt
+    ? { value: t.inToday, max: expected, big: (expected ? Math.round((t.inToday / expected) * 100) : 0) + '%', small: tr('in today'), caption: tr('{n} of the {total} expected have clocked in today; {leave} on leave are not counted.', { n: t.inToday, total: expected, leave: t.onLeave }) }
+    : { value: withStaff.length - noManager.length, max: withStaff.length || 1, big: (withStaff.length - noManager.length) + '/' + withStaff.length, small: tr('managed'), caption: tr('Departments with staff that have a manager set.') };
+  const tiles = [
+    { icon: 'building', value: String(t.companies), label: t.companies === 1 ? tr('company') : tr('companies'), note: tr('{n} departments', { n: t.departments }), onClick: () => { setChip(''); jump('co-glance'); } },
+    { icon: 'people', value: String(t.people), label: tr('people'), note: t.newThisYear ? tr('{n} joined this year', { n: t.newThisYear }) : tr('active staff in all companies'), onClick: () => navigate('/people') },
+    seeAtt
+      ? { icon: 'clock', value: String(t.inNow), label: tr('in right now'), note: tr('{n} on leave today', { n: t.onLeave }), onClick: () => navigate('/attendance') }
+      : { icon: 'calendar', value: String(t.onLeave), label: tr('on leave today'), note: tr('approved leave'), onClick: () => navigate('/leave') },
+    { icon: 'spark', value: years(t.averageYears), label: tr('years with us'), note: t.longestServing ? tr('on average · longest: {name}', { name: t.longestServing.name }) : tr('on average'), onClick: () => navigate('/people') }
   ];
 
   const insights = [];
@@ -281,8 +297,15 @@ export default function DepartmentsPage() {
   if (noManager.length) insights.push({ tone: 'warn', icon: 'people', text: noManager.length === 1 ? tr('{name} has staff but no manager set.', { name: noManager[0].name + ' (' + noManager[0].company.code + ')' }) : tr('{n} departments have staff but no manager set: {names}.', { n: noManager.length, names: names(noManager) }), action: canManage ? { label: tr('Show them'), run: () => showOnly('nomanager') } : null });
   if (noShifts.length) insights.push({ tone: 'info', icon: 'clock', text: tr('{names}: no shift times yet, so attendance uses each person\'s own start time or the company default to decide who is late.', { names: names(noShifts) }), action: { label: tr('Show them'), run: () => showOnly('noshifts') } });
   if (empty.length) insights.push({ tone: 'info', icon: 'info', text: empty.length === 1 ? tr('{name} has nobody in it.', { name: empty[0].name + ' (' + empty[0].company.code + ')' }) : tr('{n} departments have nobody in them. Delete the ones you no longer need.', { n: empty.length }), action: { label: tr('Show them'), run: () => showOnly('empty') } });
-  const bigCo = companies.map((c) => ({ c, n: c.departments.reduce((s, d) => s + d.headcount, 0) })).sort((a, b) => b.n - a.n)[0];
-  if (bigCo && people && companies.length > 1) insights.push({ tone: 'info', icon: 'people', text: tr('{name} has the most people: {n} of {total}.', { name: bigCo.c.name, n: bigCo.n, total: people }) });
+  if (seeAtt) {
+    const full = withStaff.filter((d) => d.headcount - d.onLeave > 0 && d.inToday >= d.headcount - d.onLeave);
+    if (full.length) insights.push({ tone: 'good', icon: 'check', text: full.length === 1 ? tr('Everyone expected in {name} ({company}) is in today.', { name: full[0].name, company: full[0].company.code }) : tr('Everyone expected is in today in {n} departments: {names}.', { n: full.length, names: names(full) }) });
+  }
+  if (t.newThisYear) {
+    const most = companies.slice().sort((a, b) => b.newThisYear - a.newThisYear)[0];
+    insights.push({ tone: 'good', icon: 'spark', text: t.newThisYear === 1 ? tr('1 person joined this year.') : tr('{n} people joined this year, most of them at {name} ({m}).', { n: t.newThisYear, name: most.name, m: most.newThisYear }) });
+  }
+  if (t.longestServing && t.longestServing.hireDate) insights.push({ tone: 'info', icon: 'spark', text: tr('{name} has been with us the longest: since {date}.', { name: t.longestServing.name, date: joined(t.longestServing.hireDate) }) });
   const bigDept = allDepts.slice().sort((a, b) => b.headcount - a.headcount)[0];
   if (bigDept && bigDept.headcount && allDepts.length > 1) insights.push({ tone: 'info', icon: 'people', text: tr('The biggest department is {name} ({company}), with {n} people.', { name: bigDept.name, company: bigDept.company.code, n: bigDept.headcount }) });
   const bare = companies.filter((c) => !c.departments.length);
@@ -294,26 +317,39 @@ export default function DepartmentsPage() {
     ['noshifts', tr('No shift times'), noShifts.length],
     ['empty', tr('Empty'), empty.length]
   ];
+  const peopleLink = (c, d) => '/people?company=' + encodeURIComponent(c.code) + (d ? '&department=' + encodeURIComponent(d.id) : '');
 
   return (
-    <div className="dk co">
+    <div className="dk cof">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
-        eyebrow={tr('Bamboo OS')}
+      <CoBanner
+        eyebrow={tr('Bamboo OS · The group')}
         title={tr('Companies & departments')}
-        sub={tr('The companies in the OS, their departments, who manages each one and the shift times people work. People, attendance and the dashboards are all organised by these. Press a number to show only those departments.')}
+        sub={tr('Every company in the group, its departments, who manages each one, who is in today and the shift times people work. People, attendance and the dashboards are all organised by these.')}
         actions={canManage && <>
-          <button type="button" className="btn btn-primary" onClick={() => openNewDept('')}>{tr('Add department')}</button>
-          <button type="button" className="btn btn-secondary" onClick={openNewCompany}>{tr('Add company')}</button>
+          <button type="button" className="cof-btn is-primary" onClick={() => openNewDept('')}>{tr('Add department')}</button>
+          <button type="button" className="cof-btn is-ghost" onClick={openNewCompany}>{tr('Add company')}</button>
         </>}
-        stats={stats} />
+        ring={ring} tiles={tiles} />
 
       <Insights items={insights.slice(0, 6)} />
 
-      <Section id="co-list" title={tr('Companies')} sub={tr('Each company with its departments, biggest first.')}>
+      <Section id="co-glance" title={tr('The group at a glance')} sub={tr('Each company with its people, who is in today and how its departments make it up. Press one to go to it.')}>
+        <div className="cof-glance">
+          {ordered.map((c, i) => <GlanceTile key={c.id} company={c} index={i} seeAttendance={seeAtt} onOpen={() => jump('co-' + c.code)} />)}
+        </div>
+      </Section>
+
+      {shiftTotal > 0 && (
+        <Section title={tr('Who works when')} sub={tr('Every shift time across the day, by company, with the time now marked. A shift that runs past midnight wraps round to the morning.')}>
+          <ShiftClock companies={ordered} now={now} />
+        </Section>
+      )}
+
+      <Section id="co-list" title={tr('Companies and their departments')} sub={tr('Each department with its manager, its people, who is in today and its shift times. Press the number of people to see them.')}>
         <div className="co-tools">
-          <div className="co-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search companies, departments, managers…')} /></div>
+          <div className="co-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search companies, departments, people…')} /></div>
           <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
             {chips.map(([key, label, n]) => (
               <button key={key || 'all'} type="button" role="radio" aria-checked={chip === key} className={'ppl-chip' + (chip === key ? ' is-on' : '')} onClick={() => setChip(key)}>
@@ -324,74 +360,94 @@ export default function DepartmentsPage() {
         </div>
 
         {filtered.map((c) => {
-          const logo = restaurantLogoUrl(c.code);
-          const max = Math.max(1, ...c.departments.map((d) => d.headcount));
+          const exp = Math.max(0, c.people - c.onLeave);
           return (
-            <article key={c.id} className="co-card">
-              <header className="co-head">
-                {logo
-                  ? <img className="co-logo" src={logo} alt="" />
-                  : <span className="co-mark" style={{ background: avatarColor(c.name) }} aria-hidden="true">{initials(c.name)}</span>}
-                <div className="co-title">
+            <article key={c.id} id={'co-' + c.code} className="cof-co" style={accentStyle(indexOf(c))}>
+              <header className="cof-co-head">
+                <CompanyMark company={c} size={56} />
+                <div className="cof-co-title">
                   <h3>{c.name}</h3>
-                  <span className="dk-muted">{c.code}{c.status !== 'active' && <> · <Status tone="muted">{tr('Archived')}</Status></>}</span>
+                  <span>{c.code}{c.status !== 'active' && <> · <Status tone="muted">{tr('Archived')}</Status></>}</span>
                 </div>
-                <dl className="co-nums">
-                  <div><dt>{tr('people')}</dt><dd>{c.people}</dd></div>
-                  <div><dt>{tr('departments')}</dt><dd>{c.departments.length}</dd></div>
-                  <div><dt>{tr('shift times')}</dt><dd>{c.shifts}</dd></div>
-                </dl>
-                <div className="co-head-actions">
-                  {canManage && <button type="button" className="btn btn-secondary co-small-btn" onClick={() => openNewDept(c.id)}>{tr('+ Department')}</button>}
+                <div className="cof-co-actions">
+                  {canManage && <button type="button" className="cof-btn is-small" onClick={() => openNewDept(c.id)}>{tr('+ Department')}</button>}
                   <RowMenu actions={[
-                    { label: tr('See people'), onClick: () => navigate('/people?company=' + encodeURIComponent(c.code)) },
+                    { label: tr('See people'), onClick: () => navigate(peopleLink(c)) },
                     { label: tr('See attendance'), onClick: () => navigate('/attendance?company=' + encodeURIComponent(c.code)) },
                     { label: tr('Edit company'), onClick: () => openEditCompany(c), hidden: !canManage },
                     { label: tr('Delete company'), onClick: () => { setDialogError(null); setDeleteCompanyTarget(c); }, danger: true, hidden: !(canManage && c.departments.length === 0) }
                   ]} />
+                </div>
+                <div className="cof-co-chips">
+                  <button type="button" className="cof-chip" onClick={() => navigate(peopleLink(c))}><b>{c.people}</b> {c.people === 1 ? tr('person') : tr('people')}</button>
+                  <span className="cof-chip"><b>{c.departments.length}</b> {c.departments.length === 1 ? tr('department') : tr('departments')}</span>
+                  {seeAtt && c.people > 0 && <span className="cof-chip is-here"><b>{c.inToday}</b> {tr('of {n} in today', { n: exp })}</span>}
+                  {c.onLeave > 0 && <span className="cof-chip is-leave"><b>{c.onLeave}</b> {tr('on leave')}</span>}
+                  {c.newThisYear > 0 && <span className="cof-chip is-new"><b>{c.newThisYear}</b> {tr('new this year')}</span>}
+                  {c.averageYears !== null && <span className="cof-chip"><b>{years(c.averageYears)}</b> {tr('years on average')}</span>}
+                  <span className="cof-chip"><b>{c.shifts}</b> {tr('shift times')}</span>
                 </div>
               </header>
 
               {!c.departments.length ? (
                 <div className="dk-empty"><p>{tr('No departments yet. Add one so people can be assigned to this company.')}</p></div>
               ) : (
-                <ul className="co-depts">
-                  {c.shown.map((d) => (
-                    <li key={d.id} className="co-dept">
-                      <div className="co-dept-name">
-                        <strong>{d.name}</strong>
-                        <span className="dk-muted">{d.code}</span>
-                      </div>
-                      <div className="co-dept-mgr">
-                        {hasManager(d) ? (
-                          <><Photo id={d.managerId} name={d.managerName} photo={d.managerPhoto} size={28} /><span className="co-mgr-text"><span className="dk-muted co-label">{tr('Manager')}</span>{d.managerName}</span></>
-                        ) : (
-                          <Status tone={d.headcount ? 'warn' : 'muted'}>{tr('No manager')}</Status>
+                <div className="cof-depts">
+                  {c.shown.map((d) => {
+                    const dExp = Math.max(0, d.headcount - d.onLeave);
+                    return (
+                      <div key={d.id} className={'cof-dept' + (d.headcount === 0 ? ' is-empty' : '')}>
+                        <div className="cof-dept-top">
+                          <span className="cof-dept-code">{d.code}</span>
+                          <h4>{d.name}</h4>
+                          <RowMenu actions={[
+                            { label: tr('See people'), onClick: () => navigate(peopleLink(c, d)), hidden: !d.headcount },
+                            { label: canManage ? tr('Shift times') : tr('See shift times'), onClick: () => openShifts(d) },
+                            { label: tr('Edit'), onClick: () => openEditDept(c.id, d), hidden: !canManage },
+                            { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) }
+                          ]} />
+                        </div>
+                        <div className="cof-dept-mgr">
+                          {hasManager(d) ? (
+                            <><Photo id={d.managerId} name={d.managerName} photo={d.managerPhoto} size={32} /><span className="cof-mgr-text"><small>{tr('Manager')}</small><b>{d.managerName}</b></span></>
+                          ) : (
+                            <Status tone={d.headcount ? 'warn' : 'muted'}>{tr('No manager')}</Status>
+                          )}
+                        </div>
+                        {d.headcount > 0 ? (
+                          <button type="button" className="cof-dept-people" onClick={() => navigate(peopleLink(c, d))} title={tr('See people')}>
+                            <Faces faces={d.faces || []} total={d.headcount} />
+                            <span className="cof-dept-count"><strong>{d.headcount}</strong><small>{d.headcount === 1 ? tr('person') : tr('people')}</small></span>
+                          </button>
+                        ) : <p className="cof-muted cof-dept-nobody">{tr('Nobody here yet.')}</p>}
+                        {seeAtt && d.headcount > 0 && (
+                          <div className="cof-dept-in">
+                            <MiniRing value={d.inToday} max={dExp} size={38} label={tr('{n} of {total} in today', { n: d.inToday, total: dExp })} />
+                            <span className="cof-in-text"><b>{tr('{n} of {total} in today', { n: d.inToday, total: dExp })}</b><small>{d.inNow ? tr('{n} in right now', { n: d.inNow }) : tr('nobody in right now')}</small></span>
+                          </div>
                         )}
+                        {(d.onLeave > 0 || d.newThisYear > 0) && (
+                          <div className="cof-dept-tags">
+                            {d.onLeave > 0 && <span className="cof-chip is-leave"><b>{d.onLeave}</b> {tr('on leave')}</span>}
+                            {d.newThisYear > 0 && <span className="cof-chip is-new"><b>{d.newThisYear}</b> {tr('new this year')}</span>}
+                          </div>
+                        )}
+                        <div className="cof-dept-shifts">
+                          {d.shifts.length ? d.shifts.slice(0, 3).map((s) => <ShiftChip key={s.id} shift={s} />) : <span className="cof-muted">{tr('No shift times')}</span>}
+                          {d.shifts.length > 3 && <button type="button" className="cof-link" onClick={() => openShifts(d)}>{tr('+{n} more', { n: d.shifts.length - 3 })}</button>}
+                        </div>
                       </div>
-                      <button type="button" className="co-dept-count" onClick={() => navigate('/people?company=' + encodeURIComponent(c.code))} title={tr('See people')}>
-                        <span className="co-dept-count-row"><strong>{d.headcount}</strong> <span className="dk-muted">{d.headcount === 1 ? tr('person') : tr('people')}</span></span>
-                        <span className="dk-track" aria-hidden="true"><span style={{ width: Math.round((d.headcount / max) * 100) + '%' }} /></span>
-                      </button>
-                      <div className="co-dept-shifts">
-                        {d.shifts.length ? d.shifts.slice(0, 2).map((s) => (
-                          <span key={s.id} className="co-shift" title={tr('{n} people on this shift', { n: s.assignedCount })}>
-                            <Icon name="clock" /> {s.name} <span className="dk-muted">{s.startTime}–{s.endTime}</span>
-                          </span>
-                        )) : <span className="dk-muted">{tr('No shift times')}</span>}
-                        {d.shifts.length > 2 && <span className="dk-muted">{tr('+{n} more', { n: d.shifts.length - 2 })}</span>}
-                      </div>
-                      <div className="co-dept-actions">
-                        <RowMenu actions={[
-                          { label: canManage ? tr('Shift times') : tr('See shift times'), onClick: () => openShifts(d) },
-                          { label: tr('Edit'), onClick: () => openEditDept(c.id, d), hidden: !canManage },
-                          { label: tr('Delete'), onClick: () => { setDialogError(null); setDeleteDeptTarget(d); }, danger: true, hidden: !(canManage && d.headcount === 0) }
-                        ]} />
-                      </div>
-                    </li>
-                  ))}
-                  {!c.shown.length && <li className="co-dept is-none dk-muted">{tr('No departments here match.')}</li>}
-                </ul>
+                    );
+                  })}
+                  {!c.shown.length && <p className="cof-muted">{tr('No departments here match.')}</p>}
+                  {canManage && !chip && !search && (
+                    <button type="button" className="cof-dept is-add" onClick={() => openNewDept(c.id)}>
+                      <span className="cof-add-plus" aria-hidden="true">+</span>
+                      <b>{tr('Add a department')}</b>
+                      <small>{tr('to {name}', { name: c.name })}</small>
+                    </button>
+                  )}
+                </div>
               )}
             </article>
           );
@@ -411,6 +467,7 @@ export default function DepartmentsPage() {
         [tr('Department'), tr('A team inside a company (other pages call it a group). Every person belongs to one.')],
         [tr('Code'), tr('A short name used in reports and employee codes, such as BPL or PROD.')],
         [tr('Manager'), tr('The person in charge of a department. Managers can see the people in their department.')],
+        [tr('In today'), tr('People who clocked in today, against everyone in the department who is not on approved leave.')],
         [tr('Shift times'), tr('The start and end times people in a department work. Attendance uses the start time to decide who is late.')],
         [tr('Empty'), tr('A department with nobody in it. Only empty departments and companies without departments can be deleted.')]
       ]} />
