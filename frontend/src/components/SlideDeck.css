@@ -147,7 +147,9 @@
 .wop-print { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
 .wop-print .wop-slide { width: 100%; animation: none; }
 @media print {
-  @page { size: A4 landscape; margin: 8mm; }
+  /* Landscape only while the slides print: SlideDeck.jsx adds that page
+     rule for the print and takes it away after. A plain @page here would
+     turn every print in the OS landscape (one stylesheet for the app). */
   /* Light on paper: the same slides, without a page of ink each. */
   .wop {
     --slide: #fff; --panel: #f3f6f4; --line: rgba(0, 0, 0, .14); --ink: #13201a; --muted: #4d5a54; --faint: #6b7770;

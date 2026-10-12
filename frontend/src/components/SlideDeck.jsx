@@ -50,10 +50,16 @@ export default function SlideDeck({ brand, className = '', weeks, weekFrom, onWe
   }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!printing) return undefined;
+    // Slides print landscape, one a page; only these — the rule goes as
+    // soon as this print is done, so invoices and the rest stay portrait.
+    const page = document.createElement('style');
+    page.setAttribute('data-slide-print', '');
+    page.textContent = '@page { size: A4 landscape; margin: 8mm; }';
+    document.head.appendChild(page);
     const done = () => setPrinting(false);
     window.addEventListener('afterprint', done);
     const id = setTimeout(() => window.print(), 300);
-    return () => { clearTimeout(id); window.removeEventListener('afterprint', done); };
+    return () => { clearTimeout(id); window.removeEventListener('afterprint', done); page.remove(); };
   }, [printing]);
 
   // The whole page goes full screen, not only the slides, so a window opened
