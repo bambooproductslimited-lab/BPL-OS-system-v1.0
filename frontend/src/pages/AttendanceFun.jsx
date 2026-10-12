@@ -12,7 +12,7 @@ import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 // leave, rest day), always with their name written beside them.
 
 export const STATUS = {
-  present: msg('On time'), late: msg('Late'), absent: msg('No record'), leave: msg('On leave'), off: msg('Rest day'), half_day: msg('Half day')
+  present: msg('On time'), late: msg('Late'), absent: msg('No record'), leave: msg('On leave'), off: msg('Rest day'), holiday: msg('Public holiday'), half_day: msg('Half day')
 };
 
 function hm(t) { return t ? String(t).slice(0, 5) : null; }
@@ -136,7 +136,7 @@ export function PresenceWall({ rows, isToday, onPick }) {
   const [open, setOpen] = useState({});
   const groups = { now: [], done: [], missing: [], away: [] };
   rows.forEach((r) => {
-    if (r.status === 'leave' || r.status === 'off') groups.away.push(r);
+    if (r.status === 'leave' || r.status === 'off' || r.status === 'holiday') groups.away.push(r);
     else if (r.status === 'absent') groups.missing.push(r);
     else if (r.clockIn && !r.clockOut) groups.now.push(r);
     else groups.done.push(r);
@@ -329,7 +329,7 @@ export function StatusPill({ status, children }) {
 export function StatusLegend() {
   return (
     <ul className="atf-legend is-wide">
-      {['present', 'late', 'absent', 'leave', 'off'].map((k) => <li key={k} className={'is-' + k}><i />{tr(STATUS[k])}</li>)}
+      {['present', 'late', 'absent', 'holiday', 'leave', 'off'].map((k) => <li key={k} className={'is-' + k}><i />{tr(STATUS[k])}</li>)}
     </ul>
   );
 }

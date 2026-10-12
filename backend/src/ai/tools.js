@@ -162,7 +162,7 @@ var TOOLS = [
       type: 'object',
       properties: {
         date: { type: 'string', description: 'YYYY-MM-DD. Omit for today.' },
-        status: { type: 'string', enum: ['present', 'late', 'absent', 'leave', 'off'], description: 'Only people with this status.' }
+        status: { type: 'string', enum: ['present', 'late', 'absent', 'leave', 'off', 'holiday'], description: 'Only people with this status.' }
       },
       additionalProperties: false
     },

@@ -15,6 +15,7 @@
   --at-bad: #c0352b;
   --at-leave: #2563c9;
   --at-off: #8b8f97;
+  --at-holiday: #8a4fd0;
   --at-gold: #d99a00;
   --at-hero: linear-gradient(135deg, #102a43 0%, #1c4f63 46%, #237a5c 100%);
 }
@@ -28,6 +29,7 @@
   --at-bad: #ff7a6b;
   --at-leave: #60a5fa;
   --at-off: #9ca3af;
+  --at-holiday: #b794f6;
   --at-gold: #f2c04c;
   --at-hero: linear-gradient(135deg, #07162a 0%, #0f3243 48%, #0f4a3a 100%);
 }
@@ -161,6 +163,7 @@
 .atf-legend .is-absent i { background: var(--at-bad); }
 .atf-legend .is-leave i { background: var(--at-leave); }
 .atf-legend .is-off i { background: var(--at-off); }
+.atf-legend .is-holiday i { background: var(--at-holiday); }
 .atf-legend.is-wide { margin: 12px 0 10px; }
 .atf-legend.is-wide i { border-radius: 3px; }
 
@@ -220,6 +223,7 @@
 .atf-pill.is-late { --tone: var(--at-late); }
 .atf-pill.is-absent { --tone: var(--at-bad); }
 .atf-pill.is-leave { --tone: var(--at-leave); }
+.atf-pill.is-holiday { --tone: var(--at-holiday); }
 .atf-pill.is-off, .atf-pill.is-half_day { --tone: var(--at-off); }
 .att .attendance-name-cell .atf-face { font-size: 11.5px; }
 .att .attendance-late-by { margin-left: 6px; font-size: 12px; font-weight: 700; color: var(--at-late); }
@@ -228,6 +232,7 @@
 .atf-strip i.is-late { background: var(--at-late); }
 .atf-strip i.is-absent { background: var(--at-bad); }
 .atf-strip i.is-leave { background: var(--at-leave); }
+.atf-strip i.is-holiday { background: var(--at-holiday); }
 .atf-strip i.is-off { background: color-mix(in srgb, var(--at-off) 40%, transparent); }
 
 /* ── groups, as cards ── */

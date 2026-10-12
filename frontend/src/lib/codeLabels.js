@@ -39,7 +39,7 @@ const LABELS = {
   good: msg('Good'), fair: msg('Fair'), poor: msg('Poor'),
   // Attendance
   present: msg('Present'), late: msg('Late'), absent: msg('Absent'), half_day: msg('Half day'),
-  leave: msg('Leave'), off: msg('Off'),
+  leave: msg('Leave'), off: msg('Off'), holiday: msg('Holiday'),
   // Property
   vacant: msg('Vacant'), occupied: msg('Occupied'), reserved: msg('Reserved'), maintenance: msg('Maintenance'),
   unavailable: msg('Unavailable'),

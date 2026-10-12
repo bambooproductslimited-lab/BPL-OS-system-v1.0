@@ -505,6 +505,7 @@ async function list(ctx, params) {
   // The first shift worked leads the row; a second one rides along with it.
   attRes.rows.forEach(function (r) { if (!byEmp[r.employee_id]) byEmp[r.employee_id] = r; else secondByEmp[r.employee_id] = r; });
   var onLeave = await approvedLeaveDays(scopeEmployees.map(function (e) { return e.id; }), date, date);
+  var holidays = await holidayDays(scopeEmployees.map(function (e) { return e.company_id; }), date, date);
 
   return {
     date: date,
@@ -537,7 +538,8 @@ async function list(ctx, params) {
         clockIn: r ? r.clock_in : null, clockOut: r ? r.clock_out : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         autoClockedOut: !!(r && r.auto_clocked_out),
-        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date, e.work_days) ? 'off' : 'absent'), note: r ? r.note : ''
+        status: r ? r.status : noRecordStatus(e, date, onLeave, holidays), note: r ? r.note : '',
+        holiday: holidays[e.company_id + '|' + date] || null
       };
     })
   };
@@ -559,6 +561,26 @@ async function approvedLeaveDays(ids, from, to) {
     }
   });
   return out;
+}
+
+// { '<companyId>|<date>': '<holiday name>' } for every public holiday of
+// those companies in [from, to] (the list HR keeps under Leave). A holiday
+// with no clock-in is a holiday, not an absence; someone who comes in that
+// day is present (or late) as usual.
+async function holidayDays(companyIds, from, to) {
+  var out = {};
+  var ids = companyIds.filter(function (x, i, all) { return x && all.indexOf(x) === i; });
+  if (!ids.length) return out;
+  var res = await pool.query('SELECT company_id, date, name FROM holidays WHERE company_id = ANY($1) AND date BETWEEN $2 AND $3', [ids, from, to]);
+  res.rows.forEach(function (h) { out[h.company_id + '|' + String(h.date).slice(0, 10)] = h.name; });
+  return out;
+}
+// A day with no clock-in: a public holiday, approved leave, a rest day, or
+// an absence — in that order.
+function noRecordStatus(e, date, onLeave, holidays) {
+  if (holidays[e.company_id + '|' + date]) return 'holiday';
+  if (onLeave[e.id + '|' + date]) return 'leave';
+  return isRestDay(e.company_name, e.department_name, date, e.work_days) ? 'off' : 'absent';
 }
 
 var MAX_REPORT_RANGE_DAYS = 5 * 365; // sanity bound (catches a typo'd year), not a real operational limit
@@ -597,6 +619,7 @@ async function report(ctx, from, to, filters) {
     (recordByEmpDate[k] = recordByEmpDate[k] || []).push(r);
   });
   var onLeave = await approvedLeaveDays(ids, from, to);
+  var holidays = await holidayDays(scopeEmployees.map(function (e) { return e.company_id; }), from, to);
 
   var dates = [];
   for (var d = new Date(from + 'T00:00'); d <= new Date(to + 'T00:00'); d.setDate(d.getDate() + 1)) {
@@ -621,7 +644,8 @@ async function report(ctx, from, to, filters) {
         date: date, clockIn: r && r.clock_in ? r.clock_in.slice(0, 5) : null, clockOut: r && r.clock_out ? r.clock_out.slice(0, 5) : null,
         clockInLocation: r ? r.clock_in_location : null, clockOutLocation: r ? r.clock_out_location : null,
         autoClockedOut: !!(r && r.auto_clocked_out),
-        status: r ? r.status : onLeave[e.id + '|' + date] ? 'leave' : (isRestDay(e.company_name, e.department_name, date, e.work_days) ? 'off' : 'absent'), source: r ? r.source : null, note: r ? r.note : ''
+        status: r ? r.status : noRecordStatus(e, date, onLeave, holidays), source: r ? r.source : null, note: r ? r.note : '',
+        holiday: holidays[e.company_id + '|' + date] || null
       };
       if (canSeeHourlyRate) row.hourlyRate = e.hourly_rate == null ? null : Number(e.hourly_rate);
       rows.push(row);
@@ -866,11 +890,10 @@ async function highlights(ctx, params) {
   var rec = {};
   att.forEach(function (r) { var k = r.employee_id + '|' + r.date; if (!rec[k]) rec[k] = r; });   // the first shift worked
   var onLeave = await approvedLeaveDays(ids, from, date);
+  var holidays = await holidayDays(emps.map(function (e) { return e.company_id; }), from, date);
   function statusOf(e, day) {
     var r = rec[e.id + '|' + day];
-    if (r) return r.status;
-    if (onLeave[e.id + '|' + day]) return 'leave';
-    return isRestDay(e.company_name, e.department_name, day, e.work_days) ? 'off' : 'absent';
+    return r ? r.status : noRecordStatus(e, day, onLeave, holidays);
   }
   var came = function (st) { return st === 'present' || st === 'late' || st === 'half_day'; };
   var person = function (e) { return { employeeId: e.id, name: e.first_name + ' ' + e.last_name, code: e.code, department: e.department_name, company: e.company_name }; };
@@ -898,7 +921,7 @@ async function highlights(ctx, params) {
     var n = 0, whole = true;
     for (var i = lastIdx; i >= 0; i--) {
       var st = g.st[i];
-      if (!counted(st, i) || st === 'leave' || st === 'off' || st === 'half_day') continue;
+      if (!counted(st, i) || st === 'leave' || st === 'off' || st === 'holiday' || st === 'half_day') continue;
       if (st === 'present') { n++; continue; }
       whole = false; break;
     }

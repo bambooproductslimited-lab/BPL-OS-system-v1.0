@@ -91,7 +91,8 @@ function fmtDate(iso) {
 // One row per scoped employee, counting a status across every calendar
 // day in the range — /attendance/report itself now returns a row per
 // employee per day (a day with no clock-in record comes back as 'absent',
-// or 'off' on that employee's rest day — see attendance.service.js's
+// 'holiday' on one of their company's public holidays (the list HR keeps
+// under Leave), or 'off' on that employee's rest day — see attendance.service.js's
 // isRestDay: Sunday is a rest day for Bamboo Products Limited staff other
 // than Security, while Star Bar, Bamboo Garden, and BPL Security work
 // every day). Total is the number of days they actually came to work
@@ -102,7 +103,7 @@ function aggregateByEmployee(rows) {
   const byEmp = {};
   rows.forEach((r) => {
     if (!byEmp[r.employeeId]) {
-      byEmp[r.employeeId] = { employeeId: r.employeeId, name: r.name, code: r.code, department: r.department, company: r.company, present: 0, late: 0, absent: 0, leave: 0, off: 0, total: 0 };
+      byEmp[r.employeeId] = { employeeId: r.employeeId, name: r.name, code: r.code, department: r.department, company: r.company, present: 0, late: 0, absent: 0, holiday: 0, leave: 0, off: 0, total: 0 };
     }
     const e = byEmp[r.employeeId];
     if (e[r.status] !== undefined) e[r.status]++;
@@ -346,7 +347,7 @@ export default function AttendancePage() {
     setCorrection(row);
     setCorrForm({
       clockIn: row.clockIn ? String(row.clockIn).slice(0, 5) : '', clockOut: row.clockOut ? String(row.clockOut).slice(0, 5) : '',
-      status: row.status === 'absent' ? 'present' : row.status, note: ''
+      status: row.status === 'absent' || row.status === 'holiday' ? 'present' : row.status, note: ''
     });
   }
 
@@ -555,13 +556,14 @@ export default function AttendancePage() {
     absent: rows.filter((r) => r.status === 'absent').length,
     leave: rows.filter((r) => r.status === 'leave').length,
     off: rows.filter((r) => r.status === 'off').length,
+    holiday: rows.filter((r) => r.status === 'holiday').length,
     auto: rows.filter((r) => r.autoClockedOut).length
   };
-  const dayExpected = rows.length - dayCounts.off - dayCounts.leave;
+  const dayExpected = rows.length - dayCounts.off - dayCounts.leave - dayCounts.holiday;
   const dayRate = dayExpected ? Math.round((dayCounts.in / dayExpected) * 100) : 0;
   const periodTotals = periodRows.reduce((t, r) => ({
-    present: t.present + r.present, late: t.late + r.late, absent: t.absent + r.absent, leave: t.leave + r.leave, off: t.off + r.off
-  }), { present: 0, late: 0, absent: 0, leave: 0, off: 0 });
+    present: t.present + r.present, late: t.late + r.late, absent: t.absent + r.absent, holiday: t.holiday + r.holiday, leave: t.leave + r.leave, off: t.off + r.off
+  }), { present: 0, late: 0, absent: 0, holiday: 0, leave: 0, off: 0 });
   const periodWorked = periodTotals.present + periodTotals.late;
   const periodExpected = periodWorked + periodTotals.absent;
   const periodRate = periodExpected ? Math.round((periodWorked / periodExpected) * 100) : 0;
@@ -578,7 +580,7 @@ export default function AttendancePage() {
         if (r.status === 'present' || r.status === 'late') g.came++;
         if (r.status === 'late') g.late++;
         if (r.status === 'absent') g.missing++;
-        if (r.status === 'leave' || r.status === 'off') g.away++;
+        if (r.status === 'leave' || r.status === 'off' || r.status === 'holiday') g.away++;
       });
     } else {
       periodRows.forEach((r) => {
@@ -588,7 +590,7 @@ export default function AttendancePage() {
         g.came += r.present + r.late;
         g.late += r.late;
         g.missing += r.absent;
-        g.away += r.leave + r.off;
+        g.away += r.leave + r.off + r.holiday;
       });
     }
     return Object.values(by).map((g) => {
@@ -621,6 +623,10 @@ export default function AttendancePage() {
         : tr('{n} people have no record for this day: not clocked in and not on leave.', { n: dayCounts.absent }),
         action: { label: tr('Show them'), run: () => { setStatusFilter('absent'); jump('att-roster'); } } });
     }
+    if (dayCounts.holiday) {
+      const names = Array.from(new Set(rows.filter((r) => r.status === 'holiday' && r.holiday).map((r) => r.holiday)));
+      insights.push({ tone: 'info', icon: 'calendar', text: dayCounts.holiday === 1 ? tr('1 person is off for a public holiday ({names}).', { names: names.join(', ') }) : tr('{n} people are off for a public holiday ({names}).', { n: dayCounts.holiday, names: names.join(', ') }) });
+    }
     if (dayCounts.leave) insights.push({ tone: 'info', icon: 'calendar', text: dayCounts.leave === 1 ? tr('1 person is on approved leave.') : tr('{n} people are on approved leave.', { n: dayCounts.leave }) });
     if (dayCounts.auto) {
       insights.push({ tone: 'warn', icon: 'clock', text: dayCounts.auto === 1 ? tr('1 person forgot to clock out and was clocked out by the system. Correct it if you know the real time.') : tr('{n} people forgot to clock out and were clocked out by the system. Correct them if you know the real times.', { n: dayCounts.auto }) });
@@ -639,6 +645,7 @@ export default function AttendancePage() {
     }
     const perfect = periodRows.filter((r) => r.absent === 0 && r.late === 0 && r.present > 0).length;
     if (perfect) insights.push({ tone: 'good', icon: 'check', text: perfect === 1 ? tr('1 person came in on time every day they were expected.') : tr('{n} people came in on time every day they were expected.', { n: perfect }) });
+    if (periodTotals.holiday) insights.push({ tone: 'info', icon: 'calendar', text: tr('{n} days were public holidays, not counted as missed.', { n: periodTotals.holiday }), action: { label: tr('Show them'), run: () => { setStatusFilter('holiday'); jump('att-roster'); } } });
     if (periodTotals.leave) insights.push({ tone: 'info', icon: 'calendar', text: tr('{n} days were taken as approved leave.', { n: periodTotals.leave }) });
   }
   const lowGroup = groups.find((g) => g.rate !== null && g.total >= 3);
@@ -653,7 +660,7 @@ export default function AttendancePage() {
     { icon: 'people', value: dayCounts.in + '/' + dayExpected, label: isToday ? tr('in today') : tr('came in'), note: dayExpected ? tr('{rate}% of those expected', { rate: dayRate }) : tr('nobody expected'), onClick: statTile('') },
     { icon: 'clock', value: String(dayCounts.late), label: tr('late'), note: lateAvg !== null ? tr('{n} min late on average', { n: lateAvg }) : tr('after their start time'), tone: dayCounts.late ? 'alert' : '', onClick: statTile('late'), filterKey: 'late' },
     { icon: 'warn', value: String(dayCounts.absent), label: isToday ? tr('not in yet') : tr('no record'), note: tr('not clocked in, not on leave'), tone: dayCounts.absent && !isToday ? 'bad' : '', onClick: statTile('absent'), filterKey: 'absent' },
-    { icon: 'calendar', value: String(dayCounts.leave + dayCounts.off), label: tr('away'), note: tr('{l} on leave · {o} rest day', { l: dayCounts.leave, o: dayCounts.off }), onClick: statTile(dayCounts.leave ? 'leave' : 'off'), filterKey: dayCounts.leave ? 'leave' : 'off' }
+    { icon: 'calendar', value: String(dayCounts.leave + dayCounts.off + dayCounts.holiday), label: tr('away'), note: dayCounts.holiday ? tr('{h} public holiday · {l} on leave · {o} rest day', { h: dayCounts.holiday, l: dayCounts.leave, o: dayCounts.off }) : tr('{l} on leave · {o} rest day', { l: dayCounts.leave, o: dayCounts.off }), onClick: statTile(dayCounts.holiday ? 'holiday' : dayCounts.leave ? 'leave' : 'off'), filterKey: dayCounts.holiday ? 'holiday' : dayCounts.leave ? 'leave' : 'off' }
   ] : [
     { icon: 'people', value: periodRate + '%', label: tr('attendance'), note: tr('{worked} of {expected} expected days worked', { worked: periodWorked, expected: periodExpected }), onClick: statTile('') },
     { icon: 'clock', value: String(periodTotals.late), label: tr('late days'), note: tr('across {n} people', { n: periodRows.filter((r) => r.late).length }), tone: periodTotals.late ? 'alert' : '', onClick: statTile('late'), filterKey: 'late' },
@@ -760,7 +767,7 @@ export default function AttendancePage() {
       <Section id="att-roster" title={isSingleDay ? tr('Everyone') : tr('Per person')}
         sub={isSingleDay
           ? (canAdjust ? tr('One row per person. Use the menu on a row to correct a record; every correction is written to the audit log.') : tr('One row per person.'))
-          : tr('Total is days actually worked (present + late). Off is a rest day (e.g. Sundays for most Bamboo Products staff), so Absent only counts real missed workdays.')}>
+          : tr('Total is days actually worked (present + late). Off is a rest day (e.g. Sundays for most Bamboo Products staff) and Holiday a public holiday of their company, so Absent only counts real missed workdays.')}>
       <div className="attendance-filters">
         <SearchInput value={search} onChange={setSearch} placeholder={tr('Search name, code, department…')} />
         <select
@@ -777,6 +784,7 @@ export default function AttendancePage() {
           <option value="present">{tr('Present')}</option>
           <option value="late">{tr('Late')}</option>
           <option value="absent">{isSingleDay ? tr('No record') : tr('Absent')}</option>
+          <option value="holiday">{tr('Holiday')}</option>
           <option value="leave">{tr('Leave')}</option>
           <option value="off">{tr('Off')}</option>
           {!isSingleDay && <option value="absentLeaveOff">{tr('Absent/leave/off')}</option>}
@@ -825,6 +833,7 @@ export default function AttendancePage() {
                   <td>
                     <StatusPill status={r.status} />
                     {r.status === 'late' && r.minutesLate != null && <span className="attendance-late-by">{tr('{n} min', { n: r.minutesLate })}</span>}
+                    {r.status === 'holiday' && r.holiday && <span className="attendance-late-by">{r.holiday}</span>}
                     {r.secondShift && (
                       <div className="attendance-second">
                         <StatusPill status={r.secondShift.status} />
@@ -856,7 +865,7 @@ export default function AttendancePage() {
         <>
           <div className="table-scroll"><table className="table">
             <thead>
-              <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Present')}</th><th>{tr('Late')}</th><th>{tr('Absent')}</th><th>{tr('Leave')}</th><th>{tr('Off')}</th><th title={tr('Days they actually came to work (present + late)')}>{tr('Total')}</th>{showStrips && <th>{tr('Day by day')}</th>}</tr>
+              <tr><th>{tr('Code')}</th><th>{tr('Name')}</th><th>{tr('Company')}</th><th>{tr('Department')}</th><th>{tr('Present')}</th><th>{tr('Late')}</th><th>{tr('Absent')}</th><th title={tr('Public holidays of their company with no clock-in')}>{tr('Holiday')}</th><th>{tr('Leave')}</th><th>{tr('Off')}</th><th title={tr('Days they actually came to work (present + late)')}>{tr('Total')}</th>{showStrips && <th>{tr('Day by day')}</th>}</tr>
             </thead>
             <tbody>
               {visiblePeriodRows.map((r) => (
@@ -873,6 +882,7 @@ export default function AttendancePage() {
                   <td>{r.present}</td>
                   <td>{r.late}</td>
                   <td>{r.absent}</td>
+                  <td>{r.holiday}</td>
                   <td>{r.leave}</td>
                   <td>{r.off}</td>
                   <td style={{ fontWeight: 600 }}>{r.total}</td>
@@ -895,6 +905,7 @@ export default function AttendancePage() {
         [tr('Present'), tr('Clocked in on time.')],
         [tr('Late'), tr('Clocked in after their shift start plus the grace period, or after the company cutoff if they have no shift.')],
         [tr('No record'), tr('Expected at work but no clock-in and no approved leave. Today, it can simply mean they have not arrived yet.')],
+        [tr('Holiday'), tr('One of their company\'s public holidays (the list under Leave) and they did not clock in. Not counted as missed. Anyone who comes in that day shows as present.')],
         [tr('Leave'), tr('On approved leave that day.')],
         [tr('Off'), tr('A rest day, such as Sunday for most Bamboo Products staff.')],
         [tr('Auto'), tr('Nobody clocked out, so the system did after the shift ran its limit.')],
