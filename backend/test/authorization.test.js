@@ -163,7 +163,10 @@ var ALLOWED = {
   'GET /api/ai/conversations/:id': "one of the caller's own conversations; anyone else's is 404 (aiConversations.test.js)",
   'PATCH /api/ai/conversations/:id': "renames one of the caller's own conversations; anyone else's is 404 (aiConversations.test.js)",
   'DELETE /api/ai/conversations/:id': "deletes one of the caller's own conversations; anyone else's is 404 (aiConversations.test.js)",
-  'DELETE /api/ai/connections/:clientId': "disconnects a Claude app connected as the caller; nobody else's (aiConversations.test.js)"
+  'DELETE /api/ai/connections/:clientId': "disconnects a Claude app connected as the caller; nobody else's (aiConversations.test.js)",
+  'GET /api/mk/companies': 'the company names to pick from on the Requests to marketing and Brand kit pages, which are for everyone',
+  'GET /api/mk/requests': "the caller's own requests to marketing only; everyone's needs marketing.read (marketingDept.test.js)",
+  'GET /api/mk/brand': 'the brand kit (logo, colours, fonts, files) is for everyone making something for the company (marketingDept.test.js)'
 };
 
 // ---------------------------------------------------------------------------
