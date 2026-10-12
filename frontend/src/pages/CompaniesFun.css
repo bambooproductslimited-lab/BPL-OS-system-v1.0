@@ -96,12 +96,12 @@
 .cof-glance-name { display: flex; flex-direction: column; min-width: 0; }
 .cof-glance-name b { font-size: 15.5px; line-height: 1.25; overflow-wrap: anywhere; }
 .cof-glance-name small { font-size: 12px; color: var(--color-text-muted); }
-.cof-glance-mid { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cof-glance-mid { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; }
 .cof-glance-big { display: flex; align-items: baseline; gap: 6px; }
 .cof-glance-big strong { font-family: var(--font-heading); font-size: 38px; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .cof-glance-big small { font-size: 13px; color: var(--color-text-muted); }
-.cof-glance-in { display: flex; align-items: center; gap: 8px; max-width: 55%; }
-.cof-glance-in small { font-size: 12px; line-height: 1.3; color: var(--color-text-muted); }
+.cof-glance-in { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 58%; }
+.cof-glance-in small { min-width: 0; font-size: 12px; line-height: 1.3; color: var(--color-text-muted); overflow-wrap: anywhere; hyphens: auto; }
 .cof-makeup { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; }
 .cof-makeup i { min-width: 6px; background: color-mix(in srgb, var(--cc) var(--step), var(--cof-card)); }
 .cof-makeup-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--color-text-muted); }
