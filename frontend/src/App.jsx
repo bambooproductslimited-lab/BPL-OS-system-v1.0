@@ -35,6 +35,7 @@ import ExpensesPage from './pages/ExpensesPage';
 import ReportsPage from './pages/ReportsPage';
 import FinancialReportsPage from './pages/FinancialReportsPage';
 import FinanceDashboardPage from './pages/FinanceDashboardPage';
+import ExpenseSheetsPage from './pages/expenseSheets/ExpenseSheetsPage';
 import PayrollPage from './pages/PayrollPage';
 import CustomersPage from './pages/CustomersPage';
 import CatalogPage from './pages/CatalogPage';
@@ -93,7 +94,7 @@ const BUILT_SCREENS = {
   myspace: MySpacePage, tasks: WorkOrdersPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
   assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
-  expenses: ExpensesPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
+  expenses: ExpensesPage, expensesheets: ExpenseSheetsPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
   marketing: MarketingDashboardPage, socialtracker: SocialTrackerPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,

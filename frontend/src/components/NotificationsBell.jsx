@@ -167,6 +167,7 @@ export default function NotificationsBell() {
     if (kind === 'message') navigate('/messages?peer=' + id);
     else if (kind === 'chat') navigate('/messages?chat=' + id);
     else if (kind === 'tasks' && id) navigate('/tasks?open=' + id);
+    else if (kind === 'expensesheet' && id) navigate('/expensesheets?sheet=' + id);
     else navigate('/' + kind);
   }
 

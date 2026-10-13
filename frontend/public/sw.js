@@ -243,6 +243,7 @@ self.addEventListener('notificationclick', function (event) {
     path = parts[0] === 'message' ? '/messages?peer=' + parts[1]
       : parts[0] === 'chat' ? '/messages?chat=' + parts[1]
       : parts[0] === 'tasks' && parts[1] ? '/tasks?open=' + parts[1]
+      : parts[0] === 'expensesheet' && parts[1] ? '/expensesheets?sheet=' + parts[1]
       : '/' + parts[0];
   }
   event.waitUntil(

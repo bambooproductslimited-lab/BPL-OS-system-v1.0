@@ -97,6 +97,8 @@ export const NAV_GROUPS = [
     { key: 'financedash', label: msg('Finance dashboard'), perm: 'report.read', icon: 'chart' },
     { key: 'payroll', label: msg('Payroll'), perm: 'payroll.read', icon: 'cash' },
     { key: 'expenses', label: msg('Expenses'), perm: 'expense.request', icon: 'receipt' },
+    // Each officer's float as their own running sheet (pages/expenseSheets).
+    { key: 'expensesheets', label: msg('Expense sheets'), perm: ['expense.request', 'expensesheet.read.all', 'expensesheet.manage'], icon: 'cash' },
     // Sales reps' commission on paid-up deals (the CRM's figures; crm.read).
     { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },

@@ -57,6 +57,7 @@ var invoicesRoutes = require('./routes/invoices.routes');
 var paymentsRoutes = require('./routes/payments.routes');
 var receiptsRoutes = require('./routes/receipts.routes');
 var expensesRoutes = require('./routes/expenses.routes');
+var expenseSheetsRoutes = require('./routes/expenseSheets.routes');
 var commercialSettingsRoutes = require('./routes/commercialSettings.routes');
 var reportsRoutes = require('./routes/reports.routes');
 var aiRoutes = require('./routes/ai.routes');
@@ -173,6 +174,7 @@ app.use('/api/invoices', invoicesRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/receipts', receiptsRoutes);
 app.use('/api/expenses', expensesRoutes);
+app.use('/api/expense-sheets', expenseSheetsRoutes);
 app.use('/api/commercial-settings', commercialSettingsRoutes);
 // Defines POST /shares (requireAuth, staff generating a link) and GET
 // /share/:token (deliberately public) — see shares.routes.js.
