@@ -99,7 +99,7 @@ export default function StaffRecordsDialog({ onClose, onDone }) {
 
   const label = (s) => ({ match: tr('Matches'), maybe: tr('Check'), several: tr('Same name twice'), none: tr('Not in the OS') })[s];
   const fieldLabel = (f) => ({ ssnitSalary: tr('Salary for SSNIT'), ssnitAmount: tr('SSNIT'), ssnitNumber: tr('SSNIT number'), ghanaCard: tr('Ghana Card'), tin: tr('TIN') })[f];
-  const shown = (f, v) => (f === 'ssnitSalary' ? money(v) : v);
+  const shown = (f, v) => (f !== 'ssnitSalary' ? v : Number(v) === 0 ? tr('None (no SSNIT)') : money(v));
   const problemText = (x) => (x.why === 'twice'
     ? tr('{field} {value} is on more than one row; left out.', { field: fieldLabel(x.field), value: x.value })
     : x.why === 'unusual'
@@ -158,7 +158,7 @@ export default function StaffRecordsDialog({ onClose, onDone }) {
                         return (
                           <span key={f} className={'srd-val' + (changing ? ' is-new' : '')}>
                             <b>{fieldLabel(f)}</b> {changing && now != null && now !== '' ? shown(f, now) + ' → ' : ''}{shown(f, p.row.values[f])}
-                            {f === 'ssnitSalary' && p.row.values.ssnitAmount !== undefined ? ' ' + tr('(pays {amount})', { amount: money(p.row.values.ssnitAmount) }) : ''}
+                            {f === 'ssnitSalary' && p.row.values.ssnitAmount !== undefined && Number(p.row.values.ssnitAmount) !== 0 ? ' ' + tr('(pays {amount})', { amount: money(p.row.values.ssnitAmount) }) : ''}
                           </span>
                         );
                       })}

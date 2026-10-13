@@ -6257,6 +6257,7 @@ export default {
   "Nobody yet.": "暂时没有人。",
   "Nobody yet. Roles are given on the User accounts page.": "暂无。角色在“用户账户”页面分配。",
   "None": "无",
+  "None (no SSNIT)": "无（不缴 SSNIT）",
   "None attached": "未附",
   "none awaiting material": "没有等待材料的",
   "none below its reorder level": "没有低于补货水平的",

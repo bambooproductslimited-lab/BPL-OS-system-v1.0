@@ -56,4 +56,9 @@
 .srd-val.is-new { border-color: var(--color-accent); background: var(--color-accent-100); }
 .srd-warn { font-size: 12.5px; color: var(--color-warning); }
 .srd-note { margin: -4px 0 10px; font-size: 12.5px; color: var(--color-text-muted); }
-@media (max-width: 560px) { .srd-row { grid-template-columns: 52px minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .srd-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .srd-row .sid-state { grid-column: 1; }
+  .srd .sid-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .srd .sid-sum strong { font-size: 19px; }
+}

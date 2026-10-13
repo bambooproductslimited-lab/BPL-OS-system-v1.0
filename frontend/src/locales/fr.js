@@ -6257,6 +6257,7 @@ export default {
   "Nobody yet.": "Personne pour l'instant.",
   "Nobody yet. Roles are given on the User accounts page.": "Personne pour l'instant. Les rôles s'attribuent sur la page Comptes utilisateurs.",
   "None": "Aucun",
+  "None (no SSNIT)": "Aucun (pas de SSNIT)",
   "None attached": "Aucun joint",
   "none awaiting material": "aucun en attente de matériel",
   "none below its reorder level": "aucun sous son seuil de réapprovisionnement",
