@@ -1,4 +1,5 @@
 var ExcelJS = require('exceljs');
+var { Readable } = require('stream');
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
@@ -13,6 +14,10 @@ var sheets = require('./expenseSheets.service');
 //                   Category, No, Supervisor Audit, Balance
 //   Balance         the running balance day by day
 //   Staged …        the same rows again for the accountant — not read
+//
+// A funding line below zero is money passed on or handed back out of the
+// float (payroll cash handed to staff, money returned): it comes in as is,
+// lowering the balance without counting as spending.
 //
 // Tabs are found by their headings, not their names. Rows with a date but
 // no amount (days filled in ahead) are left out, and so are rows of zero
@@ -73,6 +78,45 @@ function norm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '
 function today() { return new Date().toISOString().slice(0, 10); }
 var money = sheets._money;
 
+// The workbook, read a row at a time, keeping only the tabs the import can
+// use. The accountant's "Staged …" copies can run to tens of thousands of
+// rows of formulas; loaded whole, one workbook took more memory than the
+// server has. A kept tab offers what parse() reads: name, rowCount,
+// getCell('A1'), getRow(r).getCell(c).value and getRow(r).eachCell().
+function tabOf(name) {
+  var rows = {};
+  var tab = {
+    name: name, rows: rows, rowCount: 0,
+    getRow: function (r) {
+      var v = rows[r] || {};
+      return {
+        getCell: function (c) { return { value: v[c] === undefined ? null : v[c] }; },
+        eachCell: function (opts, fn) { Object.keys(v).forEach(function (c) { fn({ value: v[c] }, Number(c)); }); }
+      };
+    },
+    getCell: function (ref) { var m = /^([A-Z])(\d+)$/.exec(ref); return tab.getRow(Number(m[2])).getCell(m[1].charCodeAt(0) - 64); }
+  };
+  return tab;
+}
+function staged(h) { return !h || !!(h.cols.payer || h.cols.expacc); }
+async function readTabs(buffer) {
+  var reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([buffer]), { worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore' });
+  var tabs = [];
+  for await (var ws of reader) {
+    var tab = tabOf(ws.name), keep = null;
+    for await (var row of ws) {
+      if (keep === null && row.number > 5) keep = !staged(headings(tab));
+      if (keep === false || row.number > 5 + MAX_ROWS) continue;
+      var vals = {};
+      row.eachCell({ includeEmpty: false }, function (cell, c) { vals[c] = cell.value; });
+      tab.rows[row.number] = vals;
+      tab.rowCount = row.number;
+    }
+    tabs.push(tab);
+  }
+  return tabs;
+}
+
 // The tab's heading row (one of the first five) and where each heading is.
 function headings(ws) {
   for (var r = 1; r <= Math.min(5, ws.rowCount); r++) {
@@ -86,10 +130,10 @@ function pick(cols, names) { for (var i = 0; i < names.length; i++) if (cols[nam
 
 async function parse(file) {
   if (!file || !file.buffer || !file.buffer.length) fail('invalid', 'Choose the expense workbook (.xlsx).');
-  var wb = new ExcelJS.Workbook();
-  try { await wb.xlsx.load(file.buffer); } catch (e) { fail('invalid', 'That file could not be read as an Excel workbook (.xlsx).'); }
+  var tabs;
+  try { tabs = await readTabs(file.buffer); } catch (e) { fail('invalid', 'That file could not be read as an Excel workbook (.xlsx).'); }
   var funding = null, expense = null, balanceTab = null, officer = '';
-  wb.eachSheet(function (ws) {
+  tabs.forEach(function (ws) {
     var a1 = clean(ws.getCell('A1').value, 60), b1 = norm(text(ws.getCell('B1').value));
     if (b1 === 'expense report handle' && a1) officer = a1;
     var h = headings(ws);
@@ -104,7 +148,7 @@ async function parse(file) {
   });
   if (!funding && !expense) fail('invalid', 'No funding or expense tab was found. The workbook needs columns such as Date, Amt, Payee and Category.');
 
-  var rows = [], skippedBlank = 0, future = [], badFunding = [], unitDiffs = [];
+  var rows = [], skippedBlank = 0, future = [], unitDiffs = [];
   function read(tab, kind) {
     if (!tab) return;
     var c = tab.h.cols;
@@ -125,7 +169,6 @@ async function parse(file) {
       if (!date) continue;
       if (amount === null || (amount === 0 && !note)) { skippedBlank++; continue; }
       if (date > today()) { future.push({ row: r, date: date, amount: money(amount), kind: kind }); continue; }
-      if (kind === 'funding' && amount < 0) { badFunding.push({ row: r, date: date, amount: money(amount) }); continue; }
       var qty = num(g('qty'));
       if (!(qty > 0)) qty = 1;
       var unit = num(g('unit'));
@@ -206,7 +249,7 @@ async function parse(file) {
   }
   return {
     officer: officer, tabs: { funding: funding ? funding.ws.name : null, expenses: expense ? expense.ws.name : null },
-    rows: rows, checks: checks, skippedBlank: skippedBlank, future: future, badFunding: badFunding, unitDiffs: unitDiffs, payeesMerged: merged,
+    rows: rows, checks: checks, skippedBlank: skippedBlank, future: future, unitDiffs: unitDiffs, payeesMerged: merged,
     sheetBalance: sheetBalance === null ? null : money(sheetBalance), lastDate: lastDate
   };
 }
@@ -247,10 +290,11 @@ async function plan(ctx, sheetId, file) {
     x: x, p: p, fresh: fresh, checks: checks, locked: locked,
     summary: {
       officerOnWorkbook: p.officer, sheetOwner: x.s.first_name + ' ' + x.s.last_name, tabs: p.tabs,
-      funding: { lines: fresh.filter(function (r) { return r.kind === 'funding'; }).length, total: sum(fresh, 'funding') },
+      funding: { lines: fresh.filter(function (r) { return r.kind === 'funding' && r.amount > 0; }).length, total: money(fresh.filter(function (r) { return r.kind === 'funding' && r.amount > 0; }).reduce(function (t, r) { return t + r.amount; }, 0)) },
+      passedOn: { lines: fresh.filter(function (r) { return r.kind === 'funding' && r.amount < 0; }).length, total: money(-fresh.filter(function (r) { return r.kind === 'funding' && r.amount < 0; }).reduce(function (t, r) { return t + r.amount; }, 0)) },
       expenses: { lines: fresh.filter(function (r) { return r.kind === 'expense'; }).length, total: sum(fresh, 'expense'), moneyBack: fresh.filter(function (r) { return r.kind === 'expense' && r.amount < 0; }).length },
       already: already, inCheckedPeriod: inLocked.length, lockedUntil: locked, skippedBlank: p.skippedBlank,
-      future: p.future, badFunding: p.badFunding, unitPriceDiffs: p.unitDiffs.slice(0, 20), payeesMerged: p.payeesMerged,
+      future: p.future, unitPriceDiffs: p.unitDiffs.slice(0, 20), payeesMerged: p.payeesMerged,
       checks: checks.map(function (c) { return { kind: c.kind, date: c.date, initials: c.initials, stamped: c.stamped, computed: c.computed, agrees: c.agrees, close: c.close }; }),
       newCategories: Object.keys(newCats).sort(), newCostCentres: Object.keys(newCentres).sort(), canGrowLists: x.a.manage,
       balance: { onWorkbook: p.sheetBalance, workbookDate: p.lastDate, afterImport: p.lastDate ? balanceOn(p.lastDate) : null, today: balanceOn(today()) },

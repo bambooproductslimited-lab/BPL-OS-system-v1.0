@@ -106,9 +106,11 @@
 .es-line-what small { font-size: 12px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .es-cat { justify-self: start; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; color: color-mix(in srgb, var(--es-spent) 80%, var(--color-text)); background: color-mix(in srgb, var(--es-spent) 11%, var(--es-card)); }
 .es-cat.is-recv { color: color-mix(in srgb, var(--es-in) 80%, var(--color-text)); background: color-mix(in srgb, var(--es-in) 13%, var(--es-card)); }
+.es-cat.is-passed { color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 8%, var(--es-card)); }
 .es-line-qty { font-size: 12px; color: var(--color-text-muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .es-line-amt { font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .es-line.is-funding .es-line-amt, .es-line.is-back .es-line-amt { color: var(--es-good); }
+.es-line.is-funding.is-passed .es-line-amt { color: var(--color-text); }
 .es-line-bal { font-size: 12.5px; font-weight: 700; text-align: right; color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .es-line-bal.is-neg { color: var(--es-bad); }
 .es-line-tools { display: flex; justify-content: flex-end; gap: 2px; }

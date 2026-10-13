@@ -168,7 +168,7 @@ export function LineForm({ sheet, line, kind: kindIn, onSaved, onCancel, compact
             </select>
           </label>
         )}
-        <label className="es-field"><span>{kind === 'funding' ? tr('From (who gave it)') : tr('Paid to')}</span><input className="input" list={'es-payees-' + sheet.id} value={f.payee} onChange={set('payee')} maxLength={120} /></label>
+        <label className="es-field"><span>{kind === 'funding' ? (Number(f.amount) < 0 ? tr('To (who got it)') : tr('From (who gave it)')) : tr('Paid to')}</span><input className="input" list={'es-payees-' + sheet.id} value={f.payee} onChange={set('payee')} maxLength={120} /></label>
         {kind === 'expense' && (
           <label className="es-field"><span>{tr('Cost centre')}</span>
             <select className="input" value={f.costCentre} onChange={set('costCentre')}>
@@ -323,6 +323,7 @@ export function ImportDialog({ sheet, onDone, onClose }) {
   async function preview(f) { setFile(f); setPv(null); if (!f) return; const fd = new FormData(); fd.append('file', f); setBusy(true); setErr(null); try { setPv(await api.upload('/expense-sheets/' + sheet.id + '/import/preview', fd)); } catch (ex) { setErr(ex.message); } finally { setBusy(false); } }
   async function run() { const r = await call('/import'); if (r) onDone(r); }
   const diffs = pv ? pv.checks.filter((c) => c.agrees === false && !c.close) : [];
+  const lineCount = pv ? pv.funding.lines + pv.expenses.lines + (pv.passedOn ? pv.passedOn.lines : 0) : 0;
   return (
     <Dialog title={tr('Bring in an expense workbook')} onClose={onClose} wide>
       <p className="dialog-body">{tr('The officer\'s old Excel sheet (.xlsx): the funding tab and the expense tab are read, the supervisor\'s stamps become checks. Bringing in a newer copy later adds only what is new.')}</p>
@@ -336,6 +337,7 @@ export function ImportDialog({ sheet, onDone, onClose }) {
           )}
           <div className="es-import-tiles">
             <div><small>{tr('Money received')}</small><b>{GHS(pv.funding.total)}</b><em>{nLines(pv.funding.lines)}</em></div>
+            {pv.passedOn && pv.passedOn.lines > 0 && <div><small>{tr('Money passed on')}</small><b>{GHS(pv.passedOn.total)}</b><em>{nLines(pv.passedOn.lines)}</em></div>}
             <div><small>{tr('Money spent')}</small><b>{GHS(pv.expenses.total)}</b><em>{nLines(pv.expenses.lines)}</em></div>
             <div><small>{tr('Balance on the workbook')}</small><b>{pv.balance.onWorkbook === null ? '—' : GHS(pv.balance.onWorkbook)}</b><em>{pv.balance.workbookDate ? fmtDate(pv.balance.workbookDate) : ''}</em></div>
             {(() => {
@@ -345,6 +347,7 @@ export function ImportDialog({ sheet, onDone, onClose }) {
             })()}
           </div>
           <ul className="es-import-notes">
+            {pv.passedOn && pv.passedOn.lines > 0 && <li>{pv.passedOn.lines === 1 ? tr('1 line on the funding tab is below zero: money passed on or handed back (payroll cash, money returned). It lowers the balance but is not counted as spending.') : tr('{n} lines on the funding tab are below zero: money passed on or handed back (payroll cash, money returned). They lower the balance but are not counted as spending.', { n: pv.passedOn.lines })}</li>}
             {pv.skippedBlank > 0 && <li>{tr('{n} rows with a date but no amount (days filled in ahead) are left out.', { n: pv.skippedBlank })}</li>}
             {pv.already > 0 && <li>{pv.already === 1 ? tr('1 line is already in the OS and is skipped.') : tr('{n} lines are already in the OS and are skipped.', { n: pv.already })}</li>}
             {pv.inCheckedPeriod > 0 && <li>{pv.inCheckedPeriod === 1 ? tr('1 line falls in a period already checked here and is skipped.') : tr('{n} lines fall in a period already checked here and are skipped.', { n: pv.inCheckedPeriod })}</li>}
@@ -372,8 +375,8 @@ export function ImportDialog({ sheet, onDone, onClose }) {
       )}
       <div className="dialog-actions">
         <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
-        <button type="button" className="btn btn-primary" disabled={!pv || busy || (!pv.funding.lines && !pv.expenses.lines && !pv.checks.length)} onClick={run}>
-          {pv ? (pv.funding.lines + pv.expenses.lines === 1 ? tr('Bring in 1 line') : tr('Bring in {n} lines', { n: pv.funding.lines + pv.expenses.lines })) : tr('Bring in')}
+        <button type="button" className="btn btn-primary" disabled={!pv || busy || (!lineCount && !pv.checks.length)} onClick={run}>
+          {pv ? (lineCount === 1 ? tr('Bring in 1 line') : tr('Bring in {n} lines', { n: lineCount })) : tr('Bring in')}
         </button>
       </div>
     </Dialog>

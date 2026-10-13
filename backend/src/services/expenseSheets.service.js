@@ -254,11 +254,11 @@ function lineInput(p, kind) {
   var amount = money(p.amount);
   if (!isFinite(amount) || amount === 0) fail('invalid', 'Enter the amount.');
   if (Math.abs(amount) > 10000000) fail('invalid', 'That amount is too large.');
-  if (kind === 'funding' && amount < 0) fail('invalid', 'Money received must be more than zero.');
   var qty = p.qty === undefined || p.qty === null || p.qty === '' ? 1 : Number(p.qty);
   if (!(qty > 0) || qty > 100000) fail('invalid', 'The quantity must be more than zero.');
   var note = clip(p.note, 300);
   if (kind === 'expense' && amount < 0 && !note) fail('invalid', 'Say what the money coming back is for (a loan repaid, a refund).');
+  if (kind === 'funding' && amount < 0 && !note) fail('invalid', 'Say what the money passed on was for (payroll cash, money returned).');
   return { date: date, amount: amount, qty: Math.round(qty * 1000) / 1000, note: note };
 }
 function ensureOpen(locked, date, what) {

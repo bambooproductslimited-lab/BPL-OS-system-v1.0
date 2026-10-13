@@ -57,10 +57,10 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
     const out = [];
     shown.forEach((l) => {
       const k = monthKey(l.date);
-      if (!out.length || out[out.length - 1].key !== k) out.push({ key: k, lines: [], spent: 0, received: 0 });
+      if (!out.length || out[out.length - 1].key !== k) out.push({ key: k, lines: [], spent: 0, received: 0, passed: 0 });
       const g = out[out.length - 1];
       g.lines.push(l);
-      if (l.kind === 'funding') g.received += l.amount; else g.spent += l.amount;
+      if (l.kind === 'expense') g.spent += l.amount; else if (l.amount < 0) g.passed -= l.amount; else g.received += l.amount;
     });
     return out;
   }, [shown]);
@@ -137,7 +137,7 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
           <div className="es-ledger">
             {(filtering || allMonths ? groups : groups.slice(0, 2)).map((g) => (
               <section key={g.key} className="es-month">
-                <header><b>{monthLabel(g.key)}</b><span>{tr('spent {a}', { a: GHS(g.spent) })}{g.received ? ' · ' + tr('received {a}', { a: GHS(g.received) }) : ''}</span></header>
+                <header><b>{monthLabel(g.key)}</b><span>{tr('spent {a}', { a: GHS(g.spent) })}{g.received ? ' · ' + tr('received {a}', { a: GHS(g.received) }) : ''}{g.passed ? ' · ' + tr('passed on {a}', { a: GHS(g.passed) }) : ''}</span></header>
                 <ul>
                   {g.lines.map((l) => (
                     <li key={l.id}>
@@ -149,16 +149,16 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
                           {sheet.can.manage && sheet.checks[0] && sheet.checks[0].id === stampAt[l.id].id && <button type="button" className="es-link" onClick={() => undo(stampAt[l.id])}>{tr('Undo')}</button>}
                         </div>
                       )}
-                      <div className={'es-line is-' + l.kind + (l.amount < 0 ? ' is-back' : '')}>
+                      <div className={'es-line is-' + l.kind + (l.amount < 0 ? (l.kind === 'funding' ? ' is-passed' : ' is-back') : '')}>
                         <span className="es-line-no">{l.seq}</span>
                         <span className="es-line-date">{new Date(l.date + 'T12:00').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short' })}</span>
                         <span className="es-line-what">
-                          <b>{l.note || (l.kind === 'funding' ? tr('Money received') : l.category)}</b>
-                          <small>{[l.kind === 'funding' ? (l.payee ? tr('from {name}', { name: l.payee }) : '') : l.payee, l.costCentre, l.asset].filter(Boolean).join(' · ')}</small>
+                          <b>{l.note || (l.kind === 'funding' ? (l.amount < 0 ? tr('Money passed on') : tr('Money received')) : l.category)}</b>
+                          <small>{[l.kind === 'funding' ? (l.payee ? (l.amount < 0 ? tr('to {name}', { name: l.payee }) : tr('from {name}', { name: l.payee })) : '') : l.payee, l.costCentre, l.asset].filter(Boolean).join(' · ')}</small>
                         </span>
-                        {l.kind === 'expense' ? <span className="es-cat">{l.category}</span> : <span className="es-cat is-recv">{l.source === 'topup' ? tr('Top-up') : l.source === 'payback' ? tr('Paid back') : tr('Received')}</span>}
+                        {l.kind === 'expense' ? <span className="es-cat">{l.category}</span> : l.amount < 0 ? <span className="es-cat is-passed">{tr('Passed on')}</span> : <span className="es-cat is-recv">{l.source === 'topup' ? tr('Top-up') : l.source === 'payback' ? tr('Paid back') : tr('Received')}</span>}
                         <span className="es-line-qty">{l.kind === 'expense' && l.qty !== 1 ? l.qty + ' × ' + GHS(l.unitPrice) : ''}</span>
-                        <span className="es-line-amt">{l.kind === 'funding' ? '+' : l.amount < 0 ? '+' : '−'}{GHS(Math.abs(l.amount))}</span>
+                        <span className="es-line-amt">{(l.kind === 'funding') === (l.amount > 0) ? '+' : '−'}{GHS(Math.abs(l.amount))}</span>
                         <span className={'es-line-bal' + (l.balance < 0 ? ' is-neg' : '')}>{GHS(l.balance)}</span>
                         <span className="es-line-tools">
                           {l.receipt && <button type="button" className="es-icon" title={tr('Receipt')} onClick={() => downloadProtected('/expense-sheets/lines/' + l.id + '/receipt', l.receipt.name).catch((e) => setNotice(e.message))}><Icon name="receipt" /></button>}
