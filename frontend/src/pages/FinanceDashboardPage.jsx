@@ -40,6 +40,7 @@ function csvRows(fin) {
   }
   rows.push([tr('Net position this month ({currency})', { currency: fin.baseCurrency }), fin.netPositionThisMonth]);
   rows.push([tr('Expenses approved this month'), fin.approvedExpensesThisMonth], [tr('Pending expense claims'), fin.pendingExpensesTotal]);
+  if (fin.floats) rows.push([tr('Cash with officers'), fin.floats.withOfficers], [tr('Owed to officers'), fin.floats.owedToOfficers], [tr('Top-ups waiting'), fin.floats.topupsWaitingTotal]);
   if (fin.kind !== 'restaurant' && fin.overdueInvoices.length) {
     rows.push([], [tr('Overdue invoices')], [tr('Invoice'), tr('Customer'), tr('Currency'), tr('Amount'), tr('Days overdue')]);
     fin.overdueInvoices.forEach((i) => rows.push([i.invoiceNo, i.customerName, i.currency, i.amount, i.daysOverdue]));
@@ -162,15 +163,34 @@ function TrendSection({ fin, periodType, periodCount, onType, onCount }) {
   );
 }
 
-// Pending claims and this month's spending by category, for both kinds.
+// What the officers' floats (expense sheets) say, for both kinds.
+function floatInsights(fin, m, navigate) {
+  const f = fin.floats, out = [];
+  if (!f) return out;
+  if (f.topupsWaiting) out.push({ tone: 'warn', icon: 'cash', text: f.topupsWaiting === 1 ? tr('1 top-up request for {amount} is waiting for finance.', { amount: m(f.topupsWaitingTotal) }) : tr('{n} top-up requests for {amount} are waiting for finance.', { n: f.topupsWaiting, amount: m(f.topupsWaitingTotal) }), action: { label: tr('Open expense sheets'), run: () => navigate('/expensesheets') } });
+  if (f.owedToOfficers > 0) out.push({ tone: 'warn', icon: 'owed', text: f.owedCount === 1 ? tr('The company owes 1 officer {amount} spent from their own pocket.', { amount: m(f.owedToOfficers) }) : tr('The company owes {n} officers {amount} spent from their own pocket.', { n: f.owedCount, amount: m(f.owedToOfficers) }), action: { label: tr('Open expense sheets'), run: () => navigate('/expensesheets') } });
+  return out;
+}
+
+// Officers' floats, any old claims still waiting, and this month's spending
+// by category, for both kinds.
 function Spending({ fin }) {
   const navigate = useNavigate();
   const m = (n) => money(n, fin.baseCurrency);
+  const f = fin.floats || { withOfficers: 0, owedToOfficers: 0, owedCount: 0, topupsWaiting: 0, topupsWaitingTotal: 0, sheets: 0 };
   return (
     <div className="dk-two">
-      <Section card id="fd-claims" title={tr('Expense claims awaiting a decision')} sub={tr('Oldest first. Staff are waiting on these.')}
-        action={<LinkButton onClick={() => navigate('/expenses')}>{tr('Open expenses')}</LinkButton>}>
-        {fin.pendingExpenses.length ? (
+      <Section card id="fd-claims" title={tr('Officers\' floats')} sub={tr('Cash officers hold for the company, what it owes them, and top-ups waiting.')}
+        action={<LinkButton onClick={() => navigate('/expensesheets')}>{tr('Open expense sheets')}</LinkButton>}>
+        {f.sheets ? (
+          <dl className="dk-sum">
+            <div><dt>{tr('Cash with officers')}</dt><dd>{m(f.withOfficers)}</dd></div>
+            <div><dt>{tr('Owed to officers')}</dt><dd className={f.owedToOfficers > 0 ? 'is-bad' : ''}>{m(f.owedToOfficers)}</dd></div>
+            <div><dt>{tr('Top-ups waiting')}</dt><dd className={f.topupsWaiting ? 'is-warn' : ''}>{f.topupsWaiting ? m(f.topupsWaitingTotal) : '—'}</dd></div>
+          </dl>
+        ) : <Empty icon="cash">{tr('No officer in this company has an expense sheet.')}</Empty>}
+        {fin.pendingExpenses.length > 0 && <h3 className="tl-h3">{tr('Old claims awaiting a decision')}</h3>}
+        {fin.pendingExpenses.length > 0 && (
           <ul className="dk-rows">
             {fin.pendingExpenses.slice(0, 8).map((e, i) => (
               <Row key={i}
@@ -181,13 +201,14 @@ function Spending({ fin }) {
                 sideClass={e.daysWaiting > 7 ? 'is-warn' : ''} />
             ))}
           </ul>
-        ) : <Empty>{tr('Nothing waiting for a decision.')}</Empty>}
+        )}
       </Section>
-      <Section card title={tr('Spending this month')} sub={tr('Approved expenses so far this month, by category.')}>
+      <Section card title={tr('Spending this month')} sub={tr('Approved claims and expense-sheet lines so far this month, by category.')}>
         {fin.expenseByCategoryThisMonth.length ? (
           <>
             <RankList barClass="is-out" rows={fin.expenseByCategoryThisMonth.map((c) => ({ key: c.category, name: c.category, value: c.amount, amount: m(c.amount) }))} />
             <p className="dk-muted"><Change now={fin.approvedExpensesThisMonth} before={fin.approvedExpensesLastMonthSameDays} upIsGood={false} label={tr('the same days last month')} /></p>
+            {fin.sheetSpendingThisMonth > 0 && <p className="dk-muted">{tr('{amount} of it was spent from officers\' floats.', { amount: m(fin.sheetSpendingThisMonth) })}</p>}
           </>
         ) : <Empty icon="receipt">{tr('No expenses approved yet this month.')}</Empty>}
       </Section>
@@ -240,6 +261,7 @@ function TradeFinance({ fin, actions, trend, printRef }) {
   if (longWaiting.length) {
     insights.push({ tone: 'warn', icon: 'receipt', text: longWaiting.length === 1 ? tr('1 expense claim has waited more than a week for a decision.') : tr('{n} expense claims have waited more than a week for a decision.', { n: longWaiting.length }), action: { label: tr('See them'), run: () => jump('fd-claims') } });
   }
+  insights.push(...floatInsights(fin, m, navigate));
 
   const ageBands = [
     { key: 'current', cls: 'age-0', label: tr('Not due yet'), value: aging.current },
@@ -341,6 +363,7 @@ function TradeFinance({ fin, actions, trend, printRef }) {
 }
 
 function RestaurantFinance({ fin, actions, trend, printRef }) {
+  const navigate = useNavigate();
   const cur = fin.baseCurrency;
   const m = (n) => money(n, cur);
   const dr = fin.drawers;
@@ -384,6 +407,7 @@ function RestaurantFinance({ fin, actions, trend, printRef }) {
   if (longWaiting.length) {
     insights.push({ tone: 'warn', icon: 'receipt', text: longWaiting.length === 1 ? tr('1 expense claim has waited more than a week for a decision.') : tr('{n} expense claims have waited more than a week for a decision.', { n: longWaiting.length }), action: { label: tr('See them'), run: () => jump('fd-claims') } });
   }
+  insights.push(...floatInsights(fin, m, navigate));
 
   return (
     <>

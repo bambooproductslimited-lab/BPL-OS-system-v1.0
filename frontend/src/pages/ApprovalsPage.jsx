@@ -22,14 +22,16 @@ import './ApprovalsPage.css';
 // approvals.service.js).
 //
 // Each decision goes to the endpoint of its own workflow (leave,
-// procurement, expenses), which checks the approver's permission and
+// procurement, expense claims, float top-ups on expense sheets), which checks the approver's permission and
 // scope again and tells the requester, with the note if one was given.
 
 const KINDS = {
   leave_request: { label: msg('Leave'), page: '/leave', pageLabel: msg('Open Leave'), path: (id) => '/leave/' + id + '/decision' },
   procurement_request: { label: msg('Purchase request'), page: '/procurement', pageLabel: msg('Open Procurement'), path: (id) => '/procurement/' + id + '/decision' },
-  expense: { label: msg('Expense claim'), page: '/expenses', pageLabel: msg('Open Expenses'), path: (id) => '/expenses/' + id + '/decision' }
+  expense: { label: msg('Expense claim'), page: '/expenses', pageLabel: msg('Open Expenses'), path: (id) => '/expenses/' + id + '/decision' },
+  expense_topup: { label: msg('Float top-up'), page: '/expensesheets', pageLabel: msg('Open the expense sheet'), path: (id) => '/expense-sheets/topups/' + id + '/decision' }
 };
+function pageOf(a) { return a.subjectType === 'expense_topup' && a.facts && a.facts.sheetId ? '/expensesheets?sheet=' + a.facts.sheetId : KINDS[a.subjectType].page; }
 const LONG_WAIT_DAYS = 3;
 const SOON_DAYS = 7;
 
@@ -59,6 +61,7 @@ function factLine(a) {
   if (!f) return a.title;
   if (a.subjectType === 'leave_request') return (f.days === 1 ? tr('1 day of {type}', { type: f.leaveType }) : tr('{n} days of {type}', { n: f.days, type: f.leaveType })) + ' · ' + (f.startDate === f.endDate ? fmtDate(f.startDate) : fmtDate(f.startDate) + ' → ' + fmtDate(f.endDate));
   if (a.subjectType === 'procurement_request') return tr('{qty} × {item} · about {amount}', { qty: f.quantity, item: f.item, amount: money(f.estimatedPrice, 'GHS') });
+  if (a.subjectType === 'expense_topup') return f.floatLimit ? tr('{amount} asked · {balance} in hand of a {float} float', { amount: money(f.amount, 'GHS'), balance: money(f.balance, 'GHS'), float: money(f.floatLimit, 'GHS') }) : tr('{amount} asked · {balance} in hand', { amount: money(f.amount, 'GHS'), balance: money(f.balance, 'GHS') });
   return tr('{category} · {amount} · spent {date}', { category: f.category, amount: money(f.amount, 'GHS'), date: fmtDate(f.date) });
 }
 // Days a leave request goes past what is left: with the yearly total
@@ -80,6 +83,11 @@ function flagsOf(a) {
     if (f.awayThen && f.awayThen.length) out.push({ tone: 'warn', text: f.awayThen.length === 1 ? tr('{name} is also away then', { name: f.awayThen[0].name }) : tr('{n} others in the team away then', { n: f.awayThen.length }) });
   }
   if (a.subjectType === 'expense' && !f.receipt) out.push({ tone: 'warn', text: tr('No receipt') });
+  if (a.subjectType === 'expense_topup') {
+    if (f.floatLimit && f.balance + f.amount > f.floatLimit + 0.005) out.push({ tone: 'warn', text: tr('Takes them past their usual float') });
+    if (!f.checkedUntil) out.push({ tone: 'warn', text: tr('Sheet never checked') });
+    else if (todayNum() - dayNum(f.checkedUntil) > 30) out.push({ tone: 'warn', text: tr('Not checked for {n} days', { n: todayNum() - dayNum(f.checkedUntil) }) });
+  }
   if (a.subjectType === 'procurement_request') {
     if (f.priority === 'high') out.push({ tone: 'bad', text: tr('High priority') });
     if (f.requiredDate && dayNum(f.requiredDate) - todayNum() <= SOON_DAYS) out.push({ tone: dayNum(f.requiredDate) < todayNum() ? 'bad' : 'warn', text: tr('Needed by {date}', { date: fmtDate(f.requiredDate) }) });
@@ -175,6 +183,7 @@ export default function ApprovalsPage() {
   const moneyItems = approvals.filter((a) => a.amount);
   const moneyTotal = moneyItems.reduce((s, a) => s + a.amount, 0);
   const claims = approvals.filter((a) => a.subjectType === 'expense');
+  const topups = approvals.filter((a) => a.subjectType === 'expense_topup');
   const purchases = approvals.filter((a) => a.subjectType === 'procurement_request');
   const leaves = approvals.filter((a) => a.subjectType === 'leave_request');
   const overBalance = leaves.filter((a) => overBy(a.facts) > 0);
@@ -194,7 +203,7 @@ export default function ApprovalsPage() {
   const stats = [
     { icon: 'clock', value: String(approvals.length), label: tr('waiting for your decision'), note: oldest ? tr('the oldest {wait}', { wait: waitedText(oldest) }) : tr('you\'re all caught up'), tone: longWait.length ? 'warn' : approvals.length ? '' : 'good', onClick: () => showOnly('all') },
     { icon: 'warn', value: String(longWait.length), label: tr('waiting more than {n} days', { n: LONG_WAIT_DAYS }), note: longWait.length ? tr('people are waiting on these') : tr('nothing has waited long'), tone: longWait.length ? 'bad' : 'good', onClick: () => showOnly('long') },
-    { icon: 'cash', value: money(moneyTotal, 'GHS'), label: tr('money asked for'), note: tr('{c} claims · {p} purchases', { c: claims.length, p: purchases.length }), onClick: () => showOnly('money') },
+    { icon: 'cash', value: money(moneyTotal, 'GHS'), label: tr('money asked for'), note: topups.length ? tr('{t} top-ups · {c} claims · {p} purchases', { t: topups.length, c: claims.length, p: purchases.length }) : tr('{c} claims · {p} purchases', { c: claims.length, p: purchases.length }), onClick: () => showOnly('money') },
     { icon: 'check', value: String(recent.length), label: tr('decided in the last 30 days'), note: recent.length ? tr('{pct}% approved · half within {took} · {mine} by you', { pct: approvedShare, took: durText(medianHours), mine: mine.length }) : tr('nothing decided lately'), onClick: () => jump('ap-history') }
   ];
 
@@ -210,13 +219,13 @@ export default function ApprovalsPage() {
 
   const chipTest = {
     all: () => true, leave_request: (a) => a.subjectType === 'leave_request', procurement_request: (a) => a.subjectType === 'procurement_request',
-    expense: (a) => a.subjectType === 'expense', long: (a) => daysWaiting(a) > LONG_WAIT_DAYS, look: needsLook, money: (a) => !!a.amount
+    expense: (a) => a.subjectType === 'expense', expense_topup: (a) => a.subjectType === 'expense_topup', long: (a) => daysWaiting(a) > LONG_WAIT_DAYS, look: needsLook, money: (a) => !!a.amount
   };
   const visible = byAge.filter(chipTest[chip] || chipTest.all)
     .filter((a) => matchesQuery(search, a.title, a.requesterName, a.requesterRole, a.department, a.company, factLine(a), a.reason));
   const chips = [
     ['all', tr('All'), approvals.length], ['look', tr('Worth a closer look'), approvals.filter(needsLook).length], ['long', tr('Waiting long'), longWait.length],
-    ['leave_request', tr('Leave'), leaves.length], ['procurement_request', tr('Purchases'), purchases.length], ['expense', tr('Expense claims'), claims.length]
+    ['leave_request', tr('Leave'), leaves.length], ['procurement_request', tr('Purchases'), purchases.length], ['expense_topup', tr('Float top-ups'), topups.length], ['expense', tr('Expense claims'), claims.length]
   ].filter(([k, , c]) => c > 0 || k === 'all' || k === chip);
 
   const histTest = { all: () => true, mine: (h) => h.byMe, approved: (h) => h.status === 'approved', rejected: (h) => h.status === 'rejected' };
@@ -234,7 +243,7 @@ export default function ApprovalsPage() {
       <Hero
         eyebrow={tr('Governance')}
         title={tr('Approval centre')}
-        sub={tr('Leave, purchases and expense claims waiting for your decision, with what you need to decide each one. The person is told as soon as you decide. Press a number to show only those.')}
+        sub={tr('Leave, purchases, float top-ups and expense claims waiting for your decision, with what you need to decide each one. The person is told as soon as you decide. Press a number to show only those.')}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
@@ -362,6 +371,11 @@ export default function ApprovalsPage() {
                 <div><dt>{tr('Priority')}</dt><dd>{tr(cf.priority === 'high' ? 'High' : cf.priority === 'low' ? 'Low' : 'Medium')}</dd></div>
                 <div><dt>{tr('Needed by')}</dt><dd>{cf.requiredDate ? fmtDate(cf.requiredDate) : '—'}</dd></div>
               </>}
+              {cur.subjectType === 'expense_topup' && <>
+                <div><dt>{tr('Cash in hand')}</dt><dd className={cf.balance < 0 ? 'pk-owe' : ''}>{money(cf.balance, 'GHS')}</dd></div>
+                <div><dt>{tr('Usual float')}</dt><dd>{cf.floatLimit ? money(cf.floatLimit, 'GHS') : '—'}</dd></div>
+                <div><dt>{tr('Last check')}</dt><dd>{cf.checkedUntil ? tr('up to {date}', { date: fmtDate(cf.checkedUntil) }) : tr('never')}</dd></div>
+              </>}
               {cur.subjectType === 'expense' && <div><dt>{tr('Receipt')}</dt><dd>{cf.receipt ? <button type="button" className="ap-link" onClick={() => openReceipt(cur)}>{tr('Open the receipt')}</button> : tr('None attached')}</dd></div>}
             </dl>
             {cur.subjectType === 'leave_request' && cf.pool && (
@@ -385,7 +399,7 @@ export default function ApprovalsPage() {
               <textarea id="ap-note" className="input" rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr('Worth adding if you reject, so they know why')} />
             </div>
             <div className="dialog-actions tl-actions">
-              <Link className="btn btn-secondary" to={KINDS[cur.subjectType].page}>{tr(KINDS[cur.subjectType].pageLabel)}</Link>
+              <Link className="btn btn-secondary" to={pageOf(cur)}>{tr(KINDS[cur.subjectType].pageLabel)}</Link>
               <button type="button" className="btn btn-secondary" disabled={decidingId === cur.id} onClick={() => decide(cur, 'rejected')}>{tr('Reject')}</button>
               <button type="button" className="btn btn-primary" disabled={decidingId === cur.id} onClick={() => decide(cur, 'approved')}>{tr('Approve')}</button>
             </div>

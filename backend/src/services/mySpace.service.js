@@ -8,11 +8,11 @@ var { rowToLeaveRequest } = require('./leave.service');
 //
 // Today's clock and shift, the last 14 days and this month's attendance,
 // leave balances with what is waiting for a decision, their leave
-// requests, the work orders they are on or manage, their expense claims and purchase
-// requests, their latest payslips from approved or paid runs (drafts stay
-// with payroll until approved), announcements they haven't read or still
-// need to confirm, how many approvals wait for them, and their account's
-// sign-in safety.
+// requests, the work orders they are on or manage, their expense sheet,
+// older expense claims and purchase requests, their latest payslips from
+// approved or paid runs (drafts stay with payroll until approved),
+// announcements they haven't read or still need to confirm, how many
+// approvals wait for them, and their account's sign-in safety.
 
 function iso(d) { return d.toISOString().slice(0, 10); }
 
@@ -105,6 +105,8 @@ async function overview(ctx) {
     claims: claims.map(function (c) {
       return { id: c.id, category: c.category, amount: Number(c.amount), date: c.date, status: c.status, note: c.decision_note || '', paidAt: c.paid_at, hasReceipt: !!c.receipt_key };
     }),
+    // Their own expense sheet in brief (migration 0141); null without one.
+    expenseSheet: await require('./expenseSheets.service').brief(emp),
     purchases: purchases.map(function (p) { return { id: p.id, item: p.item, quantity: Number(p.quantity), estimatedPrice: Number(p.estimated_price), status: p.status, createdAt: p.created_at }; }),
     payslips: payslips.map(function (p) {
       return {

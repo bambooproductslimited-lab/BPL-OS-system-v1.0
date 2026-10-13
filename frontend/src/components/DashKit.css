@@ -159,6 +159,7 @@
 .dk-sum dt { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-muted); }
 .dk-sum dd { margin: 2px 0 0; font-family: var(--font-heading); font-size: 16px; font-weight: 800; overflow-wrap: anywhere; }
 .dk-sum dd.is-bad { color: var(--dk-bad); }
+.dk-sum dd.is-warn { color: var(--dk-warn); }
 .dk-sum dd.is-good { color: var(--color-accent-700); }
 
 .dk-stack-bar { display: flex; height: 18px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--color-text) 7%, transparent); }

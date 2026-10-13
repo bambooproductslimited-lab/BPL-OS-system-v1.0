@@ -48,7 +48,7 @@ async function summary(ctx, params) {
   var invoiced = await pool.query("SELECT i.currency, sum(i.grand_total) AS amount, count(*)::int AS n FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status <> 'void' AND i.issued_at BETWEEN $2 AND $3 AND " + inv + ' GROUP BY i.currency ORDER BY i.currency', P);
   var collected = await pool.query('SELECT p.currency, sum(p.amount) AS amount, count(*)::int AS n FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.date BETWEEN $2 AND $3 AND ' + inv + ' GROUP BY p.currency ORDER BY p.currency', P);
   var owed = await pool.query("SELECT i.currency, sum(i.balance_due) AS amount, sum(i.balance_due) FILTER (WHERE i.due_date < $2) AS overdue, count(*)::int AS n FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status IN ('unpaid','partially_paid') AND " + inv + ' GROUP BY i.currency ORDER BY i.currency', [co.id, t]);
-  var byCat = await pool.query("SELECT e.category, sum(e.amount) AS amount, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + exp + ' GROUP BY e.category ORDER BY amount DESC', P);
+  var byCat = await pool.query('SELECT x.category, sum(x.amount) AS amount, count(*)::int AS n FROM ' + SPEND_SQL + ' WHERE x.date BETWEEN $2 AND $3 AND ' + spendScope(co) + ' GROUP BY x.category ORDER BY amount DESC', P);
   var pendingExp = await pool.query("SELECT coalesce(sum(e.amount),0) AS amount, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'pending' AND " + exp, [co.id]);
   var payroll = await pool.query(
     'SELECT coalesce(sum(s.net_pay),0) AS net, coalesce(sum(s.gross_pay),0) AS gross, coalesce(sum(s.ssnit_employee),0) AS ssnit_ee, coalesce(sum(s.ssnit_employer),0) AS ssnit_er, coalesce(sum(s.paye_tax),0) AS paye, coalesce(sum(s.paye_tax) FILTER (WHERE s.paye_by_company),0) AS paye_co, count(DISTINCT pr.id)::int AS runs ' +
@@ -65,7 +65,7 @@ async function summary(ctx, params) {
   var S = [co.id, monthStart(first), monthEnd(to), base];
   var mInv = await pool.query("SELECT to_char(i.issued_at, 'YYYY-MM') AS m, sum(i.grand_total) AS a FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status <> 'void' AND i.currency = $4 AND i.issued_at BETWEEN $2 AND $3 AND " + inv + ' GROUP BY 1', S);
   var mCol = await pool.query("SELECT to_char(p.date, 'YYYY-MM') AS m, sum(p.amount) AS a FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.currency = $4 AND p.date BETWEEN $2 AND $3 AND " + inv + ' GROUP BY 1', S);
-  var mExp = await pool.query("SELECT to_char(e.date, 'YYYY-MM') AS m, sum(e.amount) AS a FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + exp + ' GROUP BY 1', S.slice(0, 3));
+  var mExp = await pool.query("SELECT to_char(x.date, 'YYYY-MM') AS m, sum(x.amount) AS a FROM " + SPEND_SQL + ' WHERE x.date BETWEEN $2 AND $3 AND ' + spendScope(co) + ' GROUP BY 1', S.slice(0, 3));
   var mPay = await pool.query("SELECT to_char(pr.pay_date, 'YYYY-MM') AS m, sum(s.gross_pay + s.ssnit_employer + CASE WHEN s.paye_by_company THEN s.paye_tax ELSE 0 END) AS a FROM payslips s JOIN pay_runs pr ON pr.id = s.pay_run_id JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.department_id WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + payScope + ' GROUP BY 1', S.slice(0, 3));
   function mapOf(rows) { var m = {}; rows.forEach(function (r) { m[r.m] = Number(r.a); }); return m; }
   var mi = mapOf(mInv.rows), mc = mapOf(mCol.rows), me = mapOf(mExp.rows), mp = mapOf(mPay.rows);
@@ -281,6 +281,37 @@ function expenseScope(co) {
   if (co.id === null) return '$1::uuid IS NULL';
   return co.code === 'BPL' ? '(d.company_id = $1 OR e.department_id IS NULL)' : 'd.company_id = $1';
 }
+// Spending that counts as a cost: expense claims once approved (or paid),
+// and what officers spent from their floats on their expense sheets
+// (migration 0141). A claim belongs to its department's company; a sheet
+// line to its cost centre's company, or the officer's department's when the
+// cost centre has none (no company = Bamboo Products). Read as x: source
+// ('claim' | 'sheet'), id, category, amount, date, company_id, person_id,
+// dept_name, description, status, paid_on (the day a claim was paid out).
+var SPEND_SQL = "(SELECT 'claim'::text AS source, e.id, e.category, e.amount, e.date, d.company_id, e.requester_id AS person_id, d.name AS dept_name, e.description, e.status, e.paid_at::date AS paid_on " +
+  "FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') " +
+  "UNION ALL SELECT 'sheet', l.id, coalesce(nullif(l.category, ''), 'Other Expense'), l.amount, l.date, coalesce(l.company_id, od.company_id), s.employee_id, od.name, l.note, 'spent', l.date " +
+  "FROM expense_sheet_lines l JOIN expense_sheets s ON s.id = l.sheet_id JOIN employees oe ON oe.id = s.employee_id LEFT JOIN departments od ON od.id = oe.department_id WHERE l.kind = 'expense') x";
+// Each expense sheet's balance, for the officer's department's company:
+// above zero is float cash the officer holds, below zero the company owes them.
+var FLOATS_SQL = "(SELECT s.id, od.company_id, coalesce(sum(CASE WHEN l.kind = 'funding' THEN l.amount WHEN l.kind = 'expense' THEN -l.amount ELSE 0 END), 0) AS balance " +
+  'FROM expense_sheets s JOIN employees oe ON oe.id = s.employee_id LEFT JOIN departments od ON od.id = oe.department_id LEFT JOIN expense_sheet_lines l ON l.sheet_id = s.id GROUP BY s.id, od.company_id) x';
+function spendScope(co) {
+  if (co.id === null) return '$1::uuid IS NULL';
+  return co.code === 'BPL' ? '(x.company_id = $1 OR x.company_id IS NULL)' : 'x.company_id = $1';
+}
+// Floats now: cash officers hold, what the company owes officers who spent
+// more than they were given, and top-ups waiting for finance.
+async function floatsNow(co) {
+  var f = (await pool.query(
+    'SELECT coalesce(sum(x.balance) FILTER (WHERE x.balance > 0), 0) AS held, coalesce(-sum(x.balance) FILTER (WHERE x.balance < 0), 0) AS owed, ' +
+    'count(*) FILTER (WHERE x.balance < 0)::int AS owed_n, count(*)::int AS sheets FROM ' + FLOATS_SQL + ' WHERE ' + spendScope(co), [co.id])).rows[0];
+  var t = (await pool.query(
+    "SELECT coalesce(sum(t.amount), 0) AS s, count(*)::int AS n FROM expense_sheet_topups t JOIN expense_sheets s ON s.id = t.sheet_id JOIN employees oe ON oe.id = s.employee_id " +
+    "LEFT JOIN departments od ON od.id = oe.department_id CROSS JOIN LATERAL (SELECT od.company_id) x WHERE t.status = 'pending' AND " + spendScope(co), [co.id])).rows[0];
+  var r2 = function (n) { return Math.round(Number(n) * 100) / 100; };
+  return { sheets: f.sheets, withOfficers: r2(f.held), owedToOfficers: r2(f.owed), owedCount: f.owed_n, topupsWaiting: t.n, topupsWaitingTotal: r2(t.s) };
+}
 async function resolveDashboardCompany(ctx, code, onlyTrade) {
   var c = String(code || 'BPL').trim().toUpperCase();
   var list = await marketingCompanyList(ctx);
@@ -334,14 +365,15 @@ async function expenseFigures(co, t, mtd) {
     ' ORDER BY e.created_at', [co.id]
   );
   var sumsRes = await pool.query(
-    "SELECT coalesce(sum(e.amount) FILTER (WHERE e.date BETWEEN $2 AND $3), 0) AS this_month, " +
-    "coalesce(sum(e.amount) FILTER (WHERE e.date BETWEEN $4 AND $5), 0) AS last_month_same_days " +
-    "FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND " + scope,
+    "SELECT coalesce(sum(x.amount) FILTER (WHERE x.date BETWEEN $2 AND $3), 0) AS this_month, " +
+    "coalesce(sum(x.amount) FILTER (WHERE x.date BETWEEN $4 AND $5), 0) AS last_month_same_days, " +
+    "coalesce(sum(x.amount) FILTER (WHERE x.date BETWEEN $2 AND $3 AND x.source = 'sheet'), 0) AS sheets_this_month " +
+    'FROM ' + SPEND_SQL + ' WHERE ' + spendScope(co),
     [co.id, mtd.from, mtd.to, mtd.prevFrom, mtd.prevTo]
   );
   var byCatRes = await pool.query(
-    "SELECT e.category, sum(e.amount) AS amount FROM expenses e LEFT JOIN departments d ON d.id = e.department_id " +
-    "WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + scope + ' GROUP BY e.category ORDER BY amount DESC LIMIT 8',
+    'SELECT x.category, sum(x.amount) AS amount FROM ' + SPEND_SQL + ' ' +
+    'WHERE x.date BETWEEN $2 AND $3 AND ' + spendScope(co) + ' GROUP BY x.category ORDER BY amount DESC LIMIT 8',
     [co.id, mtd.from, mtd.to]
   );
   return {
@@ -354,7 +386,9 @@ async function expenseFigures(co, t, mtd) {
     pendingExpensesTotal: pendingRes.rows.reduce(function (s, r) { return s + Number(r.amount); }, 0),
     approvedExpensesThisMonth: Number(sumsRes.rows[0].this_month),
     approvedExpensesLastMonthSameDays: Number(sumsRes.rows[0].last_month_same_days),
-    expenseByCategoryThisMonth: byCatRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; })
+    sheetSpendingThisMonth: Number(sumsRes.rows[0].sheets_this_month),
+    expenseByCategoryThisMonth: byCatRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; }),
+    floats: await floatsNow(co)
   };
 }
 async function expenseTrend(co, periods) {
@@ -362,7 +396,7 @@ async function expenseTrend(co, periods) {
   for (var i = 0; i < periods.length; i++) {
     var p = periods[i];
     var r = await pool.query(
-      "SELECT coalesce(sum(e.amount),0) AS s FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND to_char(e.date::date, '" + p.fmt + "') = $2 AND " + expenseScope(co),
+      'SELECT coalesce(sum(x.amount),0) AS s FROM ' + SPEND_SQL + " WHERE to_char(x.date::date, '" + p.fmt + "') = $2 AND " + spendScope(co),
       [co.id, p.key]
     );
     out.push(Number(r.rows[0].s));
@@ -649,6 +683,7 @@ function scopes(co) {
   return {
     inv: docScope(co, 'i', 'c'),
     exp: expenseScope(co),
+    spend: spendScope(co),
     pay: all ? '$1::uuid IS NULL' : 'd.company_id = $1',
     proc: all ? '$1::uuid IS NULL' : bpl ? '(d.company_id = $1 OR pr.department_id IS NULL)' : 'd.company_id = $1',
     rest: all ? '$1::uuid IS NULL' : 'o.company_id = $1',
@@ -687,8 +722,8 @@ async function purchasesIn(co, sc, from, to) {
 }
 
 // kernel.js: handlers['reports.profitAndLoss']
-// Revenue less the cost of what was bought, then less expense claims and
-// payroll. Netting only makes sense in one currency — expenses and payroll
+// Revenue less the cost of what was bought, then less spending (expense
+// claims and expense-sheet lines, see SPEND_SQL) and payroll. Netting only makes sense in one currency — expenses and payroll
 // have none of their own, and FX conversion is out of scope (see
 // documents.js's resolveCurrency()) — so invoices count only in the base
 // currency (baseCurrency in the response); restaurant till sales are in it
@@ -705,7 +740,7 @@ async function profitAndLoss(ctx, params) {
   var invRes = await pool.query("SELECT coalesce(sum(i.grand_total),0) AS s FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $4 AND i.issued_at BETWEEN $2 AND $3 AND " + sc.inv, P.concat([base]));
   var restRes = await pool.query("SELECT coalesce(sum(o.total),0) AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest, P);
   var expByCatRes = await pool.query(
-    "SELECT e.category, sum(e.amount) AS amount FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + sc.exp + ' GROUP BY e.category ORDER BY amount DESC', P);
+    "SELECT x.category, sum(x.amount) AS amount, coalesce(sum(x.amount) FILTER (WHERE x.source = 'sheet'), 0) AS sheets FROM " + SPEND_SQL + ' WHERE x.date BETWEEN $2 AND $3 AND ' + sc.spend + ' GROUP BY x.category ORDER BY amount DESC', P);
   var payrollRes = await pool.query(
     'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
     "WHERE pr.status IN ('approved','paid') AND pr.pay_date BETWEEN $2 AND $3 AND " + sc.pay, P);
@@ -715,6 +750,7 @@ async function profitAndLoss(ctx, params) {
   var revenue = invoiced + restaurant;
   var expenseByCategory = expByCatRes.rows.map(function (r) { return { category: r.category, amount: Number(r.amount) }; });
   var totalExpenses = expenseByCategory.reduce(function (sum, r) { return sum + r.amount; }, 0);
+  var fromSheets = expByCatRes.rows.reduce(function (sum, r) { return sum + Number(r.sheets); }, 0);
   var payrollCost = Number(payrollRes.rows[0].s);
   var r2 = function (n) { return Math.round(n * 100) / 100; };
 
@@ -723,6 +759,7 @@ async function profitAndLoss(ctx, params) {
     revenue: r2(revenue), revenueLines: { invoiced: invoiced, restaurant: restaurant },
     purchases: purchases, grossProfit: r2(revenue - purchases.total),
     expenseByCategory: expenseByCategory, totalExpenses: r2(totalExpenses),
+    expenseSources: { claims: r2(totalExpenses - fromSheets), sheets: r2(fromSheets) },
     payrollCost: payrollCost, totalCosts: r2(purchases.total + totalExpenses + payrollCost),
     netProfit: r2(revenue - purchases.total - totalExpenses - payrollCost)
   };
@@ -731,7 +768,8 @@ async function profitAndLoss(ctx, params) {
 // kernel.js: handlers['reports.cashFlow'] — base currency only, as the P&L.
 // Money counts on the day it moved: payments and restaurant takings in;
 // expense claims when paid out (the day they were claimed for older ones
-// with no pay-out date), pay runs when marked paid, purchases when received.
+// with no pay-out date), expense-sheet lines on the day the officer spent
+// the float, pay runs when marked paid, purchases when received.
 // Claims approved but not paid out, and runs approved but not paid, are
 // still to go out and are listed separately rather than counted.
 async function cashFlow(ctx, params) {
@@ -748,6 +786,13 @@ async function cashFlow(ctx, params) {
     "SELECT coalesce(sum(e.amount),0) AS s FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'paid' AND coalesce(e.paid_at::date, e.date) BETWEEN $2 AND $3 AND " + sc.exp, P);
   var expDueRes = await pool.query(
     "SELECT coalesce(sum(e.amount),0) AS s, count(*)::int AS n FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'approved' AND " + sc.exp, [co.id]);
+  // Float money is the company's cash until an officer spends it, so a sheet
+  // line counts as money out on the day it was spent.
+  var sheetRes = await pool.query("SELECT coalesce(sum(x.amount),0) AS s FROM " + SPEND_SQL + " WHERE x.source = 'sheet' AND x.date BETWEEN $2 AND $3 AND " + sc.spend, P);
+  var givenRes = await pool.query(
+    "SELECT coalesce(sum(l.amount),0) AS s FROM expense_sheet_lines l JOIN expense_sheets s ON s.id = l.sheet_id JOIN employees oe ON oe.id = s.employee_id LEFT JOIN departments od ON od.id = oe.department_id " +
+    "CROSS JOIN LATERAL (SELECT od.company_id) x WHERE l.kind = 'funding' AND l.date BETWEEN $2 AND $3 AND " + sc.spend, P);
+  var floats = await floatsNow(co);
   var payRes = await pool.query(
     'SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id JOIN employees e ON e.id = ps.employee_id JOIN departments d ON d.id = e.department_id ' +
     "WHERE pr.status = 'paid' AND pr.pay_date BETWEEN $2 AND $3 AND " + sc.pay, P);
@@ -761,7 +806,8 @@ async function cashFlow(ctx, params) {
   var fromInvoices = inRes.rows.reduce(function (sum, r) { return sum + Number(r.s); }, 0);
   var fromRestaurants = restRes.rows.reduce(function (sum, r) { return sum + Number(r.s); }, 0);
   var cashIn = fromInvoices + fromRestaurants;
-  var expensesOut = Number(expRes.rows[0].s), payrollOut = Number(payRes.rows[0].s);
+  var claimsOut = Number(expRes.rows[0].s), sheetsOut = Number(sheetRes.rows[0].s);
+  var expensesOut = Math.round((claimsOut + sheetsOut) * 100) / 100, payrollOut = Number(payRes.rows[0].s);
   var cashOut = expensesOut + payrollOut + purchases.total;
   var r2 = function (n) { return Math.round(n * 100) / 100; };
 
@@ -769,9 +815,10 @@ async function cashFlow(ctx, params) {
     from: period.from, to: period.to, baseCurrency: base, company: { code: co.code === '*' ? 'ALL' : co.code, name: co.name },
     cashIn: r2(cashIn), cashInFromInvoices: r2(fromInvoices), cashInFromRestaurants: r2(fromRestaurants),
     cashInByMethod: Object.keys(byMethod).map(function (m) { return { method: m, amount: r2(byMethod[m]) }; }).sort(function (a, b) { return b.amount - a.amount; }),
-    expensesOut: expensesOut, payrollOut: payrollOut, purchasesOut: purchases.total, purchases: purchases, cashOut: r2(cashOut),
+    expensesOut: expensesOut, expensesOutLines: { claims: claimsOut, sheets: sheetsOut }, payrollOut: payrollOut, purchasesOut: purchases.total, purchases: purchases, cashOut: r2(cashOut),
     netCashFlow: r2(cashIn - cashOut),
-    stillToPay: { expenses: Number(expDueRes.rows[0].s), expenseCount: expDueRes.rows[0].n, payroll: Number(payDueRes.rows[0].s), payrollRuns: payDueRes.rows[0].n }
+    floats: Object.assign({ givenInPeriod: Number(givenRes.rows[0].s) }, floats),
+    stillToPay: { expenses: Number(expDueRes.rows[0].s), expenseCount: expDueRes.rows[0].n, owedToOfficers: floats.owedToOfficers, owedCount: floats.owedCount, payroll: Number(payDueRes.rows[0].s), payrollRuns: payDueRes.rows[0].n }
   };
 }
 
@@ -786,7 +833,8 @@ async function balanceSheet(ctx) {
   var invRes = await pool.query('SELECT coalesce(sum(cost_price * current_stock),0) AS s FROM products');
   var assetsRes = await pool.query('SELECT coalesce(sum(purchase_price),0) AS s FROM assets');
   var revRes = await pool.query("SELECT coalesce(sum(grand_total),0) AS s FROM invoices WHERE status != 'void' AND currency = $1", [base]);
-  var expRes = await pool.query("SELECT coalesce(sum(amount),0) AS s FROM expenses WHERE status IN ('approved','paid')");
+  var expRes = await pool.query('SELECT coalesce(sum(x.amount),0) AS s FROM ' + SPEND_SQL);
+  var floats = await floatsNow(ALL_COMPANIES);
   var payrollRes = await pool.query("SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id WHERE pr.status IN ('approved','paid')");
   var restRes = await pool.query("SELECT coalesce(sum(total),0) AS s FROM restaurant_orders WHERE status = 'completed'");
   var allPurchases = await purchasesIn(ALL_COMPANIES, scopes(ALL_COMPANIES), '1900-01-01', '2999-12-31');
@@ -795,12 +843,16 @@ async function balanceSheet(ctx) {
   var accountsReceivable = Number(arRes.rows[0].s);
   var inventoryValue = Number(invRes.rows[0].s);
   var fixedAssets = Number(assetsRes.rows[0].s);
-  var totalAssets = cashAndBank + accountsReceivable + inventoryValue + fixedAssets;
+  // Float cash officers still hold is the company's; what it owes officers
+  // who spent more than they were given is a debt.
+  var cashWithOfficers = floats.withOfficers;
+  var totalAssets = cashAndBank + cashWithOfficers + accountsReceivable + inventoryValue + fixedAssets;
 
   var accountsPayable = Number(manual.accountsPayable || 0);
   var loansPayable = Number(manual.loansPayable || 0);
   var otherLiabilities = Number(manual.otherLiabilities || 0);
-  var totalLiabilities = accountsPayable + loansPayable + otherLiabilities;
+  var owedToOfficers = floats.owedToOfficers;
+  var totalLiabilities = accountsPayable + owedToOfficers + loansPayable + otherLiabilities;
 
   // Retained earnings = all-time net profit, the same recognition rules as
   // profitAndLoss() above but with no date bound (since inception).
@@ -810,8 +862,8 @@ async function balanceSheet(ctx) {
 
   return {
     asOf: todayISO(), baseCurrency: base,
-    assets: { cashAndBank: cashAndBank, accountsReceivable: accountsReceivable, inventoryValue: inventoryValue, fixedAssets: fixedAssets, total: totalAssets },
-    liabilities: { accountsPayable: accountsPayable, loansPayable: loansPayable, otherLiabilities: otherLiabilities, total: totalLiabilities },
+    assets: { cashAndBank: cashAndBank, cashWithOfficers: cashWithOfficers, accountsReceivable: accountsReceivable, inventoryValue: inventoryValue, fixedAssets: fixedAssets, total: totalAssets },
+    liabilities: { accountsPayable: accountsPayable, owedToOfficers: owedToOfficers, loansPayable: loansPayable, otherLiabilities: otherLiabilities, total: totalLiabilities },
     equity: { ownersEquity: ownersEquity, retainedEarnings: retainedEarnings, total: totalEquity },
     // Zero when the manual inputs (cash & bank, above all) are accurate; a
     // nonzero balanceCheck is a live prompt to correct them, since cash is
@@ -875,16 +927,16 @@ async function expenseDetail(ctx, params) {
   var period = periodParams(params);
   var co = await statementCompany(ctx, params && params.company);
   var res = await pool.query(
-    "SELECT e.id, e.category, e.amount, e.date, e.description, e.status, emp.first_name, emp.last_name, d.name AS dept_name " +
-    "FROM expenses e JOIN employees emp ON emp.id = e.requester_id LEFT JOIN departments d ON d.id = e.department_id " +
-    "WHERE e.status IN ('approved','paid') AND e.date BETWEEN $2 AND $3 AND " + scopes(co).exp + " ORDER BY e.date DESC",
+    'SELECT x.source, x.id, x.category, x.amount, x.date, x.description, x.status, emp.first_name, emp.last_name, x.dept_name ' +
+    'FROM ' + SPEND_SQL + ' JOIN employees emp ON emp.id = x.person_id ' +
+    'WHERE x.date BETWEEN $2 AND $3 AND ' + scopes(co).spend + ' ORDER BY x.date DESC',
     [co.id, period.from, period.to]
   );
   var byCategory = {}, byDept = {};
   var rows = res.rows.map(function (r) {
     byCategory[r.category] = (byCategory[r.category] || 0) + Number(r.amount);
     byDept[r.dept_name || '—'] = (byDept[r.dept_name || '—'] || 0) + Number(r.amount);
-    return { id: r.id, category: r.category, amount: Number(r.amount), date: r.date, description: r.description, status: r.status, requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name || '—' };
+    return { id: r.id, source: r.source, category: r.category, amount: Number(r.amount), date: r.date, description: r.description, status: r.status, requesterName: r.first_name + ' ' + r.last_name, departmentName: r.dept_name || '—' };
   });
   return {
     from: period.from, to: period.to, items: rows,

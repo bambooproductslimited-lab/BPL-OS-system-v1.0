@@ -165,6 +165,8 @@ export default function MySpacePage() {
   const overdue = data.tasks.filter((t) => t.dueDate && dayNum(t.dueDate) < todayNum());
   const owed = data.claims.filter((c) => c.status === 'approved');
   const owedTotal = owed.reduce((s, c) => s + c.amount, 0);
+  const sheet = data.expenseSheet || null;
+  const owedOnSheet = sheet && sheet.balance < 0 ? -sheet.balance : 0;
   const lastPay = data.payslips[0];
   const pendingLeave = data.leave.filter((l) => l.status === 'pending');
   const toConfirm = data.announcements.filter((a) => a.requiresAck && !a.acknowledged);
@@ -186,6 +188,8 @@ export default function MySpacePage() {
   if (pendingLeave.length) insights.push({ tone: 'info', icon: 'calendar', text: pendingLeave.length === 1 ? tr('Your {type} request for {date} is waiting for a decision.', { type: pendingLeave[0].typeName.toLowerCase(), date: fmtDate(pendingLeave[0].startDate) }) : tr('{n} of your leave requests are waiting for a decision.', { n: pendingLeave.length }), action: { label: tr('Show'), run: () => jump('msp-leave') } });
   if (recentNo.length) insights.push({ tone: 'info', icon: 'calendar', text: tr('Your {type} request was turned down: "{note}"', { type: recentNo[0].typeName.toLowerCase(), note: recentNo[0].decisionNote }), action: null });
   if (owedTotal) insights.push({ tone: 'good', icon: 'cash', text: tr('{amount} of your claims is approved and waiting to be paid out.', { amount: money(owedTotal, 'GHS') }), action: { label: tr('Show'), run: () => jump('msp-money') } });
+  if (owedOnSheet) insights.push({ tone: 'info', icon: 'cash', text: tr('The company owes you {amount} on your expense sheet. Finance pays it back.', { amount: money(owedOnSheet, 'GHS') }), action: { label: tr('Open my sheet'), run: () => navigate('/expensesheets?sheet=' + sheet.id) } });
+  if (sheet && sheet.topupWaiting) insights.push({ tone: 'info', icon: 'cash', text: tr('Your top-up of {amount} is waiting for finance.', { amount: money(sheet.topupWaiting, 'GHS') }), action: null });
   if (lpool && lpool.owedOutstanding > 0) insights.push({ tone: 'warn', icon: 'warn', text: tr('You have taken {n} day(s) more than your leave for {year}. They are owed to the company; HR will settle them with you.', { n: lpool.owedOutstanding, year: lpool.year }), action: { label: tr('Show'), run: () => jump('msp-leave') } });
   if (yearEnd) insights.push({ tone: 'info', icon: 'calendar', text: tr('You still have {n} days of paid leave this year. Plan them before 31 December.', { n: leftDays }), action: { label: tr('Request leave'), run: () => navigate('/leave') } });
   if (!twoStepOn) insights.push({ tone: 'warn', icon: 'warn', text: tr('Two-step sign-in is off. Turn it on so a stolen password alone can\'t open your account.'), action: { label: tr('Turn it on'), run: () => jump('msp-account') } });
@@ -205,6 +209,8 @@ export default function MySpacePage() {
     { icon: 'check', value: String(data.tasks.length), label: tr('work orders open for you'), note: overdue.length ? tr('{n} overdue', { n: overdue.length }) : tr('{n} done this month', { n: data.tasksDoneThisMonth }), tone: overdue.length ? 'bad' : 'work', onClick: () => jump('msp-work') },
     owedTotal
       ? { icon: 'cash', value: money(owedTotal, 'GHS'), label: tr('approved claims not paid yet'), note: owed.length === 1 ? tr('1 claim') : tr('{n} claims', { n: owed.length }), tone: 'money', onClick: () => jump('msp-money') }
+      : owedOnSheet
+      ? { icon: 'cash', value: money(owedOnSheet, 'GHS'), label: tr('owed to you on your expense sheet'), note: tr('finance pays it back'), tone: 'money', onClick: () => jump('msp-money') }
       : { icon: 'cash', value: lastPay ? money(lastPay.net, 'GHS') : '—', label: tr('last take-home pay'), note: lastPay ? tr('for {from} – {to}', { from: fmtDate(lastPay.periodStart), to: fmtDate(lastPay.periodEnd) }) : tr('no payslip yet'), tone: 'money', onClick: () => jump('msp-money') }
   ];
 
@@ -319,7 +325,7 @@ export default function MySpacePage() {
         )}
       </Section>
 
-      <Section id="msp-money" title={tr('My money')} sub={tr('Your payslips, expense claims and purchase requests.')} action={<Link className="btn btn-secondary" to="/expenses">{tr('New expense claim')}</Link>}>
+      <Section id="msp-money" title={tr('My money')} sub={tr('Your payslips, your expense sheet and purchase requests.')} action={<Link className="btn btn-secondary" to={sheet ? '/expensesheets?sheet=' + sheet.id : '/expensesheets'}>{sheet ? tr('Open my expense sheet') : tr('I paid for something')}</Link>}>
         <div className="msx-two">
           <div className="msx-card">
             <h4 className="msp-h4">{tr('Payslips')}</h4>
@@ -341,8 +347,23 @@ export default function MySpacePage() {
             )}
           </div>
           <div className="msx-card">
-            <h4 className="msp-h4">{tr('Expense claims')}</h4>
-            {!data.claims.length ? <p className="dk-muted">{tr('No claims yet.')}</p> : (
+            <h4 className="msp-h4">{tr('My expense sheet')}</h4>
+            {sheet ? (
+              <Link className="msx-sheet" to={'/expensesheets?sheet=' + sheet.id}>
+                <span className={'msx-sheet-bal' + (sheet.balance < 0 ? ' is-owed' : '')}>
+                  <small>{sheet.balance < 0 ? tr('owed to you') : tr('cash in hand')}</small>
+                  <strong>{money(Math.abs(sheet.balance), 'GHS')}</strong>
+                  {sheet.floatLimit ? <small>{tr('float {amount}', { amount: money(sheet.floatLimit, 'GHS') })}</small> : null}
+                </span>
+                <span className="msx-sheet-facts">
+                  <span>{tr('Spent this month')} <b>{money(sheet.spentThisMonth, 'GHS')}</b></span>
+                  <span>{tr('Last check')} <b>{sheet.checkedUntil ? fmtDate(sheet.checkedUntil) : tr('never')}</b></span>
+                  {sheet.uncheckedLines > 0 && <span>{sheet.uncheckedLines === 1 ? tr('1 line waiting for a check') : tr('{n} lines waiting for a check', { n: sheet.uncheckedLines })}</span>}
+                </span>
+              </Link>
+            ) : <p className="dk-muted">{tr('No expense sheet. If you pay for something for the company from your own pocket, record it and finance pays you back.')}</p>}
+            {data.claims.length > 0 && <h4 className="msp-h4">{tr('Older expense claims')}</h4>}
+            {data.claims.length > 0 && (
               <ul className="msx-list">
                 {data.claims.slice(0, 6).map((c) => (
                   <li key={c.id}>

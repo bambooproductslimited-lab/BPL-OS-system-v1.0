@@ -182,6 +182,9 @@ async function load(ctx, companyCode) {
     );
     pendingExpenses = er.rows[0].n;
   }
+  // Expense sheets: top-ups waiting for finance, and sheets with lines
+  // since their last check for whoever checks them (null for anyone else).
+  var expenseSheets = await require('./expenseSheets.service').todo(ctx, scopeId, isBpl);
 
   // The restaurants in scope: today's till against the same day last week,
   // and their kitchen stock.
@@ -290,6 +293,7 @@ async function load(ctx, companyCode) {
     outstandingInvoices: outstandingInvoices,
     overdueInvoices: overdueInvoices,
     pendingExpenses: pendingExpenses,
+    expenseSheets: expenseSheets,
     restaurants: restaurants,
     arrivals: arrivals,
     firstInToday: firstInToday,

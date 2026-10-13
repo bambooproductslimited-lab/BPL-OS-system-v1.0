@@ -4,7 +4,7 @@ import { downloadProtected } from '../../lib/chatMedia';
 import { Icon, Insights, Section, fmtDate } from '../../components/DashKit';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import {
-  BalanceGauge, CheckDialog, GHS, ImportDialog, LineForm, MonthBars, PivotTable, RankBars, SheetSettingsDialog, TopupDialog, Who, daysSince, monthName, nLines
+  BalanceGauge, CheckDialog, GHS, ImportDialog, LineForm, MonthBars, PayBackDialog, PivotTable, RankBars, SheetSettingsDialog, TopupDialog, Who, daysSince, monthName, nLines
 } from './EsParts';
 
 // One officer's expense sheet: the balance and what it means, adding what
@@ -29,7 +29,10 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
   const thisYear = sheet.year === new Date().getFullYear();
 
   const insights = [];
-  if (owed) insights.push({ tone: 'warn', icon: 'owed', text: mine ? tr('You have spent {amount} more than you were given: the company owes you this.', { amount: GHS(-sheet.balance) }) : tr('{name} has spent {amount} more than they were given: the company owes them this.', { name: sheet.employee.name, amount: GHS(-sheet.balance) }) });
+  if (owed) insights.push({ tone: 'warn', icon: 'owed', text: !sheet.floatLimit
+    ? (mine ? tr('The company owes you {amount} for what you paid yourself.', { amount: GHS(-sheet.balance) }) : tr('The company owes {name} {amount} for what they paid themselves.', { name: sheet.employee.name, amount: GHS(-sheet.balance) }))
+    : mine ? tr('You have spent {amount} more than you were given: the company owes you this.', { amount: GHS(-sheet.balance) }) : tr('{name} has spent {amount} more than they were given: the company owes them this.', { name: sheet.employee.name, amount: GHS(-sheet.balance) }),
+    action: sheet.can.manage ? { label: tr('Pay back'), run: () => setDialog('payback') } : mine && sheet.can.requestTopup && !pending.length ? { label: tr('Ask to be paid back'), run: () => setDialog('topup') } : null });
   else if (sheet.floatLimit && sheet.balance < sheet.floatLimit * 0.2) insights.push({ tone: 'warn', icon: 'cash', text: tr('Only {amount} left of a {limit} float.', { amount: GHS(sheet.balance), limit: GHS(sheet.floatLimit) }), action: mine && sheet.can.requestTopup && !pending.length ? { label: tr('Ask for a top-up'), run: () => setDialog('topup') } : null });
   if (!lastCheck && sheet.lines.length) insights.push({ tone: 'info', icon: 'check', text: tr('This sheet has never been checked.'), action: sheet.can.check ? { label: tr('Check it'), run: () => setDialog('check') } : null });
   else if (lastCheck && sinceCheck.length) {
@@ -94,7 +97,8 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
             <span><small>{tr('Last check')}</small><b>{lastCheck ? lastCheck.code + ' · ' + fmtDate(lastCheck.uptoDate) : tr('never')}</b></span>
           </div>
           <div className="es-hero-actions">
-            {sheet.can.requestTopup && <button type="button" className="es-pill is-main" onClick={() => setDialog('topup')}><Icon name="cash" /> {tr('Ask for a top-up')}</button>}
+            {sheet.can.requestTopup && (sheet.floatLimit || owed) && <button type="button" className="es-pill is-main" onClick={() => setDialog('topup')}><Icon name="cash" /> {owed && !sheet.floatLimit ? tr('Ask to be paid back') : tr('Ask for a top-up')}</button>}
+            {sheet.can.manage && owed && <button type="button" className="es-pill is-main" onClick={() => setDialog('payback')}><Icon name="cash" /> {tr('Pay back {amount}', { amount: GHS(-sheet.balance) })}</button>}
             {sheet.can.check && <button type="button" className="es-pill" onClick={() => setDialog('check')}><Icon name="check" /> {tr('Check up to a date')}</button>}
             {sheet.can.write && <button type="button" className="es-pill" onClick={() => setDialog('import')}><Icon name="layers" /> {tr('Bring in a workbook')}</button>}
             <button type="button" className="es-pill" onClick={() => downloadProtected('/expense-sheets/export.csv?sheet=' + sheet.id + '&year=' + sheet.year, 'expense-sheet-' + sheet.year + '.csv').catch((e) => setNotice(e.message))}><Icon name="doc" /> {tr('Export')}</button>
@@ -152,7 +156,7 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
                           <b>{l.note || (l.kind === 'funding' ? tr('Money received') : l.category)}</b>
                           <small>{[l.kind === 'funding' ? (l.payee ? tr('from {name}', { name: l.payee }) : '') : l.payee, l.costCentre, l.asset].filter(Boolean).join(' · ')}</small>
                         </span>
-                        {l.kind === 'expense' ? <span className="es-cat">{l.category}</span> : <span className="es-cat is-recv">{l.source === 'topup' ? tr('Top-up') : tr('Received')}</span>}
+                        {l.kind === 'expense' ? <span className="es-cat">{l.category}</span> : <span className="es-cat is-recv">{l.source === 'topup' ? tr('Top-up') : l.source === 'payback' ? tr('Paid back') : tr('Received')}</span>}
                         <span className="es-line-qty">{l.kind === 'expense' && l.qty !== 1 ? l.qty + ' × ' + GHS(l.unitPrice) : ''}</span>
                         <span className="es-line-amt">{l.kind === 'funding' ? '+' : l.amount < 0 ? '+' : '−'}{GHS(Math.abs(l.amount))}</span>
                         <span className={'es-line-bal' + (l.balance < 0 ? ' is-neg' : '')}>{GHS(l.balance)}</span>
@@ -208,6 +212,7 @@ export default function EsSheet({ sheet, viewerId, people, onReload, onBack, set
       {dialog === 'check' && <CheckDialog sheet={s} onClose={() => setDialog(null)} onDone={(c) => { setDialog(null); setNotice(tr('Checked up to {date} ({code}).', { date: fmtDate(c.uptoDate), code: c.code })); onReload(); }} />}
       {dialog === 'topup' && <TopupDialog sheet={sheet} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setNotice(tr('Your request went to finance.')); onReload(); }} />}
       {dialog === 'import' && <ImportDialog sheet={sheet} onClose={() => setDialog(null)} onDone={(r) => { setDialog(null); setNotice(tr('Brought in {n} lines and {c} checks.', { n: r.added, c: r.checksAdded })); onReload(); }} />}
+      {dialog === 'payback' && <PayBackDialog sheet={sheet} onClose={() => setDialog(null)} onDone={(l) => { setDialog(null); setNotice(tr('Paid back {amount}.', { amount: GHS(l.amount) })); onReload(); }} />}
       {dialog === 'settings' && <SheetSettingsDialog sheet={sheet} people={people} onClose={() => setDialog(null)} onDone={() => { setDialog(null); onReload(); }} />}
       {dialog && dialog.edit && (
         <div className="dialog-backdrop" onClick={() => setDialog(null)}>

@@ -7,6 +7,8 @@ import { msg } from '../lib/i18n.jsx';
 // AppShell) rather than being left out of the nav — the shape of the app is
 // part of what this pass is establishing.
 // `icon` names a shared path in layout/navIcons.jsx (AppShell's <Icon>).
+// `hidden: true` keeps an item's route and page title but leaves it out of
+// the sidebar (a page reached from links and notifications only).
 //
 // Labels are wrapped in msg(), not tr(): this list is built once, when the
 // module loads, and a tr() here would fix the sidebar in whatever language
@@ -96,9 +98,12 @@ export const NAV_GROUPS = [
   { label: msg('Finance'), items: [
     { key: 'financedash', label: msg('Finance dashboard'), perm: 'report.read', icon: 'chart' },
     { key: 'payroll', label: msg('Payroll'), perm: 'payroll.read', icon: 'cash' },
-    { key: 'expenses', label: msg('Expenses'), perm: 'expense.request', icon: 'receipt' },
-    // Each officer's float as their own running sheet (pages/expenseSheets).
-    { key: 'expensesheets', label: msg('Expense sheets'), perm: ['expense.request', 'expensesheet.read.all', 'expensesheet.manage'], icon: 'cash' },
+    // Spending company money: each officer's float as their own running
+    // sheet (pages/expenseSheets), and anyone who paid from their own pocket
+    // records it there too. The older expense claims stay reachable as
+    // history (hidden: a route and a page title, not in the menu).
+    { key: 'expensesheets', label: msg('Expenses'), perm: ['expense.request', 'expensesheet.read.all', 'expensesheet.manage'], icon: 'cash' },
+    { key: 'expenses', label: msg('Expense claims'), perm: 'expense.request', icon: 'receipt', hidden: true },
     // Sales reps' commission on paid-up deals (the CRM's figures; crm.read).
     { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },

@@ -6,14 +6,17 @@ import { Glossary } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
 import EsOverview from './EsOverview';
 import EsSheet from './EsSheet';
+import EsStart from './EsStart';
 import './ExpenseSheets.css';
 
-// Officers' expense sheets (GET /api/expense-sheets…): each officer's float
-// as their own running sheet, in place of one spreadsheet per officer.
+// Expenses (GET /api/expense-sheets…): each officer's float as their own
+// running sheet, in place of one spreadsheet per officer — and the one place
+// for spending company money, older expense claims being history.
 // Finance (and whoever may see every sheet) starts on the overview of all
 // officers; an officer goes straight to their own sheet; a supervisor with
-// several sheets to check picks one. ?sheet= opens a sheet (notifications
-// link here).
+// several sheets to check picks one. Someone with no sheet of their own
+// records what they paid from their own pocket (EsStart) and a sheet with
+// no float opens for them. ?sheet= opens a sheet (notifications link here).
 
 export default function ExpenseSheetsPage() {
   const { session, can } = useAuth();
@@ -30,6 +33,7 @@ export default function ExpenseSheetsPage() {
   const [sheetYear, setSheetYear] = useState(null);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [lists, setLists] = useState(null);
 
   const loadList = useCallback(async () => {
     try {
@@ -46,6 +50,18 @@ export default function ExpenseSheetsPage() {
       .concat(me.id ? [{ id: me.id, name: ((me.firstName || '') + ' ' + (me.lastName || '')).trim(), department: '' }] : [])
       .sort((a, b) => a.name.localeCompare(b.name)))).catch(() => {});
   }, [can, me.id, me.firstName, me.lastName]);
+
+  // Someone with no sheet of their own can record what they paid.
+  const canStart = can('expense.request') && !!sheets && !sheets.some((s) => s.mine);
+  useEffect(() => {
+    if (!canStart || lists) return;
+    api.get('/expense-sheets/lists').then(setLists).catch(() => setLists({ categories: [], costCentres: [] }));
+  }, [canStart, lists]);
+  async function started(s) {
+    setNotice(tr('Recorded. Your expense sheet is open and finance has been told.'));
+    await loadList();
+    open(s.id);
+  }
 
   // Which sheet is open: the one asked for, else an officer's only sheet.
   const openId = sheetParam || (sheets && !finance && sheets.length === 1 ? sheets[0].id : null);
@@ -75,13 +91,17 @@ export default function ExpenseSheetsPage() {
         sheet ? <EsSheet sheet={sheet} viewerId={me.id} people={people} onReload={reloadSheet} onBack={finance || sheets.length > 1 ? () => open(null) : null} setNotice={setNotice} />
           : <div className="eyebrow">{tr('Loading…')}</div>
       ) : sheets.length || finance ? (
-        <EsOverview sheets={sheets} report={finance ? report : null} topups={topups} can={{ manage: can('expensesheet.manage') }} people={people}
-          year={year} onYear={setYear} onOpen={open} onReload={loadList} setNotice={setNotice} />
+        <>
+          <EsOverview sheets={sheets} report={finance ? report : null} topups={topups} can={{ manage: can('expensesheet.manage') }} people={people}
+            year={year} onYear={setYear} onOpen={open} onReload={loadList} setNotice={setNotice} />
+          {canStart && <EsStart lists={lists} onDone={started} />}
+        </>
+      ) : canStart ? (
+        <EsStart lists={lists} onDone={started} open />
       ) : (
         <div className="es-none">
           <h2>{tr('You have no expense sheet')}</h2>
           <p>{tr('If the company gives you a float to spend for it, ask finance to open an expense sheet for you. You will then record here what you spend and the money you receive.')}</p>
-          <p className="es-muted">{tr('To be paid back for something you bought yourself, use Expenses (claims) instead.')}</p>
         </div>
       )}
       <Glossary items={[
@@ -89,7 +109,8 @@ export default function ExpenseSheetsPage() {
         [tr('Balance'), tr('Money received minus money spent. Above zero it is cash the officer holds; below zero the company owes the officer.')],
         [tr('Check'), tr('A supervisor or finance confirms the balance up to a date, counting the cash if they want. Lines on or before that date are then locked.')],
         [tr('Cost centre'), tr('The company, site or job the money was spent for.')],
-        [tr('Top-up'), tr('Money the officer asks finance for. Once approved it is added to the sheet as money received.')]
+        [tr('Top-up'), tr('Money the officer asks finance for. Once approved it is added to the sheet as money received.')],
+        [tr('Paid back'), tr('What finance pays an officer the company owes them, recorded on their sheet as money received.')]
       ]} />
       {notice && <div className="es-notice" role="status">{notice}</div>}
     </div>

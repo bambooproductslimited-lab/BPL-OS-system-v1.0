@@ -6,9 +6,10 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 // was decided lately.
 //
 // An approval row stands for one request (leave, a purchase, an expense
-// claim) and names the permission needed to decide it. A person sees the
-// pending ones they hold that permission for, about people inside their
-// scope (visibleEmployee), never their own. params.companyId/departmentId
+// claim, a float top-up on an expense sheet) and names the permission
+// needed to decide it. A person sees the pending ones they hold that
+// permission for, about people inside their scope (visibleEmployee), never
+// their own. params.companyId/departmentId
 // narrow by the requester's department and its company.
 //
 // Each entry carries the facts needed to decide without opening another
@@ -98,10 +99,29 @@ async function expenseFacts(entry, id) {
   entry.facts = { category: ex.category, amount: Number(ex.amount), date: ex.date, receipt: ex.receipt_key ? { name: ex.receipt_name || 'receipt', type: ex.receipt_type || '' } : null };
 }
 
+// A float top-up on an expense sheet (migration 0142): what was asked, and
+// where the officer's sheet stands — cash in hand against the usual float,
+// and when it was last checked.
+async function topupFacts(entry, id) {
+  var t = (await pool.query(
+    "SELECT t.*, s.float_limit, (SELECT coalesce(sum(CASE WHEN l.kind = 'funding' THEN l.amount ELSE -l.amount END), 0) FROM expense_sheet_lines l WHERE l.sheet_id = t.sheet_id) AS balance, " +
+    '(SELECT max(c.upto_date) FROM expense_sheet_checks c WHERE c.sheet_id = t.sheet_id) AS upto FROM expense_sheet_topups t JOIN expense_sheets s ON s.id = t.sheet_id WHERE t.id = $1', [id])).rows[0];
+  if (!t) return;
+  entry.reason = t.reason || '';
+  entry.detail = 'Float top-up · GHS ' + Number(t.amount).toLocaleString() + ' · cash in hand GHS ' + Number(t.balance).toLocaleString();
+  entry.amount = Number(t.amount);
+  entry.currency = 'GHS';
+  entry.facts = {
+    amount: Number(t.amount), sheetId: t.sheet_id, balance: Math.round(Number(t.balance) * 100) / 100,
+    floatLimit: t.float_limit === null ? null : Number(t.float_limit), checkedUntil: t.upto ? new Date(t.upto).toISOString().slice(0, 10) : null
+  };
+}
+
 async function withFacts(entry, e, a) {
   if (a.subject_type === 'leave_request') await leaveFacts(entry, e, a.subject_id);
   else if (a.subject_type === 'procurement_request') await procurementFacts(entry, a.subject_id);
   else if (a.subject_type === 'expense') await expenseFacts(entry, a.subject_id);
+  else if (a.subject_type === 'expense_topup') await topupFacts(entry, a.subject_id);
   return entry;
 }
 

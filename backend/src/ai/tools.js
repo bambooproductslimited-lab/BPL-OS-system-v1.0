@@ -16,6 +16,7 @@ var leaveService = require('../services/leave.service');
 var approvalsService = require('../services/approvals.service');
 var procurementService = require('../services/procurement.service');
 var expensesService = require('../services/expenses.service');
+var expenseSheetsService = require('../services/expenseSheets.service');
 var employeeCodes = require('../services/employeeCodes.service');
 
 // What Claude can look up and do in Bamboo OS, shared by the AI Assistant
@@ -363,7 +364,7 @@ var TOOLS = [
     name: 'get_approval_queue',
     kind: 'read',
     perm: 'approval.act',
-    description: 'Items waiting for this person to approve or reject: leave requests, purchase requests and expense claims.',
+    description: 'Items waiting for this person to approve or reject: leave requests, purchase requests, float top-ups on expense sheets and (older) expense claims.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
     run: async function (ctx) {
       var list = await approvalsService.queue(ctx, {});
@@ -391,7 +392,7 @@ var TOOLS = [
   {
     name: 'list_expense_claims',
     kind: 'read',
-    description: "Expense claims this person can see (their own, or everyone's for finance roles): category, amount, status and who claimed.",
+    description: "Older expense claims this person can see (their own, or everyone's for finance roles): category, amount, status and who claimed. Spending is now kept on expense sheets (list_expense_sheets).",
     input_schema: {
       type: 'object',
       properties: { status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'paid'] } },
@@ -401,6 +402,19 @@ var TOOLS = [
       var list = await expensesService.list(ctx);
       return capped(list.filter(function (x) { return !input.status || x.status === input.status; }), function (x) {
         return { category: x.category, amount: x.amount, currency: x.currency || 'GHS', status: x.status, requester: x.requesterName, date: x.date || day(x.createdAt), description: x.description || undefined };
+      });
+    }
+  },
+
+  {
+    name: 'list_expense_sheets',
+    kind: 'read',
+    description: "Officers' expense sheets this person can see (their own, the ones they check, or every sheet for finance): cash in hand (below zero, the company owes the officer), usual float, spent this month and this year, when last checked, lines waiting for a check and top-ups waiting.",
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    run: async function (ctx) {
+      var list = await expenseSheetsService.list(ctx);
+      return capped(list, function (x) {
+        return { officer: x.employee.name, department: x.employee.department || undefined, cashInHand: x.balance, currency: 'GHS', usualFloat: x.floatLimit, spentThisMonth: x.spentThisMonth, spentThisYear: x.spentThisYear, checkedUntil: x.checkedUntil, linesWaitingForCheck: x.uncheckedLines, topupsWaiting: x.pendingTopups, status: x.status };
       });
     }
   },

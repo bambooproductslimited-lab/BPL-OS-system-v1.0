@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -15,7 +16,11 @@ import './CustomersPage.css';
 import './EstimatesPage.css';
 import './ExpensesPage.css';
 
-// Expenses — money staff spent for the business and claim back. Same
+// Expense claims — money staff spent for the business and claimed back,
+// now kept as history: spending is recorded on expense sheets
+// (pages/expenseSheets, the Expenses menu item), where someone with no
+// sheet records what they paid and is paid back. Claims still waiting can
+// be decided and paid out here; no new ones are made. Same
 // "explains itself" layout as the dashboards (components/DashKit.jsx): what
 // is waiting for a decision, what is approved but not paid out, what was
 // claimed this month, claims with no receipt; what stands out (claims left
@@ -96,7 +101,6 @@ export default function ExpensesPage() {
   }, [toast]);
   useEffect(() => { setNote(''); setConfirmDelete(false); }, [detail]);
 
-  function openNew() { setFormError(null); setEditId(null); setForm(EMPTY_FORM); setFile(null); setFormOpen(true); }
   function openEdit(x) {
     setFormError(null); setEditId(x.id); setFile(null);
     setForm({ category: x.category, amount: String(x.amount), date: String(x.date).slice(0, 10), description: x.description });
@@ -227,9 +231,9 @@ export default function ExpensesPage() {
 
       <Hero
         eyebrow={tr('Finance')}
-        title={tr('Expenses')}
-        sub={canApprove ? tr('Money staff spent for the business and are claiming back: what waits for a decision, what is approved but not paid out, and where the money goes. Press a number to show only those.') : tr('Money you spent for the business and are claiming back: send a claim with a photo of the receipt and follow it until it is paid.')}
-        actions={canRequest && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New claim')}</button>}
+        title={tr('Expense claims')}
+        sub={tr('The older claims, kept as history. Spending is now recorded on expense sheets: if you paid for something for the company, record it under Expenses and finance pays you back.')}
+        actions={canRequest && <Link className="btn btn-primary" to="/expensesheets">{tr('Open Expenses')}</Link>}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
@@ -263,7 +267,7 @@ export default function ExpensesPage() {
         {!visible.length ? (
           <div className="dk-empty tl-empty">
             <p>{expenses.length ? tr('Nothing matches. Try another search or filter.') : tr('No expense claims yet')}</p>
-            {canRequest && !expenses.length && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New claim')}</button>}
+            {canRequest && !expenses.length && <Link className="btn btn-primary" to="/expensesheets">{tr('Open Expenses')}</Link>}
           </div>
         ) : view === 'cards' ? (
           <div className="tl-grid">

@@ -227,6 +227,19 @@
 .es-list li.is-off { opacity: .5; }
 .es-list small { color: var(--color-text-muted); }
 
+.es-start { gap: 18px; padding: 22px; background: radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--es-in) 14%, transparent), transparent 60%), var(--es-card); }
+.es-start-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.es-start-art { display: grid; place-items: center; width: 56px; height: 56px; flex: 0 0 auto; border-radius: 18px; color: #fff; background: linear-gradient(135deg, var(--es-in), var(--es-heat)); box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--es-in) 80%, transparent); }
+.es-start-art svg { width: 26px; height: 26px; }
+.es-start-text { flex: 1 1 260px; min-width: 0; }
+.es-start-text h2 { margin: 0 0 4px; font-family: var(--font-heading); font-size: 20px; }
+.es-start-text p { margin: 0; color: var(--color-text-muted); }
+.es-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.es-steps li { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 12px 46px; border-radius: 14px; background: var(--es-soft); }
+.es-steps li > svg { position: absolute; right: 12px; top: 12px; width: 16px; height: 16px; color: var(--es-heat); opacity: .8; }
+.es-steps b { font-size: 13.5px; }
+.es-steps small { font-size: 12px; color: var(--color-text-muted); }
+.es-step-n { position: absolute; left: 12px; top: 12px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: 800; color: #fff; background: var(--es-heat); }
 .es-none { display: flex; flex-direction: column; gap: 8px; max-width: 560px; padding: 28px; border-radius: 22px; background: var(--es-card); border: 1px solid var(--es-line); box-shadow: var(--es-shadow); }
 .es-none h2, .es-none p { margin: 0; }
 .es-notice { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%); padding: 10px 18px; border-radius: 999px; font-weight: 700; color: #fff; background: #1f2a24; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
@@ -252,6 +265,7 @@
   .es-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .es-rank li { grid-template-columns: minmax(0, 100px) minmax(0, 1fr) auto; }
   .es-month-bars { height: 130px; }
+  .es-steps { grid-template-columns: minmax(0, 1fr); }
   .es-topup { flex-wrap: wrap; }
   .es-topup-text { flex-basis: calc(100% - 60px); }
   .es-topup strong { margin-left: 56px; flex: 1; }

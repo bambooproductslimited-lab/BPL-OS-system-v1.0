@@ -391,7 +391,15 @@ async function requestTopup(ctx, sheetId, p) {
   var amount = money(p.amount);
   if (!(amount > 0) || amount > 10000000) fail('invalid', 'Enter the amount you need.');
   var reason = clip(p.reason, 300);
-  var t = (await pool.query('INSERT INTO expense_sheet_topups (sheet_id, amount, reason, requested_by) VALUES ($1,$2,$3,$4) RETURNING *', [sheetId, amount, reason, ctx.employee.id])).rows[0];
+  var t = await withTransaction(async function (client) {
+    var row = (await client.query('INSERT INTO expense_sheet_topups (sheet_id, amount, reason, requested_by) VALUES ($1,$2,$3,$4) RETURNING *', [sheetId, amount, reason, ctx.employee.id])).rows[0];
+    // It also waits in the Approval centre (migration 0142).
+    await client.query(
+      "INSERT INTO approvals (subject_type, subject_id, title, requested_by, assignee_permission, department_id, status, created_at) " +
+      "SELECT 'expense_topup', $1, $2, e.id, 'expensesheet.manage', e.department_id, 'pending', now() FROM employees e WHERE e.id = $3",
+      [row.id, 'Float top-up: GHS ' + amount, x.s.employee_id]);
+    return row;
+  });
   var who = fullName(x.s.first_name, x.s.last_name);
   var people = await financePeople();
   for (var i = 0; i < people.length; i++) {
@@ -424,6 +432,8 @@ async function decideTopup(ctx, topupId, p) {
     }
     var r = (await client.query("UPDATE expense_sheet_topups SET status = $2, decided_by = $3, decided_at = now(), decision_note = $4, line_id = $5, amount = $6 WHERE id = $1 RETURNING *",
       [topupId, approve ? 'approved' : 'declined', ctx.employee.id, clip(p.note, 300), lineId, amount])).rows[0];
+    await client.query("UPDATE approvals SET status = $2, decided_by = $3, decided_at = now(), comment = $4 WHERE subject_type = 'expense_topup' AND subject_id = $1 AND status = 'pending'",
+      [topupId, approve ? 'approved' : 'rejected', ctx.employee.id, clip(p.note, 300)]);
     await notify(client, x.s.employee_id, approve ? 'Top-up of GHS ' + amount + ' approved' : 'Top-up request declined',
       approve ? me + ' added it to your expense sheet.' : (clip(p.note, 300) || me + ' declined it.'), 'expensesheet:' + t.sheet_id);
     await audit(client, ctx, 'expensesheet.topup.' + (approve ? 'approve' : 'decline'), 'expense_sheet', t.sheet_id,
@@ -439,7 +449,14 @@ async function cancelTopup(ctx, topupId) {
   if (!x.a.own) fail('forbidden', 'Only the officer who asked can cancel it.');
   if (t.status !== 'pending') fail('invalid', 'This request has already been decided.');
   await pool.query("UPDATE expense_sheet_topups SET status = 'cancelled', decided_at = now() WHERE id = $1", [topupId]);
+  await pool.query("UPDATE approvals SET status = 'cancelled', decided_at = now() WHERE subject_type = 'expense_topup' AND subject_id = $1 AND status = 'pending'", [topupId]);
   return { ok: true };
+}
+// From the Approval centre: { decision: 'approved' | 'rejected', note } —
+// approving gives what was asked, today.
+async function decideFromApprovals(ctx, topupId, p) {
+  var decision = V.oneOf(p && p.decision, ['approved', 'rejected'], 'Decision');
+  return decideTopup(ctx, topupId, { approve: decision === 'approved', note: p.note });
 }
 // Everything waiting for finance, across sheets.
 async function pendingTopups(ctx) {
@@ -481,8 +498,11 @@ async function update(ctx, id, p) {
   await audit(pool, ctx, 'expensesheet.update', 'expense_sheet', id, 'Updated ' + fullName(x.s.first_name, x.s.last_name) + '\'s expense sheet.');
   return get(ctx, id);
 }
+// The category and cost-centre lists: for anyone who may record spending
+// (expense.request — someone with no sheet yet picks from them too), sees
+// every sheet, or has a sheet of their own or to check.
 async function getLists(ctx) {
-  if (!ctx.can('expensesheet.manage') && !ctx.can('expensesheet.read.all') &&
+  if (!ctx.can('expense.request') && !ctx.can('expensesheet.manage') && !ctx.can('expensesheet.read.all') &&
     !(await pool.query('SELECT 1 FROM expense_sheets WHERE employee_id = $1 OR supervisor_id = $1 LIMIT 1', [ctx.employee.id])).rows.length) fail('forbidden', 'You have no expense sheet.');
   return lists();
 }
@@ -571,6 +591,101 @@ async function exportCsv(ctx, q) {
   }).join('\n') + '\n';
 }
 
+// ── staff with no sheet, and paying officers back ─────────────────────
+// kernel: expenseSheets.startOwn — someone with no expense sheet paid for
+// something for the company from their own pocket. A sheet with no float
+// opens for them, checked by their manager, with that expense on it: the
+// company owes them it until finance pays it back. Takes an expense line's
+// fields; the answer is the new sheet, with newLineId for the receipt.
+async function startOwn(ctx, p) {
+  if (!ctx.can('expense.request')) fail('forbidden', 'Your role does not allow this action (expense.request).');
+  if ((await pool.query('SELECT 1 FROM expense_sheets WHERE employee_id = $1', [ctx.employee.id])).rows.length) fail('invalid', 'You already have an expense sheet: record it there.');
+  var v = lineInput(p, 'expense');
+  if (!(v.amount > 0)) fail('invalid', 'Enter what you paid.');
+  if (!clip(p.category, 60)) fail('invalid', 'Choose a category.');
+  var me = (await pool.query('SELECT id, first_name, last_name, manager_id FROM employees WHERE id = $1', [ctx.employee.id])).rows[0];
+  var supervisorId = me.manager_id && me.manager_id !== me.id ? me.manager_id : null;
+  var s = (await pool.query(
+    "INSERT INTO expense_sheets (employee_id, supervisor_id, float_limit, note, created_by) VALUES ($1, $2, 0, 'Opened by the officer to be paid back.', $1) " +
+    'ON CONFLICT (employee_id) DO NOTHING RETURNING id', [me.id, supervisorId])).rows[0];
+  if (!s) fail('invalid', 'You already have an expense sheet: record it there.');
+  var line;
+  try { line = await addLine(ctx, s.id, Object.assign({}, p, { kind: 'expense' })); } catch (e) { await pool.query('DELETE FROM expense_sheets WHERE id = $1', [s.id]); throw e; }
+  var who = fullName(me.first_name, me.last_name);
+  var tell = (await financePeople()).concat(supervisorId ? [supervisorId] : []).filter(function (id, i, a) { return id !== me.id && a.indexOf(id) === i; });
+  for (var i = 0; i < tell.length; i++) await notify(pool, tell[i], who + ' paid GHS ' + v.amount + ' for the company', 'From their own pocket. Their expense sheet shows what the company owes them.', 'expensesheet:' + s.id);
+  await audit(pool, ctx, 'expensesheet.start', 'expense_sheet', s.id, who + ' opened an expense sheet to be paid back GHS ' + v.amount + '.');
+  return Object.assign(await get(ctx, s.id), { newLineId: line.id });
+}
+// kernel: expenseSheets.payBack — finance pays an officer what the company
+// owes them (their sheet is below zero): money received on the sheet,
+// marked as a pay-back. The amount defaults to everything owed.
+async function payBack(ctx, sheetId, p) {
+  var x = await sheetFor(ctx, sheetId, 'manage');
+  p = p || {};
+  var bal = money((await pool.query("SELECT coalesce(sum(CASE WHEN kind = 'funding' THEN amount ELSE -amount END), 0) AS b FROM expense_sheet_lines WHERE sheet_id = $1", [sheetId])).rows[0].b);
+  if (bal >= 0) fail('invalid', 'The company owes this officer nothing.');
+  var amount = p.amount === undefined || p.amount === null || p.amount === '' ? -bal : money(p.amount);
+  if (!(amount > 0) || amount > 10000000) fail('invalid', 'Enter the amount paid back.');
+  var date = p.date ? V.date(p.date, 'Date') : today();
+  if (date > today()) fail('invalid', 'The date cannot be in the future.');
+  var me = fullName(ctx.employee.first_name, ctx.employee.last_name);
+  var note = clip(p.note, 250);
+  var r = await withTransaction(async function (client) {
+    await client.query('SELECT id FROM expense_sheets WHERE id = $1 FOR UPDATE', [sheetId]);
+    ensureOpen(await lockDate(client, sheetId), date);
+    var seq = (await client.query('SELECT coalesce(max(seq), 0) + 1 AS n FROM expense_sheet_lines WHERE sheet_id = $1', [sheetId])).rows[0].n;
+    var row = (await client.query(
+      "INSERT INTO expense_sheet_lines (sheet_id, kind, seq, date, amount, note, payee, source, created_by) VALUES ($1, 'funding', $2, $3, $4, $5, $6, 'payback', $7) RETURNING *",
+      [sheetId, seq, date, amount, 'Paid back' + (note ? ': ' + note : ''), me, ctx.employee.id])).rows[0];
+    await client.query('UPDATE expense_sheets SET updated_at = now() WHERE id = $1', [sheetId]);
+    await notify(client, x.s.employee_id, 'GHS ' + amount + ' paid back to you', me + ' recorded it on your expense sheet.', 'expensesheet:' + sheetId);
+    await audit(client, ctx, 'expensesheet.payback', 'expense_sheet', sheetId, 'Paid back GHS ' + amount + ' to ' + fullName(x.s.first_name, x.s.last_name) + '.');
+    return row;
+  });
+  return lineOut(r);
+}
+
+// ── for the dashboard and My space ───────────────────────────────────
+// What waits on expense sheets for this person: top-ups for finance, and
+// open sheets with lines since their last check for whoever checks them
+// (the sheet's supervisor, or finance). companyId/isBpl narrow it to the
+// officers of one company (no company = Bamboo Products). null when the
+// person neither runs the sheets nor checks any.
+async function todo(ctx, companyId, isBpl) {
+  var manage = ctx.can('expensesheet.manage');
+  var rows = (await pool.query(
+    "SELECT s.id, (SELECT count(*)::int FROM expense_sheet_lines l WHERE l.sheet_id = s.id AND l.date > coalesce((SELECT max(c.upto_date) FROM expense_sheet_checks c WHERE c.sheet_id = s.id), '1900-01-01')) AS unchecked, " +
+    "(SELECT count(*)::int FROM expense_sheet_topups t WHERE t.sheet_id = s.id AND t.status = 'pending') AS topups, " +
+    "(SELECT coalesce(sum(t.amount), 0) FROM expense_sheet_topups t WHERE t.sheet_id = s.id AND t.status = 'pending') AS topup_amount " +
+    "FROM expense_sheets s JOIN employees e ON e.id = s.employee_id LEFT JOIN departments d ON d.id = e.department_id " +
+    "WHERE s.status = 'open' AND ($2 OR s.supervisor_id = $1) AND s.employee_id <> $1 AND ($3::uuid IS NULL OR d.company_id = $3 OR (d.company_id IS NULL AND $4))",
+    [ctx.employee.id, manage, companyId || null, !!isBpl])).rows;
+  if (!manage && !rows.length) return null;
+  var waiting = rows.filter(function (r) { return r.unchecked > 0; });
+  return {
+    sheetsToCheck: waiting.length, linesToCheck: waiting.reduce(function (t, r) { return t + r.unchecked; }, 0),
+    topupsWaiting: manage ? rows.reduce(function (t, r) { return t + r.topups; }, 0) : null,
+    topupsWaitingTotal: manage ? money(rows.reduce(function (t, r) { return t + Number(r.topup_amount); }, 0)) : null
+  };
+}
+// An officer's own sheet in brief, for My space; null without one.
+async function brief(employeeId) {
+  var s = (await pool.query(
+    "SELECT s.id, s.float_limit, s.status, coalesce(sum(CASE WHEN l.kind = 'funding' THEN l.amount WHEN l.kind = 'expense' THEN -l.amount END), 0) AS balance, " +
+    "coalesce(sum(l.amount) FILTER (WHERE l.kind = 'expense' AND date_trunc('month', l.date) = date_trunc('month', CURRENT_DATE)), 0) AS spent_month, " +
+    'max(l.date) AS last_line, (SELECT max(c.upto_date) FROM expense_sheet_checks c WHERE c.sheet_id = s.id) AS upto, ' +
+    "(SELECT sum(t.amount) FROM expense_sheet_topups t WHERE t.sheet_id = s.id AND t.status = 'pending') AS topup " +
+    'FROM expense_sheets s LEFT JOIN expense_sheet_lines l ON l.sheet_id = s.id WHERE s.employee_id = $1 GROUP BY s.id', [employeeId])).rows[0];
+  if (!s) return null;
+  var upto = dayStr(s.upto);
+  var unchecked = (await pool.query('SELECT count(*)::int AS n FROM expense_sheet_lines WHERE sheet_id = $1 AND date > $2', [s.id, upto || '1900-01-01'])).rows[0].n;
+  return {
+    id: s.id, status: s.status, floatLimit: s.float_limit === null ? null : Number(s.float_limit), balance: money(s.balance), spentThisMonth: money(s.spent_month),
+    lastLineDate: dayStr(s.last_line), checkedUntil: upto, uncheckedLines: unchecked, topupWaiting: s.topup === null ? null : money(s.topup)
+  };
+}
+
 // The officer's own sheet, if they have one (for the menu and My space).
 async function mine(ctx) {
   var r = (await pool.query('SELECT id FROM expense_sheets WHERE employee_id = $1', [ctx.employee.id])).rows[0];
@@ -581,6 +696,7 @@ module.exports = {
   list: list, get: get, mine: mine, create: create, update: update,
   addLine: addLine, updateLine: updateLine, removeLine: removeLine, attachReceipt: attachReceipt, receiptFile: receiptFile,
   check: check, undoCheck: undoCheck, requestTopup: requestTopup, decideTopup: decideTopup, cancelTopup: cancelTopup, pendingTopups: pendingTopups,
+  decideFromApprovals: decideFromApprovals, startOwn: startOwn, payBack: payBack, todo: todo, brief: brief,
   getLists: getLists, saveListItem: saveListItem, report: report, exportCsv: exportCsv,
   // for the workbook import
   _sheetFor: sheetFor, _lockDate: lockDate, _money: money, _initialsOf: initialsOf, _ensureLists: ensureLists

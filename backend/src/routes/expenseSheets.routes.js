@@ -36,11 +36,14 @@ router.get('/export.csv', h(async function (req, res) {
   res.send('﻿' + csv);
 }));
 router.post('/', h(function (req) { return sheets.create(req.ctx, req.body || {}); }));
+// Someone with no sheet records what they paid from their own pocket.
+router.post('/start', h(function (req) { return sheets.startOwn(req.ctx, req.body || {}); }));
 router.get('/:id', h(function (req) { return sheets.get(req.ctx, req.params.id, req.query.year); }));
 router.patch('/:id', h(function (req) { return sheets.update(req.ctx, req.params.id, req.body || {}); }));
 router.post('/:id/lines', h(function (req) { return sheets.addLine(req.ctx, req.params.id, req.body || {}); }));
 router.post('/:id/checks', h(function (req) { return sheets.check(req.ctx, req.params.id, req.body || {}); }));
 router.post('/:id/topups', h(function (req) { return sheets.requestTopup(req.ctx, req.params.id, req.body || {}); }));
+router.post('/:id/payback', h(function (req) { return sheets.payBack(req.ctx, req.params.id, req.body || {}); }));
 router.post('/:id/import/preview', workbookUpload.single('file'), h(function (req) { return sheetImport.preview(req.ctx, req.params.id, req.file); }));
 router.post('/:id/import', workbookUpload.single('file'), h(function (req) { return sheetImport.run(req.ctx, req.params.id, req.file); }));
 router.patch('/lines/:lineId', h(function (req) { return sheets.updateLine(req.ctx, req.params.lineId, req.body || {}); }));
@@ -50,5 +53,7 @@ router.get('/lines/:lineId/receipt', h(async function (req, res) { var f = await
 router.delete('/checks/:checkId', h(function (req) { return sheets.undoCheck(req.ctx, req.params.checkId); }));
 router.post('/topups/:topupId/decide', h(function (req) { return sheets.decideTopup(req.ctx, req.params.topupId, req.body || {}); }));
 router.post('/topups/:topupId/cancel', h(function (req) { return sheets.cancelTopup(req.ctx, req.params.topupId); }));
+// From the Approval centre: { decision: 'approved' | 'rejected', note }.
+router.post('/topups/:topupId/decision', h(function (req) { return sheets.decideFromApprovals(req.ctx, req.params.topupId, req.body || {}); }));
 
 module.exports = router;

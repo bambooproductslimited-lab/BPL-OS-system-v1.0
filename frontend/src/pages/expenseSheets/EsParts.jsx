@@ -115,7 +115,9 @@ export function Who({ person, size = 40 }) {
 }
 
 // ── a line: add or change ─────────────────────────────────────────────
-export function LineForm({ sheet, line, kind: kindIn, onSaved, onCancel, compact }) {
+// `start`: no sheet yet — the expense opens one (POST /expense-sheets/start),
+// and `sheet` only carries the lists.
+export function LineForm({ sheet, line, kind: kindIn, onSaved, onCancel, compact, start }) {
   const [kind, setKind] = useState(line ? line.kind : kindIn || 'expense');
   const [f, setF] = useState(() => ({
     date: line ? line.date : todayIso(), amount: line ? String(line.amount) : '', qty: line ? String(line.qty) : '1',
@@ -137,8 +139,8 @@ export function LineForm({ sheet, line, kind: kindIn, onSaved, onCancel, compact
     setBusy(true); setErr(null);
     try {
       const body = { ...f, kind, amount: Number(f.amount), qty: Number(f.qty) || 1 };
-      const saved = line ? await api.patch('/expense-sheets/lines/' + line.id, body) : await api.post('/expense-sheets/' + sheet.id + '/lines', body);
-      if (receipt) { const fd = new FormData(); fd.append('file', receipt); await api.upload('/expense-sheets/lines/' + saved.id + '/receipt', fd); }
+      const saved = line ? await api.patch('/expense-sheets/lines/' + line.id, body) : start ? await api.post('/expense-sheets/start', body) : await api.post('/expense-sheets/' + sheet.id + '/lines', body);
+      if (receipt) { const fd = new FormData(); fd.append('file', receipt); await api.upload('/expense-sheets/lines/' + (start ? saved.newLineId : saved.id) + '/receipt', fd); }
       if (!line) setF((x) => ({ ...x, amount: '', qty: '1', note: '', payee: kind === 'funding' ? x.payee : '' }));
       setReceipt(null);
       onSaved(saved);
@@ -146,7 +148,7 @@ export function LineForm({ sheet, line, kind: kindIn, onSaved, onCancel, compact
   }
   return (
     <form className={'es-form' + (compact ? ' is-compact' : '')} onSubmit={save}>
-      {!line && (
+      {!line && !start && (
         <div className="es-kind" role="tablist" aria-label={tr('What is it?')}>
           <button type="button" role="tab" aria-selected={kind === 'expense'} className={kind === 'expense' ? 'is-on' : ''} onClick={() => setKind('expense')}><Icon name="receipt" /> {tr('Money spent')}</button>
           <button type="button" role="tab" aria-selected={kind === 'funding'} className={kind === 'funding' ? 'is-on is-recv' : ''} onClick={() => setKind('funding')}><Icon name="cash" /> {tr('Money received')}</button>
@@ -186,7 +188,7 @@ export function LineForm({ sheet, line, kind: kindIn, onSaved, onCancel, compact
       <datalist id={'es-assets-' + sheet.id}>{sheet.suggestions.assets.map((a) => <option key={a.name} value={a.name} />)}</datalist>
       <div className="es-form-actions">
         {onCancel && <button type="button" className="btn btn-secondary" onClick={onCancel}>{tr('Cancel')}</button>}
-        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? tr('Saving…') : line ? tr('Save changes') : kind === 'funding' ? tr('Add money received') : tr('Add expense')}</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? tr('Saving…') : line ? tr('Save changes') : start ? tr('Record it and ask to be paid back') : kind === 'funding' ? tr('Add money received') : tr('Add expense')}</button>
       </div>
     </form>
   );
@@ -237,20 +239,46 @@ export function CheckDialog({ sheet, onDone, onClose }) {
   );
 }
 
+// With a float: up to the usual float. With none (someone paid back for
+// what they bought themselves): what the company owes them.
 export function TopupDialog({ sheet, onDone, onClose }) {
-  const [amount, setAmount] = useState(sheet.floatLimit && sheet.balance < sheet.floatLimit ? String(Math.round((sheet.floatLimit - sheet.balance) * 100) / 100) : '');
+  const payBack = !sheet.floatLimit && sheet.balance < 0;
+  const gap = sheet.floatLimit ? sheet.floatLimit - sheet.balance : -sheet.balance;
+  const [amount, setAmount] = useState(gap > 0 ? String(Math.round(gap * 100) / 100) : '');
   const [reason, setReason] = useState('');
   const [err, setErr] = useState(null);
   async function go() { setErr(null); try { onDone(await api.post('/expense-sheets/' + sheet.id + '/topups', { amount: Number(amount), reason })); } catch (ex) { setErr(ex.message); } }
   return (
-    <Dialog title={tr('Ask for a top-up')} onClose={onClose}>
-      <p className="dialog-body">{sheet.floatLimit ? tr('Your usual float is {amount}. Finance gets your request and adds the money to your sheet when they give it.', { amount: GHS(sheet.floatLimit) }) : tr('Finance gets your request and adds the money to your sheet when they give it.')}</p>
+    <Dialog title={payBack ? tr('Ask to be paid back') : tr('Ask for a top-up')} onClose={onClose}>
+      <p className="dialog-body">{payBack ? tr('The company owes you {amount}. Finance gets your request and records it on your sheet when they pay you.', { amount: GHS(-sheet.balance) }) : sheet.floatLimit ? tr('Your usual float is {amount}. Finance gets your request and adds the money to your sheet when they give it.', { amount: GHS(sheet.floatLimit) }) : tr('Finance gets your request and adds the money to your sheet when they give it.')}</p>
       {err && <div className="error-banner">{err}</div>}
       <div className="es-form-grid">
         <label className="es-field"><span>{tr('Amount (GHS)')}</span><input className="input" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
         <label className="es-field is-wide"><span>{tr('What it is for')}</span><input className="input" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder={tr('e.g. Fuel and transport for the week')} /></label>
       </div>
       <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button><button type="button" className="btn btn-primary" onClick={go} disabled={!(Number(amount) > 0)}>{tr('Send request')}</button></div>
+    </Dialog>
+  );
+}
+
+// Finance pays an officer back what the company owes them (the sheet is
+// below zero): money received on the sheet, marked as a pay-back.
+export function PayBackDialog({ sheet, onDone, onClose }) {
+  const [amount, setAmount] = useState(String(Math.round(-sheet.balance * 100) / 100));
+  const [date, setDate] = useState(todayIso());
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState(null);
+  async function go() { setErr(null); try { onDone(await api.post('/expense-sheets/' + sheet.id + '/payback', { amount: Number(amount), date, note })); } catch (ex) { setErr(ex.message); } }
+  return (
+    <Dialog title={tr('Pay {name} back', { name: sheet.employee.name })} onClose={onClose}>
+      <p className="dialog-body">{tr('The company owes {name} {amount}: what they spent beyond what they were given. Record what you pay them; it goes on their sheet as money received.', { name: sheet.employee.name, amount: GHS(-sheet.balance) })}</p>
+      {err && <div className="error-banner">{err}</div>}
+      <div className="es-form-grid">
+        <label className="es-field"><span>{tr('Amount paid (GHS)')}</span><input className="input" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+        <label className="es-field"><span>{tr('Date paid')}</span><input className="input" type="date" max={todayIso()} min={sheet.lockedUntil || undefined} value={date} onChange={(e) => setDate(e.target.value)} /></label>
+        <label className="es-field is-wide"><span>{tr('How (optional)')}</span><input className="input" value={note} maxLength={250} onChange={(e) => setNote(e.target.value)} placeholder={tr('e.g. Mobile money, cash')} /></label>
+      </div>
+      <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button><button type="button" className="btn btn-primary" onClick={go} disabled={!(Number(amount) > 0)}>{tr('Record the pay-back')}</button></div>
     </Dialog>
   );
 }

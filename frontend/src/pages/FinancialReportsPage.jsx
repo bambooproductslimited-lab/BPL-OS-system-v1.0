@@ -162,7 +162,8 @@ export default function FinancialReportsPage() {
   const ar90 = arAging.buckets.d90_plus || [];
   const margin = pct(pnl.netProfit, pnl.revenue);
   const grossMargin = pct(pnl.grossProfit, pnl.revenue);
-  const stillToPay = cashFlow.stillToPay.expenses + cashFlow.stillToPay.payroll;
+  const owedToOfficers = cashFlow.stillToPay.owedToOfficers || 0;
+  const stillToPay = cashFlow.stillToPay.expenses + cashFlow.stillToPay.payroll + owedToOfficers;
 
   const stats = [
     { icon: 'up', value: moneyFmt(pnl.revenue, base), label: tr('revenue'), note: tr('invoiced {a} · restaurants {b}', { a: moneyFmt(pnl.revenueLines.invoiced, base), b: moneyFmt(pnl.revenueLines.restaurant, base) }), onClick: () => pickTab('pnl') },
@@ -174,7 +175,14 @@ export default function FinancialReportsPage() {
   const insights = [];
   if (pnl.revenue > 0 && pnl.netProfit < 0) insights.push({ tone: 'bad', icon: 'down', text: tr('Costs were {amount} more than revenue over the period.', { amount: moneyFmt(-pnl.netProfit, base) }), action: { label: tr('See the P&L'), run: () => { pickTab('pnl'); jump('fr-report'); } } });
   if (cashFlow.netCashFlow < 0) insights.push({ tone: 'warn', icon: 'scale', text: tr('More cash went out ({out}) than came in ({in}).', { out: moneyFmt(cashFlow.cashOut, base), in: moneyFmt(cashFlow.cashIn, base) }), action: { label: tr('See the cash flow'), run: () => { pickTab('cashflow'); jump('fr-report'); } } });
-  if (stillToPay > 0) insights.push({ tone: 'info', icon: 'clock', text: tr('{amount} is approved but not paid out yet: {a} in expense claims and {b} in payroll.', { amount: moneyFmt(stillToPay, base), a: moneyFmt(cashFlow.stillToPay.expenses, base), b: moneyFmt(cashFlow.stillToPay.payroll, base) }), action: { label: tr('Expenses'), run: () => navigate('/expenses') } });
+  if (stillToPay > 0) {
+    const parts = [
+      owedToOfficers > 0 ? tr('{a} owed to officers on their expense sheets', { a: moneyFmt(owedToOfficers, base) }) : null,
+      cashFlow.stillToPay.expenses > 0 ? tr('{a} in approved claims', { a: moneyFmt(cashFlow.stillToPay.expenses, base) }) : null,
+      cashFlow.stillToPay.payroll > 0 ? tr('{a} in payroll', { a: moneyFmt(cashFlow.stillToPay.payroll, base) }) : null
+    ].filter(Boolean);
+    insights.push({ tone: 'info', icon: 'clock', text: tr('{amount} is still to go out: {parts}.', { amount: moneyFmt(stillToPay, base), parts: parts.join(' · ') }), action: { label: tr('Expenses'), run: () => navigate('/expensesheets') } });
+  }
   if (ar90.length) insights.push({ tone: 'bad', icon: 'owed', text: tr('{amount} has been owed for more than 90 days.', { amount: moneyBreakdown(ar90) }), action: { label: tr('See who owes'), run: () => { pickTab('araging'); jump('fr-report'); } } });
   if (Math.abs(balanceSheet.balanceCheck) >= 0.01) insights.push({ tone: 'warn', icon: 'warn', text: tr('The balance sheet is off by {amount}. Cash & bank is usually the figure to correct.', { amount: moneyFmt(Math.abs(balanceSheet.balanceCheck), base) }), action: { label: tr('See the balance sheet'), run: () => { pickTab('balancesheet'); jump('fr-report'); } } });
   if (Math.abs(taxSummary.reconciliationDiff) >= 0.01) insights.push({ tone: 'warn', icon: 'percent', text: tr('Tax worked out from the invoices differs from what they recorded by {amount}.', { amount: moneyFmt(Math.abs(taxSummary.reconciliationDiff), base) }), action: { label: tr('See the tax'), run: () => { pickTab('taxsummary'); jump('fr-report'); } } });
@@ -196,7 +204,7 @@ export default function FinancialReportsPage() {
     { label: tr('Running costs'), kind: 'head' },
     ...pnl.expenseByCategory.map((r) => ({ label: r.category, amount: r.amount })),
     { label: tr('Payroll'), amount: pnl.payrollCost, note: tr('gross pay, employer SSNIT and PAYE the company pays') },
-    { label: tr('Total running costs'), amount: pnl.totalExpenses + pnl.payrollCost, kind: 'sub' },
+    { label: tr('Total running costs'), amount: pnl.totalExpenses + pnl.payrollCost, kind: 'sub', note: pnl.expenseSources && pnl.expenseSources.sheets ? tr('claims {a} · expense sheets {b}', { a: moneyFmt(pnl.expenseSources.claims, base), b: moneyFmt(pnl.expenseSources.sheets, base) }) : null },
     { label: pnl.netProfit < 0 ? tr('Net loss') : tr('Net profit'), amount: pnl.netProfit, kind: 'total', note: margin === null ? null : tr('{pct}% of revenue', { pct: margin }) }
   ];
   const cfRows = [
@@ -204,12 +212,14 @@ export default function FinancialReportsPage() {
     ...cashFlow.cashInByMethod.map((r) => ({ label: codeLabel(r.method), amount: r.amount })),
     { label: tr('Total in'), amount: cashFlow.cashIn, kind: 'sub', note: cashFlow.cashInFromRestaurants ? tr('invoices {a} · restaurants {b}', { a: moneyFmt(cashFlow.cashInFromInvoices, base), b: moneyFmt(cashFlow.cashInFromRestaurants, base) }) : null },
     { label: tr('Money out'), kind: 'head' },
-    { label: tr('Expense claims paid out'), amount: cashFlow.expensesOut },
+    { label: tr('Expense claims paid out'), amount: cashFlow.expensesOutLines ? cashFlow.expensesOutLines.claims : cashFlow.expensesOut },
+    cashFlow.expensesOutLines && cashFlow.expensesOutLines.sheets ? { label: tr('Spent from officers\' floats'), amount: cashFlow.expensesOutLines.sheets, note: cashFlow.floats && cashFlow.floats.givenInPeriod ? tr('{amount} handed out as floats in the period', { amount: moneyFmt(cashFlow.floats.givenInPeriod, base) }) : tr('expense-sheet lines, on the day spent') } : null,
     { label: tr('Payroll paid'), amount: cashFlow.payrollOut, note: tr('runs marked paid') },
     { label: tr('Purchases received'), amount: cashFlow.purchasesOut, note: tr('counted as paid when received') },
     { label: tr('Total out'), amount: cashFlow.cashOut, kind: 'sub' },
     { label: tr('Net cash flow'), amount: cashFlow.netCashFlow, kind: 'total' },
     { label: tr('Still to go out'), kind: 'head' },
+    owedToOfficers ? { label: tr('Owed to officers'), amount: owedToOfficers, note: cashFlow.stillToPay.owedCount === 1 ? tr('1 expense sheet below zero') : tr('{n} expense sheets below zero', { n: cashFlow.stillToPay.owedCount }) } : null,
     { label: tr('Approved expense claims'), amount: cashFlow.stillToPay.expenses, note: tr('{n} claims', { n: cashFlow.stillToPay.expenseCount }) },
     { label: tr('Approved pay runs'), amount: cashFlow.stillToPay.payroll, note: tr('{n} runs', { n: cashFlow.stillToPay.payrollRuns }) }
   ];
@@ -217,12 +227,14 @@ export default function FinancialReportsPage() {
   const bsRows = [
     { label: tr('Assets'), kind: 'head' },
     { label: tr('Cash & bank'), amount: bs.assets.cashAndBank, note: tr('typed in') },
+    bs.assets.cashWithOfficers ? { label: tr('Cash with officers'), amount: bs.assets.cashWithOfficers, note: tr('float not yet spent, from the expense sheets') } : null,
     { label: tr('Accounts receivable'), amount: bs.assets.accountsReceivable },
     { label: tr('Inventory'), amount: bs.assets.inventoryValue, note: tr('finished products at cost') },
     { label: tr('Fixed assets (at cost)'), amount: bs.assets.fixedAssets },
     { label: tr('Total assets'), amount: bs.assets.total, kind: 'total' },
     { label: tr('Liabilities'), kind: 'head' },
     { label: tr('Accounts payable'), amount: bs.liabilities.accountsPayable, note: tr('typed in') },
+    bs.liabilities.owedToOfficers ? { label: tr('Owed to officers'), amount: bs.liabilities.owedToOfficers, note: tr('spent beyond their float, from the expense sheets') } : null,
     { label: tr('Loans payable'), amount: bs.liabilities.loansPayable, note: tr('typed in') },
     { label: tr('Other liabilities'), amount: bs.liabilities.otherLiabilities, note: tr('typed in') },
     { label: tr('Total liabilities'), amount: bs.liabilities.total, kind: 'sub' },
@@ -238,7 +250,7 @@ export default function FinancialReportsPage() {
     else if (tab === 'cashflow') csv('cash-flow', head(tr('Cash Flow')).concat([[tr('Line'), tr('Amount') + ' (' + base + ')']], toCsv(cfRows)));
     else if (tab === 'balancesheet') downloadCsv('balance-sheet-' + bs.asOf + '.csv', rowsToCsv([[tr('Balance Sheet'), tr('as of {asOf}', { asOf: bs.asOf })], [], [tr('Line'), tr('Amount') + ' (' + base + ')']].concat(toCsv(bsRows))));
     else if (tab === 'araging') downloadCsv('who-owes-us-' + arAging.asOf + '.csv', rowsToCsv([[tr('Who owes us'), coName, arAging.asOf], [], [tr('Invoice'), tr('Customer'), tr('Currency'), tr('Balance due'), tr('Due date'), tr('Days overdue'), tr('Bucket')]].concat(arAging.invoices.map((r) => [r.invoiceNo, r.customerName, r.currency, r.balanceDue, r.dueDate || '', r.daysOverdue, tr((BUCKETS.find((b) => b.key === r.bucket) || BUCKETS[0]).label)]))));
-    else if (tab === 'expensedetail') csv('expense-detail', head(tr('Expense Detail')).concat([[tr('Date'), tr('Category'), tr('Group'), tr('Requester'), tr('Description'), tr('Amount') + ' (' + base + ')']], expenseDetail.items.map((r) => [r.date, r.category, r.departmentName, r.requesterName, r.description, r.amount])));
+    else if (tab === 'expensedetail') csv('expense-detail', head(tr('Expense Detail')).concat([[tr('Date'), tr('Source'), tr('Category'), tr('Group'), tr('Requester'), tr('Description'), tr('Amount') + ' (' + base + ')']], expenseDetail.items.map((r) => [r.date, r.source === 'sheet' ? tr('expense sheet') : tr('claim'), r.category, r.departmentName, r.requesterName, r.description, r.amount])));
     else csv('tax-summary', head(tr('Tax Summary')).concat([[tr('Rate'), tr('Tax(es)'), tr('Taxable base') + ' (' + base + ')', tr('Tax collected') + ' (' + base + ')', tr('Invoices')]], taxSummary.byRate.map((r) => [r.rate + '%' + (r.onWholeDocument ? ' (' + tr('whole document') + ')' : ''), r.label, r.taxableBase, r.taxCollected, r.invoiceCount]), [[], [tr('Total tax (from line items)'), taxSummary.totalTaxFromLineItems], [tr('Tax set on whole documents'), taxSummary.totalTaxOnWholeDocuments], [tr('Total tax (recorded on invoices)'), taxSummary.recordedTaxTotal], [tr('Reconciliation difference'), taxSummary.reconciliationDiff]]));
   }
 
@@ -336,14 +348,14 @@ export default function FinancialReportsPage() {
                     <div><h3 className="tl-h3">{tr('By category')}</h3><RankList rows={expenseDetail.byCategory.map((r) => ({ key: r.category, name: r.category, amount: moneyFmt(r.amount, base), value: r.amount }))} /></div>
                     <div><h3 className="tl-h3">{tr('By group')}</h3><RankList rows={expenseDetail.byDepartment.map((r) => ({ key: r.department, name: r.department, amount: moneyFmt(r.amount, base), value: r.amount }))} /></div>
                   </div>
-                  <h3 className="tl-h3">{tr('Every claim ({n}), {amount} in all', { n: expenseDetail.items.length, amount: moneyFmt(expenseDetail.total, base) })}</h3>
+                  <h3 className="tl-h3">{tr('Every expense ({n}), {amount} in all', { n: expenseDetail.items.length, amount: moneyFmt(expenseDetail.total, base) })}</h3>
                   <div className="tl-table-wrap">
                     <table className="tl-table">
                       <thead><tr><th>{tr('Date')}</th><th>{tr('Category')}</th><th>{tr('Requester')}</th><th>{tr('Description')}</th><th className="is-num">{tr('Amount')}</th></tr></thead>
                       <tbody>
                         {expenseDetail.items.map((r, i) => (
                           <tr key={r.id || i}>
-                            <td>{fmtDate(r.date)}</td><td>{r.category}</td>
+                            <td>{fmtDate(r.date)}<div className="dk-muted tl-small">{r.source === 'sheet' ? tr('expense sheet') : tr('claim')}</div></td><td>{r.category}</td>
                             <td>{r.requesterName}<div className="dk-muted tl-small">{r.departmentName}</div></td>
                             <td className="es-items-cell">{r.description || '—'}</td><td className="is-num">{moneyFmt(r.amount, base)}</td>
                           </tr>
