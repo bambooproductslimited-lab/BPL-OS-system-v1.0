@@ -7,6 +7,7 @@ import EmployeeProfileDialog from '../components/EmployeeProfileDialog';
 import MergeEmployeesDialog from '../components/MergeEmployeesDialog';
 import SetEmployeeIdsDialog from '../components/SetEmployeeIdsDialog';
 import SetHireDatesDialog from '../components/SetHireDatesDialog';
+import StaffRecordsDialog from '../components/StaffRecordsDialog';
 import FaceCapture from '../components/FaceCapture';
 import Photo, { forgetBlob } from '../components/Photo';
 import PhotoDialog from '../components/PhotoDialog';
@@ -97,7 +98,7 @@ const EMPTY_EMPLOYEE_FORM = {
   code: '', firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
   employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '', ssnitSalary: '',
-  shiftStart: '', shiftEnd: '', secondShiftStart: '', secondShiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: '', dateOfBirth: ''
+  shiftStart: '', shiftEnd: '', secondShiftStart: '', secondShiftEnd: '', language: '', ssnitNumber: '', tin: '', ghanaCard: '', workDays: '', dateOfBirth: ''
 };
 // An employee's work week (employees.work_days); '' is the usual Monday to Saturday.
 const WORK_WEEKS = [
@@ -139,6 +140,7 @@ export default function EmployeesPage() {
   const [mergeTarget, setMergeTarget] = useState(null);
   const [idsOpen, setIdsOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
+  const [recordsOpen, setRecordsOpen] = useState(false);
   const canMerge = can('employee.write') && can('user.manage');
 
   const [q, setQ] = useState('');
@@ -268,7 +270,7 @@ export default function EmployeesPage() {
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
       secondShiftStart: emp.secondShiftStart || '', secondShiftEnd: emp.secondShiftEnd || '',
-      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || '', workDays: emp.workDays || '', dateOfBirth: emp.dateOfBirth || ''
+      ssnitNumber: emp.ssnitNumber || '', tin: emp.tin || '', ghanaCard: emp.ghanaCard || '', workDays: emp.workDays || '', dateOfBirth: emp.dateOfBirth || ''
     });
     setDialog('employee');
   }
@@ -295,6 +297,7 @@ export default function EmployeesPage() {
           body.ssnitSalary = form.ssnitSalary;
           body.ssnitNumber = form.ssnitNumber;
           body.tin = form.tin;
+          body.ghanaCard = form.ghanaCard;
         }
         const updated = await api.patch('/employees/' + editId, body);
         setToast(tr('Updated {firstName} {lastName}.', { firstName: updated.firstName, lastName: updated.lastName }));
@@ -306,7 +309,7 @@ export default function EmployeesPage() {
           shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, language: form.language || null, workDays: form.workDays || null,
           secondShiftStart: form.secondShiftStart, secondShiftEnd: form.secondShiftEnd,
           createAccount: !!form.roleId, roleId: form.roleId || null,
-          ...(canManagePayroll ? { ssnitNumber: form.ssnitNumber, tin: form.tin } : {})
+          ...(canManagePayroll ? { ssnitNumber: form.ssnitNumber, tin: form.tin, ghanaCard: form.ghanaCard } : {})
         });
         setToast(tr('{code} — {firstName} {lastName} added.', { code: created.code, firstName: created.firstName, lastName: created.lastName }));
       }
@@ -810,6 +813,7 @@ export default function EmployeesPage() {
           {canWrite && <button type="button" className="btn btn-secondary" onClick={openImport}>{tr('Import from sheet')}</button>}
           {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setIdsOpen(true)}>{tr('Set IDs from a list')}</button>}
           {canWrite && <button type="button" className="btn btn-secondary" onClick={() => setHireOpen(true)}>{tr('Set hire dates from a list')}</button>}
+          {canManagePayroll && <button type="button" className="btn btn-secondary" onClick={() => setRecordsOpen(true)}>{tr('Bring in staff records')}</button>}
           {canSync && <button type="button" className="btn btn-secondary" onClick={openSync}>{tr('Sync from TimeStation')}</button>}
         </>}
         people={current} tiles={stats} online={onlineNow.length} inToday={inNow.length} hasToday={hasToday}
@@ -1167,6 +1171,10 @@ export default function EmployeesPage() {
                 <div className="field"><label htmlFor="emp-tin">{tr('TIN')}</label>
                   <input id="emp-tin" className="input" value={form.tin} maxLength={30} autoComplete="off" placeholder={tr('e.g. GHA-123456789-0')}
                     onChange={(e) => setForm({ ...form, tin: e.target.value })} />
+                </div>
+                <div className="field"><label htmlFor="emp-ghana-card">{tr('Ghana Card number')}</label>
+                  <input id="emp-ghana-card" className="input" value={form.ghanaCard} maxLength={20} autoComplete="off" placeholder="GHA-123456789-0"
+                    onChange={(e) => setForm({ ...form, ghanaCard: e.target.value })} />
                 </div>
                 <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
                   {tr('For filing SSNIT and PAYE. For most people the TIN is now their Ghana Card number. Only people who manage payroll can see these.')}
@@ -1526,6 +1534,7 @@ export default function EmployeesPage() {
       )}
       {idsOpen && <SetEmployeeIdsDialog onClose={() => setIdsOpen(false)} onDone={(text) => { setIdsOpen(false); setToast(text); load(); }} />}
       {hireOpen && <SetHireDatesDialog onClose={() => setHireOpen(false)} onDone={(text) => { setHireOpen(false); setToast(text); load(); }} />}
+      {recordsOpen && <StaffRecordsDialog onClose={() => setRecordsOpen(false)} onDone={(text) => { setRecordsOpen(false); setToast(text); load(); }} />}
       {scopeTarget && (
         <ViewScopeDialog employee={scopeTarget} people={employees} departments={departments} mine={myScope}
           onClose={() => setScopeTarget(null)}

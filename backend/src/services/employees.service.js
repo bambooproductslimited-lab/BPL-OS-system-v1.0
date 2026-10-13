@@ -56,6 +56,7 @@ function rowToEmployee(r, ctx) {
     out.ssnitSalary = r.ssnit_salary == null ? null : Number(r.ssnit_salary);
     out.ssnitNumber = r.ssnit_number || null;
     out.tin = r.tin || null;
+    out.ghanaCard = r.ghana_card || null;
   }
   return out;
 }
@@ -91,6 +92,15 @@ function idNumber(v, label) {
   var t = String(v == null ? '' : v).replace(/\s+/g, '').toUpperCase();
   if (!t) return null;
   if (!/^[A-Z0-9-]{5,24}$/.test(t)) fail('invalid', label + ' can only have letters, numbers and dashes (5 to 24 of them).');
+  return t;
+}
+// A Ghana Card number, written GHA-123456789-0 (spaces and case don't
+// matter). undefined: not given; null: cleared.
+function ghanaCard(v) {
+  if (v === undefined) return undefined;
+  var t = String(v == null ? '' : v).replace(/\s+/g, '').toUpperCase();
+  if (!t) return null;
+  if (!/^GHA-\d{9}-\d$/.test(t)) fail('invalid', 'A Ghana Card number looks like GHA-123456789-0.');
   return t;
 }
 // Which other employee already has this SSNIT number or TIN, if any.
@@ -225,12 +235,14 @@ async function create(ctx, p) {
   if (p.hourlyRate !== undefined && p.hourlyRate !== null && p.hourlyRate !== '' && ctx.can('payroll.manage')) {
     hourlyRate = Math.max(0, Number(p.hourlyRate) || 0);
   }
-  var ssnitNumber = null, tin = null;
+  var ssnitNumber = null, tin = null, ghana = null;
   if (ctx.can('payroll.manage')) {
     ssnitNumber = idNumber(p.ssnitNumber, 'SSNIT number') || null;
     tin = idNumber(p.tin, 'TIN') || null;
+    ghana = ghanaCard(p.ghanaCard) || null;
     await idTaken('ssnit_number', ssnitNumber, null, 'SSNIT number');
     await idTaken('tin', tin, null, 'TIN');
+    await idTaken('ghana_card', ghana, null, 'Ghana Card number');
   }
 
   // The ID given, or the next free BPL-nnn.
@@ -243,13 +255,13 @@ async function create(ctx, p) {
 
   return withTransaction(async function (client) {
     var insertRes = await client.query(
-      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days, second_shift_start, second_shift_end, date_of_birth) ' +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *",
+      'INSERT INTO employees (code, first_name, last_name, email, phone, department_id, position_title, manager_id, employment_type, hire_date, status, location, shift, shift_start, shift_end, shift_id, hourly_rate, language, ssnit_number, tin, work_days, second_shift_start, second_shift_end, date_of_birth, ghana_card) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING *",
       [code, firstName, lastName, email, (p.phone || '').trim(), departmentId, positionTitle, p.managerId || null,
         employmentType, hireDate, p.location || defaultLocation, p.shift || 'Day · 07:00–16:00', shiftStart, shiftEnd, shiftId, hourlyRate,
         p.language ? V.oneOf(p.language, ['en', 'fr', 'zh'], 'Language') : null, ssnitNumber, tin,
         p.workDays ? V.oneOf(p.workDays, WORK_WEEKS, 'Work week') : null,
-        second ? second.start : null, second ? second.end : null, dateOfBirth]
+        second ? second.start : null, second ? second.end : null, dateOfBirth, ghana]
     );
     var e = insertRes.rows[0];
 
@@ -335,7 +347,7 @@ async function update(ctx, id, p) {
   // Pay rate/cycle are compensation data — gated separately behind
   // payroll.manage so a department manager with plain employee.write
   // (who can otherwise edit this same record) can't set someone's pay.
-  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined || p.ssnitNumber !== undefined || p.tin !== undefined || p.basicSalary !== undefined || p.allowance !== undefined || p.ssnitSalary !== undefined) && !ctx.can('payroll.manage')) {
+  if ((p.payCycle !== undefined || p.dailyRate !== undefined || p.hourlyRate !== undefined || p.ssnitNumber !== undefined || p.tin !== undefined || p.basicSalary !== undefined || p.allowance !== undefined || p.ssnitSalary !== undefined || p.ghanaCard !== undefined) && !ctx.can('payroll.manage')) {
     fail('forbidden', 'Your role does not allow this action (payroll.manage).');
   }
 
@@ -438,6 +450,11 @@ async function update(ctx, id, p) {
     await idTaken('tin', tin, id, 'TIN');
     changed.push('tin'); values.push(tin); sets.push('tin = $' + values.length);
   }
+  var gh = ghanaCard(p.ghanaCard);
+  if (gh !== undefined && gh !== (e.ghana_card || null)) {
+    await idTaken('ghana_card', gh, id, 'Ghana Card number');
+    changed.push('ghanaCard'); values.push(gh); sets.push('ghana_card = $' + values.length);
+  }
 
   if (p.code !== undefined) {
     var code = codes.normalize(p.code);
@@ -529,4 +546,4 @@ async function profile(ctx, id) {
   };
 }
 
-module.exports = { list: list, get: get, create: create, update: update, terminate: terminate, purgeTerminated: purgeTerminated, profile: profile, rowToEmployee: rowToEmployee, hireDay: hireDay };
+module.exports = { _idNumber: idNumber, _ghanaCard: ghanaCard, _idTaken: idTaken, list: list, get: get, create: create, update: update, terminate: terminate, purgeTerminated: purgeTerminated, profile: profile, rowToEmployee: rowToEmployee, hireDay: hireDay };

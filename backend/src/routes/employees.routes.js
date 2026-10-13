@@ -2,6 +2,7 @@ var express = require('express');
 var employeeMerge = require('../services/employeeMerge.service');
 var employeeCodes = require('../services/employeeCodes.service');
 var employeeHireDates = require('../services/employeeHireDates.service');
+var employeeRecords = require('../services/employeeRecords.service');
 var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var employeesService = require('../services/employees.service');
@@ -23,6 +24,12 @@ var uploadCsv = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: allowlistFilter(['csv'], 'Export the sheet as CSV before uploading.')
+});
+
+var uploadXlsx = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: allowlistFilter(['xlsx'], 'Choose the staff sheet as an Excel workbook (.xlsx).')
 });
 
 var router = express.Router();
@@ -64,6 +71,14 @@ router.post('/hire-dates/preview', async function (req, res, next) {
 });
 router.post('/hire-dates/apply', async function (req, res, next) {
   try { res.json(await employeeHireDates.apply(req.ctx, (req.body || {}).changes)); } catch (e) { next(e); }
+});
+
+// SSNIT numbers, Ghana Cards, TINs and salaries for SSNIT from a staff sheet.
+router.post('/records/preview', uploadXlsx.single('file'), async function (req, res, next) {
+  try { res.json(await employeeRecords.preview(req.ctx, req.file)); } catch (e) { next(e); }
+});
+router.post('/records/apply', async function (req, res, next) {
+  try { res.json(await employeeRecords.apply(req.ctx, (req.body || {}).changes)); } catch (e) { next(e); }
 });
 
 // Employee IDs for many people at once from a pasted list of IDs and names.

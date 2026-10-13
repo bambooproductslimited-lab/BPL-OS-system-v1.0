@@ -146,6 +146,7 @@ export default function EmployeeProfileDialog({ employeeId, onClose }) {
                   {(e.ssnitSalary != null || e.basicSalary != null) && <div><div className="employee-profile-label">{tr('Salary for SSNIT')}</div><div>{fmtMoney(e.ssnitSalary != null ? e.ssnitSalary : e.basicSalary)}{e.ssnitSalary == null ? ' · ' + tr('the basic salary') : ''}</div></div>}
                   <div><div className="employee-profile-label">{tr('SSNIT number')}</div><div>{e.ssnitNumber || tr('Not set')}</div></div>
                   <div><div className="employee-profile-label">{tr('TIN')}</div><div>{e.tin || tr('Not set')}</div></div>
+                  <div><div className="employee-profile-label">{tr('Ghana Card number')}</div><div>{e.ghanaCard || tr('Not set')}</div></div>
                 </>
               )}
               {canViewIdDocs && (
