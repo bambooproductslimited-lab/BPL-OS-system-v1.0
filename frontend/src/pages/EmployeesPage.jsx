@@ -96,7 +96,7 @@ const EMPLOYMENT_TYPES = [
 const EMPTY_EMPLOYEE_FORM = {
   code: '', firstName: '', lastName: '', email: '', phone: '', positionTitle: '',
   companyId: '', departmentId: '', shiftId: '', managerId: '', hireDate: new Date().toISOString().slice(0, 10),
-  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '',
+  employmentType: 'permanent', status: 'active', roleId: '', payCycle: 'monthly', dailyRate: 0, hourlyRate: '', basicSalary: '', allowance: '', ssnitSalary: '',
   shiftStart: '', shiftEnd: '', secondShiftStart: '', secondShiftEnd: '', language: '', ssnitNumber: '', tin: '', workDays: '', dateOfBirth: ''
 };
 // An employee's work week (employees.work_days); '' is the usual Monday to Saturday.
@@ -264,6 +264,7 @@ export default function EmployeesPage() {
       hireDate: emp.hireDate, employmentType: emp.employmentType, status: emp.status === 'terminated' ? 'active' : emp.status,
       roleId: '', payCycle: emp.payCycle || 'monthly', dailyRate: emp.dailyRate || 0,
       basicSalary: emp.basicSalary == null ? '' : emp.basicSalary, allowance: emp.allowance == null ? '' : emp.allowance,
+      ssnitSalary: emp.ssnitSalary == null ? '' : emp.ssnitSalary,
       hourlyRate: emp.hourlyRate == null ? '' : emp.hourlyRate,
       shiftStart: emp.shiftStart || '', shiftEnd: emp.shiftEnd || '', language: emp.language || '',
       secondShiftStart: emp.secondShiftStart || '', secondShiftEnd: emp.secondShiftEnd || '',
@@ -291,6 +292,7 @@ export default function EmployeesPage() {
           body.hourlyRate = form.hourlyRate === '' ? null : form.hourlyRate;
           body.basicSalary = form.basicSalary;
           body.allowance = form.allowance;
+          body.ssnitSalary = form.ssnitSalary;
           body.ssnitNumber = form.ssnitNumber;
           body.tin = form.tin;
         }
@@ -1141,7 +1143,18 @@ export default function EmployeesPage() {
                 <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
                   {form.basicSalary === ''
                     ? tr('No basic salary: pay runs pay the daily rate × days worked.')
-                    : tr('Pay runs pay basic + allowance, cut by the days paid for (worked, or on paid leave) out of the month\'s working days, instead of the daily rate. SSNIT is on basic only; the allowance is not taxed. Both can be changed on a draft payslip.')}
+                    : tr('Pay runs pay basic + allowance, cut by the days paid for (worked, on paid leave or a public holiday) out of the month\'s working days, instead of the daily rate. The allowance is not taxed. Both can be changed on a draft payslip.')}
+                </p>
+                <div className="field"><label htmlFor="emp-ssnit-salary">{tr('Salary for SSNIT, monthly (GHS)')}</label>
+                  <input id="emp-ssnit-salary" className="input" type="number" min="0" step="0.01" placeholder={form.basicSalary === '' ? tr('Not set') : tr('Basic salary: {amount}', { amount: form.basicSalary })}
+                    value={form.ssnitSalary} onChange={(e) => setForm({ ...form, ssnitSalary: e.target.value })} />
+                </div>
+                <p className="employees-dialog-span" style={{ fontSize: 12, color: 'var(--color-text-muted, #667085)', margin: '-8px 0 4px' }}>
+                  {form.ssnitSalary !== ''
+                    ? tr('SSNIT is 5.5% (staff) and 13% (employer) of this every month, whatever days they worked; a run shorter than a month charges its share, and none when nothing is earned.')
+                    : form.basicSalary !== ''
+                      ? tr('Empty: SSNIT is on the basic salary every month, whatever days they worked.')
+                      : tr('Empty: SSNIT is on what they earn in each run (daily rate × days). Type the salary declared to SSNIT to charge it every month instead.')}
                 </p>
               </>
             )}

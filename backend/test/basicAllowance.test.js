@@ -88,8 +88,8 @@ test('basic and allowance are cut by days paid for; SSNIT on basic; the allowanc
   assert.equal(p.basicPay, r2(2600 * 24 / 27));
   assert.equal(p.allowancePay, r2(520 * 24 / 27));
   assert.equal(p.grossPay, r2(p.basicPay + p.allowancePay));
-  assert.equal(p.ssnitEmployee, r2(p.basicPay * 0.055));    // 5.5% of basic only
-  assert.equal(p.ssnitEmployer, r2(p.basicPay * 0.13));     // 13% of basic only
+  assert.equal(p.ssnitEmployee, 143);    // 5.5% of the basic salary, not cut by days (migration 0145)
+  assert.equal(p.ssnitEmployer, 338);    // 13% of it
   assert.equal(p.taxableIncome, r2(p.basicPay - p.ssnitEmployee));   // allowance not taxed
   assert.equal(p.payeTax, computePaye(p.taxableIncome, bands, 31 / 30));
   assert.equal(p.netPay, r2(p.grossPay - p.ssnitEmployee - p.payeTax));
@@ -106,12 +106,13 @@ test('basic and allowance are cut by days paid for; SSNIT on basic; the allowanc
   assert.equal(d.allowancePay, 0);
   assert.equal(d.ssnitEmployee, 60.5);
 
-  // Typed for this run: SSNIT and PAYE follow the amounts.
+  // Typed for this run: PAYE follows the amounts; SSNIT stays on the salary.
   var edited = await payroll.editSlip(boss, run.id, part, undefined, { basicPay: 3000, allowancePay: 0 });
   var e = edited.payslips.find(function (s) { return s.employeeId === part; });
   assert.equal(e.amountsEdited, true);
   assert.equal(e.grossPay, 3000);
-  assert.equal(e.ssnitEmployee, 165);
+  assert.equal(e.ssnitEmployee, 143);
+  assert.equal(e.taxableIncome, 3000 - 143);
   await assert.rejects(payroll.editSlip(boss, run.id, part, undefined, { basicPay: -1 }), /zero or more/);
   await assert.rejects(payroll.editSlip(boss, run.id, daily, undefined, { allowancePay: 50 }), /daily rate/);
   // Changing days works it out again from the monthly amounts.

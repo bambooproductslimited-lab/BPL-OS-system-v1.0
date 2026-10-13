@@ -233,8 +233,8 @@ export default function PayrollPage() {
     }
   }
   function exportRun(run) {
-    const rows = [[tr('Employee'), tr('Code'), tr('SSNIT number'), tr('TIN'), tr('Company'), tr('Department'), tr('Days'), tr('Public holidays'), tr('Daily rate'), tr('Basic'), tr('Allowance'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
-      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.ssnitNumber || '', s.tin || '', s.companyName, s.departmentName, s.daysWorked, s.holidaysPaid || 0, s.payBasis === 'salary' ? '' : s.dailyRate, s.basicPay, s.allowancePay, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
+    const rows = [[tr('Employee'), tr('Code'), tr('SSNIT number'), tr('TIN'), tr('Company'), tr('Department'), tr('Days'), tr('Public holidays'), tr('Daily rate'), tr('Salary for SSNIT'), tr('Basic'), tr('Allowance'), tr('Gross'), 'SSNIT', 'PAYE', tr('PAYE paid by'), tr('Net'), tr('SSNIT (employer)')]]
+      .concat(run.payslips.map((s) => [s.employeeName, s.employeeCode, s.ssnitNumber || '', s.tin || '', s.companyName, s.departmentName, s.daysWorked, s.holidaysPaid || 0, s.payBasis === 'salary' ? '' : s.dailyRate, s.ssnitSalary == null ? '' : s.ssnitSalary, s.basicPay, s.allowancePay, s.grossPay, s.ssnitEmployee, s.payeTax, s.payeByCompany ? tr('Company') : tr('Employee'), s.netPay, s.ssnitEmployer]));
     downloadCsv(run.runNo + '.csv', rowsToCsv(rows));
   }
 
@@ -481,7 +481,7 @@ export default function PayrollPage() {
         [tr('Take-home'), tr('What staff receive: gross pay less their SSNIT, and less PAYE unless their company pays it for them.')],
         [tr('Cost'), tr('What the company pays in all: gross pay plus the employer\'s SSNIT, plus PAYE where the company pays it.')],
         [tr('Basic and allowance'), tr('Staff with a monthly basic salary are paid basic + allowance, cut by the days paid for (worked or on paid leave) out of the month\'s working days. Staff without one are paid their daily rate × days worked, all of it basic.')],
-        ['SSNIT', tr('Social security on basic pay only: a share taken from staff pay plus a share the employer adds on top, both paid to SSNIT.')],
+        ['SSNIT', tr('Social security on each person\'s salary for SSNIT (their basic salary unless another figure is set on their record), whatever days they worked: 5.5% taken from staff pay and 13% the employer adds on top, both paid to SSNIT. A run shorter than a month charges its share; nothing earned, none. A daily-rate person with no salary for SSNIT pays on what they earned.')],
         ['PAYE', tr('Income tax on basic pay less staff SSNIT (the allowance is not taxed), paid to GRA. Taken from their pay, or paid by the company where that is its policy (see Who pays PAYE).')],
         [tr('Days worked'), tr('Present or late days in Attendance for the period, plus approved paid leave for salaried staff. They can be changed while the run is a draft.')],
         [tr('Public holidays'), tr('The company\'s public holidays (set in Leave types & balances) on someone\'s working days are days paid, for daily-rate and salaried staff alike. A holiday they worked is paid once. Not for someone with no other day paid in the period, or before they were hired.')]
@@ -547,7 +547,8 @@ export default function PayrollPage() {
                           ...(s.holidaysPaid ? [s.holidaysPaid === 1 ? tr('incl. 1 public holiday') : tr('incl. {n} public holidays', { n: s.holidaysPaid })] : []),
                           s.payeByCompany
                             ? tr('SSNIT {ssnit} · PAYE {paye}, paid by the company', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
-                            : tr('SSNIT {ssnit} · PAYE {paye}', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
+                            : tr('SSNIT {ssnit} · PAYE {paye}', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) }),
+                          ...(s.ssnitSalary != null ? [tr('SSNIT on a salary of {amount}', { amount: money(s.ssnitSalary) })] : [])
                         ].join(' · ')}
                       </span>
                     </span>
