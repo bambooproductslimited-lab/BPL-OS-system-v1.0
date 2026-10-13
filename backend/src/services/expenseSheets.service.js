@@ -67,8 +67,8 @@ function sheetOut(s) {
     supervisor: s.supervisor_id ? { id: s.supervisor_id, name: fullName(s.sup_first, s.sup_last) } : null
   };
 }
-async function lockDate(db, sheetId) {
-  return dayStr((await db.query('SELECT max(upto_date) AS d FROM expense_sheet_checks WHERE sheet_id = $1', [sheetId])).rows[0].d);
+async function lockDate(db, sheetId, osOnly) {
+  return dayStr((await db.query('SELECT max(upto_date) AS d FROM expense_sheet_checks WHERE sheet_id = $1' + (osOnly ? " AND source = 'os'" : ''), [sheetId])).rows[0].d);
 }
 async function financePeople() {
   return (await pool.query(

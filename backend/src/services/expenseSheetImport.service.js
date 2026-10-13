@@ -34,6 +34,12 @@ var sheets = require('./expenseSheets.service');
 // Each line remembers what it was on the workbook (kind, date, amount,
 // note, payee and its place among identical rows), so importing a later
 // copy of the same workbook adds only the new lines.
+//
+// Only a check made in the OS closes its period to the workbook. A check
+// that came from a workbook was stamped on that workbook, lines and all,
+// so importing it again still brings in lines the first import left out
+// (money passed on, before the OS took funding below zero), and those
+// checks' balances are worked out again.
 
 var MAX_ROWS = 20000;
 
@@ -261,10 +267,11 @@ async function plan(ctx, sheetId, file) {
   var have = {};
   (await pool.query('SELECT import_key FROM expense_sheet_lines WHERE sheet_id = $1 AND import_key IS NOT NULL', [sheetId])).rows.forEach(function (r) { have[r.import_key] = true; });
   var locked = await sheets._lockDate(pool, sheetId);
+  var osLocked = await sheets._lockDate(pool, sheetId, true);
   var fresh = [], already = 0, inLocked = [];
   p.rows.forEach(function (r) {
     if (have[r.key]) { already++; return; }
-    if (locked && r.date <= locked) { inLocked.push(r); return; }
+    if (osLocked && r.date <= osLocked) { inLocked.push(r); return; }
     fresh.push(r);
   });
   // The balance the OS will show, day by day, with these lines added.
@@ -272,10 +279,12 @@ async function plan(ctx, sheetId, file) {
     .map(function (r) { return { kind: r.kind, amount: Number(r.amount), date: r.date.toISOString ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10) }; });
   var all = existing.concat(fresh);
   function balanceOn(d) { return money(all.filter(function (r) { return r.date <= d; }).reduce(function (s, r) { return s + (r.kind === 'funding' ? r.amount : -r.amount); }, 0)); }
-  var checks = p.checks.filter(function (c) { return !locked || c.date > locked; }).map(function (c) {
+  var imported = {};
+  (await pool.query("SELECT kind, to_char(upto_date, 'YYYY-MM-DD') AS d FROM expense_sheet_checks WHERE sheet_id = $1 AND source = 'import'", [sheetId])).rows.forEach(function (r) { imported[r.kind + '|' + r.d] = true; });
+  var checks = p.checks.filter(function (c) { return !osLocked || c.date > osLocked; }).map(function (c) {
     var computed = balanceOn(c.date);
     var near = c.stamped === null ? null : Math.min.apply(null, [computed].concat(c.alts || []).map(function (v) { return Math.abs(v - c.stamped); }));
-    return Object.assign({}, c, { computed: computed, agrees: near === null ? null : near < 0.01, close: near !== null && near >= 0.01 && near < 1 });
+    return Object.assign({}, c, { computed: computed, agrees: near === null ? null : near < 0.01, close: near !== null && near >= 0.01 && near < 1, again: !!imported[c.kind + '|' + c.date] });
   });
   await sheets._ensureLists(pool);
   var existingCats = {}, existingCentres = {};
@@ -287,15 +296,17 @@ async function plan(ctx, sheetId, file) {
   });
   var sum = function (list, kind) { return money(list.filter(function (r) { return r.kind === kind; }).reduce(function (s, r) { return s + r.amount; }, 0)); };
   return {
-    x: x, p: p, fresh: fresh, checks: checks, locked: locked,
+    x: x, p: p, fresh: fresh, checks: checks, locked: locked, osLocked: osLocked,
     summary: {
       officerOnWorkbook: p.officer, sheetOwner: x.s.first_name + ' ' + x.s.last_name, tabs: p.tabs,
       funding: { lines: fresh.filter(function (r) { return r.kind === 'funding' && r.amount > 0; }).length, total: money(fresh.filter(function (r) { return r.kind === 'funding' && r.amount > 0; }).reduce(function (t, r) { return t + r.amount; }, 0)) },
       passedOn: { lines: fresh.filter(function (r) { return r.kind === 'funding' && r.amount < 0; }).length, total: money(-fresh.filter(function (r) { return r.kind === 'funding' && r.amount < 0; }).reduce(function (t, r) { return t + r.amount; }, 0)) },
       expenses: { lines: fresh.filter(function (r) { return r.kind === 'expense'; }).length, total: sum(fresh, 'expense'), moneyBack: fresh.filter(function (r) { return r.kind === 'expense' && r.amount < 0; }).length },
       already: already, inCheckedPeriod: inLocked.length, lockedUntil: locked, skippedBlank: p.skippedBlank,
+      intoImportedChecks: locked && locked !== osLocked ? fresh.filter(function (r) { return r.date <= locked; }).length : 0,
+      checksAgain: checks.filter(function (c) { return c.again; }).length,
       future: p.future, unitPriceDiffs: p.unitDiffs.slice(0, 20), payeesMerged: p.payeesMerged,
-      checks: checks.map(function (c) { return { kind: c.kind, date: c.date, initials: c.initials, stamped: c.stamped, computed: c.computed, agrees: c.agrees, close: c.close }; }),
+      checks: checks.map(function (c) { return { kind: c.kind, date: c.date, initials: c.initials, stamped: c.stamped, computed: c.computed, agrees: c.agrees, close: c.close, again: c.again }; }),
       newCategories: Object.keys(newCats).sort(), newCostCentres: Object.keys(newCentres).sort(), canGrowLists: x.a.manage,
       balance: { onWorkbook: p.sheetBalance, workbookDate: p.lastDate, afterImport: p.lastDate ? balanceOn(p.lastDate) : null, today: balanceOn(today()) },
       sample: fresh.slice(-8).map(function (r) { return { kind: r.kind, date: r.date, amount: r.amount, qty: r.qty, note: r.note, payee: r.payee, category: r.category, costCentre: r.costCentre }; })
@@ -311,9 +322,9 @@ async function preview(ctx, sheetId, file) {
 // kernel: expenseSheets.import — the new lines, then the checks found.
 async function run(ctx, sheetId, file) {
   var pl = await plan(ctx, sheetId, file);
-  if (!pl.fresh.length && !pl.checks.length) return Object.assign(pl.summary, { added: 0, checksAdded: 0 });
+  if (!pl.fresh.length && !pl.checks.length) return Object.assign(pl.summary, { added: 0, checksAdded: 0, checksUpdated: 0 });
   var grow = pl.x.a.manage;
-  var added = 0, checksAdded = 0;
+  var added = 0, checksAdded = 0, checksUpdated = 0;
   await withTransaction(async function (client) {
     await client.query('SELECT id FROM expense_sheets WHERE id = $1 FOR UPDATE', [sheetId]);
     if (grow) {
@@ -343,19 +354,32 @@ async function run(ctx, sheetId, file) {
     var locked = await sheets._lockDate(client, sheetId);
     for (var k = 0; k < pl.checks.length; k++) {
       var ch = pl.checks[k];
+      var note = (ch.stamped !== null && !ch.agrees ? 'Workbook said ' + ch.stamped + '. ' : '') + ch.note;
+      if (ch.again) {
+        await client.query("UPDATE expense_sheet_checks SET balance = $4, note = $5 WHERE sheet_id = $1 AND kind = $2 AND upto_date = $3 AND source = 'import'", [sheetId, ch.kind, ch.date, ch.computed, note]);
+        checksUpdated++;
+        continue;
+      }
       if (locked && ch.date < locked) continue;
       n++;
       await client.query(
         "INSERT INTO expense_sheet_checks (sheet_id, kind, upto_date, balance, code, note, by_initials, source) VALUES ($1,$2,$3,$4,$5,$6,$7,'import')",
-        [sheetId, ch.kind, ch.date, ch.computed, 'C' + String(n).padStart(2, '0'), (ch.stamped !== null && !ch.agrees ? 'Workbook said ' + ch.stamped + '. ' : '') + ch.note, ch.initials]);
+        [sheetId, ch.kind, ch.date, ch.computed, 'C' + String(n).padStart(2, '0'), note, ch.initials]);
       checksAdded++;
       locked = ch.date;
     }
+    // Any other check from a workbook after the last one made in the OS:
+    // its balance as the lines now stand.
+    if (added) {
+      await client.query(
+        "UPDATE expense_sheet_checks c SET balance = (SELECT coalesce(sum(CASE WHEN l.kind = 'funding' THEN l.amount ELSE -l.amount END), 0) FROM expense_sheet_lines l WHERE l.sheet_id = c.sheet_id AND l.date <= c.upto_date) " +
+        "WHERE c.sheet_id = $1 AND c.source = 'import' AND ($2::date IS NULL OR c.upto_date > $2::date)", [sheetId, pl.osLocked || null]);
+    }
     await client.query('UPDATE expense_sheets SET updated_at = now() WHERE id = $1', [sheetId]);
     await audit(client, ctx, 'expensesheet.import', 'expense_sheet', sheetId,
-      'Imported ' + added + ' line(s) and ' + checksAdded + ' check(s) into ' + pl.summary.sheetOwner + '\'s expense sheet from a workbook.');
+      'Imported ' + added + ' line(s) and ' + checksAdded + ' check(s) into ' + pl.summary.sheetOwner + '\'s expense sheet from a workbook' + (checksUpdated ? '; ' + checksUpdated + ' check(s) from an earlier import worked out again' : '') + '.');
   });
-  return Object.assign(pl.summary, { added: added, checksAdded: checksAdded });
+  return Object.assign(pl.summary, { added: added, checksAdded: checksAdded, checksUpdated: checksUpdated });
 }
 
 module.exports = { preview: preview, run: run, _parse: parse };
