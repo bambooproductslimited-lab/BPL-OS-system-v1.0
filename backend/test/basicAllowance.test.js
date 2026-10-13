@@ -1,8 +1,9 @@
 // Basic salary and allowance (migration 0108): a salaried employee is paid
 // their monthly basic and allowance cut by the days paid for (present or
-// late, plus approved paid leave) out of the
-// month's working days (not Sundays or the company's public holidays),
-// never more than the month. SSNIT is on basic only; the allowance is not
+// late, plus approved paid leave, plus the company's public holidays) out
+// of the month's working days (not Sundays; a public holiday is a working
+// day, paid), never more than the month. A daily-rate person is paid the
+// public holidays too. SSNIT is on basic only; the allowance is not
 // taxed. Both can be typed on a draft payslip for that run alone.
 // Own company (ZQB); its staff are active only while its run is made.
 var test = require('node:test');
@@ -59,8 +60,8 @@ test.before(async function () {
   part = await emp('ZQB-1', dept, { basic: 2600, allowance: 520 });
   full = await emp('ZQB-2', dept, { basic: 2600, allowance: 520 });
   daily = await emp('ZQB-3', dept, { rate: 100 });
-  // March 2017: 31 days, 4 Sundays, 1 public holiday = 26 working days.
-  // part: 20 present, 1 late, 2 days paid leave, 1 day unpaid leave, the rest absent = 23 days paid for.
+  // March 2017: 31 days, 4 Sundays = 27 working days, 1 of them a public holiday.
+  // part: 20 present, 1 late, 2 days paid leave, 1 day unpaid leave, the holiday, the rest absent = 24 days paid for.
   var wd = marchWorkingDays();
   assert.equal(wd.length, 26);
   await mark(part, wd.slice(0, 20), 'present');
@@ -81,16 +82,17 @@ test('basic and allowance are cut by days paid for; SSNIT on basic; the allowanc
   var bands = (await pool.query('SELECT payroll FROM settings WHERE id = 1')).rows[0].payroll.payeBands;
   var p = run.payslips.find(function (s) { return s.employeeId === part; });
   assert.equal(p.payBasis, 'salary');
-  assert.equal(p.daysWorked, 23);
-  assert.equal(p.workingDays, 26);
-  assert.equal(p.basicPay, 2300);          // 2600 x 23 / 26
-  assert.equal(p.allowancePay, 460);       // 520 x 23 / 26
-  assert.equal(p.grossPay, 2760);
-  assert.equal(p.ssnitEmployee, 126.5);    // 5.5% of basic only
-  assert.equal(p.ssnitEmployer, 299);      // 13% of basic only
-  assert.equal(p.taxableIncome, 2173.5);   // basic - staff SSNIT; allowance not taxed
-  assert.equal(p.payeTax, computePaye(2173.5, bands, 31 / 30));
-  assert.equal(p.netPay, r2(2760 - 126.5 - p.payeTax));
+  assert.equal(p.daysWorked, 24);
+  assert.equal(p.holidaysPaid, 1, 'the public holiday is a day paid');
+  assert.equal(p.workingDays, 27);
+  assert.equal(p.basicPay, r2(2600 * 24 / 27));
+  assert.equal(p.allowancePay, r2(520 * 24 / 27));
+  assert.equal(p.grossPay, r2(p.basicPay + p.allowancePay));
+  assert.equal(p.ssnitEmployee, r2(p.basicPay * 0.055));    // 5.5% of basic only
+  assert.equal(p.ssnitEmployer, r2(p.basicPay * 0.13));     // 13% of basic only
+  assert.equal(p.taxableIncome, r2(p.basicPay - p.ssnitEmployee));   // allowance not taxed
+  assert.equal(p.payeTax, computePaye(p.taxableIncome, bands, 31 / 30));
+  assert.equal(p.netPay, r2(p.grossPay - p.ssnitEmployee - p.payeTax));
 
   var f = run.payslips.find(function (s) { return s.employeeId === full; });
   assert.equal(f.basicPay, 2600, 'never more than the month');
@@ -98,9 +100,11 @@ test('basic and allowance are cut by days paid for; SSNIT on basic; the allowanc
 
   var d = run.payslips.find(function (s) { return s.employeeId === daily; });
   assert.equal(d.payBasis, 'daily');
-  assert.equal(d.basicPay, 1000);
+  assert.equal(d.daysWorked, 11, '10 days worked and the public holiday');
+  assert.equal(d.holidaysPaid, 1);
+  assert.equal(d.basicPay, 1100);
   assert.equal(d.allowancePay, 0);
-  assert.equal(d.ssnitEmployee, 55);
+  assert.equal(d.ssnitEmployee, 60.5);
 
   // Typed for this run: SSNIT and PAYE follow the amounts.
   var edited = await payroll.editSlip(boss, run.id, part, undefined, { basicPay: 3000, allowancePay: 0 });
@@ -114,8 +118,8 @@ test('basic and allowance are cut by days paid for; SSNIT on basic; the allowanc
   var back = await payroll.editSlip(boss, run.id, part, 13);
   var b = back.payslips.find(function (s) { return s.employeeId === part; });
   assert.equal(b.amountsEdited, false);
-  assert.equal(b.basicPay, 1300);
-  assert.equal(b.allowancePay, 260);
+  assert.equal(b.basicPay, r2(2600 * 13 / 27));
+  assert.equal(b.allowancePay, r2(520 * 13 / 27));
 });
 
 test('a run over half the month pays at most that half', async function () {

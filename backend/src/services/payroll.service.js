@@ -19,7 +19,14 @@ var { restWeekdays } = require('../utils/workWeek');
 // (employees.basic_salary / allowance): the run pays them cut by the days
 // paid for — present or late, plus approved paid
 // leave — out of the month's working days (not their rest days, Sundays
-// unless their work week says otherwise, or the company's public holidays). SSNIT is on basic only; the allowance is not taxed.
+// unless their work week says otherwise). SSNIT is on basic only; the allowance is not taxed.
+//
+// Public holidays (migration 0144): the company's holidays (Holidays list)
+// that fall on an employee's working days in the period are paid days,
+// for daily-rate and salaried staff alike — unless they worked that day,
+// which is paid already. Only for someone paid for at least one other day
+// in the period (not a person who never came), and not before they were
+// hired. payslips.holidays_paid says how many of the days paid they were.
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -49,7 +56,8 @@ function rowToPayslip(r, extra) {
     payeByCompany: !!r.paye_by_company, netPay: Number(r.net_pay),
     payBasis: r.pay_basis || 'daily', basicPay: Number(r.basic_pay), allowancePay: Number(r.allowance_pay),
     monthlyBasic: r.monthly_basic == null ? null : Number(r.monthly_basic), monthlyAllowance: r.monthly_allowance == null ? null : Number(r.monthly_allowance),
-    workingDays: r.working_days == null ? null : r.working_days, amountsEdited: !!r.amounts_edited
+    workingDays: r.working_days == null ? null : r.working_days, amountsEdited: !!r.amounts_edited,
+    holidaysPaid: Number(r.holidays_paid || 0)
   }, extra || {});
 }
 
@@ -113,6 +121,24 @@ async function paidDaysFor(db, employeeId, from, to, holidays, restDays) {
     }
   });
   return days;
+}
+// The company's holidays in a period that fall on someone's working days,
+// from the day they were hired, and that they didn't work (worked = the
+// set of days they were present or late).
+function holidaysToPay(holidays, from, to, restDays, hireDate, worked) {
+  var out = [];
+  holidays.forEach(function (k) {
+    if (k < from || k > to || (hireDate && k < hireDate) || worked[k]) return;
+    if (restDays.indexOf(new Date(k + 'T00:00:00Z').getUTCDay()) >= 0) return;
+    out.push(k);
+  });
+  return out;
+}
+async function daysPresent(db, employeeId, from, to) {
+  var r = await db.query("SELECT DISTINCT to_char(date, 'YYYY-MM-DD') AS d FROM attendance WHERE employee_id = $1 AND status IN ('present','late') AND date BETWEEN $2 AND $3", [employeeId, from, to]);
+  var m = {};
+  r.rows.forEach(function (x) { m[x.d] = true; });
+  return m;
 }
 function monthOf(periodEnd) {
   var e = new Date(String(periodEnd).slice(0, 10) + 'T00:00:00Z');
@@ -270,12 +296,12 @@ async function create(ctx, p) {
 
   var employeesRes = companyId
     ? await pool.query(
-        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.work_days, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
+        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.work_days, to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1 AND d.company_id = $2",
         [cycle, companyId]
       )
     : await pool.query(
-        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.work_days, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
+        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.work_days, to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
         "LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1", [cycle]);
   if (!employeesRes.rows.length) {
@@ -302,15 +328,20 @@ async function create(ctx, p) {
       var daysWorked = Number(attRes.rows[0].worked_days);
       var dailyRate = Number(emp.daily_rate);
       var salaried = emp.basic_salary != null;
+      var month = monthOf(periodEnd);
+      var hol = await holidaySet(client, emp.company_id, month.start < periodStart ? month.start : periodStart, month.end > periodEnd ? month.end : periodEnd);
+      var rest = restWeekdays(emp.work_days);
+      var holPaid = holidaysToPay(hol, periodStart, periodEnd, rest, emp.hire_date, await daysPresent(client, emp.id, periodStart, periodEnd));
       var basis = { basis: 'daily', monthlyBasic: null, monthlyAllowance: null, workingDays: null, monthWorkingDays: null };
+      if (!salaried && daysWorked > 0) daysWorked += holPaid.length;
+      else if (!salaried) holPaid = [];
       var pay = { basic: dailyRate * daysWorked, allowance: 0 };
       if (salaried) {
-        var month = monthOf(periodEnd);
-        var hol = await holidaySet(client, emp.company_id, month.start < periodStart ? month.start : periodStart, month.end > periodEnd ? month.end : periodEnd);
-        var rest = restWeekdays(emp.work_days);
-        var workingDays = businessDays(periodStart, periodEnd, hol, rest);
-        var monthWorkingDays = businessDays(month.start, month.end, hol, rest);
+        // Holidays are working days here, paid like any other.
+        var workingDays = businessDays(periodStart, periodEnd, null, rest);
+        var monthWorkingDays = businessDays(month.start, month.end, null, rest);
         daysWorked = await paidDaysFor(client, emp.id, periodStart, periodEnd, hol, rest);
+        if (daysWorked > 0) daysWorked += holPaid.length; else holPaid = [];
         // A second shift is another day's pay, over and above the working days.
         workingDays += await secondShiftsWorked(client, emp.id, periodStart, periodEnd);
         basis = { basis: 'salary', monthlyBasic: Number(emp.basic_salary), monthlyAllowance: Number(emp.allowance || 0), workingDays: workingDays, monthWorkingDays: monthWorkingDays };
@@ -323,10 +354,10 @@ async function create(ctx, p) {
 
       await client.query(
         'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, paye_by_company, ' +
-        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
+        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days, holidays_paid) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)',
         [run.id, emp.id, daysWorked, salaried ? 0 : dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, slip.netPay, slip.payeByCompany,
-          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays]
+          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays, holPaid.length]
       );
     }
 

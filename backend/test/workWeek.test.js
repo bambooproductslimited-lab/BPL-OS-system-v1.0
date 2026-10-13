@@ -62,7 +62,7 @@ test('work weeks: rest weekdays and day counts', function () {
 });
 
 test('a Monday-to-Friday salaried person: full month on every weekday, Saturdays off in attendance', async function () {
-  var weekdays = weekdaysOfMarch([0, 6]);   // 23 weekdays less the holiday = 22
+  var weekdays = weekdaysOfMarch([0, 6]);   // 23 weekdays less the holiday = 22 worked, the holiday paid
   assert.equal(weekdays.length, 22);
   for (var d of weekdays) await pool.query("INSERT INTO attendance (employee_id, date, status) VALUES ($1, $2, 'present')", [fri, d]);
   for (var d2 of weekdays) await pool.query("INSERT INTO attendance (employee_id, date, status) VALUES ($1, $2, 'present')", [sat, d2]);
@@ -73,12 +73,13 @@ test('a Monday-to-Friday salaried person: full month on every weekday, Saturdays
   finally { await pool.query("UPDATE employees SET status = 'inactive' WHERE id = ANY($1::uuid[])", [[fri, sat]]); }
 
   var f = run.payslips.find(function (s) { return s.employeeId === fri; });
-  assert.equal(f.workingDays, 22);
-  assert.equal(f.basicPay, 2200, 'every weekday worked is the full month');
+  assert.equal(f.workingDays, 23);
+  assert.equal(f.holidaysPaid, 1);
+  assert.equal(f.basicPay, 2200, 'every weekday worked, and the holiday paid, is the full month');
   assert.equal(f.allowancePay, 440);
   var s = run.payslips.find(function (x) { return x.employeeId === sat; });
-  assert.equal(s.workingDays, 26);          // Monday to Saturday: the 4 Saturdays count
-  assert.equal(s.basicPay, Math.round(2200 * 22 / 26 * 100) / 100);
+  assert.equal(s.workingDays, 27);          // Monday to Saturday: the 4 Saturdays count
+  assert.equal(s.basicPay, Math.round(2200 * 23 / 27 * 100) / 100);   // 22 worked and the holiday
 
   // Attendance: a Saturday is off for the Monday-to-Friday person, absent for the other.
   await pool.query("UPDATE employees SET status = 'active' WHERE id = ANY($1::uuid[])", [[fri, sat]]);
