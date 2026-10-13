@@ -1,9 +1,9 @@
 /* Poki Properties: the look its seven screens share (PokiFun.jsx) and the
-   modern cards and lists under it, scoped to .pk so the rest of the OS
+   modern cards and lists under it, scoped to .pkp so the rest of the OS
    keeps its look. Unit states (let, ending, booked, empty, held) are always
    named beside their colour — in the legend, the tile's title, the lists. */
 
-.pk {
+.pkp {
   --pkf-r: 18px;
   --pkf-card: var(--color-bg);
   --pkf-soft: color-mix(in srgb, var(--color-text) 4%, var(--color-bg));
@@ -14,7 +14,7 @@
   --pkf-let: #1a9a6c; --pkf-ending: #d48a00; --pkf-booked: #2a78d6; --pkf-empty: #c9cfd6; --pkf-held: #8a6fd1;
   --pkf-in: #1a9a6c; --pkf-out: #d97a2b;
 }
-:root[data-theme='dark'] .pk {
+:root[data-theme='dark'] .pkp {
   --pkf-card: color-mix(in srgb, var(--color-bg-subtle) 70%, var(--color-bg));
   --pkf-soft: color-mix(in srgb, var(--color-text) 6%, var(--pkf-card));
   --pkf-line: var(--color-border);
@@ -146,18 +146,18 @@ button.pkf-tile:hover { background: rgba(255, 255, 255, .18); transform: transla
 .pkf-lane .rs-list { gap: 10px; }
 
 /* ── the cards and lists under the banner, modernised ── */
-.pk .dk-section { border-radius: var(--pkf-r); }
-.pk .tl-grid { gap: 14px; }
-.pk .tl-card { border-radius: 18px; border-color: var(--pkf-line); box-shadow: var(--pkf-shadow); transition: transform .18s, box-shadow .18s; }
-.pk .tl-card:hover { transform: translateY(-2px); box-shadow: var(--pkf-shadow-up); }
-.pk .tl-card.st-late { box-shadow: inset 4px 0 0 #d9473a, var(--pkf-shadow); }
-.pk .rs-list { display: flex; flex-direction: column; gap: 8px; border: 0; background: none; overflow: visible; }
-.pk .rs-row { border-radius: 14px; border: 1px solid var(--pkf-line); background: var(--pkf-card); box-shadow: var(--pkf-shadow); overflow: hidden; }
-.pk .pk-list li { padding: 10px 4px; }
-.pk .pk-list li + li { border-top-style: dashed; }
-.pk .ppl-chip { border-radius: 999px; }
-.pk .dk-insights { border-radius: var(--pkf-r); }
-.pk .tl-table-wrap { border-radius: 16px; overflow: hidden; box-shadow: var(--pkf-shadow); }
+.pkp .dk-section { border-radius: var(--pkf-r); }
+.pkp .tl-grid { gap: 14px; }
+.pkp .tl-card { border-radius: 18px; border-color: var(--pkf-line); box-shadow: var(--pkf-shadow); transition: transform .18s, box-shadow .18s; }
+.pkp .tl-card:hover { transform: translateY(-2px); box-shadow: var(--pkf-shadow-up); }
+.pkp .tl-card.st-late { box-shadow: inset 4px 0 0 #d9473a, var(--pkf-shadow); }
+.pkp .rs-list { display: flex; flex-direction: column; gap: 8px; border: 0; background: none; overflow: visible; }
+.pkp .rs-row { flex: none; border-radius: 14px; border: 1px solid var(--pkf-line); background: var(--pkf-card); box-shadow: var(--pkf-shadow); overflow: hidden; }
+.pkp .pk-list li { padding: 10px 4px; }
+.pkp .pk-list li + li { border-top-style: dashed; }
+.pkp .ppl-chip { border-radius: 999px; }
+.pkp .dk-insights { border-radius: var(--pkf-r); }
+.pkp .tl-table-wrap { border-radius: 16px; overflow: hidden; box-shadow: var(--pkf-shadow); }
 .pk-lease-row { display: block; margin-top: 2px; }
 .pkf-celebrate { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 800; color: #0b3247; background: #ffe7a8; }
 
@@ -172,5 +172,5 @@ button.pkf-tile:hover { background: rgba(255, 255, 255, .18); transform: transla
   .pkf-pipe-arrow { display: none; }
   .pkf-next-mark span { max-width: 70px; overflow: hidden; text-overflow: ellipsis; }
 }
-@media (prefers-reduced-motion: reduce) { .pkf-unit, .pk .tl-card, .pkf-pipe-step button { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .pkf-unit, .pkp .tl-card, .pkf-pipe-step button { transition: none; } }
 @media print { .pkf-hero { box-shadow: none; } .pkf-skyline { display: none; } }

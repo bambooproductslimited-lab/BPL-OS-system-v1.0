@@ -121,7 +121,7 @@ export default function PokiDashboardPage() {
     .sort((x, y) => x.value - y.value);
 
   return (
-    <div className="dk tl pk">
+    <div className="dk tl pk pkp">
       <Confetti burst={burst} />
       <PkBanner
         eyebrow={new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}

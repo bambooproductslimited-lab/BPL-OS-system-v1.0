@@ -400,7 +400,7 @@ export default function PokiBillingPage() {
   const readingsOf = (m) => readings.filter((r) => r.meterId === m.id);
 
   return (
-    <div className="dk tl pk">
+    <div className="dk tl pk pkp">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
       <PkBanner

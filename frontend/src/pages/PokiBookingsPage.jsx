@@ -486,7 +486,7 @@ export default function PokiBookingsPage() {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   return (
-    <div className="dk tl pk">
+    <div className="dk tl pk pkp">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
       <PkBanner

@@ -403,7 +403,7 @@ export default function PokiEstimatesPage() {
   const tenantFor = (e) => tenants.find((t) => t.customerId === e.customerId);
 
   return (
-    <div className="dk tl pk">
+    <div className="dk tl pk pkp">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
       <PkBanner
