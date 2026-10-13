@@ -12,3 +12,8 @@
   .rp .dk-rank-row { flex-wrap: wrap; row-gap: 2px; }
   .rp .dk-rank-name { flex: 1 1 100%; white-space: normal; }
 }
+
+/* the finance look (pages/finance/FinFun.css) */
+.fnx .rp-period .ppl-chip { border-radius: 999px; }
+.fnx.rp .rp-period .ppl-chip.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, #186b8c, #13857a); box-shadow: 0 8px 18px -10px #186b8c; }
+.fnx .rp-table { border-radius: 14px; }

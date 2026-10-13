@@ -31,3 +31,14 @@
   .fr-stmt tr.is-line th { padding-left: 14px; }
   .fr-stmt th .tl-small { display: block; }
 }
+
+/* the finance look (pages/finance/FinFun.css) */
+.fnx .fr-tabs .ppl-chip, .fnx .rp-period .ppl-chip { border-radius: 999px; }
+.fnx .fr-tabs .ppl-chip.is-on, .fnx .rp-period .ppl-chip.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, #2c7340, #b0861c); box-shadow: 0 8px 18px -10px #2c7340; }
+.fnx .fr-print { border-radius: 18px; }
+.fnx .fr-stmt { border-collapse: separate; border-spacing: 0; }
+.fnx .fr-stmt tr.is-line:hover th, .fnx .fr-stmt tr.is-line:hover td { background: var(--fnx-soft); }
+.fnx .fr-stmt tr.is-total th, .fnx .fr-stmt tr.is-total td { background: linear-gradient(90deg, color-mix(in srgb, #2c7340 10%, var(--fnx-card)), var(--fnx-card)); border-top: 2px solid color-mix(in srgb, #2c7340 60%, transparent); }
+.fnx .fr-stmt tr.is-total th { border-radius: 12px 0 0 12px; }
+.fnx .fr-stmt tr.is-total td { border-radius: 0 12px 12px 0; }
+.fnx .fr-stmt tr.is-total.is-neg th, .fnx .fr-stmt tr.is-total.is-neg td { background: linear-gradient(90deg, color-mix(in srgb, #c0392b 10%, var(--fnx-card)), var(--fnx-card)); border-top-color: color-mix(in srgb, #c0392b 60%, transparent); }

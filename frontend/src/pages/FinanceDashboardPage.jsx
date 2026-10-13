@@ -4,12 +4,13 @@ import { api } from '../api/client';
 import { money, moneyBreakdown } from '../lib/currency';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
 import { shareOrDownloadPdf } from '../lib/documentShare';
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import {
-  Change, CompanySwitcher, Empty, Glossary, Hero, Icon, Insights, LinkButton, PairBars, Phone, RankList, Row, Section,
+  Change, CompanySwitcher, Empty, Glossary, Icon, Insights, LinkButton, Phone, RankList, Row, Section,
   avatarColor, fmtDate, initials, jump, pctChange, useCompany
 } from '../components/DashKit';
+import { FxAge, FxFacts, FxHero, FxMoneyChart, FxRing } from './finance/FinFun';
 import './FinanceDashboardPage.css';
 
 // Backed by GET /api/reports/finance (reportsService.financeDashboard,
@@ -20,8 +21,10 @@ import './FinanceDashboardPage.css';
 // cash collected, money owed and how late it is, who owes the most, what
 // falls due soon, and spending. The restaurants get the till view: sales,
 // how guests paid, the last 14 days, cash drawers that did not balance,
-// voided orders, and spending. Both lead with a "what stands out" list
-// written from the numbers and end with what the words mean.
+// voided orders, and spending. Both lead with a colourful banner (a ring
+// of how much has come in, or of drawers that balanced) and tiles of
+// lighter facts (pages/finance/FinFun.jsx), then a "what stands out" list
+// written from the numbers, and end with what the words mean.
 
 const PERIOD_OPTIONS = [3, 6, 9, 12];
 
@@ -95,13 +98,13 @@ export default function FinanceDashboardPage() {
     <CompanySwitcher companies={companies} company={company} onPick={pick}
       describe={(co) => (co.kind === 'restaurant' ? tr('Restaurant: till & costs') : tr('Invoices, payments & costs'))} />
   );
-  if (loading) return <div className="dk">{switcher}<div className="eyebrow">{tr('Loading…')}</div></div>;
-  if (!fin) return <div className="dk">{switcher}<div className="error-banner">{error || tr('No data yet.')}</div></div>;
+  if (loading) return <div className="dk fnx">{switcher}<div className="eyebrow">{tr('Loading…')}</div></div>;
+  if (!fin) return <div className="dk fnx">{switcher}<div className="error-banner">{error || tr('No data yet.')}</div></div>;
 
   const actions = (
     <>
-      <button type="button" className="btn btn-secondary" onClick={downloadCsvReport}>{tr('Download CSV')}</button>
-      <button type="button" className="btn btn-secondary" disabled={exporting} onClick={downloadPdf}>{exporting ? tr('Preparing…') : tr('Download PDF')}</button>
+      <button type="button" className="fnx-pill is-main" disabled={exporting} onClick={downloadPdf}><Icon name="doc" /> {exporting ? tr('Preparing…') : tr('Download PDF')}</button>
+      <button type="button" className="fnx-pill" onClick={downloadCsvReport}><Icon name="layers" /> {tr('Download CSV')}</button>
     </>
   );
   const trend = (
@@ -110,7 +113,7 @@ export default function FinanceDashboardPage() {
   );
   const Shared = fin.kind === 'restaurant' ? RestaurantFinance : TradeFinance;
   return (
-    <div className="dk">
+    <div className="dk fnx">
       {error && <div className="error-banner" role="alert">{error}</div>}
       {switcher}
       <Shared fin={fin} actions={actions} trend={trend} printRef={printRef} />
@@ -153,7 +156,8 @@ function TrendSection({ fin, periodType, periodCount, onType, onCount }) {
           </select>
         </div>
       }>
-      <PairBars rows={fin.monthlyTrend.map((r) => ({ label: r.month, a: r.revenue, b: r.expense }))} aLabel={inLabel} bLabel={tr('Expenses')} format={m} />
+      <FxMoneyChart rows={fin.monthlyTrend.map((r) => ({ label: r.month, a: r.revenue, b: r.expense }))} aLabel={inLabel} bLabel={tr('Expenses')} format={m}
+        bestLabel={periodType === 'years' ? tr('the best year') : tr('the best month')} />
       <dl className="dk-sum">
         <div><dt>{inLabel}</dt><dd>{m(totalIn)}</dd></div>
         <div><dt>{tr('Expenses')}</dt><dd>{m(totalOut)}</dd></div>
@@ -256,7 +260,7 @@ function TradeFinance({ fin, actions, trend, printRef }) {
   }
   if (fin.topDebtors[0]) {
     const d = fin.topDebtors[0];
-    insights.push({ tone: 'info', icon: 'people', text: tr('{name} owes the most: {amount} across {n} invoice(s).', { name: d.name, amount: m(d.owed), n: d.invoices }) });
+    insights.push({ tone: 'info', icon: 'people', text: d.invoices === 1 ? tr('{name} owes the most: {amount} on 1 invoice.', { name: d.name, amount: m(d.owed) }) : tr('{name} owes the most: {amount} across {n} invoices.', { name: d.name, amount: m(d.owed), n: d.invoices }) });
   }
   if (longWaiting.length) {
     insights.push({ tone: 'warn', icon: 'receipt', text: longWaiting.length === 1 ? tr('1 expense claim has waited more than a week for a decision.') : tr('{n} expense claims have waited more than a week for a decision.', { n: longWaiting.length }), action: { label: tr('See them'), run: () => jump('fd-claims') } });
@@ -271,36 +275,37 @@ function TradeFinance({ fin, actions, trend, printRef }) {
     { key: 'd90', cls: 'age-4', label: tr('Over 90 days'), value: aging.d90plus }
   ];
 
+  const f = fin.fun || {};
+  const share = f.collectedShare === null || f.collectedShare === undefined ? null : f.collectedShare;
+  const facts = [
+    f.daysToPay !== null && f.daysToPay !== undefined ? { icon: 'clock', tone: f.daysToPay <= 21 ? 'mint' : f.daysToPay <= 45 ? 'sun' : 'rose', label: tr('Clients pay in'), value: f.daysToPay === 1 ? tr('1 day') : tr('{n} days', { n: f.daysToPay }), note: (f.paidInvoices === 1 ? tr('from invoice to payment, on the 1 invoice paid lately') : tr('from invoice to payment, on average over {n} invoices paid lately', { n: f.paidInvoices })) } : null,
+    f.biggestPayment ? { icon: 'cash', tone: 'sky', label: tr('Biggest payment this month'), value: m(f.biggestPayment.amount), note: f.biggestPayment.customerName + ' · ' + fmtDate(f.biggestPayment.date) } : null,
+    f.bestMonth && f.bestMonth.amount > 0 ? { icon: 'spark', tone: 'sun', label: tr('Best month lately'), value: f.bestMonth.label, note: tr('{amount} collected', { amount: m(f.bestMonth.amount) }) } : null,
+    f.topPayerThisYear ? { icon: 'people', tone: 'violet', label: tr('Top payer this year'), value: f.topPayerThisYear.name, note: f.topPayerThisYear.payments === 1 ? tr('{amount} in 1 payment', { amount: m(f.topPayerThisYear.amount) }) : tr('{amount} in {n} payments', { amount: m(f.topPayerThisYear.amount), n: f.topPayerThisYear.payments }) } : null,
+    f.daysSinceLastPayment !== null && f.daysSinceLastPayment !== undefined ? { icon: 'calendar', tone: f.daysSinceLastPayment > 14 ? 'rose' : 'teal', label: tr('Clients paying this month'), value: f.payersThisMonth === 1 ? tr('1 client') : tr('{n} clients', { n: f.payersThisMonth || 0 }), note: f.daysSinceLastPayment === 0 ? tr('the last payment came in today') : f.daysSinceLastPayment === 1 ? tr('the last payment came in yesterday') : tr('the last payment came in {n} days ago', { n: f.daysSinceLastPayment }) } : null
+  ];
+
   return (
     <>
-      <Hero eyebrow={fin.company.name} title={tr('Where the money is')}
+      <FxHero theme="money" art="coins" eyebrow={fin.company.name} title={tr('Where the money is')}
         sub={tr('Cash coming in, money still owed and how late it is, and what is being spent: this month and over time.')}
         actions={actions}
+        side={<FxRing value={share} size={168} tone={share !== null && share < 0.5 ? 'warn' : ''} big={share === null ? '—' : Math.round(share * 100) + '%'} label={tr('collected')} sub={tr('of what was invoiced in the last 90 days')} />}
         stats={[
           { icon: 'cash', value: moneyBreakdown(fin.cashCollectedThisMonthByCurrency, m(0)), label: tr('collected this month'), note: <Change now={fin.cashCollectedThisMonth} before={fin.cashCollectedLastMonthSameDays} label={tr('last month')} /> },
           { icon: 'owed', value: moneyBreakdown(fin.outstandingByCurrency, m(0)), label: tr('owed to us'), note: fin.unpaidCount === 1 ? tr('on 1 invoice') : tr('on {n} invoices', { n: fin.unpaidCount }), onClick: () => jump('fd-owed') },
           { icon: 'warn', value: moneyBreakdown(fin.overdueTotalByCurrency, m(0)), label: tr('overdue'), note: fin.overdueCount ? (fin.overdueCount === 1 ? tr('1 invoice past its due date') : tr('{n} invoices past their due date', { n: fin.overdueCount })) : tr('nothing overdue'), tone: fin.overdueCount ? 'bad' : '', onClick: () => jump('fd-overdue') },
-          { icon: 'scale', value: m(fin.netPositionThisMonth), label: tr('net this month'), note: tr('collected minus expenses'), tone: fin.netPositionThisMonth < 0 ? 'bad' : '' }
+          { icon: 'scale', value: m(fin.netPositionThisMonth), label: tr('net this month'), note: tr('collected minus expenses'), tone: fin.netPositionThisMonth < 0 ? 'bad' : 'good' }
         ]} />
 
       <div ref={printRef} className="dk-body">
+        <FxFacts items={facts} />
         <Insights items={insights} />
         {trend}
 
         <Section id="fd-owed" card title={tr('How late the money owed is')} sub={tr('Everything customers still owe in {currency}, by how far past the due date it is.', { currency: cur })}
           action={<LinkButton onClick={() => navigate('/invoices')}>{tr('Open invoices')}</LinkButton>}>
-          {owedBase > 0 ? (
-            <>
-              <div className="dk-stack-bar" role="img" aria-label={ageBands.map((b) => b.label + ': ' + m(b.value)).join(', ')}>
-                {ageBands.filter((b) => b.value > 0).map((b) => <span key={b.key} className={b.cls} style={{ width: (b.value / owedBase) * 100 + '%' }} />)}
-              </div>
-              <dl className="dk-age-legend">
-                {ageBands.map((b) => (
-                  <div key={b.key}><dt><i className={'dk-swatch ' + b.cls} />{b.label}</dt><dd>{m(b.value)}</dd></div>
-                ))}
-              </dl>
-            </>
-          ) : <Empty>{tr('Nothing is owed right now.')}</Empty>}
+          {owedBase > 0 ? <FxAge bands={ageBands} format={m} /> : <Empty>{tr('Nothing is owed right now.')}</Empty>}
         </Section>
 
         <div className="dk-two">
@@ -409,19 +414,31 @@ function RestaurantFinance({ fin, actions, trend, printRef }) {
   }
   insights.push(...floatInsights(fin, m, navigate));
 
+  const f = fin.fun || {};
+  const hourText = (h) => String(h).padStart(2, '0') + ':00 – ' + String((h + 1) % 24).padStart(2, '0') + ':00';
+  const facts = [
+    f.bestSeller ? { icon: 'bag', tone: 'coral', label: tr('Best seller this month'), value: f.bestSeller.name, note: tr('{n} sold · {amount}', { n: f.bestSeller.qty, amount: m(f.bestSeller.amount) }) } : null,
+    f.busiestHour ? { icon: 'clock', tone: 'sun', label: tr('Busiest hour'), value: hourText(f.busiestHour.hour), note: f.busiestHour.orders === 1 ? tr('1 order this month in that hour') : tr('{n} orders this month in that hour', { n: f.busiestHour.orders }) } : null,
+    f.bestDay && f.bestDay.sales > 0 ? { icon: 'calendar', tone: 'mint', label: tr('Best day of the last 14'), value: new Date(f.bestDay.date + 'T12:00').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'short' }), note: m(f.bestDay.sales) + ' · ' + (f.bestDay.orders === 1 ? tr('1 order') : tr('{n} orders', { n: f.bestDay.orders })) } : null,
+    fin.ordersThisMonth ? { icon: 'receipt', tone: 'sky', label: tr('Average order'), value: m(fin.avgOrderThisMonth), note: fin.ordersThisMonth === 1 ? tr('1 order this month') : tr('{n} orders this month', { n: fin.ordersThisMonth }) } : null,
+    topMethod && fin.salesThisMonth ? { icon: 'card', tone: 'violet', label: tr('Guests mostly pay by'), value: codeLabel(topMethod.method), note: tr('{pct}% of sales', { pct: Math.round((topMethod.amount / fin.salesThisMonth) * 100) }) } : null
+  ];
+
   return (
     <>
-      <Hero eyebrow={fin.company.name} title={tr('The till and the costs')}
+      <FxHero theme="till" art="till" eyebrow={fin.company.name} title={tr('The till and the costs')}
         sub={tr('What the till took, how guests paid, what was spent, and whether the cash drawers balanced.')}
         actions={actions}
+        side={<FxRing value={dr.closed ? dr.balanced / dr.closed : null} size={168} tone={dr.closed && dr.balanced < dr.closed ? 'warn' : ''} big={dr.closed ? dr.balanced + '/' + dr.closed : '—'} label={tr('drawers balanced')} sub={tr('in the last 30 days')} />}
         stats={[
           { icon: 'cash', value: m(fin.salesThisMonth), label: tr('sales this month'), note: <Change now={fin.salesThisMonth} before={fin.salesLastMonthSameDays} label={tr('last month')} /> },
           { icon: 'bag', value: String(fin.ordersThisMonth), label: tr('orders this month'), note: tr('average {amount}', { amount: m(fin.avgOrderThisMonth) }) },
           { icon: 'receipt', value: m(fin.approvedExpensesThisMonth), label: tr('expenses this month'), note: <Change now={fin.approvedExpensesThisMonth} before={fin.approvedExpensesLastMonthSameDays} upIsGood={false} label={tr('last month')} /> },
-          { icon: 'scale', value: m(fin.netPositionThisMonth), label: tr('net this month'), note: tr('sales minus expenses'), tone: fin.netPositionThisMonth < 0 ? 'bad' : '' }
+          { icon: 'scale', value: m(fin.netPositionThisMonth), label: tr('net this month'), note: tr('sales minus expenses'), tone: fin.netPositionThisMonth < 0 ? 'bad' : 'good' }
         ]} />
 
       <div ref={printRef} className="dk-body">
+        <FxFacts items={facts} />
         <Insights items={insights} />
 
         <Section card title={tr('The last 14 days')} sub={tr('Sales day by day. Today is the last bar.')}>

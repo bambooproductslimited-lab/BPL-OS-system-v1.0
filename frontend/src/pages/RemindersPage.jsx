@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
-import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
+import { Glossary, Icon, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
+import { FxFacts, FxHero, FxRing } from './finance/FinFun';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr, msg } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels';
@@ -27,10 +28,12 @@ import './RemindersPage.css';
 // OS can also text on its own (Company settings → Messaging); the page
 // says whether that is on.
 //
-// Same "explains itself" layout as the dashboards (components/DashKit.jsx):
-// overdue, due soon, not chased lately, bookings ending; what stands out;
-// then the bills or the bookings as cards or a list, each with its buttons
-// and a window with every reminder sent.
+// Same "explains itself" layout as the dashboards (components/DashKit.jsx),
+// in the finance pages' banner (pages/finance/FinFun.jsx): overdue, due
+// soon, not chased lately, bookings ending, and a ring with how many of the
+// overdue bills were reminded this week; lighter facts (the oldest bill, who
+// owes the most); what stands out; then the bills or the bookings as cards
+// or a list, each with its buttons and a window with every reminder sent.
 
 const WINDOWS = [3, 7, 14, 30];
 const BOOKING_WINDOWS = [30, 60, 90];
@@ -218,6 +221,26 @@ export default function RemindersPage() {
       : { icon: 'check', value: String(rows.filter(chased).length), label: tr('reminded this week'), note: tr('of {n} on the list', { n: rows.length }), onClick: () => showBillsChip('chased') }
   ];
 
+  // The ring: how many overdue bills were reminded in the last seven days.
+  // And lighter facts: the oldest bill, who owes the most, how late bills
+  // are on average, and how many people can be reached at all.
+  const remindedShare = overdue.length ? (overdue.length - notChased.length) / overdue.length : null;
+  const owedBy = {};
+  overdue.forEach((r) => {
+    const k = r.customerName + '|' + r.currency;
+    owedBy[k] = owedBy[k] || { name: r.customerName, currency: r.currency, amount: 0, bills: 0 };
+    owedBy[k].amount += r.balanceDue; owedBy[k].bills += 1;
+  });
+  const topOwer = Object.values(owedBy).sort((a, b) => b.amount - a.amount)[0];
+  const avgLate = overdue.length ? Math.round(overdue.reduce((s, r) => s + r.daysOverdue, 0) / overdue.length) : 0;
+  const reachable = rows.length - noPhone.length;
+  const facts = [
+    longest ? { icon: 'clock', tone: 'coral', label: tr('Oldest overdue bill'), value: longest.daysOverdue === 1 ? tr('1 day') : tr('{n} days', { n: longest.daysOverdue }), note: longest.customerName + ' · ' + longest.invoiceNo } : null,
+    topOwer ? { icon: 'owed', tone: 'rose', label: tr('Owes the most'), value: money(topOwer.amount, topOwer.currency), note: topOwer.bills === 1 ? tr('{name}, on 1 overdue bill', { name: topOwer.name }) : tr('{name}, on {n} overdue bills', { name: topOwer.name, n: topOwer.bills }) } : null,
+    overdue.length ? { icon: 'calendar', tone: 'sun', label: tr('Overdue bills are late by'), value: avgLate === 1 ? tr('1 day') : tr('{n} days', { n: avgLate }), note: tr('on average') } : null,
+    rows.length ? { icon: 'phone', tone: 'mint', label: tr('Can be reminded'), value: tr('{a} of {b}', { a: reachable, b: rows.length }), note: emailAvailable ? tr('have a phone number or email') : tr('have a phone number') } : null
+  ];
+
   const insights = [];
   if (never.length) insights.push({ tone: 'bad', icon: 'send', text: never.length === 1 ? tr('{name} is {days} days overdue on {no} and has never been reminded.', { name: never[0].customerName, days: never[0].daysOverdue, no: never[0].invoiceNo }) : tr('{n} overdue bills have never had a reminder.', { n: never.length }), action: { label: never.length === 1 ? tr('Open') : tr('Show them'), run: () => (never.length === 1 ? setDetail(never[0].invoiceId) : showBillsChip('never')) } });
   if (longest && longest.daysOverdue > 30) insights.push({ tone: 'bad', icon: 'clock', text: tr('{name} is the longest overdue: {amount}, {days} days.', { name: longest.customerName, amount: money(longest.balanceDue, longest.currency), days: longest.daysOverdue }), action: { label: tr('Open'), run: () => setDetail(longest.invoiceId) } });
@@ -242,21 +265,26 @@ export default function RemindersPage() {
   const sendBill = { whatsapp: (row) => sender.whatsapp('/reminders/' + row.invoiceId + '/whatsapp', row), sms: (row) => sender.sms('/reminders/' + row.invoiceId + '/sms', row), email: (row) => sender.email('/reminders/' + row.invoiceId + '/email', row) };
 
   return (
-    <div className="dk tl pk cu rm">
+    <div className="dk tl pk cu rm fnx">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
+      <FxHero theme="chase" art="chase"
+        side={remindedShare === null
+          ? <FxRing value={1} size={160} big={tr('All clear')} label={tr('nothing overdue')} />
+          : <FxRing value={Math.max(0.03, remindedShare)} size={160} big={Math.round(remindedShare * 100) + '%'} label={tr('of overdue bills')} sub={tr('reminded this week')} />}
         eyebrow={tr('Finance')}
         title={tr('Payment reminders')}
         sub={tr('Everyone whose rent, utility bill or invoice is overdue or due soon. "WhatsApp" opens WhatsApp with a polite reminder and a link to the bill already written — you press send. "Send text" texts it straight away, and "Email" emails it with the bill attached. Each reminder is recorded here, so nobody is chased twice in a morning.')}
         actions={(
           <>
-            <Link className="btn btn-secondary" to="/invoices">{tr('Invoices')}</Link>
-            <span className="rm-auto">{auto.payments ? <Status tone="good">{tr('Automatic texts on')}</Status> : smsAvailable ? <Status tone="muted">{tr('Automatic texts off')}</Status> : null}</span>
-            {emailAvailable && <span className="rm-auto">{auto.emails ? <Status tone="good">{tr('Automatic emails on')}</Status> : <Status tone="muted">{tr('Automatic emails off')}</Status>}</span>}
+            <Link className="fnx-pill is-main" to="/invoices"><Icon name="doc" /> {tr('Invoices')}</Link>
+            {(auto.payments || smsAvailable) && <span className={'fnx-flag' + (auto.payments ? ' is-on' : '')}><span className="fnx-flag-dot" aria-hidden="true" />{auto.payments ? tr('Automatic texts on') : tr('Automatic texts off')}</span>}
+            {emailAvailable && <span className={'fnx-flag' + (auto.emails ? ' is-on' : '')}><span className="fnx-flag-dot" aria-hidden="true" />{auto.emails ? tr('Automatic emails on') : tr('Automatic emails off')}</span>}
           </>
         )}
         stats={stats} />
+
+      <FxFacts items={facts} />
 
       <Insights items={insights.slice(0, 5)} />
 

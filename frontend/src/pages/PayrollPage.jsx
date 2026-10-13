@@ -3,7 +3,8 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
-import { Glossary, Hero, Insights, PairBars, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
+import { Glossary, Icon, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
+import { FxFacts, FxHero, FxMoneyChart, FxRing } from './finance/FinFun';
 import { money } from '../lib/currency';
 import { downloadCsv, rowsToCsv } from '../lib/csvExport';
 import { activeIntlLocale, tr, msg } from '../lib/i18n.jsx';
@@ -302,17 +303,36 @@ export default function PayrollPage() {
   const stepAt = run ? STEPS.findIndex((s) => s.key === run.status) : 0;
   const newStaff = employees.filter((e) => e.status === 'active' && e.payCycle === form.cycle && (!form.companyId || deptCompany.get(e.departmentId) === form.companyId));
 
+  // The banner's ring: days to the next pay day, else how much of the last
+  // run's cost reached staff as take-home pay. And lighter facts.
+  const today = todayIso();
+  const nextPay = runs.filter((r) => r.status !== 'paid' && String(r.payDate).slice(0, 10) >= today).sort((a, b) => String(a.payDate).localeCompare(String(b.payDate)))[0];
+  const daysTo = nextPay ? Math.round((new Date(String(nextPay.payDate).slice(0, 10) + 'T00:00') - new Date(today + 'T00:00')) / 86400000) : null;
+  const yearRuns = done.filter((r) => String(r.periodEnd).slice(0, 4) === today.slice(0, 4));
+  const yearNet = yearRuns.reduce((s, r) => s + r.totals.net, 0);
+  const yearGov = yearRuns.reduce((s, r) => s + toAuthorities(r.totals), 0);
+  const yearSlips = yearRuns.reduce((s, r) => s + r.employeeCount, 0);
+  const facts = [
+    latest && latest.employeeCount ? { icon: 'people', tone: 'violet', label: tr('Average take-home'), value: money(latest.totals.net / latest.employeeCount), note: tr('in {runNo}, for {n} people', { runNo: latest.runNo, n: latest.employeeCount }) } : null,
+    yearRuns.length ? { icon: 'cash', tone: 'mint', label: tr('Take-home paid this year'), value: money(yearNet), note: yearSlips === 1 ? tr('on 1 payslip') : tr('on {n} payslips', { n: yearSlips }) } : null,
+    yearRuns.length ? { icon: 'scale', tone: 'sky', label: tr('To GRA and SSNIT this year'), value: money(yearGov), note: yearRuns.length === 1 ? tr('from 1 run') : tr('from {n} runs', { n: yearRuns.length }) } : null,
+    latest && latest.totals.cost ? { icon: 'percent', tone: 'sun', label: tr('Of each cedi paid out'), value: Math.round((latest.totals.net / latest.totals.cost) * 100) + '%', note: tr('reaches staff as take-home; the rest is PAYE and SSNIT') } : null
+  ];
+
   return (
-    <div className="dk tl pk cu prl">
+    <div className="dk tl pk cu prl fnx">
       {error && <div className="error-banner" role="alert">{error}</div>}
 
-      <Hero
+      <FxHero theme="payroll" art="payroll"
+        side={nextPay
+          ? <FxRing value={Math.max(0.04, 1 - Math.min(daysTo, 30) / 30)} size={160} big={daysTo === 0 ? tr('Today') : String(daysTo)} label={daysTo === 0 ? tr('is pay day') : daysTo === 1 ? tr('day to pay day') : tr('days to pay day')} sub={nextPay.runNo + ' · ' + fmtDate(nextPay.payDate)} />
+          : <FxRing value={latest && latest.totals.cost ? latest.totals.net / latest.totals.cost : null} size={160} big={latest && latest.totals.cost ? Math.round((latest.totals.net / latest.totals.cost) * 100) + '%' : '—'} label={tr('take-home')} sub={tr('of the last run\'s cost')} />}
         eyebrow={tr('Finance')}
         title={tr('Payroll')}
         sub={tr('Paying staff: what each pay run cost, what goes to GRA and SSNIT, and which runs still need approving or paying. Days worked come from Attendance.')}
         actions={(
           <>
-            {canManage && <button type="button" className="btn btn-primary" onClick={() => openNew()}>{tr('New pay run')}</button>}
+            {canManage && <button type="button" className="fnx-pill is-main" onClick={() => openNew()}><Icon name="cash" /> {tr('New pay run')}</button>}
             {companies.length > 1 && (
               <select className="input prl-company" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} aria-label={tr('Company')}>
                 <option value="">{tr('All companies')}</option>
@@ -323,10 +343,12 @@ export default function PayrollPage() {
         )}
         stats={stats} />
 
+      <FxFacts items={facts} />
+
       <Insights items={insights.slice(0, 5)} />
 
       <Section id="pr-months" title={tr('Take-home pay and deductions, by month')} sub={tr('Approved and paid runs over the last six months, by the month their period ends. Deductions are PAYE plus SSNIT from staff and employer.')} card>
-        <PairBars rows={months} aLabel={tr('Take-home pay')} bLabel={tr('PAYE and SSNIT')} format={(n) => money(n)} />
+        <FxMoneyChart rows={months} aLabel={tr('Take-home pay')} bLabel={tr('PAYE and SSNIT')} format={(n) => money(n)} noNet bestLabel={tr('the biggest month')} />
       </Section>
 
       <Section id="pr-list" title={tr('Pay runs')} sub={tr('Press a run to see every payslip, change days worked while it is a draft, approve it and mark it paid.')}

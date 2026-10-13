@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import { Empty, Glossary, Hero, Icon, Section, Status, fmtDate } from '../../components/DashKit';
+import { Empty, Glossary, Icon, RankList, Section, Status, fmtDate, jump } from '../../components/DashKit';
 import { downloadCsv, rowsToCsv } from '../../lib/csvExport';
 import { tr } from '../../lib/i18n.jsx';
 import { Toast, ghs, useCrmBasics, usePerms } from './crmShared';
+import { FxFacts, FxHero, FxRing } from '../finance/FinFun';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -15,6 +16,10 @@ import './CrmPage.css';
 // A commission is ready to pay once the customer has paid the invoice in
 // full. Reps see their own; crm.commission sees everyone's and marks them
 // paid.
+//
+// In the finance pages' look (pages/finance/FinFun.jsx): a banner with a
+// ring for how much of what was earned has been paid out, lighter facts,
+// who earned the most, and each sale as a card with its rate worked out.
 
 function dealTone(d) { return d.status === 'paid' ? 'good' : d.status === 'not_eligible' ? 'muted' : d.ready ? 'warn' : 'info'; }
 function dealState(d) { return d.status === 'paid' ? tr('Paid') : d.status === 'not_eligible' ? tr('No commission') : d.ready ? tr('To pay') : tr('Waiting for the customer'); }
@@ -59,6 +64,31 @@ export default function CrmCommissionsPage() {
   const paid = deals.filter((d) => d.status === 'paid');
   const refOwed = refs.filter((r) => r.status === 'pending');
   const reps = [...new Map(deals.filter((d) => d.repName).map((d) => [d.repId || d.repName, d.repName])).entries()];
+  const earned = deals.filter((d) => d.status !== 'not_eligible' && d.commission);
+  const earnedSum = sum(earned);
+  const paidShare = earnedSum ? sum(paid) / earnedSum : null;
+  // Who earned the most (paid, ready and waiting), and lighter facts.
+  const byRep = new Map();
+  earned.forEach((d) => {
+    if (!d.repName) return;
+    const k = d.repId || d.repName;
+    const r = byRep.get(k) || { key: k, name: d.repName, value: 0, paid: 0, sales: 0 };
+    r.value += d.commission; r.sales += 1; if (d.status === 'paid') r.paid += d.commission;
+    byRep.set(k, r);
+  });
+  const board = [...byRep.values()].sort((a, b) => b.value - a.value);
+  const biggest = earned.slice().sort((a, b) => b.commission - a.commission)[0];
+  const rated = deals.filter((d) => d.rate !== null && d.status !== 'not_eligible');
+  const avgRate = rated.length ? Math.round((rated.reduce((a, d) => a + d.rate, 0) / rated.length) * 10) / 10 : null;
+  const fullRate = rated.filter((d) => !d.discountPct).length;
+  const refPaid = refs.filter((r) => r.status === 'paid').reduce((a, r) => a + r.amount, 0);
+  const facts = [
+    canCommission && board.length > 1 ? { icon: 'spark', tone: 'sun', label: tr('Top earner'), value: board[0].name, note: tr('{amount} on {n} sales', { amount: ghs(board[0].value), n: board[0].sales }) } : null,
+    biggest ? { icon: 'cash', tone: 'violet', label: tr('Biggest single share'), value: ghs(biggest.commission), note: biggest.leadName + ' · ' + biggest.invoiceNo } : null,
+    avgRate !== null ? { icon: 'percent', tone: 'sky', label: tr('Average rate earned'), value: avgRate + '%', note: tr('of a {rate}% base, after discounts', { rate: settings ? settings.commissionRate : 20 }) } : null,
+    rated.length ? { icon: 'check', tone: 'mint', label: tr('Sold with no discount'), value: tr('{a} of {b}', { a: fullRate, b: rated.length }), note: tr('those earn the full rate') } : null,
+    refs.length ? { icon: 'people', tone: 'rose', label: tr('Paid to referrers'), value: ghs(refPaid), note: refs.length === 1 ? tr('1 referral recorded') : tr('{n} referrals recorded', { n: refs.length }) } : null
+  ];
 
   async function setStatus(kind, id, status) {
     setBusy(id); setError(null);
@@ -95,26 +125,36 @@ export default function CrmCommissionsPage() {
 
   const rate = settings ? settings.commissionRate : 20;
   return (
-    <div className="dk crm">
+    <div className="dk crm fnx cm">
       {error && <div className="error-banner" role="alert">{error}</div>}
-      <Hero eyebrow={tr('Finance')} title={canCommission ? tr('Commissions') : tr('My commission')}
+      <FxHero theme="commission" art="trophy"
+        side={<FxRing value={paidShare === null ? null : Math.max(0.03, paidShare)} size={160} big={paidShare === null ? '—' : Math.round(paidShare * 100) + '%'} label={tr('paid out')} sub={tr('of {amount} earned', { amount: ghs(earnedSum) })} />}
+        eyebrow={tr('Finance')} title={canCommission ? tr('Commissions') : tr('My commission')}
         sub={tr('The share each won sale earns: {rate}% less the discount given, on the price after discount. It can be paid once the customer has paid the invoice in full.', { rate })}
         actions={<>
-          <button type="button" className="btn btn-secondary" onClick={csv}>{tr('Download CSV')}</button>
-          {canCommission && settings && <button type="button" className="btn btn-secondary" onClick={() => setRates({ commissionRate: settings.commissionRate, referralRate: settings.referralRate, sources: settings.sources.join('\n') })}>{tr('Rates & sources')}</button>}
+          <button type="button" className="fnx-pill is-main" onClick={csv}><Icon name="doc" /> {tr('Download CSV')}</button>
+          {canCommission && settings && <button type="button" className="fnx-pill" onClick={() => setRates({ commissionRate: settings.commissionRate, referralRate: settings.referralRate, sources: settings.sources.join('\n') })}><Icon name="percent" /> {tr('Rates & sources')}</button>}
         </>}
         stats={[
-          { icon: 'cash', value: ghs(sum(toPay)), label: tr('ready to pay'), note: tr('{n} sales paid up by the customer', { n: toPay.length }), tone: toPay.length ? 'good' : '', onClick: () => setFilter('topay') },
-          { icon: 'clock', value: ghs(sum(waiting)), label: tr('waiting for the customer'), note: tr('{n} sales not fully paid yet', { n: waiting.length }), onClick: () => setFilter('waiting') },
-          { icon: 'check', value: ghs(sum(paid)), label: tr('paid out'), note: tr('{n} sales', { n: paid.length }), onClick: () => setFilter('paid') },
-          { icon: 'people', value: ghs(refOwed.reduce((a, r) => a + r.amount, 0)), label: tr('owed to referrers'), note: tr('{n} referrals not paid yet', { n: refOwed.length }), onClick: () => document.getElementById('crm-refs').scrollIntoView({ behavior: 'smooth' }) }
+          { icon: 'cash', value: ghs(sum(toPay)), label: tr('ready to pay'), note: tr('{n} sales paid up by the customer', { n: toPay.length }), tone: toPay.length ? 'good' : '', onClick: () => { setFilter('topay'); jump('cm-sales'); } },
+          { icon: 'clock', value: ghs(sum(waiting)), label: tr('waiting for the customer'), note: tr('{n} sales not fully paid yet', { n: waiting.length }), onClick: () => { setFilter('waiting'); jump('cm-sales'); } },
+          { icon: 'check', value: ghs(sum(paid)), label: tr('paid out'), note: tr('{n} sales', { n: paid.length }), onClick: () => { setFilter('paid'); jump('cm-sales'); } },
+          { icon: 'people', value: ghs(refOwed.reduce((a, r) => a + r.amount, 0)), label: tr('owed to referrers'), note: tr('{n} referrals not paid yet', { n: refOwed.length }), onClick: () => jump('crm-refs') }
         ]} />
 
-      <Section title={tr('Sales')} sub={tr('Each sale is an OS invoice linked to a won lead. Press the lead to open it.')}>
+      <FxFacts items={facts} />
+
+      {canCommission && board.length > 1 && (
+        <Section id="cm-board" title={tr('Who earned the most')} sub={tr('Every share earned so far: paid, ready to pay and waiting for the customer.')} card>
+          <RankList rows={board.slice(0, 8).map((r) => ({ key: r.key, name: r.name, value: r.value, amount: ghs(r.value), meta: (r.sales === 1 ? tr('1 sale') : tr('{n} sales', { n: r.sales })) + ' · ' + tr('{amount} paid out', { amount: ghs(r.paid) }) }))} />
+        </Section>
+      )}
+
+      <Section id="cm-sales" title={tr('Sales')} sub={tr('Each sale is an OS invoice linked to a won lead. Press the lead to open it.')}>
         <div className="crm-filters">
-          <div className="dk-segment" role="radiogroup" aria-label={tr('Show')}>
+          <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
             {[['topay', tr('To pay'), toPay.length], ['waiting', tr('Waiting'), waiting.length], ['paid', tr('Paid'), paid.length], ['none', tr('No commission'), deals.filter((d) => d.status === 'not_eligible').length], ['all', tr('All'), deals.length]].map(([k, label, n]) => (
-              <button key={k} type="button" role="radio" aria-checked={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label} ({n})</button>
+              <button key={k} type="button" role="radio" aria-checked={filter === k} className={'ppl-chip' + (filter === k ? ' is-on' : '')} onClick={() => setFilter(k)}>{label} <span className="ppl-chip-n">{n}</span></button>
             ))}
           </div>
           {canCommission && reps.length > 1 && (
@@ -125,41 +165,40 @@ export default function CrmCommissionsPage() {
           )}
         </div>
         {shown.length ? (
-          <ul className="dk-rows">
+          <div className="tl-grid">
             {shown.map((d) => (
-              <li key={d.id} className="dk-row crm-deal">
-                <span className={'dk-lead-icon is-' + (dealTone(d) === 'muted' ? 'info' : dealTone(d))}><Icon name="receipt" /></span>
-                <div className="dk-row-main">
-                  <div className="dk-row-title">
-                    <button type="button" className="crm-textbtn" onClick={() => navigate('/crmleads?lead=' + d.leadId)}>{d.leadName}</button>
-                    <span className="dk-muted"> · {d.invoiceNo} · {fmtDate(d.issuedAt)}</span>
-                  </div>
-                  <div className="dk-muted dk-row-meta">
-                    {d.kind === 'kickback' ? tr('Kick-back for {name}', { name: d.repName || tr('nobody') }) : tr('Commission for {name}', { name: d.repName || tr('nobody') })}
-                    {d.coreTeam ? ' · ' + tr('team: {names}', { names: d.coreTeam }) : ''}
-                  </div>
-                  <div className="dk-muted dk-row-meta">
-                    {tr('{value} after {disc}% discount', { value: ghs(d.value), disc: d.discountPct })}
-                    {d.rate !== null ? ' · ' + tr('{base}% − {disc}% = {rate}%', { base: d.baseRate, disc: d.discountPct, rate: d.rate }) : ''}
-                    {d.balance > 0 ? ' · ' + tr('{amount} still owed by the customer', { amount: ghs(d.balance) }) : ''}
-                  </div>
-                  {(canCommission || canManage) && (
-                    <div className="crm-card-acts">
-                      {canCommission && d.status !== 'paid' && d.status !== 'not_eligible' && <button type="button" className="btn btn-secondary tl-btn" disabled={busy === d.id} onClick={() => setStatus('deals', d.id, 'paid')}>{tr('Mark paid')}</button>}
-                      {canCommission && d.status === 'pending' && <button type="button" className="dk-link" disabled={busy === d.id} onClick={() => setStatus('deals', d.id, 'not_eligible')}>{tr('No commission on this')}</button>}
-                      {canCommission && d.status !== 'pending' && <button type="button" className="dk-link" disabled={busy === d.id} onClick={() => setStatus('deals', d.id, 'pending')}>{tr('Back to not paid')}</button>}
-                      {canManage && d.status !== 'paid' && <button type="button" className="dk-link" onClick={() => setEditing({ id: d.id, kind: d.kind, repId: d.repId || '', repName: d.repId ? '' : d.repName || '', coreTeam: d.coreTeam, notes: d.notes })}>{tr('Change who gets it')}</button>}
-                    </div>
-                  )}
+              <article key={d.id} className={'tl-card fnx-deal is-' + dealTone(d)}>
+                <div className="fnx-deal-top">
+                  <span className="dk-muted tl-small">{d.invoiceNo} · {fmtDate(d.issuedAt)}</span>
+                  <Status tone={dealTone(d)}>{dealState(d)}</Status>
                 </div>
-                <div className="dk-row-side">
-                  <div className="dk-row-amount">{d.commission === null ? '—' : ghs(d.commission)}</div>
-                  <div className="dk-row-note"><Status tone={dealTone(d)}>{dealState(d)}</Status></div>
-                  {d.paidOn && <div className="dk-muted tl-small">{fmtDate(d.paidOn)}</div>}
+                <button type="button" className="crm-textbtn tl-name fnx-deal-lead" onClick={() => navigate('/crmleads?lead=' + d.leadId)}>{d.leadName}</button>
+                <p className="dk-muted tl-small fnx-deal-who">
+                  {d.kind === 'kickback' ? tr('Kick-back for {name}', { name: d.repName || tr('nobody') }) : tr('Commission for {name}', { name: d.repName || tr('nobody') })}
+                  {d.coreTeam ? ' · ' + tr('team: {names}', { names: d.coreTeam }) : ''}
+                </p>
+                {d.rate !== null && (
+                  <div className="fnx-eq" aria-label={tr('{base}% − {disc}% = {rate}%', { base: d.baseRate, disc: d.discountPct, rate: d.rate })}>
+                    <span>{d.baseRate}%</span><i>−</i><span>{d.discountPct}%</span><i>=</i><strong>{d.rate}%</strong>
+                    <small>{tr('of {value}', { value: ghs(d.value) })}</small>
+                  </div>
+                )}
+                {d.rate === null && <p className="dk-muted tl-small">{tr('{value} after {disc}% discount', { value: ghs(d.value), disc: d.discountPct })}</p>}
+                {d.balance > 0 && <p className="tl-small fnx-deal-owed">{tr('{amount} still owed by the customer', { amount: ghs(d.balance) })}</p>}
+                <div className="tl-foot">
+                  <span className="fnx-deal-amount">{d.commission === null ? '—' : ghs(d.commission)}{d.paidOn && <small className="dk-muted"> · {fmtDate(d.paidOn)}</small>}</span>
+                  {canCommission && d.status !== 'paid' && d.status !== 'not_eligible' && <button type="button" className="btn btn-primary tl-btn" disabled={busy === d.id} onClick={() => setStatus('deals', d.id, 'paid')}>{tr('Mark paid')}</button>}
                 </div>
-              </li>
+                {(canCommission || (canManage && d.status !== 'paid')) && (
+                  <div className="crm-card-acts">
+                    {canCommission && d.status === 'pending' && <button type="button" className="dk-link" disabled={busy === d.id} onClick={() => setStatus('deals', d.id, 'not_eligible')}>{tr('No commission on this')}</button>}
+                    {canCommission && d.status !== 'pending' && <button type="button" className="dk-link" disabled={busy === d.id} onClick={() => setStatus('deals', d.id, 'pending')}>{tr('Back to not paid')}</button>}
+                    {canManage && d.status !== 'paid' && <button type="button" className="dk-link" onClick={() => setEditing({ id: d.id, kind: d.kind, repId: d.repId || '', repName: d.repId ? '' : d.repName || '', coreTeam: d.coreTeam, notes: d.notes })}>{tr('Change who gets it')}</button>}
+                  </div>
+                )}
+              </article>
             ))}
-          </ul>
+          </div>
         ) : <Empty icon="cash">{deals.length ? tr('Nothing here. Try another tab.') : tr('No sales linked to leads yet. Open a won lead and link its invoice.')}</Empty>}
       </Section>
 

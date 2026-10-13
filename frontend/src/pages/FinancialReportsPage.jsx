@@ -4,7 +4,8 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { shareOrDownloadPdf } from '../lib/documentShare';
 import { rowsToCsv, downloadCsv } from '../lib/csvExport';
-import { CompanySwitcher, Glossary, Hero, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { CompanySwitcher, Glossary, Icon, Insights, RankList, Section, Status, fmtDate, jump } from '../components/DashKit';
+import { FxCompare, FxHero, FxRing, FxWaterfall, compact } from './finance/FinFun';
 import { money as moneyFmt, moneyBreakdown } from '../lib/currency';
 import { tr, msg } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
@@ -158,7 +159,6 @@ export default function FinancialReportsPage() {
   const from = pnl.from, to = pnl.to;
   const periodText = fmtDate(from) + ' – ' + fmtDate(to);
   const coName = company === 'ALL' ? tr('All companies') : pnl.company.name;
-  const arBase = (arAging.totalByCurrency.find((r) => r.currency === base) || { amount: 0 }).amount;
   const ar90 = arAging.buckets.d90_plus || [];
   const margin = pct(pnl.netProfit, pnl.revenue);
   const grossMargin = pct(pnl.grossProfit, pnl.revenue);
@@ -257,15 +257,18 @@ export default function FinancialReportsPage() {
   const bucketRows = BUCKETS.map((b) => ({ ...b, sum: arAging.buckets[b.key] || [], n: arAging.invoices.filter((r) => r.bucket === b.key).length }));
 
   return (
-    <div className={'dk tl fr' + (busy ? ' is-loading' : '')}>
+    <div className={'dk tl fr fnx' + (busy ? ' is-loading' : '')}>
       {error && <div className="error-banner" role="alert">{error}</div>}
 
       <CompanySwitcher companies={companies.map((c) => (c.code === 'ALL' ? { ...c, name: tr('All companies') } : c))} company={company} onPick={pickCompany} />
 
-      <Hero
+      <FxHero theme="statements" art="scale"
         eyebrow={tr('Finance')}
         title={tr('Financial reports')}
         sub={tr('{company}, {period}: the profit and loss, cash flow, balance sheet, who owes us, expenses and tax — worked out from invoices, till sales, payments, purchases, expense claims and payroll already in Bamboo OS.', { company: coName, period: periodText })}
+        side={<FxRing value={margin === null ? (pnl.netProfit ? 1 : null) : Math.min(1, Math.abs(margin) / 100)} size={160} tone={pnl.netProfit < 0 ? 'bad' : ''}
+          big={margin === null ? (pnl.netProfit ? (pnl.netProfit < 0 ? '−' : '') + compact(Math.abs(pnl.netProfit)) : '—') : margin + '%'}
+          label={pnl.netProfit < 0 ? tr('net loss') : tr('net margin')} sub={margin === null ? base : tr('of revenue')} />}
         stats={stats} />
 
       <div className="rp-period" role="radiogroup" aria-label={tr('Period')}>
@@ -296,15 +299,43 @@ export default function FinancialReportsPage() {
 
         <div ref={printRef} className="fr-print">
           <h3 className="fr-print-title">{tr((TABS.find((t) => t.key === tab) || TABS[0]).label)} · {coName}</h3>
-          {tab === 'pnl' && <Statement rows={pnlRows} base={base} />}
+          {tab === 'pnl' && (
+            <>
+              <FxWaterfall format={(n) => moneyFmt(n, base)} steps={[
+                { label: tr('Revenue'), value: pnl.revenue, kind: 'start' },
+                { label: tr('Purchases received'), value: pnl.purchases.total, kind: 'down' },
+                { label: tr('Gross profit'), value: pnl.grossProfit, kind: 'total' },
+                { label: tr('Running costs'), value: pnl.totalExpenses, kind: 'down', note: pnl.expenseSources && pnl.expenseSources.sheets ? tr('incl. {amount} from expense sheets', { amount: moneyFmt(pnl.expenseSources.sheets, base) }) : null },
+                { label: tr('Payroll'), value: pnl.payrollCost, kind: 'down' },
+                { label: pnl.netProfit < 0 ? tr('Net loss') : tr('Net profit'), value: pnl.netProfit, kind: 'total' }
+              ]} />
+              <Statement rows={pnlRows} base={base} />
+            </>
+          )}
 
-          {tab === 'cashflow' && <Statement rows={cfRows} base={base} />}
+          {tab === 'cashflow' && (
+            <>
+              <FxWaterfall format={(n) => moneyFmt(n, base)} steps={[
+                { label: tr('Money in'), value: cashFlow.cashIn, kind: 'start' },
+                { label: tr('Expenses paid'), value: cashFlow.expensesOut, kind: 'down', note: cashFlow.expensesOutLines && cashFlow.expensesOutLines.sheets ? tr('claims and officers\' floats') : null },
+                { label: tr('Payroll paid'), value: cashFlow.payrollOut, kind: 'down' },
+                { label: tr('Purchases received'), value: cashFlow.purchasesOut, kind: 'down' },
+                { label: tr('Net cash flow'), value: cashFlow.netCashFlow, kind: 'total' }
+              ]} />
+              <Statement rows={cfRows} base={base} />
+            </>
+          )}
 
           {tab === 'balancesheet' && (
             <>
-              <div className={'fr-banner ' + (Math.abs(bs.balanceCheck) < 0.01 ? 'is-ok' : 'is-off')}>
-                {Math.abs(bs.balanceCheck) < 0.01 ? tr('Balanced — assets equal liabilities plus equity.') : tr('Off by {amount} — check the typed-in figures below (Cash & bank is usually the one to correct).', { amount: moneyFmt(Math.abs(bs.balanceCheck), base) })}
-              </div>
+              <FxCompare format={(n) => moneyFmt(n, base)}
+                badge={<span className={'fnx-badge ' + (Math.abs(bs.balanceCheck) < 0.01 ? 'is-ok' : 'is-off')}><Icon name={Math.abs(bs.balanceCheck) < 0.01 ? 'check' : 'warn'} />
+                  {Math.abs(bs.balanceCheck) < 0.01 ? tr('Balanced — assets equal liabilities plus equity.') : tr('Off by {amount} — check the typed-in figures below (Cash & bank is usually the one to correct).', { amount: moneyFmt(Math.abs(bs.balanceCheck), base) })}</span>}
+                rows={[
+                  { label: tr('Assets'), value: bs.assets.total, tone: 'in', note: tr('what the company has') },
+                  { label: tr('Liabilities'), value: bs.liabilities.total, tone: 'out', note: tr('what it owes') },
+                  { label: tr('Equity'), value: bs.equity.total, tone: 'equity', note: tr('what is left for the owners') }
+                ]} />
               <Statement rows={bsRows} base={base} />
             </>
           )}

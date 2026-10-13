@@ -473,6 +473,7 @@ async function tradeFinance(co, t, base, mtd, periods, expTrend, exp) {
   }
   var baseRow = collectedRes.rows.filter(function (r) { return r.currency === base; })[0] || { this_month: 0, last_month: 0 };
   var a = agingRes.rows[0];
+  var fun = await tradeFun(co, t, base, mtd, inv, trend);
   var overdueList = overdueRes.rows.map(function (r) {
     var due = dayStr(r.due_date);
     return { invoiceNo: r.invoice_no, customerName: r.customer_name, phone: r.phone || '', currency: r.currency, amount: Number(r.balance_due), dueDate: due, daysOverdue: daysBetweenIso(due, t) };
@@ -490,7 +491,47 @@ async function tradeFinance(co, t, base, mtd, periods, expTrend, exp) {
     topDebtors: debtorsRes.rows.map(function (r) { return { name: r.name, phone: r.phone || '', owed: Number(r.owed), invoices: r.invoices, oldestDue: dayStr(r.oldest_due) }; }),
     netPositionThisMonth: Number(baseRow.this_month) - exp.approvedExpensesThisMonth,
     monthlyTrend: trend,
+    fun: fun,
     recentPayments: recentRes.rows.map(function (r) { return { customerName: r.customer_name, invoiceNo: r.invoice_no, amount: Number(r.amount), currency: r.currency, date: dayStr(r.date), method: r.method }; })
+  };
+}
+
+// The lighter facts for the trade page's banner, in the base currency:
+// how many days clients take to pay (invoices paid in full in the last 180
+// days, issued to paid), how much of what was invoiced in the last 90 days
+// has come in, the biggest payment this month and how many clients paid,
+// the best month of the trend, the top payer this year, and how many days
+// since money last came in.
+async function tradeFun(co, t, base, mtd, inv, trend) {
+  var P = [co.id, t, base];
+  var speed = (await pool.query(
+    'SELECT avg(i.paid_at - i.issued_at)::float AS d, count(*)::int AS n FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    "WHERE i.status = 'paid' AND i.paid_at IS NOT NULL AND i.paid_at >= $2::date - 180 AND i.currency = $3 AND " + inv, P)).rows[0];
+  var share = (await pool.query(
+    'SELECT coalesce(sum(i.grand_total), 0) AS invoiced, coalesce(sum(i.amount_paid), 0) AS paid FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
+    "WHERE i.status <> 'void' AND i.issued_at >= $2::date - 90 AND i.currency = $3 AND " + inv, P)).rows[0];
+  var month = (await pool.query(
+    'SELECT count(*)::int AS n, count(DISTINCT i.customer_id)::int AS payers FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id ' +
+    'WHERE pm.currency = $3 AND pm.date BETWEEN $4 AND $2 AND ' + inv, P.concat([mtd.from]))).rows[0];
+  var biggest = (await pool.query(
+    'SELECT pm.amount, pm.date, c.name FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id ' +
+    'WHERE pm.currency = $3 AND pm.date BETWEEN $4 AND $2 AND ' + inv + ' ORDER BY pm.amount DESC, pm.date LIMIT 1', P.concat([mtd.from]))).rows[0];
+  var top = (await pool.query(
+    'SELECT c.name, sum(pm.amount) AS s, count(*)::int AS n FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id ' +
+    "WHERE pm.currency = $3 AND pm.date >= date_trunc('year', $2::date) AND pm.date <= $2 AND " + inv + ' GROUP BY c.id, c.name ORDER BY s DESC LIMIT 1', P)).rows[0];
+  var last = (await pool.query(
+    'SELECT max(pm.date) AS d FROM payments pm JOIN invoices i ON i.id = pm.invoice_id JOIN customers c ON c.id = i.customer_id WHERE pm.date <= $2 AND ' + inv, [co.id, t])).rows[0].d;
+  var best = trend.reduce(function (b, m) { return m.revenue > (b ? b.revenue : 0) ? m : b; }, null);
+  var r2 = function (n) { return Math.round(Number(n) * 100) / 100; };
+  return {
+    daysToPay: speed.n ? Math.round(speed.d) : null, paidInvoices: speed.n,
+    collectedShare: Number(share.invoiced) > 0 ? Math.min(1, Number(share.paid) / Number(share.invoiced)) : null,
+    invoiced90: r2(share.invoiced), paid90: r2(share.paid),
+    paymentsThisMonth: month.n, payersThisMonth: month.payers,
+    biggestPayment: biggest ? { amount: r2(biggest.amount), date: dayStr(biggest.date), customerName: biggest.name } : null,
+    topPayerThisYear: top ? { name: top.name, amount: r2(top.s), payments: top.n } : null,
+    bestMonth: best ? { label: best.month, key: best.key, amount: r2(best.revenue) } : null,
+    daysSinceLastPayment: last ? daysBetweenIso(dayStr(last), t) : null
   };
 }
 
@@ -531,7 +572,21 @@ async function restaurantFinance(ctx, co, t, mtd, periods, expTrend, exp) {
   var off = closed.filter(function (s) { return Math.abs(s.difference) >= 0.01; });
   var s = salesRes.rows[0];
   var sales = Number(s.this_month);
+  // Lighter facts for the banner: the busiest hour and the best seller this
+  // month, and the best day of the last 14.
+  var hour = (await pool.query(
+    "SELECT extract(hour FROM created_at)::int AS h, count(*)::int AS n FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' " +
+    'AND created_at::date BETWEEN $2 AND $3 GROUP BY 1 ORDER BY n DESC, h LIMIT 1', [co.id, mtd.from, mtd.to])).rows[0];
+  var seller = (await pool.query(
+    "SELECT it.name, sum(it.qty)::float AS qty, sum(it.line_total) AS amount FROM restaurant_order_items it JOIN restaurant_orders o ON o.id = it.order_id " +
+    "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 GROUP BY it.name ORDER BY qty DESC, amount DESC LIMIT 1", [co.id, mtd.from, mtd.to])).rows[0];
+  var bestDay = dailyRes.rows.reduce(function (b, r) { return Number(r.sales) > (b ? Number(b.sales) : 0) ? r : b; }, null);
   return {
+    fun: {
+      busiestHour: hour ? { hour: hour.h, orders: hour.n } : null,
+      bestSeller: seller ? { name: seller.name, qty: Number(seller.qty), amount: Math.round(Number(seller.amount) * 100) / 100 } : null,
+      bestDay: bestDay ? { date: dayStr(bestDay.day), sales: Number(bestDay.sales), orders: bestDay.orders } : null
+    },
     salesThisMonth: sales, ordersThisMonth: s.orders, salesLastMonthSameDays: Number(s.last_month), ordersLastMonthSameDays: s.last_orders,
     avgOrderThisMonth: s.orders ? Math.round((sales / s.orders) * 100) / 100 : 0,
     voidedThisMonth: s.voided, voidedAmountThisMonth: Number(s.voided_amount),

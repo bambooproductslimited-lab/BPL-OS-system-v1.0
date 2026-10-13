@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { CompanySwitcher, Glossary, Hero, Insights, PairBars, RankList, Section, jump } from '../components/DashKit';
+import { CompanySwitcher, Glossary, Icon, Insights, RankList, Section, jump } from '../components/DashKit';
+import { FxFacts, FxHero, FxMoneyChart, FxRing } from './finance/FinFun';
 import { money, moneyBreakdown } from '../lib/currency';
 import { downloadCsv, rowsToCsv } from '../lib/csvExport';
 import { activeIntlLocale, tr, msg } from '../lib/i18n.jsx';
@@ -14,7 +15,8 @@ import './ReportsPage.css';
 // what it invoiced and collected, what is still owed, what it spent on
 // expense claims and payroll, how its quotations went and who it invoiced
 // most, with twelve months of money in against money out. Same "explains
-// itself" layout as the dashboards (components/DashKit.jsx). Money is kept
+// itself" layout as the dashboards (components/DashKit.jsx), in the finance
+// pages' colourful look (pages/finance/FinFun.jsx). Money is kept
 // per currency; the monthly chart and table are in the base currency.
 // The Finance dashboard shows this month as it happens; this page answers
 // "how did we do" for any period, and downloads it as a spreadsheet.
@@ -81,13 +83,13 @@ export default function ReportsPage() {
     { icon: 'doc', value: moneyBreakdown(d.invoiced, money(0)), label: tr('invoiced'), note: tr('{n} invoices, voided ones left out', { n: d.invoiced.reduce((s, r) => s + r.count, 0) }), onClick: () => navigate('/invoices') },
     { icon: 'cash', value: moneyBreakdown(d.collected, money(0)), label: tr('collected'), note: inv > 0 ? tr('{pct}% of what was invoiced', { pct: Math.round((col / inv) * 100) }) : tr('{n} payments', { n: d.collected.reduce((s, r) => s + r.count, 0) }), tone: d.collected.length ? 'good' : '', onClick: () => navigate('/payments') },
     { icon: 'owed', value: moneyBreakdown(d.owed, money(0)), label: tr('owed to us now'), note: overdue.length ? tr('{amount} of it overdue', { amount: moneyBreakdown(overdue) }) : tr('nothing overdue'), tone: overdue.length ? 'bad' : '', onClick: () => navigate('/invoices') },
-    { icon: 'down', value: money(spent), label: tr('spent'), note: tr('claims {a} · payroll {b}', { a: money(d.expenses.total), b: money(d.payroll.cost) }), onClick: () => jump('rp-spend') }
+    { icon: 'down', value: money(spent), label: tr('spent'), note: tr('expenses {a} · payroll {b}', { a: money(d.expenses.total), b: money(d.payroll.cost) }), onClick: () => jump('rp-spend') }
   ];
 
   const insights = [];
   if (inv > 0 && col < inv * 0.6) insights.push({ tone: 'warn', icon: 'owed', text: tr('Only {pct}% of what was invoiced in {base} came in over the period.', { pct: Math.round((col / inv) * 100), base }), action: { label: tr('Payment reminders'), run: () => navigate('/reminders') } });
   if (overdue.length) insights.push({ tone: 'bad', icon: 'warn', text: tr('{amount} is overdue right now.', { amount: moneyBreakdown(overdue) }), action: { label: tr('Invoices'), run: () => navigate('/invoices') } });
-  if (col > 0 && spent > col) insights.push({ tone: 'warn', icon: 'down', text: tr('More went out ({out}) than came in ({in}) over the period, counting claims and payroll.', { out: money(spent), in: money(col, base) }), action: null });
+  if (col > 0 && spent > col) insights.push({ tone: 'warn', icon: 'down', text: tr('More went out ({out}) than came in ({in}) over the period, counting expenses and payroll.', { out: money(spent), in: money(col, base) }), action: null });
   if (d.expenses.byCategory.length) insights.push({ tone: 'info', icon: 'receipt', text: tr('{category} was the biggest expense: {amount}.', { category: d.expenses.byCategory[0].category, amount: money(d.expenses.byCategory[0].amount) }), action: { label: tr('Expenses'), run: () => navigate('/expenses') } });
   if (winRate !== null) insights.push({ tone: winRate >= 50 ? 'good' : 'info', icon: 'percent', text: tr('{won} of {n} quotations answered in the period were won ({pct}%).', { won: d.quotations.accepted, n: answered, pct: winRate }), action: { label: tr('Quotations'), run: () => navigate('/quotations') } });
   if (d.expenses.pendingCount) insights.push({ tone: 'info', icon: 'clock', text: d.expenses.pendingCount === 1 ? tr('1 expense claim ({amount}) is still waiting for a decision and isn\'t counted yet.', { amount: money(d.expenses.pending) }) : tr('{n} expense claims ({amount}) are still waiting for a decision and aren\'t counted yet.', { n: d.expenses.pendingCount, amount: money(d.expenses.pending) }), action: { label: tr('Expenses'), run: () => navigate('/expenses') } });
@@ -108,17 +110,28 @@ export default function ReportsPage() {
     downloadCsv('report-' + d.company.code.toLowerCase() + '-' + d.from + '-' + d.to + '.csv', rowsToCsv(rows));
   }
 
+  const best = d.months.reduce((b, x) => (x.collected > (b ? b.collected : 0) ? x : b), null);
+  const facts = [
+    best ? { icon: 'spark', tone: 'sun', label: tr('Best month for money in'), value: monthLabel(best.month), note: tr('{amount} collected', { amount: money(best.collected, base) }) } : null,
+    d.topCustomers[0] ? { icon: 'people', tone: 'violet', label: tr('Invoiced most'), value: d.topCustomers[0].name, note: money(d.topCustomers[0].amount, d.topCustomers[0].currency) } : null,
+    d.expenses.byCategory[0] ? { icon: 'receipt', tone: 'coral', label: tr('Biggest expense'), value: d.expenses.byCategory[0].category, note: money(d.expenses.byCategory[0].amount) } : null,
+    winRate !== null ? { icon: 'percent', tone: winRate >= 50 ? 'mint' : 'sky', label: tr('Quotations won'), value: winRate + '%', note: tr('{won} of {n} answered', { won: d.quotations.accepted, n: answered }) } : null,
+    d.payroll.runs ? { icon: 'cash', tone: 'teal', label: tr('Take-home pay'), value: money(d.payroll.net), note: d.payroll.runs === 1 ? tr('1 pay run') : tr('{n} pay runs', { n: d.payroll.runs }) } : null
+  ];
+  const share = inv > 0 ? Math.min(1, col / inv) : null;
+
   return (
-    <div className={'dk tl rp' + (loading ? ' is-loading' : '')}>
+    <div className={'dk tl rp fnx' + (loading ? ' is-loading' : '')}>
       {error && <div className="error-banner" role="alert">{error}</div>}
 
       <CompanySwitcher companies={companies} company={company} onPick={pickCompany} />
 
-      <Hero
+      <FxHero theme="reports" art="chart"
         eyebrow={tr('Finance')}
         title={tr('Reports')}
-        sub={tr('How {company} did over {period}: what was invoiced and collected, what is still owed, and what went out on expense claims and payroll.', { company: d.company.name, period: periodText })}
-        actions={<button type="button" className="btn btn-secondary" onClick={exportCsv}>{tr('Download CSV')}</button>}
+        sub={tr('How {company} did over {period}: what was invoiced and collected, what is still owed, and what went out on expenses and payroll.', { company: d.company.name, period: periodText })}
+        actions={<button type="button" className="fnx-pill is-main" onClick={exportCsv}><Icon name="layers" /> {tr('Download CSV')}</button>}
+        side={<FxRing value={share} size={160} tone={share !== null && share < 0.6 ? 'warn' : ''} big={share === null ? '—' : Math.round(share * 100) + '%'} label={tr('collected')} sub={tr('of what was invoiced in the period')} />}
         stats={stats} />
 
       <div className="rp-period" role="radiogroup" aria-label={tr('Period')}>
@@ -132,10 +145,12 @@ export default function ReportsPage() {
         )}
       </div>
 
+      <FxFacts items={facts} />
+
       <Insights items={insights.slice(0, 5)} />
 
-      <Section id="rp-months" title={tr('Money in and money out, by month')} sub={tr('The twelve months ending with the period, in {base}. Money out is approved expense claims plus payroll cost.', { base })} card>
-        <PairBars rows={d.months.map((m) => ({ label: monthLabel(m.month), a: m.collected, b: m.expenses + m.payroll }))} aLabel={tr('Collected')} bLabel={tr('Expense claims and payroll')} format={(n) => money(n, base)} />
+      <Section id="rp-months" title={tr('Money in and money out, by month')} sub={tr('The twelve months ending with the period, in {base}. Money out is expenses (claims and expense sheets) plus payroll cost.', { base })} card>
+        <FxMoneyChart rows={d.months.map((m) => ({ label: monthLabel(m.month), a: m.collected, b: m.expenses + m.payroll }))} aLabel={tr('Collected')} bLabel={tr('Expenses and payroll')} format={(n) => money(n, base)} />
         <details className="rp-table">
           <summary>{tr('Show the figures')}</summary>
           <div className="tl-table-wrap">
@@ -162,7 +177,7 @@ export default function ReportsPage() {
       </Section>
 
       <div className="rp-pair">
-        <Section id="rp-spend" title={tr('Where the money went')} sub={tr('Approved expense claims by category, and payroll, over the period.')} card>
+        <Section id="rp-spend" title={tr('Where the money went')} sub={tr('Expenses (claims and expense sheets) by category, and payroll, over the period.')} card>
           {spendRows.length ? <RankList rows={spendRows.slice(0, 10)} /> : <p className="dk-muted tl-small">{tr('Nothing spent in this period.')}</p>}
           {d.payroll.runs > 0 && (
             <dl className="tl-facts rp-facts">
