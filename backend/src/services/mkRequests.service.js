@@ -34,6 +34,7 @@ function out(r) {
     assignee: r.assigned_to ? { id: r.assigned_to, name: S.employeeName(r.as_first, r.as_last), photo: r.as_photo ? new Date(r.as_photo).getTime() : null } : null,
     team: (r.members || []).map(function (m) { return { id: m.id, name: S.employeeName(m.first, m.last), position: m.position || null, photo: m.photo ? new Date(m.photo).getTime() : null }; }),
     campaign: r.campaign_id ? { id: r.campaign_id, name: r.campaign_name } : null,
+    routine: r.routine_id ? { id: r.routine_id, on: r.routine_on } : null,
     comments: Number(r.comments || 0), files: Number(r.files || 0), delivered: Number(r.delivered || 0),
     overdue: !!(r.due_on && r.due_on < today && OPEN.indexOf(r.status) >= 0),
     createdAt: r.created_at, updatedAt: r.updated_at, doneAt: r.done_at
@@ -338,4 +339,4 @@ async function team(ctx) {
   )).rows.map(function (e) { return { id: e.id, name: S.employeeName(e.first_name, e.last_name), photo: e.photo ? new Date(e.photo).getTime() : null }; });
 }
 
-module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, comment: comment, addFile: addFile, file: file, removeFile: removeFile, team: team, setTeam: setTeam, people: people, KINDS: KINDS, STATUSES: STATUSES };
+module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, comment: comment, addFile: addFile, file: file, removeFile: removeFile, team: team, setTeam: setTeam, people: people, textTeam: textTeam, KINDS: KINDS, STATUSES: STATUSES };

@@ -170,6 +170,7 @@ var ALLOWED = {
   'DELETE /api/ai/connections/:clientId': "disconnects a Claude app connected as the caller; nobody else's (aiConversations.test.js)",
   'GET /api/mk/companies': 'the company names to pick from on the Requests to marketing and Brand kit pages, which are for everyone',
   'GET /api/mk/requests': "the caller's own requests to marketing only; everyone's needs marketing.read (marketingDept.test.js)",
+  'GET /api/mk/routines': "the caller's own routines (set up, leading or on the team) only; everyone's needs marketing.read (marketingRoutines.test.js)",
   'GET /api/mk/brand': 'the brand kit (logo, colours, fonts, files) is for everyone making something for the company (marketingDept.test.js)'
 };
 

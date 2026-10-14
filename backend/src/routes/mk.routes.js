@@ -8,6 +8,7 @@ var home = require('../services/mkHome.service');
 var campaigns = require('../services/mkCampaigns.service');
 var budget = require('../services/mkBudget.service');
 var requests = require('../services/mkRequests.service');
+var routines = require('../services/mkRoutines.service');
 var events = require('../services/mkEvents.service');
 var brand = require('../services/mkBrand.service');
 var audiences = require('../services/mkAudiences.service');
@@ -58,6 +59,12 @@ router.post('/spend/:id', receiptUpload.single('receipt'), h(function (req) { re
 router.delete('/spend/:id', h(function (req) { return budget.removeSpend(req.ctx, req.params.id); }));
 router.get('/spend/:id/receipt', h(async function (req, res) { await sendFile(res, await budget.receipt(req.ctx, req.params.id), req.query.download === '1'); }));
 
+router.get('/routines', h(function (req) { return routines.list(req.ctx, req.query); }));
+router.post('/routines', h(function (req) { return routines.create(req.ctx, req.body || {}); }));
+router.get('/routines/:id', h(function (req) { return routines.get(req.ctx, req.params.id); }));
+router.put('/routines/:id', h(function (req) { return routines.update(req.ctx, req.params.id, req.body || {}); }));
+router.post('/routines/:id/pause', h(function (req) { return routines.setPaused(req.ctx, req.params.id, req.body || {}); }));
+router.delete('/routines/:id', h(function (req) { return routines.remove(req.ctx, req.params.id); }));
 router.get('/requests', h(function (req) { return requests.list(req.ctx, req.query); }));
 router.get('/requests/team', h(function (req) { return requests.team(req.ctx); }));
 router.get('/requests/people', h(function (req) { return requests.people(req.ctx); }));

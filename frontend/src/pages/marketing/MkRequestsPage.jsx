@@ -4,9 +4,9 @@ import { useAuth } from '../../auth/AuthContext';
 import Photo from '../../components/Photo';
 import PeoplePicker from '../../components/PeoplePicker';
 import { Section } from '../../components/DashKit';
-import { msg, tr } from '../../lib/i18n.jsx';
+import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import {
-  Glyph, L, MkBanner, MkDialog, MkEmpty, Pill, REQUEST_GLYPH, REQUEST_KINDS, REQUEST_STATUS, dayLabel, openFile, readParam, todayIso
+  Glyph, L, MkBanner, MkDialog, MkEmpty, Pill, REQUEST_GLYPH, REQUEST_KINDS, REQUEST_STATUS, addDays, dayLabel, openFile, readParam, todayIso
 } from './mkKit';
 
 // Requests to marketing (backend mkRequests.service.js), for everyone:
@@ -15,7 +15,10 @@ import {
 // new, in progress, ready to check, done. Marketing takes it on, assigns
 // someone to lead it and a team to work with them, talks in the comments
 // and attaches the finished work; the one who asked approves it or asks
-// for changes. Everyone is told at each step.
+// for changes. Everyone is told at each step. What is needed regularly is
+// a routine (backend mkRoutines.service.js): it makes the request itself
+// on each day it comes round — every N weeks on chosen days, or every N
+// months on a day — with the same brief, lead and team.
 
 const LANES = ['new', 'in_progress', 'review', 'done'];
 const STEPS = ['new', 'in_progress', 'review', 'done'];
@@ -29,6 +32,8 @@ export default function MkRequestsPage() {
   const [error, setError] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [asking, setAsking] = useState(false);
+  const [routines, setRoutines] = useState([]);
+  const [routineEdit, setRoutineEdit] = useState(null); // null, {} for a new one, or a routine
   const [openId, setOpenId] = useState(() => readParam('open'));
   const [toast, setToast] = useState(null);
 
@@ -36,6 +41,8 @@ export default function MkRequestsPage() {
   const loadedOnce = useRef(false);
   const load = useCallback(() => api.get('/mk/requests?scope=' + scope).then((d) => { setData(d); if (d.canSeeAll && scope === 'mine' && !loadedOnce.current) { loadedOnce.current = true; setScope('all'); } }).catch((e) => setError(e.message)), [scope]);
   useEffect(() => { load(); }, [load]);
+  const loadRoutines = useCallback(() => api.get('/mk/routines?scope=' + scope).then(setRoutines).catch(() => setRoutines([])), [scope]);
+  useEffect(() => { loadRoutines(); }, [loadRoutines]);
   useEffect(() => { api.get('/mk/companies').then(setCompanies).catch(() => setCompanies([])); }, []);
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t); }, [toast]);
   function open(id) { setOpenId(id); window.history.replaceState({}, '', '/mkrequests?open=' + id); }
@@ -54,7 +61,10 @@ export default function MkRequestsPage() {
         sub={data.canManage
           ? tr('What the company has asked marketing for. Take each on, assign it, keep the one who asked posted and attach the finished work here.')
           : tr('Need a flyer, a post, a banner, photos or a video? Ask here with what it is for and when you need it, and follow it until it is done.')}
-        actions={<button type="button" className="mk-btn is-primary" onClick={() => setAsking(true)}><Glyph name="plus" size={16} />{tr('Ask for something')}</button>}
+        actions={<>
+          <button type="button" className="mk-btn is-primary" onClick={() => setAsking(true)}><Glyph name="plus" size={16} />{tr('Ask for something')}</button>
+          <button type="button" className="mk-btn is-ghost" onClick={() => setRoutineEdit({})}><Glyph name="repeat" size={16} />{tr('Set up a routine')}</button>
+        </>}
         stats={[
           { glyph: 'inbox', value: String(open_), label: data.scope === 'all' ? tr('open requests') : tr('of yours open') },
           { glyph: 'sparkle', value: String(c.new), label: tr('not taken on yet'), tone: c.new ? 'alert' : '' },
@@ -98,7 +108,29 @@ export default function MkRequestsPage() {
         )}
       </Section>
 
-      {asking && <AskDialog companies={companies} onClose={() => setAsking(false)} onDone={(r) => { setAsking(false); load(); open(r.id); setToast(tr('Sent to marketing. You will be told as it moves.')); }} />}
+      <Section id="mk-routines" title={tr('Routines')} sub={tr('Requests that come round on their own: on each day, the request is made with the same brief, lead and team, and they are told.')}
+        action={<button type="button" className="mk-btn is-ghost is-small" onClick={() => setRoutineEdit({})}><Glyph name="plus" size={14} />{tr('New routine')}</button>}>
+        {routines.length ? (
+          <div className="mk-grid">
+            {routines.map((rt) => <RoutineCard key={rt.id} rt={rt} me={me} onEdit={() => setRoutineEdit(rt)}
+              onChanged={(text) => { loadRoutines(); load(); if (text) setToast(text); }} />)}
+          </div>
+        ) : (
+          <MkEmpty glyph="repeat" title={tr('No routines yet')} action={<button type="button" className="mk-btn is-primary" onClick={() => setRoutineEdit({})}>{tr('Set up a routine')}</button>}>
+            {tr('For what is needed again and again: the week\'s social posts, a monthly price list, photos at every month end. Set it once; the request is made on each day it comes round.')}
+          </MkEmpty>
+        )}
+      </Section>
+
+      {asking && <AskDialog companies={companies} onClose={() => setAsking(false)} onDone={(r) => { setAsking(false); load(); open(r.id); setToast(tr('Sent to marketing. You will be told as it moves.')); }}
+        onRoutine={(f) => { setAsking(false); setRoutineEdit({ draft: f }); }} />}
+      {routineEdit && <RoutineDialog companies={companies} canManage={data.canManage} start={routineEdit} onClose={() => setRoutineEdit(null)}
+        onDone={(rt, isNew) => {
+          setRoutineEdit(null); loadRoutines(); load();
+          setToast(rt.madeNow ? tr('Routine saved. Today\'s request is made; the next comes round on {date}.', { date: dayLabel(rt.nextOn, { weekday: 'short', day: 'numeric', month: 'short' }) })
+            : rt.nextOn ? (isNew ? tr('Routine set up. The first request comes round on {date}.', { date: dayLabel(rt.nextOn, { weekday: 'short', day: 'numeric', month: 'short' }) }) : tr('Routine saved.'))
+              : tr('Routine saved. It has come to its end date.'));
+        }} />}
       {openId && <RequestDetail id={openId} me={me} onClose={close} onChanged={load} toast={setToast} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
@@ -108,7 +140,7 @@ export default function MkRequestsPage() {
 function RequestCard({ r, me, onOpen }) {
   return (
     <button type="button" className={'mk-card mk-req' + (r.priority === 'urgent' ? ' is-urgent' : '')} style={{ '--p': 'var(--mk-' + ({ new: 'info', in_progress: 'violet', review: 'warn', done: 'good' }[r.status] || 'muted') + ')' }} onClick={onOpen}>
-      <span className="mk-req-top"><span className="mk-icon"><Glyph name={REQUEST_GLYPH[r.kind]} size={15} /></span>{r.ref} · {L(REQUEST_KINDS, r.kind)}{r.priority === 'urgent' && <Pill tone="bad" glyph="fire">{tr('Urgent')}</Pill>}</span>
+      <span className="mk-req-top"><span className="mk-icon"><Glyph name={REQUEST_GLYPH[r.kind]} size={15} /></span>{r.ref} · {L(REQUEST_KINDS, r.kind)}{r.routine && <span className="mk-req-repeat" title={tr('From a routine')}><Glyph name="repeat" size={13} /></span>}{r.priority === 'urgent' && <Pill tone="bad" glyph="fire">{tr('Urgent')}</Pill>}</span>
       <strong className="mk-card-title" style={{ fontSize: 14 }}>{r.title}</strong>
       <span className="mk-req-foot">
         <span className="mk-faces">
@@ -127,7 +159,7 @@ function RequestCard({ r, me, onOpen }) {
   );
 }
 
-function AskDialog({ companies, onClose, onDone }) {
+function AskDialog({ companies, onClose, onDone, onRoutine }) {
   const [f, setF] = useState({ company: (companies[0] && companies[0].code) || 'BPL', kind: 'flyer', title: '', brief: '', audience: '', dueOn: '', priority: 'normal' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -162,6 +194,9 @@ function AskDialog({ companies, onClose, onDone }) {
         <label className="field" style={{ alignSelf: 'end' }}><span className="mk-row" style={{ gap: 8 }}>
           <input type="checkbox" checked={f.priority === 'urgent'} onChange={(e) => setF({ ...f, priority: e.target.checked ? 'urgent' : 'normal' })} style={{ width: 18, height: 18 }} />
           {tr('It is urgent')}</span><span className="hint">{tr('Only when something real depends on it; marketing sees it first.')}</span></label>
+        <button type="button" className="mk-routine-offer is-span" onClick={() => onRoutine(f)}>
+          <Glyph name="repeat" size={18} /><span><strong>{tr('Needed again and again?')}</strong> {tr('Make it a routine: it is asked for on its own every week or month.')}</span><Glyph name="arrowR" size={16} />
+        </button>
       </form>
       {error && <div className="error-banner">{error}</div>}
     </MkDialog>
@@ -233,6 +268,7 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
         )}
         {r.priority === 'urgent' && <Pill tone="bad" glyph="fire">{tr('Urgent')}</Pill>}
         {r.overdue && <Pill tone="bad" glyph="clock">{tr('Past the date needed')}</Pill>}
+        {r.routine && <Pill tone="violet" glyph="repeat">{tr('From a routine, for {date}', { date: dayLabel(r.routine.on, { weekday: 'short', day: 'numeric', month: 'short' }) })}</Pill>}
       </div>
       {error && <div className="error-banner">{error}</div>}
 
@@ -318,6 +354,227 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
           <textarea className="input" rows={3} value={changes} onChange={(e) => setChanges(e.target.value)} />
         </MkDialog>
       )}
+    </MkDialog>
+  );
+}
+
+// ---- routines -----------------------------------------------------------------
+// Mon … Sun, the way the week reads here; JS days are 0 Sunday … 6 Saturday.
+const WEEK = [1, 2, 3, 4, 5, 6, 0];
+function dayName(d, style) { return new Date(Date.UTC(2030, 0, 6 + d)).toLocaleDateString(activeIntlLocale(), { weekday: style || 'short', timeZone: 'UTC' }); } // 6 Jan 2030 is a Sunday
+function listOf(items) {
+  try { return new Intl.ListFormat(activeIntlLocale(), { style: 'long', type: 'conjunction' }).format(items); } catch { return items.join(', '); }
+}
+// The same rule as the server's (mkRoutines.service.js fallsOn/nextOn), to
+// show the next days it comes round while it is being set up.
+function isoAdd(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function fallsOn(rt, iso) {
+  if (iso < rt.startsOn || (rt.endsOn && iso > rt.endsOn)) return false;
+  const n = Number(rt.everyN) || 1, d = new Date(iso + 'T00:00:00Z'), s = new Date(rt.startsOn + 'T00:00:00Z');
+  if (rt.every === 'week') {
+    if (!rt.weekdays.includes(d.getUTCDay())) return false;
+    const mon = (x) => new Date(x.getTime() - ((x.getUTCDay() + 6) % 7) * 86400000);
+    return Math.round((mon(d) - mon(s)) / (7 * 86400000)) % n === 0;
+  }
+  const months = (d.getUTCFullYear() - s.getUTCFullYear()) * 12 + d.getUTCMonth() - s.getUTCMonth();
+  const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  return months % n === 0 && d.getUTCDate() === Math.min(Number(rt.monthDay), end);
+}
+function comingDays(rt, from, count) {
+  const out = [];
+  if (rt.every === 'week' ? !rt.weekdays.length : !rt.monthDay) return out;
+  let day = from > rt.startsOn ? from : rt.startsOn;
+  for (let i = 0; i < 800 && out.length < count; i++, day = isoAdd(day, 1)) {
+    if (rt.endsOn && day > rt.endsOn) break;
+    if (fallsOn(rt, day)) out.push(day);
+  }
+  return out;
+}
+function scheduleText(rt) {
+  const n = Number(rt.everyN) || 1;
+  if (rt.every === 'week') {
+    const days = WEEK.filter((d) => rt.weekdays.includes(d));
+    const names = days.length === 7 ? tr('every day') : listOf(days.map((d) => dayName(d, 'long')));
+    return n === 1 ? tr('Every week on {days}', { days: names }) : tr('Every {n} weeks on {days}', { n, days: names });
+  }
+  if (Number(rt.monthDay) >= 31) return n === 1 ? tr('Every month on its last day') : tr('Every {n} months on the last day', { n });
+  return n === 1 ? tr('Every month on day {day}', { day: rt.monthDay }) : tr('Every {n} months on day {day}', { n, day: rt.monthDay });
+}
+function dueText(n) {
+  n = Number(n) || 0;
+  return n === 0 ? tr('needed the same day') : n === 1 ? tr('needed the next day') : tr('needed {n} days later', { n });
+}
+const longDay = (iso) => dayLabel(iso, { weekday: 'short', day: 'numeric', month: 'short' });
+
+function RoutineCard({ rt, me, onEdit, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  async function run(fn, text) {
+    setBusy(true);
+    try { await fn(); onChanged(text); } catch (e) { onChanged(e.message); } finally { setBusy(false); }
+  }
+  const pause = () => run(() => api.post('/mk/routines/' + rt.id + '/pause', { paused: !rt.paused }), rt.paused ? tr('Routine resumed.') : tr('Routine paused: nothing is made until it is resumed.'));
+  const stop = () => window.confirm(tr('Stop the routine "{title}"? The requests it made stay.', { title: rt.title }))
+    && run(() => api.del('/mk/routines/' + rt.id), tr('Routine stopped.'));
+  const faces = [rt.lead, ...rt.team].filter(Boolean);
+  return (
+    <div className={'mk-card mk-routine' + (rt.paused ? ' is-paused' : rt.ended ? ' is-ended' : '')}>
+      <div className="mk-routine-top">
+        <span className="mk-icon"><Glyph name={REQUEST_GLYPH[rt.kind]} size={16} /></span>
+        <span className="mk-fill">
+          <strong className="mk-card-title" style={{ fontSize: 14.5 }}>{rt.title}</strong>
+          <span className="mk-muted">{L(REQUEST_KINDS, rt.kind)} · {rt.company.name}</span>
+        </span>
+        {rt.paused ? <Pill tone="warn" glyph="pause">{tr('Paused')}</Pill> : rt.ended ? <Pill tone="muted">{tr('Ended')}</Pill> : rt.priority === 'urgent' ? <Pill tone="bad" glyph="fire">{tr('Urgent')}</Pill> : null}
+      </div>
+      <div className="mk-routine-when">
+        <Glyph name="repeat" size={15} />
+        <span><strong>{scheduleText(rt)}</strong>, {dueText(rt.dueAfterDays)}</span>
+      </div>
+      {rt.nextOn && <div className="mk-routine-next"><span>{tr('Next one')}</span><strong>{longDay(rt.nextOn)}</strong></div>}
+      <div className="mk-routine-foot">
+        <span className="mk-faces">
+          <Photo id={rt.owner.id} name={rt.owner.name} photo={rt.owner.photo} size={24} />
+          {faces.slice(0, 3).map((p) => <Photo key={p.id} id={p.id} name={p.name} photo={p.photo} size={24} />)}
+          {faces.length > 3 && <span className="mk-faces-more">+{faces.length - 3}</span>}
+        </span>
+        <span className="mk-muted mk-fill">{rt.owner.id === me ? tr('Your routine') : rt.owner.name}{rt.lead ? ' · ' + tr('{name} leads', { name: rt.lead.name }) : ''}</span>
+        <span className="mk-routine-made" title={tr('Requests made so far')}>{rt.made === 1 ? tr('1 made') : tr('{n} made', { n: rt.made })}{rt.open > 0 ? ' · ' + tr('{n} open', { n: rt.open }) : ''}</span>
+      </div>
+      {rt.canEdit && (
+        <div className="mk-chips">
+          <button type="button" className="mk-btn is-ghost is-small" disabled={busy} onClick={onEdit}>{tr('Edit')}</button>
+          {!rt.ended && <button type="button" className="mk-btn is-ghost is-small" disabled={busy} onClick={pause}><Glyph name={rt.paused ? 'play' : 'pause'} size={13} />{rt.paused ? tr('Resume') : tr('Pause')}</button>}
+          <button type="button" className="mk-btn is-danger is-small" disabled={busy} onClick={stop}>{tr('Stop')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoutineDialog({ companies, canManage, start, onClose, onDone }) {
+  const existing = start && start.id ? start : null;
+  const draft = (start && start.draft) || {};
+  const [f, setF] = useState(() => existing ? {
+    company: existing.company.code, kind: existing.kind, title: existing.title, brief: existing.brief, audience: existing.audience, priority: existing.priority,
+    every: existing.every, everyN: existing.everyN, weekdays: existing.weekdays, monthDay: existing.monthDay || 1, dueAfterDays: existing.dueAfterDays,
+    startsOn: existing.startsOn, endsOn: existing.endsOn || '', assignedTo: existing.lead ? existing.lead.id : '', teamIds: existing.team.map((m) => m.id), campaignId: existing.campaign ? existing.campaign.id : ''
+  } : {
+    company: draft.company || (companies[0] && companies[0].code) || 'BPL', kind: draft.kind || 'social_post', title: draft.title || '', brief: draft.brief || '', audience: draft.audience || '',
+    priority: draft.priority || 'normal', every: 'week', everyN: 1, weekdays: [new Date().getDay()], monthDay: 1, dueAfterDays: 2,
+    startsOn: todayIso(), endsOn: '', assignedTo: '', teamIds: [], campaignId: ''
+  });
+  const [team, setTeam] = useState([]);
+  const [people, setPeople] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    if (!canManage) return;
+    api.get('/mk/requests/team').then(setTeam).catch(() => {});
+    api.get('/mk/requests/people').then(setPeople).catch(() => {});
+  }, [canManage]);
+  useEffect(() => { if (canManage) api.get('/mk/campaigns/options?company=' + f.company).then(setCampaigns).catch(() => {}); }, [canManage, f.company]);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const toggleDay = (d) => setF({ ...f, weekdays: f.weekdays.includes(d) ? f.weekdays.filter((x) => x !== d) : [...f.weekdays, d] });
+  const next = comingDays(f, f.startsOn > todayIso() ? f.startsOn : todayIso(), 4);
+
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    const body = { ...f, endsOn: f.endsOn || null, everyN: Number(f.everyN), monthDay: Number(f.monthDay), dueAfterDays: Number(f.dueAfterDays) };
+    if (canManage) { body.assignedTo = f.assignedTo || null; body.campaignId = f.campaignId || null; } else { delete body.assignedTo; delete body.teamIds; delete body.campaignId; }
+    try {
+      const rt = existing ? await api.put('/mk/routines/' + existing.id, body) : await api.post('/mk/routines', body);
+      onDone(rt, !existing);
+    } catch (err) { setError(err.message); setSaving(false); }
+  }
+  return (
+    <MkDialog wide title={existing ? tr('Edit the routine') : tr('Set up a routine')} sub={tr('A request that comes round on its own. On each day, it is made and marketing (or the lead and team below) is told.')} onClose={() => !saving && onClose()}
+      footer={<><button type="button" className="mk-btn is-ghost" onClick={onClose} disabled={saving}>{tr('Cancel')}</button><button type="submit" form="mk-routine" className="mk-btn is-primary" disabled={saving}>{saving ? tr('Saving…') : existing ? tr('Save') : tr('Set it up')}</button></>}>
+      <form id="mk-routine" className="mk-form" onSubmit={save}>
+        <div className="field is-span"><span>{tr('What is needed each time?')}</span>
+          <div className="mk-kinds" role="radiogroup" aria-label={tr('Kind')}>
+            {Object.keys(REQUEST_KINDS).map((k) => (
+              <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={'mk-kind' + (f.kind === k ? ' is-on' : '')} onClick={() => setF({ ...f, kind: k })}>
+                <Glyph name={REQUEST_GLYPH[k]} size={22} />{L(REQUEST_KINDS, k)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="field is-span"><span>{tr('In a few words')}</span><input className="input" required maxLength={160} value={f.title} onChange={set('title')} placeholder={tr('e.g. Instagram post: the week\'s offer')} /></label>
+        <label className="field is-span"><span>{tr('The brief')}</span><textarea className="input" rows={3} maxLength={4000} value={f.brief} onChange={set('brief')} placeholder={tr('What each one is for and must say. The same brief goes on every request.')} /></label>
+
+        <div className="field is-span mk-routine-plan">
+          <span>{tr('How often')}</span>
+          <div className="mk-chippick" role="radiogroup" aria-label={tr('How often')}>
+            {[['week', tr('Weekly')], ['month', tr('Monthly')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={f.every === k} className={'mk-chipopt' + (f.every === k ? ' is-on' : '')} onClick={() => setF({ ...f, every: k, everyN: 1 })}>{label}</button>
+            ))}
+          </div>
+          {f.every === 'week' ? (
+            <>
+              <div className="mk-weekdays" role="group" aria-label={tr('On which days')}>
+                {WEEK.map((d) => (
+                  <button key={d} type="button" aria-pressed={f.weekdays.includes(d)} className={'mk-weekday' + (f.weekdays.includes(d) ? ' is-on' : '')} onClick={() => toggleDay(d)} title={dayName(d, 'long')}>{dayName(d, 'short')}</button>
+                ))}
+              </div>
+              <label className="mk-row mk-inline">
+                <select className="input" value={f.everyN} onChange={set('everyN')} aria-label={tr('How often')}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n === 1 ? tr('Every week') : tr('Every {n} weeks', { n })}</option>)}</select>
+              </label>
+            </>
+          ) : (
+            <div className="mk-row mk-inline" style={{ flexWrap: 'wrap' }}>
+              <label className="mk-row">{tr('On day')}
+                <select className="input" value={f.monthDay} onChange={set('monthDay')}>
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+                  <option value={31}>{tr('the last day')}</option>
+                </select>
+              </label>
+              <label className="mk-row">
+                <select className="input" value={f.everyN} onChange={set('everyN')} aria-label={tr('How often')}>{[1, 2, 3, 6, 12].map((n) => <option key={n} value={n}>{n === 1 ? tr('every month') : tr('every {n} months', { n })}</option>)}</select>
+              </label>
+            </div>
+          )}
+          <label className="mk-row mk-inline">{tr('Needed')}
+            <select className="input" value={f.dueAfterDays} onChange={set('dueAfterDays')}>
+              {[0, 1, 2, 3, 4, 5, 7, 10, 14, 21, 28].map((n) => <option key={n} value={n}>{dueText(n)}</option>)}
+            </select>
+          </label>
+          <div className="mk-routine-preview" aria-live="polite">
+            {next.length ? <>
+              <span className="mk-muted">{tr('Comes round on')}</span>
+              {next.map((d) => <span key={d} className="mk-routine-day"><strong>{longDay(d)}</strong><small>{tr('needed {date}', { date: dayLabel(addDays(d, Number(f.dueAfterDays))) })}</small></span>)}
+            </> : <span className="mk-muted">{tr('Pick when it comes round to see the next days.')}</span>}
+          </div>
+        </div>
+
+        <label className="field"><span>{tr('Starts on')}</span><input className="input" type="date" required min={existing ? undefined : todayIso()} value={f.startsOn} onChange={set('startsOn')} /></label>
+        <label className="field"><span>{tr('Ends on (optional)')}</span><input className="input" type="date" min={f.startsOn} value={f.endsOn} onChange={set('endsOn')} /></label>
+        <label className="field"><span>{tr('Who will see it')}</span><input className="input" maxLength={300} value={f.audience} onChange={set('audience')} placeholder={tr('e.g. Walk-in customers, hotel buyers')} /></label>
+        {companies.length > 1 && (
+          <label className="field"><span>{tr('For')}</span>
+            <select className="input" value={f.company} onChange={set('company')} disabled={!!existing}>{companies.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}</select>
+          </label>
+        )}
+        {canManage && <>
+          <label className="field"><span>{tr('Who leads it')}</span>
+            <select className="input" value={f.assignedTo} onChange={(e) => setF({ ...f, assignedTo: e.target.value, teamIds: f.teamIds.filter((x) => x !== e.target.value) })}>
+              <option value="">{tr('Nobody yet: marketing is told each time')}</option>{team.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select></label>
+          <label className="field"><span>{tr('Part of a campaign')}</span>
+            <select className="input" value={f.campaignId} onChange={set('campaignId')}>
+              <option value="">{tr('No campaign')}</option>{campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select></label>
+          <div className="field is-span"><span>{tr('Team working on it')}</span>
+            <PeoplePicker employees={people.filter((p) => p.id !== f.assignedTo)} value={f.teamIds} onChange={(ids) => setF({ ...f, teamIds: ids })}
+              emptyText={tr('Nobody else yet. Each request will have this team, and they are told every time.')} placeholder={tr('Add someone: type a name…')} />
+          </div>
+        </>}
+        <label className="field is-span"><span className="mk-row" style={{ gap: 8 }}>
+          <input type="checkbox" checked={f.priority === 'urgent'} onChange={(e) => setF({ ...f, priority: e.target.checked ? 'urgent' : 'normal' })} style={{ width: 18, height: 18 }} />
+          {tr('Each one is urgent')}</span></label>
+      </form>
+      {error && <div className="error-banner">{error}</div>}
     </MkDialog>
   );
 }

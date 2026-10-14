@@ -129,6 +129,7 @@ const GLYPH = {
   tag: <><path d="M3 12V4h8l10 10-8 8z" /><circle cx="7.5" cy="8.5" r="1.4" /></>,
   arrowR: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
   pause: <><path d="M8 5v14M16 5v14" /></>,
+  repeat: <><path d="M17 3l3 3-3 3" /><path d="M4 11V9a3 3 0 0 1 3-3h13" /><path d="M7 21l-3-3 3-3" /><path d="M20 13v2a3 3 0 0 1-3 3H4" /></>,
   play: <><path d="M7 5v14l12-7z" /></>,
   stop: <><rect x="6" y="6" width="12" height="12" rx="2" /></>,
   moon: <><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" /></>,
