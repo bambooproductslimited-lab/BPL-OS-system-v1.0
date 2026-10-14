@@ -24,6 +24,8 @@
 .ri-conn-main .dk-muted { font-size: 12.5px; line-height: 1.4; }
 .ri-conn-act { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
 .ri-conn-err { grid-column: 1 / -1; margin: 0; }
+.ri-conn-warn { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; font-size: 12.5px; line-height: 1.4; color: var(--rc-warn); font-weight: 600; }
+.ri-conn-warn .dk-icon { flex: none; width: 14px; height: 14px; margin-top: 2px; }
 .ri-small { font-size: 12px; }
 .ri-linklike { border: 0; background: none; padding: 0; color: var(--color-accent); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; text-align: left; }
 .ri-linklike:disabled { opacity: .5; cursor: default; }

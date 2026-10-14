@@ -5,8 +5,13 @@
 const SDK = 'https://connect.facebook.net/en_US/sdk.js';
 const GRAPH_VERSION = 'v21.0';
 let sdkPromise = null;
-export function loadSdk(appId) {
+// Gives up after timeoutMs (a blocker or a slow line can leave the script
+// hanging without an error); asking again waits on the same download.
+export function loadSdk(appId, timeoutMs) {
   if (window.FB) return Promise.resolve(window.FB);
+  if (timeoutMs) {
+    return Promise.race([loadSdk(appId), new Promise((resolve, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs))]);
+  }
   if (!sdkPromise) {
     sdkPromise = new Promise((resolve, reject) => {
       window.fbAsyncInit = () => { window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version: GRAPH_VERSION }); resolve(window.FB); };

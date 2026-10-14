@@ -332,7 +332,7 @@ function Connections({ data, company, companyId, onChanged }) {
   useEffect(() => {
     if (!canWa || sdk !== 'idle') return;
     setSdk('loading');
-    loadSdk(wa.appId).then(() => setSdk('ready'), () => setSdk('failed'));
+    loadSdk(wa.appId, 20000).then(() => setSdk('ready'), () => setSdk('failed'));
   }, [canWa, sdk, wa.appId]);
 
   const finish = useCallback(async () => {
@@ -407,14 +407,21 @@ function Connections({ data, company, companyId, onChanged }) {
           ) : !wa.canConnect ? (
             <span className="dk-muted">{tr('Not connected. A restaurant manager connects the restaurant\'s number here.')}</span>
           ) : (
-            <span className="dk-muted">{tr('Connect {restaurant}\'s own number. It can stay in the WhatsApp Business app on the restaurant phone: staff keep using it there, and the OS gets every message.', { restaurant: company.name })}</span>
+            <>
+              <span className="dk-muted">{tr('Connect {restaurant}\'s own number. It can stay in the WhatsApp Business app on the restaurant phone: staff keep using it there, and the OS gets every message.', { restaurant: company.name })}</span>
+              {sdk === 'failed' && <span className="ri-conn-warn"><Icon name="warn" /> {tr('Facebook\'s sign-in could not be loaded, so Meta\'s window can\'t open. Turn off any ad blocker or "shields" for this site and facebook.com, check the internet connection, then press Try again (or reload the page).')}</span>}
+            </>
           )}
         </div>
         <div className="ri-conn-act">
           {wa.connection ? (wa.canConnect && <button type="button" className="rc-btn is-ghost is-small" disabled={busy} onClick={disconnect}>{tr('Disconnect')}</button>)
             : canWa && <>
-              <button type="button" className="rc-btn is-primary is-small" disabled={busy || sdk !== 'ready'} onClick={() => connect(true)}>{busy ? tr('Connecting…') : tr('Connect the number')}</button>
-              <button type="button" className="ri-linklike" disabled={busy || sdk !== 'ready'} onClick={() => connect(false)}>{tr('or use a new number')}</button>
+              {sdk === 'failed' ? (
+                <button type="button" className="rc-btn is-ghost is-small" onClick={() => setSdk('idle')}>{tr('Try again')}</button>
+              ) : <>
+                <button type="button" className="rc-btn is-primary is-small" disabled={busy || sdk !== 'ready'} onClick={() => connect(true)}>{busy ? tr('Connecting…') : sdk !== 'ready' ? tr('Loading Facebook…') : tr('Connect the number')}</button>
+                <button type="button" className="ri-linklike" disabled={busy || sdk !== 'ready'} onClick={() => connect(false)}>{tr('or use a new number')}</button>
+              </>}
             </>}
         </div>
       </div>
