@@ -12,6 +12,13 @@
  * sync() runs from jobs/crm.js every few minutes: it asks for the
  * conversations updated since the last run (newest first) and hands each to
  * crmInbox.ingest(), which keeps every message once.
+ *
+ * The same reading, webhook and replies serve the restaurants' inboxes
+ * (restaurantInbox.service.js): a "target" says whose Page tokens to use
+ * (their channel keys), where the read got to (statePrefix) and where the
+ * messages go (ingest). Without one it is Bamboo Products' CRM, as before;
+ * a webhook delivery goes to a restaurant only when it is for that
+ * restaurant's own Page or Instagram account.
  */
 var { pool } = require('../db/pool');
 var inbox = require('./crmInbox.service');
@@ -25,13 +32,21 @@ var fetcher = function (url, opts) { return fetch(url, opts); };
 var retryMs = 1500;
 function setFetchForTests(fn) { fetcher = fn || function (url, opts) { return fetch(url, opts); }; retryMs = fn ? 0 : 1500; }
 
+// Bamboo Products' own Page and Instagram (their channel keys).
+var BPL_KEYS = { facebook: 'facebook', instagram: 'instagram' };
+function defaultTarget() {
+  return { keys: BPL_KEYS, statePrefix: '', ingest: function (input) { return inbox.ingest(input); }, knownThread: null };
+}
+function stateKey(target, channel) { return target && target.statePrefix ? target.statePrefix + ':' + channel : channel; }
+
 // The Page token, the Page id, and (for Instagram) the account id.
-async function access(channel) {
-  var fb = (await pool.query("SELECT access_token, open_id, scope FROM marketing_oauth_tokens WHERE channel_key = 'facebook'")).rows[0];
+async function access(channel, keys) {
+  keys = keys || BPL_KEYS;
+  var fb = (await pool.query('SELECT access_token, open_id, scope FROM marketing_oauth_tokens WHERE channel_key = $1', [keys.facebook])).rows[0];
   if (!fb || !fb.access_token) return null;
   var own = fb.open_id;
   if (channel === 'instagram') {
-    var ig = (await pool.query("SELECT open_id, scope FROM marketing_oauth_tokens WHERE channel_key = 'instagram'")).rows[0];
+    var ig = (await pool.query('SELECT open_id, scope FROM marketing_oauth_tokens WHERE channel_key = $1', [keys.instagram])).rows[0];
     if (!ig) return null;
     own = ig.open_id;
   }
@@ -101,12 +116,14 @@ async function saveState(key, patch) {
 }
 
 // One channel: the conversations updated since last time, each with its
-// recent messages.
-async function syncChannel(channel) {
-  var a = await access(channel);
+// recent messages. target: whose (see the top); Bamboo Products' CRM without.
+async function syncChannel(channel, target) {
+  target = target || defaultTarget();
+  var key = stateKey(target, channel);
+  var a = await access(channel, target.keys);
   if (!a) return { skipped: 'not connected' };
   if (a.scope.indexOf(NEEDS[channel]) < 0) return { skipped: 'needs reconnecting for messages' };
-  var state = (await pool.query('SELECT cursor FROM crm_channel_state WHERE key = $1', [channel])).rows[0];
+  var state = (await pool.query('SELECT cursor FROM crm_channel_state WHERE key = $1', [key])).rows[0];
   var since = state && state.cursor ? new Date(state.cursor) : new Date(Date.now() - 30 * 86400000);
   var newest = since, conversations = 0, messages = 0;
   try {
@@ -130,7 +147,7 @@ async function syncChannel(channel) {
             attachments: ((m.attachments && m.attachments.data) || []).map(function (x) { return { name: x.name || 'attachment', type: x.mime_type || '' }; })
           };
         });
-        var r = await inbox.ingest({
+        var r = await target.ingest({
           channel: channel, threadId: c.id,
           contact: { name: name, handles: [{ kind: channel, value: them.id, label: them.username ? '@' + them.username : name }] },
           messages: msgs
@@ -140,10 +157,10 @@ async function syncChannel(channel) {
       }
       url = !done && page.paging && page.paging.next ? page.paging.next : null;
     }
-    await saveState(channel, { cursor: newest.toISOString(), ok: true, items: messages });
+    await saveState(key, { cursor: newest.toISOString(), ok: true, items: messages });
     return { conversations: conversations, messages: messages };
   } catch (e) {
-    await saveState(channel, { error: e.message });
+    await saveState(key, { error: e.message });
     return { error: e.message };
   }
 }
@@ -153,8 +170,8 @@ async function syncChannel(channel) {
 // Instagram messages still come through the webhook. "Read messages now"
 // always tries.
 var SLOW_PAUSE_MS = 30 * 60 * 1000;
-async function pausedForSlow(channel) {
-  var st = (await pool.query('SELECT last_run_at, last_ok_at, last_error FROM crm_channel_state WHERE key = $1', [channel])).rows[0];
+async function pausedForSlow(channel, target) {
+  var st = (await pool.query('SELECT last_run_at, last_ok_at, last_error FROM crm_channel_state WHERE key = $1', [stateKey(target, channel)])).rows[0];
   if (!st || !st.last_error || !st.last_run_at) return false;
   return slow({ message: st.last_error }) && Date.now() - new Date(st.last_run_at).getTime() < SLOW_PAUSE_MS;
 }
@@ -185,9 +202,10 @@ function verifyWebhookChallenge(query) {
 // The chat a message belongs to: the one already kept for that person, else
 // Meta's id for it (asked for that one person, so Meta needn't search),
 // else one of the OS's own.
-async function threadFor(channel, a, them) {
-  var known = (await pool.query('SELECT external_thread_id FROM crm_conversations WHERE channel = $1 AND contact_key = $2 ORDER BY id DESC LIMIT 1', [channel, them])).rows[0];
-  if (known) return known.external_thread_id;
+async function threadFor(channel, a, them, target) {
+  var known = target && target.knownThread ? await target.knownThread(channel, them)
+    : ((await pool.query('SELECT external_thread_id FROM crm_conversations WHERE channel = $1 AND contact_key = $2 ORDER BY id DESC LIMIT 1', [channel, them])).rows[0] || {}).external_thread_id;
+  if (known) return known;
   try {
     var r = await patient(function () { return graph('/' + a.pageId + '/conversations?platform=' + PLATFORM[channel] + '&user_id=' + encodeURIComponent(them) + '&fields=id', a.token); });
     if (r.data && r.data[0] && r.data[0].id) return r.data[0].id;
@@ -213,14 +231,27 @@ async function noteWebhook(ok, added) {
 // One delivery: { object: 'page' | 'instagram', entry: [{ messaging: [...] }] }.
 // A message the business sent (from Meta Business Suite, the Instagram app
 // or the OS) comes back as an echo and is kept as ours.
+// Whose Page (or Instagram account) a delivery is for: a restaurant's
+// (restaurantInbox.service.js) when the id is one of theirs, else Bamboo
+// Products' CRM.
+async function targetFor(channel, accountId) {
+  if (!accountId) return defaultTarget();
+  var r = (await pool.query(
+    'SELECT t.channel_key, ch.company_id FROM marketing_oauth_tokens t JOIN marketing_channels ch ON ch.key = t.channel_key ' +
+    'WHERE ch.platform = $1 AND t.open_id = $2 AND t.channel_key <> $1 LIMIT 1', [channel, String(accountId)])).rows[0];
+  return r ? require('./restaurantInbox.service').metaTarget(r.company_id) : defaultTarget();
+}
+
 async function handleWebhook(body) {
   var hook = body && HOOKS[body.object];
   if (!hook) return { skipped: 'not a messages delivery' };
   var channel = hook.channel;
-  var a = await access(channel);
-  if (!a) return { skipped: 'not connected' };
-  var added = 0;
+  var added = 0, seen = false;
   for (var entry of body.entry || []) {
+    var target = await targetFor(channel, entry.id);
+    var a = await access(channel, target.keys);
+    if (!a) continue;
+    seen = true;
     for (var ev of entry.messaging || []) {
       var m = ev.message;
       if (!m || !m.mid || m.is_deleted) continue;
@@ -229,8 +260,8 @@ async function handleWebhook(body) {
       if (!them || them === String(a.ownId) || them === String(a.pageId)) continue;
       var who = await whoIs(channel, a, them);
       var name = who.name || (channel === 'instagram' ? 'Instagram user' : 'Facebook user');
-      var r = await inbox.ingest({
-        channel: channel, threadId: await threadFor(channel, a, them),
+      var r = await target.ingest({
+        channel: channel, threadId: await threadFor(channel, a, them, target),
         contact: { name: name, handles: [{ kind: channel, value: them, label: who.username ? '@' + who.username : name }] },
         messages: [{
           externalId: m.mid, direction: echo ? 'out' : 'in', author: echo ? '' : name, body: m.text || '',
@@ -241,6 +272,7 @@ async function handleWebhook(body) {
       added += r.added || 0;
     }
   }
+  if (!seen) return { skipped: 'not connected' };
   await noteWebhook(true, added);
   return { added: added };
 }
@@ -269,8 +301,9 @@ async function setWebhook(ctx) {
 }
 
 // A reply, within the 24 hours Meta allows after the customer's last message.
-async function sendMessage(conv, body) {
-  var a = await access(conv.channel);
+// keys: a restaurant's channel keys (Bamboo Products' without).
+async function sendMessage(conv, body, keys) {
+  var a = await access(conv.channel, keys);
   if (!a) throw new Error(conv.channel + ' isn\'t connected.');
   try {
     var r = await graph('/' + a.pageId + '/messages', a.token, {
@@ -462,5 +495,5 @@ async function readOlder(ctx, p) {
   return Object.assign(await check(ctx), { synced: r, months: months });
 }
 
-module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, subscribe: subscribe, subscribePage: subscribePage,
+module.exports = { canSend: canSend, sync: sync, syncChannel: syncChannel, access: access, pausedForSlow: pausedForSlow, NEEDS: NEEDS, sendMessage: sendMessage, status: status, check: check, syncNow: syncNow, readOlder: readOlder, subscribe: subscribe, subscribePage: subscribePage,
   verifyWebhookChallenge: verifyWebhookChallenge, handleWebhook: handleWebhook, noteWebhook: noteWebhook, setWebhook: setWebhook, WEBHOOK_URL: WEBHOOK_URL, setFetchForTests: setFetchForTests };

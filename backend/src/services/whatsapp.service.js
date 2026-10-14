@@ -104,6 +104,14 @@ async function handleWebhookEvent(payload) {
       var value = changes[j].value || {};
       // Meta's word on the account, the number's quality, the templates.
       try { if (await require('./whatsappAlerts.service').take(changes[j].field, value)) continue; } catch (e) { console.error('[whatsapp] notice not kept:', e.message); }
+      // A restaurant's own number (restaurantInbox.service.js): its guests'
+      // messages go to that restaurant's inbox, not the sales CRM.
+      var toNumber = value.metadata && value.metadata.phone_number_id;
+      var restaurant = toNumber ? await require('./restaurantInbox.service').companyForNumber(toNumber) : null;
+      if (restaurant) {
+        try { await require('./restaurantInbox.service').takeWhatsapp(restaurant, value); } catch (e) { console.error('[restaurant inbox] WhatsApp delivery not kept:', e.message); }
+        continue;
+      }
       // Coexistence (the number also in the WhatsApp Business app on the
       // company phone): names saved on the phone, replies typed on the
       // phone, and the chats from before the number was connected.
@@ -265,4 +273,4 @@ async function status() {
   };
 }
 
-module.exports = { sendMessage: sendMessage, verifyWebhookChallenge: verifyWebhookChallenge, isValidSignature: isValidSignature, handleWebhookEvent: handleWebhookEvent, noteWebhook: noteWebhook, status: status, setFetchForTests: setFetchForTests };
+module.exports = { describe: describe, waNumber: waNumber, when: when, sendMessage: sendMessage, verifyWebhookChallenge: verifyWebhookChallenge, isValidSignature: isValidSignature, handleWebhookEvent: handleWebhookEvent, noteWebhook: noteWebhook, status: status, setFetchForTests: setFetchForTests };

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Icon, Section, Status, fmtDate } from './DashKit';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
+import { fromFacebook, loadSdk } from '../lib/metaSdk';
 import './WhatsAppConnect.css';
 
 // Integrations → WhatsApp: connecting the company number with Meta's
@@ -15,23 +16,6 @@ import './WhatsAppConnect.css';
 // facebook.com) and gives a one-time code (FB.login's answer); both go to
 // the server, which swaps the code for the token with the app secret.
 
-const SDK = 'https://connect.facebook.net/en_US/sdk.js';
-const GRAPH_VERSION = 'v21.0';
-let sdkPromise = null;
-function loadSdk(appId) {
-  if (window.FB) return Promise.resolve(window.FB);
-  if (!sdkPromise) {
-    sdkPromise = new Promise((resolve, reject) => {
-      window.fbAsyncInit = () => { window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version: GRAPH_VERSION }); resolve(window.FB); };
-      const s = document.createElement('script');
-      s.src = SDK; s.async = true; s.defer = true; s.crossOrigin = 'anonymous';
-      s.onerror = () => { sdkPromise = null; reject(new Error('sdk')); };
-      document.body.appendChild(s);
-    });
-  }
-  return sdkPromise;
-}
-function fromFacebook(origin) { try { return /(^|\.)facebook\.com$/.test(new URL(origin).hostname); } catch { return false; } }
 
 export default function WhatsAppConnect({ onToast }) {
   const [info, setInfo] = useState(null);

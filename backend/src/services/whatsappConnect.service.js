@@ -321,9 +321,12 @@ async function requestSync(phoneNumberId, token) {
   return out;
 }
 
-// p: { code, wabaId, phoneNumberId, coexistence }
-async function finish(ctx, p) {
-  need(ctx);
+// The Embedded Signup's steps once Meta's window is done, for Bamboo
+// Products' number (finish) and a restaurant's (restaurantInbox.service.js):
+// the one-time code swapped for the business token, the app subscribed to
+// the account's messages, a new number registered. Returns
+// { token, wabaId, phoneId, coex, num }.
+async function signUp(p) {
   if (!config.meta.appId || !config.meta.appSecret) fail('invalid', 'META_APP_ID and META_APP_SECRET must be set on Render first.');
   var code = String((p && p.code) || '').trim();
   var wabaId = String((p && p.wabaId) || '').replace(/\D/g, '');
@@ -350,6 +353,17 @@ async function finish(ctx, p) {
   }
   var num = {};
   try { num = await graph('/' + phoneId + '?fields=display_phone_number,verified_name', token); } catch (e) { num = {}; }
+  return { token: token, wabaId: wabaId, phoneId: phoneId, coex: coex, num: num };
+}
+
+// p: { code, wabaId, phoneNumberId, coexistence }
+async function finish(ctx, p) {
+  need(ctx);
+  var su = await signUp(p);
+  var token = su.token, wabaId = su.wabaId, phoneId = su.phoneId, coex = su.coex, num = su.num;
+  if ((await pool.query('SELECT 1 FROM company_whatsapp WHERE phone_number_id = $1', [phoneId])).rows[0]) {
+    fail('invalid', 'That number is already connected to a restaurant\'s inbox. Disconnect it there first.');
+  }
 
   await pool.query(
     'INSERT INTO whatsapp_connection (id, waba_id, phone_number_id, display_phone, verified_name, access_token, coexistence, connected_by, connected_at, history_requested_at, contacts_requested_at, last_error) ' +
@@ -391,4 +405,4 @@ async function disconnect(ctx) {
   return info(ctx);
 }
 
-module.exports = { info: info, finish: finish, resync: resync, disconnect: disconnect, sendTest: sendTest, listTemplates: listTemplates, createTemplate: createTemplate, deleteTemplate: deleteTemplate, check: check, setWebhook: setWebhook, subscribeAccount: subscribeAccount, setFetchForTests: setFetchForTests };
+module.exports = { signUp: signUp, requestSync: requestSync, info: info, finish: finish, resync: resync, disconnect: disconnect, sendTest: sendTest, listTemplates: listTemplates, createTemplate: createTemplate, deleteTemplate: deleteTemplate, check: check, setWebhook: setWebhook, subscribeAccount: subscribeAccount, setFetchForTests: setFetchForTests };

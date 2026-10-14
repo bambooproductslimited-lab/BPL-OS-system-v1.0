@@ -4,7 +4,7 @@ var meta = require('../services/crmMeta.service');
 var health = require('../services/crmHealth.service');
 
 // The CRM's background work:
-//   every 3 minutes — read new email and Facebook/Instagram messages;
+//   every 3 minutes — read new email and Facebook/Instagram messages (the restaurants' too);
 //   every hour     — phone numbers on profiles become identities, and look-alike profiles are found;
 //   from 8 a.m.    — sales managers are told once a day about customers with no rep.
 var SYNC_MS = 3 * 60 * 1000;
@@ -19,6 +19,9 @@ async function syncChannels() {
     if (e.error) console.error('[crm] email:', e.error);
     var m = await meta.sync();
     ['facebook', 'instagram'].forEach(function (k) { if (m[k] && m[k].error) console.error('[crm] ' + k + ':', m[k].error); });
+    // The restaurants' own Pages, for their Guest CRM inboxes.
+    var rest = await require('../services/restaurantInbox.service').syncAll();
+    Object.keys(rest).forEach(function (co) { ['facebook', 'instagram'].forEach(function (k) { if (rest[co][k] && rest[co][k].error) console.error('[restaurant inbox] ' + k + ':', rest[co][k].error); }); });
   } catch (err) {
     console.error('[crm] channel sync failed:', err.message);
   } finally {

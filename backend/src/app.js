@@ -156,6 +156,7 @@ app.use('/api/waybills', waybillsRoutes);
 app.use('/api/tool-room', toolRoomRoutes);
 app.use('/api/restaurant', restaurantRoutes);
 app.use('/api/restaurant-crm', restaurantCrmRoutes);
+app.use('/api/restaurant-inbox', require('./routes/restaurantInbox.routes'));
 app.use('/api/pos', restaurantPosRoutes);
 app.use('/api/menu-photos', menuPhotosRoutes);
 app.use('/api/it-devices', itDevicesRoutes);

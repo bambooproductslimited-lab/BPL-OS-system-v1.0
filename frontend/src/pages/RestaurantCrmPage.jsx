@@ -9,6 +9,7 @@ import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import Bars from './RestaurantBars';
+import RestaurantInbox from './RestaurantInbox';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -29,14 +30,16 @@ import './RestaurantCrmPage.css';
 //     Square so it is counted once and shows what it cost;
 //   Guests — each guest with where they stand (regular, gone quiet, new …),
 //     their favourite dish, and the same guest typed twice to put together;
-//   Follow-ups — complaints to call back, regulars to invite back.
+//   Follow-ups — complaints to call back, regulars to invite back;
+//   Inbox — guests' WhatsApp, Messenger and Instagram messages to the
+//     restaurant, answered here (RestaurantInbox.jsx).
 // A guest's profile shows every order, from the log and from the till.
 // The chart colours (RestaurantCrmPage.css, --rc-s1…5) are a validated
 // categorical set, each channel and service always the same colour, with
 // its name and figures written beside it.
 
-const VIEWS = ['overview', 'orders', 'guests', 'followups'];
-const VIEW_ICON = { overview: 'layers', orders: 'receipt', guests: 'people', followups: 'phone' };
+const VIEWS = ['overview', 'inbox', 'orders', 'guests', 'followups'];
+const VIEW_ICON = { overview: 'layers', inbox: 'send', orders: 'receipt', guests: 'people', followups: 'phone' };
 const RANGES = [['30', msg('30 days')], ['90', msg('90 days')], ['365', msg('12 months')], ['all', msg('All time')]];
 const CHANNEL = { phone: msg('Phone call'), whatsapp: msg('WhatsApp'), bolt: msg('Bolt'), walk_in: msg('Walk-in'), instagram: msg('Instagram'), facebook: msg('Facebook'), website: msg('Website'), other: msg('Other'), till: msg('At the till') };
 const CHANNELS = ['phone', 'whatsapp', 'bolt', 'walk_in', 'instagram', 'facebook', 'website', 'other'];
@@ -247,6 +250,8 @@ export default function RestaurantCrmPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [followDialog, setFollowDialog] = useState(null);
   const [tillDialog, setTillDialog] = useState(null);
+  const [inboxCounts, setInboxCounts] = useState(null);
+  const [chatId, setChatId] = useState(() => new URLSearchParams(window.location.search).get('open'));
 
   useEffect(() => {
     api.get('/restaurant/companies').then(setCompanies).catch((err) => setError(err.message));
@@ -271,6 +276,18 @@ export default function RestaurantCrmPage() {
     setTimeout(() => jump('rc-views'), 0);
   }
   function pickRange(r) { setRange(r); writePref('bos.restaurantCrmRange', r); }
+  const openChat = useCallback((id) => {
+    setChatId(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set('open', id); else url.searchParams.delete('open');
+    window.history.replaceState(null, '', url);
+  }, []);
+  // How many guests are waiting for an answer, for the tab and the banner.
+  useEffect(() => {
+    if (!companyId) return;
+    setInboxCounts(null);
+    api.get('/restaurant-inbox?' + new URLSearchParams({ companyId, status: 'waiting' })).then((d) => setInboxCounts(d.counts)).catch(() => setInboxCounts(null));
+  }, [companyId]);
 
   const loadOverview = useCallback(async () => {
     if (!companyId) return;
@@ -318,6 +335,7 @@ export default function RestaurantCrmPage() {
 
   // ── what stands out ──
   const insights = [];
+  if (inboxCounts && inboxCounts.waiting) insights.push({ tone: 'warn', icon: 'send', text: inboxCounts.waiting === 1 ? tr('1 guest wrote on WhatsApp, Messenger or Instagram and is waiting for an answer.') : tr('{n} guests wrote on WhatsApp, Messenger or Instagram and are waiting for an answer.', { n: inboxCounts.waiting }), action: { label: tr('Answer them'), run: () => pickView('inbox') } });
   if (t) {
     if (t.openFollowUps) insights.push({ tone: 'bad', icon: 'warn', text: t.openFollowUps === 1 ? tr('1 guest complained and has not been called back yet.') : tr('{n} guests complained and have not been called back yet.', { n: t.openFollowUps }), action: { label: tr('Show them'), run: () => pickView('followups') } });
     if (ov.quietCount) insights.push({ tone: 'warn', icon: 'clock', text: ov.quietCount === 1 ? tr('{name} used to order regularly and has not ordered for {days} days.', { name: ov.quiet[0].name, days: ov.quiet[0].daysSince }) : tr('{n} regulars have stopped ordering — {name} last ordered {days} days ago.', { n: ov.quietCount, name: ov.quiet[0].name, days: ov.quiet[0].daysSince }), action: { label: tr('Invite them back'), run: () => pickView('followups') } });
@@ -332,6 +350,7 @@ export default function RestaurantCrmPage() {
 
   const views = [
     ['overview', tr('Overview'), null],
+    ['inbox', tr('Inbox'), inboxCounts ? inboxCounts.waiting || null : null],
     ['orders', tr('Orders'), t ? t.logged : null],
     ['guests', tr('Guests'), t ? t.allGuests : null],
     ['followups', tr('Follow-ups'), t ? (t.openFollowUps + (ov.quietCount || 0)) || null : null]
@@ -395,6 +414,9 @@ export default function RestaurantCrmPage() {
 
       {!ov && <div className="rc-skeleton" aria-busy="true"><span /><span /><span /></div>}
       {ov && view === 'overview' && <Overview ov={ov} range={range} onRange={pickRange} onGuest={setProfileId} onLog={canManage ? () => setOrderDialog({}) : null} onImport={canManage ? () => setImportOpen(true) : null} />}
+
+      {view === 'inbox' && <RestaurantInbox companyId={companyId} company={current} canManage={canManage} openId={chatId} onOpenId={openChat}
+        onGuest={setProfileId} onLogOrder={(preset) => setOrderDialog(preset)} say={say} onCounts={setInboxCounts} />}
 
       {ov && view === 'orders' && (
         <section id="rc-orders" className="rc-panel">
@@ -817,7 +839,7 @@ function OrderDialog({ order, preset, companyId, onClose, onSaved }) {
   const g0 = order ? order.guest : preset && preset.guest;
   const [form, setForm] = useState(() => ({
     guestId: g0 ? g0.id : '', name: g0 ? g0.name : '', phone: g0 ? g0.phone || '' : '',
-    orderedOn: order ? order.orderedOn : today(), channel: order ? order.channel : 'phone', service: order ? order.service : 'pickup',
+    orderedOn: order ? order.orderedOn : today(), channel: order ? order.channel : (preset && preset.channel) || 'phone', service: order ? order.service : 'pickup',
     items: order ? order.items : '', amount: order && order.amount !== null && !order.amountFromTill ? String(order.amount) : '',
     partySize: order && order.partySize ? String(order.partySize) : '', tableNote: order ? order.tableNote : '',
     feedback: order ? order.feedback : '', rating: order ? order.rating : null
