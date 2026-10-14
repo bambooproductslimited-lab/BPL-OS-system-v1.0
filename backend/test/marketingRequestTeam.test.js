@@ -1,7 +1,8 @@
 // A team on a marketing request (mkRequests.service.js, migration 0147):
 // marketing adds anyone on staff besides the one leading it; they see the
 // request in theirs, are told when added, hear the comments and the asker's
-// answer; taken off, they no longer see it. On throwaway ZMT requests.
+// answer; taken off, they no longer see it. Added, they get a text too
+// (sms.service faked: nothing is sent). On throwaway ZMT requests.
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var { pool } = require('../src/db/pool');
@@ -65,6 +66,53 @@ test('marketing puts a team on a request; they see it, are told, and hear what h
   r = await requests.setTeam(boss, r.id, { employeeIds: [] });
   assert.deepEqual(r.team, []);
   await assert.rejects(requests.get(helper, r.id), /not yours/);
+});
+
+test('someone put on a team gets a text too (faked here): the request, its date and a link; not without a phone, or with texts off', async function () {
+  var sms = require('../src/services/sms.service');
+  var real = { configured: sms.configured, send: sms.send };
+  var sent = [];
+  var phone = (await pool.query('SELECT phone FROM employees WHERE id = $1', [helper.employee.id])).rows[0].phone;
+  var messaging = (await pool.query('SELECT messaging FROM settings WHERE id = 1')).rows[0].messaging;
+  sms.configured = function () { return true; };
+  sms.send = async function (o) { sent.push(o); return { id: null, to: o.to }; };
+  try {
+    await pool.query("UPDATE employees SET phone = '0200000001' WHERE id = $1", [helper.employee.id]);
+    var r = await requests.create(staff, { company: 'BPL', title: 'ZMT Banner for the gate', kind: 'banner', dueOn: '2031-03-14' });
+    r = await requests.setTeam(boss, r.id, { employeeIds: [helper.employee.id] });
+    assert.deepEqual(r.texts, { sent: 1, noPhone: 0, failed: 0 });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to, '0200000001');
+    assert.equal(sent[0].purpose, 'auto_request_team');
+    assert.match(sent[0].message, new RegExp('^Bamboo OS: you are on the team for ' + r.ref + ' ZMT Banner for the gate, needed by Fri 14 Mar\\.'));
+    assert.match(sent[0].message, new RegExp('/mkrequests\\?open=' + r.id + '$'));
+    assert.equal(r.team.length, 1, 'the text never changes who is on the team');
+
+    // Saving the same team again sends nothing; taken off and put back, they are texted again.
+    r = await requests.setTeam(boss, r.id, { employeeIds: [helper.employee.id] });
+    assert.equal(r.texts, null);
+    assert.equal(sent.length, 1);
+
+    // No phone on their record: told in the OS only.
+    await requests.setTeam(boss, r.id, { employeeIds: [] });
+    await pool.query("UPDATE employees SET phone = '' WHERE id = $1", [helper.employee.id]);
+    r = await requests.setTeam(boss, r.id, { employeeIds: [helper.employee.id] });
+    assert.deepEqual(r.texts, { sent: 0, noPhone: 1, failed: 0 });
+    assert.equal(sent.length, 1);
+
+    // Texts for request teams turned off in Company settings.
+    await requests.setTeam(boss, r.id, { employeeIds: [] });
+    await pool.query("UPDATE employees SET phone = '0200000001' WHERE id = $1", [helper.employee.id]);
+    await pool.query('UPDATE settings SET messaging = $1 WHERE id = 1', [JSON.stringify(Object.assign({}, messaging || {}, { requestTeamBySms: false }))]);
+    r = await requests.setTeam(boss, r.id, { employeeIds: [helper.employee.id] });
+    assert.equal(r.texts, null);
+    assert.equal(sent.length, 1);
+    assert.equal(r.team.length, 1);
+  } finally {
+    sms.configured = real.configured; sms.send = real.send;
+    await pool.query('UPDATE employees SET phone = $2 WHERE id = $1', [helper.employee.id, phone]);
+    await pool.query('UPDATE settings SET messaging = $1 WHERE id = 1', [JSON.stringify(messaging || {})]);
+  }
 });
 
 test('the people who can be put on a team: everyone active, marketing marked; marketing.manage only', async function () {

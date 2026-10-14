@@ -194,8 +194,19 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
     try { setR(await fn()); onChanged(); if (msgText) toast(msgText); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   const status = (s, note) => act(() => api.post('/mk/requests/' + id + '/status', note === undefined ? { status: s } : { status: s, note }), tr('Request updated.'));
-  const setCrew = (ids) => act(() => api.put('/mk/requests/' + id + '/team', { employeeIds: ids }),
-    ids.length > r.team.length ? tr('Added to the team; they are told.') : tr('Team updated.'));
+  async function setCrew(ids) {
+    setBusy(true); setError(null);
+    try {
+      const next = await api.put('/mk/requests/' + id + '/team', { employeeIds: ids });
+      setR(next); onChanged();
+      const t = next.texts;
+      if (ids.length <= r.team.length) toast(tr('Team updated.'));
+      else if (!t) toast(tr('Added to the team; they are told.'));
+      else if (t.sent && !t.noPhone && !t.failed) toast(tr('Added to the team; they are told here and by text.'));
+      else if (t.noPhone && !t.sent) toast(tr('Added to the team and told here. No text: there is no phone number on their employee record.'));
+      else toast(tr('Added to the team and told here. Texts sent: {sent} of {n}.', { sent: t.sent, n: t.sent + t.noPhone + t.failed }));
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
   const assign = (field, value) => act(() => api.put('/mk/requests/' + id, { title: r.title, kind: r.kind, brief: r.brief, audience: r.audience, dueOn: r.dueOn, priority: r.priority, [field]: value }));
   async function upload(e) {
     const file = e.target.files[0];

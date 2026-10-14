@@ -22,6 +22,7 @@ const PURPOSES = {
   booking_notice: () => tr('Booking ending'),
   auto_booking_notice: () => tr('Booking ending (automatic)'),
   staff_alert: () => tr('Staff alert'),
+  auto_request_team: () => tr('Put on a request team (automatic)'),
   test: () => tr('Test')
 };
 
@@ -56,6 +57,11 @@ const AUTOMATIC = [
     key: 'staffAlertsBySms', icon: 'staff',
     label: () => tr('Text staff their alerts too'),
     hint: () => tr('The morning alert and the warnings about expiring documents, to the phone on each person\'s employee record — as well as the notification bell.')
+  },
+  {
+    key: 'requestTeamBySms', icon: 'staff',
+    label: () => tr('Text staff put on a marketing request\'s team'),
+    hint: () => tr('One text when someone is added to the team working on a request: which request, when it is needed by and a link to it, to the phone on their employee record.')
   }
 ];
 

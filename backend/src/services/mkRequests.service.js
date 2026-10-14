@@ -3,6 +3,8 @@ var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
 var fileStore = require('../lib/fileStore');
+var config = require('../config');
+var sms = require('./sms.service');
 var S = require('./mkShared');
 
 // Asking marketing for something: anyone signed in can ask for a flyer, a
@@ -16,7 +18,8 @@ var S = require('./mkShared');
 // assignment to the one assigned, review/done/declined to the one who asked.
 // Besides the one leading it (assigned_to), marketing can add a team
 // (marketing_request_members, migration 0147): anyone on staff, who then
-// sees it in their requests, talks about it and is told as it moves.
+// sees it in their requests, talks about it and is told as it moves —
+// and, when added, gets a text too (Company settings → Text messages).
 
 var KINDS = ['social_post', 'flyer', 'brochure', 'banner', 'signage', 'video', 'photos', 'website', 'presentation', 'event', 'other'];
 var STATUSES = ['new', 'in_progress', 'review', 'done', 'declined'];
@@ -266,7 +269,7 @@ async function setTeam(ctx, id, p) {
   var before = (r.members || []).map(function (m) { return m.id; });
   var added = ids.filter(function (x) { return before.indexOf(x) < 0; });
   var removed = before.filter(function (x) { return ids.indexOf(x) < 0; });
-  if (!added.length && !removed.length) return get(ctx, id);
+  if (!added.length && !removed.length) return Object.assign(await get(ctx, id), { texts: null });
   await withTransaction(async function (db) {
     if (removed.length) await db.query('DELETE FROM marketing_request_members WHERE request_id = $1 AND employee_id = ANY($2)', [id, removed]);
     for (var who of added) {
@@ -279,7 +282,38 @@ async function setTeam(ctx, id, p) {
     await audit(db, ctx, 'marketing.request.team', 'marketing_request', id,
       'MR-' + String(r.number).padStart(4, '0') + ' team: ' + ids.length + ' people' + (added.length ? ', ' + added.length + ' added' : '') + (removed.length ? ', ' + removed.length + ' removed' : '') + '.');
   });
-  return get(ctx, id);
+  var texts = await textTeam(ctx, r, added.filter(function (x) { return x !== ctx.employee.id; }));
+  return Object.assign(await get(ctx, id), { texts: texts });
+}
+
+// A text to each person just put on the team, to the phone on their
+// employee record — after the change is saved, and never failing it: no
+// number, texts off or not set up, or no credit just means no text.
+// { sent, noPhone, failed }, or null when texts are off or not set up.
+function shortDate(iso) {
+  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+async function textTeam(ctx, r, who) {
+  if (!who.length || !sms.configured() || !(await sms.messaging()).requestTeamBySms) return null;
+  var out = { sent: 0, noPhone: 0, failed: 0 };
+  var phones = (await pool.query("SELECT id, phone FROM employees WHERE id = ANY($1) AND status = 'active'", [who])).rows;
+  var title = r.title.length > 60 ? r.title.slice(0, 59) + '…' : r.title;
+  var link = config.appUrl ? ' ' + config.appUrl + '/mkrequests?open=' + r.id : '';
+  var message = 'Bamboo OS: you are on the team for MR-' + String(r.number).padStart(4, '0') + ' ' + title +
+    (r.due_on ? ', needed by ' + shortDate(r.due_on) : '') + '.' + link;
+  for (var e of phones) {
+    if (!sms.smsNumber(e.phone)) { out.noPhone++; continue; }
+    if ((await sms.autoSentToday()) >= sms.AUTO_DAILY_LIMIT) { out.failed++; continue; }
+    try {
+      await sms.send({ to: e.phone, message: message, purpose: 'auto_request_team', refId: r.id, sentBy: ctx.employee.id });
+      out.sent++;
+    } catch (err) {
+      console.error('Request team text not sent:', err.message);
+      out.failed++;
+    }
+  }
+  out.noPhone += who.length - phones.length;
+  return out;
 }
 
 // GET /api/mk/requests/people — everyone on staff who can be put on a
