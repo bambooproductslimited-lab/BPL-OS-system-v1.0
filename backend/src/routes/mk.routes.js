@@ -60,9 +60,11 @@ router.get('/spend/:id/receipt', h(async function (req, res) { await sendFile(re
 
 router.get('/requests', h(function (req) { return requests.list(req.ctx, req.query); }));
 router.get('/requests/team', h(function (req) { return requests.team(req.ctx); }));
+router.get('/requests/people', h(function (req) { return requests.people(req.ctx); }));
 router.post('/requests', h(function (req) { return requests.create(req.ctx, req.body || {}); }));
 router.get('/requests/:id', h(function (req) { return requests.get(req.ctx, req.params.id); }));
 router.put('/requests/:id', h(function (req) { return requests.update(req.ctx, req.params.id, req.body || {}); }));
+router.put('/requests/:id/team', h(function (req) { return requests.setTeam(req.ctx, req.params.id, req.body || {}); }));
 router.post('/requests/:id/status', h(function (req) { return requests.setStatus(req.ctx, req.params.id, req.body || {}); }));
 router.post('/requests/:id/comments', h(function (req) { return requests.comment(req.ctx, req.params.id, req.body || {}); }));
 router.post('/requests/:id/files', requestUpload.single('file'), h(function (req) { return requests.addFile(req.ctx, req.params.id, req.file, req.body || {}); }));

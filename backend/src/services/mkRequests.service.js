@@ -14,6 +14,9 @@ var S = require('./mkShared');
 // requests; marketing (marketing.read) sees them all. Each step tells the
 // other side (utils/notify.js): a new request goes to marketing, the
 // assignment to the one assigned, review/done/declined to the one who asked.
+// Besides the one leading it (assigned_to), marketing can add a team
+// (marketing_request_members, migration 0147): anyone on staff, who then
+// sees it in their requests, talks about it and is told as it moves.
 
 var KINDS = ['social_post', 'flyer', 'brochure', 'banner', 'signage', 'video', 'photos', 'website', 'presentation', 'event', 'other'];
 var STATUSES = ['new', 'in_progress', 'review', 'done', 'declined'];
@@ -26,6 +29,7 @@ function out(r) {
     title: r.title, kind: r.kind, brief: r.brief, audience: r.audience, dueOn: r.due_on, priority: r.priority, status: r.status, note: r.note,
     requester: { id: r.requested_by, name: S.employeeName(r.req_first, r.req_last), photo: r.req_photo ? new Date(r.req_photo).getTime() : null },
     assignee: r.assigned_to ? { id: r.assigned_to, name: S.employeeName(r.as_first, r.as_last), photo: r.as_photo ? new Date(r.as_photo).getTime() : null } : null,
+    team: (r.members || []).map(function (m) { return { id: m.id, name: S.employeeName(m.first, m.last), position: m.position || null, photo: m.photo ? new Date(m.photo).getTime() : null }; }),
     campaign: r.campaign_id ? { id: r.campaign_id, name: r.campaign_name } : null,
     comments: Number(r.comments || 0), files: Number(r.files || 0), delivered: Number(r.delivered || 0),
     overdue: !!(r.due_on && r.due_on < today && OPEN.indexOf(r.status) >= 0),
@@ -36,6 +40,9 @@ var SELECT = 'SELECT r.*, co.code AS company_code, co.name AS company_name, c.na
   'q.first_name AS req_first, q.last_name AS req_last, CASE WHEN q.photo_key IS NOT NULL THEN q.photo_updated_at END AS req_photo, ' +
   'a.first_name AS as_first, a.last_name AS as_last, CASE WHEN a.photo_key IS NOT NULL THEN a.photo_updated_at END AS as_photo, ' +
   '(SELECT count(*) FROM marketing_request_comments x WHERE x.request_id = r.id) AS comments, ' +
+  "(SELECT coalesce(json_agg(json_build_object('id', e.id, 'first', e.first_name, 'last', e.last_name, 'position', e.position_title, " +
+  "'photo', CASE WHEN e.photo_key IS NOT NULL THEN e.photo_updated_at END) ORDER BY m.added_at), '[]'::json) " +
+  'FROM marketing_request_members m JOIN employees e ON e.id = m.employee_id WHERE m.request_id = r.id) AS members, ' +
   '(SELECT count(*) FROM marketing_request_files f WHERE f.request_id = r.id) AS files, ' +
   '(SELECT count(*) FROM marketing_request_files f WHERE f.request_id = r.id AND f.delivered) AS delivered ' +
   'FROM marketing_requests r JOIN companies co ON co.id = r.company_id LEFT JOIN marketing_campaigns c ON c.id = r.campaign_id ' +
@@ -50,7 +57,10 @@ async function row(id) {
   if (!r) fail('notfound', 'Request not found.');
   return r;
 }
-function canSee(ctx, r) { return r.requested_by === ctx.employee.id || r.assigned_to === ctx.employee.id || S.canRead(ctx); }
+function onTeam(r, who) { return (r.members || []).some(function (m) { return m.id === who; }); }
+function canSee(ctx, r) { return r.requested_by === ctx.employee.id || r.assigned_to === ctx.employee.id || onTeam(r, ctx.employee.id) || S.canRead(ctx); }
+// Marketing's side of a request: the one leading it and the team.
+function workers(r) { return (r.assigned_to ? [r.assigned_to] : []).concat((r.members || []).map(function (m) { return m.id; })); }
 async function visible(ctx, id) {
   me(ctx);
   var r = await row(id);
@@ -66,7 +76,7 @@ async function list(ctx, opts) {
   if (all) {
     if (opts.company) { var co = await S.company(opts.company); args.push(co.id); where.push('r.company_id = $' + args.length); }
   } else {
-    args.push(my); where.push('(r.requested_by = $1 OR r.assigned_to = $1)');
+    args.push(my); where.push('(r.requested_by = $1 OR r.assigned_to = $1 OR EXISTS (SELECT 1 FROM marketing_request_members m WHERE m.request_id = r.id AND m.employee_id = $1))');
   }
   var rows = (await pool.query(SELECT + (where.length ? 'WHERE ' + where.join(' AND ') : '') +
     " ORDER BY CASE WHEN r.status IN ('new', 'in_progress', 'review') THEN 0 ELSE 1 END, r.priority = 'urgent' DESC, r.due_on NULLS LAST, r.created_at DESC LIMIT 500", args)).rows;
@@ -144,6 +154,8 @@ async function update(ctx, id, p) {
   await withTransaction(async function (db) {
     await db.query('UPDATE marketing_requests SET title = $2, kind = $3, brief = $4, audience = $5, due_on = $6, priority = $7, assigned_to = $8, campaign_id = $9, note = $10, updated_at = now() WHERE id = $1',
       [id, f.title, f.kind, f.brief, f.audience, f.dueOn, f.priority, assignee, campaign, manage && p.note !== undefined ? S.text(p.note, 2000) : r.note]);
+    // The one leading it isn't also listed on the team.
+    if (assignee) await db.query('DELETE FROM marketing_request_members WHERE request_id = $1 AND employee_id = $2', [id, assignee]);
     if (assignee && assignee !== r.assigned_to && assignee !== ctx.employee.id) {
       await notify(db, assignee, 'Assigned to you: ' + f.title, 'A marketing request' + (f.dueOn ? ', needed by ' + f.dueOn : '') + '.', '/mkrequests?open=' + id);
     }
@@ -170,8 +182,8 @@ async function setStatus(ctx, id, p) {
     if (asker && !manage && status === 'in_progress' && p.note) {
       await db.query('INSERT INTO marketing_request_comments (request_id, author_id, body) VALUES ($1,$2,$3)', [id, ctx.employee.id, S.text(p.note, 2000)]);
     }
-    var tell = asker ? (r.assigned_to ? [r.assigned_to] : await S.managers()) : [r.requested_by];
-    for (var who of tell) {
+    var tell = asker ? (workers(r).length ? workers(r) : await S.managers()) : [r.requested_by].concat(workers(r));
+    for (var who of Array.from(new Set(tell))) {
       if (who === ctx.employee.id) continue;
       await notify(db, who, 'MR-' + String(r.number).padStart(4, '0') + ' ' + (STATUS_WORD[status] || status), r.title + (status === 'declined' ? ': ' + note : ''), '/mkrequests?open=' + id);
     }
@@ -188,7 +200,7 @@ async function comment(ctx, id, p) {
   await withTransaction(async function (db) {
     await db.query('INSERT INTO marketing_request_comments (request_id, author_id, body) VALUES ($1,$2,$3)', [id, ctx.employee.id, body]);
     await db.query('UPDATE marketing_requests SET updated_at = now() WHERE id = $1', [id]);
-    var tell = r.requested_by === ctx.employee.id ? (r.assigned_to ? [r.assigned_to] : await S.managers()) : [r.requested_by].concat(r.assigned_to ? [r.assigned_to] : []);
+    var tell = r.requested_by === ctx.employee.id ? (workers(r).length ? workers(r) : await S.managers()) : [r.requested_by].concat(workers(r));
     for (var who of Array.from(new Set(tell))) {
       if (who === ctx.employee.id) continue;
       await notify(db, who, 'New comment on MR-' + String(r.number).padStart(4, '0'), body.slice(0, 140), '/mkrequests?open=' + id);
@@ -235,6 +247,53 @@ async function removeFile(ctx, id, fileId) {
   return get(ctx, id);
 }
 
+var MAX_TEAM = 20;
+
+// PUT /api/mk/requests/:id/team { employeeIds } — who works on it with the
+// one leading it (marketing.manage). Anyone on staff; the one leading it is
+// left out (shown on their own). Those newly added are told.
+async function setTeam(ctx, id, p) {
+  if (!ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (marketing.manage).');
+  var r = await visible(ctx, id);
+  var raw = p && p.employeeIds;
+  if (!Array.isArray(raw)) fail('invalid', 'Say who is on the team.');
+  var ids = Array.from(new Set(raw.map(String))).filter(function (x) { return x && x !== r.assigned_to; });
+  if (ids.length > MAX_TEAM) fail('invalid', 'A team can have up to ' + MAX_TEAM + ' people.');
+  if (ids.length) {
+    var ok = (await pool.query("SELECT id FROM employees WHERE id::text = ANY($1) AND status <> 'terminated'", [ids])).rows.map(function (e) { return e.id; });
+    if (ok.length !== ids.length) fail('invalid', 'Someone picked is not on the staff list.');
+  }
+  var before = (r.members || []).map(function (m) { return m.id; });
+  var added = ids.filter(function (x) { return before.indexOf(x) < 0; });
+  var removed = before.filter(function (x) { return ids.indexOf(x) < 0; });
+  if (!added.length && !removed.length) return get(ctx, id);
+  await withTransaction(async function (db) {
+    if (removed.length) await db.query('DELETE FROM marketing_request_members WHERE request_id = $1 AND employee_id = ANY($2)', [id, removed]);
+    for (var who of added) {
+      await db.query('INSERT INTO marketing_request_members (request_id, employee_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [id, who, ctx.employee.id]);
+      if (who !== ctx.employee.id) {
+        await notify(db, who, 'You are on the team for MR-' + String(r.number).padStart(4, '0'), r.title + (r.due_on ? ', needed by ' + r.due_on : '') + '.', '/mkrequests?open=' + id);
+      }
+    }
+    await db.query('UPDATE marketing_requests SET updated_at = now() WHERE id = $1', [id]);
+    await audit(db, ctx, 'marketing.request.team', 'marketing_request', id,
+      'MR-' + String(r.number).padStart(4, '0') + ' team: ' + ids.length + ' people' + (added.length ? ', ' + added.length + ' added' : '') + (removed.length ? ', ' + removed.length + ' removed' : '') + '.');
+  });
+  return get(ctx, id);
+}
+
+// GET /api/mk/requests/people — everyone on staff who can be put on a
+// request's team (marketing.manage), marketing's own people marked.
+async function people(ctx) {
+  if (!ctx.can('marketing.manage')) fail('forbidden', 'Your role does not allow this action (marketing.manage).');
+  var mk = new Set((await team(ctx)).map(function (e) { return e.id; }));
+  return (await pool.query(
+    "SELECT e.id, e.code, e.first_name, e.last_name, e.position_title, CASE WHEN e.photo_key IS NOT NULL THEN e.photo_updated_at END AS photo FROM employees e WHERE e.status = 'active' ORDER BY e.first_name, e.last_name"
+  )).rows.map(function (e) {
+    return { id: e.id, code: e.code, firstName: e.first_name, lastName: e.last_name || '', positionTitle: e.position_title || '', photo: e.photo ? new Date(e.photo).getTime() : null, marketing: mk.has(e.id) };
+  });
+}
+
 // The people marketing can assign work to: those who can manage marketing.
 async function team(ctx) {
   S.requireRead(ctx);
@@ -245,4 +304,4 @@ async function team(ctx) {
   )).rows.map(function (e) { return { id: e.id, name: S.employeeName(e.first_name, e.last_name), photo: e.photo ? new Date(e.photo).getTime() : null }; });
 }
 
-module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, comment: comment, addFile: addFile, file: file, removeFile: removeFile, team: team, KINDS: KINDS, STATUSES: STATUSES };
+module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, comment: comment, addFile: addFile, file: file, removeFile: removeFile, team: team, setTeam: setTeam, people: people, KINDS: KINDS, STATUSES: STATUSES };

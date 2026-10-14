@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import Photo from '../../components/Photo';
+import PeoplePicker from '../../components/PeoplePicker';
 import { Section } from '../../components/DashKit';
 import { msg, tr } from '../../lib/i18n.jsx';
 import {
@@ -12,8 +13,9 @@ import {
 // ask for a flyer, a post, a banner, a video, photos… with a brief and the
 // date it is needed by, attach what helps, and follow it on a board —
 // new, in progress, ready to check, done. Marketing takes it on, assigns
-// someone, talks in the comments and attaches the finished work; the one
-// who asked approves it or asks for changes. Everyone is told at each step.
+// someone to lead it and a team to work with them, talks in the comments
+// and attaches the finished work; the one who asked approves it or asks
+// for changes. Everyone is told at each step.
 
 const LANES = ['new', 'in_progress', 'review', 'done'];
 const STEPS = ['new', 'in_progress', 'review', 'done'];
@@ -112,6 +114,8 @@ function RequestCard({ r, me, onOpen }) {
         <span className="mk-faces">
           <Photo id={r.requester.id} name={r.requester.name} photo={r.requester.photo} size={24} />
           {r.assignee && <Photo id={r.assignee.id} name={r.assignee.name} photo={r.assignee.photo} size={24} />}
+          {r.team.slice(0, 2).map((m) => <Photo key={m.id} id={m.id} name={m.name} photo={m.photo} size={24} />)}
+          {r.team.length > 2 && <span className="mk-faces-more">+{r.team.length - 2}</span>}
         </span>
         <span>{r.requester.id === me ? tr('You asked') : r.requester.name}</span>
         <span style={{ flex: 1 }} />
@@ -169,6 +173,7 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
   const [error, setError] = useState(null);
   const [comment, setComment] = useState('');
   const [team, setTeam] = useState([]);
+  const [people, setPeople] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [busy, setBusy] = useState(false);
   const [decline, setDecline] = useState(null);
@@ -180,6 +185,7 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
   useEffect(() => {
     if (!r || !r.canManage) return;
     api.get('/mk/requests/team').then(setTeam).catch(() => {});
+    api.get('/mk/requests/people').then(setPeople).catch(() => {});
     api.get('/mk/campaigns/options?company=' + r.company.code).then(setCampaigns).catch(() => {});
   }, [r && r.canManage, r && r.company.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -188,6 +194,8 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
     try { setR(await fn()); onChanged(); if (msgText) toast(msgText); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   const status = (s, note) => act(() => api.post('/mk/requests/' + id + '/status', note === undefined ? { status: s } : { status: s, note }), tr('Request updated.'));
+  const setCrew = (ids) => act(() => api.put('/mk/requests/' + id + '/team', { employeeIds: ids }),
+    ids.length > r.team.length ? tr('Added to the team; they are told.') : tr('Team updated.'));
   const assign = (field, value) => act(() => api.put('/mk/requests/' + id, { title: r.title, kind: r.kind, brief: r.brief, audience: r.audience, dueOn: r.dueOn, priority: r.priority, [field]: value }));
   async function upload(e) {
     const file = e.target.files[0];
@@ -229,7 +237,7 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
           <span className="mk-row"><Photo id={r.requester.id} name={r.requester.name} photo={r.requester.photo} size={30} /><span className="mk-fill"><strong>{r.requester.name}</strong><span className="mk-muted"> · {tr('asked on {date}', { date: dayLabel(r.createdAt) })}</span></span></span>
           {r.canManage ? (
             <>
-              <label className="field"><span>{tr('Who is doing it')}</span>
+              <label className="field"><span>{tr('Who leads it')}</span>
                 <select className="input" value={r.assignee ? r.assignee.id : ''} disabled={busy} onChange={(e) => assign('assignedTo', e.target.value || null)}>
                   <option value="">{tr('Nobody yet')}</option>{team.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select></label>
@@ -239,10 +247,12 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
                 </select></label>
             </>
           ) : (
-            <span className="mk-row">{r.assignee ? <><Photo id={r.assignee.id} name={r.assignee.name} photo={r.assignee.photo} size={30} /><span><strong>{r.assignee.name}</strong> <span className="mk-muted">{tr('is doing it')}</span></span></> : <span className="mk-muted">{tr('Not assigned yet.')}</span>}</span>
+            <span className="mk-row">{r.assignee ? <><Photo id={r.assignee.id} name={r.assignee.name} photo={r.assignee.photo} size={30} /><span><strong>{r.assignee.name}</strong> <span className="mk-muted">{tr('leads it')}</span></span></> : <span className="mk-muted">{tr('Not assigned yet.')}</span>}</span>
           )}
         </div>
       </div>
+
+      <TeamCard r={r} people={people} busy={busy} onChange={setCrew} />
 
       {delivered.length > 0 && (
         <div className="mk-card" style={{ borderColor: 'color-mix(in srgb, var(--mk-good) 45%, var(--mk-line))' }}>
@@ -298,6 +308,50 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
         </MkDialog>
       )}
     </MkDialog>
+  );
+}
+
+// The team working on it with the one leading it. Marketing picks anyone
+// on staff (its own people offered first); everyone else sees who is on it.
+function TeamCard({ r, people, busy, onChange }) {
+  const ids = r.team.map((m) => m.id);
+  const lead = r.assignee ? r.assignee.id : null;
+  const choices = people.filter((p) => p.id !== lead);
+  const suggested = choices.filter((p) => p.marketing && !ids.includes(p.id)).slice(0, 6);
+  const crew = (r.assignee ? 1 : 0) + r.team.length;
+  return (
+    <div className="mk-card mk-team">
+      <div className="mk-team-head">
+        <h4 className="mk-h4"><Glyph name="users" size={16} />{tr('Team working on it')}</h4>
+        {crew > 0 && <span className="mk-team-count">{crew === 1 ? tr('1 person on it') : tr('{n} people on it', { n: crew })}</span>}
+      </div>
+      {r.canManage ? (
+        <>
+          <PeoplePicker employees={choices} value={ids} onChange={(next) => !busy && onChange(next)}
+            emptyText={tr('Just the one leading it so far. Add the people who will help: designers, photographers, drivers…')}
+            placeholder={tr('Add someone: type a name…')} />
+          {suggested.length > 0 && (
+            <div className="mk-team-suggest">
+              <span className="mk-muted">{tr('From marketing:')}</span>
+              {suggested.map((p) => (
+                <button key={p.id} type="button" className="mk-team-add" disabled={busy} onClick={() => onChange([...ids, p.id])}>
+                  <Photo id={p.id} name={p.firstName + ' ' + p.lastName} photo={p.photo} size={20} /> {(p.firstName + ' ' + p.lastName).trim()} <span aria-hidden="true">+</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : r.team.length ? (
+        <div className="mk-team-list">
+          {r.team.map((m) => (
+            <span key={m.id} className="mk-team-person">
+              <Photo id={m.id} name={m.name} photo={m.photo} size={30} />
+              <span><strong>{m.name}</strong>{m.position && <span className="mk-muted">{m.position}</span>}</span>
+            </span>
+          ))}
+        </div>
+      ) : <p className="mk-muted" style={{ margin: 0 }}>{tr('Nobody else on it yet.')}</p>}
+    </div>
   );
 }
 
