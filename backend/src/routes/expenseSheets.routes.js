@@ -45,7 +45,7 @@ router.post('/:id/checks', h(function (req) { return sheets.check(req.ctx, req.p
 router.post('/:id/topups', h(function (req) { return sheets.requestTopup(req.ctx, req.params.id, req.body || {}); }));
 router.post('/:id/payback', h(function (req) { return sheets.payBack(req.ctx, req.params.id, req.body || {}); }));
 router.post('/:id/import/preview', workbookUpload.single('file'), h(function (req) { return sheetImport.preview(req.ctx, req.params.id, req.file); }));
-router.post('/:id/import', workbookUpload.single('file'), h(function (req) { return sheetImport.run(req.ctx, req.params.id, req.file); }));
+router.post('/:id/import', workbookUpload.single('file'), h(function (req) { return sheetImport.run(req.ctx, req.params.id, req.file, req.body && req.body.remove); }));
 router.patch('/lines/:lineId', h(function (req) { return sheets.updateLine(req.ctx, req.params.lineId, req.body || {}); }));
 router.delete('/lines/:lineId', h(function (req) { return sheets.removeLine(req.ctx, req.params.lineId); }));
 router.post('/lines/:lineId/receipt', receiptUpload.single('file'), h(function (req) { return sheets.attachReceipt(req.ctx, req.params.lineId, req.file); }));

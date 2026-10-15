@@ -218,6 +218,42 @@
 .es-import-tiles .is-good em { color: var(--es-good); font-weight: 700; }
 .es-import-tiles .is-warn { background: color-mix(in srgb, var(--es-warn) 12%, var(--es-card)); }
 .es-import-notes { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--color-text-muted); }
+/* In the OS but not on this workbook: what the officer keeps or removes. */
+.es-rematch { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--es-warn) 35%, var(--es-line)); background: color-mix(in srgb, var(--es-warn) 6%, var(--es-card)); }
+.es-rematch-head { display: flex; gap: 12px; align-items: flex-start; }
+.es-rematch-head b { font-family: var(--font-heading); font-size: 15px; }
+.es-rematch-head p { margin: 2px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--color-text-muted); }
+.es-rematch-glyph { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; color: var(--es-warn); background: color-mix(in srgb, var(--es-warn) 16%, var(--es-card)); }
+.es-rematch-glyph svg { width: 18px; height: 18px; }
+.es-rematch-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.es-rematch-groups > div { display: flex; flex-direction: column; padding: 9px 12px; border-radius: 12px; background: var(--es-card); border: 1px solid var(--es-line); }
+.es-rematch-groups small { font-size: 11.5px; font-weight: 700; color: var(--color-text-muted); }
+.es-rematch-groups b { font-family: var(--font-heading); font-size: 16px; }
+.es-rematch-groups em { font-style: normal; font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.es-rematch-lines summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--es-info); }
+.es-rematch-lines ol { margin: 8px 0 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.es-rematch-lines li { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 5px 9px; border-radius: 9px; background: var(--es-card); font-size: 13px; }
+.es-rematch-lines li.is-locked { opacity: .6; }
+.es-rematch-date { color: var(--color-text-muted); font-size: 12px; }
+.es-rematch-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.es-rematch-what small { display: block; font-size: 11px; color: var(--color-text-muted); }
+.es-rematch-amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+.es-rematch-amt.is-plus { color: var(--es-in); }
+.es-rematch-choices { display: flex; flex-direction: column; gap: 6px; }
+.es-rematch-choice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--es-line); background: var(--es-card); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.es-rematch-choice:hover { border-color: color-mix(in srgb, var(--es-info) 45%, var(--es-line)); }
+.es-rematch-choice.is-on { border-color: var(--es-info); box-shadow: 0 0 0 3px color-mix(in srgb, var(--es-info) 14%, transparent); }
+.es-rematch-choice input { accent-color: var(--es-info); width: 16px; height: 16px; margin: 0; }
+.es-rematch-choice span { display: flex; flex-direction: column; min-width: 0; }
+.es-rematch-choice b { font-size: 13.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.es-rematch-choice em { font-style: normal; font-size: 12px; color: var(--color-text-muted); }
+.es-rematch-choice strong { font-family: var(--font-heading); font-size: 15px; font-variant-numeric: tabular-nums; }
+.es-rematch-rec { font-style: normal; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; color: var(--es-good); background: color-mix(in srgb, var(--es-good) 14%, var(--es-card)); }
+@media (max-width: 560px) {
+  .es-rematch-choice { grid-template-columns: auto minmax(0, 1fr); }
+  .es-rematch-choice strong { grid-column: 2; }
+  .es-rematch-lines li { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 6px; }
+}
 .es-import-checks { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .es-import-checks ol { margin: 0; padding: 0; list-style: none; max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
 .es-import-checks li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 8px; border-radius: 8px; background: var(--es-soft); }

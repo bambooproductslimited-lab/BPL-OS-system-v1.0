@@ -315,15 +315,28 @@ export function ImportDialog({ sheet, onDone, onClose }) {
   const [pv, setPv] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // What to do with the lines in the OS that this workbook doesn't have.
+  const [remove, setRemove] = useState('none');
   async function call(path) {
-    const fd = new FormData(); fd.append('file', file);
+    const fd = new FormData(); fd.append('file', file); fd.append('remove', remove);
     setBusy(true); setErr(null);
     try { return await api.upload('/expense-sheets/' + sheet.id + path, fd); } catch (ex) { setErr(ex.message); return null; } finally { setBusy(false); }
   }
-  async function preview(f) { setFile(f); setPv(null); if (!f) return; const fd = new FormData(); fd.append('file', f); setBusy(true); setErr(null); try { setPv(await api.upload('/expense-sheets/' + sheet.id + '/import/preview', fd)); } catch (ex) { setErr(ex.message); } finally { setBusy(false); } }
+  async function preview(f) {
+    setFile(f); setPv(null); if (!f) return;
+    const fd = new FormData(); fd.append('file', f); setBusy(true); setErr(null);
+    try {
+      const r = await api.upload('/expense-sheets/' + sheet.id + '/import/preview', fd);
+      setRemove(r.notOnWorkbook && r.notOnWorkbook.imported.removable > 0 ? 'imported' : 'none');
+      setPv(r);
+    } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+  }
   async function run() { const r = await call('/import'); if (r) onDone(r); }
   const diffs = pv ? pv.checks.filter((c) => c.agrees === false && !c.close) : [];
   const lineCount = pv ? pv.funding.lines + pv.expenses.lines + (pv.passedOn ? pv.passedOn.lines : 0) : 0;
+  const nw = pv && pv.notOnWorkbook;
+  const dropCount = !nw ? 0 : remove === 'all' ? nw.imported.removable + nw.typed.removable : remove === 'imported' ? nw.imported.removable : 0;
+  const after = !pv ? null : remove === 'all' ? pv.balance.removingAll : remove === 'imported' ? pv.balance.removingImported : pv.balance.afterImport;
   return (
     <Dialog title={tr('Bring in an expense workbook')} onClose={onClose} wide>
       <p className="dialog-body">{tr('The officer\'s old Excel sheet (.xlsx): the funding tab and the expense tab are read, the supervisor\'s stamps become checks. Bringing in a newer copy later adds only what is new.')}</p>
@@ -341,15 +354,16 @@ export function ImportDialog({ sheet, onDone, onClose }) {
             <div><small>{tr('Money spent')}</small><b>{GHS(pv.expenses.total)}</b><em>{nLines(pv.expenses.lines)}</em></div>
             <div><small>{tr('Balance on the workbook')}</small><b>{pv.balance.onWorkbook === null ? '—' : GHS(pv.balance.onWorkbook)}</b><em>{pv.balance.workbookDate ? fmtDate(pv.balance.workbookDate) : ''}</em></div>
             {(() => {
-              const known = pv.balance.onWorkbook !== null && pv.balance.afterImport !== null;
-              const same = known && Math.abs(pv.balance.onWorkbook - pv.balance.afterImport) < 0.01;
-              return <div className={!known ? '' : same ? 'is-good' : 'is-warn'}><small>{tr('Balance in the OS after')}</small><b>{pv.balance.afterImport === null ? '—' : GHS(pv.balance.afterImport)}</b><em>{!known ? tr('nothing to compare with') : same ? tr('the same ✓') : tr('different by {amount}', { amount: GHS(Math.abs(pv.balance.onWorkbook - pv.balance.afterImport)) })}</em></div>;
+              const known = pv.balance.onWorkbook !== null && after !== null;
+              const same = known && Math.abs(pv.balance.onWorkbook - after) < 0.01;
+              return <div className={!known ? '' : same ? 'is-good' : 'is-warn'}><small>{tr('Balance in the OS after')}</small><b>{after === null ? '—' : GHS(after)}</b><em>{!known ? tr('nothing to compare with') : same ? tr('the same ✓') : tr('different by {amount}', { amount: GHS(Math.abs(pv.balance.onWorkbook - after)) })}</em></div>;
             })()}
           </div>
           <ul className="es-import-notes">
             {pv.passedOn && pv.passedOn.lines > 0 && <li>{pv.passedOn.lines === 1 ? tr('1 line on the funding tab is below zero: money passed on or handed back (payroll cash, money returned). It lowers the balance but is not counted as spending.') : tr('{n} lines on the funding tab are below zero: money passed on or handed back (payroll cash, money returned). They lower the balance but are not counted as spending.', { n: pv.passedOn.lines })}</li>}
             {pv.skippedBlank > 0 && <li>{tr('{n} rows with a date but no amount (days filled in ahead) are left out.', { n: pv.skippedBlank })}</li>}
             {pv.already > 0 && <li>{pv.already === 1 ? tr('1 line is already in the OS and is skipped.') : tr('{n} lines are already in the OS and are skipped.', { n: pv.already })}</li>}
+            {pv.sameAsTyped > 0 && <li>{pv.sameAsTyped === 1 ? tr('1 line was already typed in the OS (same day and amount) and is not added twice.') : tr('{n} lines were already typed in the OS (same day and amount) and are not added twice.', { n: pv.sameAsTyped })}</li>}
             {pv.intoImportedChecks > 0 && <li>{pv.intoImportedChecks === 1 ? tr('1 line was left out by an earlier import and falls in a period checked by it. It is added, and the checks from that import are worked out again.') : tr('{n} lines were left out by an earlier import and fall in a period checked by it. They are added, and the checks from that import are worked out again.', { n: pv.intoImportedChecks })}</li>}
             {pv.inCheckedPeriod > 0 && <li>{pv.inCheckedPeriod === 1 ? tr('1 line falls in a period already checked here and is skipped.') : tr('{n} lines fall in a period already checked here and are skipped.', { n: pv.inCheckedPeriod })}</li>}
             {pv.payeesMerged.length > 0 && <li>{tr('Payees written in different cases become one: {list}.', { list: pv.payeesMerged.map((m) => m.to).join(', ') })}</li>}
@@ -358,6 +372,7 @@ export function ImportDialog({ sheet, onDone, onClose }) {
             {pv.newCategories.length > 0 && <li>{(pv.canGrowLists ? tr('New categories added to the list: {list}.') : tr('Categories not on the list, kept as written: {list}.')).replace('{list}', pv.newCategories.join(', '))}</li>}
             {pv.newCostCentres.length > 0 && <li>{(pv.canGrowLists ? tr('New cost centres added to the list: {list}.') : tr('Cost centres not on the list, kept as written: {list}.')).replace('{list}', pv.newCostCentres.join(', '))}</li>}
           </ul>
+          {nw && (nw.imported.lines > 0 || nw.typed.lines > 0) && <NotOnWorkbook pv={pv} remove={remove} setRemove={setRemove} />}
           {pv.checks.length > 0 && (
             <div className="es-import-checks">
               <b>{tr('{n} checks found in the audit column', { n: pv.checks.length })}</b>
@@ -376,11 +391,71 @@ export function ImportDialog({ sheet, onDone, onClose }) {
       )}
       <div className="dialog-actions">
         <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
-        <button type="button" className="btn btn-primary" disabled={!pv || busy || (!lineCount && !pv.checks.length)} onClick={run}>
-          {pv ? (lineCount === 1 ? tr('Bring in 1 line') : tr('Bring in {n} lines', { n: lineCount })) : tr('Bring in')}
+        <button type="button" className="btn btn-primary" disabled={!pv || busy || (!lineCount && !pv.checks.length && !dropCount)} onClick={run}>
+          {!pv ? tr('Bring in')
+            : dropCount && lineCount ? tr('Bring in {n} lines, remove {m}', { n: lineCount, m: dropCount })
+            : dropCount ? (dropCount === 1 ? tr('Remove 1 line') : tr('Remove {n} lines', { n: dropCount }))
+            : lineCount === 1 ? tr('Bring in 1 line') : tr('Bring in {n} lines', { n: lineCount })}
         </button>
       </div>
     </Dialog>
+  );
+}
+
+// The lines in the OS that the workbook being brought in doesn't have, up to
+// its last day: from earlier workbooks (changed or deleted there since) and
+// typed in the OS. The officer picks whether to keep them or remove them so
+// the sheet matches the workbook; lines in a period checked in the OS stay.
+function NotOnWorkbook({ pv, remove, setRemove }) {
+  const { imported, typed } = pv.notOnWorkbook;
+  const rows = imported.list.concat(typed.list).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const more = imported.lines + typed.lines - rows.length;
+  const locked = imported.locked + typed.locked;
+  const money2 = (g) => [g.spent ? tr('{amount} spent', { amount: GHS(g.spent) }) : '', g.received ? tr('{amount} received', { amount: GHS(g.received) }) : ''].filter(Boolean).join(' · ');
+  const from = (l) => (l.source === 'import' ? tr('earlier workbook') : l.source === 'topup' ? tr('top-up') : tr('typed in the OS'));
+  const choice = (value, title, hint, balance, recommended) => (
+    <label className={'es-rematch-choice' + (remove === value ? ' is-on' : '')}>
+      <input type="radio" name="es-remove" value={value} checked={remove === value} onChange={() => setRemove(value)} />
+      <span>
+        <b>{title}{recommended && <i className="es-rematch-rec">{tr('Recommended')}</i>}</b>
+        <em>{hint}</em>
+      </span>
+      <strong>{balance === null ? '—' : GHS(balance)}</strong>
+    </label>
+  );
+  return (
+    <div className="es-rematch">
+      <div className="es-rematch-head">
+        <span className="es-rematch-glyph"><Icon name="layers" /></span>
+        <div>
+          <b>{tr('In the OS but not on this workbook')}</b>
+          <p>{tr('Up to the workbook\'s last day ({date}). A line changed or deleted on the workbook after an earlier import stays in the OS until it is removed here, so the balance drifts.', { date: fmtDate(pv.balance.workbookDate) })}</p>
+        </div>
+      </div>
+      <div className="es-rematch-groups">
+        {imported.lines > 0 && <div><small>{tr('From earlier workbooks')}</small><b>{nLines(imported.lines)}</b><em>{money2(imported)}</em></div>}
+        {typed.lines > 0 && <div><small>{tr('Typed in the OS')}</small><b>{nLines(typed.lines)}</b><em>{money2(typed)}</em></div>}
+      </div>
+      <details className="es-rematch-lines">
+        <summary>{tr('See the lines')}</summary>
+        <ol>
+          {rows.map((l) => (
+            <li key={l.id} className={l.canRemove ? '' : 'is-locked'}>
+              <span className="es-rematch-date">{fmtDate(l.date)}</span>
+              <span className="es-rematch-what">{[l.note, l.payee].filter(Boolean).join(' · ') || '—'}<small>{from(l)}{l.canRemove ? '' : ' · ' + tr('checked, kept')}</small></span>
+              <span className={'es-rematch-amt ' + (l.kind === 'funding' ? 'is-plus' : 'is-minus')}>{l.kind === 'funding' ? '+' : '−'}{GHS(Math.abs(l.amount))}</span>
+            </li>
+          ))}
+        </ol>
+        {more > 0 && <p className="es-muted">{tr('…and {n} more.', { n: more })}</p>}
+      </details>
+      <div className="es-rematch-choices" role="radiogroup" aria-label={tr('In the OS but not on this workbook')}>
+        {choice('none', tr('Keep them'), tr('Nothing is removed.'), pv.balance.afterImport, false)}
+        {imported.removable > 0 && choice('imported', tr('Remove the lines from earlier workbooks'), imported.removable === 1 ? tr('1 line that is no longer on the workbook. Lines typed in the OS stay.') : tr('{n} lines that are no longer on the workbook. Lines typed in the OS stay.', { n: imported.removable }), pv.balance.removingImported, true)}
+        {typed.removable > 0 && choice('all', tr('Remove all, so the OS matches the workbook'), tr('Also the lines typed in the OS that the workbook doesn\'t have.'), pv.balance.removingAll, false)}
+      </div>
+      {locked > 0 && <p className="es-muted">{locked === 1 ? tr('1 line falls in a period checked in the OS (up to {date}) and is kept.', { date: fmtDate(pv.osLockedUntil) }) : tr('{n} lines fall in a period checked in the OS (up to {date}) and are kept.', { n: locked, date: fmtDate(pv.osLockedUntil) })}</p>}
+    </div>
   );
 }
 
