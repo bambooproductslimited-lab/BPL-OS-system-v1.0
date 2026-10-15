@@ -277,14 +277,14 @@ async function makeOne(db, rt, on) {
     .map(function (e) { return e.id; }).filter(function (x) { return x !== rt.assigned_to; });
   for (var who of team) {
     await db.query('INSERT INTO marketing_request_members (request_id, employee_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [r.id, who, rt.requested_by]);
-    await notify(db, who, 'You are on the team for ' + ref, r.title + ', needed by ' + due + '.', '/mkrequests?open=' + r.id);
+    await notify(db, who, 'You are on the team for ' + ref, r.title + ', needed by ' + dayWords(due) + '.', '/mkrequests?open=' + r.id);
   }
   if (rt.assigned_to) {
-    await notify(db, rt.assigned_to, 'Assigned to you: ' + r.title, 'From a routine, needed by ' + due + '.', '/mkrequests?open=' + r.id);
+    await notify(db, rt.assigned_to, 'Assigned to you: ' + r.title, 'From a routine, needed by ' + dayWords(due) + '.', '/mkrequests?open=' + r.id);
   } else {
     for (var m of await S.managers()) {
       if (m === rt.requested_by) continue;
-      await notify(db, m, (rt.priority === 'urgent' ? 'Urgent request: ' : 'New request: ') + r.title, 'From a routine, needed by ' + due + '.', '/mkrequests?open=' + r.id);
+      await notify(db, m, (rt.priority === 'urgent' ? 'Urgent request: ' : 'New request: ') + r.title, 'From a routine, needed by ' + dayWords(due) + '.', '/mkrequests?open=' + r.id);
     }
   }
   await audit(db, null, 'marketing.request.create', 'marketing_request', r.id, ref + ': ' + r.title + ' (from a routine, for ' + on + ').');
