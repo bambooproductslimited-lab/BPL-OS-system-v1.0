@@ -441,7 +441,7 @@ function NotOnWorkbook({ pv, remove, setRemove }) {
         <ol>
           {rows.map((l) => (
             <li key={l.id} className={l.canRemove ? '' : 'is-locked'}>
-              <span className="es-rematch-date">{fmtDate(l.date)}</span>
+              <span className="es-rematch-date">{shortDate(l.date)}</span>
               <span className="es-rematch-what">{[l.note, l.payee].filter(Boolean).join(' · ') || '—'}<small>{from(l)}{l.canRemove ? '' : ' · ' + tr('checked, kept')}</small></span>
               <span className={'es-rematch-amt ' + (l.kind === 'funding' ? 'is-plus' : 'is-minus')}>{l.kind === 'funding' ? '+' : '−'}{GHS(Math.abs(l.amount))}</span>
             </li>
