@@ -214,9 +214,15 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-cal-more { font-size: 11px; font-weight: 700; color: var(--color-text-muted); padding-left: 4px; }
 .mk-k-campaign { --k: #7c3aed; } .mk-k-post { --k: #2563eb; } .mk-k-event { --k: #0891b2; } .mk-k-promotion { --k: #db2777; }
 .mk-k-request { --k: #d97706; } .mk-k-task { --k: #64748b; } .mk-k-holiday { --k: #dc2626; } .mk-k-moment { --k: #ca8a04; }
+/* A request a routine will make: the request's colour, dashed until made. */
+.mk-k-routine { --k: #d97706; }
+.mk-cal-item.mk-k-routine { background: transparent; border: 1.5px dashed color-mix(in srgb, var(--k) 70%, transparent); border-left: 3px dashed var(--k); color: var(--color-text-muted); }
+.mk-cal-item.mk-k-routine:hover { background: color-mix(in srgb, var(--k) 10%, var(--mk-card)); color: var(--color-text); }
+.mk-cal-item svg { flex: none; color: var(--k); }
+.mk-legend .mk-k-routine i { background: transparent; border: 1.5px dashed var(--k); }
 :root[data-theme='dark'] .mk-k-campaign { --k: #a78bfa; } :root[data-theme='dark'] .mk-k-post { --k: #60a5fa; } :root[data-theme='dark'] .mk-k-event { --k: #22d3ee; }
 :root[data-theme='dark'] .mk-k-promotion { --k: #f472b6; } :root[data-theme='dark'] .mk-k-request { --k: #fbbf24; } :root[data-theme='dark'] .mk-k-task { --k: #94a3b8; }
-:root[data-theme='dark'] .mk-k-holiday { --k: #f87171; } :root[data-theme='dark'] .mk-k-moment { --k: #facc15; }
+:root[data-theme='dark'] .mk-k-holiday { --k: #f87171; } :root[data-theme='dark'] .mk-k-moment { --k: #facc15; } :root[data-theme='dark'] .mk-k-routine { --k: #fbbf24; }
 .mk-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; font-weight: 700; }
 .mk-legend button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--mk-line); border-radius: 999px; background: var(--mk-card); font: inherit; font-size: 12.5px; font-weight: 700; color: var(--color-text); cursor: pointer; }
 .mk-legend button.is-off { opacity: .45; text-decoration: line-through; }
@@ -456,6 +462,19 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-routine-when { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4;
   background: color-mix(in srgb, var(--mk-violet) 9%, transparent); color: var(--color-text); }
 .mk-routine-when > svg { flex-shrink: 0; margin-top: 2px; color: var(--mk-violet); }
+.mk-routine-bell { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.4; color: var(--color-text-muted); }
+.mk-routine-bell > svg { flex-shrink: 0; margin-top: 1px; color: var(--mk-accent); }
+.mk-routine-bell em { font-style: normal; font-weight: 700; color: var(--color-text); }
+.mk-routine-bell.is-off > svg { color: var(--color-text-muted); }
+.mk-routine.is-focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mk-violet) 45%, transparent), 0 12px 30px -16px var(--mk-violet); animation: mk-focus-pop .6s ease-out; }
+@keyframes mk-focus-pop { 0% { transform: scale(.97); } 60% { transform: scale(1.015); } 100% { transform: none; } }
+.mk-remind { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--mk-accent) 6%, var(--mk-card)); border: 1px solid var(--mk-line); }
+.mk-remind > span { display: flex; align-items: center; gap: 6px; font-weight: 800; }
+.mk-remind > span svg { color: var(--mk-accent); }
+.mk-remind p { margin: 0; font-size: 12.5px; line-height: 1.45; }
+.mk-remind-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.mk-remind-opt { display: flex; flex-direction: column; gap: 4px; }
+.mk-remind-opt small { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); }
 .mk-routine-next { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--color-text-muted); }
 .mk-routine-next strong { font-size: 15px; color: var(--color-text); font-variant-numeric: tabular-nums; }
 .mk-routine-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }

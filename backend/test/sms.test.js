@@ -103,12 +103,12 @@ test('Company settings → Text messages: only settings.manage; shows the credit
   assert.equal(s.configured, true);
   assert.equal(s.senderId, 'BambooOS');
   assert.deepEqual(s.balance, { balance: 1486, bonus: 12 });
-  assert.deepEqual(s.settings, { autoPaymentReminders: false, autoBookingNotices: false, staffAlertsBySms: false, requestTeamBySms: true }, 'automatic texts start off, but for the one to someone put on a request team');
+  assert.deepEqual(s.settings, { autoPaymentReminders: false, autoBookingNotices: false, staffAlertsBySms: false, requestTeamBySms: true, routineRemindersBySms: true }, 'automatic texts start off, but for the ones to the people working on marketing requests');
   var bal = received.filter(function (r) { return r.path === '/api/balance/sms'; }).pop();
   assert.equal(bal.key, 'test-key-123');
 
   var saved2 = (await call('PATCH', '/api/sms/settings', { autoPaymentReminders: true, junk: true }, admin)).body;
-  assert.deepEqual(saved2.settings, { autoPaymentReminders: true, autoBookingNotices: false, staffAlertsBySms: false, requestTeamBySms: true });
+  assert.deepEqual(saved2.settings, { autoPaymentReminders: true, autoBookingNotices: false, staffAlertsBySms: false, requestTeamBySms: true, routineRemindersBySms: true });
   await call('PATCH', '/api/sms/settings', { autoPaymentReminders: false }, admin);
 });
 

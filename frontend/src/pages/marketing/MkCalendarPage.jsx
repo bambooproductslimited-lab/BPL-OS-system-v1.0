@@ -8,14 +8,16 @@ import { Glyph, MkBanner, MkCompanies, addDays, dayLabel, todayIso, useMkCompany
 
 // The marketing calendar (backend mkHome.service.js calendar()): a month
 // with everything that has a date — campaigns running, posts, events and
-// their checklist, promotions, requests due, public holidays and the
-// year's marketing moments (Valentine's, Mother's Day, Black Friday…) —
+// their checklist, promotions, requests due, the requests routines will
+// make (dashed, on the day each will be needed, until made), public
+// holidays and the year's marketing moments (Valentine's, Mother's Day,
+// Black Friday…) —
 // each kind in its own colour with its name in the legend, which also
 // turns kinds on and off. A long campaign or promotion shows on the day
 // it starts and the day it ends; pressing anything opens it. On a phone,
 // the month becomes a list of days.
 
-const KINDS = ['campaign', 'post', 'event', 'promotion', 'request', 'task', 'holiday', 'moment'];
+const KINDS = ['campaign', 'post', 'event', 'promotion', 'request', 'routine', 'task', 'holiday', 'moment'];
 
 function monthOf(iso) { return iso.slice(0, 7) + '-01'; }
 function mondayOn(iso) { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -71,10 +73,14 @@ export default function MkCalendarPage() {
   function itemButton(it, i) {
     const link = itemLink(it);
     const mark = it.edge === 'start' ? '▸ ' : it.edge === 'end' ? '◂ ' : it.edge === 'mid' ? '… ' : '';
+    const repeats = it.kind === 'routine' || it.fromRoutine;
+    const more = it.kind === 'routine' ? ' (' + tr('comes round {day}, needed {date}', { day: dayLabel(it.comesOn, { weekday: 'short', day: 'numeric', month: 'short' }), date: dayLabel(it.start, { weekday: 'short', day: 'numeric', month: 'short' }) }) + ')'
+      : it.fromRoutine ? ' (' + tr('from a routine') + ')'
+      : it.start !== it.end ? ' (' + dayLabel(it.start) + ' – ' + dayLabel(it.end) + ')' : '';
     return (
       <button key={i} type="button" className={'mk-cal-item mk-k-' + it.kind + (it.status === 'done' ? ' is-done' : '')} disabled={!link} onClick={() => link && navigate(link)}
-        title={tr(KIND_WORD[it.kind]) + ': ' + itemTitle(it) + (it.start !== it.end ? ' (' + dayLabel(it.start) + ' – ' + dayLabel(it.end) + ')' : '')}>
-        <span>{mark}{itemTitle(it)}</span>
+        title={tr(KIND_WORD[it.kind]) + ': ' + itemTitle(it) + more}>
+        {repeats && <Glyph name="repeat" size={11} />}<span>{mark}{itemTitle(it)}</span>
       </button>
     );
   }
@@ -83,7 +89,7 @@ export default function MkCalendarPage() {
     <div className="dk mk">
       <MkCompanies mk={mk} />
       <MkBanner art="calendar" eyebrow={tr('Marketing · Calendar')} title={tr('The marketing calendar')}
-        sub={tr('Everything with a date, in one month: campaigns, posts, events and their checklists, promotions, requests due, public holidays and the year\'s big moments to plan around.')}
+        sub={tr('Everything with a date, in one month: campaigns, posts, events and their checklists, promotions, requests due and the ones routines will make, public holidays and the year\'s big moments to plan around.')}
         stats={[
           { glyph: 'target', value: String(counts.campaign || 0), label: tr('campaigns this month') },
           { glyph: 'chat', value: String(counts.post || 0), label: tr('posts this month') },
@@ -129,6 +135,7 @@ export default function MkCalendarPage() {
           </div>
         )}
         <p className="mk-muted"><Glyph name="sparkle" size={13} /> {tr('▸ starts, ◂ ends, … still running. Public holidays come from the company\'s holiday list (Company settings).')}</p>
+        <p className="mk-muted"><Glyph name="repeat" size={13} /> {tr('Dashed: a request a routine will make, on the day it will be needed. On the day it comes round it becomes a request, and the people on it are reminded before it is needed.')}</p>
       </Section>
     </div>
   );

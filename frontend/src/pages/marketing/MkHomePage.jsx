@@ -15,7 +15,7 @@ import { ChannelChips, Glyph, L, MOMENTS, Meter, MkBanner, MkCompanies, MkEmpty,
 // leads by where they got to, and every part of the department one press
 // away with what it is for.
 
-export const KIND_WORD = { campaign: msg('Campaign'), post: msg('Post'), event: msg('Event'), promotion: msg('Promotion'), request: msg('Request due'), task: msg('Event task'), holiday: msg('Public holiday'), moment: msg('Marketing moment') };
+export const KIND_WORD = { campaign: msg('Campaign'), post: msg('Post'), event: msg('Event'), promotion: msg('Promotion'), request: msg('Request due'), routine: msg('Routine, coming up'), task: msg('Event task'), holiday: msg('Public holiday'), moment: msg('Marketing moment') };
 export function itemTitle(it) {
   if (it.kind === 'moment') return tr(MOMENTS[it.key] || it.key);
   if (it.kind === 'task') return it.title + (it.event ? ' · ' + it.event : '');
@@ -28,6 +28,7 @@ export function itemLink(it) {
   if (it.kind === 'task') return '/mkevents?open=' + it.eventId;
   if (it.kind === 'promotion') return '/mkpromotions?open=' + it.id;
   if (it.kind === 'request') return '/mkrequests?open=' + it.id;
+  if (it.kind === 'routine') return '/mkrequests?routine=' + it.id;
   if (it.kind === 'post') return '/socialtracker?tab=calendar';
   return null;
 }

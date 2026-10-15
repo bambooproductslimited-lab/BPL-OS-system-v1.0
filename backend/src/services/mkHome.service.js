@@ -1,6 +1,7 @@
 var { pool } = require('../db/pool');
 var S = require('./mkShared');
 var campaigns = require('./mkCampaigns.service');
+var routines = require('./mkRoutines.service');
 
 // The marketing department's home and its calendar.
 //
@@ -13,7 +14,8 @@ var campaigns = require('./mkCampaigns.service');
 // by where they got to, the week ahead, and what stands out.
 //
 // Calendar — everything with a date in one place: campaigns (from start to
-// end), posts, events, promotions, requests' due dates, events' checklist
+// end), posts, events, promotions, requests' due dates, the requests
+// routines will make (on the day each will be needed), events' checklist
 // items, public holidays (the company's holiday list) and the marketing
 // moments of the year (Valentine's, Mother's Day, Black Friday…).
 
@@ -156,17 +158,20 @@ async function calendar(ctx, opts) {
       "WHERE ch.company_id = $1 AND coalesce(p.published_at, p.scheduled_at)::date BETWEEN $2 AND $3 AND p.status <> 'failed'", [co.id, from, to]),
     pool.query("SELECT id, name, kind, status, starts_on, ends_on, venue FROM marketing_events WHERE company_id = $1 AND status <> 'cancelled' AND starts_on <= $3 AND coalesce(ends_on, starts_on) >= $2", [co.id, from, to]),
     pool.query('SELECT id, name, code, starts_on, ends_on, active FROM marketing_promotions WHERE company_id = $1 AND starts_on <= $3 AND coalesce(ends_on, $3) >= $2', [co.id, from, to]),
-    pool.query("SELECT id, number, title, status, due_on, priority FROM marketing_requests WHERE company_id = $1 AND due_on BETWEEN $2 AND $3 AND status <> 'declined'", [co.id, from, to]),
+    pool.query("SELECT id, number, title, status, due_on, priority, routine_id FROM marketing_requests WHERE company_id = $1 AND due_on BETWEEN $2 AND $3 AND status <> 'declined'", [co.id, from, to]),
     pool.query('SELECT t.id, t.title, t.due_on, t.done, ev.id AS event_id, ev.name AS event_name FROM marketing_event_tasks t JOIN marketing_events ev ON ev.id = t.event_id ' +
       "WHERE ev.company_id = $1 AND ev.status <> 'cancelled' AND t.due_on BETWEEN $2 AND $3", [co.id, from, to]),
-    pool.query('SELECT date, name FROM holidays WHERE (company_id = $1 OR company_id IS NULL) AND date BETWEEN $2 AND $3', [co.id, from, to])
+    pool.query('SELECT date, name FROM holidays WHERE (company_id = $1 OR company_id IS NULL) AND date BETWEEN $2 AND $3', [co.id, from, to]),
+    routines.upcoming(co.id, from, to)
   ]);
   var items = [];
   q[0].rows.forEach(function (r) { items.push({ kind: 'campaign', id: r.id, title: r.name, start: r.start_date || from, end: r.end_date || r.start_date || from, status: r.status }); });
   q[1].rows.forEach(function (r) { var d = S.iso(new Date(r.at)); items.push({ kind: 'post', id: r.id, title: r.title || r.channel, start: d, end: d, status: r.status, channel: r.channel, platform: r.platform, at: r.at }); });
   q[2].rows.forEach(function (r) { items.push({ kind: 'event', id: r.id, title: r.name, start: r.starts_on, end: r.ends_on || r.starts_on, status: r.status, eventKind: r.kind, venue: r.venue }); });
   q[3].rows.forEach(function (r) { items.push({ kind: 'promotion', id: r.id, title: r.name, code: r.code, start: r.starts_on, end: r.ends_on || to, status: r.active ? 'active' : 'paused' }); });
-  q[4].rows.forEach(function (r) { items.push({ kind: 'request', id: r.id, title: r.title, ref: 'MR-' + String(r.number).padStart(4, '0'), start: r.due_on, end: r.due_on, status: r.status, priority: r.priority }); });
+  q[4].rows.forEach(function (r) { items.push({ kind: 'request', id: r.id, title: r.title, ref: 'MR-' + String(r.number).padStart(4, '0'), start: r.due_on, end: r.due_on, status: r.status, priority: r.priority, fromRoutine: !!r.routine_id }); });
+  // Requests routines will make, on the day each will be needed.
+  q[7].forEach(function (u) { items.push({ kind: 'routine', id: u.routine, title: u.title, start: u.due, end: u.due, comesOn: u.on, requestKind: u.kind, priority: u.priority }); });
   q[5].rows.forEach(function (r) { items.push({ kind: 'task', id: r.id, eventId: r.event_id, title: r.title, event: r.event_name, start: r.due_on, end: r.due_on, status: r.done ? 'done' : 'open' }); });
   q[6].rows.forEach(function (r) { items.push({ kind: 'holiday', title: r.name, start: r.date, end: r.date }); });
   var years = [];
@@ -175,7 +180,7 @@ async function calendar(ctx, opts) {
   years.forEach(function (y) {
     moments(y).forEach(function (m) { if (m.date >= from && m.date <= to && !holidayDates.has(m.date)) items.push({ kind: 'moment', key: m.key, start: m.date, end: m.date }); });
   });
-  var ORDER = ['holiday', 'moment', 'campaign', 'event', 'promotion', 'post', 'request', 'task'];
+  var ORDER = ['holiday', 'moment', 'campaign', 'event', 'promotion', 'post', 'request', 'routine', 'task'];
   items.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind); });
   return { company: { code: co.code, name: co.name }, from: from, to: to, items: items };
 }

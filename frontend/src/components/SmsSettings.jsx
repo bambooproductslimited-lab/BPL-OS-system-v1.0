@@ -62,6 +62,11 @@ const AUTOMATIC = [
     key: 'requestTeamBySms', icon: 'staff',
     label: () => tr('Text staff put on a marketing request\'s team'),
     hint: () => tr('One text when someone is added to the team working on a request: which request, when it is needed by and a link to it, to the phone on their employee record.')
+  },
+  {
+    key: 'routineRemindersBySms', icon: 'staff',
+    label: () => tr('Text the reminders for marketing routines'),
+    hint: () => tr('The heads-up before a routine comes round and the reminder before its request is needed, as a text too, to the lead and team. Each routine can also be set not to text.')
   }
 ];
 

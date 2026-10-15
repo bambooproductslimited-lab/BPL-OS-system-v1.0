@@ -35,6 +35,7 @@ export default function MkRequestsPage() {
   const [routines, setRoutines] = useState([]);
   const [routineEdit, setRoutineEdit] = useState(null); // null, {} for a new one, or a routine
   const [openId, setOpenId] = useState(() => readParam('open'));
+  const [focusRoutine, setFocusRoutine] = useState(() => readParam('routine')); // from a reminder or the calendar
   const [toast, setToast] = useState(null);
 
   // Marketing starts on everyone's requests; everyone else on their own.
@@ -44,6 +45,16 @@ export default function MkRequestsPage() {
   const loadRoutines = useCallback(() => api.get('/mk/routines?scope=' + scope).then(setRoutines).catch(() => setRoutines([])), [scope]);
   useEffect(() => { loadRoutines(); }, [loadRoutines]);
   useEffect(() => { api.get('/mk/companies').then(setCompanies).catch(() => setCompanies([])); }, []);
+  // Opened from a routine's reminder or the calendar: scroll to it and light it up.
+  useEffect(() => {
+    if (!focusRoutine || !routines.some((rt) => rt.id === focusRoutine)) return undefined;
+    const t = setTimeout(() => {
+      const el = document.getElementById('rt-' + focusRoutine);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+    const done = setTimeout(() => { setFocusRoutine(null); window.history.replaceState({}, '', '/mkrequests'); }, 4000);
+    return () => { clearTimeout(t); clearTimeout(done); };
+  }, [focusRoutine, routines]);
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t); }, [toast]);
   function open(id) { setOpenId(id); window.history.replaceState({}, '', '/mkrequests?open=' + id); }
   function close() { setOpenId(null); window.history.replaceState({}, '', '/mkrequests'); }
@@ -112,7 +123,7 @@ export default function MkRequestsPage() {
         action={<button type="button" className="mk-btn is-ghost is-small" onClick={() => setRoutineEdit({})}><Glyph name="plus" size={14} />{tr('New routine')}</button>}>
         {routines.length ? (
           <div className="mk-grid">
-            {routines.map((rt) => <RoutineCard key={rt.id} rt={rt} me={me} onEdit={() => setRoutineEdit(rt)}
+            {routines.map((rt) => <RoutineCard key={rt.id} rt={rt} me={me} focus={rt.id === focusRoutine} onEdit={() => setRoutineEdit(rt)}
               onChanged={(text) => { loadRoutines(); load(); if (text) setToast(text); }} />)}
           </div>
         ) : (
@@ -405,8 +416,17 @@ function dueText(n) {
   return n === 0 ? tr('needed the same day') : n === 1 ? tr('needed the next day') : tr('needed {n} days later', { n });
 }
 const longDay = (iso) => dayLabel(iso, { weekday: 'short', day: 'numeric', month: 'short' });
+function aheadText(n) {
+  if (n === null || n === undefined || n === '') return tr('No heads-up');
+  return Number(n) === 1 ? tr('The day before it comes round') : tr('{n} days before it comes round', { n });
+}
+function dueRemindText(n) {
+  if (n === null || n === undefined || n === '') return tr('No reminder before it is needed');
+  n = Number(n);
+  return n === 0 ? tr('On the day it is needed') : n === 1 ? tr('The day before it is needed, and on the day') : tr('{n} days before it is needed, and on the day', { n });
+}
 
-function RoutineCard({ rt, me, onEdit, onChanged }) {
+function RoutineCard({ rt, me, focus, onEdit, onChanged }) {
   const [busy, setBusy] = useState(false);
   async function run(fn, text) {
     setBusy(true);
@@ -417,7 +437,7 @@ function RoutineCard({ rt, me, onEdit, onChanged }) {
     && run(() => api.del('/mk/routines/' + rt.id), tr('Routine stopped.'));
   const faces = [rt.lead, ...rt.team].filter(Boolean);
   return (
-    <div className={'mk-card mk-routine' + (rt.paused ? ' is-paused' : rt.ended ? ' is-ended' : '')}>
+    <div id={'rt-' + rt.id} className={'mk-card mk-routine' + (rt.paused ? ' is-paused' : rt.ended ? ' is-ended' : '') + (focus ? ' is-focus' : '')}>
       <div className="mk-routine-top">
         <span className="mk-icon"><Glyph name={REQUEST_GLYPH[rt.kind]} size={16} /></span>
         <span className="mk-fill">
@@ -431,6 +451,15 @@ function RoutineCard({ rt, me, onEdit, onChanged }) {
         <span><strong>{scheduleText(rt)}</strong>, {dueText(rt.dueAfterDays)}</span>
       </div>
       {rt.nextOn && <div className="mk-routine-next"><span>{tr('Next one')}</span><strong>{longDay(rt.nextOn)}</strong></div>}
+      <div className={'mk-routine-bell' + (rt.remindAheadDays === null && rt.remindDueDays === null ? ' is-off' : '')}>
+        <Glyph name="bell" size={14} />
+        {rt.remindAheadDays === null && rt.remindDueDays === null ? <span>{tr('No reminders')}</span> : (
+          <span>
+            {[rt.remindAheadDays !== null && aheadText(rt.remindAheadDays), rt.remindDueDays !== null && dueRemindText(rt.remindDueDays)].filter(Boolean).join(' · ')}
+            {rt.remindBySms && <em> · {tr('by text too')}</em>}
+          </span>
+        )}
+      </div>
       <div className="mk-routine-foot">
         <span className="mk-faces">
           <Photo id={rt.owner.id} name={rt.owner.name} photo={rt.owner.photo} size={24} />
@@ -457,11 +486,13 @@ function RoutineDialog({ companies, canManage, start, onClose, onDone }) {
   const [f, setF] = useState(() => existing ? {
     company: existing.company.code, kind: existing.kind, title: existing.title, brief: existing.brief, audience: existing.audience, priority: existing.priority,
     every: existing.every, everyN: existing.everyN, weekdays: existing.weekdays, monthDay: existing.monthDay || 1, dueAfterDays: existing.dueAfterDays,
-    startsOn: existing.startsOn, endsOn: existing.endsOn || '', assignedTo: existing.lead ? existing.lead.id : '', teamIds: existing.team.map((m) => m.id), campaignId: existing.campaign ? existing.campaign.id : ''
+    startsOn: existing.startsOn, endsOn: existing.endsOn || '', assignedTo: existing.lead ? existing.lead.id : '', teamIds: existing.team.map((m) => m.id), campaignId: existing.campaign ? existing.campaign.id : '',
+    remindAheadDays: existing.remindAheadDays === null ? '' : existing.remindAheadDays, remindDueDays: existing.remindDueDays === null ? '' : existing.remindDueDays, remindBySms: existing.remindBySms
   } : {
     company: draft.company || (companies[0] && companies[0].code) || 'BPL', kind: draft.kind || 'social_post', title: draft.title || '', brief: draft.brief || '', audience: draft.audience || '',
     priority: draft.priority || 'normal', every: 'week', everyN: 1, weekdays: [new Date().getDay()], monthDay: 1, dueAfterDays: 2,
-    startsOn: todayIso(), endsOn: '', assignedTo: '', teamIds: [], campaignId: ''
+    startsOn: todayIso(), endsOn: '', assignedTo: '', teamIds: [], campaignId: '',
+    remindAheadDays: 1, remindDueDays: 1, remindBySms: true
   });
   const [team, setTeam] = useState([]);
   const [people, setPeople] = useState([]);
@@ -481,7 +512,8 @@ function RoutineDialog({ companies, canManage, start, onClose, onDone }) {
   async function save(e) {
     e.preventDefault();
     setSaving(true); setError(null);
-    const body = { ...f, endsOn: f.endsOn || null, everyN: Number(f.everyN), monthDay: Number(f.monthDay), dueAfterDays: Number(f.dueAfterDays) };
+    const body = { ...f, endsOn: f.endsOn || null, everyN: Number(f.everyN), monthDay: Number(f.monthDay), dueAfterDays: Number(f.dueAfterDays),
+      remindAheadDays: f.remindAheadDays === '' ? null : Number(f.remindAheadDays), remindDueDays: f.remindDueDays === '' ? null : Number(f.remindDueDays) };
     if (canManage) { body.assignedTo = f.assignedTo || null; body.campaignId = f.campaignId || null; } else { delete body.assignedTo; delete body.teamIds; delete body.campaignId; }
     try {
       const rt = existing ? await api.put('/mk/routines/' + existing.id, body) : await api.post('/mk/routines', body);
@@ -573,6 +605,24 @@ function RoutineDialog({ companies, canManage, start, onClose, onDone }) {
         <label className="field is-span"><span className="mk-row" style={{ gap: 8 }}>
           <input type="checkbox" checked={f.priority === 'urgent'} onChange={(e) => setF({ ...f, priority: e.target.checked ? 'urgent' : 'normal' })} style={{ width: 18, height: 18 }} />
           {tr('Each one is urgent')}</span></label>
+
+        <div className="field is-span mk-remind">
+          <span><Glyph name="bell" size={15} /> {tr('Reminders')}</span>
+          <p className="mk-muted">{tr('To the one leading it and the team (marketing, when nobody is on it): in the OS and as a phone pop-up. The reminder before it is needed stops once the request is done.')}</p>
+          <div className="mk-remind-grid">
+            <label className="mk-remind-opt"><small>{tr('Heads-up')}</small>
+              <select className="input" value={f.remindAheadDays} onChange={set('remindAheadDays')}>
+                {['', 1, 2, 3, 7].map((n) => <option key={n} value={n}>{aheadText(n)}</option>)}
+              </select></label>
+            <label className="mk-remind-opt"><small>{tr('Before it is needed')}</small>
+              <select className="input" value={f.remindDueDays} onChange={set('remindDueDays')}>
+                {['', 0, 1, 2, 3].map((n) => <option key={n} value={n}>{dueRemindText(n)}</option>)}
+              </select></label>
+          </div>
+          <label className="mk-row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={!!f.remindBySms} onChange={(e) => setF({ ...f, remindBySms: e.target.checked })} style={{ width: 18, height: 18 }} />
+            {tr('Also by text message, to the phone on their staff record')}</label>
+        </div>
       </form>
       {error && <div className="error-banner">{error}</div>}
     </MkDialog>

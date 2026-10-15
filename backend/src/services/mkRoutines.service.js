@@ -2,8 +2,10 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
+var config = require('../config');
 var S = require('./mkShared');
 var requests = require('./mkRequests.service');
+var sms = require('./sms.service');
 
 // Routines: a marketing request that comes round on its own — "an
 // Instagram post every Monday and Thursday, needed 2 days later", "the
@@ -20,9 +22,19 @@ var requests = require('./mkRequests.service');
 // anything; it is theirs to change, pause or stop. Marketing
 // (marketing.manage) may change any, and alone sets the lead, team and
 // campaign; marketing.read sees them all.
+//
+// The days still to come show on the marketing calendar (upcoming(), on the
+// day each is needed, where the request it becomes will show). Reminders
+// (remind(), from the same job, from 07:00): a heads-up to the lead and
+// team remind_ahead_days before it comes round, and, while a request it
+// made isn't done, remind_due_days before it is needed and on the day —
+// in the bell, as a phone pop-up and, if remind_by_sms, as a text. With
+// nobody on it, marketing is reminded. marketing_routine_reminders makes
+// each one go out once.
 
 var MAX_TEAM = 20;
 var CATCH_UP_DAYS = 7; // after the server was off: only the last 7 days (today and 6 before) are made
+var REMIND_FROM_HOUR = 7; // UTC = Ghana time
 
 // ---- dates (UTC: Ghana keeps GMT all year) --------------------------------
 function addDays(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
@@ -62,6 +74,7 @@ function out(r, ctx) {
     title: r.title, kind: r.kind, brief: r.brief, audience: r.audience, priority: r.priority,
     every: r.every, everyN: r.every_n, weekdays: (r.weekdays || []).map(Number), monthDay: r.month_day, dueAfterDays: r.due_after_days,
     startsOn: r.starts_on, endsOn: r.ends_on, nextOn: r.paused ? null : r.next_on, paused: r.paused, ended: !r.next_on && !r.paused,
+    remindAheadDays: r.remind_ahead_days, remindDueDays: r.remind_due_days, remindBySms: r.remind_by_sms,
     owner: person(r.requested_by, r.ow_first, r.ow_last, r.ow_photo),
     lead: person(r.assigned_to, r.as_first, r.as_last, r.as_photo),
     team: (r.team_people || []).map(function (m) { return person(m.id, m.first, m.last, m.photo); }),
@@ -127,6 +140,13 @@ function whole(v, label, min, max, fallback) {
   if (!Number.isInteger(n) || n < min || n > max) fail('invalid', label + ' must be a whole number from ' + min + ' to ' + max + '.');
   return n;
 }
+// A reminder setting: undefined keeps what it was (`keep`), null or '' turns
+// it off.
+function reminderDays(v, label, min, max, keep) {
+  if (v === undefined) return keep;
+  if (v === null || v === '') return null;
+  return whole(v, label, min, max, null);
+}
 function scheduleFields(p, current) {
   var title = S.text(p.title, 160);
   if (!title) fail('invalid', 'Say what is needed each time.');
@@ -138,7 +158,10 @@ function scheduleFields(p, current) {
     weekdays: [], month_day: null,
     due_after_days: whole(p.dueAfterDays, 'Days to get it done', 0, 60, 0),
     starts_on: S.dateOrNull(p.startsOn, 'Starts on') || S.todayIso(),
-    ends_on: S.dateOrNull(p.endsOn, 'Ends on')
+    ends_on: S.dateOrNull(p.endsOn, 'Ends on'),
+    remind_ahead_days: reminderDays(p.remindAheadDays, 'Days before it comes round', 1, 7, current ? current.remind_ahead_days : 1),
+    remind_due_days: reminderDays(p.remindDueDays, 'Days before it is needed', 0, 3, current ? current.remind_due_days : 1),
+    remind_by_sms: p.remindBySms === undefined ? (current ? current.remind_by_sms : true) : !!p.remindBySms
   };
   if (every === 'week') {
     f.weekdays = Array.from(new Set((Array.isArray(p.weekdays) ? p.weekdays : []).map(Number))).filter(function (d) { return Number.isInteger(d) && d >= 0 && d <= 6; }).sort();
@@ -182,9 +205,10 @@ async function create(ctx, p) {
   if (!next) fail('invalid', 'It never comes round between its start and end dates.');
   var id = await withTransaction(async function (db) {
     var r = (await db.query(
-      'INSERT INTO marketing_request_routines (company_id, title, kind, brief, audience, priority, every, every_n, weekdays, month_day, due_after_days, starts_on, ends_on, next_on, requested_by, assigned_to, campaign_id, team) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id',
-      [co.id, f.title, f.kind, f.brief, f.audience, f.priority, f.every, f.every_n, f.weekdays, f.month_day, f.due_after_days, f.starts_on, f.ends_on, next, my, crew.assigned_to, crew.campaign_id, crew.team])).rows[0];
+      'INSERT INTO marketing_request_routines (company_id, title, kind, brief, audience, priority, every, every_n, weekdays, month_day, due_after_days, starts_on, ends_on, next_on, requested_by, assigned_to, campaign_id, team, ' +
+      'remind_ahead_days, remind_due_days, remind_by_sms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id',
+      [co.id, f.title, f.kind, f.brief, f.audience, f.priority, f.every, f.every_n, f.weekdays, f.month_day, f.due_after_days, f.starts_on, f.ends_on, next, my, crew.assigned_to, crew.campaign_id, crew.team,
+        f.remind_ahead_days, f.remind_due_days, f.remind_by_sms])).rows[0];
     await audit(db, ctx, 'marketing.routine.create', 'marketing_routine', r.id, 'Routine: ' + f.title + '.');
     return r.id;
   });
@@ -204,8 +228,10 @@ async function update(ctx, id, p) {
   await withTransaction(async function (db) {
     await db.query(
       'UPDATE marketing_request_routines SET title = $2, kind = $3, brief = $4, audience = $5, priority = $6, every = $7, every_n = $8, weekdays = $9, month_day = $10, ' +
-      'due_after_days = $11, starts_on = $12, ends_on = $13, next_on = $14, assigned_to = $15, campaign_id = $16, team = $17, updated_at = now() WHERE id = $1',
-      [id, f.title, f.kind, f.brief, f.audience, f.priority, f.every, f.every_n, f.weekdays, f.month_day, f.due_after_days, f.starts_on, f.ends_on, next, crew.assigned_to, crew.campaign_id, crew.team]);
+      'due_after_days = $11, starts_on = $12, ends_on = $13, next_on = $14, assigned_to = $15, campaign_id = $16, team = $17, ' +
+      'remind_ahead_days = $18, remind_due_days = $19, remind_by_sms = $20, updated_at = now() WHERE id = $1',
+      [id, f.title, f.kind, f.brief, f.audience, f.priority, f.every, f.every_n, f.weekdays, f.month_day, f.due_after_days, f.starts_on, f.ends_on, next, crew.assigned_to, crew.campaign_id, crew.team,
+        f.remind_ahead_days, f.remind_due_days, f.remind_by_sms]);
     await audit(db, ctx, 'marketing.routine.update', 'marketing_routine', id, 'Updated the routine ' + f.title + '.');
   });
   var made = await makeDue(id, S.todayIso());
@@ -300,7 +326,157 @@ async function runDue(today) {
   return n;
 }
 
+// ---- the calendar ---------------------------------------------------------------
+// The requests a company's routines will make, on the day each is needed
+// (where the request shows once made), for those needed from `from` to
+// `to`: { routine, title, kind, priority, on, due }. Days already made are
+// requests now; paused and ended routines make nothing.
+var CALENDAR_MAX_PER_ROUTINE = 62;
+async function upcoming(companyId, from, to) {
+  var rows = (await pool.query(
+    'SELECT id, title, kind, priority, every, every_n, weekdays, month_day, due_after_days, starts_on, ends_on, next_on FROM marketing_request_routines ' +
+    'WHERE company_id = $1 AND NOT paused AND next_on IS NOT NULL AND next_on <= $2', [companyId, to])).rows;
+  var out = [];
+  rows.forEach(function (rt) {
+    var after = rt.due_after_days || 0, n = 0;
+    var day = addDays(from, -after) > rt.next_on ? addDays(from, -after) : rt.next_on;
+    for (var last = addDays(to, -after); day <= last && n < CALENDAR_MAX_PER_ROUTINE; day = addDays(day, 1)) {
+      if (rt.ends_on && day > rt.ends_on) break;
+      if (fallsOn(rt, day)) { n++; out.push({ routine: rt.id, title: rt.title, kind: rt.kind, priority: rt.priority, on: day, due: addDays(day, after) }); }
+    }
+  });
+  return out;
+}
+
+// ---- reminders ----------------------------------------------------------------
+function dayWords(iso) {
+  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+function whenWords(iso, today) {
+  var n = daysBetween(today, iso);
+  return n === 0 ? 'today' : n === 1 ? 'tomorrow' : 'on ' + dayWords(iso);
+}
+function short(t) { return t.length > 60 ? t.slice(0, 59) + '…' : t; }
+var STATUS_WORDS = { 'new': 'not taken on yet', in_progress: 'being worked on', review: 'waiting to be checked' };
+
+// The people to remind: the lead and the team (still on the staff), or
+// marketing when nobody is on it.
+async function crew(lead, team) {
+  var ids = [lead].concat(team || []).filter(Boolean);
+  var active = ids.length ? (await pool.query("SELECT id FROM employees WHERE id = ANY($1) AND status = 'active'", [ids])).rows.map(function (e) { return e.id; }) : [];
+  return active.length ? Array.from(new Set(active)) : await S.managers();
+}
+// The texts, never failing the round: { sent, noPhone, failed }, or null
+// when texts are off, not set up, or not wanted for this routine.
+async function textPeople(who, message, refId, sentBy, wanted) {
+  if (!wanted || !who.length || !sms.configured() || !(await sms.messaging()).routineRemindersBySms) return null;
+  var out = { sent: 0, noPhone: 0, failed: 0 };
+  var phones = (await pool.query("SELECT id, phone FROM employees WHERE id = ANY($1) AND status = 'active'", [who])).rows;
+  for (var e of phones) {
+    if (!sms.smsNumber(e.phone)) { out.noPhone++; continue; }
+    if ((await sms.autoSentToday()) >= sms.AUTO_DAILY_LIMIT) { out.failed++; continue; }
+    try {
+      await sms.send({ to: e.phone, message: message, purpose: 'auto_routine_reminder', refId: refId, sentBy: sentBy });
+      out.sent++;
+    } catch (err) {
+      console.error('Routine reminder text not sent:', err.message);
+      out.failed++;
+    }
+  }
+  return out;
+}
+async function logged(id, people, texts) {
+  await pool.query('UPDATE marketing_routine_reminders SET people = $2, texts = $3 WHERE id = $1', [id, people, texts ? texts.sent : 0]);
+}
+
+// Heads-ups: for each routine, the days it comes round in the next
+// remind_ahead_days days that have not had one yet — one message per
+// routine, however many days.
+async function remindAhead(today) {
+  var rows = (await pool.query(
+    'SELECT * FROM marketing_request_routines WHERE NOT paused AND next_on IS NOT NULL AND remind_ahead_days IS NOT NULL AND next_on <= $1::date + 7', [today])).rows;
+  var n = 0;
+  for (var rt of rows) {
+    try {
+      var days = [];
+      for (var k = 1; k <= rt.remind_ahead_days; k++) {
+        var d = addDays(today, k);
+        if (d >= rt.next_on && fallsOn(rt, d)) days.push(d);
+      }
+      var fresh = [];
+      for (var d2 of days) {
+        var ins = (await pool.query(
+          "INSERT INTO marketing_routine_reminders (kind, routine_id, for_day) VALUES ('ahead', $1, $2) ON CONFLICT (routine_id, for_day) WHERE kind = 'ahead' DO NOTHING RETURNING id", [rt.id, d2])).rows[0];
+        if (ins) fresh.push({ id: ins.id, day: d2 });
+      }
+      if (!fresh.length) continue;
+      var who = await crew(rt.assigned_to, rt.team);
+      var after = rt.due_after_days || 0;
+      var when = fresh.map(function (f) { return dayWords(f.day); }).join(' and ');
+      var needed = fresh.length === 1 ? (after ? ', needed by ' + dayWords(addDays(fresh[0].day, after)) : ', needed the same day') : '';
+      for (var p of who) {
+        await notify(pool, p, 'Coming up ' + (fresh.length === 1 ? whenWords(fresh[0].day, today) : when) + ': ' + rt.title,
+          'A routine request comes round on ' + when + needed + '. Get ready for it.', '/mkrequests?routine=' + rt.id);
+      }
+      var texts = await textPeople(who, 'Bamboo OS: coming up ' + when + ', ' + short(rt.title) + ' (a routine request)' + needed + '.' +
+        (config.appUrl ? ' ' + config.appUrl + '/mkrequests?routine=' + rt.id : ''), rt.id, rt.requested_by, rt.remind_by_sms);
+      for (var f of fresh) await logged(f.id, who.length, f === fresh[0] ? texts : null);
+      n += fresh.length;
+    } catch (e) { console.error('[mk] routine heads-up ' + rt.id + ' not sent:', e.message); }
+  }
+  return n;
+}
+
+// The days a request is reminded on: remind_due_days before it is needed,
+// and on the day — never on the day it was made (they were just told).
+function dueSlots(r) {
+  var slots = [r.due_on];
+  if (r.remind_due_days > 0) slots.unshift(addDays(r.due_on, -r.remind_due_days));
+  return slots.filter(function (d) { return !r.routine_on || d > r.routine_on; });
+}
+// Reminders for the requests routines made that aren't done: the latest
+// reminder day that has come (so one missed while the server was off still
+// goes, late), up to the day it is needed.
+async function remindDue(today) {
+  var rows = (await pool.query(
+    "SELECT r.id, r.number, r.title, r.status, r.due_on, r.routine_on, r.assigned_to, rt.id AS routine_id, rt.title AS routine_title, rt.requested_by, " +
+    'rt.remind_due_days, rt.remind_by_sms, (SELECT coalesce(array_agg(m.employee_id), ARRAY[]::uuid[]) FROM marketing_request_members m WHERE m.request_id = r.id) AS members ' +
+    'FROM marketing_requests r JOIN marketing_request_routines rt ON rt.id = r.routine_id ' +
+    "WHERE rt.remind_due_days IS NOT NULL AND r.status IN ('new', 'in_progress', 'review') AND r.due_on BETWEEN $1 AND $1::date + 3", [today])).rows;
+  var n = 0;
+  for (var r of rows) {
+    try {
+      var slot = dueSlots(r).filter(function (d) { return d <= today; }).pop();
+      if (!slot) continue;
+      var ins = (await pool.query(
+        "INSERT INTO marketing_routine_reminders (kind, request_id, for_day) VALUES ('due', $1, $2) ON CONFLICT (request_id, for_day) WHERE kind = 'due' DO NOTHING RETURNING id", [r.id, slot])).rows[0];
+      if (!ins) continue;
+      var ref = 'MR-' + String(r.number).padStart(4, '0');
+      var when = whenWords(r.due_on, today);
+      var who = await crew(r.assigned_to, r.members);
+      for (var p of who) {
+        await notify(pool, p, 'Needed ' + when + ': ' + ref + ' ' + r.title,
+          'It is ' + STATUS_WORDS[r.status] + '. From the routine "' + r.routine_title + '".', '/mkrequests?open=' + r.id);
+      }
+      var texts = await textPeople(who, 'Bamboo OS reminder: ' + ref + ' ' + short(r.title) + ' is needed ' + when + (when === 'today' || when === 'tomorrow' ? ' (' + dayWords(r.due_on) + ')' : '') +
+        ' and isn\'t done yet.' + (config.appUrl ? ' ' + config.appUrl + '/mkrequests?open=' + r.id : ''), r.id, r.requested_by, r.remind_by_sms);
+      await logged(ins.id, who.length, texts);
+      n++;
+    } catch (e) { console.error('[mk] request reminder ' + r.id + ' not sent:', e.message); }
+  }
+  return n;
+}
+
+// The job's reminder round: nothing before 07:00. { ahead, due }.
+async function remind(now) {
+  now = now || new Date();
+  if (now.getUTCHours() < REMIND_FROM_HOUR) return { ahead: 0, due: 0 };
+  var today = now.toISOString().slice(0, 10);
+  return { ahead: await remindAhead(today), due: await remindDue(today) };
+}
+
 module.exports = {
   list: list, get: get, create: create, update: update, setPaused: setPaused, remove: remove, runDue: runDue,
-  _fallsOn: fallsOn, _nextOn: nextOn
+  upcoming: upcoming, remind: remind,
+  _fallsOn: fallsOn, _nextOn: nextOn, _makeDue: makeDue
 };

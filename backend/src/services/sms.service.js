@@ -19,12 +19,13 @@ var MAX_LENGTH = 612; // four texts' worth; a reminder is one or two
 
 // Automatic texts the OS may send on its own. Each one spends credit, so
 // they are off until someone turns them on in Company settings — except
-// the text to someone put on a marketing request's team, asked for on.
+// the texts to the people working on marketing requests, asked for on.
 var MESSAGING_DEFAULTS = {
   autoPaymentReminders: false, // customers and tenants: 3 days before, on the day, 7 and 30 days after
   autoBookingNotices: false,   // tenants: 30 and 7 days before a booking ends
   staffAlertsBySms: false,     // staff: the morning alert as a text too
-  requestTeamBySms: true       // staff: put on a marketing request's team (mkRequests.service.js)
+  requestTeamBySms: true,      // staff: put on a marketing request's team (mkRequests.service.js)
+  routineRemindersBySms: true  // staff: a routine's heads-up and "needed tomorrow" reminders (mkRoutines.service.js)
 };
 // However many are due, no more than this many automatic texts a day: a
 // mistake (a bad import, a wrong due date on 300 bills) can't empty the
