@@ -8,6 +8,7 @@ import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import {
   Glyph, L, MkBanner, MkDialog, MkEmpty, Pill, REQUEST_GLYPH, REQUEST_KINDS, REQUEST_STATUS, addDays, dayLabel, openFile, readParam, todayIso
 } from './mkKit';
+import RequestsSummary from './MkRequestsSummary';
 
 // Requests to marketing (backend mkRequests.service.js), for everyone:
 // ask for a flyer, a post, a banner, a video, photos… with a brief and the
@@ -37,10 +38,12 @@ export default function MkRequestsPage() {
   const [openId, setOpenId] = useState(() => readParam('open'));
   const [focusRoutine, setFocusRoutine] = useState(() => readParam('routine')); // from a reminder or the calendar
   const [toast, setToast] = useState(null);
+  const [presenting, setPresenting] = useState(false);
+  const [version, setVersion] = useState(0); // the summary reloads when the board does
 
   // Marketing starts on everyone's requests; everyone else on their own.
   const loadedOnce = useRef(false);
-  const load = useCallback(() => api.get('/mk/requests?scope=' + scope).then((d) => { setData(d); if (d.canSeeAll && scope === 'mine' && !loadedOnce.current) { loadedOnce.current = true; setScope('all'); } }).catch((e) => setError(e.message)), [scope]);
+  const load = useCallback(() => api.get('/mk/requests?scope=' + scope).then((d) => { setData(d); setVersion((v) => v + 1); if (d.canSeeAll && scope === 'mine' && !loadedOnce.current) { loadedOnce.current = true; setScope('all'); } }).catch((e) => setError(e.message)), [scope]);
   useEffect(() => { load(); }, [load]);
   const loadRoutines = useCallback(() => api.get('/mk/routines?scope=' + scope).then(setRoutines).catch(() => setRoutines([])), [scope]);
   useEffect(() => { loadRoutines(); }, [loadRoutines]);
@@ -75,6 +78,7 @@ export default function MkRequestsPage() {
         actions={<>
           <button type="button" className="mk-btn is-primary" onClick={() => setAsking(true)}><Glyph name="plus" size={16} />{tr('Ask for something')}</button>
           <button type="button" className="mk-btn is-ghost" onClick={() => setRoutineEdit({})}><Glyph name="repeat" size={16} />{tr('Set up a routine')}</button>
+          <button type="button" className="mk-btn is-ghost" onClick={() => setPresenting(true)} title={tr('The summary as slides, for a meeting')}><Glyph name="play" size={16} />{tr('Present as slides')}</button>
         </>}
         stats={[
           { glyph: 'inbox', value: String(open_), label: data.scope === 'all' ? tr('open requests') : tr('of yours open') },
@@ -118,6 +122,9 @@ export default function MkRequestsPage() {
           </details>
         )}
       </Section>
+
+      <RequestsSummary scope={data.scope} companies={companies} version={version} onOpen={open}
+        presenting={presenting} onPresenting={setPresenting} paused={!!openId} />
 
       <Section id="mk-routines" title={tr('Routines')} sub={tr('Requests that come round on their own: on each day, the request is made with the same brief, lead and team, and they are told.')}
         action={<button type="button" className="mk-btn is-ghost is-small" onClick={() => setRoutineEdit({})}><Glyph name="plus" size={14} />{tr('New routine')}</button>}>

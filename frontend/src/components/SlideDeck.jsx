@@ -3,9 +3,9 @@ import PrintLayer from './PrintLayer';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import './SlideDeck.css';
 
-// The Saturday reviews' slide show (the work orders',
-// pages/WorkOrdersPresent.jsx, and the sales team's,
-// pages/crm/SalesPresent.jsx): a week to pick, slides on a dark stage,
+// The reviews' slide show (the work orders',
+// pages/WorkOrdersPresent.jsx, the sales team's, pages/crm/SalesPresent.jsx,
+// and Ask marketing's, pages/marketing/MkRequestsPresent.jsx): a week to pick, slides on a dark stage,
 // arrow keys or the buttons to move, F for full screen, and one slide a
 // page when printed or saved as PDF. The review gives the slides and how
 // to draw each one; paused stops the keys while a window is open over it.
@@ -29,7 +29,9 @@ export function recentWeeks(thisMonday, n = 4) {
   });
 }
 
-export default function SlideDeck({ brand, className = '', weeks, weekFrom, onWeek, slides, render, onClose, paused }) {
+// weeks: the periods to pick from ({ from, label }) — weeks, or months for
+// a monthly review (periodLabel names the picker).
+export default function SlideDeck({ brand, className = '', weeks, weekFrom, onWeek, periodLabel, slides, render, onClose, paused }) {
   const [at, setAt] = useState(0);
   const [printing, setPrinting] = useState(false);
   const cur = Math.min(at, Math.max(0, slides.length - 1));
@@ -75,7 +77,7 @@ export default function SlideDeck({ brand, className = '', weeks, weekFrom, onWe
       <div className={'wop ' + className + (printing ? ' is-printing' : '')} role="dialog" aria-modal="true" aria-label={brand}>
         <div className="wop-bar no-print">
           <strong className="wop-brand">{brand}</strong>
-          <select className="wop-week" value={weekFrom} onChange={(e) => onWeek(e.target.value)} aria-label={tr('Which week')}>
+          <select className="wop-week" value={weekFrom} onChange={(e) => onWeek(e.target.value)} aria-label={periodLabel || tr('Which week')}>
             {weeks.map((w) => <option key={w.from} value={w.from}>{w.label}</option>)}
           </select>
           <span className="wop-fill" />

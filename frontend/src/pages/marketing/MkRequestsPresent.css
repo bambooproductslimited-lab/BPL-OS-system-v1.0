@@ -1,0 +1,74 @@
+/* Ask marketing's review slides (MkRequestsPresent.jsx), on the slide stage
+   of components/SlideDeck.css with the sales review's shared pieces
+   (pages/crm/SalesPresent.css). Two series only — asked for (violet) and
+   done (green), always with a key; on time and late are written beside
+   their colour. A request a routine will make is dashed. */
+.wop.is-mkreq {
+  --accent: #b69cff; --asked: #9b7bff; --done: #34c77b; --bar: #9b7bff; --panel: #1e1934;
+  background: radial-gradient(120% 80% at 10% 0%, #2a1f52 0%, #0f0c1c 55%) #0f0c1c;
+}
+.wop.is-mkreq .wop-slide { background: linear-gradient(160deg, #211a3d 0%, #15112a 60%); }
+.wop.is-mkreq .wop-cover h1 { background: linear-gradient(90deg, #f4f1ff, #c9b6ff); -webkit-background-clip: text; background-clip: text; }
+.wop.is-mkreq .wop-tile.is-asked { border-top-color: var(--asked); }
+.wop.is-mkreq .wop-tile.is-asked b { color: var(--accent); }
+.mkp-eb { color: var(--accent); }
+.mkp-eb-bad { color: var(--bad); }
+.wop.is-mkreq .wop-sum-grid.is-even { grid-template-columns: 1fr 1fr; }
+
+/* asked for and done, side by side for each period */
+.mkp-cols { flex: 1; min-height: 8cqw; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 1cqw; align-items: end; }
+.mkp-col { height: 100%; display: grid; grid-template-rows: 1fr auto; justify-items: center; gap: .5cqw; min-width: 0; }
+.mkp-col small { font-size: 1.15cqw; color: var(--muted); white-space: nowrap; }
+.mkp-col.is-now small { color: var(--ink); font-weight: 800; }
+.mkp-pair { width: 80%; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: .35cqw; }
+.mkp-pair i { position: relative; flex: 1; min-height: 2px; border-radius: .5cqw .5cqw 0 0; }
+.mkp-pair i.is-asked { background: var(--asked); } .mkp-pair i.is-done { background: var(--done); }
+.mkp-pair i b { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: .3cqw; font-size: 1.15cqw; font-style: normal; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mkp-col.is-now .mkp-pair { outline: 1px dashed var(--line); outline-offset: .5cqw; border-radius: .4cqw; }
+.ssr-key.mkp-key i.is-asked { background: var(--asked); } .ssr-key.mkp-key i.is-done { background: var(--done); }
+.wop-fact b.mkp-words { font-size: 2.6cqw; min-width: 9cqw; }
+
+/* bars, one colour, labelled */
+.mkp-bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1cqw; }
+.mkp-bars li { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 2.6cqw; grid-template-areas: 'l t n' 'l s s'; align-items: center; column-gap: .9cqw; font-size: 1.3cqw; }
+.mkp-bar-label { grid-area: l; display: flex; align-items: center; gap: .6cqw; min-width: 0; line-height: 1.2; }
+.mkp-bar-label svg { flex: none; width: 1.4cqw; height: 1.4cqw; color: var(--accent); }
+.mkp-bar-track { grid-area: t; height: 1.3cqw; border-radius: 999px; background: var(--line); overflow: hidden; }
+.mkp-bar-track span { display: block; height: 100%; border-radius: 999px; background: var(--bar); }
+.mkp-bars b { grid-area: n; text-align: right; font-variant-numeric: tabular-nums; }
+.mkp-bars small { grid-area: s; font-size: 1.05cqw; color: var(--muted); }
+
+.mkp-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .9cqw; }
+.mkp-people li { display: flex; align-items: center; gap: 1cqw; font-size: 1.45cqw; }
+.mkp-people li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkp-people li b { font-size: 1.9cqw; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* request cards */
+.mkp-card { --st: var(--done); }
+.mkp-card.is-late { --st: var(--bad); }
+.mkp-card .wop-st svg { width: 1.2cqw; height: 1.2cqw; }
+.mkp-tag { display: inline-flex; align-items: center; gap: .35cqw; padding: .1cqw .6cqw; border-radius: 999px; font-size: 1cqw; font-weight: 800; color: var(--accent); border: 1px dashed var(--accent); }
+.mkp-tag svg { width: 1cqw; height: 1cqw; }
+
+/* rows: late, waiting, coming up */
+.mkp-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6cqw; min-height: 0; overflow: hidden; }
+.mkp-rows button { width: 100%; display: flex; align-items: center; gap: 1cqw; padding: .7cqw .9cqw; border-radius: .9cqw; border: 1px solid transparent; background: rgba(255, 255, 255, .04); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mkp-rows button:hover:not(:disabled) { border-color: var(--line); }
+.mkp-rows button:disabled { cursor: default; }
+.mkp-rows li.is-routine button { background: transparent; border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); }
+.mkp-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15cqw; }
+.mkp-row-main strong { display: flex; align-items: center; gap: .5cqw; font-size: 1.35cqw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkp-row-main strong svg { flex: none; width: 1.2cqw; height: 1.2cqw; color: var(--accent); }
+.mkp-row-main small { font-size: 1.05cqw; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkp-late { flex: none; font-size: 1.2cqw; color: var(--bad); white-space: nowrap; }
+.mkp-date { flex: none; min-width: 10cqw; font-size: 1.2cqw; font-weight: 800; color: var(--warn); white-space: nowrap; }
+.mkp-state { flex: none; padding: .15cqw .7cqw; border-radius: 999px; font-size: 1cqw; font-weight: 800; white-space: nowrap; }
+.mkp-state.is-new { color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); }
+.mkp-state.is-review { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+
+@media print {
+  .wop.is-mkreq { --accent: #6a3fd6; --asked: #6a3fd6; --done: #1a8f4c; --bar: #6a3fd6; --panel: #f4f2fa; background: #fff; }
+  .wop.is-mkreq .wop-slide { background: #fff; }
+  .wop.is-mkreq .wop-cover h1 { background: none; color: var(--ink); }
+  .mkp-rows button { background: rgba(0, 0, 0, .04); }
+}

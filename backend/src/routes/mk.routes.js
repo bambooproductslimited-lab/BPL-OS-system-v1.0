@@ -9,6 +9,7 @@ var campaigns = require('../services/mkCampaigns.service');
 var budget = require('../services/mkBudget.service');
 var requests = require('../services/mkRequests.service');
 var routines = require('../services/mkRoutines.service');
+var requestSummary = require('../services/mkRequestSummary.service');
 var events = require('../services/mkEvents.service');
 var brand = require('../services/mkBrand.service');
 var audiences = require('../services/mkAudiences.service');
@@ -68,6 +69,7 @@ router.delete('/routines/:id', h(function (req) { return routines.remove(req.ctx
 router.get('/requests', h(function (req) { return requests.list(req.ctx, req.query); }));
 router.get('/requests/team', h(function (req) { return requests.team(req.ctx); }));
 router.get('/requests/people', h(function (req) { return requests.people(req.ctx); }));
+router.get('/requests/summary', h(function (req) { return requestSummary.summary(req.ctx, req.query); }));
 router.post('/requests', h(function (req) { return requests.create(req.ctx, req.body || {}); }));
 router.get('/requests/:id', h(function (req) { return requests.get(req.ctx, req.params.id); }));
 router.put('/requests/:id', h(function (req) { return requests.update(req.ctx, req.params.id, req.body || {}); }));

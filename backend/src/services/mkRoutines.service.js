@@ -327,25 +327,35 @@ async function runDue(today) {
 }
 
 // ---- the calendar ---------------------------------------------------------------
-// The requests a company's routines will make, on the day each is needed
-// (where the request shows once made), for those needed from `from` to
-// `to`: { routine, title, kind, priority, on, due }. Days already made are
-// requests now; paused and ended routines make nothing.
+// The requests routines will make, on the day each is needed (where the
+// request shows once made), for those needed from `from` to `to`:
+// { routine, title, kind, priority, company, lead, on, due }, soonest
+// first. One company's (companyId) or every company's (null); with `who`,
+// only the routines that person set up, leads or is on the team of. Days
+// already made are requests now; paused and ended routines make nothing.
 var CALENDAR_MAX_PER_ROUTINE = 62;
-async function upcoming(companyId, from, to) {
+async function upcoming(companyId, from, to, who) {
+  var args = [to], where = ['NOT rt.paused', 'rt.next_on IS NOT NULL', 'rt.next_on <= $1'];
+  if (companyId) { args.push(companyId); where.push('rt.company_id = $' + args.length); }
+  if (who) { args.push(who); where.push('(rt.requested_by = $' + args.length + ' OR rt.assigned_to = $' + args.length + ' OR $' + args.length + ' = ANY(rt.team))'); }
   var rows = (await pool.query(
-    'SELECT id, title, kind, priority, every, every_n, weekdays, month_day, due_after_days, starts_on, ends_on, next_on FROM marketing_request_routines ' +
-    'WHERE company_id = $1 AND NOT paused AND next_on IS NOT NULL AND next_on <= $2', [companyId, to])).rows;
+    'SELECT rt.id, rt.title, rt.kind, rt.priority, rt.every, rt.every_n, rt.weekdays, rt.month_day, rt.due_after_days, rt.starts_on, rt.ends_on, rt.next_on, ' +
+    'co.code AS company_code, co.name AS company_name, a.first_name AS as_first, a.last_name AS as_last ' +
+    'FROM marketing_request_routines rt JOIN companies co ON co.id = rt.company_id LEFT JOIN employees a ON a.id = rt.assigned_to WHERE ' + where.join(' AND '), args)).rows;
   var out = [];
   rows.forEach(function (rt) {
     var after = rt.due_after_days || 0, n = 0;
     var day = addDays(from, -after) > rt.next_on ? addDays(from, -after) : rt.next_on;
     for (var last = addDays(to, -after); day <= last && n < CALENDAR_MAX_PER_ROUTINE; day = addDays(day, 1)) {
       if (rt.ends_on && day > rt.ends_on) break;
-      if (fallsOn(rt, day)) { n++; out.push({ routine: rt.id, title: rt.title, kind: rt.kind, priority: rt.priority, on: day, due: addDays(day, after) }); }
+      if (fallsOn(rt, day)) {
+        n++;
+        out.push({ routine: rt.id, title: rt.title, kind: rt.kind, priority: rt.priority, company: { code: rt.company_code, name: rt.company_name },
+          lead: S.employeeName(rt.as_first, rt.as_last), on: day, due: addDays(day, after) });
+      }
     }
   });
-  return out;
+  return out.sort(function (a, b) { return a.due < b.due ? -1 : a.due > b.due ? 1 : 0; });
 }
 
 // ---- reminders ----------------------------------------------------------------

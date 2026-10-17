@@ -498,3 +498,96 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-routine-day { display: inline-flex; flex-direction: column; padding: 4px 10px; border-radius: 10px; background: var(--mk-card); border: 1px solid var(--mk-line); line-height: 1.25; }
 .mk-routine-day small { font-size: 11px; color: var(--color-text-muted); }
 @media (max-width: 560px) { .mk-weekday { min-width: 0; flex: 1 0 calc(25% - 6px); } }
+
+/* Ask marketing's Summary (MkRequestsSummary.jsx): asked for (violet) and
+   done (green) are the only two series, always with a key; late is the
+   bad colour with the words beside it. */
+.mk-sum-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mk-sum-step { display: inline-flex; align-items: center; gap: 6px; }
+.mk-sum-step strong { min-width: 9.5em; text-align: center; font-size: 13.5px; }
+.mk-sum-co { width: auto; min-width: 150px; padding-top: 6px; padding-bottom: 6px; }
+.mk-sum-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.mk-sum-tile { --t: var(--mk-violet); position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 14px 16px 13px; border-radius: 18px; background: var(--mk-card);
+  border: 1px solid var(--mk-line); box-shadow: 0 1px 2px rgba(16, 24, 40, .04); overflow: hidden; }
+.mk-sum-tile::after { content: ''; position: absolute; inset: auto -30px -40px auto; width: 110px; height: 110px; border-radius: 50%; background: color-mix(in srgb, var(--t) 9%, transparent); pointer-events: none; }
+.mk-sum-tile.is-done { --t: var(--mk-good); } .mk-sum-tile.is-ontime { --t: var(--mk-good); } .mk-sum-tile.is-ontime.is-low { --t: var(--mk-warn); }
+.mk-sum-tile.is-late { --t: var(--mk-muted); } .mk-sum-tile.is-late.is-on { --t: var(--mk-bad); } .mk-sum-tile.is-speed { --t: var(--mk-info); }
+.mk-sum-glyph { display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 6px; border-radius: 11px; color: var(--t); background: color-mix(in srgb, var(--t) 13%, var(--mk-card)); }
+.mk-sum-tile > b { font-family: var(--font-heading); font-size: 30px; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.mk-sum-tile.is-late.is-on > b { color: var(--mk-bad); }
+.mk-sum-tile > b.is-words { font-size: 22px; line-height: 1.3; }
+.mk-sum-tile > span { font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); }
+.mk-sum-tile > em { margin-top: 4px; font-style: normal; font-size: 12px; color: var(--color-text-muted); }
+.mk-sum-change.is-up { color: var(--mk-good); font-weight: 700; } .mk-sum-change.is-down { color: var(--mk-bad); font-weight: 700; }
+.mk-sum-tile.is-asked .mk-sum-change.is-up, .mk-sum-tile.is-asked .mk-sum-change.is-down { color: var(--mk-violet); }
+.mk-sum-ringwrap { position: relative; display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 4px; }
+.mk-sum-ringwrap b { position: absolute; font-family: var(--font-heading); font-size: 15px; font-variant-numeric: tabular-nums; }
+.mk-sum-ring { width: 58px; height: 58px; }
+.mk-sum-ring circle { fill: none; stroke-width: 6; }
+.mk-sum-ring .is-track { stroke: color-mix(in srgb, var(--t) 14%, var(--mk-card)); }
+.mk-sum-ring .is-fill { stroke: var(--t); stroke-linecap: round; transition: stroke-dashoffset .6s ease; }
+
+.mk-sum-grid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.mk-sum-grid.is-two { grid-template-columns: 1fr 1fr; }
+.mk-sum-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mk-sum-cols { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; align-items: end; height: 150px; padding-top: 18px; }
+.mk-sum-col { height: 100%; display: grid; grid-template-rows: 1fr auto; justify-items: center; gap: 5px; min-width: 0; }
+.mk-sum-col small { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
+.mk-sum-col.is-now small { color: var(--color-text); font-weight: 800; }
+.mk-sum-col.is-now .mk-sum-pair { box-shadow: 0 0 0 1px var(--mk-line); border-radius: 6px; background: color-mix(in srgb, var(--mk-violet) 5%, transparent); }
+.mk-sum-pair { width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding: 0 3px; }
+.mk-sum-pair i { position: relative; flex: 1; max-width: 14px; min-height: 2px; border-radius: 4px 4px 0 0; }
+.mk-sum-pair i.is-asked { background: var(--mk-violet); } .mk-sum-pair i.is-done { background: var(--mk-good); }
+.mk-sum-pair i b { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: 2px; font-size: 10.5px; font-style: normal; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+.mk-sum-key { list-style: none; margin: 0; padding: 0; display: flex; gap: 14px; font-size: 12px; color: var(--color-text-muted); }
+.mk-sum-key li { display: inline-flex; align-items: center; gap: 6px; }
+.mk-sum-key i { width: 10px; height: 10px; border-radius: 3px; }
+.mk-sum-key i.is-asked { background: var(--mk-violet); } .mk-sum-key i.is-done { background: var(--mk-good); }
+
+.mk-sum-kinds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mk-sum-kinds li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 26px; grid-template-areas: 'k t n' 'k d d'; align-items: center; column-gap: 8px; font-size: 13px; }
+.mk-sum-kind { grid-area: k; display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 700; }
+.mk-sum-kind svg { flex: none; color: var(--mk-violet); }
+.mk-sum-track { grid-area: t; height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--mk-violet) 12%, var(--mk-card)); overflow: hidden; }
+.mk-sum-track span { display: block; height: 100%; border-radius: 999px; background: var(--mk-violet); }
+.mk-sum-kinds b { grid-area: n; text-align: right; font-variant-numeric: tabular-nums; }
+.mk-sum-kinds small { grid-area: d; font-size: 11.5px; color: var(--color-text-muted); }
+.mk-sum-cos { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--mk-line); }
+.mk-sum-cochip { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12px; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 4%, var(--mk-card)); }
+.mk-sum-cochip strong { color: var(--color-text); }
+.mk-sum-cochip em { font-style: normal; font-weight: 700; color: var(--mk-bad); }
+
+.mk-sum-people { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.mk-sum-people > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mk-sum-people small { font-size: 11.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+.mk-sum-person { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.mk-sum-person > span { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-sum-person em { font-style: normal; font-weight: 500; font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; }
+.mk-sum-person > b { font-family: var(--font-heading); font-size: 16px; color: var(--mk-violet); }
+.mk-sum-late { flex: none; padding: 2px 8px; border-radius: 999px; font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--mk-bad); background: color-mix(in srgb, var(--mk-bad) 10%, var(--mk-card)); white-space: nowrap; }
+
+.mk-sum-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mk-sum-list button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--mk-line); background: var(--mk-card); font: inherit; color: var(--color-text); text-align: left; cursor: pointer; transition: border-color .15s, transform .15s; }
+.mk-sum-list button:hover:not(:disabled) { border-color: var(--mk-violet); transform: translateY(-1px); }
+.mk-sum-list button:disabled { cursor: default; }
+.mk-sum-list li.is-routine button { border-style: dashed; border-color: color-mix(in srgb, var(--mk-violet) 50%, var(--mk-line)); background: transparent; }
+.mk-sum-ref { flex: none; min-width: 74px; font-size: 11.5px; font-weight: 800; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.mk-sum-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mk-sum-what strong { display: flex; align-items: center; gap: 5px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-sum-what strong svg { flex: none; color: var(--mk-violet); }
+.mk-sum-what small { font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-sum-ok { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 700; color: var(--mk-good); }
+.mk-sum-foot { margin: 0; font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .mk-sum-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .mk-sum-grid { grid-template-columns: 1fr 1fr; }
+  .mk-sum-grid > :first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .mk-sum-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mk-sum-tiles > :last-child { grid-column: 1 / -1; }
+  .mk-sum-grid, .mk-sum-grid.is-two { grid-template-columns: 1fr; }
+  .mk-sum-step strong { min-width: 0; }
+  .mk-sum-tile > b { font-size: 26px; }
+}
