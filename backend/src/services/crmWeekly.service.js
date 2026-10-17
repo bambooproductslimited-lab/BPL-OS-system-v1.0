@@ -17,10 +17,11 @@ var executive = require('./crmExecutive.service');
 //
 // Then what moved: leads that became prospects (qualified, quoted or
 // agreeing terms), were won or lost that week, from the stage history
-// (crm_lead_notes). The money: sales, money in, quotations and new buyers
-// against the week before (crmExecutive.service.js money, the CRM
-// company's GHS invoices). Site visits, the team side by side, and what is
-// due next week.
+// (crm_lead_notes). Customers who bought and quotations sent, accepted
+// and lost, against the week before — counted only: the review shows the
+// team no amounts of money (crmExecutive.service.js money, the CRM
+// company's invoices). Site visits, the team side by side, and what is due
+// next week — the follow-ups by name, for the day-by-day slide.
 
 var LEAD_STAGES = crm.LEAD_STAGES;
 var PROSPECT_STAGES = crm.PROSPECT_STAGES;
@@ -85,14 +86,13 @@ async function inboxFirsts(from, to) {
 async function moves(from, to) {
   var rows = (await pool.query(
     'SELECT n.lead_id, n.from_stage, n.to_stage, n.at, l.ref, l.name, l.company, l.item, l.source, l.rep_id, l.rep_name, l.lost_reason, l.stage AS now_stage, ' +
-    '  e.first_name AS rep_first, e.last_name AS rep_last, ' +
-    '  (SELECT coalesce(sum(i.grand_total - i.credit_total), 0) FROM crm_deals d JOIN invoices i ON i.id = d.invoice_id WHERE d.lead_id = l.id AND i.status <> \'void\') AS deal_value ' +
+    '  e.first_name AS rep_first, e.last_name AS rep_last ' +
     'FROM crm_lead_notes n JOIN crm_leads l ON l.id = n.lead_id LEFT JOIN employees e ON e.id = l.rep_id ' +
     "WHERE n.kind = 'stage' AND n.to_stage IS NOT NULL AND n.at >= $1::date AND n.at < ($2::date + 1) ORDER BY n.at", [from, to])).rows;
   function lead(r) {
     return {
       id: r.lead_id, ref: r.ref, name: r.name, company: r.company, item: r.item || '', source: r.source || '', at: r.at, stage: r.now_stage,
-      repId: r.rep_id, repName: r.rep_id ? personName(r.rep_first, r.rep_last) : (r.rep_name || null), dealValue: r2(r.deal_value)
+      repId: r.rep_id, repName: r.rep_id ? personName(r.rep_first, r.rep_last) : (r.rep_name || null)
     };
   }
   var prospects = new Map(), won = new Map(), lost = new Map();
@@ -150,24 +150,13 @@ async function week(ctx, query) {
   var moved = await moves(from, to);
   var reasons = countBy(moved.lost, function (x) { return x.reason.trim() || ''; }).map(function (x) { return { reason: x.key, n: x.n }; });
 
-  // ── the money ──────────────────────────────────────────────────────
-  var money = await executive._money(co, from, to);
-  var moneyBefore = await executive._money(co, prev.from, prev.to);
-  // The payments behind "money in", so one on the wrong day can be seen and
-  // moved (payments.service.js changeDate).
-  var S0 = executive._sql;
-  var qp = { args: [] };
-  function pp(v) { qp.args.push(v); return '$' + qp.args.length; }
-  var paymentsIn = (await pool.query(
-    'SELECT p.id, p.date, p.amount, p.currency, p.method, p.reference, p.notes, p.source, i.id AS invoice_id, i.invoice_no, i.issued_at, c.name AS customer_name, ' +
-    '  e.first_name, e.last_name FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id LEFT JOIN employees e ON e.id = p.received_by ' +
-    'WHERE ' + S0.SALE + ' AND p.date BETWEEN ' + pp(from) + ' AND ' + pp(to) + ' AND ' + crm._invoiceScope(co, pp) + ' ORDER BY p.date, p.amount DESC', qp.args)).rows
-    .map(function (r) {
-      return {
-        id: r.id, date: dateOnly(r.date), amount: r2(r.amount), currency: r.currency, method: r.method, reference: r.reference || '', notes: r.notes || '', source: r.source,
-        invoiceId: r.invoice_id, invoiceNo: r.invoice_no, invoiceIssued: dateOnly(r.issued_at), customerName: r.customer_name, receivedByName: personName(r.first_name, r.last_name) || null
-      };
-    });
+  // ── sales, counted ─────────────────────────────────────────────────
+  // How many bought and how many quotations, never how much.
+  function counted(m) {
+    return { invoices: m.invoices, buyers: m.buyers, newBuyers: m.newBuyers, returningBuyers: m.returningBuyers, quotesSent: m.quotesSent, quotesWon: m.quotesWon, quotesLost: m.quotesLost };
+  }
+  var sales = counted(await executive._money(co, from, to));
+  var salesBefore = counted(await executive._money(co, prev.from, prev.to));
 
   // ── site visits ────────────────────────────────────────────────────
   var visitRows = (await pool.query(
@@ -184,17 +173,25 @@ async function week(ctx, query) {
     'SELECT count(*) FILTER (WHERE next_follow_up < $2)::int AS overdue, count(*) FILTER (WHERE next_follow_up BETWEEN $3 AND $4)::int AS next_week, ' +
     '  count(*) FILTER (WHERE next_follow_up IS NULL)::int AS none ' +
     'FROM crm_leads WHERE stage = ANY($1)', [OPEN_STAGES, today, next.from, next.to])).rows[0];
+  // Next week's follow-ups by name, for the day-by-day slide.
+  var followUpsNext = (await pool.query(
+    'SELECT l.id, l.ref, l.name, l.company, l.item, l.stage, l.next_follow_up, l.rep_id, l.rep_name, e.first_name AS rep_first, e.last_name AS rep_last ' +
+    'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id WHERE l.stage = ANY($1) AND l.next_follow_up BETWEEN $2 AND $3 ' +
+    'ORDER BY l.next_follow_up, l.name LIMIT 60', [OPEN_STAGES, next.from, next.to])).rows.map(function (r) {
+    return { id: r.id, ref: r.ref, name: r.name, company: r.company || '', item: r.item || '', stage: r.stage, date: dateOnly(r.next_follow_up),
+      repName: r.rep_id ? personName(r.rep_first, r.rep_last) : (r.rep_name || null) };
+  });
   var qx = { args: [] };
   function p(v) { qx.args.push(v); return '$' + qx.args.length; }
   var expiring = (await pool.query(
-    "SELECT count(*)::int AS n, coalesce(sum(q.grand_total), 0) AS v FROM quotations q JOIN customers c ON c.id = q.customer_id " +
+    "SELECT count(*)::int AS n FROM quotations q JOIN customers c ON c.id = q.customer_id " +
     "WHERE q.status IN ('sent', 'viewed') AND q.currency = 'GHS' AND q.valid_until BETWEEN " + p(next.from) + ' AND ' + p(next.to) + ' AND ' + executive._quoteScope(co, p), qx.args)).rows[0];
 
   // ── the team ───────────────────────────────────────────────────────
   var people = new Map();
   function rep(id, name) {
     if (!id) return null;
-    if (!people.has(id)) people.set(id, { repId: id, name: name || null, newLeads: 0, contacted: 0, inbox: 0, prospects: 0, won: 0, sales: 0, cash: 0 });
+    if (!people.has(id)) people.set(id, { repId: id, name: name || null, photo: null, newLeads: 0, contacted: 0, inbox: 0, prospects: 0, won: 0 });
     var r = people.get(id);
     if (!r.name && name) r.name = name;
     return r;
@@ -203,26 +200,18 @@ async function week(ctx, query) {
   inbox.forEach(function (x) { var r = rep(x.repId, x.repName); if (r) r.inbox++; });
   moved.prospects.forEach(function (l) { var r = rep(l.repId, l.repName); if (r) r.prospects++; });
   moved.won.forEach(function (l) { var r = rep(l.repId, l.repName); if (r) r.won++; });
-  var S = executive._sql;
-  var qs = { args: [] };
-  function ps(v) { qs.args.push(v); return '$' + qs.args.length; }
-  (await pool.query(
-    'SELECT ' + S.REP + ' AS rep_id, sum(i.grand_total - i.credit_total) AS sales ' + S.FROM_INV +
-    'WHERE ' + S.SALE + ' AND i.issued_at BETWEEN ' + ps(from) + ' AND ' + ps(to) + ' AND ' + crm._invoiceScope(co, ps) + ' GROUP BY 1', qs.args)).rows
-    .forEach(function (x) { var r = rep(x.rep_id); if (r) r.sales = r2(x.sales); });
-  var qc = { args: [] };
-  function pc(v) { qc.args.push(v); return '$' + qc.args.length; }
-  (await pool.query(
-    'SELECT ' + S.REP + ' AS rep_id, sum(p.amount) AS cash FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id LEFT JOIN sales_orders so ON so.id = i.sales_order_id ' +
-    'WHERE ' + S.SALE + ' AND p.date BETWEEN ' + pc(from) + ' AND ' + pc(to) + ' AND ' + crm._invoiceScope(co, pc) + ' GROUP BY 1', qc.args)).rows
-    .forEach(function (x) { var r = rep(x.rep_id); if (r) r.cash = r2(x.cash); });
-  var unnamed = Array.from(people.values()).filter(function (r) { return !r.name; }).map(function (r) { return r.repId; });
-  if (unnamed.length) {
-    (await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1::uuid[])', [unnamed])).rows
-      .forEach(function (e) { people.get(e.id).name = personName(e.first_name, e.last_name); });
+  // Names the leads did not carry, and everyone's photo (for the podium).
+  var ids = Array.from(people.keys());
+  if (ids.length) {
+    (await pool.query('SELECT id, first_name, last_name, CASE WHEN photo_key IS NOT NULL THEN photo_updated_at END AS photo FROM employees WHERE id = ANY($1::uuid[])', [ids])).rows
+      .forEach(function (e) {
+        var r = people.get(e.id);
+        if (!r.name) r.name = personName(e.first_name, e.last_name);
+        r.photo = e.photo ? new Date(e.photo).getTime() : null;
+      });
   }
   var team = Array.from(people.values()).filter(function (r) { return r.name; })
-    .sort(function (a, b) { return (b.newLeads + b.inbox) - (a.newLeads + a.inbox) || b.won - a.won || b.sales - a.sales || a.name.localeCompare(b.name); });
+    .sort(function (a, b) { return (b.newLeads + b.inbox) - (a.newLeads + a.inbox) || b.won - a.won || b.prospects - a.prospects || a.name.localeCompare(b.name); });
 
   return {
     week: { from: from, to: to }, previous: prev, next: next, company: co.name,
@@ -238,10 +227,10 @@ async function week(ctx, query) {
       list: list, inbox: inbox
     },
     moved: { prospects: moved.prospects, won: moved.won, lost: moved.lost, lostReasons: reasons },
-    money: money, moneyBefore: moneyBefore, paymentsIn: paymentsIn,
+    sales: sales, salesBefore: salesBefore,
     visits: visits,
-    followUps: { overdue: fu.overdue, nextWeek: fu.next_week, none: fu.none },
-    quotesExpiringNextWeek: { n: expiring.n, value: r2(expiring.v) },
+    followUps: { overdue: fu.overdue, nextWeek: fu.next_week, none: fu.none, nextList: followUpsNext },
+    quotesExpiringNextWeek: { n: expiring.n },
     team: team
   };
 }

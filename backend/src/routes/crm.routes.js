@@ -27,7 +27,7 @@ router.get('/overview', h(function (req) { return crm.overview(req.ctx, req.quer
 // The same page's figures for the CEO or a sales manager (crmExecutive.service.js).
 router.get('/executive', h(function (req) { return crmExecutive.summary(req.ctx, req.query); }));
 // A rep's board: leads, prospects and customers ranked by what needs them (crmBoard.service.js).
-// The Saturday sales review: one week's new leads, what moved, the money and the team (crmWeekly.service.js).
+// The Saturday sales review: one week's new leads, what moved, who bought (counted, no amounts) and the team (crmWeekly.service.js).
 router.get('/week', h(function (req) { return crmWeekly.week(req.ctx, req.query); }));
 router.get('/board', h(function (req) { return crmBoard.board(req.ctx, req.query); }));
 router.get('/board/day', h(function (req) { return crmBoard.myDay(req.ctx, req.query); }));

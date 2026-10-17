@@ -1,23 +1,75 @@
 /* The sales team's Saturday review (SalesPresent.jsx), on the slide stage
-   of components/SlideDeck.css. Two series only — leads on the list (blue)
-   and new people who messaged the inbox (amber), a validated pair, always
-   with a key; every other bar is one colour and labelled. A phase or
-   "not answered yet" is always written, the colour only beside it. */
+   of components/SlideDeck.css in the fancy look of components/SlideKit.css,
+   here in blue: a night-blue stage with an aurora, the figures glowing.
+   Two series only — leads on the list (blue) and new people who messaged
+   the inbox (amber), a validated pair, always with a key; every other bar
+   is one colour and labelled. A phase or "not answered yet" is always
+   written, the colour only beside it. */
 .wop.is-sales {
   --accent: #6ea8ff; --list: #4a86e0; --inbox: #b97f1c; --bar: #4a86e0;
   --ph-lead: #8db8ff; --ph-prospect: #c4a6ff; --ph-won: #f5a3c7; --ph-customer: #4ade80; --ph-lost: #a3aab3;
-  background: radial-gradient(120% 80% at 10% 0%, #14264a 0%, #0b1018 55%) #0b1018;
 }
-.wop.is-sales .wop-slide { background: linear-gradient(160deg, #142036 0%, #101826 60%); }
-.wop.is-sales { --panel: #172238; }
-.wop.is-sales .wop-cover h1 { background: linear-gradient(90deg, #f2f5f3, #9cc2ff); -webkit-background-clip: text; background-clip: text; }
+.wop.is-fancy.is-sales {
+  --accent: #7cb0ff; --open-c: #6ea8ff; --issued: #6ea8ff;
+  background:
+    radial-gradient(60% 50% at 0% 0%, rgba(59, 130, 246, .26), transparent 70%),
+    radial-gradient(50% 45% at 100% 10%, rgba(139, 92, 246, .2), transparent 70%),
+    radial-gradient(60% 60% at 60% 110%, rgba(34, 211, 238, .14), transparent 70%),
+    #050a16;
+}
+.wop.is-fancy.is-sales .wop-slide {
+  background:
+    radial-gradient(80% 60% at 0% 0%, rgba(96, 165, 250, .14), transparent 60%),
+    radial-gradient(70% 60% at 100% 100%, rgba(167, 139, 250, .12), transparent 60%),
+    linear-gradient(160deg, #0d1730 0%, #0a1122 60%);
+}
+.wop.is-fancy.is-sales .sk-cover h1 { background-image: linear-gradient(100deg, #eef4ff 0%, #93c5fd 35%, #c4b5fd 65%, #eef4ff 100%); }
+.wop.is-fancy.is-sales .sk-end h1 { background-image: linear-gradient(100deg, #eef4ff, #93c5fd 45%, #fde68a); }
+.wop.is-fancy.is-sales .sk-orb.is-a { background: radial-gradient(circle, rgba(96, 165, 250, .55), transparent 70%); }
+.wop.is-fancy.is-sales .sk-orb.is-b { background: radial-gradient(circle, rgba(167, 139, 250, .5), transparent 70%); }
+.wop.is-fancy.is-sales .sk-orb.is-c { background: radial-gradient(circle, rgba(245, 196, 81, .35), transparent 70%); }
+.wop.is-fancy .wop-tile.is-lead { --tt: var(--accent); }
+.wop.is-fancy .wop-tile.is-prospect { --tt: var(--ph-prospect); }
+.wop.is-fancy .wop-tile.is-buyers { --tt: var(--gold); } .wop.is-fancy .wop-tile.is-buyers b { color: var(--gold); }
+
+/* the week step by step: four steps, then the customers who bought */
+.sk-flow.is-five { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1.6cqw; }
+.sk-flow.is-five .sk-step:not(:last-child)::after { right: -1.25cqw; }
+.sk-flow.is-five .sk-step small { min-height: 2.5em; } /* the bars start level */
+.sk-step.is-s-leads { --st: var(--accent); } .sk-step.is-s-answered { --st: #5fd4e8; }
+.sk-step.is-s-prospects { --st: var(--ph-prospect); } .sk-step.is-s-won { --st: var(--done); }
+.sk-step.is-goal.is-s-buyers { --st: var(--gold); background: linear-gradient(180deg, rgba(245, 196, 81, .22), rgba(245, 196, 81, .05)); box-shadow: 0 0 3cqw -1cqw var(--gold); }
+
+/* the team: names on one line */
+.sk-team .wop-table td { white-space: nowrap; }
+.wop.is-fancy .ssr-col-bar i { border-radius: .5cqw .5cqw .15cqw .15cqw; }
+.wop.is-fancy .ssr-col-bar i.is-list { background: linear-gradient(180deg, #8db8ff, var(--list)); }
+.wop.is-fancy .ssr-col-bar i.is-inbox { background: linear-gradient(180deg, #e0a640, var(--inbox)); }
+
+/* next week: follow-ups and site visits, by day */
+.sk-chip.is-fu { --st: var(--warn); } .sk-chip.is-visit { --st: var(--violet); }
+.sk-chip:disabled { cursor: default; opacity: 1; }
+button.sk-chip:not(:disabled):hover { border-color: var(--st); }
+.sk-chip-tag { font-size: .85cqw; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--st); }
+
+/* glass for the cards and the figures */
+.ssr-cards > .sk-in { display: flex; min-width: 0; min-height: 0; animation: sk-pop .5s cubic-bezier(.2, .9, .3, 1.15) both; animation-delay: calc(var(--d) * 70ms); }
+.ssr-cards > .sk-in > .ssr-card { flex: 1; }
+.wop.is-fancy .ssr-card, .wop.is-fancy .ssr-kpi { background: linear-gradient(160deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .025)); border-color: var(--line); backdrop-filter: blur(6px); }
+.wop.is-fancy .ssr-card:hover { box-shadow: 0 1cqw 3cqw -1.5cqw var(--accent); }
+.wop.is-fancy .ssr-kpi { position: relative; overflow: hidden; animation: sk-pop .5s cubic-bezier(.2, .9, .3, 1.15) both; }
+.wop.is-fancy .ssr-kpi:nth-child(2) { animation-delay: 70ms; } .wop.is-fancy .ssr-kpi:nth-child(3) { animation-delay: 140ms; }
+.wop.is-fancy .ssr-kpi:nth-child(4) { animation-delay: 210ms; } .wop.is-fancy .ssr-kpi:nth-child(5) { animation-delay: 280ms; } .wop.is-fancy .ssr-kpi:nth-child(6) { animation-delay: 350ms; }
+.wop.is-fancy .ssr-kpi::after { content: ''; position: absolute; right: -3cqw; bottom: -3cqw; width: 10cqw; height: 10cqw; border-radius: 50%; background: radial-gradient(circle, rgba(124, 176, 255, .18), transparent 70%); pointer-events: none; }
+.wop.is-fancy .ssr-kpi b { text-shadow: 0 0 2cqw rgba(124, 176, 255, .3); }
+.wop.is-fancy .ssr-hbar-track span { background: linear-gradient(90deg, var(--bar), #8db8ff); animation: sk-fill .9s cubic-bezier(.2, .8, .2, 1) both; transform-origin: left; }
+.wop.is-fancy .ssr-hbar-track span.is-inbox { background: linear-gradient(90deg, var(--inbox), #e0a640); }
+.wop.is-fancy .ssr-col-bar i { animation: sk-grow .8s cubic-bezier(.2, .8, .2, 1) both; transform-origin: bottom; }
 
 .ssr-eb-lead { color: var(--accent); }
 .ssr-eb-prospect { color: var(--ph-prospect); }
 .wop-tile.is-lead { border-top-color: var(--accent); } .wop-tile.is-lead b { color: var(--accent); }
 .wop-tile.is-prospect { border-top-color: var(--ph-prospect); } .wop-tile.is-prospect b { color: var(--ph-prospect); }
-.wop-tile.is-money { border-top-color: var(--good); }
-.wop-tile b.ssr-money { font-size: 2.6cqw; line-height: 1.15; overflow-wrap: anywhere; }
 .ssr-change { font-size: 1.15cqw; font-weight: 700; color: var(--muted); }
 .ssr-change.is-up { color: var(--good); } .ssr-change.is-down { color: var(--bad); }
 
@@ -87,56 +139,31 @@
 .ssr-names span { font-size: 1.05cqw; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ssr-more { font-size: 1.1cqw; color: var(--muted); padding: .3cqw .8cqw; }
 
-/* sales and money in */
+/* customers and quotations */
 .ssr-kpis { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1.4cqw; }
 .ssr-kpi { display: flex; flex-direction: column; gap: .5cqw; min-width: 0; padding: 1.6cqw 1.8cqw; border-radius: 1.3cqw; background: var(--panel); border: 1px solid var(--line); }
 .ssr-kpi-label { font-size: 1.3cqw; font-weight: 700; color: var(--muted); }
 .ssr-kpi b { font-size: 3.6cqw; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.ssr-kpi b.ssr-money { font-size: 2.8cqw; overflow-wrap: anywhere; }
 .ssr-kpi-note { margin-top: auto; font-size: 1.15cqw; color: var(--muted); }
 .ssr-warn-note { color: var(--warn) !important; }
 
-/* next week */
-.ssr-visits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .8cqw; }
-.ssr-visits li { display: grid; grid-template-columns: 12cqw 1fr; gap: .2cqw 1cqw; font-size: 1.35cqw; }
-.ssr-visits li > span { color: var(--accent); font-weight: 800; }
-.ssr-visits em { grid-column: 2; font-style: normal; font-size: 1.1cqw; color: var(--muted); }
-
-/* "Money in": the payments behind it (a window over the slides, in the app's own colours) */
-button.ssr-kpi.is-link { font: inherit; color: inherit; text-align: left; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
-button.ssr-kpi.is-link:hover { border-color: var(--accent); transform: translateY(-2px); }
-.ssr-kpi-warn { color: var(--warn); font-weight: 700; }
-.ssr-pay { max-width: 820px; display: flex; flex-direction: column; gap: 12px; }
-.ssr-pay-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.ssr-pay-head h2 { margin: 0 0 2px; }
-.ssr-pay-help { margin: 0; font-size: 13.5px; color: var(--color-text-muted); }
-.ssr-pay-done { margin: 0; padding: 8px 12px; border-radius: 10px; font-weight: 700; color: var(--color-success, #1a7f37); background: color-mix(in srgb, var(--color-success, #1a7f37) 10%, var(--color-bg)); }
-.ssr-pay-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 12px; }
-.ssr-pay-list li { display: grid; grid-template-columns: 108px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 12px; }
-.ssr-pay-list li + li { border-top: 1px solid var(--color-divider, var(--color-border)); }
-.ssr-pay-date { font-weight: 800; font-size: 13px; white-space: nowrap; }
-.ssr-pay-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ssr-pay-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ssr-pay-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.ssr-pay-tags em { font-style: normal; font-size: 11.5px; font-weight: 800; padding: 1px 8px; border-radius: 999px; color: #8a5a00; background: #fff3d6; }
-:root[data-theme='dark'] .ssr-pay-tags em { color: #f5c76b; background: rgba(245, 184, 61, .14); }
-.ssr-pay-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
-@media (max-width: 600px) {
-  .ssr-pay-list li { grid-template-columns: minmax(0, 1fr) auto; }
-  .ssr-pay-date { grid-column: 1 / -1; }
-}
+/* the button that opens it */
 .ssr-open-btn { display: inline-flex; align-items: center; gap: 6px; }
 .ssr-open-btn svg { width: 14px; height: 14px; }
 .ssr-loading { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); z-index: 16; padding: 12px 20px; border-radius: 12px; font-weight: 700; color: #f2f5f3; background: #172238; border: 1px solid rgba(255, 255, 255, .12); }
 
 @media print {
-  .wop.is-sales {
-    --accent: #2a63c9; --list: #2a63c9; --inbox: #b06d00; --bar: #2a63c9; --panel: #f3f5f8;
+  .wop.is-sales, .wop.is-fancy.is-sales {
+    --accent: #2a63c9; --open-c: #2a63c9; --issued: #2a63c9; --list: #2a63c9; --inbox: #b06d00; --bar: #2a63c9; --panel: #f3f5f8;
     --ph-lead: #2a63c9; --ph-prospect: #7a4fd6; --ph-won: #c2417e; --ph-customer: #1a8f4c; --ph-lost: #6b7280;
     background: #fff;
   }
-  .wop.is-sales .wop-slide { background: #fff; }
-  .wop.is-sales .wop-cover h1 { background: none; color: var(--ink); }
+  .wop.is-sales .wop-slide, .wop.is-fancy.is-sales .wop-slide { background: #fff; }
+  .wop.is-fancy.is-sales .sk-cover h1, .wop.is-fancy.is-sales .sk-end h1 { background: none; color: var(--ink); }
+  .wop.is-fancy .ssr-card, .wop.is-fancy .ssr-kpi { background: #f6f8f7; backdrop-filter: none; }
+  .wop.is-fancy .ssr-kpi b { text-shadow: none; }
+  .wop.is-fancy .ssr-kpi::after { display: none; }
+  .sk-step.is-goal.is-s-buyers { background: #f6f8f7; box-shadow: none; }
   .ssr-src, .ssr-names button { background: rgba(0, 0, 0, .05); }
   .ssr-h2-note { color: #fff; background: var(--bad); }
 }

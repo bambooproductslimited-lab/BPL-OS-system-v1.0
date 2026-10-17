@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import SlideDeck, { recentWeeks, weekLabel } from '../components/SlideDeck';
 import Photo from '../components/Photo';
+import { CountUp, Delta, Faces, Ring } from '../components/SlideKit';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
 import { ForBadge, StatusGlyph, addDays, colHint, daysBetween, forName, isoDay, nextLabel, pmOf, shortDate } from './WorkOrdersFun';
-import './WorkOrdersPresent.css';
+import '../components/SlideKit.css';
 
 // The Saturday review: the week's work orders as slides on a screen. It
 // opens on the week at a glance (with how it compares to last week and an
@@ -33,61 +34,6 @@ function whatOf(t) { const p = t.product && t.product.name ? t.product.name : t.
 function weekday(iso, style) { return new Date(iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { weekday: style || 'short' }); }
 function dayNum(iso) { return new Date(iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short' }); }
 function daysWord(n) { return n === 1 ? tr('1 day') : tr('{n} days', { n }); }
-
-// A number that counts up when its slide comes on (straight to the end when
-// printed, or for anyone who asked their device for less motion).
-function CountUp({ value, ms = 900 }) {
-  const ref = useRef(null);
-  const [shown, setShown] = useState(value);
-  useEffect(() => {
-    const el = ref.current;
-    const still = !el || el.closest('.wop-print') || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) || typeof value !== 'number';
-    if (still) { setShown(value); return undefined; }
-    let raf, start;
-    const step = (ts) => {
-      if (start === undefined) start = ts;
-      const k = Math.min(1, (ts - start) / ms);
-      setShown(Math.round(value * (1 - Math.pow(1 - k, 3))));
-      if (k < 1) raf = requestAnimationFrame(step);
-    };
-    setShown(0);
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [value, ms]);
-  return <span ref={ref} className="wpx-n">{typeof shown === 'number' ? shown.toLocaleString(activeIntlLocale()) : shown}</span>;
-}
-
-// The on-time share as a ring.
-function Ring({ pct, label }) {
-  const r = 42, c = 2 * Math.PI * r, v = pct === null ? 0 : pct;
-  const tone = pct === null ? 'none' : pct >= 80 ? 'good' : pct >= 60 ? 'warn' : 'bad';
-  return (
-    <div className={'wpx-ring is-' + tone}>
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle cx="50" cy="50" r={r} className="is-track" />
-        <circle cx="50" cy="50" r={r} className="is-fill" strokeDasharray={c} strokeDashoffset={c - (c * v) / 100} transform="rotate(-90 50 50)" />
-      </svg>
-      <span className="wpx-ring-in"><b>{pct === null ? '—' : <><CountUp value={pct} />%</>}</b><small>{label}</small></span>
-    </div>
-  );
-}
-
-// "▲ 3 more than last week".
-function Delta({ now, before }) {
-  const d = now - before;
-  if (!d) return <span className="wpx-delta">{tr('same as last week')}</span>;
-  return <span className={'wpx-delta ' + (d > 0 ? 'is-up' : 'is-down')}>{d > 0 ? '▲ ' + tr('{n} more than last week', { n: d }) : '▼ ' + tr('{n} less than last week', { n: -d })}</span>;
-}
-
-function Faces({ people, max = 4 }) {
-  if (!people.length) return null;
-  return (
-    <span className="wpx-faces">
-      {people.slice(0, max).map((p) => <Photo key={p.id} id={p.id} name={p.name} photo={p.photo} size={22} />)}
-      {people.length > max && <i>+{people.length - max}</i>}
-    </span>
-  );
-}
 
 // One work order on a slide.
 function PCard({ t, today, mode, onOpen }) {
@@ -119,24 +65,24 @@ function PCard({ t, today, mode, onOpen }) {
     }
   }
   return (
-    <button type="button" className={'wop-card wpx-card is-' + t.status + (mode !== 'done' && t.overdue ? ' is-late' : '')} onClick={() => onOpen(t)}>
+    <button type="button" className={'wop-card sk-card is-' + t.status + (mode !== 'done' && t.overdue ? ' is-late' : '')} onClick={() => onOpen(t)}>
       <span className="wop-card-top">
         <span className="wop-no">{t.number}</span>
         {t.priority === 'high' && <span className="wop-hot">{codeLabel('high')}</span>}
-        <span className="wop-st"><span className="wpx-glyph"><StatusGlyph status={t.status} /></span>{woStatusLabel(t.status)}</span>
+        <span className="wop-st"><span className="sk-glyph"><StatusGlyph status={t.status} /></span>{woStatusLabel(t.status)}</span>
       </span>
       <strong className="wop-card-title">{t.title}</strong>
-      <span className="wpx-card-meta">
+      <span className="sk-card-meta">
         {forName(t) && <span className="wop-for"><ForBadge name={forName(t)} /><span>{forName(t)}</span></span>}
-        {what && <span className="wpx-what">{what}</span>}
+        {what && <span className="sk-what">{what}</span>}
       </span>
       <span className={'wop-when is-' + (tone || 'plain')}>
         {when}
         {mode === 'done' && t.onTime === false && <b>{tr('finished late')}</b>}
         {mode === 'done' && t.onTime !== false && t.dueDate && <b>{tr('on time')}</b>}
       </span>
-      {frac !== null && <span className={'wpx-bar is-' + barTone}><i style={{ width: Math.round(frac * 100) + '%' }} /></span>}
-      {barText && <span className="wpx-bar-text">{barText}</span>}
+      {frac !== null && <span className={'sk-bar is-' + barTone}><i style={{ width: Math.round(frac * 100) + '%' }} /></span>}
+      {barText && <span className="sk-bar-text">{barText}</span>}
       <span className="wop-people">
         {t.projectManager ? <Photo id={t.projectManager.id} name={t.projectManager.name} photo={t.projectManager.photo} size={22} /> : null}
         <span>{pm ? tr('PM {name}', { name: pm }) : tr('No project manager')}</span>
@@ -288,22 +234,22 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
         : pct >= 80 ? tr('A strong week: {n} completed, {k} of them on time.', { n: data.done.length, k: onTimeN })
           : tr('{n} completed this week, {k} of them on time.', { n: data.done.length, k: onTimeN });
       return (
-        <div className="wop-cover wpx-cover">
-          <span className="wpx-orb is-a" aria-hidden="true" /><span className="wpx-orb is-b" aria-hidden="true" /><span className="wpx-orb is-c" aria-hidden="true" />
-          <div className="wpx-cover-top">
+        <div className="wop-cover sk-cover">
+          <span className="sk-orb is-a" aria-hidden="true" /><span className="sk-orb is-b" aria-hidden="true" /><span className="sk-orb is-c" aria-hidden="true" />
+          <div className="sk-cover-top">
             <div>
               <span className="wop-eyebrow">{tr('Saturday review')} · {scopeName}</span>
               <h1>{tr('Work orders this week')}</h1>
               <p className="wop-range">{range}</p>
-              <p className="wpx-mood">{mood}</p>
+              <p className="sk-mood">{mood}</p>
             </div>
             <Ring pct={pct} label={tr('on time')} />
           </div>
           <div className="wop-tiles">
             <div className="wop-tile is-good"><b><CountUp value={data.done.length} /></b><span>{tr('completed this week')}</span><Delta now={data.done.length} before={data.before.length} /></div>
-            <div className="wop-tile is-open"><b><CountUp value={data.process.list.length} /></b><span>{tr('in process')}</span><span className="wpx-delta">{data.process.dueNext ? tr('{n} due next week', { n: data.process.dueNext }) : ' '}</span></div>
-            <div className="wop-tile is-pend"><b><CountUp value={data.pending.list.length} /></b><span>{tr('pending')}</span><span className="wpx-delta">{tr('{n} new this week', { n: data.issued.length })}</span></div>
-            <div className={'wop-tile' + (data.overdue.length ? ' is-bad' : ' is-good')}><b><CountUp value={data.overdue.length} /></b><span>{tr('late, in process or pending')}</span><span className="wpx-delta">{data.overdue.length ? tr('the longest {n} late', { n: daysWord(data.overdue[0].daysOverdue || 0) }) : tr('nothing late')}</span></div>
+            <div className="wop-tile is-open"><b><CountUp value={data.process.list.length} /></b><span>{tr('in process')}</span><span className="sk-delta">{data.process.dueNext ? tr('{n} due next week', { n: data.process.dueNext }) : ' '}</span></div>
+            <div className="wop-tile is-pend"><b><CountUp value={data.pending.list.length} /></b><span>{tr('pending')}</span><span className="sk-delta">{tr('{n} new this week', { n: data.issued.length })}</span></div>
+            <div className={'wop-tile' + (data.overdue.length ? ' is-bad' : ' is-good')}><b><CountUp value={data.overdue.length} /></b><span>{tr('late, in process or pending')}</span><span className="sk-delta">{data.overdue.length ? tr('the longest {n} late', { n: daysWord(data.overdue[0].daysOverdue || 0) }) : tr('nothing late')}</span></div>
           </div>
         </div>
       );
@@ -322,14 +268,14 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       return (
         <div className="wop-sum">
           <header className="wop-head"><span className="wop-eyebrow is-good">{tr('Highlights')}</span><h2>{tr('The week in highlights')}</h2></header>
-          <div className="wpx-hl">
+          <div className="sk-hl">
             {cards.map((c, i) => {
               const Tag = c.t ? 'button' : 'div';
               return (
-                <Tag key={c.key} type={c.t ? 'button' : undefined} className={'wpx-hl-card is-' + c.tone} style={{ '--d': i }} onClick={c.t ? () => onOpen(c.t) : undefined}>
-                  <span className="wpx-hl-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{HL_ICON[c.icon]}</svg></span>
+                <Tag key={c.key} type={c.t ? 'button' : undefined} className={'sk-hl-card is-' + c.tone} style={{ '--d': i }} onClick={c.t ? () => onOpen(c.t) : undefined}>
+                  <span className="sk-hl-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{HL_ICON[c.icon]}</svg></span>
                   <small>{c.label}</small>
-                  <b>{c.person ? <span className="wpx-hl-person"><Photo id={c.person.id} name={c.person.name} photo={c.person.photo} size={34} />{c.value}</span> : c.value}</b>
+                  <b>{c.person ? <span className="sk-hl-person"><Photo id={c.person.id} name={c.person.name} photo={c.person.photo} size={34} />{c.value}</span> : c.value}</b>
                   <span>{c.sub}</span>
                 </Tag>
               );
@@ -350,10 +296,10 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
           </header>
           <div className="wop-sum-grid">
             <section className="wop-panel">
-              <div className="wpx-cols" role="img" aria-label={data.trend.map((w) => dayNum(w.from) + ': ' + w.done + ' / ' + w.issued).join(', ')}>
+              <div className="sk-cols" role="img" aria-label={data.trend.map((w) => dayNum(w.from) + ': ' + w.done + ' / ' + w.issued).join(', ')}>
                 {data.trend.map((w) => (
-                  <span key={w.from} className={'wpx-col' + (w.from === weekFrom ? ' is-now' : '')}>
-                    <span className="wpx-pair">
+                  <span key={w.from} className={'sk-col' + (w.from === weekFrom ? ' is-now' : '')}>
+                    <span className="sk-pair">
                       <i className="is-done" style={{ height: (w.done / max) * 86 + '%' }}><b>{w.done || ''}</b></i>
                       <i className="is-issued" style={{ height: (w.issued / max) * 86 + '%' }}><b>{w.issued || ''}</b></i>
                     </span>
@@ -361,7 +307,7 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
                   </span>
                 ))}
               </div>
-              <ul className="wpx-key"><li><i className="is-done" />{tr('Completed')}</li><li><i className="is-issued" />{tr('Issued')}</li></ul>
+              <ul className="sk-key"><li><i className="is-done" />{tr('Completed')}</li><li><i className="is-issued" />{tr('Issued')}</li></ul>
             </section>
             <section className="wop-panel wop-facts">
               <div className="wop-fact"><b><CountUp value={data.done.length} /></b><span>{tr('completed this week')} · <Delta now={data.done.length} before={data.before.length} /></span></div>
@@ -380,7 +326,7 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
         <div className="wop-sum">
           <header className="wop-head"><span className="wop-eyebrow is-good">{tr('Completed this week')}</span><h2>{data.done.length === 1 ? tr('1 work order completed') : tr('{n} work orders completed', { n: data.done.length })}</h2></header>
           {!data.done.length ? <p className="wop-empty">{tr('No work orders were completed this week.')}</p> : (
-            <div className="wpx-three">
+            <div className="sk-three">
               <section className="wop-panel">
                 <h3>{tr('Completed each day')}</h3>
                 <div className="wop-days" role="img" aria-label={data.days.map((d) => d.label + ' ' + d.n).join(', ')}>
@@ -393,7 +339,7 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
                   ))}
                 </div>
               </section>
-              <section className="wop-panel wpx-center">
+              <section className="wop-panel sk-center">
                 <h3>{tr('On time or late')}</h3>
                 <Ring pct={pct} label={tr('{a} on time · {b} late', { a: onTimeN, b: data.late.length })} />
                 {data.median !== null && <p className="wop-note">{data.median === 1 ? tr('Half were done within 1 day of being issued.') : tr('Half were done within {n} days of being issued.', { n: data.median })}</p>}
@@ -401,7 +347,7 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
               <section className="wop-panel">
                 <h3>{tr('Who made them')}</h3>
                 {makers.length ? (
-                  <ul className="wpx-makers">
+                  <ul className="sk-makers">
                     {makers.slice(0, 6).map((m) => <li key={m.id}><Photo id={m.id} name={m.name} photo={m.photo} size={30} /><span>{m.name}</span><b>{m.n}</b></li>)}
                     {makers.length > 6 && <li className="ssr-more">{tr('and {n} more', { n: makers.length - 6 })}</li>}
                   </ul>
@@ -421,19 +367,19 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
             <h2>{data.open.length === 1 ? tr('1 open work order, step by step') : tr('{n} open work orders, step by step', { n: data.open.length })}</h2>
             <p className="wop-sub">{tr('From being talked over to being checked, then completed.')}</p>
           </header>
-          <div className="wpx-flow">
+          <div className="sk-flow">
             {data.flow.map((f, i) => (
-              <div key={f.key} className={'wpx-step is-' + f.key + (f.n ? '' : ' is-empty')} style={{ '--d': i }}>
-                <span className="wpx-step-glyph"><StatusGlyph status={f.key} /></span>
+              <div key={f.key} className={'sk-step is-' + f.key + (f.n ? '' : ' is-empty')} style={{ '--d': i }}>
+                <span className="sk-step-glyph"><StatusGlyph status={f.key} /></span>
                 <b><CountUp value={f.n} /></b>
                 <strong>{woStatusLabel(f.key)}</strong>
                 <small>{colHint(f.key)}</small>
-                <span className="wpx-step-bar"><i style={{ height: (f.n / max) * 100 + '%' }} /></span>
+                <span className="sk-step-bar"><i style={{ height: (f.n / max) * 100 + '%' }} /></span>
                 {f.late > 0 && <em>{f.late === 1 ? tr('1 past due') : tr('{n} past due', { n: f.late })}</em>}
               </div>
             ))}
-            <div className="wpx-step is-completed is-goal" style={{ '--d': FLOW.length }}>
-              <span className="wpx-step-glyph"><StatusGlyph status="completed" /></span>
+            <div className="sk-step is-completed is-goal" style={{ '--d': FLOW.length }}>
+              <span className="sk-step-glyph"><StatusGlyph status="completed" /></span>
               <b><CountUp value={data.done.length} /></b>
               <strong>{tr('Completed this week')}</strong>
               <small>{pct === null ? '' : tr('{pct}% on time', { pct })}</small>
@@ -460,12 +406,12 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
               <section className="wop-panel">
                 <h3>{tr('Where they are')}</h3>
                 <Bars items={shown} max={max} />
-                <h3 className="wpx-h3-gap">{tr('Due soonest')}</h3>
-                <ul className="wpx-soon">
+                <h3 className="sk-h3-gap">{tr('Due soonest')}</h3>
+                <ul className="sk-soon">
                   {g.list.filter((t) => t.dueDate).slice(0, soonN).map((t) => (
                     <li key={t.id}><button type="button" className={'is-' + t.status} onClick={() => onOpen(t)}>
                       <span className="wop-no">{t.number}</span>
-                      <span className="wpx-soon-main"><strong>{t.title}</strong><small>{[forName(t), pmOf(t) ? tr('PM {name}', { name: pmOf(t) }) : null].filter(Boolean).join(' · ')}</small></span>
+                      <span className="sk-soon-main"><strong>{t.title}</strong><small>{[forName(t), pmOf(t) ? tr('PM {name}', { name: pmOf(t) }) : null].filter(Boolean).join(' · ')}</small></span>
                       <em className={t.overdue ? 'is-bad' : ''}>{t.overdue ? ((t.daysOverdue || 0) === 1 ? tr('1 day late') : tr('{n} days late', { n: t.daysOverdue || 0 })) : shortDate(t.dueDate)}</em>
                     </button></li>
                   ))}
@@ -492,8 +438,8 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
               : (lateFirst ? tr('Pending: late ones first') : tr('Pending: soonest due first'))}</h2>
             {sl.pages > 1 && <span className="wop-page">{tr('{a} of {b}', { a: sl.page, b: sl.pages })}</span>}
           </header>
-          <div className="wop-cards wpx-cards">
-            {sl.list.map((t, i) => <div key={t.id} className="wpx-in" style={{ '--d': i }}><PCard t={t} today={today} mode={done ? 'done' : sl.mode} onOpen={onOpen} /></div>)}
+          <div className="wop-cards sk-cards">
+            {sl.list.map((t, i) => <div key={t.id} className="sk-in" style={{ '--d': i }}><PCard t={t} today={today} mode={done ? 'done' : sl.mode} onOpen={onOpen} /></div>)}
           </div>
         </div>
       );
@@ -502,15 +448,15 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       return (
         <div className="wop-sum">
           <header className="wop-head">
-            <span className="wop-eyebrow wpx-eb-bad">{tr('Needs a push')}</span>
+            <span className="wop-eyebrow sk-eb-bad">{tr('Needs a push')}</span>
             <h2>{data.overdue.length === 1 ? tr('1 work order is late') : tr('{n} work orders are late', { n: data.overdue.length })}</h2>
             <p className="wop-sub">{tr('The longest late first, with who has it and the next step.')}</p>
           </header>
-          <ul className="wpx-push">
+          <ul className="sk-push">
             {data.overdue.slice(0, 6).map((t, i) => (
               <li key={t.id} style={{ '--d': i }}><button type="button" onClick={() => onOpen(t)}>
-                <span className="wpx-push-days"><b>{t.daysOverdue || 0}</b><small>{(t.daysOverdue || 0) === 1 ? tr('day late') : tr('days late')}</small></span>
-                <span className="wpx-push-main">
+                <span className="sk-push-days"><b>{t.daysOverdue || 0}</b><small>{(t.daysOverdue || 0) === 1 ? tr('day late') : tr('days late')}</small></span>
+                <span className="sk-push-main">
                   <strong><span className="wop-no">{t.number}</span>{t.title}</strong>
                   <small>{[forName(t), woStatusLabel(t.status), pmOf(t) ? tr('PM {name}', { name: pmOf(t) }) : tr('No project manager'), t.dueDate ? tr('was due {date}', { date: shortDate(t.dueDate) }) : null].filter(Boolean).join(' · ')}</small>
                 </span>
@@ -528,23 +474,23 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       return (
         <div className="wop-sum">
           <header className="wop-head">
-            <span className="wop-eyebrow wpx-eb-violet">{tr('Who we worked for')}</span>
+            <span className="wop-eyebrow sk-eb-violet">{tr('Who we worked for')}</span>
             <h2>{tr('Customers and companies')}</h2>
             <p className="wop-sub">{tr('Completed this week, and still open.')}</p>
           </header>
-          <ul className="wpx-for">
+          <ul className="sk-for">
             {list.map((f, i) => (
               <li key={f.name} style={{ '--d': i }}>
-                <span className="wpx-for-name"><ForBadge name={f.name} /><span>{f.name}</span></span>
-                <span className="wpx-for-track">
+                <span className="sk-for-name"><ForBadge name={f.name} /><span>{f.name}</span></span>
+                <span className="sk-for-track">
                   <i className="is-done" style={{ width: (f.done / max) * 100 + '%' }} />
                   <i className="is-open" style={{ width: (f.open / max) * 100 + '%' }} />
                 </span>
-                <span className="wpx-for-n">{tr('{a} completed · {b} open', { a: f.done, b: f.open })}{f.late ? <em> · {tr('{n} past due', { n: f.late })}</em> : null}</span>
+                <span className="sk-for-n">{tr('{a} completed · {b} open', { a: f.done, b: f.open })}{f.late ? <em> · {tr('{n} past due', { n: f.late })}</em> : null}</span>
               </li>
             ))}
           </ul>
-          <ul className="wpx-key"><li><i className="is-done" />{tr('Completed this week')}</li><li><i className="is-open" />{tr('Still open')}</li></ul>
+          <ul className="sk-key"><li><i className="is-done" />{tr('Completed this week')}</li><li><i className="is-open" />{tr('Still open')}</li></ul>
           {data.forList.length > 7 && <p className="wop-note">{tr('and {n} more', { n: data.forList.length - 7 })}</p>}
         </div>
       );
@@ -555,17 +501,17 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       return (
         <div className="wop-sum">
           <header className="wop-head"><span className="wop-eyebrow is-pend">{tr('Project managers')}</span><h2>{tr('Who has what')}</h2></header>
-          <div className={'wpx-team' + (podium.length ? '' : ' is-flat')}>
+          <div className={'sk-team' + (podium.length ? '' : ' is-flat')}>
             {podium.length > 0 && (
-              <div className="wpx-podium">
+              <div className="sk-podium">
                 {order.map((p) => {
                   const place = podium.indexOf(p);
                   return (
-                    <div key={p.name} className={'wpx-place ' + MEDAL[place]}>
-                      {p.person ? <Photo id={p.person.id} name={p.person.name} photo={p.person.photo} size={place === 0 ? 64 : 52} /> : <span className="wpx-noface">{p.name.slice(0, 1)}</span>}
+                    <div key={p.name} className={'sk-place ' + MEDAL[place]}>
+                      {p.person ? <Photo id={p.person.id} name={p.person.name} photo={p.person.photo} size={place === 0 ? 64 : 52} /> : <span className="sk-noface">{p.name.slice(0, 1)}</span>}
                       <strong>{p.name}</strong>
                       <span>{p.done === 1 ? tr('1 completed') : tr('{n} completed', { n: p.done })}</span>
-                      <div className="wpx-block"><b>{place + 1}</b></div>
+                      <div className="sk-block"><b>{place + 1}</b></div>
                     </div>
                   );
                 })}
@@ -599,18 +545,18 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
             <h2>{data.dueNext.length === 1 ? tr('1 work order due: {dates}', { dates: weekLabel(nextFrom, nextTo) }) : tr('{n} work orders due: {dates}', { n: data.dueNext.length, dates: weekLabel(nextFrom, nextTo) })}</h2>
             <p className="wop-sub">{data.overdue.length ? (data.overdue.length === 1 ? tr('Plus 1 already late to bring back on track.') : tr('Plus {n} already late to bring back on track.', { n: data.overdue.length })) : tr('Nothing late is carried over.')}</p>
           </header>
-          <div className="wpx-week">
+          <div className="sk-week">
             {data.next.map((d, i) => (
-              <div key={d.key} className={'wpx-wday' + (d.list.length ? ' is-busy' : '')} style={{ '--d': i }}>
-                <span className="wpx-wday-head"><b>{weekday(d.key)}</b><small>{dayNum(d.key)}</small></span>
+              <div key={d.key} className={'sk-wday' + (d.list.length ? ' is-busy' : '')} style={{ '--d': i }}>
+                <span className="sk-wday-head"><b>{weekday(d.key)}</b><small>{dayNum(d.key)}</small></span>
                 {d.list.slice(0, 3).map((t) => (
-                  <button key={t.id} type="button" className={'wpx-chip is-' + t.status} onClick={() => onOpen(t)}>
-                    <span className="wop-no">{t.number}</span><span className="wpx-chip-title">{t.title}</span>
+                  <button key={t.id} type="button" className={'sk-chip is-' + t.status} onClick={() => onOpen(t)}>
+                    <span className="wop-no">{t.number}</span><span className="sk-chip-title">{t.title}</span>
                     <small>{[forName(t), pmOf(t)].filter(Boolean).join(' · ')}</small>
                   </button>
                 ))}
-                {d.list.length > 3 && <span className="wpx-more">{tr('+{n} more', { n: d.list.length - 3 })}</span>}
-                {!d.list.length && <span className="wpx-free">{tr('Nothing due')}</span>}
+                {d.list.length > 3 && <span className="sk-more">{tr('+{n} more', { n: d.list.length - 3 })}</span>}
+                {!d.list.length && <span className="sk-free">{tr('Nothing due')}</span>}
               </div>
             ))}
           </div>
@@ -624,19 +570,19 @@ export default function WorkOrdersPresent({ wos, scopeName, onClose, onOpen, pau
       data.makers[0] ? tr('Most hands-on: {name}', { name: data.makers[0].name }) : null
     ].filter(Boolean);
     return (
-      <div className="wop-cover is-end wpx-end">
-        <span className="wpx-orb is-a" aria-hidden="true" /><span className="wpx-orb is-b" aria-hidden="true" />
-        {good ? <span className="wpx-confetti" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</span> : null}
+      <div className="wop-cover is-end sk-end">
+        <span className="sk-orb is-a" aria-hidden="true" /><span className="sk-orb is-b" aria-hidden="true" />
+        {good ? <span className="sk-confetti" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</span> : null}
         <span className="wop-eyebrow">{tr('Saturday review')} · {range}</span>
         <h1>{tr('Thank you, team')}</h1>
-        {shout.length > 0 && <ul className="wpx-shout">{shout.map((s) => <li key={s}>{s}</li>)}</ul>}
+        {shout.length > 0 && <ul className="sk-shout">{shout.map((s) => <li key={s}>{s}</li>)}</ul>}
         <p className="wop-range">{data.overdue.length ? tr('This week, bring the {n} late work orders back on track.', { n: data.overdue.length }) : tr('Nothing is late. Keep it that way next week.')}</p>
       </div>
     );
   }
 
   return (
-    <SlideDeck brand={tr('Saturday review')} className="is-wo" weeks={weeks} weekFrom={weekFrom} onWeek={setWeekFrom}
+    <SlideDeck brand={tr('Saturday review')} className="is-fancy is-wo" weeks={weeks} weekFrom={weekFrom} onWeek={setWeekFrom}
       slides={slides} render={render} onClose={onClose} paused={paused} />
   );
 }

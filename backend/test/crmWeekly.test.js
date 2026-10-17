@@ -2,7 +2,8 @@
  * The Saturday sales review (crmWeekly.service.js): one week's new leads —
  * from the leads list and from people who messaged the inbox for the first
  * time — where they came from, who has them, whether they were answered;
- * what moved (prospects, won, lost); the money; site visits; the team.
+ * what moved (prospects, won, lost); who bought, counted (never an amount
+ * of money); site visits; the team.
  * Uses the week of 3 June 2019, which no other test touches. Everything is
  * named ZWK and removed afterwards.
  */
@@ -83,6 +84,9 @@ test.before(async function () {
     "VALUES ($1,$2,1000,0,0,1000,0,1000,'unpaid','2019-06-05','2019-06-20','sale') RETURNING id", ['ZWK-' + Date.now(), buyer])).rows[0].id;
   await pool.query("INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, received_by) VALUES ($1,$2,'2019-06-06',400,'GHS','cash',$3)", [inv, buyer, adminEmp]);
   await pool.query("INSERT INTO crm_site_visits (client, scheduled_on, status) VALUES ('ZWK Site A', '2019-06-05', 'visited'), ('ZWK Site B', '2019-06-12', 'scheduled')");
+  // A follow-up due next week, on an older lead.
+  L.follow = await lead('ZWK Follow', '2019-05-15', { stage: 'contacted', item: 'Daybed', rep: adminEmp });
+  await pool.query("UPDATE crm_leads SET next_follow_up = '2019-06-12' WHERE id = $1", [L.follow]);
 });
 
 test.after(async function () {
@@ -129,24 +133,38 @@ test('what moved this week: a new prospect, a win and a loss with its reason', a
   assert.deepEqual(m.lostReasons, [{ reason: 'Too expensive', n: 1 }]);
 });
 
-test('the money, the visits and the team', async function () {
+// Every key anywhere in the week's figures.
+function keysOf(x, out) {
+  out = out || new Set();
+  if (Array.isArray(x)) x.forEach(function (y) { keysOf(y, out); });
+  else if (x && typeof x === 'object') Object.keys(x).forEach(function (k) { out.add(k); keysOf(x[k], out); });
+  return out;
+}
+
+test('who bought, the visits and the team: counted, never an amount of money', async function () {
   var w = await weekly.week(admin, { from: '2019-06-03' });
-  assert.deepEqual([w.money.sales, w.money.cash, w.money.invoices], [1000, 400, 1]);
+  assert.deepEqual([w.sales.invoices, w.sales.buyers, w.sales.quotesSent], [1, 1, 0]);
+  assert.equal(w.salesBefore.buyers, 0);
   assert.deepEqual([w.visits.done, w.visits.planned, w.visits.nextWeek.map(function (v) { return v.client; })], [1, 1, ['ZWK Site B']]);
-  assert.deepEqual(w.paymentsIn.map(function (x) { return [x.customerName, x.amount, x.date]; }), [['ZWK Buyer', 400, '2019-06-06']], 'the payments behind money in');
   var me = w.team.find(function (r) { return r.repId === adminEmp; });
-  assert.deepEqual([me.newLeads, me.contacted, me.inbox, me.prospects, me.won, me.sales, me.cash], [2, 1, 1, 1, 1, 1000, 400]);
+  assert.deepEqual([me.newLeads, me.contacted, me.inbox, me.prospects, me.won], [2, 1, 1, 1, 1]);
+  // The review shows the team no money: not the sales, the money in, the
+  // payments, a deal's value or a quotation's.
+  var keys = keysOf(w);
+  ['money', 'moneyBefore', 'paymentsIn', 'moneyWeeks', 'biggestSale', 'cash', 'amount', 'value', 'dealValue', 'quotesValue', 'quotesWonValue', 'averageInvoice'].forEach(function (k) {
+    assert.ok(!keys.has(k), k + ' is not sent');
+  });
+  assert.equal(typeof w.sales, 'object', 'sales holds counts only');
+  assert.ok(Object.keys(w.sales).every(function (k) { return Number.isInteger(w.sales[k]); }));
+});
+
+test('next week\'s follow-ups by name', async function () {
+  var w = await weekly.week(admin, { from: '2019-06-03' });
+  var mine = w.followUps.nextList.filter(function (f) { return f.name.indexOf('ZWK') === 0; });
+  assert.deepEqual(mine.map(function (f) { return [f.name, f.date, f.item]; }), [['ZWK Follow', '2019-06-12', 'Daybed']]);
+  assert.ok(mine[0].repName);
 });
 
 test('only for those who can see the CRM', async function () {
   await assert.rejects(weekly.week({ can: function () { return false; } }, {}), /crm\.read/);
-});
-
-test('a payment moved to the day it really came in leaves the week\'s money in', async function () {
-  var payments = require('../src/services/payments.service');
-  var w = await weekly.week(admin, { from: '2019-06-03' });
-  await payments.changeDate(admin, w.paymentsIn[0].id, { date: '2019-05-20', reason: 'ZWK paid in May' });
-  var after = await weekly.week(admin, { from: '2019-06-03' });
-  assert.deepEqual([after.money.cash, after.paymentsIn.length, after.money.sales], [0, 0, 1000], 'the sale stays; the money moves to May');
-  await pool.query("DELETE FROM audit_logs WHERE action = 'payment.redate' AND summary LIKE '%ZWK%'");
 });
