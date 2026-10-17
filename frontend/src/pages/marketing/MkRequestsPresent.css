@@ -9,6 +9,7 @@
 }
 .wop.is-mkreq .wop-slide { background: linear-gradient(160deg, #211a3d 0%, #15112a 60%); }
 .wop.is-mkreq .wop-cover h1 { background: linear-gradient(90deg, #f4f1ff, #c9b6ff); -webkit-background-clip: text; background-clip: text; }
+.wop.is-mkreq .wop-cover:not(.is-end) h1 { font-size: 4.6cqw; }
 .wop.is-mkreq .wop-tile.is-asked { border-top-color: var(--asked); }
 .wop.is-mkreq .wop-tile.is-asked b { color: var(--accent); }
 .mkp-eb { color: var(--accent); }
@@ -40,7 +41,8 @@
 
 .mkp-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .9cqw; }
 .mkp-people li { display: flex; align-items: center; gap: 1cqw; font-size: 1.45cqw; }
-.mkp-people li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkp-people li .photo { flex: none; }
+.mkp-pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mkp-people li b { font-size: 1.9cqw; color: var(--accent); font-variant-numeric: tabular-nums; }
 
 /* request cards */

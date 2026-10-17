@@ -153,7 +153,7 @@ export default function RequestsSummary({ scope, companies, version, onOpen, pre
             ) : <p className="mk-muted">{tr('Nothing was asked for in this period.')}</p>}
             {s.companies.length > 1 && (
               <div className="mk-sum-cos">
-                {s.companies.map((c) => <span key={c.code} className="mk-sum-cochip"><strong>{c.name}</strong>{tr('{a} asked · {b} done', { a: c.made, b: c.done })}{c.late ? <em> · {tr('{n} past due', { n: c.late })}</em> : null}</span>)}
+                {s.companies.map((c) => <span key={c.code} className="mk-sum-cochip"><strong>{c.name}</strong><span>{tr('{a} asked · {b} done', { a: c.made, b: c.done })}{c.late ? <em> · {tr('{n} past due', { n: c.late })}</em> : null}</span></span>)}
               </div>
             )}
           </div>
@@ -164,13 +164,13 @@ export default function RequestsSummary({ scope, companies, version, onOpen, pre
               <div>
                 <small>{tr('Asked for the most')}</small>
                 {s.askers.length ? s.askers.slice(0, 4).map((p) => (
-                  <span key={p.id} className="mk-sum-person"><Photo id={p.id} name={p.name} photo={p.photo} size={26} /><span>{p.name}</span><b>{p.n}</b></span>
+                  <span key={p.id} className="mk-sum-person"><Photo id={p.id} name={p.name} photo={p.photo} size={26} /><span className="mk-sum-pname">{p.name}</span><b>{p.n}</b></span>
                 )) : <span className="mk-muted">—</span>}
               </div>
               <div>
                 <small>{tr('Did the work')}</small>
                 {s.team.length ? s.team.slice(0, 4).map((p) => (
-                  <span key={p.id} className="mk-sum-person"><Photo id={p.id} name={p.name} photo={p.photo} size={26} /><span>{p.name}<em>{[p.done ? tr('{n} done', { n: p.done }) : null, p.helped ? tr('helped on {n}', { n: p.helped }) : null, p.open ? tr('{n} open', { n: p.open }) : null].filter(Boolean).join(' · ')}</em></span>{p.late ? <i className="mk-sum-late">{tr('{n} past due', { n: p.late })}</i> : null}</span>
+                  <span key={p.id} className="mk-sum-person"><Photo id={p.id} name={p.name} photo={p.photo} size={26} /><span className="mk-sum-pname">{p.name}<em>{[p.done ? tr('{n} done', { n: p.done }) : null, p.helped ? tr('helped on {n}', { n: p.helped }) : null, p.open ? tr('{n} open', { n: p.open }) : null].filter(Boolean).join(' · ')}</em></span>{p.late ? <i className="mk-sum-late">{tr('{n} past due', { n: p.late })}</i> : null}</span>
                 )) : <span className="mk-muted">—</span>}
               </div>
             </div>

@@ -78,22 +78,36 @@ test('a week, Monday to Sunday', async function () {
   await assert.rejects(summary.summary(boss, { period: 'week', from: addDays(S.todayIso(), 14) }), /not started yet/);
 });
 
-test('coming up: open requests due and the requests routines will make, in the next days', async function () {
+test('coming up: open requests due from today, and the requests routines will make', async function () {
   var today = S.todayIso();
-  var wd = new Date(addDays(today, 2) + 'T00:00:00Z').getUTCDay();
-  var rt = await routines.create(boss, { company: 'BGN', title: 'ZRS Weekly special', kind: 'social_post', every: 'week', weekdays: [wd], dueAfterDays: 1, startsOn: addDays(today, 1), assignedTo: boss.employee.id });
-  var s = await summary.summary(boss, { scope: 'all', company: 'BGN', period: 'week' });
-  assert.equal(s.period.current, true);
-  assert.deepEqual(s.coming.due.map(function (d) { return d.title; }), ['ZRS Photos']);
-  var mine = s.coming.routines.filter(function (u) { return u.routine === rt.id; });
-  assert.equal(mine[0].on, addDays(today, 2));
-  assert.equal(mine[0].dueOn, addDays(today, 3));
-  assert.equal(mine[0].company.code, 'BGN');
-  assert.equal(mine[0].lead, rt.lead.name);
-  assert.equal(s.coming.to, addDays(today, 7));
-  var month = await summary.summary(boss, { scope: 'all', company: 'BGN', period: 'month' });
-  assert.equal(month.coming.to, addDays(today, 30));
-  assert.ok(month.coming.routines.filter(function (u) { return u.routine === rt.id; }).length >= 4);
+  // The summary asks the routines for the coming days: every company's, or
+  // one company's, or one person's (stood in for here, so no routine is due
+  // in the next days while the other routine tests run).
+  var real = routines.upcoming, calls = [];
+  routines.upcoming = async function (co, from, to, who) {
+    calls.push([co, from, to, who]);
+    return [{ routine: 'r1', title: 'ZRS Weekly special', kind: 'social_post', company: { code: 'BGN', name: 'Bamboo Garden' }, lead: 'Zq Lead', on: addDays(today, 2), due: addDays(today, 3) }];
+  };
+  try {
+    var s = await summary.summary(boss, { scope: 'all', company: 'BGN', period: 'week' });
+    assert.equal(s.period.current, true);
+    assert.deepEqual([s.coming.from, s.coming.to], [today, addDays(today, 7)]);
+    assert.deepEqual(s.coming.due.map(function (d) { return d.title; }), ['ZRS Photos']);
+    assert.deepEqual(s.coming.routines.map(function (u) { return [u.title, u.on, u.dueOn, u.company.code, u.lead]; }), [['ZRS Weekly special', addDays(today, 2), addDays(today, 3), 'BGN', 'Zq Lead']]);
+    assert.deepEqual(calls[0], [bgn, addDays(today, 1), addDays(today, 7), null]);
+    var month = await summary.summary(boss, { scope: 'all', period: 'month' });
+    assert.deepEqual(calls[1], [null, addDays(today, 1), addDays(today, 30), null], 'every company');
+    assert.equal(month.coming.to, addDays(today, 30));
+    await summary.summary(staff, { period: 'week' });
+    assert.deepEqual(calls[2][3], staff.employee.id, 'only theirs');
+  } finally { routines.upcoming = real; }
+
+  // The routines' side, in 2031: every company's, or one person's.
+  var rt = await routines.create(boss, { company: 'BGN', title: 'ZRS Weekly special', kind: 'social_post', every: 'week', weekdays: [1], dueAfterDays: 1, startsOn: '2031-03-03', assignedTo: boss.employee.id });
+  var all = (await routines.upcoming(null, '2031-03-01', '2031-03-12')).filter(function (u) { return u.routine === rt.id; });
+  assert.deepEqual(all.map(function (u) { return [u.on, u.due, u.company.code, u.lead]; }), [['2031-03-03', '2031-03-04', 'BGN', rt.lead.name], ['2031-03-10', '2031-03-11', 'BGN', rt.lead.name]]);
+  assert.equal((await routines.upcoming(null, '2031-03-01', '2031-03-12', boss.employee.id)).filter(function (u) { return u.routine === rt.id; }).length, 2);
+  assert.equal((await routines.upcoming(null, '2031-03-01', '2031-03-12', helper.employee.id)).filter(function (u) { return u.routine === rt.id; }).length, 0);
 });
 
 test('anyone else sees only their own requests, whatever they ask for', async function () {

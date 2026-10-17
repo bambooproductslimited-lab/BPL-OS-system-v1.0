@@ -10,8 +10,9 @@ var routines = require('./mkRoutines.service');
 // before, how many were done by the day needed, how long they took, what
 // kinds, which companies, who asked and who did the work (the one leading
 // it, and the team who helped), every one done, the eight periods before,
-// and, as things stand now, what is late or waiting, and what is due in the
-// coming days (with the requests routines will make). Whose requests: the
+// and, as things stand now, what is late or waiting, and what is due from
+// today to 7 days on (a week) or 30 (a month), with the requests routines
+// will make. Whose requests: the
 // same as the board — marketing (marketing.read, scope=all) everyone's,
 // optionally one company's; anyone else the ones they asked for, lead or
 // are on the team of.
@@ -136,8 +137,8 @@ async function summary(ctx, opts) {
     done: c.done, doneBefore: c.done_before, onTime: c.on_time, onTimeBefore: c.on_time_before,
     days: days(c.days), daysBefore: days(c.days_before),
     open: c.open, fresh: c.fresh, review: c.review, late: c.late,
-    kinds: q[1].rows.filter(function (r) { return r.made || r.done; }).sort(function (a, b) { return (b.made + b.done) - (a.made + a.done); }),
-    companies: q[2].rows.filter(function (r) { return r.made || r.done || r.late; }).sort(function (a, b) { return b.made - a.made || b.done - a.done; }),
+    kinds: q[1].rows.filter(function (r) { return r.made || r.done; }).sort(function (a, b) { return (b.made + b.done) - (a.made + a.done) || (a.kind < b.kind ? -1 : 1); }),
+    companies: q[2].rows.filter(function (r) { return r.made || r.done || r.late; }).sort(function (a, b) { return b.made - a.made || b.done - a.done || (a.name < b.name ? -1 : 1); }),
     askers: q[3].rows.map(function (r) { return Object.assign(person(r.id, r.first_name, r.last_name, r.photo), { n: r.n }); }),
     team: q[4].rows.map(function (r) { return Object.assign(person(r.id, r.first_name, r.last_name, r.photo), { done: r.done, onTime: r.on_time, open: r.open, late: r.late, helped: r.helped }); }),
     doneList: q[5].rows.map(function (r) {
@@ -155,7 +156,7 @@ async function summary(ctx, opts) {
     }),
     trend: q[8].rows.map(function (r) { return { from: r.pfrom, to: r.pto, made: r.made, done: r.done, onTime: r.on_time }; }),
     coming: {
-      from: addDays(today, 1), to: comingTo,
+      from: today, to: comingTo,
       due: q[9].rows.map(function (r) {
         return { id: r.id, ref: ref(r.number), title: r.title, kind: r.kind, status: r.status, priority: r.priority, company: company(r), dueOn: r.due_on,
           lead: person(r.assigned_to, r.first_name, r.last_name, r.photo) };

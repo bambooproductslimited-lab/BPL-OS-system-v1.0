@@ -133,7 +133,7 @@ export default function MkRequestsPresent({ s, kind, from, onPeriod, onOpen, pau
               <h3>{tr('Who asked')}</h3>
               {s.askers.length ? (
                 <ul className="mkp-people">
-                  {s.askers.slice(0, 6).map((p) => <li key={p.id}><Photo id={p.id} name={p.name} photo={p.photo} size={34} /><span>{p.name}</span><b>{p.n}</b></li>)}
+                  {s.askers.slice(0, 6).map((p) => <li key={p.id}><Photo id={p.id} name={p.name} photo={p.photo} size={34} /><span className="mkp-pname">{p.name}</span><b>{p.n}</b></li>)}
                 </ul>
               ) : <p className="ssr-none">{tr('Nobody asked for anything in this period.')}</p>}
             </section>

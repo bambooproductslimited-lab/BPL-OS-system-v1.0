@@ -521,7 +521,7 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-sum-change.is-up { color: var(--mk-good); font-weight: 700; } .mk-sum-change.is-down { color: var(--mk-bad); font-weight: 700; }
 .mk-sum-tile.is-asked .mk-sum-change.is-up, .mk-sum-tile.is-asked .mk-sum-change.is-down { color: var(--mk-violet); }
 .mk-sum-ringwrap { position: relative; display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 4px; }
-.mk-sum-ringwrap b { position: absolute; font-family: var(--font-heading); font-size: 15px; font-variant-numeric: tabular-nums; }
+.mk-sum-ringwrap b { position: absolute; font-family: var(--font-heading); font-size: 13px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .mk-sum-ring { width: 58px; height: 58px; }
 .mk-sum-ring circle { fill: none; stroke-width: 6; }
 .mk-sum-ring .is-track { stroke: color-mix(in srgb, var(--t) 14%, var(--mk-card)); }
@@ -530,7 +530,7 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-sum-grid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .mk-sum-grid.is-two { grid-template-columns: 1fr 1fr; }
 .mk-sum-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.mk-sum-cols { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; align-items: end; height: 150px; padding-top: 18px; }
+.mk-sum-cols { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; align-items: end; min-height: 170px; padding-top: 18px; }
 .mk-sum-col { height: 100%; display: grid; grid-template-rows: 1fr auto; justify-items: center; gap: 5px; min-width: 0; }
 .mk-sum-col small { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
 .mk-sum-col.is-now small { color: var(--color-text); font-weight: 800; }
@@ -552,8 +552,9 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-sum-track span { display: block; height: 100%; border-radius: 999px; background: var(--mk-violet); }
 .mk-sum-kinds b { grid-area: n; text-align: right; font-variant-numeric: tabular-nums; }
 .mk-sum-kinds small { grid-area: d; font-size: 11.5px; color: var(--color-text-muted); }
-.mk-sum-cos { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--mk-line); }
-.mk-sum-cochip { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12px; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 4%, var(--mk-card)); }
+.mk-sum-cos { display: flex; flex-direction: column; gap: 5px; padding-top: 10px; border-top: 1px dashed var(--mk-line); }
+.mk-sum-cochip { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 5px 10px; border-radius: 10px; font-size: 12px; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 4%, var(--mk-card)); }
+.mk-sum-cochip > span { text-align: right; }
 .mk-sum-cochip strong { color: var(--color-text); }
 .mk-sum-cochip em { font-style: normal; font-weight: 700; color: var(--mk-bad); }
 
@@ -561,7 +562,8 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
 .mk-sum-people > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mk-sum-people small { font-size: 11.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
 .mk-sum-person { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
-.mk-sum-person > span { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-sum-person .photo { flex: none; }
+.mk-sum-pname { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mk-sum-person em { font-style: normal; font-weight: 500; font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; }
 .mk-sum-person > b { font-family: var(--font-heading); font-size: 16px; color: var(--mk-violet); }
 .mk-sum-late { flex: none; padding: 2px 8px; border-radius: 999px; font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--mk-bad); background: color-mix(in srgb, var(--mk-bad) 10%, var(--mk-card)); white-space: nowrap; }
@@ -590,4 +592,8 @@ button.mk-card:hover, .mk-card.is-link:hover { transform: translateY(-2px); box-
   .mk-sum-grid, .mk-sum-grid.is-two { grid-template-columns: 1fr; }
   .mk-sum-step strong { min-width: 0; }
   .mk-sum-tile > b { font-size: 26px; }
+  .mk-sum-list button { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'ref late' 'what what'; row-gap: 4px; }
+  .mk-sum-ref { grid-area: ref; min-width: 0; }
+  .mk-sum-what { grid-area: what; }
+  .mk-sum-list .mk-sum-late { grid-area: late; }
 }
