@@ -39,7 +39,10 @@ import './KioskPage.css';
 // colour wash (green in, blue out, red error, amber offline) that says who
 // was clocked, when, and what it means — their shift, whether they were
 // late, the hours worked, and the week so far (kiosk.service.js's
-// tapSummary).
+// tapSummary). The fun is light on purpose (old iPads run these): a slow
+// glow behind the card, a clock with a blinking colon and the minute filling
+// up underneath, glowing PIN dots, confetti on a clock-in and bubbles rising
+// on a clock-out — and none of it for anyone who asks for less motion.
 
 const PIN_LENGTH = 4;
 const RESULT_DISPLAY_MS = 3500;
@@ -375,6 +378,9 @@ export default function KioskPage() {
 
   const tone = result ? (result.kind === 'ok' ? (result.action === 'in' ? 'clockin' : 'clockout') : result.kind) : '';
   const clock = now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
+  // The colon blinks; the seconds fill a line under the clock.
+  const clockParts = clock.split(':');
+  const seconds = now.getSeconds();
   const dateLine = now.toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   function facts(r, loc) {
@@ -401,8 +407,9 @@ export default function KioskPage() {
 
   return (
     <div className={'dk kiosk' + (tone ? ' is-' + tone : '')}>
+      <span className="kiosk-orb is-a" aria-hidden="true" /><span className="kiosk-orb is-b" aria-hidden="true" /><span className="kiosk-orb is-c" aria-hidden="true" />
       <div className="kiosk-top">
-        <div className="kiosk-brand">CHOU AND ASSOCIATES</div>
+        <div className="kiosk-brand"><i aria-hidden="true" />CHOU AND ASSOCIATES</div>
         <div className="kiosk-top-tools">
           {pendingCount > 0 && (
             <span className="kiosk-pending">
@@ -418,6 +425,8 @@ export default function KioskPage() {
 
       {result ? (
         <div className={'kiosk-card kiosk-result is-' + tone} role="status" aria-live="assertive">
+          {tone === 'clockin' && <span className="kiosk-confetti" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ '--i': i, '--x': (i * 53) % 97, '--r': ((i * 37) % 17) / 17 }} />)}</span>}
+          {tone === 'clockout' && <span className="kiosk-bubbles" aria-hidden="true">{Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--x': (i * 41) % 95, '--r': ((i * 29) % 13) / 13 }} />)}</span>}
           <div className="kiosk-result-mark">
             <Icon name={result.kind === 'ok' ? (result.action === 'in' ? 'checkCircle' : 'exit') : result.kind === 'pending' ? 'cloud' : 'xCircle'} />
           </div>
@@ -491,7 +500,11 @@ export default function KioskPage() {
         <div className="kiosk-card">
           <div className="kiosk-side">
             <p className="dk-eyebrow">{dateLine}</p>
-            <div className="kiosk-clock">{clock}</div>
+            <div className="kiosk-clock" aria-label={clock}>
+              {clockParts.length === 2 ? <>{clockParts[0]}<span className="kiosk-colon">:</span>{clockParts[1]}</> : clock}
+              <small className="kiosk-sec">{String(seconds).padStart(2, '0')}</small>
+            </div>
+            <span className="kiosk-tick" aria-hidden="true"><i key={now.getMinutes()} style={{ width: ((seconds + 1) / 60) * 100 + '%' }} /></span>
             <h1 className="kiosk-title">{tr('Clock in or out')}<Also locales={staffLocales} k="Clock in or out" /></h1>
             <p className="dk-muted">{tr('Tap your 4-digit PIN. The same PIN clocks you in when you arrive and out when you leave.')}<Also locales={staffLocales} k="Tap your 4-digit PIN. The same PIN clocks you in when you arrive and out when you leave." /></p>
             <ol className="kiosk-steps">
@@ -541,7 +554,7 @@ export default function KioskPage() {
               </div>
             ) : (
               <>
-                <div className="kiosk-pin" aria-label={tr('PIN')}>
+                <div className={'kiosk-pin' + (submitting ? ' is-checking' : '')} aria-label={tr('PIN')}>
                   {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
                 </div>
                 <p className="kiosk-pin-note" role="status">{submitting ? tr('Checking…') : pin.length ? tr('{n} of 4', { n: pin.length }) : <>{tr('Enter your PIN')}<Also locales={staffLocales} k="Enter your PIN" /></>}</p>
