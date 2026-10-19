@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { posFetch } from '../lib/posApi';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
+import DeviceLanguage from '../components/DeviceLanguage';
 import { unlockAudio, playNewTicket } from '../kiosk/kioskSounds';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
@@ -198,7 +199,7 @@ export default function KdsPage() {
     return (
       <div className="dk pos-shell pos-gate kds-gate">
         <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
-        <div className="pos-gate-top">{themeButton}</div>
+        <div className="pos-gate-top"><DeviceLanguage className="pos-lang" />{themeButton}</div>
         <div className="pos-gate-card">
           <div className="pos-gate-side">
             <p className="dk-eyebrow">{new Date(now).toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
@@ -256,6 +257,7 @@ export default function KdsPage() {
           <span className="kds-clock">{clock}</span>
           <button type="button" className={'kds-tool' + (sound ? ' is-on' : '')} onClick={toggleSound} aria-pressed={sound} title={sound ? tr('Sound on: a ding for each new ticket') : tr('Sound off')}>{sound ? '🔔' : '🔕'}</button>
           <button type="button" className="kds-tool" onClick={fullScreen} title={tr('Full screen')} aria-label={tr('Full screen')}>⛶</button>
+          <DeviceLanguage className="kds-lang" />
           {themeButton}
           <button type="button" className="kds-tool is-text" onClick={signOut}>{tr('Log out')}</button>
         </div>

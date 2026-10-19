@@ -81,6 +81,10 @@
 :root[data-theme='light'] .pos-orb { opacity: .22; }
 @keyframes pos-float-orb { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(40px, 30px); } }
 .pos-gate-top { position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; z-index: 1; }
+/* The device's language (components/DeviceLanguage.jsx), beside the theme. */
+.pos-lang { position: relative; display: inline-flex; flex: none; }
+.pos-lang select { height: 40px; padding: 0 30px 0 12px; font: inherit; font-size: 14px; font-weight: 700; color: var(--color-text); background: var(--pos-card); border: 1px solid var(--pos-line); border-radius: 12px; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.pos-lang::after { content: '▾'; position: absolute; right: 11px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--color-text-muted); pointer-events: none; }
 .pos-gate-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); width: min(900px, 100%); overflow: hidden; border-radius: 26px; background: color-mix(in srgb, var(--pos-card) 82%, transparent); border: 1px solid var(--pos-line); box-shadow: 0 40px 90px -40px rgba(0, 0, 0, .6); backdrop-filter: blur(18px); animation: pos-rise .35s cubic-bezier(.2, .8, .2, 1) both; }
 .pos-gate-side { padding: 38px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid var(--pos-line);
   background: linear-gradient(160deg, color-mix(in srgb, var(--pos-a) 14%, transparent), transparent 55%), linear-gradient(330deg, color-mix(in srgb, var(--pos-b) 10%, transparent), transparent 50%); }

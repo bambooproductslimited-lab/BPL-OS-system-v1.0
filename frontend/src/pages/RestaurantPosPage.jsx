@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_ORIGIN } from '../api/client';
 import { posFetch } from '../lib/posApi';
+import { KDS_URL, SITE } from '../lib/site';
 import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
@@ -10,6 +11,7 @@ import {
 } from '../lib/thermalPrinter';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
+import DeviceLanguage from '../components/DeviceLanguage';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
@@ -251,10 +253,11 @@ export default function RestaurantPosPage() {
   // /kiosk one) — makes a till device's "Add to Home Screen" install open
   // straight into the POS with its own icon/name (pos-manifest.webmanifest,
   // pos.html) instead of landing on the main app's dashboard, and caches
-  // the app shell so a till that loses wifi mid-shift still loads.
+  // the app shell so a till that loses wifi mid-shift still loads. On the
+  // till's own website (lib/site.js) the whole site is the till.
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/pos-sw.js', { scope: '/pos' }).catch(() => {});
+      navigator.serviceWorker.register('/pos-sw.js', { scope: SITE === 'pos' ? '/' : '/pos' }).catch(() => {});
     }
   }, []);
 
@@ -826,7 +829,7 @@ export default function RestaurantPosPage() {
     return (
       <div className="dk pos-shell pos-gate">
         <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
-        <div className="pos-gate-top">{themeButton}</div>
+        <div className="pos-gate-top"><DeviceLanguage className="pos-lang" />{themeButton}</div>
         <div className="pos-gate-card">
           <div className="pos-gate-side">
             <p className="dk-eyebrow">{today}</p>
@@ -870,6 +873,7 @@ export default function RestaurantPosPage() {
       <div className="dk pos-shell pos-gate" data-brand={session.companyCode}>
         <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
         <div className="pos-gate-top">
+          <DeviceLanguage className="pos-lang" />
           {themeButton}
           <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
         </div>
@@ -1395,7 +1399,7 @@ export default function RestaurantPosPage() {
               </ul>
             )}
             <div className="dialog-actions">
-              <a className="btn btn-secondary" href="/kds" target="_blank" rel="noreferrer">{tr('Open the kitchen screen ↗')}</a>
+              <a className="btn btn-secondary" href={KDS_URL} target="_blank" rel="noreferrer">{tr('Open the kitchen screen ↗')}</a>
               <button type="button" className="btn btn-primary" onClick={() => setKitchenOpen(false)}>{tr('Close')}</button>
             </div>
           </div>

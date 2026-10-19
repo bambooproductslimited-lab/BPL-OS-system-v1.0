@@ -56,6 +56,9 @@
 .kds-tool { min-width: 42px; height: 42px; padding: 0 10px; display: inline-grid; place-items: center; font: inherit; font-size: 17px; color: var(--color-text); background: var(--kd-soft); border: 1px solid var(--kd-line); border-radius: 12px; cursor: pointer; }
 .kds-tool.is-text { font-size: 13.5px; font-weight: 700; }
 .kds-tool.is-on { border-color: rgba(var(--kd-done-rgb), .5); }
+.kds-lang { position: relative; display: inline-flex; flex: none; }
+.kds-lang select { height: 42px; padding: 0 28px 0 11px; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--color-text); background: var(--kd-soft); border: 1px solid var(--kd-line); border-radius: 12px; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.kds-lang::after { content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--color-text-muted); pointer-events: none; }
 .kds-banner { margin: 10px 16px 0; padding: 11px 14px; font-weight: 600; border-radius: 12px; background: var(--kd-card); border: 1px solid var(--kd-line); border-left: 5px solid rgb(var(--kd-b-rgb)); }
 .kds-banner.is-offline { border-left-color: rgb(var(--kd-warn-rgb)); background: rgba(var(--kd-warn-rgb), .12); }
 .kds-banner.is-bad { border-left-color: rgb(var(--kd-late-rgb)); background: rgba(var(--kd-late-rgb), .1); }

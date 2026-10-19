@@ -87,7 +87,12 @@ app.use(helmet());
 // (attendanceFeeds.routes.js); everything else keeps the app's CORS rule.
 app.use('/api/feeds/attendance', attendanceFeedsRoutes.browsers);
 var appCors = cors({ origin: config.corsOrigin, credentials: true });
-app.use(function (req, res, next) { return req.path.indexOf('/api/feeds/attendance') === 0 ? next() : appCors(req, res, next); });
+// The till and the kitchen screen on their own websites reach their API only.
+var posCors = cors({ origin: config.corsOrigin.concat(config.restaurantSiteOrigins), credentials: true });
+app.use(function (req, res, next) {
+  if (req.path.indexOf('/api/feeds/attendance') === 0) return next();
+  return (req.path === '/api/pos' || req.path.indexOf('/api/pos/') === 0 ? posCors : appCors)(req, res, next);
+});
 // verify captures the raw request bytes onto req.rawBody before JSON
 // parsing discards them — whatsapp.routes.js's webhook needs the exact
 // raw bytes (not a re-serialized object) to check Meta's HMAC signature.

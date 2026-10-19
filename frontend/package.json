@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:pos": "node tools/build-site.mjs pos",
+    "build:kds": "node tools/build-site.mjs kds",
     "lint": "oxlint",
     "preview": "vite preview"
   },

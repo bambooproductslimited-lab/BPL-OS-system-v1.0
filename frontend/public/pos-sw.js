@@ -10,7 +10,7 @@
 // activate (harmless if forgotten — just means a stale cache lingers as
 // dead weight until the next bump, never served, since cache lookups are
 // exact-URL).
-var CACHE_NAME = 'bamboo-pos-v1';
+var CACHE_NAME = 'bamboo-pos-v2';
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -35,6 +35,11 @@ self.addEventListener('fetch', function (event) {
   // untouched — a till showing a stale cached menu or silently "succeeding"
   // a sale offline would be a real problem, not a convenience.
   if (req.method !== 'GET' || req.url.indexOf('/api/') !== -1) return;
+  // Nor anything from another site (Google Fonts): fetched from in here it
+  // would answer to this worker's Content-Security-Policy, whose
+  // connect-src does not list it, and fail — the page's own rules let it
+  // load as a stylesheet and a font.
+  if (new URL(req.url).origin !== self.location.origin) return;
 
   // The navigation itself (loading /pos) goes network-first: whenever
   // there's a connection, always fetch the real, current index.html —

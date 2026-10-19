@@ -75,6 +75,12 @@ module.exports = {
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || null,
   kioskPinPepper: (process.env.NODE_ENV === 'production') ? required('KIOSK_PIN_PEPPER') : required('KIOSK_PIN_PEPPER', 'dev-only-insecure-pepper-change-me'),
   corsOrigin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(function (s) { return s.trim(); }),
+  // The restaurant till and kitchen screen also run as websites of their
+  // own (frontend: npm run build:pos / build:kds); those addresses may call
+  // the till's API (/api/pos) and nothing else. RESTAURANT_SITE_ORIGINS
+  // replaces the list.
+  restaurantSiteOrigins: (process.env.RESTAURANT_SITE_ORIGINS || 'https://pos.starbartema.com,https://kds.starbartema.com')
+    .split(',').map(function (s) { return s.trim().replace(/\/+$/, ''); }).filter(Boolean),
   // Where the OS itself is served, for links in emails the server sends on
   // its own (a customer's invoice link in a payment reminder). APP_URL, or
   // the first https address in CORS_ORIGIN.
