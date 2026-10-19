@@ -4,6 +4,7 @@ import { CompanySwitcher, Icon, useCompany } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import { Ring } from '../crm/crmFun';
+import { viewFiles } from '../../components/FileViewer';
 import './marketing.css';
 
 // What the marketing department's pages share (pages/marketing/*): the
@@ -125,6 +126,8 @@ const GLYPH = {
   upload: <><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 20h14" /></>,
   copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></>,
   link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7L11.5 6.8" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5" /></>,
+  external: <><path d="M14 4h6v6M20 4l-9 9" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></>,
+  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></>,
   pin: <><path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z" /><circle cx="12" cy="10.5" r="2" /></>,
   tag: <><path d="M3 12V4h8l10 10-8 8z" /><circle cx="7.5" cy="8.5" r="1.4" /></>,
   arrowR: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
@@ -234,19 +237,64 @@ export function ChipPicker({ options, value, onChange, single, label }) {
   );
 }
 
-// A protected file opened in a new tab (fetched with the sign-in token).
+// A protected file: shown inside the app (components/FileViewer.jsx), or
+// saved to the device (fetched with the sign-in token).
 export function openFile(path, download) {
-  const win = download ? null : window.open('', '_blank');
-  fetch(API_URL + path + (download ? (path.includes('?') ? '&' : '?') + 'download=1' : ''), { headers: { Authorization: 'Bearer ' + (getToken() || '') } })
+  if (!download) { viewFiles([{ path }]); return; }
+  fetch(API_URL + path + (path.includes('?') ? '&' : '?') + 'download=1', { headers: { Authorization: 'Bearer ' + (getToken() || '') } })
     .then((r) => (r.ok ? r.blob().then((b) => ({ b, name: (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) })) : null))
     .then((x) => {
-      if (!x) { if (win) win.close(); return; }
+      if (!x) return;
       const url = URL.createObjectURL(x.b);
-      if (download) {
-        const a = document.createElement('a'); a.href = url; a.download = x.name ? x.name[1] : 'file'; document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-      } else if (win) win.location.href = url;
-    }).catch(() => { if (win) win.close(); });
+      const a = document.createElement('a'); a.href = url; a.download = x.name ? x.name[1] : 'file'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }).catch(() => {});
+}
+// A link as it is typed or pasted, kept the way the server keeps it
+// (mkRequests.service.js linkUrl): { url } or { error }. Web links only.
+export function webLink(v) {
+  let s = String(v || '').trim();
+  if (!s) return { error: tr('Paste the link first.') };
+  if (/^(javascript|data|vbscript|file|blob|mailto|tel|about):/i.test(s)) return { error: tr('Only web links (http or https) can be added.') };
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'https://' + s.replace(/^\/+/, '');
+  let u;
+  try { u = new URL(s); } catch { return { error: tr('That is not a web link: {link}', { link: s.slice(0, 80) }) }; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { error: tr('Only web links (http or https) can be added.') };
+  if (!u.hostname.includes('.')) return { error: tr('That is not a web link: {link}', { link: s.slice(0, 80) }) };
+  if (u.username || u.password) return { error: tr('A link with a password in it cannot be added.') };
+  return { url: u.href };
+}
+// Where a link goes, for its badge: the sites marketing uses most, by name
+// and colour; anything else by its address.
+const SITES = [
+  [/(^|\.)(drive|docs|sheets|slides)\.google\.com$/, 'Google Drive', '#1a73e8'], [/(^|\.)canva\.(com|link)$/, 'Canva', '#7d2ae8'],
+  [/(^|\.)(facebook\.com|fb\.com|fb\.watch)$/, 'Facebook', '#1877f2'], [/(^|\.)instagram\.com$/, 'Instagram', '#d6249f'],
+  [/(^|\.)(youtube\.com|youtu\.be)$/, 'YouTube', '#e62117'], [/(^|\.)tiktok\.com$/, 'TikTok', '#111827'],
+  [/(^|\.)(wa\.me|whatsapp\.com)$/, 'WhatsApp', '#1fa855'], [/(^|\.)dropbox\.com$/, 'Dropbox', '#0061fe'],
+  [/(^|\.)(x\.com|twitter\.com)$/, 'X', '#111827'], [/(^|\.)linkedin\.com$/, 'LinkedIn', '#0a66c2'],
+  [/(^|\.)figma\.com$/, 'Figma', '#a259ff'], [/(^|\.)(onedrive\.live\.com|1drv\.ms|sharepoint\.com)$/, 'OneDrive', '#0078d4'],
+  [/(^|\.)wetransfer\.com$/, 'WeTransfer', '#3767ea']
+];
+export function siteOf(host) {
+  const h = String(host || '').toLowerCase();
+  const hit = SITES.find((x) => x[0].test(h));
+  return hit ? { name: hit[1], color: hit[2], letter: hit[1][0] } : { name: null, color: '#64748b', letter: (h[0] || '?').toUpperCase() };
+}
+// Text with the web addresses in it made into links that open in a new tab.
+const URL_IN_TEXT = /\b((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+export function Linkified({ text }) {
+  const s = String(text || ''), out = [];
+  let last = 0, m;
+  URL_IN_TEXT.lastIndex = 0;
+  while ((m = URL_IN_TEXT.exec(s))) {
+    const raw = m[1].replace(/[).,;:!?\]'"]+$/, '');
+    if (m.index > last) out.push(s.slice(last, m.index));
+    out.push(<a key={m.index} className="mk-inline-link" href={/^https?:\/\//i.test(raw) ? raw : 'https://' + raw} target="_blank" rel="noopener noreferrer">{raw}</a>);
+    last = m.index + raw.length;
+    URL_IN_TEXT.lastIndex = last;
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return <>{out}</>;
 }
 // A protected image as an object URL.
 export function useProtectedImage(path) {

@@ -7,6 +7,7 @@ import NotificationsBell from '../components/NotificationsBell';
 import LanguagePicker from '../components/LanguagePicker';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { FollowUpsAtSignIn } from '../pages/crm/FollowUps';
+import { FileViewerHost } from '../components/FileViewer';
 import { CallsProvider } from '../components/calls/CallsContext';
 import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
 import { installUnlock } from '../lib/notificationSound';
@@ -163,6 +164,8 @@ export default function AppShell() {
         </div>
         {/* A sales rep's customers to follow up, once per sign-in. */}
         <FollowUpsAtSignIn />
+        {/* Files open over the page, not in another tab (components/FileViewer.jsx). */}
+        <FileViewerHost />
       </main>
     </div>
     </CallsProvider>

@@ -4,9 +4,11 @@ import { useAuth } from '../../auth/AuthContext';
 import Photo from '../../components/Photo';
 import PeoplePicker from '../../components/PeoplePicker';
 import { Section } from '../../components/DashKit';
+import { fileBadge, fileKind, viewFiles } from '../../components/FileViewer';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import {
-  Glyph, L, MkBanner, MkDialog, MkEmpty, Pill, REQUEST_GLYPH, REQUEST_KINDS, REQUEST_STATUS, addDays, dayLabel, openFile, readParam, todayIso
+  Glyph, L, Linkified, MkBanner, MkDialog, MkEmpty, Pill, REQUEST_GLYPH, REQUEST_KINDS, REQUEST_STATUS, addDays, dayLabel, openFile, readParam, siteOf, todayIso,
+  useProtectedImage, webLink
 } from './mkKit';
 import RequestsSummary from './MkRequestsSummary';
 
@@ -15,8 +17,11 @@ import RequestsSummary from './MkRequestsSummary';
 // date it is needed by, attach what helps, and follow it on a board —
 // new, in progress, ready to check, done. Marketing takes it on, assigns
 // someone to lead it and a team to work with them, talks in the comments
-// and attaches the finished work; the one who asked approves it or asks
-// for changes. Everyone is told at each step. What is needed regularly is
+// and attaches the finished work — files, or links to where it lives (the
+// published post, a shared folder); the one who asked approves it or asks
+// for changes. Anyone on it can add links that help (a Drive folder, a
+// design, a post to copy). Files open inside the app
+// (components/FileViewer.jsx), one after another; links in a new tab. Everyone is told at each step. What is needed regularly is
 // a routine (backend mkRoutines.service.js): it makes the request itself
 // on each day it comes round — every N weeks on chosen days, or every N
 // months on a day — with the same brief, lead and team.
@@ -178,14 +183,22 @@ function RequestCard({ r, me, onOpen }) {
 }
 
 function AskDialog({ companies, onClose, onDone, onRoutine }) {
-  const [f, setF] = useState({ company: (companies[0] && companies[0].code) || 'BPL', kind: 'flyer', title: '', brief: '', audience: '', dueOn: '', priority: 'normal' });
+  const [f, setF] = useState({ company: (companies[0] && companies[0].code) || 'BPL', kind: 'flyer', title: '', brief: '', audience: '', dueOn: '', priority: 'normal', links: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function send(e) {
     e.preventDefault();
+    const lines = f.links.split(/\s*\n\s*/).map((x) => x.trim()).filter(Boolean);
+    const links = [];
+    for (let i = 0; i < lines.length; i++) {
+      const k = webLink(lines[i]);
+      if (k.error) { setError(lines.length > 1 ? tr('Link {n}: {problem}', { n: i + 1, problem: k.error }) : k.error); return; }
+      links.push(k.url);
+    }
+    if (links.length > 10) { setError(tr('Up to 10 links with a new request; add more after.')); return; }
     setSaving(true); setError(null);
-    try { onDone(await api.post('/mk/requests', f)); } catch (err) { setError(err.message); setSaving(false); }
+    try { onDone(await api.post('/mk/requests', { ...f, links })); } catch (err) { setError(err.message); setSaving(false); }
   }
   return (
     <MkDialog wide title={tr('Ask marketing for something')} sub={tr('The clearer the brief, the sooner it comes back right. Marketing is told straight away.')} onClose={() => !saving && onClose()}
@@ -202,6 +215,9 @@ function AskDialog({ companies, onClose, onDone, onRoutine }) {
         </div>
         <label className="field is-span"><span>{tr('In a few words')}</span><input className="input" required maxLength={160} value={f.title} onChange={set('title')} placeholder={tr('e.g. A5 flyer for the Christmas showroom sale')} /></label>
         <label className="field is-span"><span>{tr('The brief')}</span><textarea className="input" rows={4} maxLength={4000} value={f.brief} onChange={set('brief')} placeholder={tr(PLACEHOLDER)} /></label>
+        <label className="field is-span"><span className="mk-row" style={{ gap: 6 }}><Glyph name="link" size={14} />{tr('Links that help')} <span className="mk-muted">{tr('(optional)')}</span></span>
+          <textarea className="input" rows={2} value={f.links} onChange={set('links')} placeholder={tr('One per line: a Google Drive folder, a Canva design, a post to copy, a website…')} />
+          <span className="hint">{tr('Files can be attached once it is sent.')}</span></label>
         <label className="field"><span>{tr('Who will see it')}</span><input className="input" maxLength={300} value={f.audience} onChange={set('audience')} placeholder={tr('e.g. Walk-in customers, hotel buyers')} /></label>
         <label className="field"><span>{tr('Needed by')}</span><input className="input" type="date" min={todayIso()} value={f.dueOn} onChange={set('dueOn')} /></label>
         {companies.length > 1 && (
@@ -233,6 +249,8 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
   const [changes, setChanges] = useState(null);
   const fileRef = useRef(null);
   const [deliver, setDeliver] = useState(false);
+  const [linkForm, setLinkForm] = useState(null); // { url, label } while adding a link
+  const [linkError, setLinkError] = useState(null);
   const load = useCallback(() => api.get('/mk/requests/' + id).then(setR).catch((e) => setError(e.message)), [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -268,6 +286,17 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
     const fd = new FormData(); fd.append('file', file); if (deliver) fd.append('delivered', 'true');
     await act(() => api.upload('/mk/requests/' + id + '/files', fd), deliver ? tr('Finished work attached; they are told.') : tr('File attached.'));
   }
+  async function addLink(e) {
+    e.preventDefault();
+    const k = webLink(linkForm.url);
+    if (k.error) { setLinkError(k.error); return; }
+    setBusy(true); setLinkError(null);
+    try {
+      setR(await api.post('/mk/requests/' + id + '/links', { url: k.url, label: linkForm.label, delivered: deliver }));
+      onChanged(); setLinkForm(null);
+      toast(deliver ? tr('Link to the finished work added; they are told.') : tr('Link added.'));
+    } catch (err) { setLinkError(err.message); } finally { setBusy(false); }
+  }
   async function send(e) {
     e.preventDefault();
     if (!comment.trim()) return;
@@ -278,6 +307,18 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
   if (!r) return <MkDialog wide title={tr('Request')} onClose={onClose}>{error ? <div className="error-banner">{error}</div> : <p className="mk-muted">{tr('Loading…')}</p>}</MkDialog>;
   const stepAt = STEPS.indexOf(r.status);
   const delivered = r.attachments.filter((a) => a.delivered), refs = r.attachments.filter((a) => !a.delivered);
+  const links = r.links || [], doneLinks = links.filter((k) => k.delivered), refLinks = links.filter((k) => !k.delivered);
+  // Every file of the request, the finished work first, to go through in the viewer.
+  const shelf = delivered.concat(refs);
+  const viewAll = (a) => viewFiles(shelf.map((x) => ({
+    path: '/mk/requests/' + id + '/files/' + x.id, name: x.name, mime: x.mime, size: x.size,
+    note: [x.delivered ? tr('The finished work') : null, tr('added by {name} on {date}', { name: x.by, date: dayLabel(x.at) })].filter(Boolean).join(' · ')
+  })), shelf.indexOf(a));
+  const mayRemove = (x) => r.canManage || x.byId === me;
+  const removeLink = async (k) => {
+    if (!window.confirm(tr('Remove the link to {name}?', { name: k.label || k.host }))) return;
+    await act(() => api.del('/mk/requests/' + id + '/links/' + k.id), tr('Link removed.'));
+  };
   return (
     <MkDialog wide title={r.ref + ' · ' + r.title} sub={L(REQUEST_KINDS, r.kind) + ' · ' + r.company.name + (r.dueOn ? ' · ' + tr('needed by {date}', { date: dayLabel(r.dueOn, { weekday: 'short', day: 'numeric', month: 'short' }) }) : '')} onClose={onClose}>
       <div className="mk-row" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -293,9 +334,9 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
       <div className="mk-two">
         <div className="mk-card">
           <h4 className="mk-h4"><Glyph name="file" size={16} />{tr('The brief')}</h4>
-          {r.brief ? <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.55 }}>{r.brief}</p> : <p className="mk-muted" style={{ margin: 0 }}>{tr('No brief written.')}</p>}
+          {r.brief ? <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.55, overflowWrap: 'anywhere' }}><Linkified text={r.brief} /></p> : <p className="mk-muted" style={{ margin: 0 }}>{tr('No brief written.')}</p>}
           {r.audience && <p className="mk-muted" style={{ margin: 0 }}>{tr('For: {who}', { who: r.audience })}</p>}
-          {r.note && <p className="mk-note" style={{ margin: 0 }}><strong>{tr('From marketing:')}</strong> {r.note}</p>}
+          {r.note && <p className="mk-note" style={{ margin: 0 }}><strong>{tr('From marketing:')}</strong> <Linkified text={r.note} /></p>}
         </div>
         <div className="mk-card">
           <h4 className="mk-h4"><Glyph name="users" size={16} />{tr('Who')}</h4>
@@ -319,10 +360,11 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
 
       <TeamCard r={r} people={people} busy={busy} onChange={setCrew} />
 
-      {delivered.length > 0 && (
-        <div className="mk-card" style={{ borderColor: 'color-mix(in srgb, var(--mk-good) 45%, var(--mk-line))' }}>
-          <h4 className="mk-h4" style={{ color: 'var(--mk-good)' }}><Glyph name="download" size={16} />{tr('The finished work')}</h4>
-          <div className="mk-files">{delivered.map((a) => <FileChip key={a.id} a={a} id={id} canRemove={r.canManage} onRemoved={setR} />)}</div>
+      {delivered.length + doneLinks.length > 0 && (
+        <div className="mk-card mk-shelf is-done">
+          <h4 className="mk-h4"><Glyph name="trophy" size={16} />{tr('The finished work')}</h4>
+          {delivered.length > 0 && <div className="mk-ftiles">{delivered.map((a) => <FileTile key={a.id} a={a} id={id} onOpen={() => viewAll(a)} canRemove={mayRemove(a)} onRemoved={setR} />)}</div>}
+          {doneLinks.length > 0 && <div className="mk-links">{doneLinks.map((k) => <LinkRow key={k.id} k={k} canRemove={mayRemove(k)} onRemove={() => removeLink(k)} />)}</div>}
         </div>
       )}
 
@@ -338,10 +380,30 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
         </>}
         <span style={{ flex: 1 }} />
         {r.canManage && <label className="mk-row mk-muted" style={{ gap: 6 }}><input type="checkbox" checked={deliver} onChange={(e) => setDeliver(e.target.checked)} />{tr('It is the finished work')}</label>}
+        <button type="button" className={'mk-btn is-ghost is-small' + (linkForm ? ' is-on' : '')} onClick={() => { setLinkError(null); setLinkForm(linkForm ? null : { url: '', label: '' }); }}><Glyph name="link" size={14} />{tr('Add a link')}</button>
         <button type="button" className="mk-btn is-ghost is-small" onClick={() => fileRef.current && fileRef.current.click()}><Glyph name="upload" size={14} />{tr('Attach a file')}</button>
         <input ref={fileRef} type="file" hidden onChange={upload} />
       </div>
-      {refs.length > 0 && <div className="mk-files">{refs.map((a) => <FileChip key={a.id} a={a} id={id} canRemove={r.canManage} onRemoved={setR} />)}</div>}
+      {linkForm && (
+        <form className={'mk-card mk-linkform' + (deliver ? ' is-done' : '')} onSubmit={addLink}>
+          <h4 className="mk-h4"><Glyph name="link" size={16} />{deliver ? tr('A link to the finished work') : tr('Add a link')}</h4>
+          <p className="mk-muted" style={{ margin: 0, fontSize: 13 }}>{deliver ? tr('Where the finished work lives: the published post, the shared folder… They are told.') : tr('A Google Drive folder, a Canva design, a post to copy, a website… It opens in a new tab.')}</p>
+          <div className="mk-linkform-row">
+            <input className="input mk-fill" autoFocus value={linkForm.url} onChange={(e) => { setLinkError(null); setLinkForm({ ...linkForm, url: e.target.value }); }} placeholder={tr('Paste the link')} aria-label={tr('Web link')} maxLength={2000} />
+            <input className="input" value={linkForm.label} onChange={(e) => setLinkForm({ ...linkForm, label: e.target.value })} placeholder={tr('What is it? (optional)')} aria-label={tr('What is it?')} maxLength={160} />
+            <button type="submit" className="mk-btn is-primary is-small" disabled={busy || !linkForm.url.trim()}>{tr('Add')}</button>
+            <button type="button" className="mk-btn is-ghost is-small" onClick={() => setLinkForm(null)}>{tr('Cancel')}</button>
+          </div>
+          {linkError && <p className="mk-link-error" role="alert">{linkError}</p>}
+        </form>
+      )}
+      {refs.length + refLinks.length > 0 && (
+        <div className="mk-card mk-shelf">
+          <h4 className="mk-h4"><Glyph name="file" size={16} />{tr('Files and links')}<span className="mk-muted mk-shelf-count">{[refs.length ? (refs.length === 1 ? tr('1 file') : tr('{n} files', { n: refs.length })) : null, refLinks.length ? (refLinks.length === 1 ? tr('1 link') : tr('{n} links', { n: refLinks.length })) : null].filter(Boolean).join(' · ')}</span></h4>
+          {refs.length > 0 && <div className="mk-ftiles">{refs.map((a) => <FileTile key={a.id} a={a} id={id} onOpen={() => viewAll(a)} canRemove={mayRemove(a)} onRemoved={setR} />)}</div>}
+          {refLinks.length > 0 && <div className="mk-links">{refLinks.map((k) => <LinkRow key={k.id} k={k} canRemove={mayRemove(k)} onRemove={() => removeLink(k)} />)}</div>}
+        </div>
+      )}
 
       <div className="mk-card">
         <h4 className="mk-h4"><Glyph name="chat" size={16} />{tr('Talk about it')}</h4>
@@ -349,7 +411,7 @@ function RequestDetail({ id, me, onClose, onChanged, toast }) {
           {r.thread.map((m) => (
             <div key={m.id} className={'mk-msg' + (m.author.id === me ? ' is-mine' : '')}>
               <Photo id={m.author.id} name={m.author.name} photo={m.author.photo} size={28} />
-              <div className="mk-msg-body"><div className="mk-msg-head"><span>{m.author.id === me ? tr('You') : m.author.name}</span><span>{dayLabel(m.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>{m.body}</div>
+              <div className="mk-msg-body"><div className="mk-msg-head"><span>{m.author.id === me ? tr('You') : m.author.name}</span><span>{dayLabel(m.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div><Linkified text={m.body} /></div>
             </div>
           ))}
           {!r.thread.length && <p className="mk-muted" style={{ margin: 0 }}>{tr('No messages yet. Ask a question or add a detail; the other side is told.')}</p>}
@@ -680,17 +742,51 @@ function TeamCard({ r, people, busy, onChange }) {
   );
 }
 
-function FileChip({ a, id, canRemove, onRemoved }) {
+// A file on a request: its picture (or a badge for its kind), name, size
+// and who added it; pressed, it opens in the viewer with the others.
+function sizeText(n) { return !n ? '' : n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (Math.round((n / (1024 * 1024)) * 10) / 10) + ' MB'; }
+function FileTile({ a, id, onOpen, canRemove, onRemoved }) {
+  const kind = fileKind(a.name, a.mime), badge = fileBadge(a.name, a.mime);
+  const picture = useProtectedImage(kind === 'image' ? '/mk/requests/' + id + '/files/' + a.id : null);
   async function remove() {
     if (!window.confirm(tr('Remove {name}?', { name: a.name }))) return;
     try { onRemoved(await api.del('/mk/requests/' + id + '/files/' + a.id)); } catch { /* left as it was */ }
   }
   return (
-    <span className={'mk-file' + (a.delivered ? ' is-delivered' : '')}>
-      <Glyph name={a.delivered ? 'trophy' : 'file'} size={15} /><span title={a.name}>{a.name}</span>
-      <button type="button" onClick={() => openFile('/mk/requests/' + id + '/files/' + a.id)} title={tr('Open')} aria-label={tr('Open')}><Glyph name="arrowR" size={14} /></button>
-      <button type="button" onClick={() => openFile('/mk/requests/' + id + '/files/' + a.id, true)} title={tr('Download')} aria-label={tr('Download')}><Glyph name="download" size={14} /></button>
-      {canRemove && <button type="button" onClick={remove} title={tr('Remove')} aria-label={tr('Remove')}>×</button>}
+    <span className={'mk-ftile' + (a.delivered ? ' is-done' : '')}>
+      <button type="button" className="mk-ftile-open" onClick={onOpen} title={tr('Open {name}', { name: a.name })}>
+        <span className="mk-ftile-art" style={{ '--fc': badge.tone }}>
+          {picture ? <img src={picture} alt="" /> : <span className="mk-ftile-badge">{badge.label}</span>}
+          <span className="mk-ftile-look"><Glyph name={kind === 'video' ? 'play' : kind === 'other' ? 'download' : 'eye'} size={18} /></span>
+        </span>
+        <span className="mk-ftile-name">{a.name}</span>
+        <small>{[sizeText(a.size), a.by].filter(Boolean).join(' · ')}</small>
+      </button>
+      <span className="mk-ftile-acts">
+        <button type="button" onClick={() => openFile('/mk/requests/' + id + '/files/' + a.id, true)} title={tr('Download')} aria-label={tr('Download')}><Glyph name="download" size={14} /></button>
+        {canRemove && <button type="button" onClick={remove} title={tr('Remove')} aria-label={tr('Remove')}>×</button>}
+      </span>
+    </span>
+  );
+}
+
+// A link on a request: the site, what it is, and where it goes; it opens in
+// a new tab.
+function LinkRow({ k, canRemove, onRemove }) {
+  const site = siteOf(k.host);
+  const where = k.url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
+  return (
+    <span className={'mk-link' + (k.delivered ? ' is-done' : '')}>
+      <a href={k.url} target="_blank" rel="noopener noreferrer" title={k.url}>
+        <span className="mk-link-site" style={{ '--s': site.color }} aria-hidden="true">{site.letter}</span>
+        <span className="mk-link-text">
+          <strong>{k.label || site.name || k.host}</strong>
+          <small>{(k.label && site.name ? site.name + ' · ' : '') + where}</small>
+        </span>
+        <span className="mk-link-by">{k.by}</span>
+        <Glyph name="external" size={15} />
+      </a>
+      {canRemove && <button type="button" onClick={onRemove} title={tr('Remove')} aria-label={tr('Remove')}>×</button>}
     </span>
   );
 }

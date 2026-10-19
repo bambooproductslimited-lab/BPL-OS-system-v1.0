@@ -79,6 +79,8 @@ router.post('/requests/:id/comments', h(function (req) { return requests.comment
 router.post('/requests/:id/files', requestUpload.single('file'), h(function (req) { return requests.addFile(req.ctx, req.params.id, req.file, req.body || {}); }));
 router.get('/requests/:id/files/:fileId', h(async function (req, res) { await sendFile(res, await requests.file(req.ctx, req.params.id, req.params.fileId), req.query.download === '1'); }));
 router.delete('/requests/:id/files/:fileId', h(function (req) { return requests.removeFile(req.ctx, req.params.id, req.params.fileId); }));
+router.post('/requests/:id/links', h(function (req) { return requests.addLink(req.ctx, req.params.id, req.body || {}); }));
+router.delete('/requests/:id/links/:linkId', h(function (req) { return requests.removeLink(req.ctx, req.params.id, req.params.linkId); }));
 
 router.get('/events', h(function (req) { return events.listEvents(req.ctx, req.query); }));
 router.post('/events', h(function (req) { return events.createEvent(req.ctx, req.body || {}); }));

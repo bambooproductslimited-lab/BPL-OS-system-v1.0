@@ -20,6 +20,8 @@ var S = require('./mkShared');
 // (marketing_request_members, migration 0147): anyone on staff, who then
 // sees it in their requests, talks about it and is told as it moves —
 // and, when added, gets a text too (Company settings → Text messages).
+// Links sit beside the files (marketing_request_links, migration 0151): a
+// reference to look at, or — from marketing — where the finished work lives.
 
 var KINDS = ['social_post', 'flyer', 'brochure', 'banner', 'signage', 'video', 'photos', 'website', 'presentation', 'event', 'other'];
 var STATUSES = ['new', 'in_progress', 'review', 'done', 'declined'];
@@ -35,7 +37,7 @@ function out(r) {
     team: (r.members || []).map(function (m) { return { id: m.id, name: S.employeeName(m.first, m.last), position: m.position || null, photo: m.photo ? new Date(m.photo).getTime() : null }; }),
     campaign: r.campaign_id ? { id: r.campaign_id, name: r.campaign_name } : null,
     routine: r.routine_id ? { id: r.routine_id, on: r.routine_on } : null,
-    comments: Number(r.comments || 0), files: Number(r.files || 0), delivered: Number(r.delivered || 0),
+    comments: Number(r.comments || 0), files: Number(r.files || 0), links: Number(r.links || 0), delivered: Number(r.delivered || 0),
     overdue: !!(r.due_on && r.due_on < today && OPEN.indexOf(r.status) >= 0),
     createdAt: r.created_at, updatedAt: r.updated_at, doneAt: r.done_at
   };
@@ -48,7 +50,9 @@ var SELECT = 'SELECT r.*, co.code AS company_code, co.name AS company_name, c.na
   "'photo', CASE WHEN e.photo_key IS NOT NULL THEN e.photo_updated_at END) ORDER BY m.added_at), '[]'::json) " +
   'FROM marketing_request_members m JOIN employees e ON e.id = m.employee_id WHERE m.request_id = r.id) AS members, ' +
   '(SELECT count(*) FROM marketing_request_files f WHERE f.request_id = r.id) AS files, ' +
-  '(SELECT count(*) FROM marketing_request_files f WHERE f.request_id = r.id AND f.delivered) AS delivered ' +
+  '(SELECT count(*) FROM marketing_request_links k WHERE k.request_id = r.id) AS links, ' +
+  '((SELECT count(*) FROM marketing_request_files f WHERE f.request_id = r.id AND f.delivered) + ' +
+  ' (SELECT count(*) FROM marketing_request_links k WHERE k.request_id = r.id AND k.delivered)) AS delivered ' +
   'FROM marketing_requests r JOIN companies co ON co.id = r.company_id LEFT JOIN marketing_campaigns c ON c.id = r.campaign_id ' +
   'JOIN employees q ON q.id = r.requested_by LEFT JOIN employees a ON a.id = r.assigned_to ';
 
@@ -93,18 +97,21 @@ async function list(ctx, opts) {
   };
 }
 
-// GET /api/mk/requests/:id — with its comments and files.
+// GET /api/mk/requests/:id — with its comments, files and links.
 async function get(ctx, id) {
   var r = await visible(ctx, id);
   var q = await Promise.all([
     pool.query('SELECT x.id, x.body, x.created_at, x.author_id, e.first_name, e.last_name, CASE WHEN e.photo_key IS NOT NULL THEN e.photo_updated_at END AS photo ' +
       'FROM marketing_request_comments x JOIN employees e ON e.id = x.author_id WHERE x.request_id = $1 ORDER BY x.created_at', [id]),
-    pool.query('SELECT f.id, f.file_name, f.mime, f.size_bytes, f.delivered, f.created_at, e.first_name, e.last_name FROM marketing_request_files f ' +
-      'JOIN employees e ON e.id = f.uploaded_by WHERE f.request_id = $1 ORDER BY f.delivered DESC, f.created_at', [id])
+    pool.query('SELECT f.id, f.file_name, f.mime, f.size_bytes, f.delivered, f.created_at, f.uploaded_by, e.first_name, e.last_name FROM marketing_request_files f ' +
+      'JOIN employees e ON e.id = f.uploaded_by WHERE f.request_id = $1 ORDER BY f.delivered DESC, f.created_at', [id]),
+    pool.query('SELECT k.id, k.url, k.label, k.delivered, k.created_at, k.added_by, e.first_name, e.last_name FROM marketing_request_links k ' +
+      'JOIN employees e ON e.id = k.added_by WHERE k.request_id = $1 ORDER BY k.delivered DESC, k.created_at', [id])
   ]);
   var o = out(r);
   o.thread = q[0].rows.map(function (c) { return { id: c.id, body: c.body, at: c.created_at, author: { id: c.author_id, name: S.employeeName(c.first_name, c.last_name), photo: c.photo ? new Date(c.photo).getTime() : null } }; });
-  o.attachments = q[1].rows.map(function (f) { return { id: f.id, name: f.file_name, mime: f.mime, size: f.size_bytes, delivered: f.delivered, at: f.created_at, by: S.employeeName(f.first_name, f.last_name) }; });
+  o.attachments = q[1].rows.map(function (f) { return { id: f.id, name: f.file_name, mime: f.mime, size: f.size_bytes, delivered: f.delivered, at: f.created_at, byId: f.uploaded_by, by: S.employeeName(f.first_name, f.last_name) }; });
+  o.links = q[2].rows.map(function (k) { return { id: k.id, url: k.url, label: k.label, host: hostOf(k.url), delivered: k.delivered, at: k.created_at, byId: k.added_by, by: S.employeeName(k.first_name, k.last_name) }; });
   o.mine = r.requested_by === ctx.employee.id;
   o.canManage = ctx.can('marketing.manage');
   return o;
@@ -119,16 +126,44 @@ function briefFields(p) {
   };
 }
 
-// POST /api/mk/requests { company, title, kind, brief, audience, dueOn, priority } — anyone.
+// A link as it is typed or pasted. Web addresses only (http, https):
+// "www.…" or "drive.google.com/…" gets https:// in front; javascript:,
+// data:, mailto: and the like are refused, and so is a link with a
+// password in it.
+var MAX_LINKS = 30;
+function linkUrl(v) {
+  var s = S.text(v, 2000);
+  if (!s) fail('invalid', 'Paste the link first.');
+  if (/^(javascript|data|vbscript|file|blob|mailto|tel|about):/i.test(s)) fail('invalid', 'Only web links (http or https) can be added.');
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'https://' + s.replace(/^\/+/, '');
+  var u;
+  try { u = new URL(s); } catch (e) { fail('invalid', 'That is not a web link: ' + s.slice(0, 80)); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') fail('invalid', 'Only web links (http or https) can be added.');
+  if (u.hostname.indexOf('.') < 0) fail('invalid', 'That is not a web link: ' + s.slice(0, 80));
+  if (u.username || u.password) fail('invalid', 'A link with a password in it cannot be added.');
+  return u.href;
+}
+function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
+// Links given with a new request: strings, or { url, label }.
+function linksGiven(v) {
+  if (v === undefined || v === null || v === '') return [];
+  if (!Array.isArray(v)) fail('invalid', 'Links must be a list.');
+  if (v.length > 10) fail('invalid', 'Up to 10 links with a new request; add more after.');
+  return v.map(function (x) { return typeof x === 'string' ? { url: linkUrl(x), label: '' } : { url: linkUrl(x && x.url), label: S.text(x && x.label, 160) }; });
+}
+
+// POST /api/mk/requests { company, title, kind, brief, audience, dueOn, priority, links? } — anyone.
 async function create(ctx, p) {
   var my = me(ctx);
   var co = await S.company(p.company);
   var f = briefFields(p);
+  var links = linksGiven(p.links);
   if (f.dueOn && f.dueOn < S.todayIso()) fail('invalid', 'The date it is needed by has already passed.');
   var id = await withTransaction(async function (db) {
     var r = (await db.query(
       'INSERT INTO marketing_requests (company_id, title, kind, brief, audience, due_on, priority, requested_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, number',
       [co.id, f.title, f.kind, f.brief, f.audience, f.dueOn, f.priority, my])).rows[0];
+    for (var k of links) await db.query('INSERT INTO marketing_request_links (request_id, url, label, added_by) VALUES ($1,$2,$3,$4)', [r.id, k.url, k.label, my]);
     var who = S.employeeName(ctx.employee.firstName || ctx.employee.first_name, ctx.employee.lastName || ctx.employee.last_name) || 'Someone';
     for (var m of await S.managers()) {
       if (m === my) continue;
@@ -251,6 +286,36 @@ async function removeFile(ctx, id, fileId) {
   return get(ctx, id);
 }
 
+// POST /api/mk/requests/:id/links { url, label?, delivered? } — like a file:
+// a reference from anyone on it; where the finished work lives (delivered)
+// from marketing, and the one who asked is told.
+async function addLink(ctx, id, p) {
+  var r = await visible(ctx, id);
+  p = p || {};
+  var url = linkUrl(p.url);
+  var label = S.text(p.label, 160);
+  var delivered = (p.delivered === true || p.delivered === 'true') && ctx.can('marketing.manage');
+  var n = (await pool.query('SELECT count(*)::int AS n FROM marketing_request_links WHERE request_id = $1', [id])).rows[0].n;
+  if (n >= MAX_LINKS) fail('invalid', 'This request has ' + MAX_LINKS + ' links already; remove one first.');
+  await withTransaction(async function (db) {
+    await db.query('INSERT INTO marketing_request_links (request_id, url, label, delivered, added_by) VALUES ($1,$2,$3,$4,$5)', [id, url, label, delivered, ctx.employee.id]);
+    await db.query('UPDATE marketing_requests SET updated_at = now() WHERE id = $1', [id]);
+    if (delivered && r.requested_by !== ctx.employee.id) {
+      await notify(db, r.requested_by, 'Your ' + r.title + ' is ready', label || hostOf(url), '/mkrequests?open=' + id);
+    }
+  });
+  return get(ctx, id);
+}
+// DELETE /api/mk/requests/:id/links/:linkId — whoever added it, or marketing.
+async function removeLink(ctx, id, linkId) {
+  await visible(ctx, id);
+  var k = (await pool.query('SELECT added_by FROM marketing_request_links WHERE id = $1 AND request_id = $2', [linkId, id])).rows[0];
+  if (!k) fail('notfound', 'Link not found.');
+  if (k.added_by !== ctx.employee.id && !ctx.can('marketing.manage')) fail('forbidden', 'Only whoever added it, or marketing, can remove it.');
+  await pool.query('DELETE FROM marketing_request_links WHERE id = $1', [linkId]);
+  return get(ctx, id);
+}
+
 var MAX_TEAM = 20;
 
 // PUT /api/mk/requests/:id/team { employeeIds } — who works on it with the
@@ -339,4 +404,4 @@ async function team(ctx) {
   )).rows.map(function (e) { return { id: e.id, name: S.employeeName(e.first_name, e.last_name), photo: e.photo ? new Date(e.photo).getTime() : null }; });
 }
 
-module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, comment: comment, addFile: addFile, file: file, removeFile: removeFile, team: team, setTeam: setTeam, people: people, textTeam: textTeam, KINDS: KINDS, STATUSES: STATUSES };
+module.exports = { list: list, get: get, create: create, update: update, setStatus: setStatus, comment: comment, addFile: addFile, file: file, removeFile: removeFile, addLink: addLink, removeLink: removeLink, team: team, setTeam: setTeam, people: people, textTeam: textTeam, KINDS: KINDS, STATUSES: STATUSES };

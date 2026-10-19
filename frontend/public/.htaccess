@@ -1,3 +1,10 @@
+# The PDF viewer's helper (pdf.js, components/FileViewer.jsx) is a
+# JavaScript module saved as .mjs; browsers only run it when the server says
+# it is JavaScript, which not every server does for .mjs on its own.
+<IfModule mod_mime.c>
+  AddType text/javascript .mjs
+</IfModule>
+
 # SPA fallback for React Router (history/browser routing): any request
 # that isn't a real file or directory on disk falls back to index.html so
 # client-side routes (e.g. /socialtracker) resolve correctly on a hard
