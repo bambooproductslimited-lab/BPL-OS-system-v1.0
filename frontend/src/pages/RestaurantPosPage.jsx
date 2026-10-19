@@ -12,6 +12,7 @@ import {
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
 import DeviceLanguage from '../components/DeviceLanguage';
+import { IouDialog, PayFor, RefundDialog, VipDialog } from './TillMoney';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
@@ -218,6 +219,12 @@ export default function RestaurantPosPage() {
   const [kitchenOpen, setKitchenOpen] = useState(false);
   const [kitchenNote, setKitchenNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);
+  // Refunds, VIP money and IOUs (TillMoney.jsx)
+  const [refundFor, setRefundFor] = useState(null); // 'find' | an order id | null
+  const [vipOpen, setVipOpen] = useState(null); // { startGuest } | null
+  const [iouOpen, setIouOpen] = useState(false);
+  const [vipShort, setVipShort] = useState(false);
+  const [vipKey, setVipKey] = useState(0);
 
   useEffect(() => {
     applyTheme(theme);
@@ -359,6 +366,10 @@ export default function RestaurantPosPage() {
   async function loadShift(token) {
     try { setShift(await posFetch('GET', '/pos/shift', token || session.token)); } catch { /* the shift figures just don't show */ }
   }
+  // After a refund, a VIP top-up or an IOU paid: the shift, the drawer and
+  // a VIP balance on the payment screen are fresh again.
+  function moneyChanged() { loadShift(); refreshDrawer(); setVipKey((k) => k + 1); }
+  function sessionEnded() { localStorage.removeItem(SESSION_KEY); setSession(null); setRefundFor(null); setVipOpen(null); setIouOpen(false); }
   async function loadKitchen(token) {
     try { setKitchen(await posFetch('GET', '/pos/kitchen', token || session.token)); } catch { /* the kitchen figures just don't show */ }
   }
@@ -935,6 +946,8 @@ export default function RestaurantPosPage() {
           <div className="pos-receipt-lines">
             <div className="pos-receipt-line"><span>{tr('Starting Cash')}</span><span>{money(r.startingCash)}</span></div>
             <div className="pos-receipt-line"><span>{tr('Cash Sales')}</span><span>{money(r.cashSales)}</span></div>
+            {r.iouPaidCash > 0 && <div className="pos-receipt-line"><span>{tr('IOUs paid in cash')}</span><span>{money(r.iouPaidCash)}</span></div>}
+            {r.vipTopUpsCash > 0 && <div className="pos-receipt-line"><span>{tr('VIP money in cash')}</span><span>{money(r.vipTopUpsCash)}</span></div>}
             <div className="pos-receipt-line"><span>{tr('Cash Refunds')}</span><span>{money(r.cashRefunds)}</span></div>
             <div className="pos-receipt-line"><span>{tr('Paid In/Out')}</span><span>{r.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(r.netPaidInOut))}</span></div>
             <div className="pos-receipt-line"><span>{tr('Expected in Drawer')}</span><span>{money(r.expected)}</span></div>
@@ -1022,7 +1035,20 @@ export default function RestaurantPosPage() {
               <div className="pos-receipt-line"><span>{tr('Change')}</span><span>{money(receipt.change)}</span></div>
             </div>
           )}
-          <div className="pos-receipt-footer">{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</div>
+          {receipt.refunds && receipt.refunds.length > 0 && (
+            <div className="pos-receipt-lines pos-receipt-refunds">
+              {receipt.refunds.map((x) => (
+                <div key={x.id} className="pos-receipt-line"><span>{tr('Refunded {date}', { date: new Date(x.createdAt).toLocaleDateString(activeIntlLocale()) })} ({x.items.map((i) => i.qty + '× ' + i.name).join(', ')})</span><span>−{money(x.amount)}</span></div>
+              ))}
+              <div className="pos-receipt-line is-net"><span>{tr('After refunds')}</span><span>{money(receipt.total - receipt.refunded)}</span></div>
+            </div>
+          )}
+          <div className="pos-receipt-footer">
+            {receipt.paymentMethod === 'vip' ? tr('Paid from {name}\'s VIP balance', { name: receipt.guestName || tr('the guest') })
+              : receipt.paymentMethod === 'iou' ? (receipt.iouPaidAt ? tr('IOU, paid {date}', { date: new Date(receipt.iouPaidAt).toLocaleDateString(activeIntlLocale()) }) : tr('IOU: owed by {name}', { name: receipt.guestName || tr('the guest') }))
+                : <>{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</>}
+            {receipt.vipBalance != null && <><br />{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</>}
+          </div>
         </div>
         <div className="pos-done-side">
           <span className="pos-done-mark is-good is-burst"><Icon name="check" /></span>
@@ -1031,8 +1057,13 @@ export default function RestaurantPosPage() {
             <p className="pos-done-big">{tr('Give {amount} change', { amount: money(receipt.change) })}</p>
           )}
           {!receipt.reprint && (receipt.change == null || receipt.change === 0) && (
-            <p className="pos-done-big">{tr('{amount} paid by {method}', { amount: money(receipt.total), method: codeLabel(receipt.paymentMethod) })}</p>
+            <p className="pos-done-big">
+              {receipt.paymentMethod === 'iou' ? tr('{amount} owed by {name}', { amount: money(receipt.total), name: receipt.guestName || tr('the guest') })
+                : receipt.paymentMethod === 'vip' ? tr('{amount} from {name}\'s VIP balance', { amount: money(receipt.total), name: receipt.guestName || tr('the guest') })
+                  : tr('{amount} paid by {method}', { amount: money(receipt.total), method: codeLabel(receipt.paymentMethod) })}
+            </p>
           )}
+          {!receipt.reprint && receipt.vipBalance != null && <p className="dk-muted">{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</p>}
           {!receipt.reprint && receipt.kitchenTicket && <p className="pos-sent"><Icon name="send" />{tr('Sent to the kitchen as #{n}.', { n: receipt.kitchenTicket.number })}</p>}
           <p className="dk-muted">{receipt.reprint ? tr('A copy of an order from this shift.') : tr('Print the receipt if the guest wants one, then start the next sale.')}</p>
           {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
@@ -1042,6 +1073,9 @@ export default function RestaurantPosPage() {
               <button type="button" className="btn btn-secondary" disabled={printing} onClick={() => printToThermalPrinter(receipt)}>
                 {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
               </button>
+            )}
+            {receipt.reprint && receipt.status !== 'voided' && receipt.refunded < receipt.total && (
+              <button type="button" className="btn btn-secondary" onClick={() => { const id = receipt.id; setReceipt(null); setRefundFor(id); }}>{tr('Refund…')}</button>
             )}
             <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)} autoFocus>{receipt.reprint ? tr('Back to the till') : tr('New sale')}</button>
           </div>
@@ -1057,7 +1091,8 @@ export default function RestaurantPosPage() {
   const change = given === null ? null : Math.round((given - cartTotal) * 100) / 100;
   // the notes a guest is likely to hand over: the next round figure up
   const roundUps = Array.from(new Set([10, 20, 50, 100, 200].map((step) => { const v = Math.ceil(cartTotal / step) * step; return v > cartTotal ? v : v + step; }))).sort((x, y) => x - y).slice(0, 3);
-  const METHODS = [['cash', tr('Cash'), 'cash'], ['mobile_money', tr('Mobile Money'), 'phone'], ['card', tr('Card'), 'card'], ['bank_transfer', tr('Bank transfer'), 'doc'], ['other', tr('Other'), 'info']];
+  const METHODS = [['cash', tr('Cash'), 'cash'], ['mobile_money', tr('Mobile Money'), 'phone'], ['vip', tr('VIP'), 'spark'], ['iou', tr('IOU'), 'owed'], ['other', tr('Other'), 'info']];
+  const needsGuest = (paymentMethod === 'vip' || paymentMethod === 'iou') && !selectedGuest;
   const avgOrder = shift && shift.orders ? shift.sales / shift.orders : 0;
 
   const orderPanel = (
@@ -1186,8 +1221,18 @@ export default function RestaurantPosPage() {
               <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
             </span>
           </button>
+          <button type="button" className={'pos-stat is-iou' + (shift && shift.iousOpen ? ' is-owed' : '')} onClick={() => setIouOpen(true)}>
+            <span className="pos-stat-ico" aria-hidden="true"><Icon name="owed" /></span>
+            <span className="pos-stat-text">
+              <small>{tr('IOUs')}</small>
+              <strong>{shift ? shift.iousOpen || 0 : 0}</strong>
+              <span>{shift && shift.iousOpen ? money(shift.iousOwed) : tr('nothing owed')}</span>
+            </span>
+          </button>
         </div>
         <div className="pos-top-tools">
+          <button type="button" className="btn btn-secondary tl-btn pos-tool is-vip" onClick={() => setVipOpen({})} title={tr('VIP guests')} aria-label={tr('VIP guests')}><Icon name="spark" /><span>{tr('VIP')}</span></button>
+          <button type="button" className="btn btn-secondary tl-btn pos-tool is-refund" onClick={() => setRefundFor('find')} title={tr('Refund a sale')} aria-label={tr('Refund a sale')}><Icon name="void" /><span>{tr('Refund')}</span></button>
           {printer ? (
             <span className="pos-printer" title={printer.name}>🖨 <span>{printer.name}</span></span>
           ) : (
@@ -1264,7 +1309,7 @@ export default function RestaurantPosPage() {
         {orderPanel}
       </div>
 
-      {!cartOpen && (
+      {!cartOpen && !(refundFor || vipOpen || iouOpen || tabsOpen || kitchenOpen || drawerPanelOpen || checkoutOpen) && (
         <button type="button" className="pos-phone-bar" onClick={() => setCartOpen(true)}>
           <span className="pos-phone-bar-n" key={cartCount}>{cartCount}</span>
           <span>{currentTab ? currentTab.name : tr('Order')} · {cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })}</span>
@@ -1286,6 +1331,8 @@ export default function RestaurantPosPage() {
                 </button>
               ))}
             </div>
+            <PayFor token={session.token} method={paymentMethod} guest={selectedGuest} total={cartTotal} refreshKey={vipKey}
+              onPickGuest={openGuestPicker} onTopUp={() => setVipOpen({ startGuest: selectedGuest })} onShort={setVipShort} />
             {paymentMethod === 'cash' && (
               <div className="pos-cash">
                 <label htmlFor="pos-cash-given" className="pos-big-label">{tr('Cash received')}</label>
@@ -1306,7 +1353,7 @@ export default function RestaurantPosPage() {
             {checkoutError && <div className="error-banner">{checkoutError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary pos-complete" disabled={checkingOut || (change !== null && change < 0)}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
+              <button type="submit" className="btn btn-primary pos-complete" disabled={checkingOut || (paymentMethod === 'cash' && change !== null && change < 0) || needsGuest || (paymentMethod === 'vip' && vipShort)}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
             </div>
           </form>
         </div>
@@ -1423,10 +1470,20 @@ export default function RestaurantPosPage() {
                 ))}
               </div>
             )}
+            {shift && ((shift.refunds && shift.refunds.count) || (shift.iouPaid && shift.iouPaid.count) || (shift.vipTopUps && shift.vipTopUps.count)) ? (
+              <div className="pos-methods-sum pos-money-sum">
+                {shift.refunds.count > 0 && <div><span>{tr('Refunds')}</span><span className="dk-muted">{shift.refunds.count === 1 ? tr('1 refund') : tr('{n} refunds', { n: shift.refunds.count })}</span><strong>−{money(shift.refunds.total)}</strong></div>}
+                {shift.iouPaid.count > 0 && <div><span>{tr('IOUs paid')}</span><span className="dk-muted">{shift.iouPaid.byMethod.map((m) => codeLabel(m.method) + ' ' + money(m.total)).join(' · ')}</span><strong>{money(shift.iouPaid.total)}</strong></div>}
+                {shift.vipTopUps.count > 0 && <div><span>{tr('VIP money put down')}</span><span className="dk-muted">{shift.vipTopUps.byMethod.map((m) => codeLabel(m.method) + ' ' + money(m.total)).join(' · ')}</span><strong>{money(shift.vipTopUps.total)}</strong></div>}
+              </div>
+            ) : null}
             <h3 className="pos-panel-h">{tr('Cash drawer')}</h3>
             <div className="pos-drawer-lines">
               <div className="pos-drawer-line"><span>{tr('Starting Cash')}</span><span>{money(drawer.startingCash)}</span></div>
               <div className="pos-drawer-line"><span>{tr('Cash Sales')}</span><span>{money(drawer.cashSales)}</span></div>
+              {drawer.iouPaidCash > 0 && <div className="pos-drawer-line"><span>{tr('IOUs paid in cash')}</span><span>{money(drawer.iouPaidCash)}</span></div>}
+              {drawer.vipTopUpsCash > 0 && <div className="pos-drawer-line"><span>{tr('VIP money in cash')}</span><span>{money(drawer.vipTopUpsCash)}</span></div>}
+              {drawer.cashRefunds > 0 && <div className="pos-drawer-line"><span>{tr('Cash Refunds')}</span><span>−{money(drawer.cashRefunds)}</span></div>}
               <div className="pos-drawer-line"><span>{tr('Paid In/Out')}</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
               <div className="pos-drawer-line is-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
             </div>
@@ -1456,7 +1513,11 @@ export default function RestaurantPosPage() {
                       </div>
                       <div className="dk-row-side">
                         <div className="dk-row-amount">{money(o.total)}</div>
-                        <button type="button" className="pos-link" onClick={() => reprint(o.id)}>{tr('Receipt')}</button>
+                        {o.refunded > 0 && <small className="pos-money-tag is-refund">{tr('{amount} refunded', { amount: money(o.refunded) })}</small>}
+                        <span className="pos-row-links">
+                          <button type="button" className="pos-link" onClick={() => reprint(o.id)}>{tr('Receipt')}</button>
+                          <button type="button" className="pos-link" onClick={() => { setDrawerPanelOpen(false); setRefundFor(o.id); }}>{tr('Refund')}</button>
+                        </span>
                       </div>
                     </li>
                   ))}
@@ -1630,6 +1691,15 @@ export default function RestaurantPosPage() {
           </div>
         </div>
       )}
+
+      {refundFor && (
+        <RefundDialog token={session.token} startWith={refundFor === 'find' ? null : refundFor} onClose={() => setRefundFor(null)}
+          onShowReceipt={(id) => { setRefundFor(null); reprint(id); }} onChanged={moneyChanged} onAuth={sessionEnded} />
+      )}
+      {vipOpen && (
+        <VipDialog token={session.token} startGuest={vipOpen.startGuest || null} onClose={() => setVipOpen(null)} onChanged={moneyChanged} onAuth={sessionEnded} />
+      )}
+      {iouOpen && <IouDialog token={session.token} onClose={() => setIouOpen(false)} onChanged={moneyChanged} onAuth={sessionEnded} />}
     </div>
   );
 }

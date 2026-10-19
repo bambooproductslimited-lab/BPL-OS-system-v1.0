@@ -23,7 +23,7 @@ async function companies(ctx) {
     'SELECT c.id, c.code, c.name, ' +
     '  (SELECT count(*) FROM restaurant_menu_items m WHERE m.company_id = c.id AND m.active) AS menu_items, ' +
     "  (SELECT count(*) FROM restaurant_orders o WHERE o.company_id = c.id AND o.status = 'completed' AND o.created_at > now() - interval '30 days') AS orders30, " +
-    "  (SELECT coalesce(sum(total), 0) FROM restaurant_orders o WHERE o.company_id = c.id AND o.status = 'completed' AND (o.created_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date) AS sales_today " +
+    "  (SELECT coalesce(sum(o.total - o.refunded_total), 0) FROM restaurant_orders o WHERE o.company_id = c.id AND o.status = 'completed' AND (o.created_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date) AS sales_today " +
     'FROM companies c ORDER BY c.name'
   );
   return res.rows.map(function (r) {
@@ -50,11 +50,11 @@ async function overview(ctx, companyId) {
 
   var q = await Promise.all([
     pool.query(
-      'SELECT ' + DAY + " AS day, count(*) AS orders, coalesce(sum(o.total), 0) AS sales FROM restaurant_orders o " +
+      'SELECT ' + DAY + " AS day, count(*) AS orders, coalesce(sum(o.total - o.refunded_total), 0) AS sales FROM restaurant_orders o " +
       "WHERE o.company_id = $1 AND o.status = 'completed' AND " + DAY + ' >= $2 GROUP BY 1 ORDER BY 1', [companyId, iso(from35)]),
     pool.query(
-      'SELECT count(*) FILTER (WHERE ' + DAY + ' >= $2) AS m_orders, coalesce(sum(o.total) FILTER (WHERE ' + DAY + ' >= $2), 0) AS m_sales, ' +
-      'count(*) FILTER (WHERE ' + DAY + ' BETWEEN $3 AND $4) AS p_orders, coalesce(sum(o.total) FILTER (WHERE ' + DAY + ' BETWEEN $3 AND $4), 0) AS p_sales ' +
+      'SELECT count(*) FILTER (WHERE ' + DAY + ' >= $2) AS m_orders, coalesce(sum(o.total - o.refunded_total) FILTER (WHERE ' + DAY + ' >= $2), 0) AS m_sales, ' +
+      'count(*) FILTER (WHERE ' + DAY + ' BETWEEN $3 AND $4) AS p_orders, coalesce(sum(o.total - o.refunded_total) FILTER (WHERE ' + DAY + ' BETWEEN $3 AND $4), 0) AS p_sales ' +
       "FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' AND " + DAY + ' >= $3', [companyId, monthStart, prevStart, prevEnd]),
     pool.query(
       "SELECT coalesce(i.menu_item_id::text, 'name:' || i.name) AS key, i.menu_item_id, " +
@@ -62,14 +62,14 @@ async function overview(ctx, companyId) {
       'FROM restaurant_order_items i JOIN restaurant_orders o ON o.id = i.order_id LEFT JOIN restaurant_menu_items m ON m.id = i.menu_item_id ' +
       "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at > now() - interval '30 days' GROUP BY 1, 2, 3 ORDER BY revenue DESC", [companyId]),
     pool.query(
-      "SELECT o.payment_method AS method, count(*) AS orders, sum(o.total) AS sales FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' " +
+      "SELECT o.payment_method AS method, count(*) AS orders, sum(o.total - o.refunded_total) AS sales FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' " +
       "AND o.created_at > now() - interval '30 days' GROUP BY 1 ORDER BY sales DESC", [companyId]),
     pool.query(
-      'SELECT e.id, e.first_name, e.last_name, e.photo_key, e.photo_updated_at, count(*) AS orders, sum(o.total) AS sales ' +
+      'SELECT e.id, e.first_name, e.last_name, e.photo_key, e.photo_updated_at, count(*) AS orders, sum(o.total - o.refunded_total) AS sales ' +
       'FROM restaurant_orders o JOIN employees e ON e.id = coalesce(o.waiter_id, o.cashier_id) ' +
       "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at > now() - interval '30 days' GROUP BY e.id ORDER BY sales DESC LIMIT 8", [companyId]),
     pool.query(
-      "SELECT extract(hour FROM o.created_at AT TIME ZONE 'UTC')::int AS hour, count(*) AS orders, sum(o.total) AS sales FROM restaurant_orders o " +
+      "SELECT extract(hour FROM o.created_at AT TIME ZONE 'UTC')::int AS hour, count(*) AS orders, sum(o.total - o.refunded_total) AS sales FROM restaurant_orders o " +
       "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at > now() - interval '30 days' GROUP BY 1 ORDER BY 1", [companyId]),
     pool.query(
       "SELECT count(*) AS n, coalesce(sum(o.total), 0) AS total FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'voided' " +
@@ -87,7 +87,7 @@ async function overview(ctx, companyId) {
     // The same weekday last week, only up to this time of day — so a
     // morning is not measured against a whole day.
     pool.query(
-      "SELECT count(*) AS orders, coalesce(sum(o.total), 0) AS sales FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' " +
+      "SELECT count(*) AS orders, coalesce(sum(o.total - o.refunded_total), 0) AS sales FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' " +
       'AND ' + DAY + " = $2 AND (o.created_at AT TIME ZONE 'UTC')::time <= ($3::timestamptz AT TIME ZONE 'UTC')::time", [companyId, iso(new Date(now.getTime() - 7 * 86400000)), now]),
     // Weekday (0 Monday … 6 Sunday) by hour over the last four whole weeks
     // and today's week so far is left out, so each weekday counts four times.

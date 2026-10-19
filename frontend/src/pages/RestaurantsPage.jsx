@@ -108,8 +108,10 @@ const CAT_HUES = ['#d9622b', '#2a78d6', '#1a9c6c', '#c2417e', '#c98a00', '#7a5af
 // way of paying wherever it shows (RestaurantFun.css --rsf-s*); bank
 // transfers, cheques and the rest are folded into one grey "Other ways" —
 // a fourth colour could not be told apart from these three.
-const PAY_COLOR = { cash: 'var(--rsf-s3)', mobile_money: 'var(--rsf-s4)', card: 'var(--rsf-s1)' };
-const PAY_ICON = { cash: 'cash', mobile_money: 'phone', card: 'card', bank_transfer: 'building', cheque: 'doc' };
+const PAY_COLOR = { cash: 'var(--rsf-s3)', mobile_money: 'var(--rsf-s4)', card: 'var(--rsf-s1)', vip: '#a855f7', iou: '#f97316' };
+const PAY_ICON = { cash: 'cash', mobile_money: 'phone', card: 'card', bank_transfer: 'building', cheque: 'doc', vip: 'spark', iou: 'owed' };
+// How a refund went back (restaurantTillMoney.service.js).
+const REFUND_WAY = { cash: () => tr('cash from the drawer'), mobile_money: () => tr('Mobile Money'), vip: () => tr('to the VIP balance'), iou: () => tr('off the IOU') };
 
 export default function RestaurantsPage() {
   const { can } = useAuth();
@@ -748,6 +750,8 @@ export default function RestaurantsPage() {
                             </span>
                             <span className="rsf-ticket-side">
                               <strong className="rs-amount">{money(o.total)}</strong>
+                              {o.refunded > 0 && o.status !== 'voided' && <Status tone="warn">{o.refunded >= o.total ? tr('Refunded') : tr('{amount} refunded', { amount: money(o.refunded) })}</Status>}
+                              {o.paymentMethod === 'iou' && o.status !== 'voided' && !o.iouPaidAt && <Status tone="warn">{tr('Not paid yet')}</Status>}
                               {o.status === 'voided' ? <Status tone="bad">{tr('Voided')}</Status> : <span className="rsf-pay" style={{ '--p': PAY_COLOR[o.paymentMethod] || 'var(--rsf-other)' }}><Icon name={PAY_ICON[o.paymentMethod] || 'receipt'} />{codeLabel(o.paymentMethod)}</span>}
                             </span>
                           </button>
@@ -1358,13 +1362,23 @@ export default function RestaurantsPage() {
                     <div>
                       <span className="dk-muted tl-small">{when(o.createdAt)} · {o.cashierName}</span>
                       <h2>{o.orderNo}</h2>
-                      <div className="tl-tags">{o.status === 'voided' ? <Status tone="bad">{tr('Voided')}</Status> : <Status tone="good">{tr('Paid by {method}', { method: codeLabel(o.paymentMethod).toLowerCase() })}</Status>}</div>
+                      <div className="tl-tags">
+                        {o.status === 'voided' ? <Status tone="bad">{tr('Voided')}</Status>
+                          : o.paymentMethod === 'iou' ? (o.iouPaidAt ? <Status tone="good">{tr('IOU paid {date} by {method}', { date: when(o.iouPaidAt), method: o.iouPaidMethod ? codeLabel(o.iouPaidMethod) : '—' })}</Status> : <Status tone="warn">{tr('IOU: not paid yet')}</Status>)
+                            : o.paymentMethod === 'vip' ? <Status tone="good">{tr('Paid from the VIP balance')}</Status>
+                              : <Status tone="good">{tr('Paid by {method}', { method: codeLabel(o.paymentMethod).toLowerCase() })}</Status>}
+                        {o.refunded > 0 && <Status tone="warn">{tr('{amount} refunded', { amount: money(o.refunded) })}</Status>}
+                      </div>
                     </div>
                     <button type="button" className="tl-close" onClick={() => setOrderDetail(null)} aria-label={tr('Close')}>×</button>
                   </div>
                   <ul className="rs-lines">
                     {o.items.map((it, i) => <li key={i}><span className="rs-qty">{qtyText(it.qty)}×</span><span>{it.name}</span><strong>{money(it.lineTotal)}</strong></li>)}
                     <li className="rs-total"><span /><span>{tr('Total')}</span><strong>{money(o.total)}</strong></li>
+                    {o.refunds && o.refunds.map((r) => (
+                      <li key={r.id} className="rs-refund"><span>−</span><span>{tr('Refunded {date}, {way}', { date: when(r.createdAt), way: REFUND_WAY[r.method] ? REFUND_WAY[r.method]() : r.method })}<small>{r.items.map((i) => qtyText(i.qty) + '× ' + i.name).join(', ')} · {tr('“{reason}”', { reason: r.reason })} · {tr('by {name}, approved by {manager}', { name: r.cashierName, manager: r.approvedByName })}</small></span><strong>{money(r.amount)}</strong></li>
+                    ))}
+                    {o.refunded > 0 && <li className="rs-total"><span /><span>{tr('After refunds')}</span><strong>{money(o.total - o.refunded)}</strong></li>}
                   </ul>
                   {(o.tableName || o.waiterName || o.guestName) && (
                     <dl className="tl-facts">
@@ -1406,6 +1420,8 @@ export default function RestaurantsPage() {
                   <ul className="rs-lines">
                     <li><span /><span>{tr('Starting Cash')}</span><strong>{money(d.startingCash)}</strong></li>
                     <li><span>+</span><span>{tr('Cash Sales')}</span><strong>{money(d.cashSales)}</strong></li>
+                    {d.iouPaidCash > 0 && <li><span>+</span><span>{tr('IOUs paid in cash')}</span><strong>{money(d.iouPaidCash)}</strong></li>}
+                    {d.vipTopUpsCash > 0 && <li><span>+</span><span>{tr('VIP money in cash')}</span><strong>{money(d.vipTopUpsCash)}</strong></li>}
                     <li><span>−</span><span>{tr('Cash Refunds')}</span><strong>{money(d.cashRefunds)}</strong></li>
                     <li><span>±</span><span>{tr('Paid In/Out')}</span><strong>{d.netPaidInOut < 0 ? '−' : ''}{money(Math.abs(d.netPaidInOut))}</strong></li>
                     <li className="rs-total"><span>=</span><span>{tr('Expected in Drawer')}</span><strong>{money(d.expected)}</strong></li>

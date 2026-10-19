@@ -56,8 +56,10 @@ test('a cash sale keeps what was handed over and gives the change; too little is
   assert.equal(o.total, 160);
   assert.equal(o.cashTendered, 200);
   assert.equal(o.change, 40);
-  var card = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'card', cashTendered: 500 });
-  assert.equal(card.cashTendered, null);            // only cash has change
+  var momo = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'mobile_money', cashTendered: 500 });
+  assert.equal(momo.cashTendered, null);            // only cash has change
+  // The till takes cash, Mobile Money, VIP, IOU and Other only.
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'card' }), /Payment method/);
   var r = await pos.receiptForSession(token, o.id);
   assert.equal(r.change, 40);
   assert.equal(r.items.length, 2);
@@ -97,7 +99,7 @@ test('the shift counts this cashier\'s sales since the drawer opened, by method,
   var s = await pos.shiftSummary(token);
   assert.equal(s.orders, 3);
   assert.equal(s.sales, 160 + 20 + 195);
-  assert.deepEqual(s.byMethod.map(function (m) { return m.method; }), ['mobile_money', 'cash', 'card']);
+  assert.deepEqual(s.byMethod.map(function (m) { return m.method; }), ['mobile_money', 'cash']);
   assert.equal(s.recent[0].total, 195);
   assert.equal(s.recent[0].tableName, 'Zqt Table 4');
   assert.equal(s.recent.length, 3);

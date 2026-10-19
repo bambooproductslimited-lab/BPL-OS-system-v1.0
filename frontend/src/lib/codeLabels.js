@@ -53,7 +53,7 @@ const LABELS = {
   low: msg('Low'), medium: msg('Medium'), normal: msg('Normal'), high: msg('High'), urgent: msg('Urgent'),
   // Payment methods
   cash: msg('Cash'), bank_transfer: msg('Bank transfer'), mobile_money: msg('Mobile money'), card: msg('Card'),
-  cheque: msg('Cheque'), square: msg('Square'),
+  cheque: msg('Cheque'), square: msg('Square'), iou: msg('IOU'), // vip: 'VIP' is above
   // Kinds
   tool: msg('Tool'), equipment: msg('Equipment'), material: msg('Material'), product: msg('Product'),
   raw: msg('Raw material'), comment: msg('Comment'), message: msg('Message'), social: msg('Social'),

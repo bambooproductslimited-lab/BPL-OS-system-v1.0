@@ -5,6 +5,7 @@ var { V } = require('../utils/validate');
 var config = require('../config');
 var pinAuth = require('../lib/pinAuth');
 var kitchen = require('./restaurantKitchen.service');
+var money = require('./restaurantTillMoney.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -293,10 +294,12 @@ async function priceLines(client, companyId, items) {
 // A cash sale can say what the customer handed over (cashTendered), so the
 // receipt shows the change; it can't be less than the total. Paying an
 // open table (tabId) rings up the order and removes the tab in the same
-// transaction, so a tab is never paid twice.
+// transaction, so a tab is never paid twice. The till takes cash, Mobile
+// Money, VIP (from the guest's balance), IOU (owed by the guest) and
+// Other — restaurantTillMoney.service.js.
 async function createOrder(token, p) {
   var session = verifyPosToken(token);
-  var paymentMethod = V.oneOf(p.paymentMethod || 'cash', ['cash', 'bank_transfer', 'mobile_money', 'card', 'cheque', 'other'], 'Payment method');
+  var paymentMethod = V.oneOf(p.paymentMethod || 'cash', money.TILL_METHODS, 'Payment method');
 
   return withTransaction(async function (client) {
     var tab = null;
@@ -332,6 +335,7 @@ async function createOrder(token, p) {
         [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal]
       );
     }
+    var vip = await money.chargeSale(client, session.posCompanyId, order, session.posEmployeeId);
     // To the kitchen: what was not sent with the open table yet, or the
     // whole sale; the open table's tickets now belong to the sale.
     var names = await refNames(client, refs);
@@ -343,7 +347,7 @@ async function createOrder(token, p) {
       await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
       await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
     }
-    return Object.assign(rowToOrder(order, lines), { kitchenTicket: ticket });
+    return Object.assign(rowToOrder(order, lines), { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null });
   });
 }
 
@@ -446,28 +450,33 @@ async function shiftSummary(token) {
   var session = verifyPosToken(token);
   var open = (await pool.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
   var tabs = (await pool.query('SELECT count(*)::int AS n, min(created_at) AS oldest FROM restaurant_open_tabs WHERE company_id = $1', [session.posCompanyId])).rows[0];
+  var ious = (await pool.query(
+    "SELECT count(*)::int AS n, coalesce(sum(total - refunded_total), 0) AS owed FROM restaurant_orders WHERE company_id = $1 AND payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL",
+    [session.posCompanyId])).rows[0];
   var last = (await pool.query(
     "SELECT s.closed_at, s.closing_actual_cash, e.first_name || ' ' || e.last_name AS cashier FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
     "WHERE s.company_id = $1 AND s.status = 'closed' ORDER BY s.closed_at DESC LIMIT 1", [session.posCompanyId])).rows[0];
   var out = {
-    openTabs: tabs.n, oldestTab: tabs.oldest,
+    openTabs: tabs.n, oldestTab: tabs.oldest, iousOpen: ious.n, iousOwed: Number(ious.owed),
     lastClosed: last ? { closedAt: last.closed_at, counted: Number(last.closing_actual_cash || 0), cashierName: last.cashier } : null,
     orders: 0, sales: 0, byMethod: [], recent: []
   };
   if (!open) return out;
   var WHERE = "o.cashier_id = $1 AND o.company_id = $2 AND o.status = 'completed' AND o.created_at >= $3";
   var args = [session.posEmployeeId, session.posCompanyId, open.opened_at];
-  var byMethod = (await pool.query('SELECT o.payment_method, count(*)::int AS n, sum(o.total) AS total FROM restaurant_orders o WHERE ' + WHERE + ' GROUP BY 1 ORDER BY 3 DESC', args)).rows;
+  var byMethod = (await pool.query('SELECT o.payment_method, count(*)::int AS n, sum(o.total - o.refunded_total) AS total FROM restaurant_orders o WHERE ' + WHERE + ' GROUP BY 1 ORDER BY 3 DESC', args)).rows;
   var recent = (await pool.query(
-    'SELECT o.id, o.order_no, o.total, o.payment_method, o.created_at, t.name AS table_name, ' +
+    'SELECT o.id, o.order_no, o.total, o.refunded_total, o.payment_method, o.created_at, t.name AS table_name, ' +
     '  (SELECT sum(qty) FROM restaurant_order_items i WHERE i.order_id = o.id) AS items ' +
     'FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id = o.table_id WHERE ' + WHERE + ' ORDER BY o.created_at DESC LIMIT 8', args)).rows;
   out.byMethod = byMethod.map(function (r) { return { method: r.payment_method, orders: r.n, total: Number(r.total) }; });
   out.orders = out.byMethod.reduce(function (s, r) { return s + r.orders; }, 0);
   out.sales = Math.round(out.byMethod.reduce(function (s, r) { return s + r.total; }, 0) * 100) / 100;
   out.recent = recent.map(function (r) {
-    return { id: r.id, orderNo: r.order_no, total: Number(r.total), paymentMethod: r.payment_method, createdAt: r.created_at, tableName: r.table_name || null, items: Number(r.items || 0) };
+    return { id: r.id, orderNo: r.order_no, total: Number(r.total), refunded: Number(r.refunded_total), paymentMethod: r.payment_method, createdAt: r.created_at, tableName: r.table_name || null, items: Number(r.items || 0) };
   });
+  // Refunds, IOUs paid and VIP top-ups handled on this drawer.
+  Object.assign(out, await money.shiftMoney(session.posEmployeeId, session.posCompanyId, open.opened_at));
   return out;
 }
 
@@ -482,7 +491,10 @@ async function receiptForSession(token, id) {
   var items = (await pool.query('SELECT menu_item_id, name, qty, unit_price, line_total FROM restaurant_order_items WHERE order_id = $1 ORDER BY id', [o.id])).rows;
   return Object.assign(rowToOrder(o, items.map(function (it) {
     return { menuItemId: it.menu_item_id, name: it.name, qty: Number(it.qty), unitPrice: Number(it.unit_price), lineTotal: Number(it.line_total) };
-  })), { tableName: o.table_name || null, guestName: o.guest_name || null, waiterName: o.waiter_name || null, cashierName: o.cashier_name || null });
+  })), {
+    tableName: o.table_name || null, guestName: o.guest_name || null, waiterName: o.waiter_name || null, cashierName: o.cashier_name || null,
+    refunded: Number(o.refunded_total), refunds: await money.refundsOf(pool, o.id), iouPaidAt: o.iou_paid_at || null, iouPaidMethod: o.iou_paid_method || null
+  });
 }
 
 // ── management view (inside the regular authenticated app, not the till) ──
@@ -519,7 +531,7 @@ async function listOrders(ctx, companyId, opts) {
   var res = await pool.query(
     'SELECT o.*, e.first_name, e.last_name, t.name AS table_name, w.first_name AS waiter_first_name, w.last_name AS waiter_last_name, ' +
     'g.name AS guest_name, count(*) OVER() AS total_count, ' +
-    "coalesce(sum(o.total) FILTER (WHERE o.status = 'completed') OVER(), 0) AS revenue_total, count(*) FILTER (WHERE o.status = 'voided') OVER() AS voided_count " +
+    "coalesce(sum(o.total - o.refunded_total) FILTER (WHERE o.status = 'completed') OVER(), 0) AS revenue_total, count(*) FILTER (WHERE o.status = 'voided') OVER() AS voided_count " +
     'FROM restaurant_orders o JOIN employees e ON e.id = o.cashier_id ' +
     'LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN employees w ON w.id = o.waiter_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
     whereSql + ' ORDER BY o.created_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
@@ -533,7 +545,8 @@ async function listOrders(ctx, companyId, opts) {
       return {
         id: r.id, companyId: r.company_id, orderNo: r.order_no, cashierName: r.first_name + ' ' + r.last_name,
         tableName: r.table_name, waiterName: r.waiter_first_name ? r.waiter_first_name + ' ' + r.waiter_last_name : null, guestName: r.guest_name,
-        subtotal: Number(r.subtotal), total: Number(r.total), paymentMethod: r.payment_method, status: r.status, createdAt: r.created_at
+        subtotal: Number(r.subtotal), total: Number(r.total), refunded: Number(r.refunded_total), paymentMethod: r.payment_method, status: r.status, createdAt: r.created_at,
+        iouPaidAt: r.iou_paid_at || null
       };
     }),
     total: total, revenueTotal: revenueTotal, voidedCount: voidedCount, limit: limit, offset: offset
@@ -564,7 +577,9 @@ async function getOrder(ctx, id) {
     tableName: order.table_name, waiterName: order.waiter_first_name ? order.waiter_first_name + ' ' + order.waiter_last_name : null,
     guestName: order.guest_name, guestPhone: order.guest_phone,
     subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method, status: order.status, createdAt: order.created_at,
-    items: itemsRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total) }; })
+    items: itemsRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total) }; }),
+    refunded: Number(order.refunded_total), refunds: await money.refundsOf(pool, order.id),
+    iouPaidAt: order.iou_paid_at || null, iouPaidMethod: order.iou_paid_method || null, iouPaidAmount: order.iou_paid_amount == null ? null : Number(order.iou_paid_amount)
   };
 }
 
@@ -573,8 +588,9 @@ async function voidOrder(ctx, id) {
   return withTransaction(async function (client) {
     var res = await client.query("UPDATE restaurant_orders SET status = 'voided' WHERE id = $1 AND status = 'completed' RETURNING *", [id]);
     if (!res.rows[0]) fail('notfound', 'Order not found, or already voided.');
-    // A voided sale is not cooked.
+    // A voided sale is not cooked, and a VIP guest gets their money back.
     await kitchen.cancelForOrder(client, res.rows[0].company_id, id);
+    await money.onVoid(client, res.rows[0]);
     return true;
   });
 }
@@ -619,17 +635,16 @@ async function buildReport(session, client) {
   );
   var startingCash = Number(session.starting_cash);
   var cashSales = Number(salesRes.rows[0].cash_sales);
-  // No refund tender exists on the till (voids are a manager-only action
-  // on already-settled orders, not a cash-back-to-customer event) — kept
-  // as an explicit zero, not omitted, so this report's shape always
-  // matches the reference receipt's line items.
-  var cashRefunds = 0;
+  // Besides cash sales: refunds paid out in cash, IOUs paid and VIP
+  // top-ups taken in cash, by this cashier on this drawer.
+  var other = await money.drawerCash(db, session.cashier_id, session.company_id, session.opened_at, endTime);
+  var cashRefunds = other.refunds;
   var netPaidInOut = paidIn - paidOut;
-  var expected = Math.round((startingCash + cashSales - cashRefunds + netPaidInOut) * 100) / 100;
+  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps - cashRefunds + netPaidInOut) * 100) / 100;
   var actual = session.closing_actual_cash == null ? null : Number(session.closing_actual_cash);
   return {
     session: rowToSession(session),
-    startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds,
+    startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds, iouPaidCash: other.iouPaid, vipTopUpsCash: other.vipTopUps,
     paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut,
     expected: expected, actual: actual, difference: actual == null ? null : Math.round((actual - expected) * 100) / 100,
     movements: movementsListRes.rows.map(function (m) {

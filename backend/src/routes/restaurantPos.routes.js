@@ -1,6 +1,7 @@
 var express = require('express');
 var restaurantPosService = require('../services/restaurantPos.service');
 var kitchen = require('../services/restaurantKitchen.service');
+var money = require('../services/restaurantTillMoney.service');
 
 // The till's own endpoints — mounted at /api/pos in app.js, deliberately
 // public like /api/kiosk (see kiosk.routes.js's comment): no logged-in
@@ -39,6 +40,33 @@ router.post('/orders', posAuth, async function (req, res, next) {
 
 router.get('/orders/:id/receipt', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.receiptForSession(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+
+// Refunds (approved with a manager's PIN), VIP balances and IOUs
+// (restaurantTillMoney.service.js).
+router.get('/refunds/sales', posAuth, async function (req, res, next) {
+  try { res.json(await money.salesToRefund(req.posToken, req.query.q)); } catch (e) { next(e); }
+});
+router.get('/refunds/sales/:id', posAuth, async function (req, res, next) {
+  try { res.json(await money.saleForRefund(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/refunds/sales/:id', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await money.refundSale(req.posToken, req.params.id, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/vip', posAuth, async function (req, res, next) {
+  try { res.json(await money.vipGuests(req.posToken, req.query.q)); } catch (e) { next(e); }
+});
+router.get('/vip/:guestId', posAuth, async function (req, res, next) {
+  try { res.json(await money.vipGuest(req.posToken, req.params.guestId)); } catch (e) { next(e); }
+});
+router.post('/vip/topups', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await money.vipTopUp(req.posToken, req.body)); } catch (e) { next(e); }
+});
+router.get('/ious', posAuth, async function (req, res, next) {
+  try { res.json(await money.iouList(req.posToken, req.query.q)); } catch (e) { next(e); }
+});
+router.post('/ious/:id/paid', posAuth, async function (req, res, next) {
+  try { res.json(await money.payIou(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
 // Open tables: orders kept to add to and pay later (paid through POST

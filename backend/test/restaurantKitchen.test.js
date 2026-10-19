@@ -70,7 +70,7 @@ test.after(async function () { await cleanup(); await pool.end(); });
 
 test('no stations, nothing sent: the kitchen display is off', async function () {
   await pos.openDrawerSession(token, 0);
-  var o = await pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'card' });
+  var o = await pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'mobile_money' });
   assert.equal(o.kitchenTicket, null);
   assert.deepEqual(await kitchen.tillSummary(token), { inUse: false, cooking: 0, ready: [] });
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM restaurant_kitchen_tickets WHERE company_id = $1', [company.id])).rows[0].n, 0);

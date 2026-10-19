@@ -123,7 +123,7 @@ async function report(ctx, companyId, opts) {
       'FROM restaurant_order_items i JOIN restaurant_orders o ON o.id = i.order_id LEFT JOIN restaurant_menu_items m ON m.id = i.menu_item_id ' +
       'WHERE ' + DONE + ' AND o.created_at >= $2 AND o.created_at < $3 GROUP BY 1, 2', [companyId, from, to]),
     pool.query(
-      'SELECT ' + MON + " AS mon, extract(hour FROM o.created_at AT TIME ZONE 'UTC')::int AS hour, count(*) AS orders, sum(o.total) AS net " +
+      'SELECT ' + MON + " AS mon, extract(hour FROM o.created_at AT TIME ZONE 'UTC')::int AS hour, count(*) AS orders, sum(o.total - o.refunded_total) AS net " +
       'FROM restaurant_orders o WHERE ' + DONE + ' AND o.created_at >= $2 AND o.created_at < $3 GROUP BY 1, 2', [companyId, from, to]),
     pool.query(
       "SELECT coalesce(i.menu_item_id::text, 'name:' || i.name) AS key, coalesce(m.name, i.name) AS name, m.category, " +

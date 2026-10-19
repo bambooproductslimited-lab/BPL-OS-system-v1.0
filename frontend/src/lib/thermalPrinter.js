@@ -91,7 +91,14 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(BOLD_ON);
   out = out.concat(line(twoColumn('TOTAL', money2(order.total), width)));
   out = out.concat(BOLD_OFF);
-  out = out.concat(line('Paid by ' + String(order.paymentMethod || '').replace('_', ' ')));
+  (order.refunds || []).forEach(function (r) {
+    out = out.concat(line(twoColumn('Refunded ' + new Date(r.createdAt).toLocaleDateString(), '-' + money2(r.amount), width)));
+  });
+  if (order.refunds && order.refunds.length) out = out.concat(line(twoColumn('After refunds', money2(order.total - order.refunded), width)));
+  if (order.paymentMethod === 'vip') out = out.concat(line('Paid from VIP balance' + (order.guestName ? ': ' + order.guestName : '')));
+  else if (order.paymentMethod === 'iou') out = out.concat(line(order.iouPaidAt ? 'IOU, paid ' + new Date(order.iouPaidAt).toLocaleDateString() : 'IOU: owed by ' + (order.guestName || 'the guest')));
+  else out = out.concat(line('Paid by ' + String(order.paymentMethod || '').replace('_', ' ')));
+  if (order.vipBalance != null) out = out.concat(line(twoColumn('VIP balance left', money2(order.vipBalance), width)));
   if (order.cashTendered != null) {
     out = out.concat(line(twoColumn('Cash', money2(order.cashTendered), width)));
     out = out.concat(line(twoColumn('Change', money2(order.change), width)));
@@ -126,6 +133,8 @@ export function buildDrawerReportBytes(report, companyName, cashierName, opts) {
   out = out.concat(line(new Array(width + 1).join('-')));
   out = out.concat(line(twoColumn('Starting Cash', money2(report.startingCash), width)));
   out = out.concat(line(twoColumn('Cash Sales', money2(report.cashSales), width)));
+  if (report.iouPaidCash > 0) out = out.concat(line(twoColumn('IOUs paid in cash', money2(report.iouPaidCash), width)));
+  if (report.vipTopUpsCash > 0) out = out.concat(line(twoColumn('VIP money in cash', money2(report.vipTopUpsCash), width)));
   out = out.concat(line(twoColumn('Cash Refunds', money2(report.cashRefunds), width)));
   out = out.concat(line(twoColumn('Paid In/Out', (report.netPaidInOut < 0 ? '-' : '') + money2(Math.abs(report.netPaidInOut)), width)));
   out = out.concat(line(twoColumn('Expected in Drawer', money2(report.expected), width)));

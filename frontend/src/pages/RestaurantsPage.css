@@ -77,6 +77,8 @@
 .rs-lines li + li { border-top: 1px solid var(--color-divider); }
 .rs-lines li strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rs-lines li > span:first-child { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.rs-lines li.rs-refund { color: var(--color-danger); }
+.rs-lines li.rs-refund small { display: block; margin-top: 2px; font-size: 12px; color: var(--color-text-muted); }
 .rs-lines .rs-total { background: var(--color-bg-subtle); font-weight: 700; }
 .rs-lines .rs-total strong { font-size: 15px; }
 

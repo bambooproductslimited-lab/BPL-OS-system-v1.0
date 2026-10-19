@@ -317,6 +317,8 @@
 .pos-change.is-bad strong { color: var(--color-danger); }
 .pos-complete { min-width: 160px; height: 46px; border: 0 !important; background: linear-gradient(135deg, var(--pos-go-a), var(--pos-go-b)) !important; box-shadow: 0 12px 24px -12px var(--pos-go-a); font-weight: 800; }
 .pos-panel { max-width: 640px; width: calc(100vw - 32px); max-height: calc(100dvh - 48px); overflow-y: auto; }
+/* A panel taller than the screen scrolls; its parts never squash to fit. */
+.pos-panel > *, .pos-money-form > * { flex-shrink: 0; }
 .pos-panel > .dk-muted { margin-top: -4px; }
 .pos-panel-h { margin: 18px 0 8px; font-size: 14px; }
 .pos-panel-actions { display: flex; gap: 8px; margin-top: 10px; }
@@ -397,6 +399,7 @@
   .pos-top-logo-wrap { width: 42px; height: 42px; border-radius: 13px; }
   .pos-top-logo { height: 32px; }
   .pos-top-tools .tl-btn:not(:last-child) { display: none; }
+  .pos-top-tools .tl-btn.pos-tool { display: inline-flex; padding-left: 10px; padding-right: 10px; }
   .pos-stat { flex: none; }
   .pos-body { grid-template-columns: minmax(0, 1fr); }
   .pos-menu-tools { padding: 10px 12px 8px; }
@@ -421,6 +424,116 @@
 @media (prefers-reduced-motion: reduce) {
   .pos-shell *, .pos-shell *::before, .pos-shell *::after { animation: none !important; transition: none !important; }
   .pos-confetti, .pos-tile-plus { display: none; }
+}
+
+/* ── refunds, VIP money, IOUs (TillMoney.jsx) ──────────────────────────
+   Plain rgba colours, no color-mix(), so older iPads draw them too. */
+.pos-methods button[data-m='vip'] { --m: #a855f7; } .pos-methods button[data-m='iou'] { --m: #f97316; } .pos-methods button[data-m='other'] { --m: #0ea5e9; }
+.pos-methods { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 520px) { .pos-methods { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.pos-tool { display: inline-flex; align-items: center; gap: 6px; }
+.pos-tool .dk-icon { width: 15px; height: 15px; }
+.pos-tool.is-vip .dk-icon { color: #a855f7; } .pos-tool.is-refund .dk-icon { color: #ef4444; }
+@media (max-width: 1600px) { .pos-tool > span { display: none; } .pos-tool { padding-left: 12px; padding-right: 12px; } }
+.pos-stat.is-iou { --st: #94a3b8; }
+.pos-stat.is-iou.is-owed { --st: #f97316; border-color: rgba(249, 115, 22, .5); }
+
+.pos-money h2 { display: flex; align-items: center; gap: 10px; }
+.pos-money-ico { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: #fff; box-shadow: 0 10px 20px -12px rgba(0, 0, 0, .6); }
+.pos-money-ico .dk-icon { width: 18px; height: 18px; }
+.pos-money-ico.is-refund { background: linear-gradient(135deg, #f87171, #dc2626); }
+.pos-money-ico.is-vip { background: linear-gradient(135deg, #c084fc, #7c3aed); }
+.pos-money-ico.is-iou { background: linear-gradient(135deg, #fdba74, #ea580c); }
+.pos-money > .input, .pos-money-form > .input { margin: 4px 0 10px; }
+.pos-money-form { display: flex; flex-direction: column; gap: 10px; }
+.pos-money-form h2 { margin: 0; }
+.pos-money-row { cursor: pointer; border-radius: 12px; transition: background .12s ease; }
+.pos-money-row:hover { background: var(--pos-soft); }
+.pos-money-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; font-size: 11px; font-weight: 800; border-radius: 999px; vertical-align: middle; }
+.pos-money-tag.is-refund { color: #dc2626; background: rgba(239, 68, 68, .12); }
+.pos-money-h { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); }
+.pos-money-flash { display: flex; align-items: center; gap: 8px; padding: 10px 13px; font-size: 13.5px; font-weight: 700; color: #047857; border-radius: 12px; background: rgba(16, 185, 129, .12); border: 1px solid rgba(16, 185, 129, .35); animation: pos-in .3s ease both; }
+.pos-money-flash .dk-icon { width: 18px; height: 18px; flex: none; }
+:root[data-theme='dark'] .pos-money-flash { color: #6ee7b7; }
+.pos-row-links { display: inline-flex; gap: 12px; }
+.pos-money-sum strong { color: var(--color-text); }
+
+.pos-refund-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--pos-line); border-radius: 14px; overflow: hidden; }
+.pos-refund-lines li { display: grid; grid-template-columns: minmax(0, 1fr) auto 86px; align-items: center; gap: 12px; padding: 10px 13px; transition: background .12s ease; }
+.pos-refund-lines li + li { border-top: 1px solid var(--color-divider); }
+.pos-refund-lines li.is-on { background: rgba(239, 68, 68, .07); }
+.pos-refund-lines li.is-done { opacity: .5; }
+.pos-refund-lines strong { text-align: right; color: #dc2626; font-variant-numeric: tabular-nums; }
+.pos-refund-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-weight: 700; font-size: 14px; }
+.pos-refund-name small { font-weight: 500; font-size: 12px; color: var(--color-text-muted); }
+.pos-refund-lines .pos-stepper { grid-area: auto; }
+.pos-ways { display: flex; flex-wrap: wrap; gap: 8px; }
+.pos-ways button { flex: 1 1 140px; padding: 11px 12px; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--color-text); background: var(--pos-soft); border: 1px solid var(--pos-line); border-radius: 12px; cursor: pointer; transition: border-color .12s ease, transform .1s ease; }
+.pos-ways button:active { transform: scale(.97); }
+.pos-ways button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--pos-go-a), var(--pos-go-b)); box-shadow: 0 10px 20px -14px var(--pos-go-a); }
+.pos-ways button.is-on[data-m='vip'] { background: linear-gradient(135deg, #a855f7, #7c3aed); }
+.pos-ways button.is-on[data-m='iou'] { background: linear-gradient(135deg, #fb923c, #ea580c); }
+.pos-ways button.is-on[data-m='mobile_money'] { background: linear-gradient(135deg, #eab308, #ca8a04); }
+.pos-refund-sum { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 16px; border-radius: 14px; color: #fff; background: linear-gradient(135deg, #ef4444, #b91c1c); box-shadow: 0 16px 30px -18px #dc2626; }
+.pos-refund-sum span { font-weight: 700; opacity: .9; }
+.pos-refund-sum strong { font-family: var(--font-heading); font-size: 28px; font-variant-numeric: tabular-nums; }
+.pos-manager { padding: 12px 14px; border-radius: 14px; background: var(--pos-soft); border: 1px dashed var(--pos-line); }
+.pos-manager label { display: inline-flex; align-items: center; gap: 6px; }
+.pos-manager label .dk-icon { width: 16px; height: 16px; }
+.pos-manager .input { max-width: 180px; font-size: 22px; letter-spacing: .4em; text-align: center; font-variant-numeric: tabular-nums; }
+.pos-money .btn.pos-refund-go, .pos-money .btn.pos-refund-go:hover:not(:disabled) { color: #fff; background: linear-gradient(135deg, #ef4444, #b91c1c); border-color: transparent; box-shadow: 0 12px 24px -12px #dc2626; }
+/* The dialog's buttons stay in view while a long refund or history scrolls. */
+.pos-money .dialog-actions { position: sticky; bottom: -28px; z-index: 1; margin: 4px -28px -28px; padding: 12px 28px 18px; background: var(--pos-card); border-top: 1px solid var(--pos-line); }
+:root[data-theme='dark'] .pos-money .dialog-actions { background: #19202f; }
+.pos-money-done .dialog-actions { position: static; margin: 4px 0 0; padding: 0; border: 0; background: none; }
+:root[data-theme='dark'] .pos-money-done .dialog-actions { background: none; }
+.pos-money-done { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 10px 0 0; }
+.pos-money-done h2 { margin: 0; justify-content: center; }
+.pos-money-done .dialog-actions { align-self: stretch; }
+
+.pos-vip-total, .pos-iou-total { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 6px 0 8px; padding: 14px 16px; border-radius: 16px; color: #fff; }
+.pos-vip-total { background: linear-gradient(135deg, #a855f7, #6d28d9); box-shadow: 0 16px 30px -18px #7c3aed; }
+.pos-iou-total { background: linear-gradient(135deg, #fb923c, #c2410c); box-shadow: 0 16px 30px -18px #ea580c; }
+.pos-vip-total span, .pos-iou-total span { font-weight: 700; opacity: .92; }
+.pos-vip-total strong, .pos-iou-total strong { font-family: var(--font-heading); font-size: 26px; font-variant-numeric: tabular-nums; }
+.pos-vip-avatar { flex: none; display: grid; place-items: center; width: 38px; height: 38px; font-weight: 900; font-size: 16px; color: #fff; border-radius: 50%; background: linear-gradient(135deg, #c084fc, #7c3aed); }
+.pos-vip-avatar.is-iou { background: linear-gradient(135deg, #fdba74, #ea580c); }
+.pos-vip-bal { color: #7c3aed; }
+:root[data-theme='dark'] .pos-vip-bal { color: #c4b5fd; }
+.pos-vip-new { display: grid; grid-template-columns: 100% ; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--pos-line); }
+@media (min-width: 560px) { .pos-vip-new { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; } .pos-vip-new .pos-money-h { grid-column: 1 / -1; } }
+.pos-vip-card { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 18px 20px; overflow: hidden; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #7c3aed, #a855f7 55%, #f472b6); box-shadow: 0 18px 34px -20px #7c3aed; }
+.pos-vip-card::after { content: '★'; position: absolute; right: 14px; top: -6px; font-size: 92px; line-height: 1; opacity: .18; }
+.pos-vip-card span { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .9; }
+.pos-vip-card strong { font-family: var(--font-heading); font-size: 34px; font-variant-numeric: tabular-nums; }
+.pos-vip-card small { opacity: .85; }
+.pos-vip-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--pos-line); border-radius: 14px; overflow: hidden; }
+.pos-vip-history li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 13px; font-size: 13.5px; }
+.pos-vip-history li + li { border-top: 1px solid var(--color-divider); }
+.pos-vip-history li > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-weight: 700; }
+.pos-vip-history small { font-weight: 500; font-size: 12px; color: var(--color-text-muted); }
+.pos-vip-history strong { flex: none; font-variant-numeric: tabular-nums; }
+.pos-vip-history .is-plus { color: #059669; } .pos-vip-history .is-minus { color: #dc2626; }
+:root[data-theme='dark'] .pos-vip-history .is-plus { color: #34d399; } :root[data-theme='dark'] .pos-vip-history .is-minus { color: #f87171; }
+.pos-iou.is-old .pos-vip-avatar { box-shadow: 0 0 0 3px rgba(239, 68, 68, .35); }
+.pos-iou .dk-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pos-iou-pay { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.pos-iou-pay .pos-ways { flex: 1 1 220px; }
+.pos-iou-pay .pos-ways button { padding: 8px 10px; flex-basis: 90px; }
+
+.pos-payfor { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--pos-line); background: var(--pos-soft); animation: pos-in .25s ease both; }
+.pos-payfor.is-vip { border-color: rgba(168, 85, 247, .5); background: rgba(168, 85, 247, .08); }
+.pos-payfor.is-iou { border-color: rgba(249, 115, 22, .5); background: rgba(249, 115, 22, .08); }
+.pos-payfor.is-missing, .pos-payfor.is-short { border-style: dashed; }
+.pos-payfor.is-short { border-color: rgba(239, 68, 68, .6); background: rgba(239, 68, 68, .08); }
+.pos-payfor-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 13px; color: var(--color-text-muted); }
+.pos-payfor-text strong { font-size: 15px; color: var(--color-text); }
+.pos-receipt-refunds { margin-top: 6px; color: #b91c1c; }
+.pos-receipt-refunds .is-net { font-weight: 800; color: inherit; }
+@media (max-width: 520px) {
+  .pos-refund-lines li { grid-template-columns: minmax(0, 1fr) auto; }
+  .pos-refund-lines strong { grid-column: 1 / -1; text-align: left; }
+  .pos-payfor { flex-wrap: wrap; }
 }
 
 @media print {

@@ -210,10 +210,10 @@ async function restaurantMarketing(co) {
   var DAYS = 30;
   var salesRes = await pool.query(
     "SELECT count(*) FILTER (WHERE created_at >= now() - interval '30 days')::int AS orders, " +
-    "coalesce(sum(total) FILTER (WHERE created_at >= now() - interval '30 days'), 0) AS revenue, " +
+    "coalesce(sum(total - refunded_total) FILTER (WHERE created_at >= now() - interval '30 days'), 0) AS revenue, " +
     "count(*) FILTER (WHERE created_at >= now() - interval '30 days' AND guest_id IS NOT NULL)::int AS with_guest, " +
     "count(*) FILTER (WHERE created_at >= now() - interval '60 days' AND created_at < now() - interval '30 days')::int AS prev_orders, " +
-    "coalesce(sum(total) FILTER (WHERE created_at >= now() - interval '60 days' AND created_at < now() - interval '30 days'), 0) AS prev_revenue, " +
+    "coalesce(sum(total - refunded_total) FILTER (WHERE created_at >= now() - interval '60 days' AND created_at < now() - interval '30 days'), 0) AS prev_revenue, " +
     'max(created_at) AS last_order_at ' +
     "FROM restaurant_orders WHERE company_id = $1 AND status = 'completed'", [co.id]
   );
@@ -228,7 +228,7 @@ async function restaurantMarketing(co) {
     ') v ON v.guest_id = g.id WHERE g.company_id = $1', [co.id]
   );
   var perGuest =
-    'SELECT g.name, g.phone, count(o.id)::int AS orders, coalesce(sum(o.total), 0) AS total, max(o.created_at) AS last_visit ' +
+    'SELECT g.name, g.phone, count(o.id)::int AS orders, coalesce(sum(o.total - o.refunded_total), 0) AS total, max(o.created_at) AS last_visit ' +
     "FROM restaurant_guests g JOIN restaurant_orders o ON o.guest_id = g.id AND o.status = 'completed' WHERE g.company_id = $1 GROUP BY g.id, g.name, g.phone ";
   var topGuestsRes = await pool.query(perGuest + 'ORDER BY total DESC LIMIT 8', [co.id]);
   var lapsedRes = await pool.query(perGuest + "HAVING count(o.id) >= 2 AND max(o.created_at) < now() - interval '30 days' ORDER BY total DESC LIMIT 10", [co.id]);
@@ -237,7 +237,7 @@ async function restaurantMarketing(co) {
     "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at >= now() - interval '30 days' GROUP BY i.name ORDER BY qty DESC, revenue DESC LIMIT 8", [co.id]
   );
   var weekRes = await pool.query(
-    "SELECT extract(isodow FROM created_at)::int AS dow, count(*)::int AS orders, coalesce(sum(total), 0) AS revenue FROM restaurant_orders " +
+    "SELECT extract(isodow FROM created_at)::int AS dow, count(*)::int AS orders, coalesce(sum(total - refunded_total), 0) AS revenue FROM restaurant_orders " +
     "WHERE company_id = $1 AND status = 'completed' AND created_at >= now() - interval '90 days' GROUP BY dow", [co.id]
   );
   var byDow = {}; weekRes.rows.forEach(function (r) { byDow[r.dow] = r; });
@@ -540,27 +540,27 @@ async function tradeFun(co, t, base, mtd, inv, trend) {
 // sales.
 async function restaurantFinance(ctx, co, t, mtd, periods, expTrend, exp) {
   var salesRes = await pool.query(
-    "SELECT coalesce(sum(total) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $2 AND $3), 0) AS this_month, " +
+    "SELECT coalesce(sum(total - refunded_total) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $2 AND $3), 0) AS this_month, " +
     "count(*) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $2 AND $3)::int AS orders, " +
-    "coalesce(sum(total) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $4 AND $5), 0) AS last_month, " +
+    "coalesce(sum(total - refunded_total) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $4 AND $5), 0) AS last_month, " +
     "count(*) FILTER (WHERE status = 'completed' AND created_at::date BETWEEN $4 AND $5)::int AS last_orders, " +
     "count(*) FILTER (WHERE status = 'voided' AND created_at::date BETWEEN $2 AND $3)::int AS voided, " +
     "coalesce(sum(total) FILTER (WHERE status = 'voided' AND created_at::date BETWEEN $2 AND $3), 0) AS voided_amount " +
     'FROM restaurant_orders WHERE company_id = $1', [co.id, mtd.from, mtd.to, mtd.prevFrom, mtd.prevTo]
   );
   var methodRes = await pool.query(
-    "SELECT payment_method AS method, sum(total) AS amount, count(*)::int AS orders FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' " +
+    "SELECT payment_method AS method, sum(total - refunded_total) AS amount, count(*)::int AS orders FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' " +
     'AND created_at::date BETWEEN $2 AND $3 GROUP BY payment_method ORDER BY amount DESC', [co.id, mtd.from, mtd.to]
   );
   var dailyRes = await pool.query(
-    "SELECT d::date AS day, coalesce(sum(o.total), 0) AS sales, count(o.id)::int AS orders FROM generate_series($2::date - 13, $2::date, interval '1 day') d " +
+    "SELECT d::date AS day, coalesce(sum(o.total - o.refunded_total), 0) AS sales, count(o.id)::int AS orders FROM generate_series($2::date - 13, $2::date, interval '1 day') d " +
     "LEFT JOIN restaurant_orders o ON o.company_id = $1 AND o.status = 'completed' AND o.created_at::date = d::date GROUP BY d ORDER BY d", [co.id, t]
   );
   var trend = [];
   for (var k = 0; k < periods.length; k++) {
     var p = periods[k];
     var r = await pool.query(
-      "SELECT coalesce(sum(total),0) AS s FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' AND to_char(created_at, '" + p.fmt + "') = $2", [co.id, p.key]
+      "SELECT coalesce(sum(total - refunded_total),0) AS s FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' AND to_char(created_at, '" + p.fmt + "') = $2", [co.id, p.key]
     );
     trend.push({ month: p.label, key: p.key, revenue: Number(r.rows[0].s), expense: expTrend[k] });
   }
@@ -793,7 +793,7 @@ async function profitAndLoss(ctx, params) {
   var P = [co.id, period.from, period.to];
 
   var invRes = await pool.query("SELECT coalesce(sum(i.grand_total),0) AS s FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $4 AND i.issued_at BETWEEN $2 AND $3 AND " + sc.inv, P.concat([base]));
-  var restRes = await pool.query("SELECT coalesce(sum(o.total),0) AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest, P);
+  var restRes = await pool.query("SELECT coalesce(sum(o.total - o.refunded_total),0) AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest, P);
   var expByCatRes = await pool.query(
     "SELECT x.category, sum(x.amount) AS amount, coalesce(sum(x.amount) FILTER (WHERE x.source = 'sheet'), 0) AS sheets FROM " + SPEND_SQL + ' WHERE x.date BETWEEN $2 AND $3 AND ' + sc.spend + ' GROUP BY x.category ORDER BY amount DESC', P);
   var payrollRes = await pool.query(
@@ -836,7 +836,17 @@ async function cashFlow(ctx, params) {
   var P = [co.id, period.from, period.to];
 
   var inRes = await pool.query('SELECT p.method, sum(p.amount) AS s FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id WHERE p.currency = $4 AND p.date BETWEEN $2 AND $3 AND ' + sc.inv + ' GROUP BY p.method', P.concat([base]));
-  var restRes = await pool.query("SELECT o.payment_method AS method, sum(o.total) AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest + ' GROUP BY o.payment_method', P);
+  // Restaurant takings on the day the money moved: sales paid in cash or
+  // Mobile Money (and older methods); an IOU when it was paid; a VIP
+  // guest's money when they put it down, not when they spend it; less
+  // refunds paid back in cash or Mobile Money.
+  var restRes = await pool.query(
+    'SELECT method, sum(s) AS s FROM (' +
+    "  SELECT o.payment_method AS method, o.total AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.payment_method NOT IN ('vip', 'iou') AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +
+    "  UNION ALL SELECT o.iou_paid_method, o.iou_paid_amount FROM restaurant_orders o WHERE o.status = 'completed' AND o.iou_paid_method IS NOT NULL AND o.iou_paid_at::date BETWEEN $2 AND $3 AND " + sc.rest +
+    "  UNION ALL SELECT o.method, o.amount FROM restaurant_vip_entries o WHERE o.kind = 'topup' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +
+    "  UNION ALL SELECT o.method, -o.amount FROM restaurant_refunds o WHERE o.method IN ('cash', 'mobile_money') AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +
+    ') x GROUP BY method', P);
   var expRes = await pool.query(
     "SELECT coalesce(sum(e.amount),0) AS s FROM expenses e LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'paid' AND coalesce(e.paid_at::date, e.date) BETWEEN $2 AND $3 AND " + sc.exp, P);
   var expDueRes = await pool.query(
@@ -891,7 +901,7 @@ async function balanceSheet(ctx) {
   var expRes = await pool.query('SELECT coalesce(sum(x.amount),0) AS s FROM ' + SPEND_SQL);
   var floats = await floatsNow(ALL_COMPANIES);
   var payrollRes = await pool.query("SELECT coalesce(sum(ps.gross_pay + ps.ssnit_employer + CASE WHEN ps.paye_by_company THEN ps.paye_tax ELSE 0 END),0) AS s FROM payslips ps JOIN pay_runs pr ON pr.id = ps.pay_run_id WHERE pr.status IN ('approved','paid')");
-  var restRes = await pool.query("SELECT coalesce(sum(total),0) AS s FROM restaurant_orders WHERE status = 'completed'");
+  var restRes = await pool.query("SELECT coalesce(sum(total - refunded_total),0) AS s FROM restaurant_orders WHERE status = 'completed'");
   var allPurchases = await purchasesIn(ALL_COMPANIES, scopes(ALL_COMPANIES), '1900-01-01', '2999-12-31');
 
   var cashAndBank = Number(manual.cashAndBank || 0);

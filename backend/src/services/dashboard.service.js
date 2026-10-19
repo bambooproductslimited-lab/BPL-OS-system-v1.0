@@ -195,8 +195,8 @@ async function load(ctx, companyCode) {
     for (var k = 0; k < rs.length; k++) {
       var r = rs[k];
       var sales = await pool.query(
-        "SELECT coalesce(sum(total) FILTER (WHERE created_at::date = $2), 0) AS today, count(*) FILTER (WHERE created_at::date = $2)::int AS orders, " +
-        "coalesce(sum(total) FILTER (WHERE created_at::date = $2::date - 7), 0) AS last_week FROM restaurant_orders WHERE company_id = $1 AND status = 'completed'",
+        "SELECT coalesce(sum(total - refunded_total) FILTER (WHERE created_at::date = $2), 0) AS today, count(*) FILTER (WHERE created_at::date = $2)::int AS orders, " +
+        "coalesce(sum(total - refunded_total) FILTER (WHERE created_at::date = $2::date - 7), 0) AS last_week FROM restaurant_orders WHERE company_id = $1 AND status = 'completed'",
         [r.id, t]
       );
       var stock = await pool.query(
@@ -206,8 +206,8 @@ async function load(ctx, companyCode) {
         [r.id, t]
       );
       var hours = await pool.query(
-        "SELECT extract(hour FROM created_at)::int AS h, coalesce(sum(total) FILTER (WHERE created_at::date = $2), 0) AS today, " +
-        "coalesce(sum(total) FILTER (WHERE created_at::date = $2::date - 7), 0) AS last_week FROM restaurant_orders " +
+        "SELECT extract(hour FROM created_at)::int AS h, coalesce(sum(total - refunded_total) FILTER (WHERE created_at::date = $2), 0) AS today, " +
+        "coalesce(sum(total - refunded_total) FILTER (WHERE created_at::date = $2::date - 7), 0) AS last_week FROM restaurant_orders " +
         "WHERE company_id = $1 AND status = 'completed' AND created_at::date IN ($2::date, $2::date - 7) GROUP BY 1 ORDER BY 1",
         [r.id, t]
       );
