@@ -226,6 +226,17 @@
 .pos-order-who button.is-set .pos-who-glyph { color: var(--pos-go-a); }
 .pos-order-who small { grid-area: l; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); }
 .pos-order-who button > span { grid-area: v; font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a note sent to the kitchen with the order */
+.pos-knote-add { margin: 10px 16px 0; padding: 8px 12px; font: inherit; font-size: 12.5px; font-weight: 700; text-align: left; color: var(--color-text-muted); background: transparent; border: 1px dashed var(--pos-line); border-radius: 12px; cursor: pointer; }
+.pos-knote-add:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+.pos-knote { display: flex; align-items: center; gap: 8px; margin: 10px 16px 0; }
+.pos-knote .input { flex: 1; min-width: 0; height: 40px; font-size: 13px; background: rgba(245, 179, 1, .1); border-color: rgba(245, 179, 1, .5); }
+.pos-sent { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; font-weight: 700; border-radius: 12px; background: rgba(59, 130, 246, .12); border: 1px solid rgba(59, 130, 246, .4); }
+.pos-sent .dk-icon { width: 18px; height: 18px; color: #3b82f6; }
+.pos-stat.is-kitchen { --st: #8b5cf6; }
+.pos-stat.is-kitchen.is-ready { --st: #10b981; border-color: rgba(16, 185, 129, .6); }
+.pos-stat.is-kitchen.is-ready .pos-stat-ico { animation: pos-pulse 1.6s ease-in-out infinite; }
+.pos-ready-no { flex: none; display: grid; place-items: center; min-width: 46px; height: 40px; font-family: var(--font-heading); font-size: 18px; font-weight: 900; color: #fff; border-radius: 12px; background: linear-gradient(135deg, #059669, #10b981); }
 .pos-lines { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; }
 .pos-lines-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px 12px; text-align: center; color: var(--color-text-muted); }
 .pos-lines-empty strong { font-family: var(--font-heading); font-size: 16px; color: var(--color-text); }

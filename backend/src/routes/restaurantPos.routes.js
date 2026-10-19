@@ -1,5 +1,6 @@
 var express = require('express');
 var restaurantPosService = require('../services/restaurantPos.service');
+var kitchen = require('../services/restaurantKitchen.service');
 
 // The till's own endpoints — mounted at /api/pos in app.js, deliberately
 // public like /api/kiosk (see kiosk.routes.js's comment): no logged-in
@@ -53,6 +54,27 @@ router.delete('/tabs/:id', posAuth, async function (req, res, next) {
 });
 
 // This cashier's shift so far.
+// The kitchen display (/kds), signed in with a staff PIN like the till,
+// and what is ready to take out, for the till (restaurantKitchen.service.js).
+router.get('/kds', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.board(req.posToken, req.query)); } catch (e) { next(e); }
+});
+router.post('/kds/items/:id', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.setItemDone(req.posToken, req.params.id, req.body && req.body.done !== false)); } catch (e) { next(e); }
+});
+router.post('/kds/tickets/:id/done', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.finishTicket(req.posToken, req.params.id, req.body && req.body.station)); } catch (e) { next(e); }
+});
+router.post('/kds/tickets/:id/served', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.serveTicket(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/kds/tickets/:id/recall', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.recallTicket(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+router.get('/kitchen', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.tillSummary(req.posToken)); } catch (e) { next(e); }
+});
+
 router.get('/shift', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.shiftSummary(req.posToken)); } catch (e) { next(e); }
 });

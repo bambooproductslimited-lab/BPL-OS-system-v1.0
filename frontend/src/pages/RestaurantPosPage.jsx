@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { API_URL, API_ORIGIN, ApiError } from '../api/client';
+import { API_ORIGIN } from '../api/client';
+import { posFetch } from '../lib/posApi';
 import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
@@ -88,21 +89,6 @@ var WHO_GLYPH = {
 };
 function WhoGlyph({ name }) {
   return <svg className="pos-who-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{WHO_GLYPH[name]}</svg>;
-}
-
-async function posFetch(method, path, token, body) {
-  var headers = {};
-  if (token) headers.Authorization = 'Bearer ' + token;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  var res = await fetch(API_URL + path, { method: method, headers: headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-  var text = await res.text();
-  var data = null;
-  if (text) { try { data = JSON.parse(text); } catch { data = null; } }
-  if (!res.ok) {
-    var err = data && data.error;
-    throw new ApiError(res.status, err ? err.code : 'error', err ? err.message : tr('Something went wrong.'));
-  }
-  return data;
 }
 
 export default function RestaurantPosPage() {
@@ -224,6 +210,12 @@ export default function RestaurantPosPage() {
   const [cartOpen, setCartOpen] = useState(false); // the order as a full-screen sheet on a phone
   const [cashGiven, setCashGiven] = useState('');
   const [toast, setToast] = useState(null);
+  // The kitchen display (pages/KdsPage.jsx): what is ready to take out,
+  // and a note sent with the order (restaurantKitchen.service.js).
+  const [kitchen, setKitchen] = useState(null); // { inUse, cooking, ready: [...] }
+  const [kitchenOpen, setKitchenOpen] = useState(false);
+  const [kitchenNote, setKitchenNote] = useState('');
+  const [noteOpen, setNoteOpen] = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
@@ -234,6 +226,12 @@ export default function RestaurantPosPage() {
     const t = setInterval(() => setNow(new Date()), 20000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    if (!session || !session.token) return undefined;
+    const t = setInterval(() => loadKitchen(session.token), 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 3500);
@@ -358,6 +356,16 @@ export default function RestaurantPosPage() {
   async function loadShift(token) {
     try { setShift(await posFetch('GET', '/pos/shift', token || session.token)); } catch { /* the shift figures just don't show */ }
   }
+  async function loadKitchen(token) {
+    try { setKitchen(await posFetch('GET', '/pos/kitchen', token || session.token)); } catch { /* the kitchen figures just don't show */ }
+  }
+  async function serveTicket(t) {
+    try {
+      await posFetch('POST', '/pos/kds/tickets/' + t.id + '/served', session.token);
+      setToast(tr('#{n} served.', { n: t.number }));
+      loadKitchen();
+    } catch (err) { setToast(err.message); }
+  }
   async function loadTabs(token) {
     try { setTabs(await posFetch('GET', '/pos/tabs', token || session.token)); } catch { /* the open tables list just stays as it was */ }
   }
@@ -370,6 +378,7 @@ export default function RestaurantPosPage() {
   async function loadDrawer(token) {
     loadShift(token);
     loadTabs(token);
+    loadKitchen(token);
     try {
       setDrawer(await posFetch('GET', '/pos/drawer', token));
     } catch {
@@ -454,6 +463,9 @@ export default function RestaurantPosPage() {
     setCurrentTab(null);
     setCategory('');
     setCartOpen(false);
+    setKitchen(null);
+    setKitchenNote('');
+    setNoteOpen(false);
   }
 
   async function searchGuests(q) {
@@ -637,7 +649,8 @@ export default function RestaurantPosPage() {
         waiterId: selectedWaiter ? selectedWaiter.id : undefined,
         guestId: selectedGuest ? selectedGuest.id : undefined,
         tabId: currentTab ? currentTab.id : undefined,
-        cashTendered: paymentMethod === 'cash' && cashGiven !== '' ? Number(cashGiven) : undefined
+        cashTendered: paymentMethod === 'cash' && cashGiven !== '' ? Number(cashGiven) : undefined,
+        kitchenNote: kitchenNote.trim() || undefined
       });
       // The order response only carries ids (see restaurantPos.service.js's
       // rowToOrder) — names come from what's already selected here, so the
@@ -648,9 +661,11 @@ export default function RestaurantPosPage() {
       setSelectedWaiter(null);
       setSelectedGuest(null);
       setCurrentTab(null);
+      setKitchenNote(''); setNoteOpen(false);
       setCheckoutOpen(false);
       loadShift();
       loadTabs();
+      loadKitchen();
       refreshDrawer();
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); setCheckoutOpen(false); }
@@ -663,6 +678,7 @@ export default function RestaurantPosPage() {
   // ── open tables ──
   function clearOrder() {
     setCart([]);
+    setKitchenNote(''); setNoteOpen(false);
     setSelectedTable(null);
     setSelectedWaiter(null);
     setSelectedGuest(null);
@@ -683,9 +699,13 @@ export default function RestaurantPosPage() {
         items: cart.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty })),
         tableId: tbl ? tbl.id : undefined,
         waiterId: selectedWaiter ? selectedWaiter.id : undefined,
-        guestId: selectedGuest ? selectedGuest.id : undefined
+        guestId: selectedGuest ? selectedGuest.id : undefined,
+        kitchenNote: kitchenNote.trim() || undefined
       });
-      setToast(tr('{name} kept open. Pay it from Open tables.', { name: tabName(saved) }));
+      setToast(saved.kitchenTicket
+        ? tr('{name} kept open and sent to the kitchen as #{n}.', { name: tabName(saved), n: saved.kitchenTicket.number })
+        : tr('{name} kept open. Pay it from Open tables.', { name: tabName(saved) }));
+      loadKitchen();
       setKeepDialog(null);
       setCartOpen(false);
       clearOrder();
@@ -1009,6 +1029,7 @@ export default function RestaurantPosPage() {
           {!receipt.reprint && (receipt.change == null || receipt.change === 0) && (
             <p className="pos-done-big">{tr('{amount} paid by {method}', { amount: money(receipt.total), method: codeLabel(receipt.paymentMethod) })}</p>
           )}
+          {!receipt.reprint && receipt.kitchenTicket && <p className="pos-sent"><Icon name="send" />{tr('Sent to the kitchen as #{n}.', { n: receipt.kitchenTicket.number })}</p>}
           <p className="dk-muted">{receipt.reprint ? tr('A copy of an order from this shift.') : tr('Print the receipt if the guest wants one, then start the next sale.')}</p>
           {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
           <div className="pos-done-actions">
@@ -1061,6 +1082,15 @@ export default function RestaurantPosPage() {
           <WhoGlyph name="guest" /><small>{tr('Guest')}</small><span>{selectedGuest ? selectedGuest.name : tr('None')}</span>
         </button>
       </div>
+      {kitchen && kitchen.inUse && (noteOpen || kitchenNote ? (
+        <div className="pos-knote">
+          <input className="input" value={kitchenNote} maxLength={300} autoFocus={noteOpen && !kitchenNote} onChange={(e) => setKitchenNote(e.target.value)}
+            placeholder={tr('Note for the kitchen, e.g. no pepper, one without onions')} aria-label={tr('Note for the kitchen')} />
+          <button type="button" className="pos-link" onClick={() => { setKitchenNote(''); setNoteOpen(false); }}>{tr('Remove')}</button>
+        </div>
+      ) : (
+        <button type="button" className="pos-knote-add" onClick={() => setNoteOpen(true)}>✎ {tr('Add a note for the kitchen')}</button>
+      ))}
       <div className="pos-lines">
         {!cart.length && (
           <div className="pos-lines-empty">
@@ -1134,6 +1164,16 @@ export default function RestaurantPosPage() {
               <span>{tr('expected')}</span>
             </span>
           </button>
+          {kitchen && kitchen.inUse && (
+            <button type="button" className={'pos-stat is-kitchen' + (kitchen.ready.length ? ' is-ready' : '')} onClick={() => { loadKitchen(); setKitchenOpen(true); }}>
+              <span className="pos-stat-ico" aria-hidden="true"><Icon name="bag" /></span>
+              <span className="pos-stat-text">
+                <small>{tr('Kitchen')}</small>
+                <strong>{kitchen.ready.length}</strong>
+                <span>{kitchen.ready.length ? tr('ready to serve') : kitchen.cooking === 1 ? tr('1 cooking') : tr('{n} cooking', { n: kitchen.cooking })}</span>
+              </span>
+            </button>
+          )}
           <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="clock" /></span>
             <span className="pos-stat-text">
@@ -1326,6 +1366,37 @@ export default function RestaurantPosPage() {
             )}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setTabsOpen(false)}>{tr('Close')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {kitchenOpen && kitchen && (
+        <div className="dialog-backdrop" onClick={() => setKitchenOpen(false)}>
+          <div className="dialog pos-panel" onClick={(e) => e.stopPropagation()}>
+            <h2>{tr('Ready to serve')}</h2>
+            <p className="dk-muted">{kitchen.cooking === 1 ? tr('From the kitchen screen. 1 more ticket is cooking.') : tr('From the kitchen screen. {n} more tickets are cooking.', { n: kitchen.cooking })}</p>
+            {!kitchen.ready.length ? (
+              <div className="dk-empty"><Icon name="check" /><p>{tr('Nothing waiting. Dishes show here once the kitchen marks them done.')}</p></div>
+            ) : (
+              <ul className="dk-rows pos-tabs">
+                {kitchen.ready.map((t) => (
+                  <li key={t.id} className="dk-row">
+                    <span className="pos-ready-no">#{t.number}</span>
+                    <div className="dk-row-main">
+                      <div className="dk-row-title">{t.tableName || t.label || t.guestName || tr('Counter')}</div>
+                      <div className="dk-muted dk-row-meta">{[t.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: t.dishes }), t.waiterName, t.waitingMinutes ? tr('ready {n} min ago', { n: t.waitingMinutes }) : tr('just ready')].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    <div className="dk-row-side">
+                      <button type="button" className="btn btn-primary tl-btn" onClick={() => serveTicket(t)}>{tr('Mark served')}</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="dialog-actions">
+              <a className="btn btn-secondary" href="/kds" target="_blank" rel="noreferrer">{tr('Open the kitchen screen ↗')}</a>
+              <button type="button" className="btn btn-primary" onClick={() => setKitchenOpen(false)}>{tr('Close')}</button>
             </div>
           </div>
         </div>

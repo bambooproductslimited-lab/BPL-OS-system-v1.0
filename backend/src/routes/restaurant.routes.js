@@ -7,6 +7,7 @@ var restaurantOverviewService = require('../services/restaurantOverview.service'
 var restaurantPosService = require('../services/restaurantPos.service');
 var restaurantSquareImportService = require('../services/restaurantSquareImport.service');
 var restaurantReportService = require('../services/restaurantReport.service');
+var restaurantKitchenService = require('../services/restaurantKitchen.service');
 
 var MENU_PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
 var photoUpload = multer({
@@ -100,6 +101,20 @@ router.get('/ingredients/:id/history', async function (req, res, next) {
 });
 router.delete('/ingredients/:id', async function (req, res, next) {
   try { res.json(await restaurantService.removeIngredient(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+
+// The kitchen display: its stations and how the kitchen is doing today.
+router.get('/kitchen', async function (req, res, next) {
+  try { res.json(await restaurantKitchenService.kitchenOverview(req.ctx, req.query.companyId)); } catch (e) { next(e); }
+});
+router.post('/kitchen/stations', async function (req, res, next) {
+  try { res.status(201).json(await restaurantKitchenService.createStation(req.ctx, req.body || {})); } catch (e) { next(e); }
+});
+router.put('/kitchen/stations/:id', async function (req, res, next) {
+  try { res.json(await restaurantKitchenService.updateStation(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+router.delete('/kitchen/stations/:id', async function (req, res, next) {
+  try { res.json(await restaurantKitchenService.removeStation(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
 router.get('/tables', async function (req, res, next) {

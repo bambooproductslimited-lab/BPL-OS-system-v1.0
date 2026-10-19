@@ -4,6 +4,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var config = require('../config');
 var pinAuth = require('../lib/pinAuth');
+var kitchen = require('./restaurantKitchen.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -246,6 +247,13 @@ async function resolveRefs(client, companyId, p) {
   }
   return { tableId: tableId, waiterId: waiterId, guestId: guestId };
 }
+// The table's, waiter's and guest's names, for a kitchen ticket.
+async function refNames(client, refs) {
+  var r = (await client.query(
+    "SELECT (SELECT name FROM restaurant_tables WHERE id = $1) AS table_name, (SELECT first_name || ' ' || last_name FROM employees WHERE id = $2) AS waiter_name, " +
+    '(SELECT name FROM restaurant_guests WHERE id = $3) AS guest_name', [refs.tableId, refs.waiterId, refs.guestId])).rows[0];
+  return { tableName: r.table_name || null, waiterName: r.waiter_name || null, guestName: r.guest_name || null };
+}
 
 // Prices each line against the LIVE menu (never a client-supplied price).
 // If an item has price variations (Square-style "M" vs "Jellyfish"), the
@@ -291,9 +299,11 @@ async function createOrder(token, p) {
   var paymentMethod = V.oneOf(p.paymentMethod || 'cash', ['cash', 'bank_transfer', 'mobile_money', 'card', 'cheque', 'other'], 'Payment method');
 
   return withTransaction(async function (client) {
+    var tab = null;
     if (p.tabId) {
-      var tabRes = await client.query('SELECT id FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
+      var tabRes = await client.query('SELECT id, label FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
       if (!tabRes.rows[0]) fail('conflict', 'That open table has already been paid or removed.');
+      tab = tabRes.rows[0];
     }
     var refs = await resolveRefs(client, session.posCompanyId, p);
     var priced = await priceLines(client, session.posCompanyId, p.items);
@@ -322,8 +332,18 @@ async function createOrder(token, p) {
         [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal]
       );
     }
-    if (p.tabId) await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
-    return rowToOrder(order, lines);
+    // To the kitchen: what was not sent with the open table yet, or the
+    // whole sale; the open table's tickets now belong to the sale.
+    var names = await refNames(client, refs);
+    var ticket = await kitchen.fire(client, session.posCompanyId, Object.assign({
+      lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : orderNo,
+      note: p.kitchenNote, sentBy: session.posEmployeeId
+    }, names));
+    if (tab) {
+      await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
+      await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
+    }
+    return Object.assign(rowToOrder(order, lines), { kitchenTicket: ticket });
   });
 }
 
@@ -382,26 +402,39 @@ async function saveTab(token, p) {
     var clash = await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND table_id = $2 AND id <> $3', [company, refs.tableId, p.id || '00000000-0000-0000-0000-000000000000']);
     if (clash.rows[0]) fail('conflict', 'That table already has an open order. Open it and add to it instead.');
   }
-  var id;
-  if (p.id) {
-    var up = await pool.query(
-      'UPDATE restaurant_open_tabs SET label = $3, table_id = $4, waiter_id = $5, guest_id = $6, items = $7, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id',
-      [p.id, company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items)]);
-    if (!up.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
-    id = up.rows[0].id;
-  } else {
-    id = (await pool.query(
-      'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId])).rows[0].id;
-  }
-  return (await tabRows(company, ' AND t.id = $2', [id]))[0];
+  // Saved and sent to the kitchen together: the new round goes, what was
+  // taken off is cancelled (restaurantKitchen.service.js fire).
+  var sent = await withTransaction(async function (client) {
+    var id;
+    if (p.id) {
+      var up = await client.query(
+        'UPDATE restaurant_open_tabs SET label = $3, table_id = $4, waiter_id = $5, guest_id = $6, items = $7, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id',
+        [p.id, company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items)]);
+      if (!up.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
+      id = up.rows[0].id;
+    } else {
+      id = (await client.query(
+        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId])).rows[0].id;
+    }
+    var names = await refNames(client, refs);
+    var ticket = await kitchen.fire(client, company, Object.assign({
+      lines: priced.lines, tabId: id, label: label || names.tableName || names.guestName || '', note: p.kitchenNote, sentBy: session.posEmployeeId
+    }, names));
+    return { id: id, ticket: ticket };
+  });
+  return Object.assign((await tabRows(company, ' AND t.id = $2', [sent.id]))[0], { kitchenTicket: sent.ticket });
 }
 
 async function removeTab(token, id) {
   var session = verifyPosToken(token);
-  var res = await pool.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id', [id, session.posCompanyId]);
-  if (!res.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
-  return { removed: true };
+  return withTransaction(async function (client) {
+    var res = await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id', [id, session.posCompanyId]);
+    if (!res.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
+    // Nothing more to cook for it.
+    await kitchen.cancelForTab(client, session.posCompanyId, id);
+    return { removed: true };
+  });
 }
 
 // ── the shift ──────────────────────────────────────────────────────────
@@ -537,9 +570,13 @@ async function getOrder(ctx, id) {
 
 async function voidOrder(ctx, id) {
   if (!ctx.can('restaurant.manage')) fail('forbidden', 'Your role does not allow this action (restaurant.manage).');
-  var res = await pool.query("UPDATE restaurant_orders SET status = 'voided' WHERE id = $1 AND status = 'completed' RETURNING *", [id]);
-  if (!res.rows[0]) fail('notfound', 'Order not found, or already voided.');
-  return true;
+  return withTransaction(async function (client) {
+    var res = await client.query("UPDATE restaurant_orders SET status = 'voided' WHERE id = $1 AND status = 'completed' RETURNING *", [id]);
+    if (!res.rows[0]) fail('notfound', 'Order not found, or already voided.');
+    // A voided sale is not cooked.
+    await kitchen.cancelForOrder(client, res.rows[0].company_id, id);
+    return true;
+  });
 }
 
 // ── cash drawer sessions (till-side, PIN-scoped — same posToken as the
@@ -715,5 +752,5 @@ module.exports = {
   tablesForSession: tablesForSession, waitersForSession: waitersForSession,
   guestsForSession: guestsForSession, createGuestForSession: createGuestForSession,
   listTabs: listTabs, saveTab: saveTab, removeTab: removeTab,
-  shiftSummary: shiftSummary, receiptForSession: receiptForSession
+  shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken
 };

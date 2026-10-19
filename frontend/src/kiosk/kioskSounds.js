@@ -61,3 +61,9 @@ export function playClockOut() {
 export function playWrongPin() {
   playSequence([[220, 0.14, 0.06], [220, 0.14, 0]], 'square'); // low double buzz
 }
+
+// The kitchen screen (pages/KdsPage.jsx): a new ticket — a bright triple
+// ding, loud enough over a busy kitchen.
+export function playNewTicket() {
+  playSequence([[1046.5, 0.1, 0.05], [1318.5, 0.1, 0.05], [1568, 0.22, 0]], 'triangle');
+}

@@ -13,6 +13,7 @@ import { shrinkPhoto } from '../lib/chatMedia';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import { Confetti } from './crm/crmFun';
 import RestaurantReport from './RestaurantReport';
+import RestaurantKitchen from './RestaurantKitchen';
 import Bars from './RestaurantBars';
 import { DishArt, Donut, Glyph, HeatGrid, Jar, Leaderboard, MoreRanks, Podium, RsfBanner, ViewTabs, tableShape, weekdayText } from './RestaurantFun';
 import './EmployeesPage.css';
@@ -44,7 +45,7 @@ import './RestaurantsPage.css';
 // stock jars, drawer receipts and floor plan are in RestaurantFun.jsx; the
 // windows use the tool room's pieces (ToolRoomPage.css).
 
-const VIEWS = ['sales', 'report', 'menu', 'stock', 'drawers', 'tables'];
+const VIEWS = ['sales', 'report', 'kitchen', 'menu', 'stock', 'drawers', 'tables'];
 const STOCK_KINDS = [
   { key: 'received', label: msg('Delivery received') }, { key: 'used', label: msg('Used') },
   { key: 'wasted', label: msg('Thrown away') }, { key: 'count', label: msg('Counted') }
@@ -543,6 +544,7 @@ export default function RestaurantsPage() {
   const views = [
     ['sales', tr('Sales'), null, 'sales'],
     ['report', tr('Report'), null, 'report'],
+    ['kitchen', tr('Kitchen'), null, 'kitchen'],
     ['menu', tr('Menu'), activeMenu.length, 'menu'],
     ['stock', tr('Stock'), low.length + expiring.length || null, 'stock'],
     ['drawers', tr('Cash drawers'), openDrawers.length || null, 'drawers'],
@@ -632,6 +634,7 @@ export default function RestaurantsPage() {
         actions={(
           <>
             <a className="rsf-btn is-primary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
+            <a className="rsf-btn is-ghost" href="/kds" target="_blank" rel="noreferrer">{tr('Kitchen screen ↗')}</a>
             {canManage && <button type="button" className="rsf-btn is-ghost" disabled={squareStarting || squareRunning} onClick={() => runSquareImport(false)}>{squareRunning ? tr('Importing from Square…') : tr('Import from Square')}</button>}
           </>
         )}
@@ -769,6 +772,7 @@ export default function RestaurantsPage() {
 
       {/* ── the monthly report ── */}
       {view === 'report' && <RestaurantReport companyId={companyId} companyName={current.name} canManage={canManage} onToast={setToast} />}
+      {view === 'kitchen' && <RestaurantKitchen companyId={companyId} companyName={current.name} canManage={canManage} onToast={setToast} />}
 
       {/* ── menu ── */}
       {view === 'menu' && (
