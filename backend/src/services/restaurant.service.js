@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var fileStore = require('../lib/fileStore');
+var sharp = require('sharp');
 
 var MAX_MENU_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB — a food photo, not a scanned document
 
@@ -32,6 +33,7 @@ function rowToMenuItem(r) {
     id: r.id, companyId: r.company_id, name: r.name, category: r.category,
     price: Number(r.price), active: r.active, source: r.source,
     photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null,
+    thumbUrl: menuThumbUrl(r.id, r.photo_object_key),
     // The picture came from Square (the import may update it) rather than being uploaded here.
     photoFromSquare: !!(r.photo_object_key && r.photo_square_image_id),
     variations: []
@@ -201,10 +203,11 @@ async function removeMenuItemPhoto(ctx, id) {
   var existing = await pool.query('SELECT * FROM restaurant_menu_items WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Menu item not found.');
   await fileStore.del(existing.rows[0].photo_object_key);
+  await fileStore.del(existing.rows[0].photo_thumb_key);
   var res = await pool.query(
     // A Square picture taken off stays off: the import skips that picture
     // ("-<its id>"), and only brings one again if it changes in Square.
-    "UPDATE restaurant_menu_items SET photo_object_key = NULL, photo_file_name = NULL, " +
+    "UPDATE restaurant_menu_items SET photo_object_key = NULL, photo_file_name = NULL, photo_thumb_key = NULL, photo_thumb_of = NULL, " +
     "photo_square_image_id = CASE WHEN photo_square_image_id IS NOT NULL AND photo_square_image_id NOT LIKE '-%' THEN '-' || photo_square_image_id ELSE photo_square_image_id END, " +
     'updated_at = now() WHERE id = $1 RETURNING *',
     [id]
@@ -226,6 +229,63 @@ async function getMenuItemPhoto(id) {
   var f = await fileStore.get(res.rows[0].photo_object_key);
   if (!f) fail('notfound', 'No photo.');
   return f;
+}
+
+// The till shows a photo at about 52px; sending the photo itself (often a
+// full-size Square picture) to a till scrolling a menu of a thousand dishes
+// made scrolling crawl while it downloaded and shrank each one. This is a
+// small square of it instead (THUMB_PX, WebP, a few KB), made the first
+// time it is asked for and kept (migration 0154); made again when the
+// photo changes. If a photo cannot be shrunk, the photo itself is sent.
+var THUMB_PX = 160;
+var making = new Map();   // menu item id -> the thumbnail being made, so a burst of requests makes one
+var busy = 0, waiting = [];   // at most THUMB_AT_ONCE made at a time, to spare the server's memory
+var THUMB_AT_ONCE = 3;
+async function oneAtATime(fn) {
+  if (busy >= THUMB_AT_ONCE) await new Promise(function (r) { waiting.push(r); });
+  busy++;
+  try { return await fn(); } finally { busy--; if (waiting.length) waiting.shift()(); }
+}
+async function bytesOf(f) {
+  if (f.buffer) return f.buffer;
+  var chunks = [];
+  for await (var c of f.stream) chunks.push(c);
+  return Buffer.concat(chunks);
+}
+async function makeThumb(id, row) {
+  var f = await fileStore.get(row.photo_object_key);
+  if (!f) fail('notfound', 'No photo.');
+  var src = await bytesOf(f);
+  var out;
+  try {
+    out = await oneAtATime(function () {
+      return sharp(src, { failOn: 'none' }).rotate().resize(THUMB_PX, THUMB_PX, { fit: 'cover' }).webp({ quality: 72 }).toBuffer();
+    });
+  } catch (e) {
+    return { buffer: src, contentType: f.contentType };
+  }
+  var key = await fileStore.put('menu-thumb-' + id + '.webp', out, 'image/webp');
+  var saved = await pool.query(
+    'UPDATE restaurant_menu_items SET photo_thumb_key = $2, photo_thumb_of = $3 WHERE id = $1 AND photo_object_key = $3 RETURNING id', [id, key, row.photo_object_key]);
+  if (saved.rows[0]) { if (row.photo_thumb_key && row.photo_thumb_key !== key) await fileStore.del(row.photo_thumb_key); }
+  else await fileStore.del(key); // the photo changed meanwhile
+  return { buffer: out, contentType: 'image/webp' };
+}
+async function getMenuItemThumb(id) {
+  var row = (await pool.query('SELECT photo_object_key, photo_thumb_key, photo_thumb_of FROM restaurant_menu_items WHERE id = $1', [id])).rows[0];
+  if (!row || !row.photo_object_key) fail('notfound', 'No photo.');
+  if (row.photo_thumb_key && row.photo_thumb_of === row.photo_object_key) {
+    var kept = await fileStore.get(row.photo_thumb_key);
+    if (kept) return kept;
+  }
+  if (!making.has(id)) making.set(id, makeThumb(id, row).finally(function () { making.delete(id); }));
+  return making.get(id);
+}
+// A menu photo's address for the till: its thumbnail, with a short tag of
+// which photo it is, so a new photo is a new address (and cached forever).
+function menuThumbUrl(id, photoKey) {
+  if (!photoKey) return null;
+  return '/api/menu-photos/' + id + '?size=thumb&v=' + require('crypto').createHash('sha1').update(String(photoKey)).digest('hex').slice(0, 10);
 }
 
 // ── supplies (non-food, no expiry) ──────────────────────────────────────
@@ -557,6 +617,7 @@ module.exports = {
   listMenuItems: listMenuItems, createMenuItem: createMenuItem, updateMenuItem: updateMenuItem,
   setMenuItemActive: setMenuItemActive, removeMenuItem: removeMenuItem,
   setMenuItemPhoto: setMenuItemPhoto, removeMenuItemPhoto: removeMenuItemPhoto, getMenuItemPhoto: getMenuItemPhoto,
+  getMenuItemThumb: getMenuItemThumb, menuThumbUrl: menuThumbUrl, THUMB_PX: THUMB_PX,
   createVariation: createVariation, updateVariation: updateVariation, removeVariation: removeVariation,
   listSupplies: listSupplies, createSupply: createSupply, updateSupply: updateSupply,
   adjustSupplyStock: adjustSupplyStock, removeSupply: removeSupply, moveStock: moveStock, stockHistory: stockHistory,

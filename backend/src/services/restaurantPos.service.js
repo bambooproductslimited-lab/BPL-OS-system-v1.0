@@ -6,6 +6,7 @@ var config = require('../config');
 var pinAuth = require('../lib/pinAuth');
 var kitchen = require('./restaurantKitchen.service');
 var money = require('./restaurantTillMoney.service');
+var restaurantService = require('./restaurant.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -93,7 +94,7 @@ async function menuForSession(token) {
 function rowToTile(r) {
   return {
     id: r.id, name: r.name, category: r.category, price: Number(r.price),
-    photoUrl: r.photo_object_key ? '/api/menu-photos/' + r.id : null,
+    photoUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key),
     favorite: r.favorite, variations: []
   };
 }

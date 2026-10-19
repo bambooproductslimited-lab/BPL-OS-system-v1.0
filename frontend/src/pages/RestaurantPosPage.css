@@ -186,7 +186,11 @@
 /* a dish: round card, its colour in the corner, lifts under the finger */
 .pos-tile { position: relative; display: flex; align-items: center; gap: 11px; min-height: 74px; padding: 10px 30px 10px 10px; font: inherit; text-align: left; color: var(--color-text); cursor: pointer;
   background: linear-gradient(135deg, color-mix(in srgb, var(--c, var(--pos-a)) 8%, var(--pos-card)), var(--pos-card) 60%); border: 1px solid var(--pos-line); border-radius: var(--pos-r); box-shadow: var(--pos-shadow);
-  transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease; animation: pos-tile-in .3s ease backwards; }
+  transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+  /* A thousand-dish menu: tiles off screen are not drawn until scrolled to. */
+  content-visibility: auto; contain-intrinsic-size: auto 74px; }
+/* Only the first screenful rises in; the rest are already there. */
+.pos-grid > .pos-tile:nth-child(-n+24) { animation: pos-tile-in .3s ease backwards; }
 @keyframes pos-tile-in { from { opacity: 0; transform: translateY(6px); } }
 .pos-tile:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--c) 55%, var(--pos-line)); box-shadow: var(--pos-shadow-up), 0 0 0 1px color-mix(in srgb, var(--c) 20%, transparent); }
 .pos-tile:active { transform: scale(.97); }

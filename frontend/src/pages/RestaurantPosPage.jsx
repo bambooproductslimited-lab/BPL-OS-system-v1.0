@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_ORIGIN } from '../api/client';
 import { posFetch } from '../lib/posApi';
 import { KDS_URL, SITE } from '../lib/site';
@@ -93,6 +93,39 @@ var WHO_GLYPH = {
 function WhoGlyph({ name }) {
   return <svg className="pos-who-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{WHO_GLYPH[name]}</svg>;
 }
+
+// One dish on the menu grid. A menu can run past a thousand dishes, so a
+// tile only draws again when its own dish, count or tap changes, not every
+// time anything on the order does; the photo is the server's small square
+// (menu-photos ?size=thumb), decoded off the main thread.
+const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, onTap, onFavorite }) {
+  return (
+    <button
+      type="button"
+      className={'pos-tile' + (qty ? ' is-picked' : '') + (tapped ? ' is-tapped' : '')}
+      style={{ '--c': tileColor(m.name) }}
+      onClick={() => onTap(m)}
+    >
+      <span className="pos-tile-pic" style={m.photoUrl ? undefined : { '--c': tileColor(m.name) }}>
+        {m.photoUrl ? <img src={API_ORIGIN + m.photoUrl} alt="" width="52" height="52" loading="lazy" decoding="async" /> : <span>{tileInitial(m.name.replace(/^zq\s+/i, ''))}</span>}
+      </span>
+      <span className="pos-tile-text">
+        <span className="pos-tile-name">{m.name}</span>
+        <span className="pos-tile-price">{m.variations && m.variations.length ? tr('{n} prices', { n: m.variations.length }) : money(m.price)}</span>
+      </span>
+      <span
+        role="button" tabIndex={0}
+        className={'pos-tile-star' + (m.favorite ? ' is-on' : '')}
+        onClick={(e) => onFavorite(e, m)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFavorite(e, m); } }}
+        aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
+        aria-pressed={m.favorite}
+      >★</span>
+      {!!qty && <span key={'q' + qty} className="pos-tile-qty">{qty}</span>}
+      {plusN != null && <span key={'p' + plusN} className="pos-tile-plus" aria-hidden="true">+1</span>}
+    </button>
+  );
+});
 
 export default function RestaurantPosPage() {
   const [session, setSession] = useState(null); // { token, employeeName, companyId, companyName }
@@ -225,6 +258,12 @@ export default function RestaurantPosPage() {
   const [iouOpen, setIouOpen] = useState(false);
   const [vipShort, setVipShort] = useState(false);
   const [vipKey, setVipKey] = useState(0);
+  // Steady handlers for the memoized menu tiles (MenuTile), always calling
+  // this render's tapItem and toggleFavorite.
+  const tileHandlers = useRef({});
+  tileHandlers.current = { tap: tapItem, favorite: toggleFavorite };
+  const onTileTap = useCallback((m) => tileHandlers.current.tap(m), []);
+  const onTileFavorite = useCallback((e, m) => tileHandlers.current.favorite(e, m), []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -789,38 +828,8 @@ export default function RestaurantPosPage() {
     { key: 'mostly', label: tr('Mostly bought'), icon: 'up' }
   ];
 
-  function tilePriceLabel(m) {
-    if (!m.variations || !m.variations.length) return money(m.price);
-    return tr('{n} prices', { n: m.variations.length });
-  }
   function renderTile(m) {
-    const qty = cartQtyById.get(m.id);
-    return (
-      <button
-        key={m.id} type="button"
-        className={'pos-tile' + (qty ? ' is-picked' : '') + (tappedId === m.id ? ' is-tapped' : '')}
-        style={{ '--c': tileColor(m.name) }}
-        onClick={() => tapItem(m)}
-      >
-        <span className="pos-tile-pic" style={m.photoUrl ? undefined : { '--c': tileColor(m.name) }}>
-          {m.photoUrl ? <img src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" /> : <span>{tileInitial(m.name.replace(/^zq\s+/i, ''))}</span>}
-        </span>
-        <span className="pos-tile-text">
-          <span className="pos-tile-name">{m.name}</span>
-          <span className="pos-tile-price">{tilePriceLabel(m)}</span>
-        </span>
-        <span
-          role="button" tabIndex={0}
-          className={'pos-tile-star' + (m.favorite ? ' is-on' : '')}
-          onClick={(e) => toggleFavorite(e, m)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavorite(e, m); } }}
-          aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
-          aria-pressed={m.favorite}
-        >★</span>
-        {!!qty && <span key={'q' + qty} className="pos-tile-qty">{qty}</span>}
-        {plus && plus.id === m.id && <span key={'p' + plus.n} className="pos-tile-plus" aria-hidden="true">+1</span>}
-      </button>
-    );
+    return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} onTap={onTileTap} onFavorite={onTileFavorite} />;
   }
   const themeButton = (
     <button type="button" className="pos-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')} title={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>

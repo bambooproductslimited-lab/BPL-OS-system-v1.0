@@ -176,7 +176,7 @@ export function HeatGrid({ heat }) {
 
 // A dish's picture, or a plate with its first letter when it has none.
 export function DishArt({ m, hue, small }) {
-  if (m && m.photoUrl) return <img className={'rsf-art' + (small ? ' is-small' : '')} src={API_ORIGIN + m.photoUrl} alt="" loading="lazy" />;
+  if (m && m.photoUrl) return <img className={'rsf-art' + (small ? ' is-small' : '')} src={API_ORIGIN + (m.thumbUrl || m.photoUrl)} alt="" loading="lazy" decoding="async" />;
   return (
     <span className={'rsf-art is-empty' + (small ? ' is-small' : '')} style={{ '--cat': hue }} aria-hidden="true">
       <span className="rsf-art-plate"><b>{String((m && m.name) || '?').trim().charAt(0).toUpperCase()}</b></span>

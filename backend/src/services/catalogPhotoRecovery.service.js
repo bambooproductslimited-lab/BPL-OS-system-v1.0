@@ -24,7 +24,8 @@ var REFERENCED_SQL =
   'UNION SELECT object_key FROM documents WHERE object_key IS NOT NULL UNION SELECT object_key FROM employee_documents WHERE object_key IS NOT NULL ' +
   'UNION SELECT photo_key FROM employees WHERE photo_key IS NOT NULL UNION SELECT receipt_key FROM expenses WHERE receipt_key IS NOT NULL ' +
   'UNION SELECT storage_key FROM message_attachments WHERE storage_key IS NOT NULL UNION SELECT photo_key FROM products WHERE photo_key IS NOT NULL ' +
-  'UNION SELECT photo_object_key FROM restaurant_menu_items WHERE photo_object_key IS NOT NULL';
+  'UNION SELECT photo_object_key FROM restaurant_menu_items WHERE photo_object_key IS NOT NULL ' +
+  'UNION SELECT photo_thumb_key FROM restaurant_menu_items WHERE photo_thumb_key IS NOT NULL';
 
 function slugOf(name) {
   return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'item';

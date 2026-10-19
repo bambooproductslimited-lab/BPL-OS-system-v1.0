@@ -111,17 +111,33 @@ app.get('/api/health', function (req, res) { res.json({ ok: true }); });
 // could otherwise hit any other route as fast as the network allowed.
 // Generous enough not to bother a shared office IP during normal use;
 // health checks and the WhatsApp webhook (which needs to accept bursts
-// from Meta, verified separately by HMAC signature) are excluded.
+// from Meta, verified separately by HMAC signature) are excluded. Menu
+// photos have their own, much higher allowance: a till scrolling a menu of
+// a thousand dishes asks for hundreds, and every till in a restaurant
+// shares one address — counted here they used up the allowance and the
+// tills' own calls were refused.
+function apiPath(req) { return req.baseUrl + req.path; } // mounted at /api, so req.path alone is '/health'
 var apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 900,
   standardHeaders: true,
   legacyHeaders: false,
   skip: function (req) {
-    return config.nodeEnv === 'test' || req.path === '/api/health' || req.path === '/api/marketing/whatsapp/webhook' || req.path === '/api/marketing/meta/webhook';
+    var path = apiPath(req);
+    return config.nodeEnv === 'test' || path === '/api/health' || path === '/api/marketing/whatsapp/webhook' || path === '/api/marketing/meta/webhook' ||
+      path.indexOf('/api/menu-photos/') === 0;
   },
   message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
 });
+var photoLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: function () { return config.nodeEnv === 'test'; },
+  message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
+});
+app.use('/api/menu-photos', photoLimiter);
 app.use('/api', apiLimiter);
 
 app.use('/api/auth', authRoutes);

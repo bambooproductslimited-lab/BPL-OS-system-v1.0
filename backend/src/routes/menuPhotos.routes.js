@@ -7,11 +7,14 @@ var restaurantService = require('../services/restaurant.service');
 // separately-authenticated POS till.
 var router = express.Router();
 
+// ?size=thumb: the small square the till shows (getMenuItemThumb). Its
+// address carries a tag of the photo (v=), so it can be cached for good.
 router.get('/:id', async function (req, res, next) {
   try {
-    var photo = await restaurantService.getMenuItemPhoto(req.params.id);
+    var thumb = req.query.size === 'thumb';
+    var photo = thumb ? await restaurantService.getMenuItemThumb(req.params.id) : await restaurantService.getMenuItemPhoto(req.params.id);
     res.setHeader('Content-Type', photo.contentType || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', thumb && req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400');
     // helmet's default (same-origin) makes browsers refuse this image on any
     // other site — and the OS pages (Hostinger) and this server (Render) are
     // different sites, so every menu photo showed as a broken image. These
