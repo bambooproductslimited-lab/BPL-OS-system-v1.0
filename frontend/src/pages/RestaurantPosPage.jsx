@@ -79,6 +79,17 @@ function tileInitial(name) {
   return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
 }
 
+// Small line drawings for the order's table / waiter / guest chips (DashKit
+// has none for a table or a tray).
+var WHO_GLYPH = {
+  table: <><path d="M3 9h18M6 9v10M18 9v10M4.5 9 7 5h10l2.5 4" /></>,
+  waiter: <><circle cx="12" cy="7" r="3" /><path d="M5 20c.6-3.6 3.2-6 7-6s6.4 2.4 7 6" /><path d="M15.5 14.5h5" /></>,
+  guest: <><circle cx="12" cy="8" r="3.5" /><path d="M4.5 20c.8-4 3.8-6.5 7.5-6.5s6.7 2.5 7.5 6.5" /></>
+};
+function WhoGlyph({ name }) {
+  return <svg className="pos-who-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{WHO_GLYPH[name]}</svg>;
+}
+
 async function posFetch(method, path, token, body) {
   var headers = {};
   if (token) headers.Authorization = 'Bearer ' + token;
@@ -122,6 +133,7 @@ export default function RestaurantPosPage() {
 
   const [cart, setCart] = useState([]); // [{ menuItemId, variationId, name, price, qty }]
   const [tappedId, setTappedId] = useState(null); // brief tap-feedback flash on the tile just added
+  const [plus, setPlus] = useState(null); // { id, n } — the "+1" that floats off the tile just tapped
 
   // Variation picker — mirrors the real Square POS's own item-detail modal:
   // tapping an item that has named price variations (e.g. "M" ₵98 vs
@@ -585,6 +597,7 @@ export default function RestaurantPosPage() {
     setRecentIds((prev) => [item.id].concat(prev.filter((id) => id !== item.id)).slice(0, RECENT_LIMIT));
     setTappedId(item.id);
     setTimeout(() => setTappedId((cur) => (cur === item.id ? null : cur)), 260);
+    setPlus((p) => ({ id: item.id, n: p ? p.n + 1 : 1 }));
     setVariantPickerItem(null);
   }
   function changeQty(menuItemId, variationId, delta) {
@@ -598,6 +611,7 @@ export default function RestaurantPosPage() {
 
   const cartTotal = cart.reduce((sum, l) => sum + l.price * l.qty, 0);
   const animatedCartTotal = useCountUp(cartTotal);
+  const animatedShiftSales = useCountUp(shift ? shift.sales : 0, 700);
   const cartQtyById = useMemo(() => {
     const map = new Map();
     cart.forEach((l) => map.set(l.menuItemId, (map.get(l.menuItemId) || 0) + l.qty));
@@ -735,10 +749,10 @@ export default function RestaurantPosPage() {
   const mostlyBoughtItems = useMemo(() => mostlyBought.filter((m) => matchesQuery(search, m.name, m.category)), [mostlyBought, search]);
 
   const VIEW_TABS = [
-    { key: 'all', label: tr('All items') },
-    { key: 'favorites', label: tr('Favorites'), count: favoriteItems.length },
-    { key: 'recent', label: tr('Recent'), count: recentItems.length },
-    { key: 'mostly', label: tr('Mostly bought') }
+    { key: 'all', label: tr('All items'), icon: 'layers' },
+    { key: 'favorites', label: tr('Favorites'), count: favoriteItems.length, star: true },
+    { key: 'recent', label: tr('Recent'), count: recentItems.length, icon: 'clock' },
+    { key: 'mostly', label: tr('Mostly bought'), icon: 'up' }
   ];
 
   function tilePriceLabel(m) {
@@ -751,6 +765,7 @@ export default function RestaurantPosPage() {
       <button
         key={m.id} type="button"
         className={'pos-tile' + (qty ? ' is-picked' : '') + (tappedId === m.id ? ' is-tapped' : '')}
+        style={{ '--c': tileColor(m.name) }}
         onClick={() => tapItem(m)}
       >
         <span className="pos-tile-pic" style={m.photoUrl ? undefined : { '--c': tileColor(m.name) }}>
@@ -768,7 +783,8 @@ export default function RestaurantPosPage() {
           aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
           aria-pressed={m.favorite}
         >★</span>
-        {!!qty && <span className="pos-tile-qty">{qty}</span>}
+        {!!qty && <span key={'q' + qty} className="pos-tile-qty">{qty}</span>}
+        {plus && plus.id === m.id && <span key={'p' + plus.n} className="pos-tile-plus" aria-hidden="true">+1</span>}
       </button>
     );
   }
@@ -789,6 +805,7 @@ export default function RestaurantPosPage() {
   if (!session) {
     return (
       <div className="dk pos-shell pos-gate">
+        <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
         <div className="pos-gate-top">{themeButton}</div>
         <div className="pos-gate-card">
           <div className="pos-gate-side">
@@ -830,7 +847,8 @@ export default function RestaurantPosPage() {
     const last = shift && shift.lastClosed;
     const quick = [0, 100, 200, 500, 1000];
     return (
-      <div className="dk pos-shell pos-gate">
+      <div className="dk pos-shell pos-gate" data-brand={session.companyCode}>
+        <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
         <div className="pos-gate-top">
           {themeButton}
           <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
@@ -878,7 +896,7 @@ export default function RestaurantPosPage() {
     const r = closedReport;
     const diffTone = r.difference === null ? '' : Math.abs(r.difference) < 0.01 ? 'good' : r.difference < 0 ? 'bad' : 'warn';
     return (
-      <div className="dk pos-shell pos-done">
+      <div className="dk pos-shell pos-done" data-brand={session.companyCode}>
         <div className="pos-receipt-print" id="pos-receipt">
           {restaurantLogoUrl(session.companyCode) && (
             <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
@@ -941,7 +959,8 @@ export default function RestaurantPosPage() {
 
   if (receipt) {
     return (
-      <div className="dk pos-shell pos-done">
+      <div className="dk pos-shell pos-done" data-brand={session.companyCode}>
+        {!receipt.reprint && <span className="pos-confetti" aria-hidden="true">{Array.from({ length: 44 }, (_, i) => <i key={i} style={{ '--i': i, '--x': (i * 53) % 97, '--r': ((i * 37) % 17) / 17 }} />)}</span>}
         <div className="pos-receipt-print" id="pos-receipt">
           {restaurantLogoUrl(session.companyCode) && (
             <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
@@ -978,7 +997,7 @@ export default function RestaurantPosPage() {
           <div className="pos-receipt-footer">{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</div>
         </div>
         <div className="pos-done-side">
-          <span className="pos-done-mark is-good"><Icon name="check" /></span>
+          <span className="pos-done-mark is-good is-burst"><Icon name="check" /></span>
           <h1 className="pos-gate-title">{receipt.reprint ? tr('Receipt for {no}', { no: receipt.orderNo }) : tr('Sale complete')}</h1>
           {!receipt.reprint && receipt.change != null && receipt.change > 0 && (
             <p className="pos-done-big">{tr('Give {amount} change', { amount: money(receipt.change) })}</p>
@@ -1015,7 +1034,8 @@ export default function RestaurantPosPage() {
   const orderPanel = (
     <section className={'pos-order' + (cartOpen ? ' is-open' : '')} aria-label={tr('Current order')}>
       <div className="pos-order-head">
-        <div>
+        <span className="pos-order-ico" aria-hidden="true"><Icon name="receipt" />{cartCount > 0 && <b key={cartCount}>{cartCount}</b>}</span>
+        <div className="pos-order-titles">
           <h2 className="pos-order-title">{currentTab ? currentTab.name : tr('New order')}</h2>
           <p className="dk-muted">
             {currentTab ? tr('Open since {time}. Add to it, keep it open or charge it.', { time: timeOf(currentTab.createdAt) }) : cartCount ? (cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })) : tr('Tap a dish to start.')}
@@ -1028,24 +1048,31 @@ export default function RestaurantPosPage() {
       </div>
       <div className="pos-order-who">
         <button type="button" className={selectedTable ? 'is-set' : ''} onClick={() => setTablePickerOpen(true)}>
-          <small>{tr('Table')}</small><span>{selectedTable ? selectedTable.name : tr('None')}</span>
+          <WhoGlyph name="table" /><small>{tr('Table')}</small><span>{selectedTable ? selectedTable.name : tr('None')}</span>
         </button>
         <button type="button" className={selectedWaiter ? 'is-set' : ''} onClick={() => setWaiterPickerOpen(true)}>
-          <small>{tr('Waiter')}</small><span>{selectedWaiter ? selectedWaiter.name : tr('None')}</span>
+          <WhoGlyph name="waiter" /><small>{tr('Waiter')}</small><span>{selectedWaiter ? selectedWaiter.name : tr('None')}</span>
         </button>
         <button type="button" className={selectedGuest ? 'is-set' : ''} onClick={openGuestPicker}>
-          <small>{tr('Guest')}</small><span>{selectedGuest ? selectedGuest.name : tr('None')}</span>
+          <WhoGlyph name="guest" /><small>{tr('Guest')}</small><span>{selectedGuest ? selectedGuest.name : tr('None')}</span>
         </button>
       </div>
       <div className="pos-lines">
         {!cart.length && (
           <div className="pos-lines-empty">
-            <Icon name="bag" />
+            <span className="pos-empty-art" aria-hidden="true"><Icon name="bag" /><i /><i /><i /></span>
+            <strong>{tr('Ready for the next order')}</strong>
             <p>{tr('Nothing on this order yet. Tap dishes on the left; tap again to add another.')}</p>
+            <ol className="pos-steps">
+              <li><b>1</b>{tr('Tap the dishes')}</li>
+              <li><b>2</b>{tr('Pick a table if they sit down')}</li>
+              <li><b>3</b>{tr('Charge it, or keep it open')}</li>
+            </ol>
           </div>
         )}
         {cart.map((l) => (
           <div key={lineKey(l.menuItemId, l.variationId)} className="pos-line">
+            <span className="pos-line-dot" style={{ '--c': tileColor(l.name) }} aria-hidden="true">{tileInitial(l.name.replace(/^zq\s+/i, ''))}</span>
             <div className="pos-line-main">
               <span className="pos-line-name">{l.name}</span>
               <span className="dk-muted">{money(l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
@@ -1055,48 +1082,61 @@ export default function RestaurantPosPage() {
               <span>{l.qty}</span>
               <button type="button" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label={tr('Increase')}>+</button>
             </div>
-            <span className="pos-line-total">{money(l.price * l.qty)}</span>
+            <span key={l.qty} className="pos-line-total">{money(l.price * l.qty)}</span>
             <button type="button" className="pos-line-x" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label={tr('Remove')}>×</button>
           </div>
         ))}
       </div>
       <div className="pos-order-foot">
-        <div className="pos-total"><span>{tr('Total')}</span><strong>{money(animatedCartTotal)}</strong></div>
+        <span className="pos-ticket-edge" aria-hidden="true" />
+        <div className="pos-total">
+          <span>{tr('Total')}{cartCount > 0 && <small>{cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })}</small>}</span>
+          <strong className={cart.length ? 'is-live' : ''}>{money(animatedCartTotal)}</strong>
+        </div>
         <div className="pos-order-actions">
           <button type="button" className="btn btn-secondary" disabled={!cart.length || savingTab} onClick={keepOpen} title={tr('Keep this order open to add to and pay later')}>
             {savingTab ? tr('Saving…') : currentTab ? tr('Update open table') : tr('Keep open')}
           </button>
-          <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}>{tr('Charge {amount}', { amount: money(cartTotal) })}</button>
+          <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>
         </div>
       </div>
     </section>
   );
 
   return (
-    <div className="dk pos-shell">
+    <div className="dk pos-shell pos-till" data-brand={session.companyCode}>
       <header className="pos-top">
         <div className="pos-top-who">
-          {restaurantLogoUrl(session.companyCode) && <img className="pos-top-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />}
-          <div>
+          {restaurantLogoUrl(session.companyCode) && <span className="pos-top-logo-wrap"><img className="pos-top-logo" src={restaurantLogoUrl(session.companyCode)} alt="" /></span>}
+          <div className="pos-top-names">
             <div className="pos-top-company">{session.companyName}</div>
-            <div className="dk-muted">{tr('{name} · {time}', { name: session.employeeName, time: clock })}</div>
+            <div className="dk-muted" title={session.employeeName}>{greeting} · <b className="pos-top-clock">{clock}</b></div>
           </div>
         </div>
         <div className="pos-top-stats">
-          <button type="button" className="pos-stat" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
-            <small>{tr('Your shift')}</small>
-            <strong>{money(shift ? shift.sales : 0)}</strong>
-            <span>{shift && shift.orders === 1 ? tr('1 order') : tr('{n} orders', { n: shift ? shift.orders : 0 })}</span>
+          <button type="button" className="pos-stat is-sales" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
+            <span className="pos-stat-ico" aria-hidden="true"><Icon name="up" /></span>
+            <span className="pos-stat-text">
+              <small>{tr('Your shift')}</small>
+              <strong>{money(animatedShiftSales)}</strong>
+              <span>{shift && shift.orders === 1 ? tr('1 order') : tr('{n} orders', { n: shift ? shift.orders : 0 })}</span>
+            </span>
           </button>
-          <button type="button" className="pos-stat" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
-            <small>{tr('In the drawer')}</small>
-            <strong>{money(drawer.expected)}</strong>
-            <span>{tr('expected')}</span>
+          <button type="button" className="pos-stat is-drawer" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
+            <span className="pos-stat-ico" aria-hidden="true"><Icon name="drawer" /></span>
+            <span className="pos-stat-text">
+              <small>{tr('In the drawer')}</small>
+              <strong>{money(drawer.expected)}</strong>
+              <span>{tr('expected')}</span>
+            </span>
           </button>
-          <button type="button" className={'pos-stat' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
-            <small>{tr('Open tables')}</small>
-            <strong>{tabs.length}</strong>
-            <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
+          <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
+            <span className="pos-stat-ico" aria-hidden="true"><Icon name="clock" /></span>
+            <span className="pos-stat-text">
+              <small>{tr('Open tables')}</small>
+              <strong>{tabs.length}</strong>
+              <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
+            </span>
           </button>
         </div>
         <div className="pos-top-tools">
@@ -1126,19 +1166,20 @@ export default function RestaurantPosPage() {
         <section className="pos-menu" aria-label={tr('Menu')}>
           <div className="pos-menu-tools">
             <div className="pos-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search the menu…')} /></div>
-            <div className="dk-segment" role="radiogroup" aria-label={tr('Show')}>
+            <div className="dk-segment pos-seg" role="radiogroup" aria-label={tr('Show')}>
               {VIEW_TABS.map((t) => (
                 <button key={t.key} type="button" role="radio" aria-checked={viewTab === t.key} className={viewTab === t.key ? 'is-on' : ''} onClick={() => setViewTab(t.key)}>
-                  {t.label}{typeof t.count === 'number' && t.count > 0 ? ' · ' + t.count : ''}
+                  {t.star ? <span className="pos-seg-star" aria-hidden="true">★</span> : <Icon name={t.icon} />}
+                  {t.label}{typeof t.count === 'number' && t.count > 0 ? <span className="pos-seg-n">{t.count}</span> : null}
                 </button>
               ))}
             </div>
           </div>
           {viewTab === 'all' && categories.length > 1 && (
             <div className="pos-cats" role="radiogroup" aria-label={tr('Category')}>
-              <button type="button" role="radio" aria-checked={!category} className={!category ? 'is-on' : ''} onClick={() => setCategory('')}>{tr('Everything')} <span>{searchedMenu.length}</span></button>
+              <button type="button" role="radio" aria-checked={!category} className={!category ? 'is-on' : ''} onClick={() => setCategory('')}><i className="pos-cat-dot is-all" />{tr('Everything')} <span>{searchedMenu.length}</span></button>
               {categories.map(([c, n]) => (
-                <button key={c} type="button" role="radio" aria-checked={category === c} className={category === c ? 'is-on' : ''} onClick={() => setCategory(category === c ? '' : c)}>{c} <span>{n}</span></button>
+                <button key={c} type="button" role="radio" aria-checked={category === c} className={category === c ? 'is-on' : ''} style={{ '--c': tileColor(c) }} onClick={() => setCategory(category === c ? '' : c)}><i className="pos-cat-dot" />{c} <span>{n}</span></button>
               ))}
             </div>
           )}
@@ -1152,7 +1193,7 @@ export default function RestaurantPosPage() {
               ) : (
                 shownGroups.map(([cat, items]) => (
                   <div key={cat} className="pos-group">
-                    <h3 className="pos-group-title">{cat} <span>{items.length}</span></h3>
+                    <h3 className="pos-group-title" style={{ '--c': tileColor(cat) }}><i className="pos-cat-dot" />{cat} <span>{items.length}</span></h3>
                     <div className="pos-grid">{items.map(renderTile)}</div>
                   </div>
                 ))
@@ -1177,6 +1218,7 @@ export default function RestaurantPosPage() {
 
       {!cartOpen && (
         <button type="button" className="pos-phone-bar" onClick={() => setCartOpen(true)}>
+          <span className="pos-phone-bar-n" key={cartCount}>{cartCount}</span>
           <span>{currentTab ? currentTab.name : tr('Order')} · {cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })}</span>
           <strong>{money(cartTotal)}</strong>
         </button>
@@ -1191,7 +1233,7 @@ export default function RestaurantPosPage() {
             <div className="pos-pay-due"><span>{currentTab ? currentTab.name : tr('To pay')}</span><strong>{money(cartTotal)}</strong></div>
             <div className="pos-methods" role="radiogroup" aria-label={tr('Payment method')}>
               {METHODS.map(([k, label, icon]) => (
-                <button key={k} type="button" role="radio" aria-checked={paymentMethod === k} className={paymentMethod === k ? 'is-on' : ''} onClick={() => setPaymentMethod(k)}>
+                <button key={k} type="button" role="radio" aria-checked={paymentMethod === k} className={paymentMethod === k ? 'is-on' : ''} data-m={k} onClick={() => setPaymentMethod(k)}>
                   <Icon name={icon} /><span>{label}</span>
                 </button>
               ))}
@@ -1216,7 +1258,7 @@ export default function RestaurantPosPage() {
             {checkoutError && <div className="error-banner">{checkoutError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={checkingOut || (change !== null && change < 0)}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
+              <button type="submit" className="btn btn-primary pos-complete" disabled={checkingOut || (change !== null && change < 0)}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
             </div>
           </form>
         </div>
