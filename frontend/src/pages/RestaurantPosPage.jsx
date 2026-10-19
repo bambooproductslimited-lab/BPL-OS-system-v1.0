@@ -288,7 +288,7 @@ export default function RestaurantPosPage() {
     setPrinting(true);
     setPrinterError(null);
     try {
-      const bytes = buildReceiptBytes(order, session.companyName, session.employeeName, { kickDrawer: order.paymentMethod === 'cash' });
+      const bytes = buildReceiptBytes(order, session.companyName, order.cashierName || session.employeeName, { kickDrawer: order.paymentMethod === 'cash' });
       await printer.write(bytes);
     } catch (err) {
       setPrinterError(tr('Could not print: {message}', { message: err.message }));
@@ -958,6 +958,10 @@ export default function RestaurantPosPage() {
   }
 
   if (receipt) {
+    // Served by the waiter who looked after the table; the cashier who took
+    // the money is named under it. Without a waiter, the cashier served.
+    const cashier = receipt.cashierName || session.employeeName;
+    const server = receipt.waiterName || cashier;
     return (
       <div className="dk pos-shell pos-done" data-brand={session.companyCode}>
         {!receipt.reprint && <span className="pos-confetti" aria-hidden="true">{Array.from({ length: 44 }, (_, i) => <i key={i} style={{ '--i': i, '--x': (i * 53) % 97, '--r': ((i * 37) % 17) / 17 }} />)}</span>}
@@ -970,9 +974,9 @@ export default function RestaurantPosPage() {
             {tr('Order {orderNo}', { orderNo: receipt.orderNo })}<br />
             {new Date(receipt.createdAt).toLocaleString(activeIntlLocale())}<br />
             {receipt.tableName
-              ? tr('Served by {name} at {table}', { name: receipt.cashierName || session.employeeName, table: receipt.tableName })
-              : tr('Served by {name}', { name: receipt.cashierName || session.employeeName })}
-            {receipt.waiterName && <><br />{tr('Waiter:')} {receipt.waiterName}</>}
+              ? tr('Served by {name} at {table}', { name: server, table: receipt.tableName })
+              : tr('Served by {name}', { name: server })}
+            {receipt.waiterName && <><br />{tr('Cashier: {name}', { name: cashier })}</>}
             {receipt.guestName && <><br />{tr('Guest:')} {receipt.guestName}</>}
           </div>
           <div className="pos-receipt-rule" />
