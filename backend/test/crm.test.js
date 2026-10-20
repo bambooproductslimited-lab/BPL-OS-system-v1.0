@@ -5,6 +5,7 @@
 // Customer (a quotation makes a prospect, the first payment a customer, and
 // the old contact lists become leads); site visits and referrals; and the
 // spreadsheet import, run twice; and a rep's sales board, ranked.
+// And each open lead's priority: the solid ones first, each with its reasons.
 // Test data: ZQC codes and "Zq" names, all removed afterwards.
 var test = require('node:test');
 var assert = require('node:assert/strict');
@@ -14,6 +15,7 @@ var { pool } = require('../src/db/pool');
 var crm = require('../src/services/crm.service');
 var crmImport = require('../src/services/crmImport.service');
 var crmBoard = require('../src/services/crmBoard.service');
+var priority = require('../src/services/crmLeadPriority.service');
 var { buildContext } = require('../src/services/context.service');
 
 var kelvin, andy, alice, rep, rep2, bpl, cust, inv = {};   // bpl: the test's own company, standing in for BPL
@@ -40,6 +42,7 @@ async function cleanup() {
     await pool.query('DELETE FROM companies WHERE id = $1', [co.id]);
   }
   await pool.query("DELETE FROM crm_conversations WHERE external_thread_id LIKE 'zqb-%'");
+  await pool.query("DELETE FROM document_line_items WHERE description LIKE 'Zqp %'");
   await pool.query("DELETE FROM users WHERE email LIKE 'zqc.%@example.com'");
   await pool.query("DELETE FROM employees WHERE code LIKE 'ZQC-%'");
 }
@@ -663,4 +666,151 @@ test('the sales board: three lanes ranked by what needs the rep, and points for 
   assert.deepEqual(keys('prospect'), ['Zqb Lead Neg', 'Zqb Lead Qua']);
   assert.ok(keys('customer').indexOf('Zqb Paid') >= 0, 'paid: a customer now');
   void untouched; void talking; void quiet;
+});
+
+// ── the priority: solid leads first ───────────────────────────────────
+test('lead priority: what each signal is worth, and the tiers', function () {
+  var now = Date.now();
+  var dayMs = 86400000;
+  function ago(n) { return new Date(now - n * dayMs).toISOString().slice(0, 10); }
+  var cx = {
+    typical: 5000,
+    book: priority._priceBook([
+      { name: 'Zqp bamboo dining set 6 seater', amount: 12000, n: 6, basis: 'history' },
+      { name: 'Zqp bamboo dining set 4 seater', amount: 10500, n: 2, basis: 'history' },
+      { name: 'Zqp bamboo stool', amount: 350, n: 30, basis: 'history' },
+      { name: 'Zqp bamboo pole', amount: 45, n: 50, basis: 'history' },
+      { name: 'Zqp tv stand', amount: 2600, n: 1, basis: 'catalogue' }
+    ]),
+    sources: { instagram: { total: 60, moved: 2 }, referral: { total: 20, moved: 12 } },
+    overall: 0.2
+  };
+  function lead(o) {
+    return Object.assign({ stage: 'new', phase: 'lead', name: 'Zq', company: '', phone: '', email: '', item: '', comments: '', source: '', receivedOn: ago(0), dealValue: 0, manualPriority: null }, o);
+  }
+  function keys(p) { return p.reasons.map(function (r) { return r.k; }); }
+
+  var strong = priority.score(lead({ stage: 'follow_up', phone: '0240000222', company: 'Zq Palm Hotel', item: 'Dinning set', source: 'Referral',
+    comments: 'Zq wants 40 chairs too, ready to pay a deposit', receivedOn: ago(2) }),
+    { last_in: new Date(now - dayMs).toISOString(), ins: 4, visit: 1, waiting_since: new Date(now - 3600000).toISOString(), has_conversation: true }, cx, now);
+  assert.equal(strong.tier, 'solid');
+  assert.equal(strong.score, 100);
+  ['value_big', 'bulk', 'business', 'keen', 'wrote_recently', 'talking', 'waiting', 'visit_booked', 'referral', 'source_strong', 'fresh', 'stage_follow_up']
+    .forEach(function (k) { assert.ok(keys(strong).indexOf(k) >= 0, k); });
+  var big = strong.reasons.find(function (r) { return r.k === 'value_big'; });
+  assert.deepEqual([big.amount, big.basis, big.n], [12000, 'history', 8]);           // "Dinning" is the dining sets' middle price, from 8 sales
+  assert.equal(strong.reasons.find(function (r) { return r.k === 'bulk'; }).what, '40 chairs');
+  assert.deepEqual(strong.reasons.find(function (r) { return r.k === 'keen'; }).words, ['deposit', 'pay', 'ready']);
+  assert.deepEqual(strong.value, { amount: 12000, basis: 'history', name: 'Zqp bamboo dining set 6 seater', n: 8 });
+  for (var i = 1; i < strong.reasons.length; i++) assert.ok(strong.reasons[i - 1].p >= strong.reasons[i].p, 'biggest reasons first');
+
+  var weak = priority.score(lead({ item: 'Made an inquiry', source: 'Instagram', comments: 'Zq not reachable, number switched off', receivedOn: ago(150) }), {}, cx, now);
+  assert.equal(weak.tier, 'long_shot');
+  assert.equal(weak.score, 0);
+  ['no_contact', 'want_unclear', 'cold', 'quiet', 'source_weak'].forEach(function (k) { assert.ok(keys(weak).indexOf(k) >= 0, k); });
+  assert.deepEqual(weak.reasons.find(function (r) { return r.k === 'cold'; }).words, ['not reachable', 'switched off']);
+  assert.equal(weak.reasons.find(function (r) { return r.k === 'quiet'; }).days, 150);
+  assert.deepEqual(weak.reasons.find(function (r) { return r.k === 'source_weak'; }), { k: 'source_weak', p: -5, source: 'Instagram', pct: 3, all: 20 });
+
+  // In between: says what they want, nothing else known.
+  var plain = priority.score(lead({ phone: '0240000333', item: 'Zq garden swing', receivedOn: ago(20) }), {}, cx, now);
+  assert.equal(plain.score, 39);
+  assert.equal(plain.tier, 'maybe');
+  assert.deepEqual(keys(plain), ['want_clear']);
+  // Quoted: the quotation is the size of the job; a small one says so.
+  var quoted = priority.score(lead({ stage: 'quote_sent', phase: 'prospect', phone: '0240000444', item: 'Zq stools', receivedOn: ago(20) }), { quote_total: 1200 }, cx, now);
+  assert.deepEqual(keys(quoted), ['stage_quote_sent', 'value_small']);
+  assert.equal(quoted.score, 47);
+  assert.equal(quoted.tier, 'maybe');
+  assert.equal(quoted.value.basis, 'quote');
+  // "not interested" is not read as "interested".
+  var notKeen = priority.score(lead({ phone: '0240000555', item: 'Zq gazebo', comments: 'Zq is not interested any more', receivedOn: ago(20) }), {}, cx, now);
+  assert.deepEqual(keys(notKeen), ['want_clear', 'cold']);
+  // "200 poles": that many times what one sells for.
+  var poles = priority.score(lead({ phone: '0240000777', item: 'Bamboo poles', comments: 'Zq needs 200 poles for a fence', receivedOn: ago(20) }), {}, cx, now);
+  assert.deepEqual(poles.value, { amount: 9000, basis: 'history', name: 'Zqp bamboo pole', n: 50, qty: 200, unit: 45 });
+  assert.deepEqual(keys(poles), ['value_good', 'bulk']);
+  // Words no past sale has ("for the restaurant") don't stop a match.
+  assert.equal(priority.score(lead({ phone: '0240000888', item: 'Dining sets for the restaurant', receivedOn: ago(20) }), {}, cx, now).value.amount, 12000);
+  // Money, sizes and dates are not quantities.
+  assert.equal(priority._bulkQuantity('budget ghs 2500 for a 6 seater, call on 20 june 2026'), null);
+
+  // Someone on the team decides: Important is never below solid, Low never above a long shot.
+  var marked = priority.score(lead({ item: 'Made an inquiry', receivedOn: ago(150), manualPriority: 'high', priorityBy: 'Zq Kofi Zqrep' }), {}, cx, now);
+  assert.equal(marked.tier, 'solid');
+  assert.equal(marked.score, 70);
+  assert.deepEqual([marked.reasons[0].k, marked.reasons[0].by], ['marked_high', 'Zq Kofi Zqrep']);
+  var low = priority.score(lead({ stage: 'follow_up', phone: '0240000222', company: 'Zq Palm Hotel', item: 'Dinning set', receivedOn: ago(2), manualPriority: 'low' }), {}, cx, now);
+  assert.equal(low.tier, 'long_shot');
+  assert.equal(low.score, 29);
+  assert.equal(low.reasons[0].k, 'marked_low');
+
+  // No typical sale to compare with yet: the amount is still worth something.
+  var noTypical = priority.score(lead({ phone: '0240000666', item: 'Dining set', receivedOn: ago(20) }), {}, Object.assign({}, cx, { typical: null }), now);
+  assert.deepEqual(noTypical.reasons.map(function (r) { return [r.k, r.p]; }), [['value_known', 5]]);
+  // Paid customers and lost leads are not ranked.
+  assert.equal(priority.score(lead({ stage: 'won', phase: 'customer' }), {}, cx, now), null);
+  assert.equal(priority.score(lead({ stage: 'lost', phase: 'lost' }), {}, cx, now), null);
+});
+
+test('the leads list: most important first, filtered by tier, and marked by hand', async function () {
+  priority.forget();
+  // What a dining set sells for, from a past invoice of the CRM's company.
+  await pool.query("INSERT INTO document_line_items (document_type, document_id, description, qty, unit_price) VALUES ('invoice', $1, 'Zqp bamboo dining set', 1, 9000)", [inv.loose]);
+  var hot = await crm.createLead(rep, { name: 'Zqp Hot', phone: '024 000 7771', company: 'Zqp Lodge Ltd', item: 'dining set', source: 'Referral', stage: 'follow_up', comments: 'Zqp ready to pay a deposit for the lodge rooms' });
+  var mid = await crm.createLead(rep, { name: 'Zqp Mid', phone: '024 000 7772', item: 'Zqp garden swing', receivedOn: daysAgo(20) });
+  var cold = await crm.createLead(rep, { name: 'Zqp Cold', item: 'Made an inquiry', receivedOn: daysAgo(150), comments: 'Zqp not reachable' });
+  // Their messages, on the hot lead's phone number.
+  var conv = (await pool.query(
+    "INSERT INTO crm_conversations (channel, external_thread_id, contact_kind, contact_key, status, last_direction, last_message_at, message_count) VALUES ('whatsapp', 'zqb-prio-1', 'phone', '233240007771', 'open', 'in', now() - interval '2 hours', 3) RETURNING id")).rows[0].id;
+  for (var h of [50, 26, 2]) await pool.query("INSERT INTO crm_messages (conversation_id, direction, body, sent_at) VALUES ($1, 'in', 'Zqp when can you deliver?', now() - make_interval(hours => $2))", [conv, h]);
+  await crm.saveVisit(rep, null, { leadId: hot.id, scheduledOn: daysAgo(-3) });
+
+  var mine = function (list) { return list.filter(function (l) { return /^Zqp /.test(l.name); }); };
+  var ranked = mine(await crm.listLeads(rep, { sort: 'priority' }));
+  assert.deepEqual(ranked.map(function (l) { return l.name; }), ['Zqp Hot', 'Zqp Mid', 'Zqp Cold']);
+  var p = ranked[0].priority;
+  assert.equal(p.tier, 'solid');
+  ['business', 'bulk', 'wrote_recently', 'talking', 'waiting', 'visit_booked', 'referral', 'keen', 'fresh'].forEach(function (k) {
+    assert.ok(p.reasons.some(function (r) { return r.k === k; }), k);
+  });
+  // The size of the job, against the company's typical sale (or on its own while there are too few sales).
+  assert.ok(p.reasons.some(function (r) { return /^value_/.test(r.k) && r.amount === 9000; }), JSON.stringify(p));
+  assert.deepEqual(p.value, { amount: 9000, basis: 'history', name: 'Zqp bamboo dining set', n: 1 });
+  assert.equal(ranked[0].priority.reasons.find(function (r) { return r.k === 'bulk'; }).what, 'lodge');
+  assert.deepEqual(ranked[0].priority.reasons.find(function (r) { return r.k === 'keen'; }).words, ['deposit', 'deliver', 'pay']);
+  assert.equal(ranked[1].priority.tier, 'maybe');
+  assert.equal(ranked[2].priority.tier, 'long_shot');
+  assert.deepEqual(mine(await crm.listLeads(rep, { tier: 'solid' })).map(function (l) { return l.name; }), ['Zqp Hot']);
+  await assert.rejects(crm.listLeads(rep, { tier: 'lukewarm' }), /Priority/);
+
+  // Marked important by hand: the long shot goes to the top tier, says who
+  // did it, and the history has it; back to automatic, back where it was.
+  await assert.rejects(crm.setPriority(andy, cold.id, { priority: 'high' }), /crm.manage/);
+  await assert.rejects(crm.setPriority(rep, cold.id, { priority: 'urgent' }), /Priority/);
+  var marked = await crm.setPriority(rep, cold.id, { priority: 'high' });
+  assert.equal(marked.manualPriority, 'high');
+  assert.equal(marked.priorityBy, 'Zq Kofi Zqrep');
+  assert.equal(marked.priority.tier, 'solid');
+  assert.equal(marked.priority.reasons[0].k, 'marked_high');
+  assert.deepEqual([marked.notes[0].kind, marked.notes[0].body], ['priority', 'high']);
+  ranked = mine(await crm.listLeads(rep, { sort: 'priority' }));
+  assert.equal(ranked[2].name, 'Zqp Mid');
+  var lowered = await crm.setPriority(rep, hot.id, { priority: 'low' });
+  assert.equal(lowered.priority.score, 29);
+  var again = await crm.setPriority(rep, cold.id, { priority: null });
+  assert.equal(again.manualPriority, null);
+  assert.equal(again.priorityBy, null);
+  assert.equal(again.priority.tier, 'long_shot');
+  assert.deepEqual(again.notes.filter(function (n) { return n.kind === 'priority'; }).map(function (n) { return n.body; }), ['auto', 'high']);
+  // Unchanged: nothing more in the history.
+  again = await crm.setPriority(rep, cold.id, { priority: 'auto' });
+  assert.equal(again.notes.filter(function (n) { return n.kind === 'priority'; }).length, 2);
+  // Won and paid, or lost: no priority.
+  var gone = await crm.setStage(rep, mid.id, { stage: 'lost', lostReason: 'Zqp price' });
+  assert.equal(gone.priority, null);
+  // Not points for the rep's board.
+  var acts = await pool.query("SELECT count(*)::int AS n FROM crm_lead_notes WHERE kind = 'priority' AND lead_id = ANY($1)", [[hot.id, cold.id]]);
+  assert.equal(acts.rows[0].n, 3);
+  for (var l of [hot, mid, cold]) await crm.removeLead(rep, l.id);
 });

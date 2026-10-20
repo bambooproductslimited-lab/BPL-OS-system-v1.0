@@ -43,6 +43,7 @@ router.post('/leads', async function (req, res, next) { try { res.status(201).js
 router.get('/leads/:id', h(function (req) { return crm.getLead(req.ctx, req.params.id); }));
 router.put('/leads/:id', h(function (req) { return crm.updateLead(req.ctx, req.params.id, req.body); }));
 router.post('/leads/:id/stage', h(function (req) { return crm.setStage(req.ctx, req.params.id, req.body); }));
+router.put('/leads/:id/priority', h(function (req) { return crm.setPriority(req.ctx, req.params.id, req.body); }));
 router.post('/leads/:id/notes', h(function (req) { return crm.addNote(req.ctx, req.params.id, req.body); }));
 router.post('/leads/:id/customer', h(function (req) { return crm.toCustomer(req.ctx, req.params.id); }));
 router.post('/leads/:id/deals', h(function (req) { return crm.linkInvoice(req.ctx, req.params.id, req.body); }));

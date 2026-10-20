@@ -219,7 +219,7 @@ async function activity(repIds, days) {
   var since = new Date(Date.now() - days * 86400000);
   var rows = (await pool.query(
     "SELECT by_employee AS rep, (at AT TIME ZONE 'UTC')::date::text AS d, kind, to_stage, from_stage, NULL::uuid AS ref FROM crm_lead_notes " +
-    'WHERE at >= $1 AND by_employee IS NOT NULL' + (repIds ? ' AND by_employee = ANY($2)' : '') + ' ' +
+    "WHERE at >= $1 AND by_employee IS NOT NULL AND kind <> 'priority'" + (repIds ? ' AND by_employee = ANY($2)' : '') + ' ' +
     "UNION ALL SELECT m.sent_by, (m.sent_at AT TIME ZONE 'UTC')::date::text, CASE WHEN cv.channel IN ('call', 'visit', 'other') THEN 'logged' ELSE 'reply' END, NULL, NULL, NULL " +
     "FROM crm_messages m JOIN crm_conversations cv ON cv.id = m.conversation_id WHERE m.direction = 'out' AND m.sent_by IS NOT NULL AND m.sent_at >= $1" + (repIds ? ' AND m.sent_by = ANY($2)' : '') + ' ' +
     "UNION ALL SELECT created_by, (created_at AT TIME ZONE 'UTC')::date::text, 'quote', NULL, NULL, NULL FROM quotations WHERE created_by IS NOT NULL AND created_at >= $1" + (repIds ? ' AND created_by = ANY($2)' : ''),

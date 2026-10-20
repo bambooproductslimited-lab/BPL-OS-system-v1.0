@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
-import { Empty, Glossary, Hero, Icon, Section, fmtDate } from '../../components/DashKit';
+import { Empty, Glossary, Hero, Icon, Section, fmtDate, jump } from '../../components/DashKit';
 import SearchInput, { matchesQuery } from '../../components/SearchInput';
 import { tr } from '../../lib/i18n.jsx';
 import { LEAD_STAGES, OPEN_STAGES, PHASES, PROSPECT_STAGES, ImportDialog, LeadDialog, NewLeadDialog, PhaseTag, StageTag, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, daysUntil, followUpClass, followUpText, ghs, stage, todayISO, useCrmBasics, usePerms } from './crmShared';
 import { SalesReviewButton } from './SalesPresent';
+import { PRIORITY_GLOSSARY, PriorityKey, PriorityRing, ReasonChips, TIERS, TierTag, estimate } from './leadPriority';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -22,8 +23,20 @@ import './CrmPage.css';
 // in the address (?stage=new&followUp=overdue&rep=me), so the overview's
 // links land on exactly the leads they talk about. Pressing one opens it
 // (crmShared.jsx LeadDialog).
+//
+// Most important first: each open lead has a priority (0–100, solid,
+// promising, maybe or long shot; leadPriority.jsx), the page opens with the
+// ones to work first and the priority ladder, the list is in that order
+// unless another is picked (?sort=new, ?sort=follow) and can keep one tier
+// (?tier=solid). The star marks a lead Important by hand.
 
 const LIST_STEP = 60;
+const TIER_COLOR = { solid: 'var(--lp-solid)', promising: 'var(--lp-promising)', maybe: 'var(--lp-maybe)', long_shot: 'var(--lp-long)' };
+const score = (l) => (l.priority ? l.priority.score : -1);
+const byPriority = (a, b) => score(b) - score(a) || (a.nextFollowUp || '9999').localeCompare(b.nextFollowUp || '9999') || String(b.receivedOn).localeCompare(String(a.receivedOn));
+const byNewest = (a, b) => String(b.receivedOn).localeCompare(String(a.receivedOn)) || String(b.createdAt).localeCompare(String(a.createdAt));
+const byFollowUp = (a, b) => (a.nextFollowUp || '9999').localeCompare(b.nextFollowUp || '9999') || byPriority(a, b);
+const SORTS = { '': byPriority, new: byNewest, follow: byFollowUp };
 
 export default function CrmLeadsPage({ phase = 'lead' }) {
   const isP = phase === 'prospect';
@@ -48,6 +61,8 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   const followF = params.get('followUp') || '';
   const repF = params.get('rep') || '';
   const sourceF = params.get('source') || '';
+  const tierF = TIERS.some((t) => t.key === params.get('tier')) ? params.get('tier') : '';
+  const sortF = SORTS[params.get('sort')] ? params.get('sort') || '' : '';
   function setParam(k, v) { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); p.delete('lead'); p.delete('new'); setParams(p, { replace: true }); setShown(LIST_STEP); }
 
   const load = useCallback(async () => {
@@ -58,7 +73,9 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   // What this page holds while it is being worked on.
   const isOpenHere = useCallback((l) => (isP ? l.phase === 'prospect' || l.phase === 'won' : l.phase === 'lead'), [isP]);
   const today = todayISO();
-  const filtered = useMemo(() => {
+  const repMatch = useCallback((l) => !(repF === 'me' ? l.repId !== meId : repF === 'none' ? (l.repId || l.repName) : repF && l.repId !== repF && l.repName !== repF), [repF, meId]);
+  // Every filter but the priority tier: the tier chips count these.
+  const unTiered = useMemo(() => {
     if (!leads) return [];
     return leads.filter((l) => {
       if (stageF === 'open') { if (!isOpenHere(l)) return false; }
@@ -71,11 +88,12 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
         if (followF === 'week' && !(d !== null && d >= 0 && d <= 7)) return false;
         if (followF === 'none' && (l.nextFollowUp || !OPEN_STAGES.includes(l.stage))) return false;
       }
-      if (repF === 'me' ? l.repId !== meId : repF === 'none' ? (l.repId || l.repName) : repF && l.repId !== repF && l.repName !== repF) return false;
+      if (!repMatch(l)) return false;
       if (sourceF && (l.source || '-') !== sourceF) return false;
       return matchesQuery(q, ...[l.name, l.company, l.phone, l.item, l.location, l.ref, l.sheetRef, l.repName, l.comments]);
     });
-  }, [leads, stageF, followF, repF, sourceF, q, meId, isOpenHere]);
+  }, [leads, stageF, followF, sourceF, q, isOpenHere, repMatch]);
+  const filtered = useMemo(() => unTiered.filter((l) => !tierF || (l.priority && l.priority.tier === tierF)).sort(SORTS[sortF]), [unTiered, tierF, sortF]);
 
   if (!leads) return <div className="dk">{error ? <div className="error-banner">{error}</div> : <div className="eyebrow">{tr('Loading…')}</div>}</div>;
 
@@ -95,6 +113,22 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   const count = (st) => leads.filter((l) => l.stage === st).length;
   const countPhase = (ph) => leads.filter((l) => l.phase === ph).length;
 
+  // Ranked: this page's open leads for the rep and source picked, most important first.
+  const ranked = leads.filter((l) => isOpenHere(l) && l.priority && repMatch(l) && (!sourceF || (l.source || '-') === sourceF)).sort(byPriority);
+  const tierCount = (k) => ranked.filter((l) => l.priority.tier === k).length;
+  const solidN = tierCount('solid');
+  function pickTier(k) { setParam('tier', k); setTimeout(() => jump('crm-leads'), 50); }
+
+  async function star(l) {
+    setMoving(l.id);
+    try {
+      const on = l.manualPriority !== 'high';
+      await api.put('/crm/leads/' + l.id + '/priority', { priority: on ? 'high' : null });
+      await load();
+      setToast(on ? tr('{name} is marked important.', { name: l.name }) : tr('{name} is back to its worked-out priority.', { name: l.name }));
+    } catch (err) { setError(err.message); } finally { setMoving(null); }
+  }
+
   async function nextStage(l) {
     const i = OPEN_STAGES.indexOf(l.stage);
     const to = i >= 0 && i < OPEN_STAGES.length - 1 ? OPEN_STAGES[i + 1] : null;
@@ -109,19 +143,38 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
 
   const leadCard = (l, compact) => {
     const nextKey = OPEN_STAGES[OPEN_STAGES.indexOf(l.stage) + 1];
+    const p = l.priority;
+    const tag = l.phase === 'won' || l.phase === 'customer' ? <PhaseTag phase={l.phase} /> : <StageTag value={l.stage} />;
     return (
-      <article key={l.id} className={'crm-card is-' + (l.phase === 'won' ? 'warn' : stage(l.stage).tone)}>
+      <article key={l.id} className={'crm-card ' + (p ? 'lp-card lp-' + p.tier : 'is-' + (l.phase === 'won' ? 'warn' : stage(l.stage).tone))}>
         <button type="button" className="crm-card-open" onClick={() => setDialog({ kind: 'lead', id: l.id })}>
-          <span className="crm-card-top">
-            <strong className="crm-card-name">{l.name}</strong>
-            {!compact && (l.phase === 'won' || l.phase === 'customer' ? <PhaseTag phase={l.phase} /> : <StageTag value={l.stage} />)}
-          </span>
-          <span className="dk-muted tl-small crm-card-want">{l.item || tr('What they want isn\'t written down yet.')}</span>
+          {p ? (
+            <span className="crm-card-top">
+              <PriorityRing priority={p} size={compact ? 'sm' : 'md'} />
+              <span className="lp-card-title">
+                <strong className="crm-card-name">{l.name}</strong>
+                <span className="lp-card-tags"><TierTag tierKey={p.tier} />{!compact && tag}</span>
+              </span>
+            </span>
+          ) : (
+            <span className="crm-card-top">
+              <strong className="crm-card-name">{l.name}</strong>
+              {!compact && tag}
+            </span>
+          )}
+          <span className="dk-muted tl-small crm-card-want">{l.item || tr('What they want isn\'t written down yet.')}{p && p.value ? <span className="lp-card-value"> · {tr('about {amount}', { amount: estimate(p.value.amount) })}</span> : null}</span>
           <span className="dk-muted tl-small">{[l.source, l.repName, l.location].filter(Boolean).join(' · ') || '—'}</span>
+          {p && <ReasonChips priority={p} max={compact ? 1 : 2} />}
           {OPEN_STAGES.includes(l.stage) && <span className={'tl-small crm-card-follow ' + followUpClass(l.nextFollowUp)}><Icon name="calendar" /> {followUpText(l.nextFollowUp)}</span>}
           {l.stage === 'won' && l.dealValue > 0 && <span className="tl-small crm-card-won"><Icon name="cash" /> {ghs(l.dealValue)}</span>}
-          {l.lastNote && <span className="dk-muted tl-small crm-card-note">“{l.lastNote.body}”</span>}
+          {!compact && l.lastNote && <span className="dk-muted tl-small crm-card-note">“{l.lastNote.body}”</span>}
         </button>
+        {p && canManage && (
+          <button type="button" className={'lp-star' + (l.manualPriority === 'high' ? ' is-on' : '')} disabled={moving === l.id} onClick={() => star(l)}
+            aria-pressed={l.manualPriority === 'high'} aria-label={tr('Important')} title={l.manualPriority === 'high' ? tr('Marked important. Press to put it back to its worked-out priority.') : tr('Mark as important: it stays at the top.')}>
+            <Icon name="star" />
+          </button>
+        )}
         {compact && canManage && OPEN_STAGES.includes(l.stage) && l.stage !== 'negotiation' && (
           <button type="button" className="crm-card-next" disabled={moving === l.id} onClick={() => nextStage(l)}
             title={nextKey === 'qualified' ? tr('Move to Qualified: they become a prospect') : tr('Move to {stage}', { stage: tr(stage(nextKey).label) })}>
@@ -164,10 +217,54 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           { icon: 'arrow', value: movedPct !== null ? movedPct + '%' : '—', label: tr('became prospects or customers'), note: tr('{n} of the {m} leads from the last 90 days', { n: movedOn.length, m: recent.length }), tone: movedPct !== null && movedPct >= 30 ? 'good' : '', onClick: () => navigate('/crmcustomers?tab=prospects') }
         ]} />
 
+      <Section id="crm-priority" title={tr('Work these first')}
+        sub={isP
+          ? tr('Every open prospect has a priority from 0 to 100: how likely they are to buy, and how big the job is. The solid ones are at the top. Open one to see why.')
+          : tr('Every open lead has a priority from 0 to 100: how likely they are to buy, and how big the job is. The solid ones are at the top. Open one to see why.')}>
+        <div className="lp-spot">
+          <div className="lp-ladder">
+            <div className="lp-ladder-head">
+              <strong>{tr('The priority ladder')}</strong>
+              <span className="dk-muted tl-small">{solidN === 1 ? tr('1 solid of {n} open', { n: ranked.length }) : tr('{s} solid of {n} open', { s: solidN, n: ranked.length })}</span>
+            </div>
+            <div className="lp-bar" role="group" aria-label={tr('The priority ladder')}>
+              {TIERS.map((t) => tierCount(t.key) > 0 && (
+                <button key={t.key} type="button" className={'lp-seg is-' + t.key} style={{ flexGrow: tierCount(t.key) }} onClick={() => pickTier(t.key)}
+                  aria-label={tr('{tier}: {n}', { tier: tr(t.label), n: tierCount(t.key) })} title={tr('{tier}: {n}', { tier: tr(t.label), n: tierCount(t.key) })} />
+              ))}
+            </div>
+            <div className="lp-tiers">
+              {TIERS.map((t) => (
+                <button key={t.key} type="button" className={'lp-tier is-' + t.key + (tierF === t.key ? ' is-on' : '')} aria-pressed={tierF === t.key} onClick={() => pickTier(tierF === t.key ? '' : t.key)}>
+                  <span className="lp-tier-top"><strong>{tierCount(t.key)}</strong><span>{tr(t.label)}</span></span>
+                  <small>{tr(t.help)}</small>
+                </button>
+              ))}
+            </div>
+            <PriorityKey />
+          </div>
+          <ol className="lp-top" aria-label={tr('Work these first')}>
+            {ranked.length ? ranked.slice(0, 5).map((l, i) => (
+              <li key={l.id}>
+                <button type="button" className="lp-top-row" onClick={() => setDialog({ kind: 'lead', id: l.id })}>
+                  <span className="lp-rank">{i + 1}</span>
+                  <PriorityRing priority={l.priority} size="sm" />
+                  <span className="lp-top-main">
+                    <span className="lp-top-name"><span>{l.name}</span>{l.manualPriority === 'high' && <Icon name="star" />}<TierTag tierKey={l.priority.tier} /></span>
+                    <span className="dk-muted tl-small lp-top-want">{[l.item, l.priority.value ? tr('about {amount}', { amount: estimate(l.priority.value.amount) }) : null, l.repName].filter(Boolean).join(' · ') || '—'}</span>
+                    <ReasonChips priority={l.priority} max={2} />
+                  </span>
+                </button>
+              </li>
+            )) : <li className="dk-muted lp-top-empty">{isP ? tr('No open prospect yet.') : tr('No open lead yet.')}</li>}
+          </ol>
+        </div>
+      </Section>
+
       <Section id="crm-leads" title={view === 'board' ? tr('The board') : isP ? tr('All prospects') : tr('All leads')}
         sub={view === 'board'
           ? (isP ? tr('Prospects by stage. Next moves one on; open one to win or lose it. Won ones wait for their first payment.') : tr('Leads by stage. Next moves one on; Make a prospect when it is a real job.'))
-          : tr('{n} shown. Press one to open it.', { n: filtered.length })}
+          : sortF ? tr('{n} shown. Press one to open it.', { n: filtered.length }) : tr('{n} shown, the most important first. Press one to open it.', { n: filtered.length })}
         action={
           <div className="dk-segment" role="radiogroup" aria-label={tr('View')}>
             {[['list', tr('List')], ['board', tr('Board')]].map(([k, label]) => <button key={k} type="button" role="radio" aria-checked={view === k} className={view === k ? 'is-on' : ''} onClick={() => setParam('view', k === 'board' ? 'board' : '')}>{label}</button>)}
@@ -198,6 +295,11 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
             <option value="">{tr('Any source')}</option>
             {sources.map((s) => <option key={s} value={s}>{s === '-' ? tr('Not known') : s}</option>)}
           </select>
+          <select className="input" value={sortF} onChange={(e) => setParam('sort', e.target.value)} aria-label={tr('Order')}>
+            <option value="">{tr('Most important first')}</option>
+            <option value="new">{tr('Newest first')}</option>
+            <option value="follow">{tr('By follow-up date')}</option>
+          </select>
         </div>
         {view === 'list' && (
           <div className="ppl-chips" role="radiogroup" aria-label={tr('Stage')}>
@@ -206,6 +308,12 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
             ))}
           </div>
         )}
+        <div className="ppl-chips" role="radiogroup" aria-label={tr('Priority')}>
+          {[['', tr('Any priority')], ...TIERS.map((t) => [t.key, tr(t.label)])].map(([k, label]) => (
+            <button key={k || 'any'} type="button" role="radio" aria-checked={tierF === k} className={'ppl-chip' + (k ? ' lp-tier-chip' : '') + (tierF === k ? ' is-on' : '')} style={k ? { '--c': TIER_COLOR[k] } : undefined}
+              onClick={() => setParam('tier', k)}>{label} <span className="ppl-chip-n">{k ? unTiered.filter((l) => l.priority && l.priority.tier === k).length : unTiered.length}</span></button>
+          ))}
+        </div>
         <div className="ppl-chips" role="radiogroup" aria-label={tr('Follow-up')}>
           {[['', tr('Any follow-up')], ['overdue', tr('Overdue')], ['today', tr('Due today')], ['week', tr('This week')], ['none', tr('No date set')]].map(([k, label]) => (
             <button key={k || 'any'} type="button" role="radio" aria-checked={followF === k} className={'ppl-chip' + (followF === k ? ' is-on' : '')} onClick={() => setParam('followUp', k)}>{label}</button>
@@ -222,7 +330,7 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
         ) : (
           <div className={'crm-board' + (isP ? ' is-four' : ' is-three')} role="list">
             {columns.map((key) => {
-              const col = filtered.filter((l) => (key === 'won' ? l.phase === 'won' : l.stage === key) && (stageF === 'open' || stageF === key));
+              const col = filtered.filter((l) => (key === 'won' ? l.phase === 'won' : l.stage === key) && (stageF === 'open' || stageF === key));   // in the order picked
               const label = key === 'won' ? tr('Won, waiting for payment') : tr(stage(key).label);
               const help = key === 'won' ? tr('They agreed to buy. The first payment makes them a customer.') : tr(stage(key).help);
               return (
@@ -240,7 +348,8 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
       <Glossary items={PHASES.map((p) => [tr(p.label), tr(p.help)])
         .concat(stagesHere.map((k) => [tr(stage(k).label), tr(stage(k).help)]))
         .concat(isP ? [[tr('Won, waiting for payment'), tr('They agreed to buy but haven\'t paid yet. Link the sale\'s invoice to the prospect; the first payment on it makes them a customer.')]] : [[tr('Lost'), tr(stage('lost').help)]])
-        .concat([[tr('Next follow-up'), tr('The date someone should get back to them. Adding a call or note to a new lead marks it contacted.')]])} />
+        .concat([[tr('Next follow-up'), tr('The date someone should get back to them. Adding a call or note to a new lead marks it contacted.')]])
+        .concat(PRIORITY_GLOSSARY.map(([k, v]) => [tr(k), tr(v)]))} />
 
       {dialog && dialog.kind === 'new' && settings && <NewLeadDialog settings={settings} people={people} meId={meId} onClose={() => setDialog(null)} onSaved={(l) => { setDialog({ kind: 'lead', id: l.id }); setToast(tr('Lead {ref} added.', { ref: l.ref })); load(); }} />}
       {dialog && dialog.kind === 'import' && <ImportDialog onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}

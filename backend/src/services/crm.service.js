@@ -2,6 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
+var priority = require('./crmLeadPriority.service');
 
 // The CRM (migration 0102): the sales team's leads from the first message to
 // a won or lost deal, with follow-ups, site visits, referrals and the rep's
@@ -136,12 +137,12 @@ function money(inv, baseRate) {
 // ── leads ────────────────────────────────────────────────────────────
 
 var LEAD_SELECT =
-  'SELECT l.*, e.first_name AS rep_first, e.last_name AS rep_last, c.name AS customer_name, ' +
+  'SELECT l.*, e.first_name AS rep_first, e.last_name AS rep_last, c.name AS customer_name, pe.first_name AS priority_first, pe.last_name AS priority_last, ' +
   '(SELECT count(*)::int FROM crm_deals d WHERE d.lead_id = l.id) AS deal_count, ' +
   '(SELECT coalesce(sum(i.grand_total), 0) FROM crm_deals d JOIN invoices i ON i.id = d.invoice_id WHERE d.lead_id = l.id) AS deal_value, ' +
   '(SELECT json_build_object(\'body\', n.body, \'kind\', n.kind, \'at\', n.at) FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.kind IN (\'note\', \'call\') ORDER BY n.at DESC LIMIT 1) AS last_note, ' +
   PAID_SQL + ' AS paid ' +
-  'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id ';
+  'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id LEFT JOIN employees pe ON pe.id = l.priority_by ';
 
 function rowToLead(r) {
   return {
@@ -153,7 +154,8 @@ function rowToLead(r) {
     customerId: r.customer_id, customerName: r.customer_name || null, prospectId: r.prospect_id,
     stageChangedAt: r.stage_changed_at, createdAt: r.created_at, updatedAt: r.updated_at,
     dealCount: r.deal_count || 0, dealValue: round2(r.deal_value), lastNote: r.last_note || null,
-    paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid)
+    paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid),
+    manualPriority: r.manual_priority || null, priorityBy: r.priority_by ? personName(r.priority_first, r.priority_last) : null, priorityAt: r.priority_at || null
   };
 }
 
@@ -185,7 +187,15 @@ async function listLeads(ctx, q) {
   var limit = Math.min(Math.max(Number(q.limit) || 300, 1), 1000);
   var res = await pool.query(LEAD_SELECT + (where.length ? 'WHERE ' + where.join(' AND ') : '') +
     ' ORDER BY l.received_on DESC, l.created_at DESC LIMIT ' + limit, args);
-  return res.rows.map(rowToLead);
+  // Each open lead's priority (crmLeadPriority.service.js); ?sort=priority
+  // puts the most important first, ?tier=solid keeps one tier.
+  var leads = await priority.attach(res.rows.map(rowToLead));
+  if (q.tier) {
+    var tier = V.oneOf(q.tier, priority.TIER_KEYS, 'Priority');
+    leads = leads.filter(function (l) { return l.priority && l.priority.tier === tier; });
+  }
+  if (q.sort === 'priority') leads.sort(priority.byPriority);
+  return leads;
 }
 
 async function leadRow(id, db) {
@@ -196,7 +206,7 @@ async function leadRow(id, db) {
 
 async function getLead(ctx, id) {
   need(ctx, 'crm.read');
-  var lead = rowToLead(await leadRow(id));
+  var lead = (await priority.attach([rowToLead(await leadRow(id))]))[0];
   var notes = (await pool.query(
     'SELECT n.*, e.first_name, e.last_name FROM crm_lead_notes n LEFT JOIN employees e ON e.id = n.by_employee WHERE n.lead_id = $1 ORDER BY n.at DESC LIMIT 200', [id])).rows;
   lead.notes = notes.map(function (n) {
@@ -295,6 +305,25 @@ async function addNote(ctx, id, p) {
     var stage = cur.stage === 'new' ? 'contacted' : cur.stage;
     await db.query('UPDATE crm_leads SET next_follow_up = $2, stage = $3, stage_changed_at = CASE WHEN stage <> $3 THEN now() ELSE stage_changed_at END, updated_at = now() WHERE id = $1', [id, next, stage]);
     if (stage !== cur.stage) await note(db, ctx, id, 'stage', '', cur.stage, stage);
+  });
+  return getLead(ctx, id);
+}
+
+// Someone on the team says how much a lead matters: 'high' (Important:
+// never below solid), 'low' (never above a long shot) or null (worked out
+// from what is known again). Kept with who and when, and in the history.
+async function setPriority(ctx, id, p) {
+  need(ctx, 'crm.manage');
+  p = p || {};
+  var to = p.priority === null || p.priority === '' || p.priority === undefined || p.priority === 'auto' ? null : V.oneOf(p.priority, ['high', 'low'], 'Priority');
+  var cur = await leadRow(id);
+  if ((cur.manual_priority || null) === to) return getLead(ctx, id);
+  await withTransaction(async function (db) {
+    await db.query('UPDATE crm_leads SET manual_priority = $2, priority_by = $3, priority_at = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END, updated_at = now() WHERE id = $1',
+      [id, to, to ? me(ctx) : null]);
+    await note(db, ctx, id, 'priority', to || 'auto');
+    await audit(db, ctx, 'crm.lead.priority', 'crm_lead', id,
+      (to === 'high' ? 'Marked lead ' + cur.ref + ' important' : to === 'low' ? 'Marked lead ' + cur.ref + ' low priority' : 'Put lead ' + cur.ref + ' back to its worked-out priority') + ' (' + cur.name + ').');
   });
   return getLead(ctx, id);
 }
@@ -854,7 +883,7 @@ module.exports = {
   STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, LEAD_STAGES: LEAD_STAGES, PROSPECT_STAGES: PROSPECT_STAGES, PAID_SQL: PAID_SQL, phaseOf: phaseOf, commission: money,
   getSettings: getSettings, saveSettings: saveSettings, overview: overview, people: people,
   listLeads: listLeads, getLead: getLead, createLead: createLead, updateLead: updateLead, setStage: setStage, addNote: addNote,
-  removeLead: removeLead, toCustomer: toCustomer,
+  removeLead: removeLead, toCustomer: toCustomer, setPriority: setPriority,
   invoicesToLink: invoicesToLink, linkInvoice: linkInvoice, updateDeal: updateDeal, setDealStatus: setDealStatus, unlinkDeal: unlinkDeal, listDeals: listDeals,
   listReferrals: listReferrals, saveReferral: saveReferral, setReferralStatus: setReferralStatus, removeReferral: removeReferral,
   listVisits: listVisits, saveVisit: saveVisit, removeVisit: removeVisit,

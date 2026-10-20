@@ -6,6 +6,7 @@ import ContactButtons from '../../components/ContactButtons';
 import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
+import { PriorityPanel } from './leadPriority';
 
 // What the CRM pages share (pages/crm/*): the stages a lead goes through,
 // the lead window, the new-lead form, the spreadsheet import and the site
@@ -159,7 +160,7 @@ export function NewLeadDialog({ settings, people, meId, onClose, onSaved }) {
 }
 
 // ── the lead window ──────────────────────────────────────────────────
-const NOTE_ICON = { note: 'doc', call: 'phone', stage: 'arrow', visit: 'calendar', deal: 'cash' };
+const NOTE_ICON = { note: 'doc', call: 'phone', stage: 'arrow', visit: 'calendar', deal: 'cash', priority: 'star' };
 
 export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVisit }) {
   const navigate = useNavigate();
@@ -250,6 +251,9 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
           <div className="crm-note is-info"><Icon name="info" /> {tr('Probably the same person as {leads} (same phone or email).', { leads: lead.sameContact.map((x) => x.ref + ' ' + x.name).join(', ') })}</div>
         )}
         {error && <div className="error-banner" role="alert">{error}</div>}
+
+        {/* how much it matters, and why (leadPriority.jsx) */}
+        <PriorityPanel lead={lead} canManage={canManage} busy={busy} onSet={(v) => act(() => api.put('/crm/leads/' + leadId + '/priority', { priority: v }))} />
 
         <div className="crm-lead-grid">
           <div className="crm-lead-col">
@@ -412,7 +416,8 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                       <p className="crm-history-text">
                         {n.kind === 'stage' && n.toStage ? (n.fromStage ? tr('Moved from {from} to {to}.', { from: tr(stage(n.fromStage).label), to: tr(stage(n.toStage).label) }) : tr('Added at the {stage} stage.', { stage: tr(stage(n.toStage).label) })) : null}
                         {n.kind === 'call' ? <strong>{tr('Call')}: </strong> : null}
-                        {n.body && !(n.kind === 'stage' && n.body === 'Lead added.') ? ' ' + historyText(n.body) : ''}
+                        {n.kind === 'priority' ? (n.body === 'high' ? tr('Marked important.') : n.body === 'low' ? tr('Marked low priority.') : tr('Priority back to automatic: worked out from what is known.')) : null}
+                        {n.body && n.kind !== 'priority' && !(n.kind === 'stage' && n.body === 'Lead added.') ? ' ' + historyText(n.body) : ''}
                       </p>
                       <p className="dk-muted tl-small">{new Date(n.at).toLocaleString(activeIntlLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}{n.by ? ' · ' + n.by : ''}</p>
                     </div>
