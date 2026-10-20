@@ -1,8 +1,7 @@
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
-var pinAuth = require('../lib/pinAuth');
-var { buildContext } = require('./context.service');
+var access = require('./restaurantTillAccess.service');
 
 // The till's money beyond a plain sale (migration 0153):
 //
@@ -19,12 +18,12 @@ var { buildContext } = require('./context.service');
 // cashier who handled it (drawerCash, for restaurantPos.buildReport).
 
 // What the till takes for a sale (Other: paid some other way, outside the
-// drawer), and how money changes hands otherwise.
-var TILL_METHODS = ['cash', 'mobile_money', 'vip', 'iou', 'other'];
+// drawer; the till's settings choose which it offers), and how money
+// changes hands otherwise.
+var TILL_METHODS = access.TILL_METHODS;
 var MONEY = ['cash', 'mobile_money'];
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
-function posSession(token) { return require('./restaurantPos.service').verifyPosToken(token); }
 function fullName(r, prefix) { return r[prefix + '_first'] ? r[prefix + '_first'] + ' ' + r[prefix + '_last'] : null; }
 
 async function openDrawer(client, cashierId) {
@@ -74,7 +73,7 @@ async function chargeSale(client, companyId, order, cashierId) {
 
 // Guests with VIP money (or a search for any guest, to top up a new one).
 async function vipGuests(token, q) {
-  var session = posSession(token);
+  var session = await access.need(token, 'till');
   var args = [session.posCompanyId];
   var where = 'g.company_id = $1';
   if (q && String(q).trim()) { args.push('%' + String(q).trim() + '%'); where += ' AND (g.name ILIKE $2 OR g.phone ILIKE $2)'; }
@@ -90,7 +89,7 @@ async function vipGuests(token, q) {
 }
 
 async function vipGuest(token, guestId) {
-  var session = posSession(token);
+  var session = await access.need(token, 'till');
   var g = await guestOf(pool, session.posCompanyId, guestId);
   var entries = (await pool.query(
     "SELECT v.*, o.order_no, e.first_name AS by_first, e.last_name AS by_last FROM restaurant_vip_entries v LEFT JOIN restaurant_orders o ON o.id = v.order_id " +
@@ -104,7 +103,7 @@ async function vipGuest(token, guestId) {
 }
 
 async function vipTopUp(token, p) {
-  var session = posSession(token);
+  var session = await access.need(token, 'vipTopUp');
   var amount = round2(p.amount);
   if (!(amount > 0)) fail('invalid', 'Enter an amount greater than zero.');
   var method = V.oneOf(p.method, MONEY, 'Paid with');
@@ -140,7 +139,7 @@ function iouOut(r) {
 // What is still owed at this restaurant, oldest first, and what was paid
 // today.
 async function iouList(token, q) {
-  var session = posSession(token);
+  var session = await access.need(token, 'iouPaid');
   var args = [session.posCompanyId];
   var search = '';
   if (q && String(q).trim()) { args.push('%' + String(q).trim() + '%'); search = ' AND (g.name ILIKE $2 OR g.phone ILIKE $2 OR o.order_no ILIKE $2)'; }
@@ -153,7 +152,7 @@ async function iouList(token, q) {
 }
 
 async function payIou(token, orderId, p) {
-  var session = posSession(token);
+  var session = await access.need(token, 'iouPaid');
   var method = V.oneOf(p && p.method, MONEY, 'Paid with');
   return withTransaction(async function (client) {
     var o = (await client.query('SELECT * FROM restaurant_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [orderId, session.posCompanyId])).rows[0];
@@ -181,7 +180,7 @@ function refundMethodsFor(o) {
 // This restaurant's sales to refund from: a search (number, table, guest)
 // or today's and yesterday's, newest first.
 async function salesToRefund(token, q) {
-  var session = posSession(token);
+  var session = await access.need(token, 'refund');
   var args = [session.posCompanyId];
   var where = "o.company_id = $1 AND o.status = 'completed'";
   if (q && String(q).trim()) {
@@ -240,37 +239,20 @@ async function saleForRefund(db, companyId, orderId) {
 }
 
 async function saleForRefundSession(token, orderId) {
-  var session = posSession(token);
+  var session = await access.need(token, 'refund');
   return (await saleForRefund(pool, session.posCompanyId, orderId)).out;
 }
 
-// A manager's PIN: someone whose account may manage restaurants
-// (restaurant.manage). Same rate limit as every other PIN.
-async function approver(pin, ip) {
-  pinAuth.checkRateLimit(ip);
-  pinAuth.validatePinFormat(pin);
-  var emp = (await pool.query("SELECT id, first_name, last_name FROM employees WHERE kiosk_pin_hash = $1 AND status = 'active'", [pinAuth.hashPin(pin)])).rows[0];
-  if (!emp) {
-    pinAuth.recordFailure(ip);
-    fail('invalid', 'Incorrect manager PIN.');
-  }
-  pinAuth.recordSuccess(ip);
-  var users = (await pool.query("SELECT id FROM users WHERE employee_id = $1 AND status = 'active'", [emp.id])).rows;
-  for (var i = 0; i < users.length; i++) {
-    var ctx = await buildContext(users[i].id);
-    if (ctx && ctx.can('restaurant.manage')) return emp;
-  }
-  fail('forbidden', emp.first_name + ' ' + emp.last_name + ' cannot approve refunds: a restaurant manager has to.');
-}
-
 async function refundSale(token, orderId, p, ip) {
-  var session = posSession(token);
+  var session = await access.need(token, 'refund');
   p = p || {};
   var reason = String(p.reason || '').trim();
   if (reason.length < 3) fail('invalid', 'Say why the sale is refunded.');
   var wanted = Array.isArray(p.items) ? p.items : [];
   if (!wanted.length) fail('invalid', 'Pick what to refund.');
-  var manager = await approver(String(p.managerPin || ''), ip);
+  // Approved with the PIN of someone whose till role may approve refunds,
+  // or whose OS account may manage restaurants.
+  var manager = await access.refundApprover(session.posCompanyId, p.managerPin, ip);
 
   return withTransaction(async function (client) {
     var o = (await client.query('SELECT * FROM restaurant_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [orderId, session.posCompanyId])).rows[0];

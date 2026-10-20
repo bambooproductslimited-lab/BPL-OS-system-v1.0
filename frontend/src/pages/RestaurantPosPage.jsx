@@ -13,6 +13,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
 import DeviceLanguage from '../components/DeviceLanguage';
 import { IouDialog, PayFor, RefundDialog, VipDialog } from './TillMoney';
+import TillSettings from './TillSettings';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
@@ -94,11 +95,21 @@ function WhoGlyph({ name }) {
   return <svg className="pos-who-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{WHO_GLYPH[name]}</svg>;
 }
 
+const ROLE_NAME = { manager: () => tr('Manager'), cashier: () => tr('Cashier'), waiter: () => tr('Waiter'), kitchen: () => tr('Kitchen'), none: () => tr('No access') };
+
+// What the till lets the person signed in do, until the server says
+// (GET /pos/access); also what it falls back to if that cannot be asked.
+const FALLBACK_ACCESS = {
+  role: 'cashier',
+  can: { till: true, charge: true, keepOpen: true, removeTable: true, refund: true, approveRefunds: false, vipTopUp: true, iou: true, iouPaid: true, favorites: true, kds: true },
+  settings: { paymentMethods: ['cash', 'mobile_money', 'vip', 'iou', 'other'], receipt: { footer: 'Thank you!', extra: '', showLogo: true }, idleMinutes: 0, requireWaiter: false, kitchen: { warnAfter: 10, lateAfter: 20 } }
+};
+
 // One dish on the menu grid. A menu can run past a thousand dishes, so a
 // tile only draws again when its own dish, count or tap changes, not every
 // time anything on the order does; the photo is the server's small square
 // (menu-photos ?size=thumb), decoded off the main thread.
-const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, onTap, onFavorite }) {
+const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, onTap, onFavorite }) {
   return (
     <button
       type="button"
@@ -113,14 +124,16 @@ const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, onTap, onFavori
         <span className="pos-tile-name">{m.name}</span>
         <span className="pos-tile-price">{m.variations && m.variations.length ? tr('{n} prices', { n: m.variations.length }) : money(m.price)}</span>
       </span>
-      <span
-        role="button" tabIndex={0}
-        className={'pos-tile-star' + (m.favorite ? ' is-on' : '')}
-        onClick={(e) => onFavorite(e, m)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFavorite(e, m); } }}
-        aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
-        aria-pressed={m.favorite}
-      >★</span>
+      {canFavorite ? (
+        <span
+          role="button" tabIndex={0}
+          className={'pos-tile-star' + (m.favorite ? ' is-on' : '')}
+          onClick={(e) => onFavorite(e, m)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFavorite(e, m); } }}
+          aria-label={m.favorite ? tr('Remove from favorites') : tr('Add to favorites')}
+          aria-pressed={m.favorite}
+        >★</span>
+      ) : m.favorite && <span className="pos-tile-star is-on is-fixed" aria-label={tr('Favourite')}>★</span>}
       {!!qty && <span key={'q' + qty} className="pos-tile-qty">{qty}</span>}
       {plusN != null && <span key={'p' + plusN} className="pos-tile-plus" aria-hidden="true">+1</span>}
     </button>
@@ -258,6 +271,12 @@ export default function RestaurantPosPage() {
   const [iouOpen, setIouOpen] = useState(false);
   const [vipShort, setVipShort] = useState(false);
   const [vipKey, setVipKey] = useState(0);
+  // The person's role on the till and the till's settings (TillSettings.jsx)
+  const [tillAccess, setTillAccess] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
+  const can = (k) => !!(tillAccess && tillAccess.can[k]);
+  const tillSettings = (tillAccess && tillAccess.settings) || FALLBACK_ACCESS.settings;
   // Steady handlers for the memoized menu tiles (MenuTile), always calling
   // this render's tapItem and toggleFavorite.
   const tileHandlers = useRef({});
@@ -335,7 +354,9 @@ export default function RestaurantPosPage() {
     setPrinting(true);
     setPrinterError(null);
     try {
-      const bytes = buildReceiptBytes(order, session.companyName, order.cashierName || session.employeeName, { kickDrawer: order.paymentMethod === 'cash' });
+      const bytes = buildReceiptBytes(order, session.companyName, order.cashierName || session.employeeName, {
+        kickDrawer: order.paymentMethod === 'cash', footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra
+      });
       await printer.write(bytes);
     } catch (err) {
       setPrinterError(tr('Could not print: {message}', { message: err.message }));
@@ -428,7 +449,21 @@ export default function RestaurantPosPage() {
     try { const d = await posFetch('GET', '/pos/drawer', session.token); if (d) setDrawer(d); } catch { /* keeps the last figures */ }
   }
 
+  async function loadAccess(token) {
+    try {
+      const a = await posFetch('GET', '/pos/access', token || session.token);
+      // Their role was changed to one that does not use the till.
+      if (!a.can.till) { localStorage.removeItem(SESSION_KEY); setSession(null); setTillAccess(null); setLoginError(tr('Your role does not use the till. Ask a manager.')); return; }
+      setTillAccess(a);
+    }
+    catch (err) {
+      if (err.status === 401 || err.status === 403) { localStorage.removeItem(SESSION_KEY); setSession(null); setLoginError(err.status === 403 ? err.message : null); }
+      else setTillAccess((a) => a || FALLBACK_ACCESS);
+    }
+  }
+
   async function loadDrawer(token) {
+    await loadAccess(token);
     loadShift(token);
     loadTabs(token);
     loadKitchen(token);
@@ -441,6 +476,25 @@ export default function RestaurantPosPage() {
       setDrawerChecked(true);
     }
   }
+
+  // A role changed in the settings reaches a till already signed in.
+  useEffect(() => {
+    if (!session) return undefined;
+    const t = setInterval(() => loadAccess(session.token), 60000);
+    return () => clearInterval(t);
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Signing out a till left unused, when the settings ask for it.
+  const idleMinutes = tillSettings.idleMinutes;
+  useEffect(() => {
+    if (!session || !idleMinutes) return undefined;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+    const t = setInterval(() => { if (Date.now() - last > idleMinutes * 60000) { logout(); setIdleNote(idleMinutes); } }, 15000);
+    return () => { events.forEach((e) => window.removeEventListener(e, bump)); clearInterval(t); };
+  }, [session, idleMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const saved = localStorage.getItem(SESSION_KEY);
@@ -478,7 +532,8 @@ export default function RestaurantPosPage() {
     setLoggingIn(true);
     setLoginError(null);
     try {
-      const s = await posFetch('POST', '/pos/login', null, { pin: fullPin });
+      const s = await posFetch('POST', '/pos/login', null, { pin: fullPin, app: 'till' });
+      setIdleNote(null);
       localStorage.setItem(SESSION_KEY, JSON.stringify(s));
       setSession(s);
       setPin('');
@@ -497,6 +552,8 @@ export default function RestaurantPosPage() {
   function logout() {
     localStorage.removeItem(SESSION_KEY);
     setSession(null);
+    setTillAccess(null);
+    setSettingsOpen(false);
     setCart([]);
     setMenu([]);
     setReceipt(null);
@@ -683,9 +740,21 @@ export default function RestaurantPosPage() {
     return map;
   }, [cart]);
 
+  // The settings may ask for the waiter of every table before it is kept open or charged.
+  function needsWaiter() {
+    if (!tillSettings.requireWaiter || !selectedTable || selectedWaiter) return false;
+    setToast(tr('Pick the waiter for this table.'));
+    setWaiterPickerOpen(true);
+    return true;
+  }
+  function firstMethod() {
+    const allowed = tillSettings.paymentMethods.filter((k) => k !== 'iou' || can('iou'));
+    return allowed.includes('cash') ? 'cash' : allowed[0] || 'cash';
+  }
   function openCheckout() {
+    if (needsWaiter()) return;
     setCheckoutError(null);
-    setPaymentMethod('cash');
+    setPaymentMethod(firstMethod());
     setCashGiven('');
     setCartOpen(false);
     setCheckoutOpen(true);
@@ -738,6 +807,7 @@ export default function RestaurantPosPage() {
     setCurrentTab(null);
   }
   function keepOpen() {
+    if (needsWaiter()) return;
     setTabError(null);
     if (selectedTable || selectedGuest || currentTab) { saveTab(currentTab ? currentTab.label : ''); return; }
     setKeepDialog({ label: '' });
@@ -781,7 +851,7 @@ export default function RestaurantPosPage() {
     setSelectedGuest(t.guestId ? { id: t.guestId, name: t.guestName } : null);
     setCurrentTab({ id: t.id, label: t.label, name: tabName(t), createdAt: t.createdAt });
     setTabsOpen(false);
-    if (pay) { setCheckoutError(null); setPaymentMethod('cash'); setCashGiven(''); setCheckoutOpen(true); }
+    if (pay) { setCheckoutError(null); setPaymentMethod(firstMethod()); setCashGiven(''); setCheckoutOpen(true); }
   }
   async function dropTab(t) {
     if (!window.confirm(tr('Remove the open order for {name}? Nothing has been paid for it.', { name: tabName(t) }))) return;
@@ -829,7 +899,7 @@ export default function RestaurantPosPage() {
   ];
 
   function renderTile(m) {
-    return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} onTap={onTileTap} onFavorite={onTileFavorite} />;
+    return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} canFavorite={can('favorites')} onTap={onTileTap} onFavorite={onTileFavorite} />;
   }
   const themeButton = (
     <button type="button" className="pos-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')} title={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
@@ -864,7 +934,9 @@ export default function RestaurantPosPage() {
             <div className={'pos-pin' + (loginError ? ' is-bad' : '')} aria-label={tr('PIN')}>
               {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
             </div>
-            <p className={'pos-pin-note' + (loginError ? ' is-bad' : '')} role="status">{loggingIn ? tr('Checking…') : loginError || tr('Tap your PIN or type it.')}</p>
+            <p className={'pos-pin-note' + (loginError ? ' is-bad' : '')} role="status">
+              {loggingIn ? tr('Checking…') : loginError || (idleNote ? tr('Signed out after {n} minutes without use. Tap your PIN to carry on.', { n: idleNote }) : tr('Tap your PIN or type it.'))}
+            </p>
             <div className="pos-keypad">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
                 <button key={d} type="button" disabled={loggingIn} onClick={() => tapDigit(d)}>{d}</button>
@@ -879,14 +951,15 @@ export default function RestaurantPosPage() {
     );
   }
 
-  if (!drawerChecked) return null;
+  if (!drawerChecked || !tillAccess) return null;
 
   // A cashier can't ring anything up until their own drawer is open — same
   // "count starting cash before you sell" step a real POS shift begins
   // with, and what makes the report at close-out complete (see
   // restaurantPos.service.js's buildReport: Cash Sales is summed from
   // this session's own opened_at onward).
-  if (!drawer && !closedReport) {
+  // Someone who does not take payments (a waiter) has no drawer to open.
+  if (!drawer && !closedReport && can('charge')) {
     const last = shift && shift.lastClosed;
     const quick = [0, 100, 200, 500, 1000];
     return (
@@ -1012,10 +1085,11 @@ export default function RestaurantPosPage() {
       <div className="dk pos-shell pos-done" data-brand={session.companyCode}>
         {!receipt.reprint && <span className="pos-confetti" aria-hidden="true">{Array.from({ length: 44 }, (_, i) => <i key={i} style={{ '--i': i, '--x': (i * 53) % 97, '--r': ((i * 37) % 17) / 17 }} />)}</span>}
         <div className="pos-receipt-print" id="pos-receipt">
-          {restaurantLogoUrl(session.companyCode) && (
+          {tillSettings.receipt.showLogo && restaurantLogoUrl(session.companyCode) && (
             <img className="pos-receipt-logo" src={restaurantLogoUrl(session.companyCode)} alt="" />
           )}
           <div className="pos-receipt-header">{session.companyName}</div>
+          {tillSettings.receipt.extra && <div className="pos-receipt-extra">{tillSettings.receipt.extra}</div>}
           <div className="pos-receipt-meta">
             {tr('Order {orderNo}', { orderNo: receipt.orderNo })}<br />
             {new Date(receipt.createdAt).toLocaleString(activeIntlLocale())}<br />
@@ -1057,6 +1131,7 @@ export default function RestaurantPosPage() {
               : receipt.paymentMethod === 'iou' ? (receipt.iouPaidAt ? tr('IOU, paid {date}', { date: new Date(receipt.iouPaidAt).toLocaleDateString(activeIntlLocale()) }) : tr('IOU: owed by {name}', { name: receipt.guestName || tr('the guest') }))
                 : <>{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</>}
             {receipt.vipBalance != null && <><br />{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</>}
+            {tillSettings.receipt.footer && <><br /><b className="pos-receipt-thanks">{tillSettings.receipt.footer}</b></>}
           </div>
         </div>
         <div className="pos-done-side">
@@ -1083,7 +1158,7 @@ export default function RestaurantPosPage() {
                 {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
               </button>
             )}
-            {receipt.reprint && receipt.status !== 'voided' && receipt.refunded < receipt.total && (
+            {receipt.reprint && can('refund') && receipt.status !== 'voided' && receipt.refunded < receipt.total && (
               <button type="button" className="btn btn-secondary" onClick={() => { const id = receipt.id; setReceipt(null); setRefundFor(id); }}>{tr('Refund…')}</button>
             )}
             <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)} autoFocus>{receipt.reprint ? tr('Back to the till') : tr('New sale')}</button>
@@ -1100,7 +1175,9 @@ export default function RestaurantPosPage() {
   const change = given === null ? null : Math.round((given - cartTotal) * 100) / 100;
   // the notes a guest is likely to hand over: the next round figure up
   const roundUps = Array.from(new Set([10, 20, 50, 100, 200].map((step) => { const v = Math.ceil(cartTotal / step) * step; return v > cartTotal ? v : v + step; }))).sort((x, y) => x - y).slice(0, 3);
-  const METHODS = [['cash', tr('Cash'), 'cash'], ['mobile_money', tr('Mobile Money'), 'phone'], ['vip', tr('VIP'), 'spark'], ['iou', tr('IOU'), 'owed'], ['other', tr('Other'), 'info']];
+  // The ways of paying the till's settings offer (IOU only to roles that may sell on IOU).
+  const METHODS = [['cash', tr('Cash'), 'cash'], ['mobile_money', tr('Mobile Money'), 'phone'], ['vip', tr('VIP'), 'spark'], ['iou', tr('IOU'), 'owed'], ['other', tr('Other'), 'info']]
+    .filter(([k]) => tillSettings.paymentMethods.includes(k) && (k !== 'iou' || can('iou')));
   const needsGuest = (paymentMethod === 'vip' || paymentMethod === 'iou') && !selectedGuest;
   const avgOrder = shift && shift.orders ? shift.sales / shift.orders : 0;
 
@@ -1176,10 +1253,10 @@ export default function RestaurantPosPage() {
           <strong className={cart.length ? 'is-live' : ''}>{money(animatedCartTotal)}</strong>
         </div>
         <div className="pos-order-actions">
-          <button type="button" className="btn btn-secondary" disabled={!cart.length || savingTab} onClick={keepOpen} title={tr('Keep this order open to add to and pay later')}>
+          {can('keepOpen') && <button type="button" className="btn btn-secondary" disabled={!cart.length || savingTab} onClick={keepOpen} title={tr('Keep this order open to add to and pay later')}>
             {savingTab ? tr('Saving…') : currentTab ? tr('Update open table') : tr('Keep open')}
-          </button>
-          <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>
+          </button>}
+          {can('charge') && <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>}
         </div>
       </div>
     </section>
@@ -1196,6 +1273,7 @@ export default function RestaurantPosPage() {
           </div>
         </div>
         <div className="pos-top-stats">
+          {can('charge') && drawer && (<>
           <button type="button" className="pos-stat is-sales" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="up" /></span>
             <span className="pos-stat-text">
@@ -1212,6 +1290,17 @@ export default function RestaurantPosPage() {
               <span>{tr('expected')}</span>
             </span>
           </button>
+          </>)}
+          {!can('charge') && (
+            <span className={'pos-stat is-role is-' + tillAccess.role}>
+              <span className="pos-stat-ico" aria-hidden="true"><Icon name="people" /></span>
+              <span className="pos-stat-text">
+                <small>{tr('Signed in as')}</small>
+                <strong>{ROLE_NAME[tillAccess.role] ? ROLE_NAME[tillAccess.role]() : tillAccess.role}</strong>
+                <span>{tr('keeps tables open')}</span>
+              </span>
+            </span>
+          )}
           {kitchen && kitchen.inUse && (
             <button type="button" className={'pos-stat is-kitchen' + (kitchen.ready.length ? ' is-ready' : '')} onClick={() => { loadKitchen(); setKitchenOpen(true); }}>
               <span className="pos-stat-ico" aria-hidden="true"><Icon name="bag" /></span>
@@ -1230,6 +1319,7 @@ export default function RestaurantPosPage() {
               <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
             </span>
           </button>
+          {can('iouPaid') && (
           <button type="button" className={'pos-stat is-iou' + (shift && shift.iousOpen ? ' is-owed' : '')} onClick={() => setIouOpen(true)}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="owed" /></span>
             <span className="pos-stat-text">
@@ -1238,10 +1328,12 @@ export default function RestaurantPosPage() {
               <span>{shift && shift.iousOpen ? money(shift.iousOwed) : tr('nothing owed')}</span>
             </span>
           </button>
+          )}
         </div>
         <div className="pos-top-tools">
-          <button type="button" className="btn btn-secondary tl-btn pos-tool is-vip" onClick={() => setVipOpen({})} title={tr('VIP guests')} aria-label={tr('VIP guests')}><Icon name="spark" /><span>{tr('VIP')}</span></button>
-          <button type="button" className="btn btn-secondary tl-btn pos-tool is-refund" onClick={() => setRefundFor('find')} title={tr('Refund a sale')} aria-label={tr('Refund a sale')}><Icon name="void" /><span>{tr('Refund')}</span></button>
+          {can('vipTopUp') && <button type="button" className="btn btn-secondary tl-btn pos-tool is-vip" onClick={() => setVipOpen({})} title={tr('VIP guests')} aria-label={tr('VIP guests')}><Icon name="spark" /><span>{tr('VIP')}</span></button>}
+          {can('refund') && <button type="button" className="btn btn-secondary tl-btn pos-tool is-refund" onClick={() => setRefundFor('find')} title={tr('Refund a sale')} aria-label={tr('Refund a sale')}><Icon name="void" /><span>{tr('Refund')}</span></button>}
+          <button type="button" className="btn btn-secondary tl-btn pos-tool is-settings" onClick={() => setSettingsOpen(true)} title={tr('Till settings')} aria-label={tr('Till settings')}><Icon name="key" /><span>{tr('Settings')}</span></button>
           {printer ? (
             <span className="pos-printer" title={printer.name}>🖨 <span>{printer.name}</span></span>
           ) : (
@@ -1318,7 +1410,7 @@ export default function RestaurantPosPage() {
         {orderPanel}
       </div>
 
-      {!cartOpen && !(refundFor || vipOpen || iouOpen || tabsOpen || kitchenOpen || drawerPanelOpen || checkoutOpen) && (
+      {!cartOpen && !(refundFor || vipOpen || iouOpen || tabsOpen || kitchenOpen || drawerPanelOpen || checkoutOpen || settingsOpen) && (
         <button type="button" className="pos-phone-bar" onClick={() => setCartOpen(true)}>
           <span className="pos-phone-bar-n" key={cartCount}>{cartCount}</span>
           <span>{currentTab ? currentTab.name : tr('Order')} · {cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })}</span>
@@ -1415,9 +1507,9 @@ export default function RestaurantPosPage() {
                     <div className="dk-row-side">
                       <div className="dk-row-amount">{money(t.total)}</div>
                       <div className="pos-tab-actions">
-                        <button type="button" className="pos-link is-bad" onClick={() => dropTab(t)}>{tr('Remove')}</button>
+                        {can('removeTable') && <button type="button" className="pos-link is-bad" onClick={() => dropTab(t)}>{tr('Remove')}</button>}
                         <button type="button" className="btn btn-secondary tl-btn" onClick={() => openTab(t, false)}>{tr('Open')}</button>
-                        <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>
+                        {can('charge') && <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>}
                       </div>
                     </div>
                   </li>
@@ -1525,7 +1617,7 @@ export default function RestaurantPosPage() {
                         {o.refunded > 0 && <small className="pos-money-tag is-refund">{tr('{amount} refunded', { amount: money(o.refunded) })}</small>}
                         <span className="pos-row-links">
                           <button type="button" className="pos-link" onClick={() => reprint(o.id)}>{tr('Receipt')}</button>
-                          <button type="button" className="pos-link" onClick={() => { setDrawerPanelOpen(false); setRefundFor(o.id); }}>{tr('Refund')}</button>
+                          {can('refund') && <button type="button" className="pos-link" onClick={() => { setDrawerPanelOpen(false); setRefundFor(o.id); }}>{tr('Refund')}</button>}
                         </span>
                       </div>
                     </li>
@@ -1709,6 +1801,10 @@ export default function RestaurantPosPage() {
         <VipDialog token={session.token} startGuest={vipOpen.startGuest || null} onClose={() => setVipOpen(null)} onChanged={moneyChanged} onAuth={sessionEnded} />
       )}
       {iouOpen && <IouDialog token={session.token} onClose={() => setIouOpen(false)} onChanged={moneyChanged} onAuth={sessionEnded} />}
+      {settingsOpen && (
+        <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)}
+          onClose={() => setSettingsOpen(false)} onSaved={() => loadAccess()} onAuth={sessionEnded} />
+      )}
     </div>
   );
 }

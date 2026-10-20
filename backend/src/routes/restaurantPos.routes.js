@@ -2,6 +2,7 @@ var express = require('express');
 var restaurantPosService = require('../services/restaurantPos.service');
 var kitchen = require('../services/restaurantKitchen.service');
 var money = require('../services/restaurantTillMoney.service');
+var access = require('../services/restaurantTillAccess.service');
 
 // The till's own endpoints — mounted at /api/pos in app.js, deliberately
 // public like /api/kiosk (see kiosk.routes.js's comment): no logged-in
@@ -19,7 +20,19 @@ function posAuth(req, res, next) {
 }
 
 router.post('/login', async function (req, res, next) {
-  try { res.json(await restaurantPosService.login(req.body.pin, req.ip)); } catch (e) { next(e); }
+  try { res.json(await restaurantPosService.login(req.body.pin, req.ip, req.body.app)); } catch (e) { next(e); }
+});
+
+// What the person signed in may do, and the till's settings; the settings
+// themselves, opened and saved by a manager (restaurantTillAccess.service.js).
+router.get('/access', posAuth, async function (req, res, next) {
+  try { res.json(await access.profile(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/settings/open', posAuth, async function (req, res, next) {
+  try { res.json(await access.openSettings(req.posToken, req.body.managerPin, req.ip)); } catch (e) { next(e); }
+});
+router.put('/settings', posAuth, async function (req, res, next) {
+  try { res.json(await access.saveSettings(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
 
 router.get('/menu', posAuth, async function (req, res, next) {

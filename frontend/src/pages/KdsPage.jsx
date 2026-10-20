@@ -128,7 +128,7 @@ export default function KdsPage() {
   async function signIn(full) {
     setLoggingIn(true); setLoginError(null);
     try {
-      const s = await posFetch('POST', '/pos/login', null, { pin: full });
+      const s = await posFetch('POST', '/pos/login', null, { pin: full, app: 'kds' });
       writeKey(SESSION_KEY, JSON.stringify(s));
       seenRef.current = null;
       setSession(s);

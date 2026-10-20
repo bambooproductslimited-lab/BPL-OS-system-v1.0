@@ -372,6 +372,8 @@
 @keyframes pos-print { from { opacity: 0; transform: translateY(-24px) rotate(-2deg); } }
 .pos-receipt-logo { display: block; height: 56px; width: auto; margin: 0 auto 8px; }
 .pos-receipt-header { font-weight: 700; text-align: center; font-size: 15px; margin-bottom: 6px; }
+.pos-receipt-extra { margin: -2px 0 6px; text-align: center; font-size: 12px; }
+.pos-receipt-thanks { display: inline-block; margin-top: 6px; text-transform: none; }
 .pos-receipt-meta { text-align: center; font-size: 12px; margin-bottom: 10px; }
 .pos-receipt-rule { border-top: 1px dashed #999999; margin: 10px 0; }
 .pos-receipt-line { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
@@ -440,6 +442,10 @@
 .pos-tool.is-vip .dk-icon { color: #a855f7; } .pos-tool.is-refund .dk-icon { color: #ef4444; }
 @media (max-width: 1600px) { .pos-tool > span { display: none; } .pos-tool { padding-left: 12px; padding-right: 12px; } }
 .pos-stat.is-iou { --st: #94a3b8; }
+.pos-stat.is-role { --st: #0284c7; cursor: default; }
+.pos-stat.is-role:hover { transform: none; box-shadow: var(--pos-shadow); }
+.pos-tool.is-settings .dk-icon { color: #7c3aed; }
+.pos-tile-star.is-fixed { pointer-events: none; }
 .pos-stat.is-iou.is-owed { --st: #f97316; border-color: rgba(249, 115, 22, .5); }
 
 .pos-money h2 { display: flex; align-items: center; gap: 10px; }

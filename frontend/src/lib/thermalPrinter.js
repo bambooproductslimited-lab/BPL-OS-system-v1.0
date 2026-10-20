@@ -74,6 +74,7 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(ALIGN_CENTER, BOLD_ON, DOUBLE_ON);
   out = out.concat(line(companyName || ''));
   out = out.concat(DOUBLE_OFF, BOLD_OFF);
+  if (opts.extra) out = out.concat(line(opts.extra));
   out = out.concat(line('Order ' + order.orderNo));
   out = out.concat(line(new Date(order.createdAt).toLocaleString()));
   // Served by the waiter who looked after the table; the cashier who took
@@ -105,7 +106,7 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   }
   out = out.concat(ALIGN_CENTER);
   out = out.concat(line(''));
-  out = out.concat(line('Thank you!'));
+  out = out.concat(line(opts.footer === undefined ? 'Thank you!' : opts.footer));
   out = out.concat(FEED(3));
   if (opts.kickDrawer) out = out.concat(CASH_DRAWER_KICK);
   if (opts.cutAfter !== false) out = out.concat(CUT);

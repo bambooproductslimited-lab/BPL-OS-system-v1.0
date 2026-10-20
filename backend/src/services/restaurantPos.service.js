@@ -7,6 +7,7 @@ var pinAuth = require('../lib/pinAuth');
 var kitchen = require('./restaurantKitchen.service');
 var money = require('./restaurantTillMoney.service');
 var restaurantService = require('./restaurant.service');
+var access = require('./restaurantTillAccess.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -25,7 +26,7 @@ var restaurantService = require('./restaurant.service');
 // restaurant staff won't have one).
 var POS_TOKEN_EXPIRES_IN = '12h';
 
-async function login(pin, ip) {
+async function login(pin, ip, app) {
   pinAuth.checkRateLimit(ip);
   pinAuth.validatePinFormat(pin);
   var hash = pinAuth.hashPin(pin);
@@ -41,6 +42,8 @@ async function login(pin, ip) {
     fail('invalid', 'Incorrect PIN.');
   }
   pinAuth.recordSuccess(ip);
+  // Their role decides whether they use the till or the kitchen screen.
+  await access.checkSignIn(emp.company_id, emp.id, app);
   var token = jwt.sign({ posEmployeeId: emp.id, posCompanyId: emp.company_id }, config.jwt.secret, { expiresIn: POS_TOKEN_EXPIRES_IN });
   return {
     token: token,
@@ -83,7 +86,7 @@ function rowToOrder(order, items) {
 // scoped to. Not gated on restaurant.read (the till has no logged-in
 // user), gated on a valid POS session instead.
 async function menuForSession(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var res = await pool.query(
     'SELECT id, name, category, price, photo_object_key, favorite FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
@@ -124,7 +127,7 @@ async function attachVariationsToTiles(tiles) {
 // clause (not just the id), so a Star Bar session can never toggle a
 // Bamboo Garden item even if it somehow guessed its id.
 async function toggleFavorite(token, itemId) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'favorites');
   var res = await pool.query(
     'UPDATE restaurant_menu_items SET favorite = NOT favorite, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id, favorite',
     [itemId, session.posCompanyId]
@@ -144,7 +147,7 @@ async function toggleFavorite(token, itemId) {
 var MOSTLY_BOUGHT_WINDOW_DAYS = 90;
 var MOSTLY_BOUGHT_LIMIT = 24;
 async function mostlyBought(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var res = await pool.query(
     'SELECT mi.id, mi.name, mi.category, mi.price, mi.photo_object_key, mi.favorite, SUM(oi.qty) AS qty_sold ' +
     'FROM restaurant_order_items oi ' +
@@ -168,7 +171,7 @@ async function mostlyBought(token) {
 // Active tables for the till's own company — the fixed, management-set
 // list (restaurant.service.js's createTable), not free text.
 async function tablesForSession(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var res = await pool.query(
     "SELECT id, name FROM restaurant_tables WHERE company_id = $1 AND status = 'active' ORDER BY name",
     [session.posCompanyId]
@@ -182,7 +185,7 @@ async function tablesForSession(token) {
 // department-join pattern login() already uses to resolve a company from
 // an employee.
 async function waitersForSession(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var res = await pool.query(
     "SELECT e.id, e.first_name, e.last_name FROM employees e JOIN departments d ON d.id = e.department_id " +
     "WHERE d.company_id = $1 AND e.status = 'active' ORDER BY e.first_name, e.last_name",
@@ -194,7 +197,7 @@ async function waitersForSession(token) {
 function rowToGuestTile(r) { return { id: r.id, name: r.name, phone: r.phone }; }
 
 async function guestsForSession(token, q) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var args = [session.posCompanyId];
   var where = 'company_id = $1';
   if (q) { args.push('%' + q + '%'); where += ' AND (name ILIKE $2 OR phone ILIKE $2)'; }
@@ -206,7 +209,7 @@ async function guestsForSession(token, q) {
 // before shouldn't require leaving the sale screen to go set them up in
 // the management app first.
 async function createGuestForSession(token, p) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var name = V.text(p.name, 'Name', 100);
   var res = await pool.query(
     'INSERT INTO restaurant_guests (company_id, name, phone) VALUES ($1,$2,$3) RETURNING id, name, phone',
@@ -299,8 +302,14 @@ async function priceLines(client, companyId, items) {
 // Money, VIP (from the guest's balance), IOU (owed by the guest) and
 // Other — restaurantTillMoney.service.js.
 async function createOrder(token, p) {
-  var session = verifyPosToken(token);
-  var paymentMethod = V.oneOf(p.paymentMethod || 'cash', money.TILL_METHODS, 'Payment method');
+  var session = await access.need(token, 'charge');
+  var paymentMethod = V.oneOf(p.paymentMethod || 'cash', access.TILL_METHODS, 'Payment method');
+  // The till's settings: the ways of paying it offers, IOU by role, a
+  // table's waiter when the restaurant asks for one.
+  var tillSettings = session.access.settings;
+  if (tillSettings.paymentMethods.indexOf(paymentMethod) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
+  if (paymentMethod === 'iou' && !session.access.can.iou) fail('forbidden', 'Your role on the till cannot sell on IOU. Ask a manager.');
+  if (tillSettings.requireWaiter && p.tableId && !p.waiterId) fail('invalid', 'Pick the waiter for this table.');
 
   return withTransaction(async function (client) {
     var tab = null;
@@ -389,14 +398,15 @@ async function tabRows(companyId, where, args) {
 }
 
 async function listTabs(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   return tabRows(session.posCompanyId);
 }
 
 // Saves the cart as an open table, or updates one (id). A table can only
 // have one open tab at a time, so a second round is added to the first.
 async function saveTab(token, p) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'keepOpen');
+  if (session.access.settings.requireWaiter && p && p.tableId && !p.waiterId) fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
   var refs = await resolveRefs(pool, company, p);
   var priced = await priceLines(pool, company, p.items);
@@ -432,7 +442,7 @@ async function saveTab(token, p) {
 }
 
 async function removeTab(token, id) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'removeTable');
   return withTransaction(async function (client) {
     var res = await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id', [id, session.posCompanyId]);
     if (!res.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
@@ -448,7 +458,7 @@ async function removeTab(token, id) {
 // receipt); how many tables are open; and, before a drawer is opened, how
 // the last drawer at this restaurant was counted.
 async function shiftSummary(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var open = (await pool.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
   var tabs = (await pool.query('SELECT count(*)::int AS n, min(created_at) AS oldest FROM restaurant_open_tabs WHERE company_id = $1', [session.posCompanyId])).rows[0];
   var ious = (await pool.query(
@@ -483,7 +493,7 @@ async function shiftSummary(token) {
 
 // One of this restaurant's orders again, for reprinting its receipt.
 async function receiptForSession(token, id) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var o = (await pool.query(
     "SELECT o.*, t.name AS table_name, g.name AS guest_name, we.first_name || ' ' || we.last_name AS waiter_name, ce.first_name || ' ' || ce.last_name AS cashier_name " +
     'FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
@@ -658,7 +668,7 @@ async function buildReport(session, client) {
 // so the till knows whether to prompt for a starting-cash count before
 // letting them sell anything.
 async function getOpenDrawerSession(token) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'till');
   var res = await pool.query(
     "SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]
   );
@@ -667,7 +677,7 @@ async function getOpenDrawerSession(token) {
 }
 
 async function openDrawerSession(token, startingCash) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'charge');
   // Idempotent — a reload right after opening (or two tabs on the same
   // PIN) resumes the existing open session instead of erroring, same
   // spirit as the till-session token restore already does.
@@ -683,7 +693,7 @@ async function openDrawerSession(token, startingCash) {
 }
 
 async function addDrawerMovement(token, p) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'charge');
   var direction = V.oneOf(p.direction, ['in', 'out'], 'Direction');
   var amount = Number(p.amount);
   if (!(amount > 0)) fail('invalid', 'Enter an amount greater than zero.');
@@ -700,7 +710,7 @@ async function addDrawerMovement(token, p) {
 }
 
 async function closeDrawerSession(token, p) {
-  var session = verifyPosToken(token);
+  var session = await access.need(token, 'charge');
   return withTransaction(async function (client) {
     var openRes = await client.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open' FOR UPDATE", [session.posEmployeeId]);
     var drawer = openRes.rows[0];

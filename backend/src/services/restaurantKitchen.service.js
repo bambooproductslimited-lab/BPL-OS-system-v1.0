@@ -29,11 +29,11 @@ var { audit } = require('../utils/audit');
 // (restaurantPos.service.js login), so it is scoped to that restaurant.
 
 // The screen colours a ticket by how long it has waited.
-var WARN_AFTER_MIN = 10;
-var LATE_AFTER_MIN = 20;
+// When a ticket turns amber and red comes from the till settings
+// (restaurantTillAccess.service.js: 10 and 20 minutes unless changed).
 var RECALL_MINUTES = 30;
 
-function posSession(token) { return require('./restaurantPos.service').verifyPosToken(token); }
+var access = require('./restaurantTillAccess.service');
 function norm(c) { return String(c == null ? '' : c).trim().toLowerCase(); }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function lineKey(menuItemId, variationId) { return menuItemId + '::' + (variationId || ''); }
@@ -180,7 +180,7 @@ function ticketOut(t, items, stationId, now) {
 // GET /api/pos/kds?station=<id|all> — what is cooking, ready and lately
 // served, for one station or all of them.
 async function board(token, opts) {
-  var session = posSession(token);
+  var session = await access.need(token, 'kds');
   var company = session.posCompanyId;
   var stations = await activeStations(pool, company);
   var stationId = opts && opts.station && opts.station !== 'all' ? String(opts.station) : null;
@@ -210,7 +210,7 @@ async function board(token, opts) {
   return {
     now: new Date(now).toISOString(), station: stationId || 'all',
     stations: stations.map(function (s) { return { id: s.id, name: s.name }; }),
-    timing: { warnAfter: WARN_AFTER_MIN, lateAfter: LATE_AFTER_MIN },
+    timing: session.access.settings.kitchen,
     cooking: cooking, ready: ready, recent: recent.slice(0, 12),
     counts: { cooking: cooking.filter(function (t) { return t.status !== 'cancelled'; }).length, ready: ready.length }
   };
@@ -224,7 +224,7 @@ async function ticketOfCompany(client, company, id) {
 
 // POST /api/pos/kds/items/:id { done } — a dish done, or back to cooking.
 async function setItemDone(token, itemId, done) {
-  var session = posSession(token);
+  var session = await access.need(token, 'kds');
   return withTransaction(async function (client) {
     var it = (await client.query(
       'SELECT i.*, t.company_id, t.served_at FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id WHERE i.id = $1 FOR UPDATE OF i', [itemId])).rows[0];
@@ -241,7 +241,7 @@ async function setItemDone(token, itemId, done) {
 // POST /api/pos/kds/tickets/:id/done { station } — every dish of a ticket
 // done, for one station or all.
 async function finishTicket(token, ticketId, stationId) {
-  var session = posSession(token);
+  var session = await access.need(token, 'kds');
   return withTransaction(async function (client) {
     var t = await ticketOfCompany(client, session.posCompanyId, ticketId);
     if (t.served_at) fail('invalid', 'That ticket has been served already.');
@@ -258,7 +258,7 @@ async function finishTicket(token, ticketId, stationId) {
 // POST /api/pos/kds/tickets/:id/served — taken out to the table (a ready
 // ticket), or a cancelled one cleared off the screen.
 async function serveTicket(token, ticketId) {
-  var session = posSession(token);
+  var session = await access.need(token, ['kds', 'till']);
   return withTransaction(async function (client) {
     var t = await ticketOfCompany(client, session.posCompanyId, ticketId);
     if (t.served_at) return { ticketId: ticketId, status: t.status };
@@ -272,7 +272,7 @@ async function serveTicket(token, ticketId) {
 // POST /api/pos/kds/tickets/:id/recall — a served ticket back on the
 // screen (served by mistake), as it was before.
 async function recallTicket(token, ticketId) {
-  var session = posSession(token);
+  var session = await access.need(token, 'kds');
   return withTransaction(async function (client) {
     var t = await ticketOfCompany(client, session.posCompanyId, ticketId);
     if (!t.served_at) return { ticketId: ticketId, status: t.status };
@@ -286,7 +286,7 @@ async function recallTicket(token, ticketId) {
 // GET /api/pos/kitchen — for the till: whether the kitchen display is in
 // use here, and what is ready to take out.
 async function tillSummary(token) {
-  var session = posSession(token);
+  var session = await access.need(token, 'till');
   var company = session.posCompanyId;
   var inUse = (await pool.query('SELECT 1 FROM restaurant_kds_stations WHERE company_id = $1 AND active LIMIT 1', [company])).rows.length > 0;
   if (!inUse) return { inUse: false, cooking: 0, ready: [] };
@@ -322,6 +322,7 @@ async function requireCompany(companyId) {
 async function kitchenOverview(ctx, companyId) {
   if (!ctx.can('restaurant.read')) fail('forbidden', 'Your role does not allow this action (restaurant.read).');
   var company = await requireCompany(companyId);
+  var timing = (await access.settingsOf(company.id)).kitchen;
   var stations = (await pool.query('SELECT * FROM restaurant_kds_stations WHERE company_id = $1 ORDER BY sort_order, name', [company.id])).rows;
   var active = stations.filter(function (s) { return s.active; });
   var cats = (await pool.query(
@@ -337,7 +338,7 @@ async function kitchenOverview(ctx, companyId) {
     "avg(extract(epoch FROM ready_at - created_at) / 60) FILTER (WHERE ready_at IS NOT NULL) AS avg_ready, " +
     "max(extract(epoch FROM ready_at - created_at) / 60) FILTER (WHERE ready_at IS NOT NULL) AS max_ready, " +
     "count(*) FILTER (WHERE ready_at IS NOT NULL AND ready_at - created_at > ($2 || ' minutes')::interval)::int AS late " +
-    "FROM restaurant_kitchen_tickets WHERE company_id = $1 AND created_at >= date_trunc('day', now())", [company.id, String(LATE_AFTER_MIN)])).rows[0];
+    "FROM restaurant_kitchen_tickets WHERE company_id = $1 AND created_at >= date_trunc('day', now())", [company.id, String(timing.lateAfter)])).rows[0];
   var byStation = (await pool.query(
     "SELECT s.id, s.name, count(i.id)::int AS dishes, count(i.id) FILTER (WHERE i.status = 'cooking')::int AS cooking, " +
     "avg(extract(epoch FROM i.done_at - t.created_at) / 60) FILTER (WHERE i.status = 'done') AS avg_done " +
@@ -353,7 +354,7 @@ async function kitchenOverview(ctx, companyId) {
   return {
     company: { id: company.id, name: company.name, code: company.code },
     inUse: active.length > 0,
-    timing: { warnAfter: WARN_AFTER_MIN, lateAfter: LATE_AFTER_MIN },
+    timing: timing,
     stations: stations.map(stationOut),
     categories: categories,
     today: {
@@ -451,5 +452,5 @@ module.exports = {
   fire: fire, cancelForTab: cancelForTab, cancelForOrder: cancelForOrder,
   board: board, setItemDone: setItemDone, finishTicket: finishTicket, serveTicket: serveTicket, recallTicket: recallTicket, tillSummary: tillSummary,
   kitchenOverview: kitchenOverview, createStation: createStation, updateStation: updateStation, removeStation: removeStation,
-  _stationFor: stationFor, WARN_AFTER_MIN: WARN_AFTER_MIN, LATE_AFTER_MIN: LATE_AFTER_MIN
+  _stationFor: stationFor
 };
