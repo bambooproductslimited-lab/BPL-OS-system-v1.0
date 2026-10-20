@@ -1668,8 +1668,8 @@ export default function RestaurantPosPage() {
             {shift && ((shift.refunds && shift.refunds.count) || (shift.iouPaid && shift.iouPaid.count) || (shift.vipTopUps && shift.vipTopUps.count)) ? (
               <div className="pos-methods-sum pos-money-sum">
                 {shift.refunds.count > 0 && <div><span>{tr('Refunds')}</span><span className="dk-muted">{shift.refunds.count === 1 ? tr('1 refund') : tr('{n} refunds', { n: shift.refunds.count })}</span><strong>−{money(shift.refunds.total)}</strong></div>}
-                {shift.iouPaid.count > 0 && <div><span>{tr('IOUs paid')}</span><span className="dk-muted">{shift.iouPaid.byMethod.map((m) => codeLabel(m.method) + ' ' + money(m.total)).join(' · ')}</span><strong>{money(shift.iouPaid.total)}</strong></div>}
-                {shift.vipTopUps.count > 0 && <div><span>{tr('VIP money put down')}</span><span className="dk-muted">{shift.vipTopUps.byMethod.map((m) => codeLabel(m.method) + ' ' + money(m.total)).join(' · ')}</span><strong>{money(shift.vipTopUps.total)}</strong></div>}
+                {shift.iouPaid.count > 0 && <div><span>{tr('IOUs paid')}</span><span className="dk-muted">{shift.iouPaid.byMethod.map((m) => methodName(m.method) + ' ' + money(m.total)).join(' · ')}</span><strong>{money(shift.iouPaid.total)}</strong></div>}
+                {shift.vipTopUps.count > 0 && <div><span>{tr('VIP money put down')}</span><span className="dk-muted">{shift.vipTopUps.byMethod.map((m) => methodName(m.method) + ' ' + money(m.total)).join(' · ')}</span><strong>{money(shift.vipTopUps.total)}</strong></div>}
               </div>
             ) : null}
             <h3 className="pos-panel-h">{tr('Cash drawer')}</h3>
