@@ -104,7 +104,7 @@ test('an open table: each round goes as a ticket, dishes to their stations; take
   assert.deepEqual(names(t1), [['Zqk grilled fish', 2, 'cooking'], ['Zqk lager', 3, 'cooking']], 'the water goes nowhere');
   var atGrill = await kitchen.board(token, { station: grill.id });
   assert.deepEqual(names(atGrill.cooking[0]), [['Zqk grilled fish', 2, 'cooking']]);
-  assert.deepEqual(atGrill.cooking[0].elsewhere, [{ name: 'Zqk lager', qty: 3, stationName: 'Zqk Bar' }], 'what the other stations are making for it');
+  assert.deepEqual(atGrill.cooking[0].elsewhere, [{ name: 'Zqk lager', qty: 3, note: '', stationName: 'Zqk Bar' }], 'what the other stations are making for it');
 
   // Saved again unchanged: nothing new to send.
   var again = await pos.saveTab(token, { id: tab.id, tableId: table, waiterId: waiter, items: [{ menuItemId: fish, qty: 2 }, { menuItemId: beer, qty: 3 }, { menuItemId: water, qty: 1 }] });

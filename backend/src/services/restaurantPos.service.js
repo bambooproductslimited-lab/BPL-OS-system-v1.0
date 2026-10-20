@@ -8,6 +8,7 @@ var kitchen = require('./restaurantKitchen.service');
 var money = require('./restaurantTillMoney.service');
 var restaurantService = require('./restaurant.service');
 var access = require('./restaurantTillAccess.service');
+var activity = require('./restaurantActivity.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -44,6 +45,8 @@ async function login(pin, ip, app) {
   pinAuth.recordSuccess(ip);
   // Their role decides whether they use the till or the kitchen screen.
   await access.checkSignIn(emp.company_id, emp.id, app);
+  await activity.log(pool, { companyId: emp.company_id, employeeId: emp.id, app: app === 'kds' ? 'kds' : 'till', action: app === 'kds' ? 'kds.signin' : 'till.signin',
+    summary: emp.first_name + ' ' + emp.last_name + ' signed in to the ' + (app === 'kds' ? 'kitchen screen.' : 'till.') });
   var token = jwt.sign({ posEmployeeId: emp.id, posCompanyId: emp.company_id }, config.jwt.secret, { expiresIn: POS_TOKEN_EXPIRES_IN });
   return {
     token: token,
@@ -70,15 +73,22 @@ function verifyPosToken(token) {
   return payload;
 }
 
-function rowToOrder(order, items) {
+// payments: the parts it was paid in (restaurantTillMoney.paymentsOf), or
+// none for a sale from before they were kept.
+function rowToOrder(order, items, payments) {
+  payments = payments || [];
+  var change = payments.length ? Math.round(payments.reduce(function (a, p) { return a + (p.changeGiven || 0); }, 0) * 100) / 100 : null;
+  var cashGiven = order.cash_tendered == null ? null : Number(order.cash_tendered);
   return {
     id: order.id, companyId: order.company_id, orderNo: order.order_no, cashierId: order.cashier_id,
     subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method,
     status: order.status, createdAt: order.created_at,
     tableId: order.table_id, waiterId: order.waiter_id, guestId: order.guest_id,
-    cashTendered: order.cash_tendered == null ? null : Number(order.cash_tendered),
-    change: order.cash_tendered == null ? null : Math.round((Number(order.cash_tendered) - Number(order.total)) * 100) / 100,
-    items: items.map(function (it) { return { menuItemId: it.menuItemId, name: it.name, qty: it.qty, unitPrice: it.unitPrice, lineTotal: it.lineTotal }; })
+    fulfillment: order.fulfillment || '', customerName: order.customer_name || '', customerPhone: order.customer_phone || '', deliveryAddress: order.delivery_address || '',
+    cashTendered: cashGiven,
+    change: payments.length ? (change > 0 || cashGiven != null ? change : null) : (cashGiven == null ? null : Math.round((cashGiven - Number(order.total)) * 100) / 100),
+    payments: payments,
+    items: items.map(function (it) { return { menuItemId: it.menuItemId, name: it.name, qty: it.qty, unitPrice: it.unitPrice, lineTotal: it.lineTotal, note: it.note || '', custom: !!it.custom }; })
   };
 }
 
@@ -133,6 +143,8 @@ async function toggleFavorite(token, itemId) {
     [itemId, session.posCompanyId]
   );
   if (!res.rows[0]) fail('notfound', 'Menu item not found.');
+  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.favorite',
+    summary: (res.rows[0].favorite ? 'Starred a dish as a favourite.' : 'Took a dish off the favourites.'), refType: 'menu_item', refId: itemId });
   return res.rows[0];
 }
 
@@ -170,13 +182,14 @@ async function mostlyBought(token) {
 
 // Active tables for the till's own company — the fixed, management-set
 // list (restaurant.service.js's createTable), not free text.
+// With where each stands on the floor map (set in the till settings).
 async function tablesForSession(token) {
   var session = await access.need(token, 'till');
   var res = await pool.query(
-    "SELECT id, name FROM restaurant_tables WHERE company_id = $1 AND status = 'active' ORDER BY name",
+    "SELECT id, name, map_x, map_y, shape, seats, area FROM restaurant_tables WHERE company_id = $1 AND status = 'active' ORDER BY name",
     [session.posCompanyId]
   );
-  return res.rows;
+  return res.rows.map(access.tableOut);
 }
 
 // Waiters — any active employee at the till's company, not just whoever
@@ -194,15 +207,30 @@ async function waitersForSession(token) {
   return res.rows.map(function (r) { return { id: r.id, name: r.first_name + ' ' + r.last_name }; });
 }
 
-function rowToGuestTile(r) { return { id: r.id, name: r.name, phone: r.phone }; }
+// A customer, with their accounts: VIP (money put down — they have one
+// once anything was put down) and IOU (allowed to owe, by a manager).
+function rowToGuestTile(r) {
+  return {
+    id: r.id, name: r.name, phone: r.phone,
+    vip: !!r.vip, vipBalance: r.vip_balance == null ? 0 : Math.round(Number(r.vip_balance) * 100) / 100,
+    iouAllowed: !!r.iou_allowed, iouLimit: r.iou_limit == null ? null : Number(r.iou_limit), iouOwed: r.owed == null ? 0 : Math.round(Number(r.owed) * 100) / 100
+  };
+}
+var GUEST_SELECT =
+  'SELECT g.id, g.name, g.phone, g.iou_allowed, g.iou_limit, v.balance AS vip_balance, (v.guest_id IS NOT NULL) AS vip, i.owed ' +
+  'FROM restaurant_guests g LEFT JOIN (SELECT guest_id, sum(amount) AS balance FROM restaurant_vip_entries GROUP BY guest_id) v ON v.guest_id = g.id ' +
+  "LEFT JOIN (SELECT guest_id, sum(total - refunded_total) AS owed FROM restaurant_orders WHERE payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL GROUP BY guest_id) i ON i.guest_id = g.id ";
 
 async function guestsForSession(token, q) {
   var session = await access.need(token, 'till');
   var args = [session.posCompanyId];
-  var where = 'company_id = $1';
-  if (q) { args.push('%' + q + '%'); where += ' AND (name ILIKE $2 OR phone ILIKE $2)'; }
-  var res = await pool.query('SELECT id, name, phone FROM restaurant_guests WHERE ' + where + ' ORDER BY name LIMIT 50', args);
+  var where = 'g.company_id = $1';
+  if (q) { args.push('%' + q + '%'); where += ' AND (g.name ILIKE $2 OR g.phone ILIKE $2)'; }
+  var res = await pool.query(GUEST_SELECT + 'WHERE ' + where + ' ORDER BY (v.guest_id IS NOT NULL OR g.iou_allowed) DESC, g.name LIMIT 50', args);
   return res.rows.map(rowToGuestTile);
+}
+async function guestById(db, companyId, id) {
+  return (await db.query(GUEST_SELECT + 'WHERE g.id = $1 AND g.company_id = $2', [id, companyId])).rows[0] || null;
 }
 
 // Quick-add from the till itself — a walk-in the cashier hasn't seen
@@ -212,10 +240,34 @@ async function createGuestForSession(token, p) {
   var session = await access.need(token, 'till');
   var name = V.text(p.name, 'Name', 100);
   var res = await pool.query(
-    'INSERT INTO restaurant_guests (company_id, name, phone) VALUES ($1,$2,$3) RETURNING id, name, phone',
-    [session.posCompanyId, name, (p.phone || '').trim()]
+    "INSERT INTO restaurant_guests (company_id, name, phone, source) VALUES ($1,$2,$3,'till') RETURNING id, name, phone, iou_allowed, iou_limit",
+    [session.posCompanyId, name, (p.phone || '').trim().slice(0, 40)]
   );
+  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.customer',
+    summary: 'Added the customer ' + name + '.', refType: 'guest', refId: res.rows[0].id });
   return rowToGuestTile(res.rows[0]);
+}
+
+// Dine in (at a table), pickup (at the counter) or delivery (needs who, a
+// phone and where). An order from before these says nothing ('').
+var FULFILLMENT_NAME = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
+function cleanText(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
+async function orderType(client, companyId, p, refs) {
+  var f = p.fulfillment === undefined || p.fulfillment === null || p.fulfillment === '' ? '' : V.oneOf(p.fulfillment, access.FULFILLMENTS, 'Dine in, pickup or delivery');
+  var guest = refs.guestId ? (await client.query('SELECT name, phone FROM restaurant_guests WHERE id = $1', [refs.guestId])).rows[0] : null;
+  var out = { fulfillment: f, customerName: cleanText(p.customerName, 120) || (guest ? guest.name : ''), customerPhone: cleanText(p.customerPhone, 40) || (guest ? guest.phone || '' : ''), deliveryAddress: '' };
+  if (f === 'dine_in' && !refs.tableId) {
+    var hasTables = (await client.query("SELECT 1 FROM restaurant_tables WHERE company_id = $1 AND status = 'active' LIMIT 1", [companyId])).rows.length > 0;
+    if (hasTables) fail('invalid', 'Pick the table for this dine-in order.');
+  }
+  if (f === 'pickup' || f === 'delivery') refs.tableId = null;
+  if (f === 'delivery') {
+    out.deliveryAddress = cleanText(p.deliveryAddress, 300);
+    if (!out.customerName) fail('invalid', 'A delivery needs the customer\'s name.');
+    if (!out.customerPhone) fail('invalid', 'A delivery needs a phone number to reach the customer.');
+    if (!out.deliveryAddress) fail('invalid', 'A delivery needs the location to take it to.');
+  }
+  return out;
 }
 
 // kernel-of-a-sale — rings up a completed order in one transaction: every
@@ -252,12 +304,18 @@ async function resolveRefs(client, companyId, p) {
   }
   return { tableId: tableId, waiterId: waiterId, guestId: guestId };
 }
-// The table's, waiter's and guest's names, for a kitchen ticket.
-async function refNames(client, refs) {
+// The table's, waiter's and customer's names, for a kitchen ticket; a
+// pickup is at the counter, and a delivery goes to its customer.
+async function refNames(client, refs, type) {
   var r = (await client.query(
     "SELECT (SELECT name FROM restaurant_tables WHERE id = $1) AS table_name, (SELECT first_name || ' ' || last_name FROM employees WHERE id = $2) AS waiter_name, " +
     '(SELECT name FROM restaurant_guests WHERE id = $3) AS guest_name', [refs.tableId, refs.waiterId, refs.guestId])).rows[0];
-  return { tableName: r.table_name || null, waiterName: r.waiter_name || null, guestName: r.guest_name || null };
+  type = type || {};
+  return {
+    tableName: r.table_name || (type.fulfillment === 'pickup' ? 'Counter' : type.fulfillment === 'delivery' ? 'Delivery' : null),
+    waiterName: r.waiter_name || null, guestName: r.guest_name || type.customerName || null,
+    fulfillment: type.fulfillment || '', customerPhone: type.customerPhone || '', deliveryAddress: type.deliveryAddress || ''
+  };
 }
 
 // Prices each line against the LIVE menu (never a client-supplied price).
@@ -265,12 +323,27 @@ async function refNames(client, refs) {
 // till must say which one was picked — never fall back to the item's own
 // flat price, which isn't meaningful once variations exist. An item with
 // none ignores whatever variationId the client sends.
-async function priceLines(client, companyId, items) {
+// A dish not on the menu (custom: { name, price, category }) is priced as
+// the till says — only for roles that may add one (allowCustom). Each line
+// may carry a note for the kitchen ("no onions").
+async function priceLines(client, companyId, items, allowCustom) {
   if (!Array.isArray(items) || !items.length) fail('invalid', 'Add at least one item.');
   var lines = [];
   var subtotal = 0;
   for (var i = 0; i < items.length; i++) {
     var qty = Math.max(0.01, Number(items[i].qty) || 0);
+    var note = cleanText(items[i].note, 140);
+    if (items[i].custom) {
+      if (!allowCustom) fail('forbidden', 'Your role on the till cannot add a dish that is not on the menu. Ask a manager.');
+      var cname = cleanText(items[i].custom.name, 80);
+      var cprice = Math.round(Number(items[i].custom.price) * 100) / 100;
+      if (!cname) fail('invalid', 'Give the dish that is not on the menu a name.');
+      if (!(cprice >= 0 && cprice < 1000000)) fail('invalid', 'Give ' + cname + ' a price.');
+      var cTotal = Math.round(qty * cprice * 100) / 100;
+      subtotal += cTotal;
+      lines.push({ menuItemId: null, variationId: null, name: cname, qty: qty, unitPrice: cprice, lineTotal: cTotal, note: note, custom: true, category: cleanText(items[i].custom.category, 120) });
+      continue;
+    }
     var menuRes = await client.query(
       'SELECT * FROM restaurant_menu_items WHERE id = $1 AND company_id = $2 AND active = true',
       [items[i].menuItemId, companyId]
@@ -290,74 +363,79 @@ async function priceLines(client, companyId, items) {
     }
     var lineTotal = Math.round(qty * unitPrice * 100) / 100;
     subtotal += lineTotal;
-    lines.push({ menuItemId: m.id, variationId: variationId, name: name, qty: qty, unitPrice: unitPrice, lineTotal: lineTotal });
+    lines.push({ menuItemId: m.id, variationId: variationId, name: name, qty: qty, unitPrice: unitPrice, lineTotal: lineTotal, note: note, custom: false });
   }
   return { lines: lines, subtotal: Math.round(subtotal * 100) / 100 };
 }
 
-// A cash sale can say what the customer handed over (cashTendered), so the
-// receipt shows the change; it can't be less than the total. Paying an
-// open table (tabId) rings up the order and removes the tab in the same
-// transaction, so a tab is never paid twice. The till takes cash, Mobile
-// Money, VIP (from the guest's balance), IOU (owed by the guest) and
-// Other — restaurantTillMoney.service.js.
+// Rings up a sale, paid one way or several (p.payments: [{ method,
+// amount, currency, tendered }] — restaurantTillMoney.planPayments; an
+// older till sends paymentMethod and cashTendered). Paying an order kept
+// open (tabId) rings it up and removes it in the same transaction, so it
+// is never paid twice. Dine in needs its table, pickup is at the counter,
+// a delivery needs who, a phone and where (orderType).
 async function createOrder(token, p) {
   var session = await access.need(token, 'charge');
-  var paymentMethod = V.oneOf(p.paymentMethod || 'cash', access.TILL_METHODS, 'Payment method');
-  // The till's settings: the ways of paying it offers, IOU by role, a
-  // table's waiter when the restaurant asks for one.
+  p = p || {};
   var tillSettings = session.access.settings;
-  if (tillSettings.paymentMethods.indexOf(paymentMethod) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
-  if (paymentMethod === 'iou' && !session.access.can.iou) fail('forbidden', 'Your role on the till cannot sell on IOU. Ask a manager.');
-  if (tillSettings.requireWaiter && p.tableId && !p.waiterId) fail('invalid', 'Pick the waiter for this table.');
+  if (tillSettings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
+  var asked = Array.isArray(p.payments) && p.payments.length ? p.payments
+    : [{ method: p.paymentMethod || 'cash', tendered: p.cashTendered }];
 
   return withTransaction(async function (client) {
     var tab = null;
     if (p.tabId) {
       var tabRes = await client.query('SELECT id, label FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
-      if (!tabRes.rows[0]) fail('conflict', 'That open table has already been paid or removed.');
+      if (!tabRes.rows[0]) fail('conflict', 'That open order has already been paid or removed.');
       tab = tabRes.rows[0];
     }
     var refs = await resolveRefs(client, session.posCompanyId, p);
-    var priced = await priceLines(client, session.posCompanyId, p.items);
+    var type = await orderType(client, session.posCompanyId, p, refs);
+    var priced = await priceLines(client, session.posCompanyId, p.items, session.access.can.customItem);
     var lines = priced.lines;
     var subtotal = priced.subtotal;
-
-    var cashTendered = null;
-    if (paymentMethod === 'cash' && p.cashTendered !== undefined && p.cashTendered !== null && p.cashTendered !== '') {
-      cashTendered = Math.round(Number(p.cashTendered) * 100) / 100;
-      if (!(cashTendered >= subtotal)) fail('invalid', 'The cash received is less than the total.');
-    }
+    var plan = money.planPayments(session, subtotal, asked);
 
     var companyRes = await client.query('SELECT code FROM companies WHERE id = $1', [session.posCompanyId]);
     var seqRes = await client.query("SELECT nextval('restaurant_order_seq') AS n");
     var orderNo = companyRes.rows[0].code + '-' + String(seqRes.rows[0].n).padStart(6, '0');
 
     var orderRes = await client.query(
-      'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id, cash_tendered) ' +
-      'VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9) RETURNING *',
-      [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, paymentMethod, refs.tableId, refs.waiterId, refs.guestId, cashTendered]
+      'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id, cash_tendered, ' +
+      '  fulfillment, customer_name, customer_phone, delivery_address) ' +
+      'VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',
+      [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, plan.method, refs.tableId, refs.waiterId, refs.guestId, plan.cashTendered,
+        type.fulfillment, type.customerName, type.customerPhone, type.deliveryAddress]
     );
     var order = orderRes.rows[0];
     for (var j = 0; j < lines.length; j++) {
       await client.query(
-        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)',
-        [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal]
+        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross, note, custom, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10)',
+        [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal, lines[j].note || '', !!lines[j].custom, j]
       );
     }
-    var vip = await money.chargeSale(client, session.posCompanyId, order, session.posEmployeeId);
-    // To the kitchen: what was not sent with the open table yet, or the
-    // whole sale; the open table's tickets now belong to the sale.
-    var names = await refNames(client, refs);
+    await money.savePayments(client, order.id, plan.rows);
+    var vip = await money.chargeSale(client, session.posCompanyId, order, session.posEmployeeId, plan.rows);
+    // To the kitchen: what was not sent with the open order yet, or the
+    // whole sale; the open order's tickets now belong to the sale.
+    var names = await refNames(client, refs, type);
     var ticket = await kitchen.fire(client, session.posCompanyId, Object.assign({
-      lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : orderNo,
+      lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : (type.customerName || orderNo),
       note: p.kitchenNote, sentBy: session.posEmployeeId
     }, names));
     if (tab) {
       await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
       await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
     }
-    return Object.assign(rowToOrder(order, lines), { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null });
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.sale',
+      summary: 'Sale ' + orderNo + ': ' + subtotal.toFixed(2) + ' by ' + money.paymentText(plan.rows) +
+        (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + (names.tableName && type.fulfillment !== 'pickup' && type.fulfillment !== 'delivery' ? ' · ' + names.tableName : '') +
+        (names.guestName ? ' · ' + names.guestName : '') + '.',
+      amount: subtotal, refType: 'order', refId: order.id,
+      details: { method: plan.method, payments: plan.rows.map(function (r) { return { method: r.method, amount: r.amount, currency: r.currency }; }),
+        dishes: lines.map(function (l) { return l.qty + '× ' + l.name + (l.note ? ' (' + l.note + ')' : ''); }), fulfillment: type.fulfillment, kitchenTicket: ticket ? ticket.number : null } });
+    var paid = (await money.paymentsOf(client, [order.id])).get(order.id) || [];
+    return Object.assign(rowToOrder(order, lines, paid), { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null });
   });
 }
 
@@ -368,7 +446,7 @@ async function createOrder(token, p) {
 
 async function tabRows(companyId, where, args) {
   var res = await pool.query(
-    'SELECT t.*, rt.name AS table_name, g.name AS guest_name, ' +
+    'SELECT t.*, rt.name AS table_name, g.name AS guest_name, g.phone AS guest_phone, ' +
     "  we.first_name || ' ' || we.last_name AS waiter_name, oe.first_name || ' ' || oe.last_name AS opened_by_name " +
     'FROM restaurant_open_tabs t LEFT JOIN restaurant_tables rt ON rt.id = t.table_id LEFT JOIN restaurant_guests g ON g.id = t.guest_id ' +
     'LEFT JOIN employees we ON we.id = t.waiter_id LEFT JOIN employees oe ON oe.id = t.opened_by ' +
@@ -382,18 +460,22 @@ async function tabRows(companyId, where, args) {
     for (var j = 0; j < r.items.length; j++) {
       var it = r.items[j];
       try {
-        var priced = await priceLines(pool, companyId, [it]);
+        var priced = await priceLines(pool, companyId, [it], true);
         lines.push(Object.assign({ variationId: it.variationId || null }, priced.lines[0]));
         total += priced.lines[0].lineTotal;
       } catch (e) { gone += 1; }
     }
     out.push({
       id: r.id, label: r.label || '', tableId: r.table_id, tableName: r.table_name || null,
-      waiterId: r.waiter_id, waiterName: r.waiter_name || null, guestId: r.guest_id, guestName: r.guest_name || null,
+      waiterId: r.waiter_id, waiterName: r.waiter_name || null, guestId: r.guest_id, guestName: r.guest_name || null, guestPhone: r.guest_phone || null,
+      fulfillment: r.fulfillment || 'dine_in', customerName: r.customer_name || '', customerPhone: r.customer_phone || '', deliveryAddress: r.delivery_address || '',
       openedBy: r.opened_by_name || null, createdAt: r.created_at, updatedAt: r.updated_at,
-      lines: lines, total: Math.round(total * 100) / 100, unavailable: gone
+      lines: lines, total: Math.round(total * 100) / 100, unavailable: gone, kitchen: null
     });
   }
+  // Where each one's food stands: cooking, ready, served (a tag on the till).
+  var st = await kitchen.statusOf(pool, companyId, 'tab_id', out.map(function (t) { return t.id; }));
+  out.forEach(function (t) { t.kitchen = st[t.id] || null; });
   return out;
 }
 
@@ -402,17 +484,26 @@ async function listTabs(token) {
   return tabRows(session.posCompanyId);
 }
 
-// Saves the cart as an open table, or updates one (id). A table can only
-// have one open tab at a time, so a second round is added to the first.
+// Sends the order to the kitchen and keeps it open to pay later, or
+// updates one (id) with a new round. A table can only have one open order
+// at a time, so a second round is added to the first. Pickup orders wait
+// at the counter under the customer's name; a delivery keeps who, the
+// phone and where.
 async function saveTab(token, p) {
   var session = await access.need(token, 'keepOpen');
-  if (session.access.settings.requireWaiter && p && p.tableId && !p.waiterId) fail('invalid', 'Pick the waiter for this table.');
+  p = p || {};
+  if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
   var refs = await resolveRefs(pool, company, p);
-  var priced = await priceLines(pool, company, p.items);
-  var items = priced.lines.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty }; });
+  var type = await orderType(pool, company, p, refs);
+  var priced = await priceLines(pool, company, p.items, session.access.can.customItem);
+  var items = priced.lines.map(function (l) {
+    return l.custom ? { custom: { name: l.name, price: l.unitPrice, category: l.category || '' }, qty: l.qty, note: l.note || '' }
+      : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note || '' };
+  });
   var label = (typeof p.label === 'string' ? p.label.trim() : '').slice(0, 60);
-  if (!refs.tableId && !label && !refs.guestId) fail('invalid', 'Pick a table or a guest, or give the order a name, so it can be found again.');
+  if (!label && type.fulfillment !== 'dine_in' && type.customerName) label = type.customerName.slice(0, 60);
+  if (!refs.tableId && !label && !refs.guestId) fail('invalid', 'Pick a table or a customer, or give the order a name, so it can be found again.');
   if (refs.tableId) {
     var clash = await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND table_id = $2 AND id <> $3', [company, refs.tableId, p.id || '00000000-0000-0000-0000-000000000000']);
     if (clash.rows[0]) fail('conflict', 'That table already has an open order. Open it and add to it instead.');
@@ -423,19 +514,25 @@ async function saveTab(token, p) {
     var id;
     if (p.id) {
       var up = await client.query(
-        'UPDATE restaurant_open_tabs SET label = $3, table_id = $4, waiter_id = $5, guest_id = $6, items = $7, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id',
-        [p.id, company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items)]);
-      if (!up.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
+        'UPDATE restaurant_open_tabs SET label = $3, table_id = $4, waiter_id = $5, guest_id = $6, items = $7, fulfillment = $8, customer_name = $9, customer_phone = $10, delivery_address = $11, updated_at = now() ' +
+        'WHERE id = $1 AND company_id = $2 RETURNING id',
+        [p.id, company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress]);
+      if (!up.rows[0]) fail('notfound', 'That open order has already been paid or removed.');
       id = up.rows[0].id;
     } else {
       id = (await client.query(
-        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId])).rows[0].id;
+        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by, fulfillment, customer_name, customer_phone, delivery_address) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id',
+        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId, type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress])).rows[0].id;
     }
-    var names = await refNames(client, refs);
+    var names = await refNames(client, refs, type);
     var ticket = await kitchen.fire(client, company, Object.assign({
       lines: priced.lines, tabId: id, label: label || names.tableName || names.guestName || '', note: p.kitchenNote, sentBy: session.posEmployeeId
     }, names));
+    await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.kitchen',
+      summary: (ticket ? 'Sent to the kitchen as #' + ticket.number + ': ' : 'Kept open (nothing new for the kitchen): ') + (label || names.tableName || names.guestName || 'order') +
+        (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + ' · ' + priced.subtotal.toFixed(2) + '.',
+      amount: priced.subtotal, refType: 'tab', refId: id, details: { dishes: ticket ? ticket.dishes : [], fulfillment: type.fulfillment, kitchenTicket: ticket ? ticket.number : null } });
     return { id: id, ticket: ticket };
   });
   return Object.assign((await tabRows(company, ' AND t.id = $2', [sent.id]))[0], { kitchenTicket: sent.ticket });
@@ -444,10 +541,13 @@ async function saveTab(token, p) {
 async function removeTab(token, id) {
   var session = await access.need(token, 'removeTable');
   return withTransaction(async function (client) {
-    var res = await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id', [id, session.posCompanyId]);
-    if (!res.rows[0]) fail('notfound', 'That open table has already been paid or removed.');
+    var res = await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id, label, table_id', [id, session.posCompanyId]);
+    if (!res.rows[0]) fail('notfound', 'That open order has already been paid or removed.');
     // Nothing more to cook for it.
     await kitchen.cancelForTab(client, session.posCompanyId, id);
+    var tname = res.rows[0].table_id ? (await client.query('SELECT name FROM restaurant_tables WHERE id = $1', [res.rows[0].table_id])).rows[0] : null;
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.removed',
+      summary: 'Removed the open order ' + (res.rows[0].label || (tname && tname.name) || '') + ' (not paid).', refType: 'tab', refId: id });
     return { removed: true };
   });
 }
@@ -475,16 +575,21 @@ async function shiftSummary(token) {
   if (!open) return out;
   var WHERE = "o.cashier_id = $1 AND o.company_id = $2 AND o.status = 'completed' AND o.created_at >= $3";
   var args = [session.posEmployeeId, session.posCompanyId, open.opened_at];
-  var byMethod = (await pool.query('SELECT o.payment_method, count(*)::int AS n, sum(o.total - o.refunded_total) AS total FROM restaurant_orders o WHERE ' + WHERE + ' GROUP BY 1 ORDER BY 3 DESC', args)).rows;
+  var byMethod = (await pool.query(
+    'SELECT o.method AS payment_method, count(DISTINCT o.order_id)::int AS n, sum(o.net) AS total FROM ' + money.ORDER_METHODS_SQL + ' o ' +
+    'WHERE o.cashier_id = $1 AND o.company_id = $2 AND o.created_at >= $3 GROUP BY 1 ORDER BY 3 DESC', args)).rows;
+  var orders = (await pool.query('SELECT count(*)::int AS n, coalesce(sum(o.total - o.refunded_total), 0) AS total FROM restaurant_orders o WHERE ' + WHERE, args)).rows[0];
   var recent = (await pool.query(
-    'SELECT o.id, o.order_no, o.total, o.refunded_total, o.payment_method, o.created_at, t.name AS table_name, ' +
+    'SELECT o.id, o.order_no, o.total, o.refunded_total, o.payment_method, o.created_at, o.fulfillment, o.customer_name, t.name AS table_name, ' +
     '  (SELECT sum(qty) FROM restaurant_order_items i WHERE i.order_id = o.id) AS items ' +
     'FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id = o.table_id WHERE ' + WHERE + ' ORDER BY o.created_at DESC LIMIT 8', args)).rows;
-  out.byMethod = byMethod.map(function (r) { return { method: r.payment_method, orders: r.n, total: Number(r.total) }; });
-  out.orders = out.byMethod.reduce(function (s, r) { return s + r.orders; }, 0);
-  out.sales = Math.round(out.byMethod.reduce(function (s, r) { return s + r.total; }, 0) * 100) / 100;
+  out.byMethod = byMethod.map(function (r) { return { method: r.payment_method, orders: r.n, total: Math.round(Number(r.total) * 100) / 100 }; });
+  out.orders = orders.n;
+  out.sales = Math.round(Number(orders.total) * 100) / 100;
+  var st = await kitchen.statusOf(pool, session.posCompanyId, 'order_id', recent.map(function (r) { return r.id; }));
   out.recent = recent.map(function (r) {
-    return { id: r.id, orderNo: r.order_no, total: Number(r.total), refunded: Number(r.refunded_total), paymentMethod: r.payment_method, createdAt: r.created_at, tableName: r.table_name || null, items: Number(r.items || 0) };
+    return { id: r.id, orderNo: r.order_no, total: Number(r.total), refunded: Number(r.refunded_total), paymentMethod: r.payment_method, createdAt: r.created_at,
+      tableName: r.table_name || null, fulfillment: r.fulfillment || '', customerName: r.customer_name || '', items: Number(r.items || 0), kitchen: st[r.id] || null };
   });
   // Refunds, IOUs paid and VIP top-ups handled on this drawer.
   Object.assign(out, await money.shiftMoney(session.posEmployeeId, session.posCompanyId, open.opened_at));
@@ -499,10 +604,11 @@ async function receiptForSession(token, id) {
     'FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
     'LEFT JOIN employees we ON we.id = o.waiter_id LEFT JOIN employees ce ON ce.id = o.cashier_id WHERE o.id = $1 AND o.company_id = $2', [id, session.posCompanyId])).rows[0];
   if (!o) fail('notfound', 'Order not found.');
-  var items = (await pool.query('SELECT menu_item_id, name, qty, unit_price, line_total FROM restaurant_order_items WHERE order_id = $1 ORDER BY id', [o.id])).rows;
+  var items = (await pool.query('SELECT menu_item_id, name, qty, unit_price, line_total, note, custom FROM restaurant_order_items WHERE order_id = $1 ORDER BY sort_order, id', [o.id])).rows;
+  var paid = (await money.paymentsOf(pool, [o.id])).get(o.id) || [];
   return Object.assign(rowToOrder(o, items.map(function (it) {
-    return { menuItemId: it.menu_item_id, name: it.name, qty: Number(it.qty), unitPrice: Number(it.unit_price), lineTotal: Number(it.line_total) };
-  })), {
+    return { menuItemId: it.menu_item_id, name: it.name, qty: Number(it.qty), unitPrice: Number(it.unit_price), lineTotal: Number(it.line_total), note: it.note, custom: it.custom };
+  }), paid), {
     tableName: o.table_name || null, guestName: o.guest_name || null, waiterName: o.waiter_name || null, cashierName: o.cashier_name || null,
     refunded: Number(o.refunded_total), refunds: await money.refundsOf(pool, o.id), iouPaidAt: o.iou_paid_at || null, iouPaidMethod: o.iou_paid_method || null
   });
@@ -581,14 +687,16 @@ async function getOrder(ctx, id) {
   var order = orderRes.rows[0];
   if (!order) fail('notfound', 'Order not found.');
   var itemsRes = await pool.query(
-    'SELECT name, qty, unit_price, line_total FROM restaurant_order_items WHERE order_id = $1 ORDER BY name', [id]
+    'SELECT name, qty, unit_price, line_total, note, custom FROM restaurant_order_items WHERE order_id = $1 ORDER BY name', [id]
   );
+  var paid = (await money.paymentsOf(pool, [id])).get(id) || [];
   return {
     id: order.id, companyId: order.company_id, orderNo: order.order_no, cashierName: order.first_name + ' ' + order.last_name,
     tableName: order.table_name, waiterName: order.waiter_first_name ? order.waiter_first_name + ' ' + order.waiter_last_name : null,
     guestName: order.guest_name, guestPhone: order.guest_phone,
     subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method, status: order.status, createdAt: order.created_at,
-    items: itemsRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total) }; }),
+    items: itemsRes.rows.map(function (r) { return { name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total), note: r.note || '', custom: !!r.custom }; }),
+    payments: paid, fulfillment: order.fulfillment || '', customerName: order.customer_name || '', customerPhone: order.customer_phone || '', deliveryAddress: order.delivery_address || '',
     refunded: Number(order.refunded_total), refunds: await money.refundsOf(pool, order.id),
     iouPaidAt: order.iou_paid_at || null, iouPaidMethod: order.iou_paid_method || null, iouPaidAmount: order.iou_paid_amount == null ? null : Number(order.iou_paid_amount)
   };
@@ -626,12 +734,9 @@ function rowToSession(r) {
 async function buildReport(session, client) {
   var db = client || pool;
   var endTime = session.closed_at || new Date();
-  var salesRes = await db.query(
-    "SELECT coalesce(sum(total), 0) AS cash_sales FROM restaurant_orders " +
-    "WHERE cashier_id = $1 AND company_id = $2 AND payment_method = 'cash' AND status = 'completed' " +
-    'AND created_at >= $3 AND created_at <= $4',
-    [session.cashier_id, session.company_id, session.opened_at, endTime]
-  );
+  // Cash kept in cedis (a foreign-money sale gives its change in cedis),
+  // and foreign notes, which are counted apart.
+  var sales = await money.cashSales(db, session.cashier_id, session.company_id, session.opened_at, endTime);
   var movementsRes = await db.query(
     "SELECT direction, coalesce(sum(amount), 0) AS total FROM restaurant_drawer_movements WHERE session_id = $1 GROUP BY direction",
     [session.id]
@@ -645,7 +750,7 @@ async function buildReport(session, client) {
     [session.id]
   );
   var startingCash = Number(session.starting_cash);
-  var cashSales = Number(salesRes.rows[0].cash_sales);
+  var cashSales = sales.cash;
   // Besides cash sales: refunds paid out in cash, IOUs paid and VIP
   // top-ups taken in cash, by this cashier on this drawer.
   var other = await money.drawerCash(db, session.cashier_id, session.company_id, session.opened_at, endTime);
@@ -655,7 +760,7 @@ async function buildReport(session, client) {
   var actual = session.closing_actual_cash == null ? null : Number(session.closing_actual_cash);
   return {
     session: rowToSession(session),
-    startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds, iouPaidCash: other.iouPaid, vipTopUpsCash: other.vipTopUps,
+    startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds, iouPaidCash: other.iouPaid, vipTopUpsCash: other.vipTopUps, foreignCash: sales.foreign,
     paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut,
     expected: expected, actual: actual, difference: actual == null ? null : Math.round((actual - expected) * 100) / 100,
     movements: movementsListRes.rows.map(function (m) {
@@ -689,6 +794,8 @@ async function openDrawerSession(token, startingCash) {
     'INSERT INTO restaurant_drawer_sessions (company_id, cashier_id, starting_cash) VALUES ($1,$2,$3) RETURNING *',
     [session.posCompanyId, session.posEmployeeId, amount]
   );
+  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.drawer_open',
+    summary: 'Opened the cash drawer with ' + amount.toFixed(2) + '.', amount: amount, refType: 'drawer', refId: res.rows[0].id });
   return buildReport(res.rows[0]);
 }
 
@@ -706,6 +813,8 @@ async function addDrawerMovement(token, p) {
     'INSERT INTO restaurant_drawer_movements (session_id, direction, amount, note) VALUES ($1,$2,$3,$4)',
     [drawer.id, direction, Math.round(amount * 100) / 100, (p.note || '').trim()]
   );
+  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: direction === 'in' ? 'till.paid_in' : 'till.paid_out',
+    summary: (direction === 'in' ? 'Paid in ' : 'Paid out ') + amount.toFixed(2) + ((p.note || '').trim() ? ': ' + (p.note || '').trim().slice(0, 120) : '') + '.', amount: amount, refType: 'drawer', refId: drawer.id });
   return buildReport(drawer);
 }
 
@@ -720,7 +829,11 @@ async function closeDrawerSession(token, p) {
       "UPDATE restaurant_drawer_sessions SET status = 'closed', closed_at = now(), closing_actual_cash = $1, closing_note = $2 WHERE id = $3 RETURNING *",
       [actualCash, (p.note || '').trim(), drawer.id]
     );
-    return buildReport(closedRes.rows[0], client);
+    var report = await buildReport(closedRes.rows[0], client);
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.drawer_close',
+      summary: 'Closed the cash drawer: ' + actualCash.toFixed(2) + ' counted, ' + report.expected.toFixed(2) + ' expected (' + (report.difference >= 0 ? '+' : '') + report.difference.toFixed(2) + ').',
+      amount: actualCash, refType: 'drawer', refId: drawer.id, details: { expected: report.expected, difference: report.difference } });
+    return report;
   });
 }
 

@@ -2,6 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var access = require('./restaurantTillAccess.service');
+var activity = require('./restaurantActivity.service');
 
 // The till's money beyond a plain sale (migration 0153):
 //
@@ -16,12 +17,106 @@ var access = require('./restaurantTillAccess.service');
 //
 // Cash that comes in or goes out this way belongs to the drawer of the
 // cashier who handled it (drawerCash, for restaurantPos.buildReport).
+//
+// A sale is paid one way or several (a split bill), each part in cedis or
+// in US dollars / Chinese yuan at the manager's rate (migration 0157,
+// restaurant_order_payments: planPayments below). VIP takes its part from
+// the customer's VIP account; an IOU is for the whole bill and needs a
+// customer whose IOU account allows it.
 
 // What the till takes for a sale (Other: paid some other way, outside the
 // drawer; the till's settings choose which it offers), and how money
 // changes hands otherwise.
 var TILL_METHODS = access.TILL_METHODS;
 var MONEY = ['cash', 'mobile_money'];
+var CURRENCY_NAME = { GHS: 'GHS', USD: 'USD', CNY: 'RMB' };
+var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'other' };
+
+// Every completed sale's money, by way of paying: the parts of a sale
+// paid since migration 0157, and older sales whole. Columns: order_id,
+// company_id, created_at, cashier_id, method, amount (the part of the
+// bill), net (less its share of refunds). For reports and the shift.
+var ORDER_METHODS_SQL =
+  '(SELECT o.id AS order_id, o.company_id, o.created_at, o.cashier_id, p.method, p.amount, ' +
+  '   round(p.amount - CASE WHEN o.total > 0 THEN o.refunded_total * p.amount / o.total ELSE 0 END, 2) AS net ' +
+  " FROM restaurant_order_payments p JOIN restaurant_orders o ON o.id = p.order_id WHERE o.status = 'completed' " +
+  ' UNION ALL ' +
+  ' SELECT o.id, o.company_id, o.created_at, o.cashier_id, o.payment_method, o.total, o.total - o.refunded_total ' +
+  " FROM restaurant_orders o WHERE o.status = 'completed' AND NOT EXISTS (SELECT 1 FROM restaurant_order_payments p WHERE p.order_id = o.id))";
+
+// The parts a sale is paid in, checked: each a way of paying the till
+// offers, in cedis or a currency the manager has turned on (VIP and IOU in
+// cedis), adding up to the bill. One part pays the whole bill unless it
+// says how much. Cash can say what was handed over (in its currency): the
+// change is given in cedis. Returns { rows, method, cashTendered }.
+function planPayments(session, total, list) {
+  var settings = session.access.settings;
+  if (!Array.isArray(list) || !list.length) fail('invalid', 'Choose how it is paid.');
+  if (list.length > 6) fail('invalid', 'Split a bill into at most 6 payments.');
+  total = round2(total);
+  var rows = list.map(function (p, i) {
+    p = p || {};
+    var method = V.oneOf(p.method || 'cash', TILL_METHODS, 'Payment method');
+    if (settings.paymentMethods.indexOf(method) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
+    if (method === 'iou' && !session.access.can.iou) fail('forbidden', 'Your role on the till cannot sell on IOU. Ask a manager.');
+    var currency = p.currency || 'GHS';
+    var rate = 1;
+    if (currency !== 'GHS') {
+      var cur = settings.currencies[currency];
+      if (!cur || !cur.on || !(cur.rate > 0)) fail('invalid', 'The till does not take ' + (currency === 'CNY' ? 'Chinese yuan (RMB)' : currency === 'USD' ? 'US dollars' : currency) + ' now. A manager turns it on with its rate.');
+      if (method === 'vip' || method === 'iou') fail('invalid', METHOD_NAME[method] + ' is in cedis.');
+      rate = cur.rate;
+    }
+    var amount = list.length === 1 && (p.amount === undefined || p.amount === null || p.amount === '') ? total : round2(p.amount);
+    if (!(amount > 0)) fail('invalid', 'Each part of the bill needs an amount.');
+    var foreign = currency === 'GHS' ? null : round2(amount / rate);
+    var tendered = null, change = 0;
+    if (method === 'cash' && p.tendered !== undefined && p.tendered !== null && p.tendered !== '') {
+      tendered = round2(p.tendered);
+      var owes = currency === 'GHS' ? amount : foreign;
+      if (!(tendered >= owes)) fail('invalid', 'The cash received is less than ' + (list.length > 1 ? 'that part of the bill.' : 'the total.'));
+      change = round2(tendered * rate - amount);
+      if (change < 0) change = 0;
+    }
+    return { method: method, amount: amount, currency: currency, rate: rate, foreignAmount: foreign, tendered: tendered, changeGiven: change, sortOrder: i };
+  });
+  var sum = round2(rows.reduce(function (a, r) { return a + r.amount; }, 0));
+  if (Math.abs(sum - total) > 0.009) {
+    fail('invalid', sum < total ? 'The payments add up to ' + sum.toFixed(2) + '; the bill is ' + total.toFixed(2) + '. ' + (total - sum).toFixed(2) + ' is still to pay.'
+      : 'The payments add up to ' + sum.toFixed(2) + ', more than the bill of ' + total.toFixed(2) + '.');
+  }
+  if (rows.length > 1 && rows.some(function (r) { return r.method === 'iou'; })) fail('invalid', 'An IOU is for the whole bill: it cannot be split.');
+  var one = rows.length === 1 ? rows[0] : null;
+  return {
+    rows: rows,
+    method: one ? one.method : 'split',
+    cashTendered: one && one.method === 'cash' && one.currency === 'GHS' ? one.tendered : null
+  };
+}
+async function savePayments(client, orderId, rows) {
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    await client.query(
+      'INSERT INTO restaurant_order_payments (order_id, method, amount, currency, rate, foreign_amount, tendered, change_given, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [orderId, r.method, r.amount, r.currency, r.rate, r.foreignAmount, r.tendered, r.changeGiven, r.sortOrder]);
+  }
+}
+async function paymentsOf(db, orderIds) {
+  if (!orderIds.length) return new Map();
+  var rows = (await db.query('SELECT * FROM restaurant_order_payments WHERE order_id = ANY($1::uuid[]) ORDER BY sort_order, created_at', [orderIds])).rows;
+  var by = new Map();
+  rows.forEach(function (r) {
+    if (!by.has(r.order_id)) by.set(r.order_id, []);
+    by.get(r.order_id).push({ method: r.method, amount: round2(r.amount), currency: r.currency, rate: Number(r.rate), foreignAmount: r.foreign_amount == null ? null : round2(r.foreign_amount),
+      tendered: r.tendered == null ? null : round2(r.tendered), changeGiven: round2(r.change_given) });
+  });
+  return by;
+}
+function paymentText(rows) {
+  return rows.map(function (r) {
+    return METHOD_NAME[r.method] + ' ' + (r.currency === 'GHS' ? r.amount.toFixed(2) : CURRENCY_NAME[r.currency] + ' ' + Number(r.foreignAmount).toFixed(2) + ' (GHS ' + r.amount.toFixed(2) + ')');
+  }).join(' + ');
+}
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function fullName(r, prefix) { return r[prefix + '_first'] ? r[prefix + '_first'] + ' ' + r[prefix + '_last'] : null; }
@@ -48,27 +143,44 @@ async function guestOf(db, companyId, guestId) {
 }
 
 // Called by restaurantPos.createOrder inside its transaction, once the
-// sale is saved: a VIP sale is paid from the guest's balance (which must
-// cover it); an IOU needs to know who owes it.
-async function chargeSale(client, companyId, order, cashierId) {
-  if (order.payment_method !== 'vip' && order.payment_method !== 'iou') return null;
+// sale is saved: the VIP part is paid from the customer's VIP account
+// (which must cover it); an IOU needs a customer whose IOU account allows
+// it, within its limit. rows: the sale's payments (planPayments).
+async function chargeSale(client, companyId, order, cashierId, rows) {
+  rows = rows || [{ method: order.payment_method, amount: round2(order.total) }];
+  var vipPart = round2(rows.filter(function (r) { return r.method === 'vip'; }).reduce(function (a, r) { return a + r.amount; }, 0));
+  var iou = rows.some(function (r) { return r.method === 'iou'; });
+  if (!vipPart && !iou) return null;
   if (!order.guest_id) {
-    fail('invalid', order.payment_method === 'vip'
-      ? 'A VIP sale is paid from a guest\'s balance: pick the guest first.'
-      : 'An IOU needs the name of the guest who owes it: pick or add the guest first.');
+    fail('invalid', vipPart
+      ? 'VIP is paid from a customer\'s VIP account: pick the customer first.'
+      : 'An IOU needs the customer who owes it: pick the customer first.');
   }
-  if (order.payment_method === 'iou') return null;
+  var g = (await client.query('SELECT id, name, iou_allowed, iou_limit FROM restaurant_guests WHERE id = $1 AND company_id = $2', [order.guest_id, companyId])).rows[0];
+  if (!g) fail('notfound', 'That customer is no longer available.');
+  if (iou) {
+    if (!g.iou_allowed) fail('invalid', g.name + ' has no IOU account. A manager opens one in the till settings (Customers).');
+    if (g.iou_limit != null) {
+      var owed = round2((await client.query(
+        "SELECT coalesce(sum(total - refunded_total), 0) AS o FROM restaurant_orders WHERE guest_id = $1 AND payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL AND id <> $2",
+        [g.id, order.id])).rows[0].o);
+      if (owed + round2(order.total) > Number(g.iou_limit) + 0.009) {
+        fail('invalid', g.name + ' already owes ' + owed.toFixed(2) + '; their IOU limit is ' + Number(g.iou_limit).toFixed(2) + '.');
+      }
+    }
+    return null;
+  }
   await lockGuest(client, order.guest_id);
+  var hasAccount = (await client.query('SELECT 1 FROM restaurant_vip_entries WHERE guest_id = $1 LIMIT 1', [g.id])).rows.length > 0;
+  if (!hasAccount) fail('invalid', g.name + ' has no VIP account. Put money down for them first (VIP).');
   var balance = await balanceOf(client, order.guest_id);
-  var total = round2(order.total);
-  if (balance < total) {
-    var g = await guestOf(client, companyId, order.guest_id);
-    fail('invalid', g.name + ' has ' + balance.toFixed(2) + ' on their VIP balance and this sale is ' + total.toFixed(2) + '. Top it up first.');
+  if (balance < vipPart) {
+    fail('invalid', g.name + ' has ' + balance.toFixed(2) + ' on their VIP balance and this sale is ' + vipPart.toFixed(2) + '. Top it up first.');
   }
   await client.query(
     "INSERT INTO restaurant_vip_entries (company_id, guest_id, kind, amount, order_id, cashier_id) VALUES ($1,$2,'sale',$3,$4,$5)",
-    [companyId, order.guest_id, -total, order.id, cashierId]);
-  return { balance: round2(balance - total) };
+    [companyId, order.guest_id, -vipPart, order.id, cashierId]);
+  return { balance: round2(balance - vipPart) };
 }
 
 // Guests with VIP money (or a search for any guest, to top up a new one).
@@ -114,6 +226,8 @@ async function vipTopUp(token, p) {
     await client.query(
       "INSERT INTO restaurant_vip_entries (company_id, guest_id, kind, amount, method, cashier_id, note) VALUES ($1,$2,'topup',$3,$4,$5,$6)",
       [session.posCompanyId, g.id, amount, method, session.posEmployeeId, String(p.note || '').trim().slice(0, 200)]);
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.vip',
+      summary: 'VIP money put down for ' + g.name + ': ' + amount.toFixed(2) + ' (' + METHOD_NAME[method] + ').', amount: amount, refType: 'guest', refId: g.id, details: { method: method, customer: g.name } });
     return { guest: { id: g.id, name: g.name, phone: g.phone }, amount: amount, method: method, balance: await balanceOf(client, g.id) };
   });
 }
@@ -163,6 +277,8 @@ async function payIou(token, orderId, p) {
     var owed = round2(Number(o.total) - Number(o.refunded_total));
     await client.query('UPDATE restaurant_orders SET iou_paid_at = now(), iou_paid_method = $2, iou_paid_by = $3, iou_paid_amount = $4 WHERE id = $1',
       [o.id, method, session.posEmployeeId, owed]);
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.iou_paid',
+      summary: 'IOU ' + o.order_no + ' paid: ' + owed.toFixed(2) + ' (' + METHOD_NAME[method] + ').', amount: owed, refType: 'order', refId: o.id, details: { method: method } });
     return iouOut((await client.query(IOU_SELECT + 'WHERE o.id = $1', [o.id])).rows[0]);
   });
 }
@@ -171,9 +287,18 @@ async function payIou(token, orderId, p) {
 
 // How a sale's refund can go back: the way it was paid where money can go
 // back that way, to the VIP balance, or off what is still owed.
-function refundMethodsFor(o) {
+// A split bill: any of the ways it was paid that money can go back by,
+// cash always, and the VIP account if it paid a part.
+function refundMethodsFor(o, parts) {
   if (o.payment_method === 'vip') return ['vip'];
   if (o.payment_method === 'iou') return o.iou_paid_at ? MONEY : ['iou'];
+  if (o.payment_method === 'alipay' || o.payment_method === 'wechat') return [o.payment_method, 'cash'];
+  if (o.payment_method === 'split') {
+    var used = (parts || []).map(function (r) { return r.method; });
+    var out = ['cash'];
+    ['mobile_money', 'alipay', 'wechat', 'vip'].forEach(function (m) { if (used.indexOf(m) >= 0) out.push(m); });
+    return out;
+  }
   return o.payment_method === 'mobile_money' ? ['mobile_money', 'cash'] : ['cash', 'mobile_money'];
 }
 
@@ -229,7 +354,8 @@ async function saleForRefund(db, companyId, orderId) {
     out: {
       id: o.id, orderNo: o.order_no, status: o.status, total: round2(o.total), refunded: round2(o.refunded_total), paymentMethod: o.payment_method,
       createdAt: o.created_at, tableName: o.table_name || null, guestName: o.guest_name || null, cashierName: fullName(o, 'cashier'),
-      iouPaid: !!o.iou_paid_at, methods: refundMethodsFor(o),
+      iouPaid: !!o.iou_paid_at, methods: refundMethodsFor(o, (await paymentsOf(db, [o.id])).get(o.id)),
+      payments: (await paymentsOf(db, [o.id])).get(o.id) || [],
       items: items.map(function (i) {
         return { id: i.id, name: i.name, qty: Number(i.qty), unitPrice: round2(i.unit_price), lineTotal: round2(i.line_total), refundedQty: Number(i.refunded_qty) };
       }),
@@ -258,7 +384,7 @@ async function refundSale(token, orderId, p, ip) {
     var o = (await client.query('SELECT * FROM restaurant_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [orderId, session.posCompanyId])).rows[0];
     if (!o) fail('notfound', 'Sale not found.');
     if (o.status !== 'completed') fail('conflict', 'That sale was voided: there is nothing to refund.');
-    var methods = refundMethodsFor(o);
+    var methods = refundMethodsFor(o, (await paymentsOf(client, [o.id])).get(o.id));
     var method = p.method || methods[0];
     if (methods.indexOf(method) < 0) fail('invalid', 'This sale cannot be refunded that way.');
     if (method === 'vip' && !o.guest_id) fail('invalid', 'This VIP sale has no guest to give the money back to.');
@@ -301,6 +427,9 @@ async function refundSale(token, orderId, p, ip) {
       await client.query('UPDATE restaurant_orders SET iou_paid_at = now(), iou_paid_amount = 0, iou_paid_by = $2 WHERE id = $1', [o.id, session.posEmployeeId]);
     }
     var sale = (await saleForRefund(client, session.posCompanyId, o.id)).out;
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.refund',
+      summary: 'Refund on ' + o.order_no + ': ' + amount.toFixed(2) + ' (' + METHOD_NAME[method] + '), approved by ' + manager.first_name + ' ' + manager.last_name + '. ' + reason.slice(0, 120),
+      amount: amount, refType: 'order', refId: o.id, details: { method: method, reason: reason.slice(0, 200), approvedBy: manager.first_name + ' ' + manager.last_name, items: lines.map(function (l) { return l.qty + '× ' + l.item.name; }) } });
     return { refund: sale.refunds.find(function (r) { return r.id === refund.id; }), sale: sale };
   });
 }
@@ -308,8 +437,12 @@ async function refundSale(token, orderId, p, ip) {
 // A voided VIP sale never happened: what is left of it goes back to the
 // guest's balance (restaurantPos.voidOrder, in its transaction).
 async function onVoid(client, o) {
-  if (o.payment_method !== 'vip' || !o.guest_id) return;
+  if ((o.payment_method !== 'vip' && o.payment_method !== 'split') || !o.guest_id) return;
   var back = round2(Number(o.total) - Number(o.refunded_total));
+  if (o.payment_method === 'split') {
+    var spent = round2(-(await client.query("SELECT coalesce(sum(amount), 0) AS s FROM restaurant_vip_entries WHERE order_id = $1", [o.id])).rows[0].s);
+    back = Math.min(back, spent);
+  }
   if (!(back > 0)) return;
   await lockGuest(client, o.guest_id);
   await client.query("INSERT INTO restaurant_vip_entries (company_id, guest_id, kind, amount, order_id, note) VALUES ($1,$2,'refund',$3,$4,'Sale voided')",
@@ -327,6 +460,24 @@ async function drawerCash(db, cashierId, companyId, from, to) {
     "(SELECT coalesce(sum(amount), 0) FROM restaurant_vip_entries WHERE cashier_id = $1 AND company_id = $2 AND kind = 'topup' AND method = 'cash' AND created_at >= $3 AND created_at <= $4) AS vip_topups",
     [cashierId, companyId, from, to])).rows[0];
   return { refunds: round2(r.refunds), iouPaid: round2(r.iou_paid), vipTopUps: round2(r.vip_topups) };
+}
+
+// Cash sales this cashier took between two times, from the parts of each
+// sale: cedis kept (the bill's part, after change), less change given in
+// cedis for foreign money; and the foreign notes in the drawer, by
+// currency. Sales from before migration 0157 count whole when paid cash.
+async function cashSales(db, cashierId, companyId, from, to) {
+  var r = (await db.query(
+    "SELECT (SELECT coalesce(sum(o.total), 0) FROM restaurant_orders o WHERE o.cashier_id = $1 AND o.company_id = $2 AND o.payment_method = 'cash' AND o.status = 'completed' " +
+    '   AND o.created_at >= $3 AND o.created_at <= $4 AND NOT EXISTS (SELECT 1 FROM restaurant_order_payments p WHERE p.order_id = o.id)) AS legacy, ' +
+    "  (SELECT coalesce(sum(CASE WHEN p.currency = 'GHS' THEN p.amount ELSE -p.change_given END), 0) FROM restaurant_order_payments p JOIN restaurant_orders o ON o.id = p.order_id " +
+    "   WHERE o.cashier_id = $1 AND o.company_id = $2 AND o.status = 'completed' AND p.method = 'cash' AND o.created_at >= $3 AND o.created_at <= $4) AS cedis",
+    [cashierId, companyId, from, to])).rows[0];
+  var foreign = (await db.query(
+    "SELECT p.currency, sum(coalesce(p.tendered, p.foreign_amount)) AS amount, sum(p.amount) AS cedis FROM restaurant_order_payments p JOIN restaurant_orders o ON o.id = p.order_id " +
+    "WHERE o.cashier_id = $1 AND o.company_id = $2 AND o.status = 'completed' AND p.method = 'cash' AND p.currency <> 'GHS' AND o.created_at >= $3 AND o.created_at <= $4 GROUP BY p.currency ORDER BY p.currency",
+    [cashierId, companyId, from, to])).rows;
+  return { cash: round2(Number(r.legacy) + Number(r.cedis)), foreign: foreign.map(function (f) { return { currency: f.currency, amount: round2(f.amount), cedis: round2(f.cedis) }; }) };
 }
 
 // The same, every way it was paid, for the shift summary.
@@ -350,7 +501,8 @@ async function shiftMoney(cashierId, companyId, from) {
 }
 
 module.exports = {
-  TILL_METHODS: TILL_METHODS,
+  TILL_METHODS: TILL_METHODS, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME,
+  planPayments: planPayments, savePayments: savePayments, paymentsOf: paymentsOf, paymentText: paymentText, cashSales: cashSales,
   chargeSale: chargeSale, vipGuests: vipGuests, vipGuest: vipGuest, vipTopUp: vipTopUp,
   iouList: iouList, payIou: payIou,
   salesToRefund: salesToRefund, saleForRefund: saleForRefundSession, refundSale: refundSale, refundsOf: refundsOf, onVoid: onVoid,

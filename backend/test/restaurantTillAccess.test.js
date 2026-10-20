@@ -75,8 +75,8 @@ test('with nothing set, everyone is a cashier: sells, keeps tables, runs a drawe
   var p = await access.profile(tok.ama);
   assert.equal(p.role, 'cashier');
   assert.deepEqual([p.can.till, p.can.charge, p.can.keepOpen, p.can.refund, p.can.kds, p.can.approveRefunds], [true, true, true, true, true, false]);
-  assert.deepEqual(p.settings.paymentMethods, ['cash', 'mobile_money', 'vip', 'iou', 'other']);
-  assert.deepEqual(p.settings.kitchen, { warnAfter: 10, lateAfter: 20 });
+  assert.deepEqual(p.settings.paymentMethods, ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'other']);
+  assert.deepEqual(p.settings.kitchen, { warnAfter: 10, lateAfter: 20, printReady: false });
   assert.equal(p.settings.receipt.footer, 'Thank you!');
   await assert.rejects(access.openSettings(tok.ama, null, IP), /A manager opens the till settings/);
   await assert.rejects(access.openSettings(tok.ama, '0000', IP), /Incorrect manager PIN/);
@@ -125,7 +125,7 @@ test('each role is held to what it may do, on the server', async function () {
   await kitchen.createStation(await require('../src/services/context.service').buildContext((await pool.query("SELECT id FROM users WHERE email = 'zqs-boss@example.com'")).rows[0].id),
     { companyId: company.id, name: 'Zqs Kitchen', everythingElse: true });
   var b = await kitchen.board(tok.esi, { station: 'all' });
-  assert.deepEqual(b.timing, { warnAfter: 8, lateAfter: 15 });
+  assert.deepEqual(b.timing, { warnAfter: 8, lateAfter: 15, printReady: false });
   await assert.rejects(pos.menuForSession(tok.esi), /does not use the till/);
 
   // A waiter keeps tables open (with their name, as the settings ask) and cannot charge.

@@ -75,17 +75,22 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(line(companyName || ''));
   out = out.concat(DOUBLE_OFF, BOLD_OFF);
   if (opts.extra) out = out.concat(line(opts.extra));
-  out = out.concat(line('Order ' + order.orderNo));
+  out = out.concat(line('Order ' + order.orderNo + (order.fulfillment ? ' - ' + FULFILLMENT_EN[order.fulfillment] : '')));
   out = out.concat(line(new Date(order.createdAt).toLocaleString()));
   // Served by the waiter who looked after the table; the cashier who took
   // the money under it. Without a waiter, the cashier served.
   out = out.concat(line('Served by ' + (order.waiterName || cashierName || '') + (order.tableName ? ' at ' + order.tableName : '')));
   if (order.waiterName && cashierName) out = out.concat(line('Cashier: ' + cashierName));
-  if (order.guestName) out = out.concat(line('Guest: ' + order.guestName));
+  if (order.guestName || order.customerName) out = out.concat(line('Customer: ' + (order.guestName || order.customerName)));
+  if (order.fulfillment === 'delivery') {
+    out = out.concat(line('Deliver to: ' + (order.deliveryAddress || '')));
+    if (order.customerPhone) out = out.concat(line('Phone: ' + order.customerPhone));
+  }
   out = out.concat(ALIGN_LEFT);
   out = out.concat(line(new Array(width + 1).join('-')));
   (order.items || []).forEach(function (it) {
     out = out.concat(line(it.qty + ' x ' + it.name));
+    if (it.note) out = out.concat(line('   * ' + it.note));
     out = out.concat(line(twoColumn('', money2(it.lineTotal), width)));
   });
   out = out.concat(line(new Array(width + 1).join('-')));
@@ -98,9 +103,17 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   if (order.refunds && order.refunds.length) out = out.concat(line(twoColumn('After refunds', money2(order.total - order.refunded), width)));
   if (order.paymentMethod === 'vip') out = out.concat(line('Paid from VIP balance' + (order.guestName ? ': ' + order.guestName : '')));
   else if (order.paymentMethod === 'iou') out = out.concat(line(order.iouPaidAt ? 'IOU, paid ' + new Date(order.iouPaidAt).toLocaleDateString() : 'IOU: owed by ' + (order.guestName || 'the guest')));
-  else out = out.concat(line('Paid by ' + String(order.paymentMethod || '').replace('_', ' ')));
+  else if (order.payments && order.payments.length && (order.payments.length > 1 || order.payments[0].currency !== 'GHS' || order.payments[0].tendered != null)) {
+    // Each way it was paid; foreign money with its rate; change in cedis.
+    order.payments.forEach(function (p) {
+      out = out.concat(line(twoColumn(METHOD_EN[p.method] || p.method, money2(p.amount), width)));
+      if (p.currency !== 'GHS') out = out.concat(line('  ' + (p.currency === 'CNY' ? 'RMB' : p.currency) + ' ' + Number(p.foreignAmount).toFixed(2) + ' @ ' + p.rate));
+      if (p.tendered != null) out = out.concat(line('  Received ' + (p.currency === 'GHS' ? 'GHS' : p.currency === 'CNY' ? 'RMB' : p.currency) + ' ' + Number(p.tendered).toFixed(2)));
+    });
+    if (order.change > 0) out = out.concat(line(twoColumn('Change', money2(order.change), width)));
+  } else out = out.concat(line('Paid by ' + (METHOD_EN[order.paymentMethod] || String(order.paymentMethod || '').replace('_', ' '))));
   if (order.vipBalance != null) out = out.concat(line(twoColumn('VIP balance left', money2(order.vipBalance), width)));
-  if (order.cashTendered != null) {
+  if (order.cashTendered != null && !(order.payments && order.payments.length > 1)) {
     out = out.concat(line(twoColumn('Cash', money2(order.cashTendered), width)));
     out = out.concat(line(twoColumn('Change', money2(order.change), width)));
   }
@@ -113,6 +126,43 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   return out;
 }
 function money2(n) { return 'GHS ' + Number(n || 0).toFixed(2); }
+var FULFILLMENT_EN = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
+var METHOD_EN = { cash: 'Cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'Other', split: 'Split payment' };
+
+// buildRunnerTicketBytes(ticket, companyName) -> the ticket the kitchen
+// prints when an order's food is done (pages/KdsPage.jsx): big number, who
+// it is for and where it goes (the table, the counter, or a delivery's
+// address and phone), and every dish with its note.
+export function buildRunnerTicketBytes(ticket, companyName, opts) {
+  opts = opts || {};
+  var width = opts.lineWidth || LINE_WIDTH_58MM;
+  var rule = new Array(width + 1).join('-');
+  var out = [].concat(INIT, ALIGN_CENTER);
+  if (companyName) out = out.concat(line(companyName));
+  out = out.concat(BOLD_ON, DOUBLE_ON, line('#' + ticket.number + ' READY'), DOUBLE_OFF);
+  var kind = FULFILLMENT_EN[ticket.fulfillment] || '';
+  var where = ticket.fulfillment === 'pickup' ? 'COUNTER' : ticket.fulfillment === 'delivery' ? 'DELIVERY' : (ticket.tableName || ticket.label || 'COUNTER');
+  out = out.concat(DOUBLE_ON, line(where.toUpperCase().slice(0, 16)), DOUBLE_OFF, BOLD_OFF);
+  if (kind && ticket.fulfillment === 'dine_in') out = out.concat(line(kind));
+  out = out.concat(ALIGN_LEFT, line(rule));
+  if (ticket.guestName || ticket.label) out = out.concat(BOLD_ON, line('For: ' + (ticket.guestName || ticket.label)), BOLD_OFF);
+  if (ticket.fulfillment === 'delivery') {
+    out = out.concat(line('To: ' + (ticket.deliveryAddress || '')));
+    if (ticket.customerPhone) out = out.concat(line('Phone: ' + ticket.customerPhone));
+  }
+  if (ticket.waiterName) out = out.concat(line('Waiter: ' + ticket.waiterName));
+  out = out.concat(line(rule));
+  (ticket.items || []).forEach(function (it) {
+    out = out.concat(BOLD_ON, line(it.qty + ' x ' + it.name), BOLD_OFF);
+    if (it.note) out = out.concat(line('   * ' + it.note));
+  });
+  if (ticket.note) out = out.concat(line(rule), line('Note: ' + ticket.note));
+  out = out.concat(line(rule));
+  out = out.concat(line('Sent ' + new Date(ticket.createdAt).toLocaleTimeString() + (ticket.sentBy ? ' by ' + ticket.sentBy : '')));
+  out = out.concat(line('Ready ' + new Date().toLocaleTimeString()));
+  out = out.concat(FEED(3), CUT);
+  return out;
+}
 
 // buildDrawerReportBytes(report, companyName, cashierName) -> same shape
 // as the reference "Drawer Report" receipt this was built to match:

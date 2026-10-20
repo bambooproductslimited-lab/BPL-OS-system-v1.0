@@ -12,13 +12,20 @@ import {
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
 import DeviceLanguage from '../components/DeviceLanguage';
-import { IouDialog, PayFor, RefundDialog, VipDialog } from './TillMoney';
+import { IouDialog, RefundDialog, VipDialog } from './TillMoney';
 import TillSettings from './TillSettings';
+import PayDialog from './till/PayDialog';
+import MoreMenu from './till/MoreMenu';
+import { TableMapPicker } from './till/TableMap';
+import { CustomItemDialog, DeliveryDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
+import {
+  FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName
+} from './till/tillShared';
+import './till/till.css';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
 import './RestaurantPosPage.css';
-import { codeLabel } from '../lib/codeLabels.js';
 
 // Same "animate a live-data-driven number, not a CSS keyframe" hook as
 // RestaurantsPage.jsx's — small enough, and specific enough to each page's
@@ -101,8 +108,11 @@ const ROLE_NAME = { manager: () => tr('Manager'), cashier: () => tr('Cashier'), 
 // (GET /pos/access); also what it falls back to if that cannot be asked.
 const FALLBACK_ACCESS = {
   role: 'cashier',
-  can: { till: true, charge: true, keepOpen: true, removeTable: true, refund: true, approveRefunds: false, vipTopUp: true, iou: true, iouPaid: true, favorites: true, kds: true },
-  settings: { paymentMethods: ['cash', 'mobile_money', 'vip', 'iou', 'other'], receipt: { footer: 'Thank you!', extra: '', showLogo: true }, idleMinutes: 0, requireWaiter: false, kitchen: { warnAfter: 10, lateAfter: 20 } }
+  can: { till: true, charge: true, keepOpen: true, customItem: true, removeTable: true, refund: true, approveRefunds: false, vipTopUp: true, iou: true, iouPaid: true, favorites: true, kds: true },
+  settings: {
+    paymentMethods: ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'other'], currencies: { USD: { on: false, rate: 0 }, CNY: { on: false, rate: 0 } },
+    receipt: { footer: 'Thank you!', extra: '', showLogo: true }, idleMinutes: 0, requireWaiter: false, defaultFulfillment: 'dine_in', kitchen: { warnAfter: 10, lateAfter: 20, printReady: false }
+  }
 };
 
 // One dish on the menu grid. A menu can run past a thousand dishes, so a
@@ -152,12 +162,10 @@ export default function RestaurantPosPage() {
   const [menuError, setMenuError] = useState(null);
   const [search, setSearch] = useState('');
 
-  // Quick-access tabs above the menu grid. 'all' is the default landing
-  // view (the existing category-grouped grid, unchanged) rather than
-  // 'favorites', since a brand-new till has no favorites yet and landing
-  // on an empty tab would be a worse first impression than the familiar
-  // full grid.
-  const [viewTab, setViewTab] = useState('all'); // 'favorites' | 'recent' | 'mostly' | 'all'
+  // Quick-access tabs above the menu grid: the till always opens on what
+  // sells most ("Mostly bought"), with every dish ("All items") last — or
+  // on every dish while a new till has no sales to rank yet.
+  const [viewTab, setViewTab] = useState('mostly'); // 'mostly' | 'favorites' | 'recent' | 'all'
   // Items tapped into the cart this shift, most-recent-first and deduped —
   // deliberately session-only (not persisted), unlike favorites: it's a
   // "what was I just doing" shortcut, not a lasting curation, so it
@@ -166,7 +174,16 @@ export default function RestaurantPosPage() {
   const [mostlyBought, setMostlyBought] = useState([]);
   const [mostlyBoughtLoading, setMostlyBoughtLoading] = useState(false);
 
-  const [cart, setCart] = useState([]); // [{ menuItemId, variationId, name, price, qty }]
+  const [cart, setCart] = useState([]); // [{ menuItemId, variationId, name, price, qty, note, custom }]
+  // Dine in (at a table), pickup (at the counter) or delivery (who, a
+  // phone and where), and the dialogs around an order (till/OrderDialogs.jsx).
+  const [fulfillment, setFulfillment] = useState('dine_in');
+  const [delivery, setDelivery] = useState({ name: '', phone: '', address: '' });
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [noteFor, setNoteFor] = useState(null); // the cart line whose note is being written
+  const [customOpen, setCustomOpen] = useState(false);
+  const [sendConfirm, setSendConfirm] = useState(false);
+  const [sentLines, setSentLines] = useState([]); // an open order's lines as they went to the kitchen
   const [tappedId, setTappedId] = useState(null); // brief tap-feedback flash on the tile just added
   const [plus, setPlus] = useState(null); // { id, n } — the "+1" that floats off the tile just tapped
 
@@ -199,7 +216,6 @@ export default function RestaurantPosPage() {
   const [guestError, setGuestError] = useState(null);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState(null);
 
@@ -257,7 +273,6 @@ export default function RestaurantPosPage() {
   const [tabError, setTabError] = useState(null);
   const [category, setCategory] = useState(''); // '' = every category
   const [cartOpen, setCartOpen] = useState(false); // the order as a full-screen sheet on a phone
-  const [cashGiven, setCashGiven] = useState('');
   const [toast, setToast] = useState(null);
   // The kitchen display (pages/KdsPage.jsx): what is ready to take out,
   // and a note sent with the order (restaurantKitchen.service.js).
@@ -269,7 +284,6 @@ export default function RestaurantPosPage() {
   const [refundFor, setRefundFor] = useState(null); // 'find' | an order id | null
   const [vipOpen, setVipOpen] = useState(null); // { startGuest } | null
   const [iouOpen, setIouOpen] = useState(false);
-  const [vipShort, setVipShort] = useState(false);
   const [vipKey, setVipKey] = useState(0);
   // The person's role on the till and the till's settings (TillSettings.jsx)
   const [tillAccess, setTillAccess] = useState(null);
@@ -295,7 +309,7 @@ export default function RestaurantPosPage() {
   }, []);
   useEffect(() => {
     if (!session || !session.token) return undefined;
-    const t = setInterval(() => loadKitchen(session.token), 15000);
+    const t = setInterval(() => { loadKitchen(session.token); loadTabs(session.token); }, 15000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -355,7 +369,7 @@ export default function RestaurantPosPage() {
     setPrinterError(null);
     try {
       const bytes = buildReceiptBytes(order, session.companyName, order.cashierName || session.employeeName, {
-        kickDrawer: order.paymentMethod === 'cash', footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra
+        kickDrawer: order.paymentMethod === 'cash' || (order.payments || []).some((p) => p.method === 'cash'), footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra
       });
       await printer.write(bytes);
     } catch (err) {
@@ -388,7 +402,10 @@ export default function RestaurantPosPage() {
   async function loadMostlyBought(token) {
     setMostlyBoughtLoading(true);
     try {
-      setMostlyBought(await posFetch('GET', '/pos/menu/mostly-bought', token));
+      const list = await posFetch('GET', '/pos/menu/mostly-bought', token);
+      setMostlyBought(list);
+      // Nothing sold yet to rank: every dish instead.
+      if (!list.length) setViewTab((v) => (v === 'mostly' ? 'all' : v));
     } catch {
       // Non-critical — the tab just shows its empty state if this fails.
     } finally {
@@ -435,7 +452,7 @@ export default function RestaurantPosPage() {
   }
   async function serveTicket(t) {
     try {
-      await posFetch('POST', '/pos/kds/tickets/' + t.id + '/served', session.token);
+      await posFetch('POST', '/pos/kds/tickets/' + t.id + '/served', session.token, { from: 'till' });
       setToast(tr('#{n} served.', { n: t.number }));
       loadKitchen();
     } catch (err) { setToast(err.message); }
@@ -454,7 +471,11 @@ export default function RestaurantPosPage() {
       const a = await posFetch('GET', '/pos/access', token || session.token);
       // Their role was changed to one that does not use the till.
       if (!a.can.till) { localStorage.removeItem(SESSION_KEY); setSession(null); setTillAccess(null); setLoginError(tr('Your role does not use the till. Ask a manager.')); return; }
-      setTillAccess(a);
+      setTillAccess((prev) => {
+        // A new sign-in starts orders the way the settings say.
+        if (!prev) setFulfillment(a.settings.defaultFulfillment || 'dine_in');
+        return a;
+      });
     }
     catch (err) {
       if (err.status === 401 || err.status === 403) { localStorage.removeItem(SESSION_KEY); setSession(null); setLoginError(err.status === 403 ? err.message : null); }
@@ -559,7 +580,10 @@ export default function RestaurantPosPage() {
     setReceipt(null);
     setRecentIds([]);
     setMostlyBought([]);
-    setViewTab('all');
+    setViewTab('mostly');
+    setFulfillment('dine_in');
+    setDelivery({ name: '', phone: '', address: '' });
+    setSentLines([]);
     setDrawer(null);
     setDrawerChecked(false);
     setClosedReport(null);
@@ -696,25 +720,25 @@ export default function RestaurantPosPage() {
   }
 
   var RECENT_LIMIT = 30;
-  // A cart line is keyed by menuItemId + variationId so two variations of
-  // the same dish ("M" and "Jellyfish") ring up as separate lines with
-  // their own price, instead of colliding into one.
-  function lineKey(menuItemId, variationId) { return menuItemId + '::' + (variationId || ''); }
-
+  // A cart line is its dish and variation ("M" and "Jellyfish" ring up
+  // apart) and its note: the same dish with a note for the kitchen is
+  // another line (tillShared.lineKey). A tap on a tile adds to the line
+  // with no note.
   function tapItem(item) {
     if (item.variations && item.variations.length) { setVariantPickerItem(item); return; }
     addToCart(item, null);
   }
   function addToCart(item, variation) {
-    const key = lineKey(item.id, variation && variation.id);
+    const line = {
+      menuItemId: item.id, variationId: variation ? variation.id : null,
+      name: variation ? item.name + ' — ' + variation.name : item.name,
+      price: variation ? variation.price : item.price, qty: 1, note: ''
+    };
+    const key = lineKey(line);
     setCart((prev) => {
-      const idx = prev.findIndex((l) => lineKey(l.menuItemId, l.variationId) === key);
+      const idx = prev.findIndex((l) => lineKey(l) === key);
       if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l));
-      return prev.concat([{
-        menuItemId: item.id, variationId: variation ? variation.id : null,
-        name: variation ? item.name + ' — ' + variation.name : item.name,
-        price: variation ? variation.price : item.price, qty: 1
-      }]);
+      return prev.concat([line]);
     });
     setRecentIds((prev) => [item.id].concat(prev.filter((id) => id !== item.id)).slice(0, RECENT_LIMIT));
     setTappedId(item.id);
@@ -722,13 +746,35 @@ export default function RestaurantPosPage() {
     setPlus((p) => ({ id: item.id, n: p ? p.n + 1 : 1 }));
     setVariantPickerItem(null);
   }
-  function changeQty(menuItemId, variationId, delta) {
-    const key = lineKey(menuItemId, variationId);
-    setCart((prev) => prev.map((l) => (lineKey(l.menuItemId, l.variationId) === key ? { ...l, qty: Math.max(0, l.qty + delta) } : l)).filter((l) => l.qty > 0));
+  // A dish not on the menu (till/OrderDialogs.jsx CustomItemDialog).
+  function addCustom(c) {
+    const line = { menuItemId: null, variationId: null, name: c.name, price: c.price, qty: c.qty, note: c.note || '', custom: { name: c.name, price: c.price, category: c.category || '' } };
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => lineKey(l) === lineKey(line));
+      if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + c.qty } : l));
+      return prev.concat([line]);
+    });
+    setCustomOpen(false);
+    setToast(tr('{name} added.', { name: c.name }));
   }
-  function removeLine(menuItemId, variationId) {
-    const key = lineKey(menuItemId, variationId);
-    setCart((prev) => prev.filter((l) => lineKey(l.menuItemId, l.variationId) !== key));
+  function changeQty(key, delta) {
+    setCart((prev) => prev.map((l) => (lineKey(l) === key ? { ...l, qty: Math.max(0, l.qty + delta) } : l)).filter((l) => l.qty > 0));
+  }
+  function removeLine(key) {
+    setCart((prev) => prev.filter((l) => lineKey(l) !== key));
+  }
+  // A note on one line; a line that ends up like another joins it.
+  function setLineNote(key, note) {
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => lineKey(l) === key);
+      if (idx < 0) return prev;
+      const next = { ...prev[idx], note: note };
+      const rest = prev.filter((_, i) => i !== idx);
+      const same = rest.findIndex((l) => lineKey(l) === lineKey(next));
+      if (same >= 0) return rest.map((l, i) => (i === same ? { ...l, qty: l.qty + next.qty } : l));
+      return prev.map((l, i) => (i === idx ? next : l));
+    });
+    setNoteFor(null);
   }
 
   const cartTotal = cart.reduce((sum, l) => sum + l.price * l.qty, 0);
@@ -736,54 +782,74 @@ export default function RestaurantPosPage() {
   const animatedShiftSales = useCountUp(shift ? shift.sales : 0, 700);
   const cartQtyById = useMemo(() => {
     const map = new Map();
-    cart.forEach((l) => map.set(l.menuItemId, (map.get(l.menuItemId) || 0) + l.qty));
+    cart.forEach((l) => { if (l.menuItemId) map.set(l.menuItemId, (map.get(l.menuItemId) || 0) + l.qty); });
     return map;
   }, [cart]);
 
-  // The settings may ask for the waiter of every table before it is kept open or charged.
-  function needsWaiter() {
-    if (!tillSettings.requireWaiter || !selectedTable || selectedWaiter) return false;
-    setToast(tr('Pick the waiter for this table.'));
-    setWaiterPickerOpen(true);
+  // What an order needs before it goes anywhere: dine in, its table (when
+  // the restaurant has tables) and, if the settings ask, the waiter; a
+  // delivery, who, a phone and where.
+  function orderReady() {
+    if (fulfillment === 'dine_in' && tables.length && !selectedTable) {
+      setToast(tr('Pick the table for this dine-in order.'));
+      setTablePickerOpen(true);
+      return false;
+    }
+    if (fulfillment === 'dine_in' && tillSettings.requireWaiter && selectedTable && !selectedWaiter) {
+      setToast(tr('Pick the waiter for this table.'));
+      setWaiterPickerOpen(true);
+      return false;
+    }
+    if (fulfillment === 'delivery' && !(delivery.name && delivery.phone && delivery.address)) {
+      setToast(tr('A delivery needs the customer\'s name, a phone and the location.'));
+      setDeliveryOpen(true);
+      return false;
+    }
     return true;
   }
-  function firstMethod() {
-    const allowed = tillSettings.paymentMethods.filter((k) => k !== 'iou' || can('iou'));
-    return allowed.includes('cash') ? 'cash' : allowed[0] || 'cash';
+  // Who and where, as the server wants them with an order.
+  function orderWho() {
+    const body = {
+      fulfillment: fulfillment,
+      tableId: fulfillment === 'dine_in' && selectedTable ? selectedTable.id : undefined,
+      waiterId: fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.id : undefined,
+      guestId: selectedGuest ? selectedGuest.id : undefined
+    };
+    if (fulfillment === 'delivery') Object.assign(body, { customerName: delivery.name, customerPhone: delivery.phone, deliveryAddress: delivery.address });
+    else if (selectedGuest) Object.assign(body, { customerName: selectedGuest.name, customerPhone: selectedGuest.phone || '' });
+    return body;
   }
+  function whereText() {
+    if (fulfillment === 'dine_in') return selectedTable ? selectedTable.name : currentTab ? currentTab.name : tr('No table');
+    if (fulfillment === 'pickup') return tr('Counter');
+    return delivery.address || tr('Delivery');
+  }
+  function payMethods() { return tillSettings.paymentMethods.filter((k) => k !== 'iou' || can('iou')); }
   function openCheckout() {
-    if (needsWaiter()) return;
+    if (!orderReady()) return;
     setCheckoutError(null);
-    setPaymentMethod(firstMethod());
-    setCashGiven('');
     setCartOpen(false);
     setCheckoutOpen(true);
   }
 
-  async function submitCheckout() {
+  async function submitCheckout(payments) {
     setCheckingOut(true);
     setCheckoutError(null);
     try {
-      const order = await posFetch('POST', '/pos/orders', session.token, {
-        items: cart.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty })),
-        paymentMethod: paymentMethod,
-        tableId: selectedTable ? selectedTable.id : undefined,
-        waiterId: selectedWaiter ? selectedWaiter.id : undefined,
-        guestId: selectedGuest ? selectedGuest.id : undefined,
+      const order = await posFetch('POST', '/pos/orders', session.token, Object.assign({
+        items: cart.map(lineBody),
+        payments: payments,
         tabId: currentTab ? currentTab.id : undefined,
-        cashTendered: paymentMethod === 'cash' && cashGiven !== '' ? Number(cashGiven) : undefined,
         kitchenNote: kitchenNote.trim() || undefined
-      });
+      }, orderWho()));
       // The order response only carries ids (see restaurantPos.service.js's
       // rowToOrder) — names come from what's already selected here, so the
       // receipt can show them without a second round trip.
-      setReceipt({ ...order, tableName: selectedTable && selectedTable.name, waiterName: selectedWaiter && selectedWaiter.name, guestName: selectedGuest && selectedGuest.name });
-      setCart([]);
-      setSelectedTable(null);
-      setSelectedWaiter(null);
-      setSelectedGuest(null);
-      setCurrentTab(null);
-      setKitchenNote(''); setNoteOpen(false);
+      setReceipt({
+        ...order, tableName: fulfillment === 'dine_in' && selectedTable ? selectedTable.name : null,
+        waiterName: fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : null, guestName: selectedGuest ? selectedGuest.name : (order.customerName || null)
+      });
+      clearOrder();
       setCheckoutOpen(false);
       loadShift();
       loadTabs();
@@ -797,7 +863,7 @@ export default function RestaurantPosPage() {
     }
   }
 
-  // ── open tables ──
+  // ── open orders ──
   function clearOrder() {
     setCart([]);
     setKitchenNote(''); setNoteOpen(false);
@@ -805,53 +871,81 @@ export default function RestaurantPosPage() {
     setSelectedWaiter(null);
     setSelectedGuest(null);
     setCurrentTab(null);
+    setSentLines([]);
+    setDelivery({ name: '', phone: '', address: '' });
+    setFulfillment(tillSettings.defaultFulfillment || 'dine_in');
   }
-  function keepOpen() {
-    if (needsWaiter()) return;
+  // "Send to kitchen": checked, then confirmed on the cashier's screen
+  // (till/OrderDialogs.jsx SendConfirmDialog), then saved as an open order
+  // and sent. An order with no table, customer or delivery is named first.
+  function sendToKitchen() {
+    if (!orderReady()) return;
     setTabError(null);
-    if (selectedTable || selectedGuest || currentTab) { saveTab(currentTab ? currentTab.label : ''); return; }
-    setKeepDialog({ label: '' });
+    if (fulfillment === 'dine_in' && !selectedTable && !selectedGuest && !currentTab) { setKeepDialog({ label: '' }); return; }
+    setSendConfirm(true);
+  }
+  function pickupLabel() {
+    if (currentTab && currentTab.label) return currentTab.label;
+    if (fulfillment === 'delivery') return delivery.name;
+    if (fulfillment === 'pickup') return selectedGuest ? selectedGuest.name : tr('Counter') + ' ' + now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
+    return '';
   }
   async function saveTab(label, table) {
     const tbl = table || selectedTable;
     setSavingTab(true);
     setTabError(null);
     try {
-      const saved = await posFetch('POST', '/pos/tabs', session.token, {
-        id: currentTab ? currentTab.id : undefined, label: label || '',
-        items: cart.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty })),
-        tableId: tbl ? tbl.id : undefined,
-        waiterId: selectedWaiter ? selectedWaiter.id : undefined,
-        guestId: selectedGuest ? selectedGuest.id : undefined,
+      const who = orderWho();
+      if (table) who.tableId = table.id;
+      const saved = await posFetch('POST', '/pos/tabs', session.token, Object.assign({
+        id: currentTab ? currentTab.id : undefined, label: label || pickupLabel() || '',
+        items: cart.map(lineBody),
         kitchenNote: kitchenNote.trim() || undefined
-      });
+      }, who, { tableId: fulfillment === 'dine_in' && tbl ? tbl.id : undefined }));
       setToast(saved.kitchenTicket
-        ? tr('{name} kept open and sent to the kitchen as #{n}.', { name: tabName(saved), n: saved.kitchenTicket.number })
-        : tr('{name} kept open. Pay it from Open tables.', { name: tabName(saved) }));
+        ? tr('{name} sent to the kitchen as #{n}.', { name: tabName(saved), n: saved.kitchenTicket.number })
+        : tr('{name} kept open. Pay it from Open orders.', { name: tabName(saved) }));
       loadKitchen();
       setKeepDialog(null);
+      setSendConfirm(false);
       setCartOpen(false);
       clearOrder();
       loadTabs();
       loadShift();
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
-      else if (keepDialog) setTabError(err.message);
+      else if (keepDialog || sendConfirm) setTabError(err.message);
       else setToast(err.message);
     } finally {
       setSavingTab(false);
     }
   }
-  function tabName(t) { return t.tableName || t.label || t.guestName || tr('Order'); }
+  function tabName(t) {
+    if (t.fulfillment === 'pickup' || t.fulfillment === 'delivery') return t.label || t.customerName || t.guestName || fulfillmentName(t.fulfillment);
+    return t.tableName || t.label || t.guestName || tr('Order');
+  }
   function openTab(t, pay) {
     if (cart.length && !(currentTab && currentTab.id === t.id) && !window.confirm(tr('Put the order on the till aside and open {name}?', { name: tabName(t) }))) return;
-    setCart(t.lines.map((l) => ({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, price: l.unitPrice, qty: l.qty })));
-    setSelectedTable(t.tableId ? { id: t.tableId, name: t.tableName } : null);
+    const lines = t.lines.map(lineFromTab);
+    setCart(lines);
+    setSentLines(lines);
+    setFulfillment(t.fulfillment || 'dine_in');
+    setDelivery({ name: t.customerName || '', phone: t.customerPhone || '', address: t.deliveryAddress || '' });
+    setSelectedTable(t.tableId ? tables.find((x) => x.id === t.tableId) || { id: t.tableId, name: t.tableName } : null);
     setSelectedWaiter(t.waiterId ? { id: t.waiterId, name: t.waiterName } : null);
-    setSelectedGuest(t.guestId ? { id: t.guestId, name: t.guestName } : null);
-    setCurrentTab({ id: t.id, label: t.label, name: tabName(t), createdAt: t.createdAt });
+    setSelectedGuest(t.guestId ? { id: t.guestId, name: t.guestName, phone: t.guestPhone || '' } : null);
+    setCurrentTab({ id: t.id, label: t.label, name: tabName(t), createdAt: t.createdAt, kitchen: t.kitchen });
     setTabsOpen(false);
-    if (pay) { setCheckoutError(null); setPaymentMethod(firstMethod()); setCashGiven(''); setCheckoutOpen(true); }
+    // The customer's accounts (VIP, IOU) for the payment screen.
+    if (t.guestId) refreshGuest(t.guestId, t.guestName);
+    if (pay) { setCheckoutError(null); setCheckoutOpen(true); }
+  }
+  async function refreshGuest(id, name) {
+    try {
+      const list = await posFetch('GET', '/pos/guests?q=' + encodeURIComponent(name || ''), session.token);
+      const g = list.find((x) => x.id === id);
+      if (g) setSelectedGuest(g);
+    } catch { /* the payment screen asks again */ }
   }
   async function dropTab(t) {
     if (!window.confirm(tr('Remove the open order for {name}? Nothing has been paid for it.', { name: tabName(t) }))) return;
@@ -891,12 +985,15 @@ export default function RestaurantPosPage() {
   }, [recentIds, searchedMenu]);
   const mostlyBoughtItems = useMemo(() => mostlyBought.filter((m) => matchesQuery(search, m.name, m.category)), [mostlyBought, search]);
 
+  // What sells most first, every dish last.
   const VIEW_TABS = [
-    { key: 'all', label: tr('All items'), icon: 'layers' },
+    { key: 'mostly', label: tr('Mostly bought'), icon: 'up' },
     { key: 'favorites', label: tr('Favorites'), count: favoriteItems.length, star: true },
     { key: 'recent', label: tr('Recent'), count: recentItems.length, icon: 'clock' },
-    { key: 'mostly', label: tr('Mostly bought'), icon: 'up' }
+    { key: 'all', label: tr('All items'), icon: 'layers' }
   ];
+  const menuCategories = useMemo(() => Array.from(new Set(menu.map((m) => m.category).filter(Boolean))).sort(), [menu]);
+  const liveTab = currentTab ? tabs.find((t) => t.id === currentTab.id) || null : null;
 
   function renderTile(m) {
     return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} canFavorite={can('favorites')} onTap={onTileTap} onFavorite={onTileFavorite} />;
@@ -1091,19 +1188,20 @@ export default function RestaurantPosPage() {
           <div className="pos-receipt-header">{session.companyName}</div>
           {tillSettings.receipt.extra && <div className="pos-receipt-extra">{tillSettings.receipt.extra}</div>}
           <div className="pos-receipt-meta">
-            {tr('Order {orderNo}', { orderNo: receipt.orderNo })}<br />
+            {tr('Order {orderNo}', { orderNo: receipt.orderNo })}{receipt.fulfillment ? ' · ' + fulfillmentName(receipt.fulfillment) : ''}<br />
             {new Date(receipt.createdAt).toLocaleString(activeIntlLocale())}<br />
             {receipt.tableName
               ? tr('Served by {name} at {table}', { name: server, table: receipt.tableName })
               : tr('Served by {name}', { name: server })}
             {receipt.waiterName && <><br />{tr('Cashier: {name}', { name: cashier })}</>}
-            {receipt.guestName && <><br />{tr('Guest:')} {receipt.guestName}</>}
+            {(receipt.guestName || receipt.customerName) && <><br />{tr('Customer:')} {receipt.guestName || receipt.customerName}</>}
+            {receipt.fulfillment === 'delivery' && <><br />{tr('Deliver to:')} {receipt.deliveryAddress}{receipt.customerPhone ? ' · ' + receipt.customerPhone : ''}</>}
           </div>
           <div className="pos-receipt-rule" />
           <div className="pos-receipt-lines">
             {receipt.items.map((it, i) => (
               <div key={i} className="pos-receipt-line">
-                <span>{it.qty} × {it.name}</span>
+                <span>{it.qty} × {it.name}{it.note ? <small className="pos-receipt-note">✎ {it.note}</small> : null}</span>
                 <span>{money(it.lineTotal)}</span>
               </div>
             ))}
@@ -1112,7 +1210,17 @@ export default function RestaurantPosPage() {
           <div className="pos-receipt-total">
             <span>{tr('Total')}</span><span>{money(receipt.total)}</span>
           </div>
-          {receipt.cashTendered != null && (
+          {receipt.payments && (receipt.payments.length > 1 || (receipt.payments[0] && (receipt.payments[0].currency !== 'GHS' || receipt.payments[0].tendered != null))) ? (
+            <div className="pos-receipt-lines pos-receipt-cash">
+              {receipt.payments.map((p, i) => (
+                <div key={i} className="pos-receipt-line">
+                  <span>{methodName(p.method)}{p.currency !== 'GHS' ? ' · ' + fmt(p.foreignAmount, p.currency) + ' @ ' + p.rate : ''}{p.tendered != null ? ' · ' + tr('received {amount}', { amount: fmt(p.tendered, p.currency) }) : ''}</span>
+                  <span>{money(p.amount)}</span>
+                </div>
+              ))}
+              {receipt.change > 0 && <div className="pos-receipt-line"><span>{tr('Change')}</span><span>{money(receipt.change)}</span></div>}
+            </div>
+          ) : receipt.cashTendered != null && (
             <div className="pos-receipt-lines pos-receipt-cash">
               <div className="pos-receipt-line"><span>{tr('Cash')}</span><span>{money(receipt.cashTendered)}</span></div>
               <div className="pos-receipt-line"><span>{tr('Change')}</span><span>{money(receipt.change)}</span></div>
@@ -1127,9 +1235,10 @@ export default function RestaurantPosPage() {
             </div>
           )}
           <div className="pos-receipt-footer">
-            {receipt.paymentMethod === 'vip' ? tr('Paid from {name}\'s VIP balance', { name: receipt.guestName || tr('the guest') })
-              : receipt.paymentMethod === 'iou' ? (receipt.iouPaidAt ? tr('IOU, paid {date}', { date: new Date(receipt.iouPaidAt).toLocaleDateString(activeIntlLocale()) }) : tr('IOU: owed by {name}', { name: receipt.guestName || tr('the guest') }))
-                : <>{tr('Paid by')} {codeLabel(receipt.paymentMethod)}</>}
+            {receipt.paymentMethod === 'vip' ? tr('Paid from {name}\'s VIP account', { name: receipt.guestName || tr('the customer') })
+              : receipt.paymentMethod === 'iou' ? (receipt.iouPaidAt ? tr('IOU, paid {date}', { date: new Date(receipt.iouPaidAt).toLocaleDateString(activeIntlLocale()) }) : tr('IOU: owed by {name}', { name: receipt.guestName || tr('the customer') }))
+                : receipt.paymentMethod === 'split' ? tr('Split payment')
+                  : <>{tr('Paid by')} {methodName(receipt.paymentMethod)}</>}
             {receipt.vipBalance != null && <><br />{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</>}
             {tillSettings.receipt.footer && <><br /><b className="pos-receipt-thanks">{tillSettings.receipt.footer}</b></>}
           </div>
@@ -1142,9 +1251,10 @@ export default function RestaurantPosPage() {
           )}
           {!receipt.reprint && (receipt.change == null || receipt.change === 0) && (
             <p className="pos-done-big">
-              {receipt.paymentMethod === 'iou' ? tr('{amount} owed by {name}', { amount: money(receipt.total), name: receipt.guestName || tr('the guest') })
-                : receipt.paymentMethod === 'vip' ? tr('{amount} from {name}\'s VIP balance', { amount: money(receipt.total), name: receipt.guestName || tr('the guest') })
-                  : tr('{amount} paid by {method}', { amount: money(receipt.total), method: codeLabel(receipt.paymentMethod) })}
+              {receipt.paymentMethod === 'iou' ? tr('{amount} owed by {name}', { amount: money(receipt.total), name: receipt.guestName || tr('the customer') })
+                : receipt.paymentMethod === 'vip' ? tr('{amount} from {name}\'s VIP account', { amount: money(receipt.total), name: receipt.guestName || tr('the customer') })
+                  : receipt.paymentMethod === 'split' ? tr('{amount} paid {n} ways', { amount: money(receipt.total), n: (receipt.payments || []).length })
+                    : tr('{amount} paid by {method}', { amount: money(receipt.total), method: methodName(receipt.paymentMethod) })}
             </p>
           )}
           {!receipt.reprint && receipt.vipBalance != null && <p className="dk-muted">{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</p>}
@@ -1171,14 +1281,6 @@ export default function RestaurantPosPage() {
   const cartCount = cart.reduce((n, l) => n + l.qty, 0);
   const categories = grouped.map(([c, items]) => [c, items.length]);
   const shownGroups = category ? grouped.filter(([c]) => c === category) : grouped;
-  const given = cashGiven === '' ? null : Number(cashGiven);
-  const change = given === null ? null : Math.round((given - cartTotal) * 100) / 100;
-  // the notes a guest is likely to hand over: the next round figure up
-  const roundUps = Array.from(new Set([10, 20, 50, 100, 200].map((step) => { const v = Math.ceil(cartTotal / step) * step; return v > cartTotal ? v : v + step; }))).sort((x, y) => x - y).slice(0, 3);
-  // The ways of paying the till's settings offer (IOU only to roles that may sell on IOU).
-  const METHODS = [['cash', tr('Cash'), 'cash'], ['mobile_money', tr('Mobile Money'), 'phone'], ['vip', tr('VIP'), 'spark'], ['iou', tr('IOU'), 'owed'], ['other', tr('Other'), 'info']]
-    .filter(([k]) => tillSettings.paymentMethods.includes(k) && (k !== 'iou' || can('iou')));
-  const needsGuest = (paymentMethod === 'vip' || paymentMethod === 'iou') && !selectedGuest;
   const avgOrder = shift && shift.orders ? shift.sales / shift.orders : 0;
 
   const orderPanel = (
@@ -1188,33 +1290,56 @@ export default function RestaurantPosPage() {
         <div className="pos-order-titles">
           <h2 className="pos-order-title">{currentTab ? currentTab.name : tr('New order')}</h2>
           <p className="dk-muted">
-            {currentTab ? tr('Open since {time}. Add to it, keep it open or charge it.', { time: timeOf(currentTab.createdAt) }) : cartCount ? (cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })) : tr('Tap a dish to start.')}
+            {currentTab ? tr('Open since {time}. Add to it, send the new round, or charge it.', { time: timeOf(currentTab.createdAt) }) : cartCount ? (cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })) : tr('Tap a dish to start.')}
           </p>
+          {liveTab && liveTab.kitchen && <KitchenTag kitchen={liveTab.kitchen} />}
         </div>
         <div className="pos-order-head-tools">
           {(cart.length > 0 || currentTab) && <button type="button" className="pos-link" onClick={clearOrder}>{currentTab ? tr('Put aside') : tr('Clear')}</button>}
           <button type="button" className="pos-icon-btn pos-sheet-close" onClick={() => setCartOpen(false)} aria-label={tr('Close')}>×</button>
         </div>
       </div>
-      <div className="pos-order-who">
-        <button type="button" className={selectedTable ? 'is-set' : ''} onClick={() => setTablePickerOpen(true)}>
-          <WhoGlyph name="table" /><small>{tr('Table')}</small><span>{selectedTable ? selectedTable.name : tr('None')}</span>
-        </button>
-        <button type="button" className={selectedWaiter ? 'is-set' : ''} onClick={() => setWaiterPickerOpen(true)}>
-          <WhoGlyph name="waiter" /><small>{tr('Waiter')}</small><span>{selectedWaiter ? selectedWaiter.name : tr('None')}</span>
-        </button>
+      <div className="tl-ful-switch" role="radiogroup" aria-label={tr('Dine in, pickup or delivery')}>
+        {FULFILLMENT.map((f) => (
+          <button key={f.key} type="button" role="radio" aria-checked={fulfillment === f.key} className={'is-' + f.key + (fulfillment === f.key ? ' is-on' : '')}
+            onClick={() => { setFulfillment(f.key); if (f.key === 'delivery' && !(delivery.name && delivery.phone && delivery.address)) setDeliveryOpen(true); }}>
+            <FulfillmentIcon kind={f.key} /><span>{tr(f.label)}</span>
+          </button>
+        ))}
+      </div>
+      <div className={'pos-order-who is-' + fulfillment}>
+        {fulfillment === 'dine_in' && (<>
+          <button type="button" className={selectedTable ? 'is-set' : tables.length ? 'is-needed' : ''} onClick={() => setTablePickerOpen(true)}>
+            <WhoGlyph name="table" /><small>{tr('Table')}</small><span>{selectedTable ? selectedTable.name : tables.length ? tr('Pick one') : tr('None')}</span>
+          </button>
+          <button type="button" className={selectedWaiter ? 'is-set' : ''} onClick={() => setWaiterPickerOpen(true)}>
+            <WhoGlyph name="waiter" /><small>{tr('Waiter')}</small><span>{selectedWaiter ? selectedWaiter.name : tr('None')}</span>
+          </button>
+        </>)}
+        {fulfillment === 'pickup' && (
+          <span className="pos-who-fixed"><Icon name="bag" /><small>{tr('Where')}</small><span>{tr('Counter')}</span></span>
+        )}
+        {fulfillment === 'delivery' && (
+          <button type="button" className={'pos-who-wide' + (delivery.address ? ' is-set' : ' is-needed')} onClick={() => setDeliveryOpen(true)}>
+            <Icon name="send" /><small>{tr('Deliver to')}</small><span>{delivery.address || tr('Location, name and phone')}</span>
+          </button>
+        )}
         <button type="button" className={selectedGuest ? 'is-set' : ''} onClick={openGuestPicker}>
-          <WhoGlyph name="guest" /><small>{tr('Guest')}</small><span>{selectedGuest ? selectedGuest.name : tr('None')}</span>
+          <WhoGlyph name="guest" /><small>{tr('Customer')}</small>
+          <span>{selectedGuest ? selectedGuest.name : fulfillment === 'delivery' && delivery.name ? delivery.name : tr('None')}</span>
+          {selectedGuest && (selectedGuest.vip || selectedGuest.iouAllowed) && (
+            <em className="pos-who-accts">{selectedGuest.vip && <b className="is-vip">{tr('VIP')}</b>}{selectedGuest.iouAllowed && <b className="is-iou">{tr('IOU')}</b>}</em>
+          )}
         </button>
       </div>
       {kitchen && kitchen.inUse && (noteOpen || kitchenNote ? (
         <div className="pos-knote">
           <input className="input" value={kitchenNote} maxLength={300} autoFocus={noteOpen && !kitchenNote} onChange={(e) => setKitchenNote(e.target.value)}
-            placeholder={tr('Note for the kitchen, e.g. no pepper, one without onions')} aria-label={tr('Note for the kitchen')} />
+            placeholder={tr('Note for the whole order, e.g. bring the drinks first')} aria-label={tr('Note for the kitchen')} />
           <button type="button" className="pos-link" onClick={() => { setKitchenNote(''); setNoteOpen(false); }}>{tr('Remove')}</button>
         </div>
       ) : (
-        <button type="button" className="pos-knote-add" onClick={() => setNoteOpen(true)}>✎ {tr('Add a note for the kitchen')}</button>
+        <button type="button" className="pos-knote-add" onClick={() => setNoteOpen(true)}>✎ {tr('Add a note for the whole order')}</button>
       ))}
       <div className="pos-lines">
         {!cart.length && (
@@ -1223,28 +1348,37 @@ export default function RestaurantPosPage() {
             <strong>{tr('Ready for the next order')}</strong>
             <p>{tr('Nothing on this order yet. Tap dishes on the left; tap again to add another.')}</p>
             <ol className="pos-steps">
-              <li><b>1</b>{tr('Tap the dishes')}</li>
-              <li><b>2</b>{tr('Pick a table if they sit down')}</li>
-              <li><b>3</b>{tr('Charge it, or keep it open')}</li>
+              <li><b>1</b>{tr('Dine in, pickup or delivery')}</li>
+              <li><b>2</b>{tr('Tap the dishes; ✎ adds a note to one')}</li>
+              <li><b>3</b>{tr('Send it to the kitchen, or charge it')}</li>
             </ol>
           </div>
         )}
-        {cart.map((l) => (
-          <div key={lineKey(l.menuItemId, l.variationId)} className="pos-line">
-            <span className="pos-line-dot" style={{ '--c': tileColor(l.name) }} aria-hidden="true">{tileInitial(l.name.replace(/^zq\s+/i, ''))}</span>
-            <div className="pos-line-main">
-              <span className="pos-line-name">{l.name}</span>
-              <span className="dk-muted">{money(l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
+        {cart.map((l) => {
+          const k = lineKey(l);
+          return (
+            <div key={k} className={'pos-line' + (l.custom ? ' is-custom' : '')}>
+              <span className="pos-line-dot" style={{ '--c': tileColor(l.name) }} aria-hidden="true">{l.custom ? '✦' : tileInitial(l.name.replace(/^zq\s+/i, ''))}</span>
+              <div className="pos-line-main">
+                <span className="pos-line-name">{l.name}</span>
+                <span className="dk-muted">{money(l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
+                <span className="pos-line-extra">
+                  {l.custom && <em className="tl-badge">{tr('not on the menu')}</em>}
+                  <button type="button" className={'pos-line-note' + (l.note ? ' is-set' : '')} onClick={() => setNoteFor(l)}>
+                    ✎ {l.note || tr('Add a note')}
+                  </button>
+                </span>
+              </div>
+              <div className="pos-stepper">
+                <button type="button" onClick={() => changeQty(k, -1)} aria-label={tr('Decrease')}>−</button>
+                <span>{l.qty}</span>
+                <button type="button" onClick={() => changeQty(k, 1)} aria-label={tr('Increase')}>+</button>
+              </div>
+              <span key={l.qty} className="pos-line-total">{money(l.price * l.qty)}</span>
+              <button type="button" className="pos-line-x" onClick={() => removeLine(k)} aria-label={tr('Remove')}>×</button>
             </div>
-            <div className="pos-stepper">
-              <button type="button" onClick={() => changeQty(l.menuItemId, l.variationId, -1)} aria-label={tr('Decrease')}>−</button>
-              <span>{l.qty}</span>
-              <button type="button" onClick={() => changeQty(l.menuItemId, l.variationId, 1)} aria-label={tr('Increase')}>+</button>
-            </div>
-            <span key={l.qty} className="pos-line-total">{money(l.price * l.qty)}</span>
-            <button type="button" className="pos-line-x" onClick={() => removeLine(l.menuItemId, l.variationId)} aria-label={tr('Remove')}>×</button>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="pos-order-foot">
         <span className="pos-ticket-edge" aria-hidden="true" />
@@ -1253,8 +1387,8 @@ export default function RestaurantPosPage() {
           <strong className={cart.length ? 'is-live' : ''}>{money(animatedCartTotal)}</strong>
         </div>
         <div className="pos-order-actions">
-          {can('keepOpen') && <button type="button" className="btn btn-secondary" disabled={!cart.length || savingTab} onClick={keepOpen} title={tr('Keep this order open to add to and pay later')}>
-            {savingTab ? tr('Saving…') : currentTab ? tr('Update open table') : tr('Keep open')}
+          {can('keepOpen') && <button type="button" className="btn btn-secondary pos-send" disabled={!cart.length || savingTab} onClick={sendToKitchen} title={tr('Send to the kitchen and keep the order open to pay later')}>
+            <Icon name="send" /><span>{savingTab ? tr('Sending…') : tr('Send to kitchen')}</span>
           </button>}
           {can('charge') && <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>}
         </div>
@@ -1314,43 +1448,28 @@ export default function RestaurantPosPage() {
           <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="clock" /></span>
             <span className="pos-stat-text">
-              <small>{tr('Open tables')}</small>
+              <small>{tr('Open orders')}</small>
               <strong>{tabs.length}</strong>
               <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
             </span>
           </button>
-          {can('iouPaid') && (
-          <button type="button" className={'pos-stat is-iou' + (shift && shift.iousOpen ? ' is-owed' : '')} onClick={() => setIouOpen(true)}>
-            <span className="pos-stat-ico" aria-hidden="true"><Icon name="owed" /></span>
-            <span className="pos-stat-text">
-              <small>{tr('IOUs')}</small>
-              <strong>{shift ? shift.iousOpen || 0 : 0}</strong>
-              <span>{shift && shift.iousOpen ? money(shift.iousOwed) : tr('nothing owed')}</span>
-            </span>
-          </button>
-          )}
         </div>
         <div className="pos-top-tools">
-          {can('vipTopUp') && <button type="button" className="btn btn-secondary tl-btn pos-tool is-vip" onClick={() => setVipOpen({})} title={tr('VIP guests')} aria-label={tr('VIP guests')}><Icon name="spark" /><span>{tr('VIP')}</span></button>}
-          {can('refund') && <button type="button" className="btn btn-secondary tl-btn pos-tool is-refund" onClick={() => setRefundFor('find')} title={tr('Refund a sale')} aria-label={tr('Refund a sale')}><Icon name="void" /><span>{tr('Refund')}</span></button>}
-          <button type="button" className="btn btn-secondary tl-btn pos-tool is-settings" onClick={() => setSettingsOpen(true)} title={tr('Till settings')} aria-label={tr('Till settings')}><Icon name="key" /><span>{tr('Settings')}</span></button>
-          {printer ? (
-            <span className="pos-printer" title={printer.name}>🖨 <span>{printer.name}</span></span>
-          ) : (
-            <>
-              {usbSupported() && (
-                <button type="button" className="btn btn-secondary tl-btn" disabled={!!pairingKind} onClick={pairUsb}>
-                  {pairingKind === 'usb' ? tr('Connecting…') : tr('USB printer')}
-                </button>
-              )}
-              {bluetoothSupported() && (
-                <button type="button" className="btn btn-secondary tl-btn" disabled={!!pairingKind} onClick={pairBluetooth}>
-                  {pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Bluetooth printer')}
-                </button>
-              )}
-            </>
-          )}
-          {themeButton}
+          {/* What is used now and then waits behind More (till/MoreMenu.jsx). */}
+          <MoreMenu
+            items={[
+              can('vipTopUp') && { key: 'vip', icon: 'spark', tone: 'vip', label: tr('VIP customers'), note: tr('Money put down, balances'), onClick: () => setVipOpen({}) },
+              can('iouPaid') && { key: 'iou', icon: 'owed', tone: 'iou', label: tr('IOUs'), note: shift && shift.iousOpen ? tr('{n} owed · {amount}', { n: shift.iousOpen, amount: money(shift.iousOwed) }) : tr('Nothing owed'), badge: shift && shift.iousOpen ? shift.iousOpen : 0, onClick: () => setIouOpen(true) },
+              can('refund') && { key: 'refund', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
+              { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
+              kitchen && kitchen.inUse && { key: 'kds', icon: 'bag', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
+              printer ? { key: 'printer', icon: 'receipt', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
+                : usbSupported() && { key: 'usb', icon: 'receipt', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
+              !printer && bluetoothSupported() && { key: 'bt', icon: 'receipt', label: pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect a Bluetooth printer'), disabled: !!pairingKind, onClick: pairBluetooth },
+              { key: 'theme', icon: <span className="tl-more-glyph">{theme === 'dark' ? '☀' : '☾'}</span>, label: theme === 'dark' ? tr('Light mode') : tr('Dark mode'), onClick: () => setTheme(theme === 'dark' ? 'light' : 'dark') }
+            ]}
+            extra={<DeviceLanguage className="pos-lang tl-more-lang" />}
+          />
           <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
         </div>
       </header>
@@ -1360,6 +1479,11 @@ export default function RestaurantPosPage() {
         <section className="pos-menu" aria-label={tr('Menu')}>
           <div className="pos-menu-tools">
             <div className="pos-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search the menu…')} /></div>
+            {can('customItem') && (
+              <button type="button" className="btn btn-secondary tl-btn tl-custom-btn" onClick={() => setCustomOpen(true)} title={tr('A dish that is not on the menu')}>
+                <span aria-hidden="true">✦</span>{tr('Not on the menu')}
+              </button>
+            )}
             <div className="dk-segment pos-seg" role="radiogroup" aria-label={tr('Show')}>
               {VIEW_TABS.map((t) => (
                 <button key={t.key} type="button" role="radio" aria-checked={viewTab === t.key} className={viewTab === t.key ? 'is-on' : ''} onClick={() => setViewTab(t.key)}>
@@ -1421,54 +1545,21 @@ export default function RestaurantPosPage() {
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {checkoutOpen && (
-        <div className="dialog-backdrop" onClick={() => !checkingOut && setCheckoutOpen(false)}>
-          <form className="dialog pos-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); submitCheckout(); }}>
-            <h2>{tr('Take payment')}</h2>
-            <div className="pos-pay-due"><span>{currentTab ? currentTab.name : tr('To pay')}</span><strong>{money(cartTotal)}</strong></div>
-            <div className="pos-methods" role="radiogroup" aria-label={tr('Payment method')}>
-              {METHODS.map(([k, label, icon]) => (
-                <button key={k} type="button" role="radio" aria-checked={paymentMethod === k} className={paymentMethod === k ? 'is-on' : ''} data-m={k} onClick={() => setPaymentMethod(k)}>
-                  <Icon name={icon} /><span>{label}</span>
-                </button>
-              ))}
-            </div>
-            <PayFor token={session.token} method={paymentMethod} guest={selectedGuest} total={cartTotal} refreshKey={vipKey}
-              onPickGuest={openGuestPicker} onTopUp={() => setVipOpen({ startGuest: selectedGuest })} onShort={setVipShort} />
-            {paymentMethod === 'cash' && (
-              <div className="pos-cash">
-                <label htmlFor="pos-cash-given" className="pos-big-label">{tr('Cash received')}</label>
-                <input id="pos-cash-given" className="input pos-big-input" type="number" min="0" step="0.01" inputMode="decimal" autoFocus
-                  value={cashGiven} onChange={(e) => setCashGiven(e.target.value)} placeholder={tr('Optional')} />
-                <div className="pos-quick">
-                  <button type="button" className={given === cartTotal ? 'is-on' : ''} onClick={() => setCashGiven(String(cartTotal))}>{tr('Exact')}</button>
-                  {roundUps.map((v) => <button key={v} type="button" className={given === v ? 'is-on' : ''} onClick={() => setCashGiven(String(v))}>{money(v)}</button>)}
-                </div>
-                {change !== null && (
-                  <div className={'pos-change' + (change < 0 ? ' is-bad' : '')}>
-                    <span>{change < 0 ? tr('Still to pay') : tr('Change to give')}</span>
-                    <strong>{money(Math.abs(change))}</strong>
-                  </div>
-                )}
-              </div>
-            )}
-            {checkoutError && <div className="error-banner">{checkoutError}</div>}
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary pos-complete" disabled={checkingOut || (paymentMethod === 'cash' && change !== null && change < 0) || needsGuest || (paymentMethod === 'vip' && vipShort)}>{checkingOut ? tr('Processing…') : tr('Complete sale')}</button>
-            </div>
-          </form>
-        </div>
+        <PayDialog token={session.token} title={currentTab ? currentTab.name : tr('To pay')} total={Math.round(cartTotal * 100) / 100} methods={payMethods()}
+          settings={tillSettings} customer={selectedGuest} refreshKey={vipKey} busy={checkingOut} error={checkoutError}
+          onPickCustomer={openGuestPicker} onTopUp={() => setVipOpen({ startGuest: selectedGuest })}
+          onCancel={() => setCheckoutOpen(false)} onComplete={submitCheckout} />
       )}
 
-      {keepDialog && (
+      {keepDialog && !sendConfirm && (
         <div className="dialog-backdrop" onClick={() => !savingTab && setKeepDialog(null)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); saveTab(keepDialog.label); }}>
-            <h2>{tr('Keep this order open')}</h2>
-            <p className="dk-muted">{tr('Give it a table or a name so anyone on the till can find it again and pay it later.')}</p>
+          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (keepDialog.label.trim()) setSendConfirm(true); }}>
+            <h2>{tr('Which order is this?')}</h2>
+            <p className="dk-muted">{tr('Give it a table or a name, so anyone on the till can find it again and pay it later. Then it goes to the kitchen.')}</p>
             {tables.length > 0 && (
               <div className="pos-picker-grid">
                 {tables.filter((t) => !tabs.some((x) => x.tableId === t.id)).map((t) => (
-                  <button key={t.id} type="button" className="pos-picker-tile" onClick={() => { setSelectedTable(t); saveTab('', t); }}>{t.name}</button>
+                  <button key={t.id} type="button" className="pos-picker-tile" onClick={() => { setSelectedTable(t); setKeepDialog(null); setSendConfirm(true); }}>{t.name}</button>
                 ))}
               </div>
             )}
@@ -1479,7 +1570,7 @@ export default function RestaurantPosPage() {
             {tabError && <div className="error-banner">{tabError}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setKeepDialog(null)} disabled={savingTab}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingTab || !keepDialog.label.trim()}>{savingTab ? tr('Saving…') : tr('Keep open')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingTab || !keepDialog.label.trim()}>{tr('Next')}</button>
             </div>
           </form>
         </div>
@@ -1488,20 +1579,21 @@ export default function RestaurantPosPage() {
       {tabsOpen && (
         <div className="dialog-backdrop" onClick={() => setTabsOpen(false)}>
           <div className="dialog pos-panel" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Open tables')}</h2>
-            <p className="dk-muted">{tr('Orders kept open to add to and pay later. They are not sales until they are paid.')}</p>
+            <h2>{tr('Open orders')}</h2>
+            <p className="dk-muted">{tr('Orders sent to the kitchen and kept open to add to and pay later. They are not sales until they are paid. The tag says where the food is.')}</p>
             {!tabs.length ? (
-              <div className="dk-empty"><Icon name="check" /><p>{tr('No open tables. Use Keep open on an order to hold it here.')}</p></div>
+              <div className="dk-empty"><Icon name="check" /><p>{tr('No open orders. Send an order to the kitchen to hold it here.')}</p></div>
             ) : (
               <ul className="dk-rows pos-tabs">
                 {tabs.map((t) => (
-                  <li key={t.id} className="dk-row">
-                    <span className="dk-lead-icon"><Icon name="clock" /></span>
+                  <li key={t.id} className={'dk-row tl-tab is-' + (t.fulfillment || 'dine_in')}>
+                    <span className={'dk-lead-icon tl-ful-ico is-' + (t.fulfillment || 'dine_in')} title={fulfillmentName(t.fulfillment || 'dine_in')}><FulfillmentIcon kind={t.fulfillment || 'dine_in'} /></span>
                     <div className="dk-row-main">
-                      <div className="dk-row-title">{tabName(t)}</div>
+                      <div className="dk-row-title">{tabName(t)} <KitchenTag kitchen={t.kitchen} compact /></div>
                       <div className="dk-muted dk-row-meta">
-                        {[t.lines.reduce((n, l) => n + l.qty, 0) === 1 ? tr('1 item') : tr('{n} items', { n: t.lines.reduce((n, l) => n + l.qty, 0) }), t.waiterName, tr('open since {time}', { time: timeOf(t.createdAt) }), t.openedBy ? tr('by {name}', { name: t.openedBy }) : null].filter(Boolean).join(' · ')}
+                        {[fulfillmentName(t.fulfillment || 'dine_in'), t.lines.reduce((n, l) => n + l.qty, 0) === 1 ? tr('1 item') : tr('{n} items', { n: t.lines.reduce((n, l) => n + l.qty, 0) }), t.waiterName, tr('open since {time}', { time: timeOf(t.createdAt) }), t.openedBy ? tr('by {name}', { name: t.openedBy }) : null].filter(Boolean).join(' · ')}
                       </div>
+                      {t.fulfillment === 'delivery' && <div className="dk-muted dk-row-meta tl-tab-deliver"><Icon name="send" /> {t.deliveryAddress} · {t.customerPhone}</div>}
                       {t.unavailable > 0 && <Status tone="warn">{t.unavailable === 1 ? tr('1 item is off the menu now') : tr('{n} items are off the menu now', { n: t.unavailable })}</Status>}
                     </div>
                     <div className="dk-row-side">
@@ -1536,8 +1628,10 @@ export default function RestaurantPosPage() {
                   <li key={t.id} className="dk-row">
                     <span className="pos-ready-no">#{t.number}</span>
                     <div className="dk-row-main">
-                      <div className="dk-row-title">{t.tableName || t.label || t.guestName || tr('Counter')}</div>
+                      <div className="dk-row-title">{t.fulfillment === 'pickup' ? (t.label || t.guestName || tr('Counter')) : t.fulfillment === 'delivery' ? (t.guestName || t.label) : (t.tableName || t.label || t.guestName || tr('Counter'))}
+                        {t.fulfillment && <span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>}</div>
                       <div className="dk-muted dk-row-meta">{[t.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: t.dishes }), t.waiterName, t.waitingMinutes ? tr('ready {n} min ago', { n: t.waitingMinutes }) : tr('just ready')].filter(Boolean).join(' · ')}</div>
+                      {t.fulfillment === 'delivery' && <div className="dk-muted dk-row-meta">{t.deliveryAddress} · {t.customerPhone}</div>}
                     </div>
                     <div className="dk-row-side">
                       <button type="button" className="btn btn-primary tl-btn" onClick={() => serveTicket(t)}>{tr('Mark served')}</button>
@@ -1567,7 +1661,7 @@ export default function RestaurantPosPage() {
             {shift && shift.byMethod.length > 0 && (
               <div className="pos-methods-sum">
                 {shift.byMethod.map((m) => (
-                  <div key={m.method}><span>{codeLabel(m.method)}</span><span className="dk-muted">{m.orders === 1 ? tr('1 order') : tr('{n} orders', { n: m.orders })}</span><strong>{money(m.total)}</strong></div>
+                  <div key={m.method}><span>{methodName(m.method)}</span><span className="dk-muted">{m.orders === 1 ? tr('1 order') : tr('{n} orders', { n: m.orders })}</span><strong>{money(m.total)}</strong></div>
                 ))}
               </div>
             )}
@@ -1609,8 +1703,8 @@ export default function RestaurantPosPage() {
                   {shift.recent.map((o) => (
                     <li key={o.id} className="dk-row">
                       <div className="dk-row-main">
-                        <div className="dk-row-title">{o.orderNo}</div>
-                        <div className="dk-muted dk-row-meta">{[timeOf(o.createdAt), o.tableName, o.items === 1 ? tr('1 item') : tr('{n} items', { n: o.items }), codeLabel(o.paymentMethod)].filter(Boolean).join(' · ')}</div>
+                        <div className="dk-row-title">{o.orderNo} <KitchenTag kitchen={o.kitchen} compact /></div>
+                        <div className="dk-muted dk-row-meta">{[timeOf(o.createdAt), o.fulfillment ? fulfillmentName(o.fulfillment) : null, o.tableName || o.customerName, o.items === 1 ? tr('1 item') : tr('{n} items', { n: o.items }), methodName(o.paymentMethod)].filter(Boolean).join(' · ')}</div>
                       </div>
                       <div className="dk-row-side">
                         <div className="dk-row-amount">{money(o.total)}</div>
@@ -1709,20 +1803,14 @@ export default function RestaurantPosPage() {
 
       {tablePickerOpen && (
         <div className="dialog-backdrop" onClick={() => setTablePickerOpen(false)}>
-          <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Table')}</h2>
-            <div className="pos-picker-grid">
-              {tables.map((t) => (
-                <button
-                  key={t.id} type="button"
-                  className={'pos-picker-tile' + (selectedTable && selectedTable.id === t.id ? ' pos-picker-tile-selected' : '')}
-                  onClick={() => { setSelectedTable(t); setTablePickerOpen(false); }}
-                >
-                  {t.name}
-                </button>
-              ))}
-              {!tables.length && <div className="pos-empty">{tr('No tables set up yet — add some from Restaurants → Tables in the main app.')}</div>}
-            </div>
+          <div className="dialog pos-picker-dialog tl-map-dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>{tr('Pick the table')}</h2>
+            <p className="dk-muted">{tr('Where they sit. A table with an open order shows its total and where its food is; tap it to open that order.')}</p>
+            <TableMapPicker tables={tables} tabs={tabs} selectedId={selectedTable ? selectedTable.id : null}
+              onPick={(t, tab) => {
+                if (tab && !(currentTab && currentTab.id === tab.id)) { setTablePickerOpen(false); openTab(tab, false); return; }
+                setSelectedTable(t); setFulfillment('dine_in'); setTablePickerOpen(false);
+              }} />
             <div className="dialog-actions">
               {selectedTable && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedTable(null); setTablePickerOpen(false); }}>{tr('Clear')}</button>}
               <button type="button" className="btn btn-primary" onClick={() => setTablePickerOpen(false)}>{tr('Done')}</button>
@@ -1758,7 +1846,8 @@ export default function RestaurantPosPage() {
       {guestPickerOpen && (
         <div className="dialog-backdrop" onClick={() => setGuestPickerOpen(false)}>
           <div className="dialog pos-picker-dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>{tr('Guest')}</h2>
+            <h2>{tr('Customer')}</h2>
+            <p className="dk-muted tl-small">{tr('VIP: has money put down. IOU: a manager lets them owe.')}</p>
             <div className="field">
               <input
                 className="input" value={guestSearch} placeholder={tr('Search name or phone…')} autoFocus
@@ -1771,14 +1860,23 @@ export default function RestaurantPosPage() {
                 <button
                   key={g.id} type="button"
                   className={'pos-picker-row' + (selectedGuest && selectedGuest.id === g.id ? ' pos-picker-row-selected' : '')}
-                  onClick={() => { setSelectedGuest(g); setGuestPickerOpen(false); }}
+                  onClick={() => {
+                    setSelectedGuest(g); setGuestPickerOpen(false);
+                    if (fulfillment === 'delivery') setDelivery((d) => ({ ...d, name: d.name || g.name, phone: d.phone || g.phone || '' }));
+                  }}
                 >
-                  {g.name}{g.phone ? ' · ' + g.phone : ''}
+                  <span>{g.name}{g.phone ? ' · ' + g.phone : ''}</span>
+                  {(g.vip || g.iouAllowed) && (
+                    <em className="pos-who-accts">
+                      {g.vip && <b className="is-vip" title={tr('VIP account: {amount}', { amount: money(g.vipBalance) })}>{tr('VIP')} {money(g.vipBalance)}</b>}
+                      {g.iouAllowed && <b className="is-iou" title={tr('IOU account')}>{tr('IOU')}{g.iouOwed > 0 ? ' · ' + money(g.iouOwed) : ''}</b>}
+                    </em>
+                  )}
                 </button>
               ))}
-              {!guestSearching && !guestResults.length && <div className="pos-empty">{tr('No matching guests.')}</div>}
+              {!guestSearching && !guestResults.length && <div className="pos-empty">{tr('No matching customers.')}</div>}
             </div>
-            <div className="pos-picker-divider">{tr('Or add a new guest')}</div>
+            <div className="pos-picker-divider">{tr('Or add a new customer')}</div>
             {guestError && <div className="error-banner">{guestError}</div>}
             <form onSubmit={submitNewGuest} className="pos-new-guest-form">
               <input className="input" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} placeholder={tr('Name')} required />
@@ -1793,6 +1891,22 @@ export default function RestaurantPosPage() {
         </div>
       )}
 
+      {noteFor && <NoteDialog line={noteFor} onClose={() => setNoteFor(null)} onSave={(n) => setLineNote(lineKey(noteFor), n)} />}
+      {customOpen && <CustomItemDialog categories={menuCategories} onClose={() => setCustomOpen(false)} onAdd={addCustom} />}
+      {deliveryOpen && (
+        <DeliveryDialog value={delivery} customer={selectedGuest} onClose={() => setDeliveryOpen(false)}
+          onPickCustomer={() => { setDeliveryOpen(false); openGuestPicker(); }}
+          onSave={(d) => { setDelivery(d); setFulfillment('delivery'); setDeliveryOpen(false); }} />
+      )}
+      {sendConfirm && (
+        <SendConfirmDialog cart={cart} sent={sentLines} fulfillment={fulfillment}
+          where={fulfillment === 'dine_in' ? (selectedTable ? selectedTable.name : (keepDialog && keepDialog.label) || (currentTab && currentTab.name) || (selectedGuest && selectedGuest.name) || '') : whereText()}
+          customer={selectedGuest ? selectedGuest.name : fulfillment === 'delivery' ? delivery.name : null}
+          waiter={fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : null} delivery={delivery} kitchenNote={kitchenNote.trim()}
+          busy={savingTab} error={tabError}
+          onClose={() => { setSendConfirm(false); setTabError(null); }}
+          onConfirm={() => saveTab(keepDialog && keepDialog.label ? keepDialog.label : (currentTab ? currentTab.label : ''))} />
+      )}
       {refundFor && (
         <RefundDialog token={session.token} startWith={refundFor === 'find' ? null : refundFor} onClose={() => setRefundFor(null)}
           onShowReceipt={(id) => { setRefundFor(null); reprint(id); }} onChanged={moneyChanged} onAuth={sessionEnded} />

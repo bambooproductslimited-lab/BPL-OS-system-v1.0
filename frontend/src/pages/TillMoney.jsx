@@ -26,7 +26,7 @@ const REFUND_WAYS = {
   vip: () => tr('Back to their VIP balance'),
   iou: () => tr('Off what they owe')
 };
-const REASONS = [() => tr('Wrong order'), () => tr('Food was cold or not good'), () => tr('Took too long'), () => tr('Charged twice'), () => tr('Guest changed their mind')];
+const REASONS = [() => tr('Wrong order'), () => tr('Food was cold or not good'), () => tr('Took too long'), () => tr('Charged twice'), () => tr('Customer changed their mind')];
 
 export function RefundDialog({ token, startWith, onClose, onShowReceipt, onChanged, onAuth }) {
   const [step, setStep] = useState(startWith ? 'pick' : 'find');
@@ -87,7 +87,7 @@ export function RefundDialog({ token, startWith, onClose, onShowReceipt, onChang
           <>
             <h2><span className="pos-money-ico is-refund"><Icon name="void" /></span>{tr('Refund a sale')}</h2>
             <p className="dk-muted">{tr('Pick the sale: today\'s and yesterday\'s are here, or search by its number, table or guest. A manager approves every refund with their PIN.')}</p>
-            <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Search: number, table or guest…')} autoFocus />
+            <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Search: number, table or customer…')} autoFocus />
             {error && <div className="error-banner">{error}</div>}
             {!sales ? <p className="dk-muted">{tr('Loading…')}</p> : !sales.length ? (
               <div className="dk-empty"><Icon name="info" /><p>{q ? tr('No sale matches "{search}".', { search: q }) : tr('No sales today or yesterday yet.')}</p></div>
@@ -253,10 +253,10 @@ export function VipDialog({ token, startGuest, onClose, onChanged, onAuth }) {
       <div className="dialog pos-panel pos-money" onClick={(e) => e.stopPropagation()}>
         {!open ? (
           <>
-            <h2><span className="pos-money-ico is-vip"><Icon name="spark" /></span>{tr('VIP guests')}</h2>
-            <p className="dk-muted">{tr('VIP guests put money down here, then pay for their orders with VIP at the till until it runs out.')}</p>
-            {!q && list && list.length > 0 && <div className="pos-vip-total"><span>{tr('Held for {n} VIP guests', { n: list.length })}</span><strong>{money(total)}</strong></div>}
-            <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find a guest by name or phone…')} autoFocus />
+            <h2><span className="pos-money-ico is-vip"><Icon name="spark" /></span>{tr('VIP customers')}</h2>
+            <p className="dk-muted">{tr('VIP customers put money down here, then pay for their orders with VIP at the till until it runs out.')}</p>
+            {!q && list && list.length > 0 && <div className="pos-vip-total"><span>{tr('Held for {n} VIP customers', { n: list.length })}</span><strong>{money(total)}</strong></div>}
+            <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find a customer by name or phone…')} autoFocus />
             {error && <div className="error-banner">{error}</div>}
             {!list ? <p className="dk-muted">{tr('Loading…')}</p> : (
               <ul className="dk-rows pos-tabs">
@@ -270,11 +270,11 @@ export function VipDialog({ token, startGuest, onClose, onChanged, onAuth }) {
                     <div className="dk-row-side"><div className={'dk-row-amount' + (g.balance > 0 ? ' pos-vip-bal' : '')}>{money(g.balance)}</div></div>
                   </li>
                 ))}
-                {!list.length && <li className="dk-empty"><Icon name="info" /><p>{q ? tr('No guest matches "{search}". Add them below.', { search: q }) : tr('No VIP guests yet. Find a guest, or add one below, and put their money down.')}</p></li>}
+                {!list.length && <li className="dk-empty"><Icon name="info" /><p>{q ? tr('No customer matches "{search}". Add them below.', { search: q }) : tr('No VIP customers yet. Find a customer, or add one below, and put their money down.')}</p></li>}
               </ul>
             )}
             <form className="pos-vip-new" onSubmit={addGuest}>
-              <span className="pos-money-h"><span>{tr('A new VIP guest')}</span></span>
+              <span className="pos-money-h"><span>{tr('A new VIP customer')}</span></span>
               <input className="input" value={newName} maxLength={100} onChange={(e) => setNewName(e.target.value)} placeholder={tr('Name')} aria-label={tr('Name')} />
               <input className="input" value={newPhone} maxLength={30} inputMode="tel" onChange={(e) => setNewPhone(e.target.value)} placeholder={tr('Phone')} aria-label={tr('Phone')} />
               <button type="submit" className="btn btn-secondary" disabled={busy || !newName.trim()}>{tr('Add')}</button>
@@ -316,7 +316,7 @@ export function VipDialog({ token, startGuest, onClose, onChanged, onAuth }) {
               </>
             )}
             <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => { setOpen(null); setFlash(null); setError(null); }} disabled={busy}>{tr('All VIP guests')}</button>
+              <button type="button" className="btn btn-secondary" onClick={() => { setOpen(null); setFlash(null); setError(null); }} disabled={busy}>{tr('All VIP customers')}</button>
               <button type="submit" className="btn btn-primary" disabled={busy || !(Number(amount) > 0)}>{busy ? tr('Saving…') : Number(amount) > 0 ? tr('Put down {amount}', { amount: money(Number(amount)) }) : tr('Put money down')}</button>
             </div>
           </form>
@@ -357,9 +357,9 @@ export function IouDialog({ token, onClose, onChanged, onAuth }) {
     <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
       <div className="dialog pos-panel pos-money" onClick={(e) => e.stopPropagation()}>
         <h2><span className="pos-money-ico is-iou"><Icon name="owed" /></span>{tr('IOUs')}</h2>
-        <p className="dk-muted">{tr('Sales a guest owes. When they pay, mark it paid here: cash goes into your drawer.')}</p>
+        <p className="dk-muted">{tr('Sales a customer owes. When they pay, mark it paid here: cash goes into your drawer.')}</p>
         {data && <div className="pos-iou-total"><span>{data.open.length === 1 ? tr('1 IOU not paid yet') : tr('{n} IOUs not paid yet', { n: data.open.length })}</span><strong>{money(data.owed)}</strong></div>}
-        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Search: guest, phone or number…')} />
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Search: customer, phone or number…')} />
         {flash && <div className="pos-money-flash" role="status"><Icon name="check" />{flash}</div>}
         {error && <div className="error-banner">{error}</div>}
         {!data ? <p className="dk-muted">{tr('Loading…')}</p> : !data.open.length ? (

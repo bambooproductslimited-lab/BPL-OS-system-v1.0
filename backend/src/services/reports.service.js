@@ -549,8 +549,9 @@ async function restaurantFinance(ctx, co, t, mtd, periods, expTrend, exp) {
     'FROM restaurant_orders WHERE company_id = $1', [co.id, mtd.from, mtd.to, mtd.prevFrom, mtd.prevTo]
   );
   var methodRes = await pool.query(
-    "SELECT payment_method AS method, sum(total - refunded_total) AS amount, count(*)::int AS orders FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' " +
-    'AND created_at::date BETWEEN $2 AND $3 GROUP BY payment_method ORDER BY amount DESC', [co.id, mtd.from, mtd.to]
+    // A split bill counts in each way it was paid (restaurantTillMoney.ORDER_METHODS_SQL).
+    'SELECT method, sum(net) AS amount, count(DISTINCT order_id)::int AS orders FROM ' + require('./restaurantTillMoney.service').ORDER_METHODS_SQL + ' x WHERE company_id = $1 ' +
+    'AND created_at::date BETWEEN $2 AND $3 GROUP BY method ORDER BY amount DESC', [co.id, mtd.from, mtd.to]
   );
   var dailyRes = await pool.query(
     "SELECT d::date AS day, coalesce(sum(o.total - o.refunded_total), 0) AS sales, count(o.id)::int AS orders FROM generate_series($2::date - 13, $2::date, interval '1 day') d " +
@@ -842,7 +843,7 @@ async function cashFlow(ctx, params) {
   // refunds paid back in cash or Mobile Money.
   var restRes = await pool.query(
     'SELECT method, sum(s) AS s FROM (' +
-    "  SELECT o.payment_method AS method, o.total AS s FROM restaurant_orders o WHERE o.status = 'completed' AND o.payment_method NOT IN ('vip', 'iou') AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +
+    "  SELECT o.method, o.amount AS s FROM " + require('./restaurantTillMoney.service').ORDER_METHODS_SQL + " o WHERE o.method NOT IN ('vip', 'iou') AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +
     "  UNION ALL SELECT o.iou_paid_method, o.iou_paid_amount FROM restaurant_orders o WHERE o.status = 'completed' AND o.iou_paid_method IS NOT NULL AND o.iou_paid_at::date BETWEEN $2 AND $3 AND " + sc.rest +
     "  UNION ALL SELECT o.method, o.amount FROM restaurant_vip_entries o WHERE o.kind = 'topup' AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +
     "  UNION ALL SELECT o.method, -o.amount FROM restaurant_refunds o WHERE o.method IN ('cash', 'mobile_money') AND o.created_at::date BETWEEN $2 AND $3 AND " + sc.rest +

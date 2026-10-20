@@ -71,8 +71,9 @@ test.before(async function () {
 test.after(async function () { await cleanup(); await pool.end(); });
 
 test('VIP: money put down is spent on sales, never more than is there', async function () {
-  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'vip' }), /pick the guest/);
-  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'vip', guestId: guest.id }), /has 0.00 on their VIP balance and this sale is 100.00/);
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'vip' }), /pick the customer/);
+  // Only a customer with a VIP account (money put down once) pays by VIP.
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'vip', guestId: guest.id }), /has no VIP account/);
   await assert.rejects(money.vipTopUp(token, { guestId: guest.id, amount: 0, method: 'cash' }), /greater than zero/);
   await assert.rejects(money.vipTopUp(token, { guestId: guest.id, amount: 50, method: 'card' }), /Paid with/);
   await assert.rejects(money.vipTopUp(token2, { guestId: guest.id, amount: 50, method: 'cash' }), /Open your cash drawer first/);
@@ -101,7 +102,10 @@ test('VIP: money put down is spent on sales, never more than is there', async fu
 });
 
 test('IOU: needs the guest, stays owed until paid, and the cash goes in the drawer', async function () {
-  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 3 }], paymentMethod: 'iou' }), /IOU needs the name of the guest/);
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 3 }], paymentMethod: 'iou' }), /needs the customer who owes it/);
+  // Only a customer a manager gave an IOU account may owe.
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 3 }], paymentMethod: 'iou', guestId: guest2.id }), /has no IOU account/);
+  await pool.query('UPDATE restaurant_guests SET iou_allowed = true WHERE id = ANY($1)', [[guest.id, guest2.id]]);
   var iou = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 3 }], paymentMethod: 'iou', guestId: guest2.id });
   var iou2 = await pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'iou', guestId: guest2.id });
   var list = await money.iouList(token);

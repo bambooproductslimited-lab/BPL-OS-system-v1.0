@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { posFetch } from '../lib/posApi';
 import { money } from '../lib/currency';
-import { tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { Icon } from '../components/DashKit';
+import { CURRENCY_LABEL, CURRENCY_NAME, FULFILLMENT, FulfillmentIcon, MethodGlyph } from './till/tillShared';
+import { ActivityTab, CustomersTab, FloorMapTab } from './till/SettingsTabs';
+import SalesReport from './till/SalesReport';
 import './TillSettings.css';
 
 // The till's settings, opened by a manager (backend:
 // restaurantTillAccess.service.js): each person's role, what each role may
-// do, the ways of paying the till offers, the receipt's own lines, signing
-// out after a while unused, a waiter for every table, and the kitchen
-// screen's amber and red. The server checks every rule; this only sets them.
+// do, the ways of paying the till offers and the dollar and yuan rates, the
+// receipt's own lines, signing out after a while unused, a waiter for every
+// table, the kitchen screen's amber and red and its printed tickets, the
+// floor map, the customers' IOU accounts, the sales report
+// (till/SalesReport.jsx) and the activity report (till/SettingsTabs.jsx).
+// The server checks every rule; this only sets them.
 
 const ROLE_LABEL = {
   manager: () => tr('Manager'), cashier: () => tr('Cashier'), waiter: () => tr('Waiter'), kitchen: () => tr('Kitchen'), none: () => tr('No access')
@@ -17,32 +23,38 @@ const ROLE_LABEL = {
 const ROLE_HINT = {
   manager: () => tr('Everything, and these settings.'),
   cashier: () => tr('Sells and runs a cash drawer.'),
-  waiter: () => tr('Keeps tables open for the cashier to charge.'),
+  waiter: () => tr('Sends orders to the kitchen for the cashier to charge.'),
   kitchen: () => tr('The kitchen screen only.'),
   none: () => tr('Cannot sign in to the till or the kitchen screen.')
 };
 const PERMISSION = {
   till: [() => tr('Use the till'), () => tr('Sign in to the till at all.')],
   charge: [() => tr('Take payments'), () => tr('Charge sales and open tables, with their own cash drawer.')],
-  keepOpen: [() => tr('Keep tables open'), () => tr('Start and add to open tables for the cashier to charge.')],
+  keepOpen: [() => tr('Send orders to the kitchen'), () => tr('Send an order to the kitchen and keep it open to pay later.')],
+  customItem: [() => tr('Add dishes not on the menu'), () => tr('Ring up something the menu does not have, at a price they type.')],
   removeTable: [() => tr('Remove open tables'), () => tr('Delete an open table nobody has paid for.')],
   refund: [() => tr('Refund sales'), () => tr('Start a refund; a manager still approves it.')],
   approveRefunds: [() => tr('Approve refunds'), () => tr('Type their PIN to approve a refund.')],
-  vipTopUp: [() => tr('Take VIP money'), () => tr('Put money down on a VIP guest\'s balance.')],
-  iou: [() => tr('Sell on IOU'), () => tr('Let a named guest owe a sale.')],
-  iouPaid: [() => tr('Take IOU payments'), () => tr('Mark what a guest owed as paid.')],
+  vipTopUp: [() => tr('Take VIP money'), () => tr('Put money down on a VIP customer\'s balance.')],
+  iou: [() => tr('Sell on IOU'), () => tr('Let a customer with an IOU account owe a sale.')],
+  iouPaid: [() => tr('Take IOU payments'), () => tr('Mark what a customer owed as paid.')],
   favorites: [() => tr('Change favourites'), () => tr('Star and unstar dishes for everyone.')],
   kds: [() => tr('Use the kitchen screen'), () => tr('Sign in to the kitchen screen.')]
 };
-const TILL_PERMS = ['charge', 'keepOpen', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites'];
+const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites'];
 const METHOD = {
-  cash: ['cash', () => tr('Cash'), () => tr('Into the cashier\'s drawer.')],
-  mobile_money: ['phone', () => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number.')],
-  vip: ['spark', () => tr('VIP'), () => tr('From money a VIP guest put down.')],
-  iou: ['owed', () => tr('IOU'), () => tr('A named guest pays later.')],
-  other: ['info', () => tr('Other'), () => tr('Paid some other way, outside the drawer.')]
+  cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or a currency below.')],
+  mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number.')],
+  alipay: [() => tr('Alipay'), () => tr('Scanned with the customer\'s Alipay.')],
+  wechat: [() => tr('WeChat Pay'), () => tr('Scanned with the customer\'s WeChat.')],
+  vip: [() => tr('VIP'), () => tr('From money a VIP customer put down.')],
+  iou: [() => tr('IOU'), () => tr('A customer with an IOU account pays later.')],
+  other: [() => tr('Other'), () => tr('Paid some other way, outside the drawer.')]
 };
-const TABS = [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']];
+const TABS = [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'],
+  ['customers', () => tr('Customers'), 'owed'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock'], ['sales', () => tr('Sales'), 'up'], ['activity', () => tr('Activity'), 'pulse']];
+// The floor map as the settings edit it: each table keyed (new ones too).
+function tablesDraftOf(tables) { return (tables || []).map((t) => ({ ...t, key: t.id })); }
 
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -52,14 +64,16 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
   const [data, setData] = useState(null);
   const [draft, setDraft] = useState(null);
   const [roles, setRoles] = useState({}); // employee id -> role or null, changed here
+  const [tables, setTables] = useState([]); // the floor map, as edited
+  const [customers, setCustomers] = useState({}); // customer id -> { iouAllowed, iouLimit }, changed here
   const [tab, setTab] = useState('people');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [flash, setFlash] = useState(null);
 
-  function fail(err) { if (err.status === 401) onAuth(); else setError(err.message); }
-  function take(d) { setData(d); setDraft(clone(d.settings)); setRoles({}); setStep('edit'); }
+  const fail = useCallback((err) => { if (err.status === 401) onAuth(); else setError(err.message); }, [onAuth]);
+  function take(d) { setData(d); setDraft(clone(d.settings)); setRoles({}); setTables(tablesDraftOf(d.tables)); setCustomers({}); setStep('edit'); }
   async function open(managerPin) {
     setBusy(true); setError(null);
     try { take(await posFetch('POST', '/pos/settings/open', token, managerPin ? { managerPin } : {})); }
@@ -70,7 +84,24 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
   }
   useEffect(() => { open(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = useMemo(() => !!data && (Object.keys(roles).length > 0 || JSON.stringify(draft) !== JSON.stringify(data.settings)), [data, draft, roles]);
+  // The tables added, changed or taken away on the floor map.
+  const tableChanges = useMemo(() => {
+    if (!data) return [];
+    const was = new Map(data.tables.map((t) => [t.id, t]));
+    return tables.filter((t) => {
+      if (!t.id) return !t.remove;
+      if (t.remove) return true;
+      const o = was.get(t.id);
+      return !o || ['name', 'mapX', 'mapY', 'shape', 'seats', 'area'].some((k) => o[k] !== t[k]);
+    }).map((t) => ({ id: t.id, name: t.name.trim(), mapX: t.mapX, mapY: t.mapY, shape: t.shape, seats: t.seats, area: (t.area || '').trim(), remove: t.remove || undefined }));
+  }, [data, tables]);
+  const dirty = useMemo(() => !!data && (Object.keys(roles).length > 0 || tableChanges.length > 0 || Object.keys(customers).length > 0 || JSON.stringify(draft) !== JSON.stringify(data.settings)),
+    [data, draft, roles, tableChanges, customers]);
+  const setCustomer = useCallback((id, v) => { setCustomers((c) => ({ ...c, [id]: v })); setFlash(null); }, []);
+  function setRate(c, field, value) {
+    const cur = draft.currencies[c];
+    set(['currencies', c], { ...cur, [field]: value, ...(field === 'rate' && !(Number(value) > 0) ? { on: false } : {}) });
+  }
   function set(path, value) {
     const next = clone(draft);
     let o = next;
@@ -100,7 +131,9 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
     try {
       const d = await posFetch('PUT', '/pos/settings', token, {
         managerPin: pin || undefined, settings: draft,
-        staff: Object.keys(roles).map((id) => ({ employeeId: id, role: roles[id] }))
+        staff: Object.keys(roles).map((id) => ({ employeeId: id, role: roles[id] })),
+        tables: tableChanges,
+        customers: Object.keys(customers).map((id) => ({ id, iouAllowed: customers[id].iouAllowed, iouLimit: customers[id].iouLimit }))
       });
       take(d); setFlash(tr('Saved. The till follows the new settings straight away.')); onSaved();
     } catch (err) { fail(err); } finally { setBusy(false); }
@@ -228,15 +261,50 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                     return (
                       <button key={m} type="button" role="switch" aria-checked={on} disabled={last} data-m={m} className={'ts-method' + (on ? ' is-on' : '')}
                         onClick={() => set(['paymentMethods'], on ? draft.paymentMethods.filter((x) => x !== m) : data.choices.paymentMethods.filter((x) => x === m || draft.paymentMethods.includes(x)))}>
-                        <span className="ts-method-ico"><Icon name={METHOD[m][0]} /></span>
-                        <span className="ts-method-text"><strong>{METHOD[m][1]()}</strong><small>{last ? tr('Keep at least one way of paying.') : METHOD[m][2]()}</small></span>
+                        <span className="ts-method-ico"><MethodGlyph method={m} /></span>
+                        <span className="ts-method-text"><strong>{METHOD[m][0]()}</strong><small>{last ? tr('Keep at least one way of paying.') : METHOD[m][1]()}</small></span>
                         <span className={'ts-switch' + (on ? ' is-on' : '')} aria-hidden="true"><i /></span>
                       </button>
                     );
                   })}
                 </div>
+                <div className="ts-fx">
+                  <div className="ts-fx-head">
+                    <strong>{tr('Foreign money at the till')}</strong>
+                    <small className="dk-muted">{tr('Customers can pay in US dollars or Chinese yuan (RMB). Set how many cedis one is worth; the till works out the price and gives change in cedis.')}</small>
+                  </div>
+                  {data.choices.currencies.map((c) => {
+                    const cur = draft.currencies[c];
+                    const rate = Number(cur.rate);
+                    return (
+                      <div key={c} className={'ts-fx-row' + (cur.on ? ' is-on' : '')}>
+                        <span className={'ts-fx-flag is-' + c.toLowerCase()} aria-hidden="true">{c === 'CNY' ? '¥' : '$'}</span>
+                        <span className="ts-fx-name"><strong>{CURRENCY_LABEL[c]}</strong><small>{tr(CURRENCY_NAME[c])}</small></span>
+                        <label className="ts-fx-rate">
+                          <span>{tr('1 {currency} =', { currency: CURRENCY_LABEL[c] })}</span>
+                          <input className="input" type="number" min="0" step="0.01" inputMode="decimal" value={cur.rate || ''} placeholder="0.00"
+                            onChange={(e) => setRate(c, 'rate', e.target.value === '' ? 0 : Number(e.target.value))} aria-label={tr('Cedis for one {currency}', { currency: CURRENCY_LABEL[c] })} />
+                          <span>GHS</span>
+                        </label>
+                        <button type="button" role="switch" aria-checked={cur.on} disabled={!(rate > 0)} className="ts-fx-switch" onClick={() => setRate(c, 'on', !cur.on)}
+                          title={rate > 0 ? '' : tr('Set the rate first.')} aria-label={tr('Take {currency} at the till', { currency: CURRENCY_LABEL[c] })}>
+                          <span className={'ts-switch' + (cur.on ? ' is-on' : '')} aria-hidden="true"><i /></span>
+                        </button>
+                        {rate > 0 && <small className="ts-fx-eg">{tr('e.g. a {amount} bill is {foreign}', { amount: money(100), foreign: CURRENCY_LABEL[c] + ' ' + (100 / rate).toFixed(2) })}</small>}
+                      </div>
+                    );
+                  })}
+                  <small className="dk-muted ts-fx-set">
+                    {draft.ratesSetAt ? tr('Rates last set {date} by {name}.', { date: new Date(draft.ratesSetAt).toLocaleString(activeIntlLocale(), { dateStyle: 'medium', timeStyle: 'short' }), name: draft.ratesSetBy || '—' }) : tr('No rates set yet. Check them every day: the till uses them for every sale.')}
+                  </small>
+                </div>
               </section>
             )}
+
+            {tab === 'map' && <FloorMapTab tables={tables} setTables={(t) => { setTables(t); setFlash(null); }} />}
+            {tab === 'customers' && <CustomersTab token={token} pin={pin} changes={customers} setChange={setCustomer} onFail={fail} />}
+            {tab === 'sales' && <SalesReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} />}
 
             {tab === 'receipts' && (
               <section className="ts-sec ts-receipt-sec">
@@ -281,8 +349,19 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                   </div>
                   <small className="dk-muted">{tr('So nobody sells under someone else\'s name on a till left signed in.')}</small>
                 </div>
+                <div className="field">
+                  <span className="ts-label">{tr('A new order starts as')}</span>
+                  <div className="ts-chips" role="radiogroup" aria-label={tr('A new order starts as')}>
+                    {FULFILLMENT.filter((f) => f.key !== 'delivery').map((f) => (
+                      <button key={f.key} type="button" role="radio" aria-checked={draft.defaultFulfillment === f.key} className={draft.defaultFulfillment === f.key ? 'is-on' : ''} onClick={() => set(['defaultFulfillment'], f.key)}>
+                        <FulfillmentIcon kind={f.key} /> {tr(f.label)}
+                      </button>
+                    ))}
+                  </div>
+                  <small className="dk-muted">{tr('The cashier can switch any order to dine in, pickup or delivery.')}</small>
+                </div>
                 <button type="button" role="switch" aria-checked={draft.requireWaiter} className="ts-toggle-row" onClick={() => set(['requireWaiter'], !draft.requireWaiter)}>
-                  <span><strong>{tr('Every table needs its waiter')}</strong><small>{tr('An order at a table cannot be kept open or charged without picking the waiter.')}</small></span>
+                  <span><strong>{tr('Every table needs its waiter')}</strong><small>{tr('An order at a table cannot be sent to the kitchen or charged without picking the waiter.')}</small></span>
                   <span className={'ts-switch' + (draft.requireWaiter ? ' is-on' : '')} aria-hidden="true"><i /></span>
                 </button>
                 <div className="ts-kitchen">
@@ -300,6 +379,10 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                       <small>{tr('min')}</small>
                     </label>
                   </div>
+                  <button type="button" role="switch" aria-checked={draft.kitchen.printReady} className="ts-toggle-row" onClick={() => set(['kitchen', 'printReady'], !draft.kitchen.printReady)}>
+                    <span className="ts-print-text"><Icon name="receipt" /><span><strong>{tr('Print a ticket when food is done')}</strong><small>{tr('Done on the kitchen screen prints a ticket saying who the food is for and where it goes: the table, pickup at the counter, or the delivery address. Off: the kitchen can still print one by hand.')}</small></span></span>
+                    <span className={'ts-switch' + (draft.kitchen.printReady ? ' is-on' : '')} aria-hidden="true"><i /></span>
+                  </button>
                 </div>
               </section>
             )}

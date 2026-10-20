@@ -5,6 +5,9 @@ import DeviceLanguage from '../components/DeviceLanguage';
 import { unlockAudio, playNewTicket } from '../kiosk/kioskSounds';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import { buildRunnerTicketBytes, bluetoothSupported, reconnectBluetoothPrinter, reconnectUsbPrinter, requestBluetoothPrinter, requestUsbPrinter, usbSupported } from '../lib/thermalPrinter';
+import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
+import './till/till.css';
 import '../components/DashKit.css';
 import './RestaurantPosPage.css';
 import './KdsPage.css';
@@ -30,6 +33,12 @@ import './KdsPage.css';
 // The screen asks the server every few seconds and keeps working through a
 // dropped connection (it shows the last it had, and says so). Timers run
 // on the server's clock, whatever the screen's own clock says.
+//
+// Each ticket says dine in, pickup or delivery (with the address and
+// phone), and each dish its note. When the till settings ask for it
+// (kitchen.printReady), finishing a ticket prints one for the runner: the
+// number, who it is for and where it goes, every dish — on a thermal
+// printer connected here, else through the device's print dialog.
 
 const SESSION_KEY = 'bamboo.kds.session';
 const STATION_KEY = 'bamboo.kds.station';
@@ -46,7 +55,11 @@ function mmss(ms) {
   return m >= 60 ? Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0') : m + ':' + String(s % 60).padStart(2, '0');
 }
 function timeOf(iso) { return new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }); }
-function whereOf(t) { return t.tableName || t.label || t.guestName || tr('Counter'); }
+function whereOf(t) {
+  if (t.fulfillment === 'pickup') return (t.label || t.guestName || '') + ' · ' + tr('Counter');
+  if (t.fulfillment === 'delivery') return t.guestName || t.label || tr('Delivery');
+  return t.tableName || t.label || t.guestName || tr('Counter');
+}
 
 export default function KdsPage() {
   const [session, setSession] = useState(null);
@@ -65,6 +78,11 @@ export default function KdsPage() {
   const [busy, setBusy] = useState(() => new Set());
   const [showRecent, setShowRecent] = useState(false);
   const [theme, setTheme] = useState(getInitialTheme);
+  // A thermal printer at the kitchen, and the ticket being printed through
+  // the print dialog when there is none.
+  const [printer, setPrinter] = useState(null);
+  const [printing, setPrinting] = useState(null);
+  const [paper, setPaper] = useState(null);
   const seenRef = useRef(null); // ticket ids already shown, to ding only for new ones
   const soundRef = useRef(sound);
   useEffect(() => { soundRef.current = sound; }, [sound]);
@@ -75,6 +93,20 @@ export default function KdsPage() {
   }, [theme]);
   useEffect(() => () => clearTheme(), []);
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    (async () => {
+      const usb = await reconnectUsbPrinter();
+      if (usb) { setPrinter(usb); return; }
+      const bt = await reconnectBluetoothPrinter();
+      if (bt) setPrinter(bt);
+    })();
+  }, []);
+  // The ticket in the print dialog: printed once it is on the page.
+  useEffect(() => {
+    if (!paper) return undefined;
+    const t = setTimeout(() => { window.print(); setPaper(null); }, 60);
+    return () => clearTimeout(t);
+  }, [paper]);
 
   const signOut = useCallback(() => {
     try { localStorage.removeItem(SESSION_KEY); } catch { /* nothing kept */ }
@@ -163,9 +195,44 @@ export default function KdsPage() {
       if (err.status === 401) signOut(); else if (err.status) setProblem(err.message); else setOffline(true);
     } finally { setBusy((b) => { const n = new Set(b); n.delete(key); return n; }); }
   }
-  const toggleItem = (i) => act(i.id, 'POST', '/pos/kds/items/' + i.id, { done: i.status !== 'done' });
-  const finish = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/done', { station });
-  const serve = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/served');
+  const printReady = !!(board && board.printReady);
+  async function printTicket(t) {
+    setPrinting(t.id);
+    try {
+      const full = await posFetch('POST', '/pos/kds/tickets/' + t.id + '/printed', session.token);
+      if (printer) await printer.write(buildRunnerTicketBytes(full, session.companyName));
+      else setPaper(full);
+    } catch (err) {
+      if (err.status === 401) signOut(); else setProblem(tr('Could not print the ticket: {message}', { message: err.message }));
+    } finally { setPrinting(null); }
+  }
+  async function toggleItem(i) {
+    unlockAudio();
+    setBusy((b) => new Set(b).add(i.id));
+    try {
+      const r = await posFetch('POST', '/pos/kds/items/' + i.id, session.token, { done: i.status !== 'done' });
+      await load(session, station);
+      // The last dish done: the ticket is ready — print it if asked.
+      if (printReady && r.status === 'ready' && i.status !== 'done') { const t = (board.cooking || []).find((x) => x.id === r.ticketId); if (t) printTicket(t); }
+    } catch (err) {
+      if (err.status === 401) signOut(); else if (err.status) setProblem(err.message); else setOffline(true);
+    } finally { setBusy((b) => { const n = new Set(b); n.delete(i.id); return n; }); }
+  }
+  async function finish(t) {
+    unlockAudio();
+    setBusy((b) => new Set(b).add(t.id));
+    try {
+      const r = await posFetch('POST', '/pos/kds/tickets/' + t.id + '/done', session.token, { station });
+      await load(session, station);
+      if (printReady && r.status === 'ready') printTicket(t);
+    } catch (err) {
+      if (err.status === 401) signOut(); else if (err.status) setProblem(err.message); else setOffline(true);
+    } finally { setBusy((b) => { const n = new Set(b); n.delete(t.id); return n; }); }
+  }
+  const serve = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/served', { from: 'kds' });
+  async function pair(kind) {
+    try { setPrinter(kind === 'usb' ? await requestUsbPrinter() : await requestBluetoothPrinter()); } catch (err) { setProblem(err.message); }
+  }
   const recall = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/recall');
   function pickStation(s) { setStation(s); writeKey(STATION_KEY, s); seenRef.current = null; setBoard(null); }
   function toggleSound() { const on = !sound; setSound(on); writeKey(SOUND_KEY, on ? 'on' : 'off'); if (on) { unlockAudio(); playNewTicket(); } }
@@ -257,6 +324,11 @@ export default function KdsPage() {
           <span className="kds-clock">{clock}</span>
           <button type="button" className={'kds-tool' + (sound ? ' is-on' : '')} onClick={toggleSound} aria-pressed={sound} title={sound ? tr('Sound on: a ding for each new ticket') : tr('Sound off')}>{sound ? '🔔' : '🔕'}</button>
           <button type="button" className="kds-tool" onClick={fullScreen} title={tr('Full screen')} aria-label={tr('Full screen')}>⛶</button>
+          {printReady && (printer
+            ? <span className="kds-tool is-text kds-printer" title={printer.name}>🖨 {tr('Printer ready')}</span>
+            : (usbSupported() || bluetoothSupported()) && (
+              <button type="button" className="kds-tool is-text" onClick={() => pair(usbSupported() ? 'usb' : 'bluetooth')} title={tr('Tickets print through the print dialog until a printer is connected.')}>🖨 {tr('Connect printer')}</button>
+            ))}
           <DeviceLanguage className="kds-lang" />
           {themeButton}
           <button type="button" className="kds-tool is-text" onClick={signOut}>{tr('Log out')}</button>
@@ -295,6 +367,12 @@ export default function KdsPage() {
                   <span className="kds-where"><strong>{whereOf(t)}</strong><small>{[t.waiterName, tr('sent {time}', { time: timeOf(t.createdAt) })].filter(Boolean).join(' · ')}</small></span>
                   <span className="kds-timer">{cancelled ? tr('Cancelled') : mmss(now - new Date(t.createdAt).getTime())}</span>
                 </header>
+                {t.fulfillment && (
+                  <p className={'kds-ful is-' + t.fulfillment}>
+                    <span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>
+                    {t.fulfillment === 'delivery' && <span className="kds-deliver">{t.deliveryAddress}{t.customerPhone ? ' · ' + t.customerPhone : ''}</span>}
+                  </p>
+                )}
                 {cancelled && <p className="kds-cancel">{tr('Taken off the order. Stop cooking it.')}</p>}
                 {t.note && <p className="kds-note"><span aria-hidden="true">✎</span>{t.note}</p>}
                 <ul className="kds-items">
@@ -303,7 +381,7 @@ export default function KdsPage() {
                       <button type="button" className={'kds-item is-' + i.status} disabled={i.status === 'cancelled' || busy.has(i.id)} onClick={() => toggleItem(i)}
                         aria-pressed={i.status === 'done'} title={i.status === 'done' ? tr('Done. Tap to put it back') : i.status === 'cancelled' ? tr('Taken off the order') : tr('Tap when it is done')}>
                         <b>{qtyText(i.qty)}×</b>
-                        <span className="kds-item-name">{i.name}{station === 'all' && i.stationName && <em>{i.stationName}</em>}</span>
+                        <span className="kds-item-name">{i.name}{station === 'all' && i.stationName && <em>{i.stationName}</em>}{i.note && <small className="kds-item-note">✎ {i.note}</small>}</span>
                         <i className="kds-check" aria-hidden="true">{i.status === 'done' ? '✓' : i.status === 'cancelled' ? '✕' : ''}</i>
                       </button>
                     </li>
@@ -315,7 +393,7 @@ export default function KdsPage() {
                 <footer className="kds-ticket-foot">
                   {cancelled
                     ? <button type="button" className="kds-btn is-clear" disabled={busy.has(t.id)} onClick={() => serve(t)}>{tr('OK, clear it')}</button>
-                    : <button type="button" className="kds-btn is-done" disabled={busy.has(t.id) || !mineLeft} onClick={() => finish(t)}>{tr('Done')} ✓</button>}
+                    : <button type="button" className="kds-btn is-done" disabled={busy.has(t.id) || !mineLeft} onClick={() => finish(t)}>{printReady ? tr('Done · print ticket') : tr('Done')} ✓</button>}
                 </footer>
               </article>
             );
@@ -334,9 +412,15 @@ export default function KdsPage() {
                   <strong>{whereOf(t)}</strong>
                   <small>{waitingFor ? tr('waiting for another station') : t.readyAt ? tr('ready {time} ago', { time: mmss(now - new Date(t.readyAt).getTime()) }) : ''}</small>
                 </div>
+                {t.fulfillment && t.fulfillment !== 'dine_in' && <p className="kds-ready-ful"><span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>{t.fulfillment === 'delivery' && <small>{t.deliveryAddress}</small>}</p>}
                 <p className="kds-ready-items">{t.items.filter((i) => i.status === 'done').map((i) => qtyText(i.qty) + '× ' + i.name).join(', ')}</p>
                 <div className="kds-ready-acts">
                   {!waitingFor && <button type="button" className="kds-btn is-serve" disabled={busy.has(t.id)} onClick={() => serve(t)}>{tr('Mark served')}</button>}
+                  {printReady && !waitingFor && (
+                    <button type="button" className="kds-btn is-ghost" disabled={printing === t.id} onClick={() => printTicket(t)}>
+                      🖨 {printing === t.id ? tr('Printing…') : t.printedAt ? tr('Print again') : tr('Print ticket')}
+                    </button>
+                  )}
                   {t.items.some((i) => i.status === 'done') && (
                     <button type="button" className="kds-btn is-ghost" disabled={busy.has(t.id)} onClick={() => act(t.id, 'POST', '/pos/kds/items/' + t.items.find((i) => i.status === 'done').id, { done: false })}>{tr('Back to cooking')}</button>
                   )}
@@ -360,6 +444,22 @@ export default function KdsPage() {
           )}
         </aside>
       </div>
+
+      {/* The runner's ticket, for the print dialog when no printer is connected. */}
+      {paper && (
+        <div className="kds-print" aria-hidden="true">
+          <p className="kds-print-co">{session.companyName}</p>
+          <p className="kds-print-no">#{paper.number} · {tr('READY')}</p>
+          <p className="kds-print-where">{paper.fulfillment === 'pickup' ? tr('Counter') : paper.fulfillment === 'delivery' ? tr('Delivery') : (paper.tableName || paper.label || tr('Counter'))}</p>
+          {paper.fulfillment === 'dine_in' && <p>{fulfillmentName(paper.fulfillment)}</p>}
+          {(paper.guestName || paper.label) && <p><b>{tr('For:')}</b> {paper.guestName || paper.label}</p>}
+          {paper.fulfillment === 'delivery' && <p><b>{tr('To:')}</b> {paper.deliveryAddress}<br />{paper.customerPhone}</p>}
+          {paper.waiterName && <p>{tr('Waiter: {name}', { name: paper.waiterName })}</p>}
+          <ul>{paper.items.map((i) => <li key={i.id}><b>{qtyText(i.qty)} ×</b> {i.name}{i.note && <em> — {i.note}</em>}</li>)}</ul>
+          {paper.note && <p>✎ {paper.note}</p>}
+          <p className="kds-print-time">{tr('Sent {time}', { time: timeOf(paper.createdAt) })}{paper.sentBy ? ' · ' + paper.sentBy : ''} · {tr('Ready {time}', { time: timeOf(new Date().toISOString()) })}</p>
+        </div>
+      )}
     </div>
   );
 }

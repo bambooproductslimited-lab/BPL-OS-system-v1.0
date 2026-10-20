@@ -34,6 +34,17 @@ router.post('/settings/open', posAuth, async function (req, res, next) {
 router.put('/settings', posAuth, async function (req, res, next) {
   try { res.json(await access.saveSettings(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// Customers' VIP and IOU accounts, what happened on the till and the
+// kitchen screen, and the sales — for a manager, with their PIN in the body.
+router.post('/settings/customers', posAuth, async function (req, res, next) {
+  try { res.json(await access.settingsCustomers(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/settings/activity', posAuth, async function (req, res, next) {
+  try { res.json(await access.activityReport(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/settings/sales', posAuth, async function (req, res, next) {
+  try { res.json(await access.salesReport(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 
 router.get('/menu', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.menuForSession(req.posToken)); } catch (e) { next(e); }
@@ -107,7 +118,11 @@ router.post('/kds/tickets/:id/done', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.finishTicket(req.posToken, req.params.id, req.body && req.body.station)); } catch (e) { next(e); }
 });
 router.post('/kds/tickets/:id/served', posAuth, async function (req, res, next) {
-  try { res.json(await kitchen.serveTicket(req.posToken, req.params.id)); } catch (e) { next(e); }
+  try { res.json(await kitchen.serveTicket(req.posToken, req.params.id, req.body && req.body.from)); } catch (e) { next(e); }
+});
+// The ticket printed for the runner when the food is done.
+router.post('/kds/tickets/:id/printed', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.printTicket(req.posToken, req.params.id)); } catch (e) { next(e); }
 });
 router.post('/kds/tickets/:id/recall', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.recallTicket(req.posToken, req.params.id)); } catch (e) { next(e); }

@@ -62,7 +62,7 @@ async function overview(ctx, companyId) {
       'FROM restaurant_order_items i JOIN restaurant_orders o ON o.id = i.order_id LEFT JOIN restaurant_menu_items m ON m.id = i.menu_item_id ' +
       "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at > now() - interval '30 days' GROUP BY 1, 2, 3 ORDER BY revenue DESC", [companyId]),
     pool.query(
-      "SELECT o.payment_method AS method, count(*) AS orders, sum(o.total - o.refunded_total) AS sales FROM restaurant_orders o WHERE o.company_id = $1 AND o.status = 'completed' " +
+      'SELECT o.method, count(DISTINCT o.order_id) AS orders, sum(o.net) AS sales FROM ' + require('./restaurantTillMoney.service').ORDER_METHODS_SQL + ' o WHERE o.company_id = $1 ' +
       "AND o.created_at > now() - interval '30 days' GROUP BY 1 ORDER BY sales DESC", [companyId]),
     pool.query(
       'SELECT e.id, e.first_name, e.last_name, e.photo_key, e.photo_updated_at, count(*) AS orders, sum(o.total - o.refunded_total) AS sales ' +
