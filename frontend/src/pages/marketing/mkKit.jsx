@@ -137,7 +137,9 @@ const GLYPH = {
   play: <><path d="M7 5v14l12-7z" /></>,
   stop: <><rect x="6" y="6" width="12" height="12" rx="2" /></>,
   moon: <><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" /></>,
-  gift: <><rect x="3" y="8" width="18" height="5" rx="1" /><path d="M5 13v8h14v-8M12 8v13M12 8C10 4 6.5 4.5 7 7c.3 1.4 3 1 5 1zM12 8c2-4 5.5-3.5 5-1-.3 1.4-3 1-5 1z" /></>
+  gift: <><rect x="3" y="8" width="18" height="5" rx="1" /><path d="M5 13v8h14v-8M12 8v13M12 8C10 4 6.5 4.5 7 7c.3 1.4 3 1 5 1zM12 8c2-4 5.5-3.5 5-1-.3 1.4-3 1-5 1z" /></>,
+  search: <><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></>,
+  x: <path d="M6 6l12 12M18 6 6 18" />
 };
 export function Glyph({ name, size }) {
   const s = size || 18;

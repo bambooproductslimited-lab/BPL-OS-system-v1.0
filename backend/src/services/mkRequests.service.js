@@ -76,24 +76,77 @@ async function visible(ctx, id) {
   return r;
 }
 
-// GET /api/mk/requests?scope=mine|all&company=
+// The board's filters (GET /api/mk/requests): a range of days on when it
+// was asked for (dateBy asked, the default), the date it is needed by
+// (needed) or when it was done (done); its type; one person on it — who
+// asked, leads it or is on the team; urgent only; late only (past the date
+// needed and not done); made by a routine; and words in its title, brief,
+// number (MR-0012), or the name of who asked or leads it.
+var DATE_BY = { asked: 'r.created_at', needed: 'r.due_on', done: 'r.done_at' };
+var ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function filtersOf(opts, args) {
+  var where = [];
+  function arg(v) { args.push(v); return '$' + args.length; }
+  var col = DATE_BY[opts.dateBy] || DATE_BY.asked;
+  if (ISO_DAY.test(opts.from || '')) where.push(col + ' >= ' + arg(opts.from) + '::date');
+  if (ISO_DAY.test(opts.to || '')) where.push(col + ' < ' + arg(opts.to) + "::date + interval '1 day'");
+  if (KINDS.indexOf(opts.kind) >= 0) where.push('r.kind = ' + arg(opts.kind));
+  if (UUID.test(opts.person || '')) {
+    var p = arg(opts.person);
+    where.push('(r.requested_by = ' + p + ' OR r.assigned_to = ' + p + ' OR EXISTS (SELECT 1 FROM marketing_request_members m WHERE m.request_id = r.id AND m.employee_id = ' + p + '))');
+  }
+  if (opts.urgent === '1') where.push("r.priority = 'urgent'");
+  if (opts.late === '1') where.push('r.due_on < ' + arg(S.todayIso()) + "::date AND r.status IN ('new', 'in_progress', 'review')");
+  if (opts.routine === '1') where.push('r.routine_id IS NOT NULL');
+  var q = String(opts.q || '').trim().slice(0, 80);
+  if (q) {
+    var w = arg('%' + q.replace(/[\\%_]/g, '\\$&') + '%');
+    where.push('(r.title ILIKE ' + w + ' OR r.brief ILIKE ' + w + " OR ('MR-' || lpad(r.number::text, 4, '0')) ILIKE " + w +
+      " OR (q.first_name || ' ' || q.last_name) ILIKE " + w + " OR (a.first_name || ' ' || a.last_name) ILIKE " + w + ')');
+  }
+  return where;
+}
+
+// GET /api/mk/requests?scope=mine|all&company=&from=&to=&dateBy=&kind=&person=&urgent=&late=&routine=&q=
+// The requests that match (up to 500), counted by step; and, for the page's
+// banner, the counts of all of them in scope whatever the filters (totals),
+// and everyone on any of them, to filter by.
 async function list(ctx, opts) {
+  opts = opts || {};
   var my = me(ctx);
-  var all = opts && opts.scope === 'all' && S.canRead(ctx);
+  var all = opts.scope === 'all' && S.canRead(ctx);
   var args = [], where = [];
   if (all) {
     if (opts.company) { var co = await S.company(opts.company); args.push(co.id); where.push('r.company_id = $' + args.length); }
   } else {
     args.push(my); where.push('(r.requested_by = $1 OR r.assigned_to = $1 OR EXISTS (SELECT 1 FROM marketing_request_members m WHERE m.request_id = r.id AND m.employee_id = $1))');
   }
-  var rows = (await pool.query(SELECT + (where.length ? 'WHERE ' + where.join(' AND ') : '') +
+  var scopeArgs = args.slice(), scopeWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  var filters = filtersOf(opts, args);
+  var rows = (await pool.query(SELECT + (where.concat(filters).length ? 'WHERE ' + where.concat(filters).join(' AND ') : '') +
     " ORDER BY CASE WHEN r.status IN ('new', 'in_progress', 'review') THEN 0 ELSE 1 END, r.priority = 'urgent' DESC, r.due_on NULLS LAST, r.created_at DESC LIMIT 500", args)).rows;
   var items = rows.map(out);
   var counts = {};
   STATUSES.forEach(function (s) { counts[s] = items.filter(function (i) { return i.status === s; }).length; });
+  var today = S.todayIso();
+  var t = (await pool.query(
+    'SELECT ' + STATUSES.map(function (st) { return "count(*) FILTER (WHERE r.status = '" + st + "')::int AS " + st; }).join(', ') +
+    ", count(*) FILTER (WHERE r.due_on < $" + (scopeArgs.length + 1) + "::date AND r.status IN ('new', 'in_progress', 'review'))::int AS overdue" +
+    ", count(*) FILTER (WHERE r.status = 'done' AND r.done_at >= date_trunc('month', $" + (scopeArgs.length + 1) + '::date))::int AS done_month ' +
+    'FROM marketing_requests r ' + scopeWhere, scopeArgs.concat([today]))).rows[0];
+  var people = (await pool.query(
+    'SELECT e.id, e.first_name, e.last_name FROM employees e WHERE e.id IN (' +
+    'SELECT r.requested_by FROM marketing_requests r ' + scopeWhere + ' UNION SELECT r.assigned_to FROM marketing_requests r ' + scopeWhere +
+    ' UNION SELECT m.employee_id FROM marketing_request_members m JOIN marketing_requests r ON r.id = m.request_id ' + scopeWhere +
+    ') ORDER BY e.first_name, e.last_name', scopeArgs)).rows;
+  var totals = { counts: {}, overdue: t.overdue, doneMonth: t.done_month };
+  STATUSES.forEach(function (st) { totals.counts[st] = t[st]; });
   return {
     scope: all ? 'all' : 'mine', canManage: ctx.can('marketing.manage'), canSeeAll: S.canRead(ctx),
-    requests: items, counts: counts, overdue: items.filter(function (i) { return i.overdue; }).length
+    requests: items, counts: counts, overdue: items.filter(function (i) { return i.overdue; }).length,
+    filtered: filters.length > 0, more: rows.length === 500, totals: totals,
+    people: people.map(function (e) { return { id: e.id, name: S.employeeName(e.first_name, e.last_name) }; })
   };
 }
 

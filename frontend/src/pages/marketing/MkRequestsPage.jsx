@@ -11,6 +11,8 @@ import {
   useProtectedImage, webLink
 } from './mkKit';
 import RequestsSummary from './MkRequestsSummary';
+import RequestFilters from './MkRequestFilters';
+import { filterQuery, noFilters } from './mkReqFilter';
 
 // Requests to marketing (backend mkRequests.service.js), for everyone:
 // ask for a flyer, a post, a banner, a video, photos… with a brief and the
@@ -27,6 +29,12 @@ import RequestsSummary from './MkRequestsSummary';
 // months on a day — with the same brief, lead and team.
 
 const LANES = ['new', 'in_progress', 'review', 'done'];
+const DONE_SHOWN = 12; // done requests on the board until "Show all"
+// The board's filters, kept for this visit to the app (a tab's session).
+const FILTERS_KEY = 'bamboo.mk.requestFilters';
+function savedFilters() {
+  try { const f = JSON.parse(sessionStorage.getItem(FILTERS_KEY) || 'null'); return f && f.unit ? { ...noFilters(todayIso()), ...f } : null; } catch { return null; }
+}
 const STEPS = ['new', 'in_progress', 'review', 'done'];
 const PLACEHOLDER = msg('What is it for? What must it say? Sizes, where it will be used, anything it must include…');
 
@@ -45,10 +53,14 @@ export default function MkRequestsPage() {
   const [toast, setToast] = useState(null);
   const [presenting, setPresenting] = useState(false);
   const [version, setVersion] = useState(0); // the summary reloads when the board does
+  const [filters, setFilters] = useState(() => savedFilters() || noFilters(todayIso()));
+  const [allDone, setAllDone] = useState(false);
+  useEffect(() => { try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* not kept */ } }, [filters]);
+  const query = new URLSearchParams({ scope, ...filterQuery({ ...filters, company: scope === 'all' ? filters.company : '' }) }).toString();
 
   // Marketing starts on everyone's requests; everyone else on their own.
   const loadedOnce = useRef(false);
-  const load = useCallback(() => api.get('/mk/requests?scope=' + scope).then((d) => { setData(d); setVersion((v) => v + 1); if (d.canSeeAll && scope === 'mine' && !loadedOnce.current) { loadedOnce.current = true; setScope('all'); } }).catch((e) => setError(e.message)), [scope]);
+  const load = useCallback(() => api.get('/mk/requests?' + query).then((d) => { setData(d); setVersion((v) => v + 1); if (d.canSeeAll && scope === 'mine' && !loadedOnce.current) { loadedOnce.current = true; setScope('all'); } }).catch((e) => setError(e.message)), [query, scope]);
   useEffect(() => { load(); }, [load]);
   const loadRoutines = useCallback(() => api.get('/mk/routines?scope=' + scope).then(setRoutines).catch(() => setRoutines([])), [scope]);
   useEffect(() => { loadRoutines(); }, [loadRoutines]);
@@ -69,10 +81,14 @@ export default function MkRequestsPage() {
 
   if (error) return <div className="dk mk"><div className="error-banner">{error}</div></div>;
   if (!data) return <div className="dk mk"><p className="eyebrow">{tr('Loading…')}</p></div>;
+  // The banner counts every request in scope; the board, those the filters let through.
   const c = data.counts;
-  const open_ = c.new + c.in_progress + c.review;
-  const doneMonth = data.requests.filter((r) => r.status === 'done' && r.doneAt && String(r.doneAt).slice(0, 7) === todayIso().slice(0, 7)).length;
+  const t = data.totals.counts;
+  const open_ = t.new + t.in_progress + t.review;
+  const total = Object.values(t).reduce((a, n) => a + n, 0);
   const declined = data.requests.filter((r) => r.status === 'declined');
+  const setFilter = (patch) => setFilters((o) => ({ ...o, ...patch }));
+  const clearFilters = () => setFilters(noFilters(todayIso()));
 
   return (
     <div className="dk mk">
@@ -87,9 +103,9 @@ export default function MkRequestsPage() {
         </>}
         stats={[
           { glyph: 'inbox', value: String(open_), label: data.scope === 'all' ? tr('open requests') : tr('of yours open') },
-          { glyph: 'sparkle', value: String(c.new), label: tr('not taken on yet'), tone: c.new ? 'alert' : '' },
-          { glyph: 'clock', value: String(data.overdue), label: tr('past the date needed'), tone: data.overdue ? 'bad' : '' },
-          { glyph: 'check', value: String(doneMonth), label: tr('done this month'), tone: doneMonth ? 'good' : '' }
+          { glyph: 'sparkle', value: String(t.new), label: tr('not taken on yet'), tone: t.new ? 'alert' : '' },
+          { glyph: 'clock', value: String(data.totals.overdue), label: tr('past the date needed'), tone: data.totals.overdue ? 'bad' : '' },
+          { glyph: 'check', value: String(data.totals.doneMonth), label: tr('done this month'), tone: data.totals.doneMonth ? 'good' : '' }
         ]} />
 
       <Section title={data.scope === 'all' ? tr('Every request') : tr('Your requests')} sub={tr('Left to right: new, being worked on, ready for the one who asked to check, done. Press a card to open it.')}
@@ -100,24 +116,35 @@ export default function MkRequestsPage() {
             ))}
           </div>
         )}>
+        {total > 0 && (
+          <RequestFilters f={filters} onSet={setFilter} onClear={clearFilters} people={data.people} companies={companies}
+            showCompany={data.scope === 'all' && companies.length > 1} shown={data.requests.length} total={total} />
+        )}
         {data.requests.length ? (
           <div className="mk-board">
             {LANES.map((lane) => {
-              const items = data.requests.filter((r) => r.status === lane).slice(0, lane === 'done' ? 12 : 100);
+              const all = data.requests.filter((r) => r.status === lane);
+              const items = lane === 'done' && !allDone ? all.slice(0, DONE_SHOWN) : all;
               return (
                 <div key={lane} className={'mk-lane is-' + lane}>
                   <div className="mk-lane-head"><i />{L(REQUEST_STATUS, lane)}<span>{c[lane]}</span></div>
                   {items.map((r) => <RequestCard key={r.id} r={r} me={me} onOpen={() => open(r.id)} />)}
                   {!items.length && <p className="mk-muted" style={{ margin: '4px 6px' }}>{lane === 'new' ? tr('Nothing waiting.') : tr('Nothing here.')}</p>}
+                  {items.length < all.length && <button type="button" className="mk-btn is-ghost is-small mk-lane-more" onClick={() => setAllDone(true)}>{tr('Show all {n} done', { n: all.length })}</button>}
                 </div>
               );
             })}
           </div>
+        ) : data.filtered ? (
+          <MkEmpty glyph="search" title={tr('Nothing matches these filters')} action={<button type="button" className="mk-btn is-primary" onClick={clearFilters}>{tr('Clear all')}</button>}>
+            {tr('Try another day, week, month or year, or take a filter off.')}
+          </MkEmpty>
         ) : (
           <MkEmpty glyph="inbox" title={tr('No requests yet')} action={<button type="button" className="mk-btn is-primary" onClick={() => setAsking(true)}>{tr('Ask for something')}</button>}>
             {tr('Ask marketing for anything that needs designing, writing, photographing or filming. Say what it is for and when you need it.')}
           </MkEmpty>
         )}
+        {data.more && <p className="mk-muted">{tr('Showing the first 500. Narrow the dates to see the rest.')}</p>}
         {declined.length > 0 && (
           <details className="mk-card" style={{ padding: '10px 14px' }}>
             <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{tr('Declined ({n})', { n: declined.length })}</summary>
