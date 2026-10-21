@@ -66,6 +66,17 @@
 :root[data-theme='dark'] .dm-trail { stroke: #60a5fa; }
 .dm-map.is-satellite .dm-trail, .dm-map.is-satellite .dm-route { stroke: #38bdf8; }
 
+/* Google's road, as on its own map: clear blue, slow orange, jammed red,
+   on a light edge; behind the rider, grey. */
+.dm-road-case { stroke: #ffffff; }
+.dm-road.speed-clear { stroke: #1a73e8; }
+.dm-road.speed-slow { stroke: #f29900; }
+.dm-road.speed-jam { stroke: #d93025; }
+.dm-road.is-done { stroke: #9aa0a6; }
+:root[data-theme='dark'] .dm-road-case { stroke: #0b1220; }
+:root[data-theme='dark'] .dm-road.speed-clear { stroke: #4c8df6; }
+.dm-map.is-satellite .dm-road-case { stroke: #0b1220; }
+
 /* The time and distance left, riding on the way. */
 .dm-chip { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); padding: 4px 9px; font: 800 11.5px/1.2 var(--font-heading, system-ui), system-ui, sans-serif; white-space: nowrap;
   color: #fff; border-radius: 999px; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 2px solid #fff; box-shadow: 0 8px 18px -8px rgba(15, 23, 42, .7); pointer-events: none; }

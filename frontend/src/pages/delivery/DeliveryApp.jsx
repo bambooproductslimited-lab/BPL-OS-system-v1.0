@@ -11,7 +11,7 @@ import { ActiveCard, DoneCard, NewOrderCard, TurnedDownCard, WaitingCard } from 
 import { SendDialog, SettingsDialog } from './DlDialogs';
 import RidersPanel from './DlRiders';
 import { money } from '../../lib/currency';
-import { chipOf, kmText, minText, payName, riderSpot, statusName, vehicleEmoji, vehicleName, wayOf } from './dlShared';
+import { chipOf, kmText, minText, payName, riderSpot, statusName, trafficMinutes, vehicleEmoji, vehicleName, wayOf } from './dlShared';
 import '../till/till.css';
 import '../../components/DashKit.css';
 import '../RestaurantPosPage.css';
@@ -182,7 +182,9 @@ function Desk({ session, onSignOut, themeButton }) {
       const key = 'd:' + d.id;
       const on = !selected || selected === key;
       const spot = riderSpot(d, here, now, fetchedAt);
-      const chip = chipOf(d, spot, now);
+      const way = spot ? wayOf(d, here, spot, now) : null;
+      const chip = way ? way.chip : chipOf(d, spot, now);
+      const jam = trafficMinutes(d);
       if (d.customer.lat != null) mk.push({ id: key + ':home', kind: 'home', tone: 'active', lat: d.customer.lat, lng: d.customer.lng, emoji: '🏠', label: d.customer.name, sub: d.ref, active: selected === key, fit: on, onClick: () => pick(key),
         info: [d.ref + ' · ' + d.customer.name, where(d.customer), d.items.slice(0, 3).join(', ') + (d.items.length > 3 ? '…' : ''),
           d.toCollect ? money(d.toCollect) + ' ' + tr('to collect · {method}', { method: payName(d.collectMethod || 'cash') }) : tr('Paid at the till'), chip] });
@@ -190,8 +192,7 @@ function Desk({ session, onSignOut, themeButton }) {
         mk.push({ id: key + ':rider', kind: 'rider', lat: spot.lat, lng: spot.lng, emoji: vehicleEmoji(d.rider.vehicle), live: spot.live, label: d.rider.name,
           sub: (spot.live ? tr('live') : tr('estimated')) + ' · ' + statusName(d.status), fit: on, onClick: () => pick(key),
           info: [d.rider.name + ' · ' + d.ref, vehicleName(d.rider.vehicle) + (d.rider.plate ? ' · ' + d.rider.plate : ''), statusName(d.status) + (chip ? ' · ' + chip : ''),
-            spot.live ? tr('Live from their phone') : tr('Estimated from the time on the way'), d.rider.phone ? '📞 ' + d.rider.phone : ''] });
-        const way = wayOf(d, here, spot, now);
+            spot.live ? tr('Live from their phone') : tr('Estimated from the time on the way'), jam ? '🚦 ' + tr('{m} more than usual, traffic', { m: minText(jam) }) : '', d.rider.phone ? '📞 ' + d.rider.phone : ''] });
         if (way) rt.push({ ...way, id: key, tone: 'go' });
       }
     });

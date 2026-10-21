@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { money } from '../../lib/currency';
 import { tr } from '../../lib/i18n.jsx';
-import { kmText, minText, navLink, payName, riderSpot, sinceText, statusName, stepOf, telLink, timeOf, vehicleEmoji, vehicleName, waLink } from './dlShared';
+import { kmText, minText, navLink, payName, rideLeft, riderSpot, sinceText, statusName, stepOf, telLink, timeOf, trafficMinutes, vehicleEmoji, vehicleName, waLink } from './dlShared';
 
 // The cards of the delivery screen (DeliveryApp.jsx): a website order to
 // accept or turn down; an order cooking or ready to go out; a delivery on
@@ -122,7 +122,8 @@ export function ActiveCard({ d, now, fetchedAt, here, selected, onSelect, onStat
   const [busy, setBusy] = useState(false);
   const spot = riderSpot(d, here, now, fetchedAt);
   const next = { assigned: ['picked_up', tr('Picked up the food')], picked_up: ['arrived', tr('Arrived at the door')], arrived: ['delivered', tr('Delivered')] }[d.status];
-  const left = d.status === 'picked_up' && d.etaMinutes ? Math.max(1, Math.round(d.etaMinutes - (now - new Date(d.pickedUpAt || d.createdAt).getTime()) / 60000)) : null;
+  const left = rideLeft(d, now);
+  const jam = trafficMinutes(d);
   const share = tr('Delivery {ref} for {name}. Open your delivery: {link}', { ref: d.ref, name: d.customer.name, link: d.riderLink || '' });
   async function run(fn) { setBusy(true); try { await fn(); } finally { setBusy(false); } }
   function copy() { if (navigator.clipboard && d.riderLink) navigator.clipboard.writeText(d.riderLink).then(onCopied).catch(() => {}); }
@@ -145,7 +146,8 @@ export function ActiveCard({ d, now, fetchedAt, here, selected, onSelect, onStat
       <div className="dl-who"><strong>{d.customer.name}</strong><ContactLinks phone={d.customer.phone} lat={d.customer.lat} lng={d.customer.lng} /></div>
       <p className="dl-where"><span aria-hidden="true">📍</span><span>{d.customer.address}{d.customer.landmark && <small>{d.customer.landmark}</small>}</span></p>
       <div className="dl-money">
-        <span>{left != null ? tr('About {m} away', { m: minText(left) }) : d.distanceKm != null ? kmText(d.distanceKm) + (d.etaMinutes ? ' · ' + tr('about {m} by road', { m: minText(d.etaMinutes) }) : '') : ''}</span>
+        <span>{left != null ? tr('About {m} away', { m: minText(left) }) : d.distanceKm != null ? kmText(d.distanceKm) + (d.etaMinutes ? ' · ' + tr('about {m} by road', { m: minText(d.etaMinutes) }) : '') : ''}
+          {jam > 0 && <em className="dl-jam">🚦 {tr('{m} more than usual, traffic', { m: minText(jam) })}</em>}</span>
         <strong>{d.toCollect > 0 ? money(d.toCollect) : '✓'}</strong>
         <small>{d.toCollect > 0 ? tr('to collect · {method}', { method: payName(d.collectMethod) }) : tr('paid')}</small>
       </div>

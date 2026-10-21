@@ -6,7 +6,7 @@ import { tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from './DeliveryMap';
-import { kmText, minText, navLink, payName, riderSpot, routePoints, statusName, stepOf, telLink, vehicleEmoji, waLink, wayOf } from './dlShared';
+import { kmText, minText, navLink, payName, rideLeft, riderSpot, routePoints, statusName, stepOf, telLink, trafficMinutes, vehicleEmoji, waLink, wayOf } from './dlShared';
 import './delivery.css';
 
 // A rider's page (delivery.starbartema.com/r/<their link>): no sign-in, the
@@ -118,7 +118,7 @@ export default function RiderPage({ token }) {
         <div className={'dl-rp-status is-' + d.status}>
           <span aria-hidden="true">{d.status === 'delivered' ? '🎉' : d.status === 'failed' ? '⚠️' : d.status === 'cancelled' ? '✕' : vehicleEmoji(d.rider.vehicle)}</span>
           <div><strong>{d.status === 'delivered' ? tr('Delivered. Thank you!') : statusName(d.status)}</strong>
-            <small>{d.status === 'assigned' ? tr('Go to the restaurant and pick up the food.') : d.status === 'picked_up' ? (d.etaMinutes ? tr('About {m} to the customer.', { m: minText(d.etaMinutes) }) : tr('Take it to the customer.'))
+            <small>{d.status === 'assigned' ? tr('Go to the restaurant and pick up the food.') : d.status === 'picked_up' ? (rideLeft(d, now) ? tr('About {m} to the customer.', { m: minText(rideLeft(d, now)) }) + (trafficMinutes(d) ? ' 🚦 ' + tr('Traffic adds about {m}.', { m: minText(trafficMinutes(d)) }) : '') : tr('Take it to the customer.'))
               : d.status === 'arrived' ? tr('Hand it over and collect the money.') : d.status === 'failed' ? d.note : d.status === 'cancelled' ? tr('The restaurant cancelled this delivery.') : ''}</small></div>
         </div>
         <ol className="dl-rp-steps">{[tr('Pick up'), tr('On the way'), tr('At the door'), tr('Delivered')].map((l, i) => <li key={i} className={i < at ? 'is-done' : i === at && active ? 'is-now' : ''}>{l}</li>)}</ol>

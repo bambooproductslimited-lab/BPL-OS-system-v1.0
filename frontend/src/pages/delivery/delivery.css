@@ -231,6 +231,8 @@
 .dl-rp-map { position: relative; height: 44vh; min-height: 260px; isolation: isolate; }
 .dl-rp-map .dm-map { position: absolute; inset: 0; border-radius: 0; }
 .dl-rp-map .leaflet-control-scale { display: none; }
+.dl-jam { display: block; margin-top: 2px; font-style: normal; font-size: 12px; font-weight: 800; color: #c2410c; }
+:root[data-theme='dark'] .dl-jam { color: #fdba74; }
 .dl-rp-share { position: absolute; left: 50%; bottom: 30px; z-index: 500; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; max-width: calc(100% - 24px);
   font-size: 12.5px; font-weight: 800; border-radius: 999px; color: #0f172a; background: rgba(255, 255, 255, .94); box-shadow: 0 10px 24px -12px rgba(0, 0, 0, .55); }
 .dl-rp-share .btn { border-radius: 999px; }

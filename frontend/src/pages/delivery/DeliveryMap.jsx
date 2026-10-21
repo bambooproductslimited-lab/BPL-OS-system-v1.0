@@ -15,9 +15,11 @@ import './deliveryMap.css';
 // rider, lat, lng, emoji, label, sub, info: [title, line, …], tone, live,
 // active, fit, onClick } — kept by id: a rider that moves glides there; info
 // is the card shown on pointing at it (or tapping). routes: { id, points,
-// tone, done, trail, chip } — points dashed, solid as far as done; trail the
-// way the rider really went (their phone), solid; chip the time and distance
-// left, on the way. fitKey: when it changes, the view fits the markers with
+// tone, done, trail, road, chip, chipAt } — points dashed, solid as far as
+// done (no road known); road, Google's road from dlShared roadParts — done
+// behind the rider, faded, and ahead in stretches clear / slow / jammed, as
+// on Google's map; trail the way the rider really went (their phone),
+// solid; chip the time and distance left, at chipAt or half way. fitKey: when it changes, the view fits the markers with
 // fit (all, if none say). pick: a pin to drag or place by tapping the map,
 // for choosing where (onPick(lat, lng)). lite: no traffic or full screen
 // (the small maps for choosing a place).
@@ -205,11 +207,22 @@ export default function DeliveryMap({ markers = [], routes = [], fitKey, pick, o
     if (!m) return;
     lines.current.forEach((l) => l.remove());
     lines.current = [];
+    const line = (pts, cls, weight) => lines.current.push(L.polyline(pts, { className: cls, weight, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(m));
+    const chipAt = (r, at) => {
+      const icon = L.divIcon({ className: 'dm-icon', html: '<span class="dm-chip tone-' + (r.tone || 'go') + '">' + esc(r.chip) + '</span>', iconSize: [0, 0] });
+      lines.current.push(L.marker(at, { icon, interactive: false, keyboard: false, zIndexOffset: 800 }).addTo(m));
+    };
     routes.forEach((r) => {
       const tone = r.tone || 'go';
-      if (r.trail && r.trail.length > 1) {
-        lines.current.push(L.polyline(r.trail, { className: 'dm-trail tone-' + tone, weight: 6, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(m));
+      if (r.road) {
+        if (r.road.done.length > 1) line(r.road.done, 'dm-road is-done', 6);
+        if (r.trail && r.trail.length > 1) line(r.trail, 'dm-trail tone-' + tone, 6);
+        r.road.ahead.forEach((x) => line(x.points, 'dm-road-case', 11));
+        r.road.ahead.forEach((x) => line(x.points, 'dm-road speed-' + x.speed, 7));
+        if (r.chip && r.chipAt) chipAt(r, r.chipAt);
+        return;
       }
+      if (r.trail && r.trail.length > 1) line(r.trail, 'dm-trail tone-' + tone, 6);
       if (!r.points || r.points.length < 2) return;
       lines.current.push(L.polyline(r.points, { className: 'dm-route tone-' + tone, weight: 5, opacity: 0.9, dashArray: '2 10', lineCap: 'round', interactive: false }).addTo(m));
       const done = Math.min(1, r.done || 0);
@@ -219,8 +232,7 @@ export default function DeliveryMap({ markers = [], routes = [], fitKey, pick, o
       }
       if (r.chip) {
         const at = along(r.points, Math.min(0.8, done + (1 - done) * 0.5));
-        const icon = L.divIcon({ className: 'dm-icon', html: '<span class="dm-chip tone-' + tone + '">' + esc(r.chip) + '</span>', iconSize: [0, 0] });
-        lines.current.push(L.marker([at.lat, at.lng], { icon, interactive: false, keyboard: false, zIndexOffset: 800 }).addTo(m));
+        chipAt(r, [at.lat, at.lng]);
       }
     });
   }, [routes]);

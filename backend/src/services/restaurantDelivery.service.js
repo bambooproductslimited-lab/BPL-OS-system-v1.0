@@ -7,6 +7,7 @@ var secretBox = require('../utils/secretBox');
 var access = require('./restaurantTillAccess.service');
 var activity = require('./restaurantActivity.service');
 var kitchen = require('./restaurantKitchen.service');
+var roads = require('./restaurantRoutes.service');
 
 // Deliveries (migration 0159): a delivery or website order sent out with a
 // rider — one of the restaurant's riders, or someone whose name and phone
@@ -29,6 +30,11 @@ var SPEED = { motorbike: 24, car: 18, bicycle: 12, on_foot: 5 };
 var ROAD = 1.3;
 // A rider's link keeps working this long after the delivery ends.
 var LINK_HOURS = 6;
+// The road (restaurantRoutes): asked for when it goes out and when the food
+// is picked up; asked again from where the rider is when they leave it by
+// more than OFF_ROAD_KM or it is older than REROUTE_MS — never more than
+// ROUTE_CALLS times for one delivery. Handing over at the door: HANDOVER_S.
+var ROUTE_CALLS = 12, REROUTE_MS = 4 * 60000, OFF_ROAD_KM = 0.12, HANDOVER_S = 120;
 var DEFAULTS = {
   open: false, delivery: true, pickup: true, phone: '', note: '',
   location: null, // { lat, lng, address }
@@ -206,6 +212,7 @@ function deliveryOut(d, opts) {
     rider: { id: d.rider_id, name: d.rider_name, phone: d.rider_phone, vehicle: d.rider_vehicle, plate: d.rider_plate },
     riderAt: d.rider_lat != null ? { lat: d.rider_lat, lng: d.rider_lng, at: d.rider_seen_at, ageSeconds: Math.max(0, Math.round((Date.now() - new Date(d.rider_seen_at).getTime()) / 1000)) } : null,
     trail: ACTIVE.indexOf(d.status) >= 0 && Array.isArray(d.rider_trail) ? d.rider_trail : [],
+    route: ACTIVE.indexOf(d.status) >= 0 && d.route ? d.route : null,
     distanceKm: d.distance_km == null ? null : Number(d.distance_km), etaMinutes: d.eta_minutes,
     note: d.note, sentBy: d.sent_by_name || null,
     createdAt: d.created_at, pickedUpAt: d.picked_up_at, arrivedAt: d.arrived_at, endedAt: d.ended_at, minutes: minutesSince(d.created_at)
@@ -369,6 +376,7 @@ async function send(token, p) {
       amount: collect || null, refType: 'delivery', refId: ins.id });
     return (await client.query(DELIVERY_SELECT + 'WHERE d.id = $1', [ins.id])).rows[0];
   });
+  later(refreshRoute(row.id, 'restaurant'));
   return { delivery: deliveryOut(row, { link: true }) };
 }
 
@@ -402,6 +410,7 @@ async function setStatus(token, id, p) {
     var d = await deliveryOfCompany(client, session.posCompanyId, id);
     await moveTo(client, d, status, p.note, { employeeId: session.posEmployeeId, app: 'delivery' });
   });
+  if (status === 'picked_up') later(refreshRoute(id, 'restaurant'));
   return { delivery: deliveryOut((await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1', [id])).rows[0], { link: true }) };
 }
 // POST /api/pos/delivery/:id/rider { riderId | rider } — another rider takes
@@ -420,11 +429,12 @@ async function reassign(token, id, p) {
     var d = await deliveryOfCompany(client, session.posCompanyId, id);
     if (ENDED.indexOf(d.status) >= 0) fail('conflict', 'That delivery has ended.');
     await client.query('UPDATE restaurant_deliveries SET rider_id = $2, rider_name = $3, rider_phone = $4, rider_vehicle = $5, rider_plate = $6, rider_token_hash = $7, rider_token_sealed = $8, ' +
-      'rider_lat = NULL, rider_lng = NULL, rider_seen_at = NULL, rider_trail = DEFAULT, eta_minutes = $9 WHERE id = $1',
+      'rider_lat = NULL, rider_lng = NULL, rider_seen_at = NULL, rider_trail = DEFAULT, route = NULL, eta_minutes = $9 WHERE id = $1',
       [d.id, rider.id, rider.name, rider.phone, rider.vehicle, rider.plate, hash(token_), secretBox.seal('rider-link', token_), travelMinutes(d.distance_km == null ? null : Number(d.distance_km), rider.vehicle)]);
     await activity.log(client, { companyId: d.company_id, employeeId: session.posEmployeeId, app: 'delivery', action: 'delivery.rider',
       summary: 'D-' + String(d.number).padStart(3, '0') + ' handed from ' + d.rider_name + ' to ' + rider.name + '.', refType: 'delivery', refId: d.id });
   });
+  later(refreshRoute(id, 'restaurant')); // their vehicle may ride other roads
   return { delivery: deliveryOut((await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1', [id])).rows[0], { link: true }) };
 }
 
@@ -449,6 +459,84 @@ async function riderView(raw) {
   return out;
 }
 // POST /api/pos/rider/:token/location { lat, lng } — where the rider is, every few seconds while their page is open.
+// ── the road, with its traffic ──
+
+// Asked of Google in the background, so sending, a step or a rider's
+// position never waits for it; the screens pick it up on their next look.
+var jobs = new Set();
+function later(promise) {
+  var job = Promise.resolve(promise).catch(function (e) { console.warn('[delivery route]', e && e.message); });
+  jobs.add(job);
+  job.finally(function () { jobs.delete(job); });
+}
+// For tests: wait for the roads being asked for.
+async function settled() { while (jobs.size) await Promise.all(Array.from(jobs)); }
+
+// How long the ride takes on that road: Google's time, traffic and all, when
+// it was asked for this vehicle; by the vehicle's speed when it had to fall
+// back (a bicycle given a car's road).
+var OWN_MODE = { motorbike: ['TWO_WHEELER', 'DRIVE'], car: ['DRIVE'], bicycle: ['BICYCLE'], on_foot: ['WALK'] };
+function rideSeconds(r, vehicle) {
+  if ((OWN_MODE[vehicle] || OWN_MODE.motorbike).indexOf(r.mode) >= 0 && r.seconds != null) return r.seconds;
+  return Math.round((r.meters / 1000) / (SPEED[vehicle] || SPEED.motorbike) * 3600);
+}
+// How far a point is from the road (km), near enough for town distances.
+function offRoadKm(points, p) {
+  var kx = 111.32 * Math.cos(p.lat * Math.PI / 180), ky = 110.57, best = Infinity;
+  for (var i = 1; i < points.length; i++) {
+    var ax = (points[i - 1][1] - p.lng) * kx, ay = (points[i - 1][0] - p.lat) * ky;
+    var bx = (points[i][1] - p.lng) * kx, by = (points[i][0] - p.lat) * ky;
+    var dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+    var t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+    best = Math.min(best, Math.hypot(ax + dx * t, ay + dy * t));
+  }
+  return best;
+}
+// A rider on their way: the road asked again from where they are when they
+// have left it, or it is getting old (the traffic changes).
+function needsReroute(route, point, now) {
+  if (!roads.enabled()) return false;
+  if (!route || !Array.isArray(route.points) || route.points.length < 2) return true;
+  if (route.at && now - new Date(route.at).getTime() > REROUTE_MS) return true;
+  return offRoadKm(route.points, point) > OFF_ROAD_KM;
+}
+// Ask for a delivery's road — from the restaurant, or from a point (where
+// the rider is) — and keep it: the time it takes with the traffic now, and
+// once the food is on its way, when it should be at the door. Counted, and
+// kept only while the delivery is still under way.
+var askedAt = new Map(); // delivery → when the road was last asked from where the rider is
+async function refreshRoute(id, from) {
+  if (!roads.enabled()) return null;
+  if (from !== 'restaurant') {
+    var now0 = Date.now();
+    if (askedAt.get(id) > now0 - 45000) return null; // not again within the minute, answered or not
+    if (askedAt.size > 500) askedAt.forEach(function (t, k) { if (t < now0 - 3600000) askedAt.delete(k); });
+    askedAt.set(id, now0);
+  }
+  var claimed = (await pool.query('UPDATE restaurant_deliveries SET route_calls = route_calls + 1 WHERE id = $1 AND route_calls < $2 AND status = ANY($3) AND lat IS NOT NULL RETURNING *',
+    [id, ROUTE_CALLS, ACTIVE])).rows[0];
+  if (!claimed) return null;
+  var origin = from === 'restaurant' ? (await settingsOf(claimed.company_id)).location : from;
+  if (!origin) return null;
+  var r = await roads.route(origin, { lat: claimed.lat, lng: claimed.lng }, claimed.rider_vehicle);
+  if (!r) return null;
+  var now = Date.now();
+  var ride = rideSeconds(r, claimed.rider_vehicle);
+  var under = claimed.status !== 'assigned';
+  var kept = {
+    points: r.points, traffic: r.traffic, seconds: ride, freeSeconds: r.withTraffic ? Math.min(ride, rideSeconds(Object.assign({}, r, { seconds: r.freeSeconds }), claimed.rider_vehicle)) : ride,
+    meters: r.meters, mode: r.mode, withTraffic: r.withTraffic, from: from === 'restaurant' ? 'restaurant' : 'rider', at: new Date(now).toISOString(),
+    startAt: under ? new Date(now).toISOString() : null, arriveAt: under ? new Date(now + (ride + HANDOVER_S) * 1000).toISOString() : null
+  };
+  // eta_minutes stays the whole ride from pick-up (what the screens count from).
+  var started = claimed.picked_up_at ? new Date(claimed.picked_up_at).getTime() : now;
+  var eta = under ? Math.max(3, Math.ceil((now + (ride + HANDOVER_S) * 1000 - started) / 60000)) : Math.max(3, Math.ceil((ride + HANDOVER_S) / 60));
+  var sets = from === 'restaurant' ? ', distance_km = $4' : '';
+  var args = [id, JSON.stringify(kept), eta].concat(from === 'restaurant' ? [Math.round(r.meters / 100) / 10] : []);
+  var row = (await pool.query('UPDATE restaurant_deliveries SET route = $2, eta_minutes = $3' + sets + " WHERE id = $1 AND status = ANY('{assigned,picked_up,arrived}') RETURNING id", args)).rows[0];
+  return row ? kept : null;
+}
+
 // The way the rider went: a point once they have moved on 15 m or more
 // (standing still, or the phone wavering, adds nothing); past TRAIL_MAX
 // points, every other one of the older half goes, so the shape stays.
@@ -478,6 +566,7 @@ async function riderLocation(raw, p) {
   if (d.rider_seen_at && Date.now() - new Date(d.rider_seen_at).getTime() < 2500) return { status: d.status };
   await pool.query('UPDATE restaurant_deliveries SET rider_lat = $2, rider_lng = $3, rider_seen_at = now(), rider_trail = $4 WHERE id = $1',
     [d.id, point.lat, point.lng, JSON.stringify(trailWith(d.rider_trail, point))]);
+  if (d.status === 'picked_up' && needsReroute(d.route, point, Date.now())) later(refreshRoute(d.id, point));
   return { status: d.status };
 }
 // POST /api/pos/rider/:token/status { status, note } — picked up, arrived, delivered, or could not deliver.
@@ -488,6 +577,7 @@ async function riderStatus(raw, p) {
     var d = await byRiderToken(client, raw, true);
     await moveTo(client, d, status, p.note, { app: 'delivery', rider: true });
   });
+  if (status === 'picked_up') later(refreshRoute((await byRiderToken(pool, raw)).id, 'restaurant'));
   return riderView(raw);
 }
 
@@ -500,5 +590,5 @@ async function forOnline(onlineId) {
 module.exports = {
   VEHICLES: VEHICLES, settingsOf: settingsOf, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
   settings: settings, setOpen: setOpen, riders: riders, board: board, send: send, setStatus: setStatus, reassign: reassign,
-  mapConfig: mapConfig, trailWith: trailWith, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
+  mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
 };

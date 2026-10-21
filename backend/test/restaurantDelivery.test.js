@@ -267,3 +267,96 @@ test('the maps: Google\'s with the server\'s key, else OpenStreetMap; a long way
   assert.deepEqual([trail[0], trail[trail.length - 1]], [[5.6, -0.18], [Math.round((5.6 + 699 * 0.0003) * 1e6) / 1e6, -0.18]]);
   assert.equal(delivery.trailWith(trail, { lat: trail[trail.length - 1][0], lng: -0.18 }).length, trail.length);
 });
+
+// Google's Routes API stood in for: a road from where it is asked, with a
+// slow and a jammed stretch, two-wheeler roads or not; every ask kept.
+function fakeRoads(opts) {
+  opts = opts || {};
+  var calls = [];
+  roadsSvc.setFetchForTests(async function (url, req) {
+    var body = JSON.parse(req.body);
+    calls.push({ url: url, headers: req.headers, body: body });
+    if (opts.noTwoWheeler && body.travelMode === 'TWO_WHEELER') return { ok: false, status: 400, json: async function () { return {}; } };
+    var o = body.origin.location.latLng, t = body.destination.location.latLng;
+    var pts = [[o.latitude, o.longitude], [o.latitude, t.longitude], [(o.latitude + t.latitude) / 2, t.longitude], [t.latitude, t.longitude]];
+    return { ok: true, status: 200, json: async function () {
+      return { routes: [{ distanceMeters: 3400, duration: '840s', staticDuration: '600s', polyline: { encodedPolyline: encode(pts) },
+        travelAdvisory: { speedReadingIntervals: [{ endPolylinePointIndex: 1, speed: 'NORMAL' }, { startPolylinePointIndex: 1, endPolylinePointIndex: 2, speed: 'SLOW' }, { startPolylinePointIndex: 2, endPolylinePointIndex: 3, speed: 'TRAFFIC_JAM' }] } }] };
+    } };
+  });
+  return calls;
+}
+// Google's polyline encoding, for the stand-in.
+function encode(points) {
+  var out = '', plat = 0, plng = 0;
+  function one(v) { v = v < 0 ? ~(v << 1) : v << 1; var s = ''; while (v >= 0x20) { s += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; } return s + String.fromCharCode(v + 63); }
+  points.forEach(function (p) { var la = Math.round(p[0] * 1e5), ln = Math.round(p[1] * 1e5); out += one(la - plat) + one(ln - plng); plat = la; plng = ln; });
+  return out;
+}
+var roadsSvc = require('../src/services/restaurantRoutes.service');
+
+test('the road with its traffic: asked when sent and when picked up, again when the rider leaves it; none without a key', async function () {
+  var config = require('../src/config');
+  var was = config.googleRoutesKey;
+  try {
+    assert.deepEqual(roadsSvc.decode('_p~iF~ps|U_ulLnnqC_mqNvxq`@'), [[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]]);
+    var kwesi = (await delivery.riders(tok.desk, { action: 'save', rider: { name: 'Zqd Kwesi', phone: '0200000750', vehicle: 'motorbike' } })).riders.find(function (r) { return r.name === 'Zqd Kwesi'; });
+    var sendOne = async function (name) {
+      var tab = await pos.saveTab(tok.ama, { fulfillment: 'delivery', customerName: name, customerPhone: '0200000751', deliveryAddress: 'Zqd Lane 9', items: [{ menuItemId: juice, qty: 1 }] });
+      return (await delivery.send(tok.desk, { tabId: tab.id, riderId: kwesi.id, lat: NEAR.lat, lng: NEAR.lng })).delivery;
+    };
+
+    // No key: nothing asked, the way stays a curve.
+    config.googleRoutesKey = '';
+    var calls = fakeRoads();
+    var plain = await sendOne('Zqd Fiifi');
+    await delivery.settled();
+    assert.deepEqual([calls.length, (await delivery.board(tok.desk)).active.find(function (x) { return x.id === plain.id; }).route], [0, null]);
+
+    // With a key: the motorbike's road with the traffic, the time it takes with it.
+    config.googleRoutesKey = 'zq-server-key';
+    var d = await sendOne('Zqd Efua');
+    await delivery.settled();
+    assert.equal(calls.length, 1);
+    assert.deepEqual([calls[0].url, calls[0].headers['X-Goog-Api-Key'], calls[0].body.travelMode, calls[0].body.routingPreference, calls[0].body.extraComputations, calls[0].body.regionCode],
+      ['https://routes.googleapis.com/directions/v2:computeRoutes', 'zq-server-key', 'TWO_WHEELER', 'TRAFFIC_AWARE', ['TRAFFIC_ON_POLYLINE'], 'GH']);
+    assert.match(calls[0].headers['X-Goog-FieldMask'], /routes\.travelAdvisory\.speedReadingIntervals/);
+    assert.deepEqual([calls[0].body.origin.location.latLng.latitude, calls[0].body.destination.location.latLng.latitude], [HERE.lat, NEAR.lat]);
+    var b = (await delivery.board(tok.desk)).active.find(function (x) { return x.id === d.id; });
+    assert.deepEqual([b.route.points.length, b.route.traffic, b.route.seconds, b.route.freeSeconds, b.route.from, b.route.arriveAt, b.distanceKm, b.etaMinutes],
+      [4, [[1, 2, 'slow'], [2, 3, 'jam']], 840, 600, 'restaurant', null, 3.4, 16]);
+
+    // Picked up: asked again from the restaurant, and when it should be at the door.
+    var link = d.riderLink.split('/r/')[1];
+    await delivery.riderStatus(link, { status: 'picked_up' });
+    await delivery.settled();
+    var up = (await delivery.riderView(link));
+    assert.equal(calls.length, 2);
+    assert.equal(up.route.from, 'restaurant');
+    assert.ok(Math.abs(new Date(up.route.arriveAt).getTime() - (Date.now() + (840 + 120) * 1000)) < 5000, 'at the door in the ride and the handing over');
+    // On the road and the road fresh: not asked again. Off it: asked from where the rider is.
+    await delivery.riderLocation(link, { lat: HERE.lat, lng: (HERE.lng + NEAR.lng) / 2 });
+    await delivery.settled();
+    assert.equal(calls.length, 2);
+    await pool.query("UPDATE restaurant_deliveries SET rider_seen_at = now() - interval '10 seconds' WHERE id = $1", [d.id]);
+    await delivery.riderLocation(link, { lat: 5.64, lng: -0.2 });
+    await delivery.settled();
+    assert.equal(calls.length, 3);
+    assert.deepEqual([calls[2].body.origin.location.latLng.latitude, (await delivery.riderView(link)).route.from], [5.64, 'rider']);
+
+    // No two-wheeler roads: a car's, the motorbike's time still Google's.
+    var noTw = fakeRoads({ noTwoWheeler: true });
+    var d2 = await sendOne('Zqd Kofi');
+    await delivery.settled();
+    assert.deepEqual(noTw.map(function (c) { return c.body.travelMode; }), ['TWO_WHEELER', 'DRIVE']);
+    assert.equal((await delivery.board(tok.desk)).active.find(function (x) { return x.id === d2.id; }).route.mode, 'DRIVE');
+
+    // Never more than twelve asks for one delivery.
+    await pool.query('UPDATE restaurant_deliveries SET route_calls = 12 WHERE id = $1', [d2.id]);
+    assert.equal(await delivery.refreshRoute(d2.id, 'restaurant'), null);
+    assert.equal(noTw.length, 2);
+  } finally {
+    config.googleRoutesKey = was;
+    roadsSvc.setFetchForTests(null);
+  }
+});

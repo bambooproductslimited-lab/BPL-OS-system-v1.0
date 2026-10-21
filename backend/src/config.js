@@ -89,6 +89,10 @@ module.exports = {
   // places, satellite, traffic) with this key — a browser key, limited in
   // Google Cloud to those addresses and to that API. Without it, OpenStreetMap.
   googleMapsKey: (process.env.GOOGLE_MAPS_KEY || '').trim(),
+  // The roads a delivery takes, with the traffic on them (Google's Routes
+  // API), asked by the server: a server key of its own, limited in Google
+  // Cloud to the Routes API. Without it, the maps draw the way as a curve.
+  googleRoutesKey: (process.env.GOOGLE_ROUTES_KEY || '').trim(),
   // Where the OS itself is served, for links in emails the server sends on
   // its own (a customer's invoice link in a payment reminder). APP_URL, or
   // the first https address in CORS_ORIGIN.
