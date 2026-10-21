@@ -249,7 +249,8 @@ export default function RestaurantPosPage() {
   const [closingDrawer, setClosingDrawer] = useState(false);
   const [closeDrawerError, setCloseDrawerError] = useState(null);
   const [closedReport, setClosedReport] = useState(null); // set once closed — shows the printable report screen
-  const [ordersOnly, setOrdersOnly] = useState(false); // a cashier taking orders while another is on duty
+  const [ordersOnly, setOrdersOnly] = useState(false); // taking orders with no drawer: another cashier is on duty, or a manager chose not now
+  const [officeOpen, setOfficeOpen] = useState(false); // a manager's back office (till/ManagerHome.jsx)
   const [dutyNotice, setDutyNotice] = useState(true); // the "another cashier is on duty" popup, once per sign-in
 
   // Direct thermal-printer output (Phase 3) — set once per till device,
@@ -298,10 +299,12 @@ export default function RestaurantPosPage() {
   const [disputeFor, setDisputeFor] = useState(null); // a problem reported: { orderId?, tabId?, label, customerName }
   const [stockOpen, setStockOpen] = useState(false);
   const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
+  const [drawerLeftOpen, setDrawerLeftOpen] = useState(false); // signed out with a drawer open: it stays open
   const can = (k) => !!(tillAccess && tillAccess.can[k]);
-  // Money is taken, given back and receipts printed only by the cashier on
-  // duty, on their own open drawer (one cashier at a time).
+  // Money is taken, given back and receipts printed only on one's own open
+  // drawer: the cashier on duty's (one cashier at a time), or a manager's.
   const onDuty = (k) => can(k) && !!drawer;
+  const isManager = !!(tillAccess && tillAccess.role === 'manager');
   const tillSettings = (tillAccess && tillAccess.settings) || FALLBACK_ACCESS.settings;
   // Steady handlers for the memoized menu tiles (MenuTile), always calling
   // this render's tapItem and toggleFavorite.
@@ -525,7 +528,7 @@ export default function RestaurantPosPage() {
     const bump = () => { last = Date.now(); };
     const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
     events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
-    const t = setInterval(() => { if (Date.now() - last > idleMinutes * 60000) { logout(); setIdleNote(idleMinutes); } }, 15000);
+    const t = setInterval(() => { if (Date.now() - last > idleMinutes * 60000) { logout('idle'); setIdleNote(idleMinutes); } }, 15000);
     return () => { events.forEach((e) => window.removeEventListener(e, bump)); clearInterval(t); };
   }, [session, idleMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -567,6 +570,7 @@ export default function RestaurantPosPage() {
     try {
       const s = await posFetch('POST', '/pos/login', null, { pin: fullPin, app: 'till' });
       setIdleNote(null);
+      setDrawerLeftOpen(false);
       localStorage.setItem(SESSION_KEY, JSON.stringify(s));
       setSession(s);
       setPin('');
@@ -582,7 +586,15 @@ export default function RestaurantPosPage() {
     }
   }
 
-  function logout() {
+  // Signing out — to step away, or after the till went unused — leaves a
+  // cash drawer open: signing in again carries on with it, and only
+  // counting and closing it ends it. The activity log notes the sign-out.
+  function logout(reason) {
+    if (session) posFetch('POST', '/pos/logout', session.token, { reason: reason === 'idle' ? 'idle' : 'manual' }).catch(() => {});
+    setDrawerLeftOpen(!!drawer);
+    setOrdersOnly(false);
+    setDutyNotice(true);
+    setOfficeOpen(false);
     localStorage.removeItem(SESSION_KEY);
     setSession(null);
     setTillAccess(null);
@@ -653,6 +665,8 @@ export default function RestaurantPosPage() {
   // Whether the till is free for this cashier: asked again when they tap
   // "Cashier on duty" (the other cashier may have closed their drawer).
   async function checkDuty() {
+    // A manager opens their own drawer beside the cashier on duty's.
+    if (isManager) { setOrdersOnly(false); return; }
     const a = await posFetch('GET', '/pos/access', session.token).catch(() => null);
     if (!a) return;
     setTillAccess(a);
@@ -1065,7 +1079,9 @@ export default function RestaurantPosPage() {
               {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
             </div>
             <p className={'pos-pin-note' + (loginError ? ' is-bad' : '')} role="status">
-              {loggingIn ? tr('Checking…') : loginError || (idleNote ? tr('Signed out after {n} minutes without use. Tap your PIN to carry on.', { n: idleNote }) : tr('Tap your PIN or type it.'))}
+              {loggingIn ? tr('Checking…') : loginError || (idleNote && drawerLeftOpen ? tr('Signed out after {n} minutes without use. The cash drawer stays open: tap your PIN to carry on.', { n: idleNote })
+                : idleNote ? tr('Signed out after {n} minutes without use. Tap your PIN to carry on.', { n: idleNote })
+                  : drawerLeftOpen ? tr('Signed out. The cash drawer stays open until it is counted and closed: tap your PIN to carry on.') : tr('Tap your PIN or type it.'))}
             </p>
             <div className="pos-keypad">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
@@ -1089,15 +1105,39 @@ export default function RestaurantPosPage() {
   // restaurantPos.service.js's buildReport: Cash Sales is summed from
   // this session's own opened_at onward).
   // Someone who does not take payments (a waiter) has no drawer to open.
-  // Another cashier has the drawer: this one takes orders until they close it.
+  // Another cashier has the drawer: this one takes orders until they close
+  // it. A manager is not held back: they open their own beside it, or not
+  // now and only take orders.
   const otherOnDuty = tillAccess.cashierOnDuty && !tillAccess.cashierOnDuty.me ? tillAccess.cashierOnDuty : null;
-  if (!drawer && !closedReport && can('charge') && !ordersOnly && !otherOnDuty) {
+  const dutyBlocks = !!otherOnDuty && !isManager;
+
+  // A manager's back office: reports, the menu and stock, the setup — one
+  // tap from the till, and back.
+  if (isManager && officeOpen) {
+    return (
+      <div className="dk pos-shell pos-till" data-brand={session.companyCode}>
+        <ManagerHome token={session.token} companyName={session.companyName} employeeName={session.employeeName} logoUrl={restaurantLogoUrl(session.companyCode)}
+          tools={<>
+            <button type="button" className="btn btn-primary tl-btn mh-back" onClick={() => setOfficeOpen(false)}><Icon name="cash" />{drawer ? tr('Back to the till') : tr('To the till')}</button>
+            <DeviceLanguage className="pos-lang" />{themeButton}<button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
+          </>}
+          onOpen={(t) => setSettingsOpen(t)} />
+        {settingsOpen && (
+          <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)} initialTab={typeof settingsOpen === 'string' ? settingsOpen : undefined}
+            onClose={() => setSettingsOpen(false)} onSaved={() => loadAccess()} onAuth={sessionEnded} />
+        )}
+      </div>
+    );
+  }
+
+  if (!drawer && !closedReport && can('charge') && !ordersOnly && !dutyBlocks) {
     const last = shift && shift.lastClosed;
     const quick = [0, 100, 200, 500, 1000];
     return (
       <div className="dk pos-shell pos-gate" data-brand={session.companyCode}>
         <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
         <div className="pos-gate-top">
+          {isManager && <button type="button" className="btn btn-secondary tl-btn" onClick={() => setOfficeOpen(true)}><Icon name="key" />{tr('Back office')}</button>}
           <DeviceLanguage className="pos-lang" />
           {themeButton}
           <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
@@ -1108,6 +1148,12 @@ export default function RestaurantPosPage() {
             <p className="dk-eyebrow">{session.companyName} · {today}</p>
             <h1 className="pos-gate-title">{greeting}</h1>
             <p className="dk-muted">{tr('Count the cash in the drawer before your first sale. At the end of your shift you count it again, and the till shows whether it adds up.')}</p>
+            {isManager && otherOnDuty && (
+              <div className="pos-note is-duty">
+                <Icon name="drawer" />
+                <span>{tr('{name} is the cashier on duty, drawer open since {time}. As a manager you open your own beside it: what you charge goes in yours, not theirs.', { name: otherOnDuty.name, time: timeOf(otherOnDuty.since) })}</span>
+              </div>
+            )}
             {last && (
               <div className="pos-note">
                 <Icon name="info" />
@@ -1135,23 +1181,9 @@ export default function RestaurantPosPage() {
             <button type="submit" className="btn btn-primary pos-big-btn" disabled={openingDrawer}>
               {openingDrawer ? tr('Opening…') : tr('Open drawer and start selling')}
             </button>
+            {isManager && <button type="button" className="pos-link pos-skip" onClick={() => setOrdersOnly(true)}>{tr('Not now: take orders without a drawer')}</button>}
           </form>
         </div>
-      </div>
-    );
-  }
-
-  // A manager runs the back office from the till; the cashier on duty takes orders and money.
-  if (tillAccess.role === 'manager') {
-    return (
-      <div className="dk pos-shell pos-till" data-brand={session.companyCode}>
-        <ManagerHome token={session.token} companyName={session.companyName} employeeName={session.employeeName} logoUrl={restaurantLogoUrl(session.companyCode)}
-          tools={<><DeviceLanguage className="pos-lang" />{themeButton}<button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button></>}
-          onOpen={(t) => setSettingsOpen(t)} />
-        {settingsOpen && (
-          <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)} initialTab={typeof settingsOpen === 'string' ? settingsOpen : undefined}
-            onClose={() => setSettingsOpen(false)} onSaved={() => loadAccess()} onAuth={sessionEnded} />
-        )}
       </div>
     );
   }
@@ -1444,7 +1476,9 @@ export default function RestaurantPosPage() {
           </button>}
           {can('charge') && (drawer
             ? <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>
-            : <button type="button" className="btn btn-primary pos-charge" disabled title={tr('Only the cashier on duty, with their drawer open, charges.')}><span>{tr('The cashier on duty charges')}</span></button>)}
+            : isManager
+              ? <button type="button" className="btn btn-primary pos-charge" onClick={() => setOrdersOnly(false)}><span>{tr('Open your drawer to charge')}</span></button>
+              : <button type="button" className="btn btn-primary pos-charge" disabled title={tr('Only the cashier on duty, with their drawer open, charges.')}><span>{tr('The cashier on duty charges')}</span></button>)}
         </div>
       </div>
     </section>
@@ -1485,7 +1519,7 @@ export default function RestaurantPosPage() {
               <span className="pos-stat-text">
                 <small>{tr('Cashier on duty')}</small>
                 <strong>{otherOnDuty ? otherOnDuty.name : tr('Nobody')}</strong>
-                <span>{otherOnDuty ? tr('you take orders') : tr('open your drawer')}</span>
+                <span>{isManager ? tr('open your own drawer') : otherOnDuty ? tr('you take orders') : tr('open your drawer')}</span>
               </span>
             </button>
           )}
@@ -1527,7 +1561,8 @@ export default function RestaurantPosPage() {
               onDuty('refund') && { key: 'refund', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
               can('stock') && { key: 'stock', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
               { key: 'dispute', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
-              { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
+              isManager ? { key: 'office', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
+                : { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
               kitchen && kitchen.inUse && { key: 'kds', icon: 'bag', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
               printer ? { key: 'printer', icon: 'receipt', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
                 : usbSupported() && { key: 'usb', icon: 'receipt', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
@@ -1996,7 +2031,7 @@ export default function RestaurantPosPage() {
           </div>
         </div>
       )}
-      {otherOnDuty && can('charge') && !drawer && dutyNotice && (
+      {dutyBlocks && can('charge') && !drawer && dutyNotice && (
         <div className="dialog-backdrop">
           <div className="dialog tl-dialog tl-duty" role="alertdialog" aria-modal="true" aria-labelledby="tl-duty-title">
             <span className="tl-dialog-ico is-duty" aria-hidden="true"><Icon name="drawer" /></span>

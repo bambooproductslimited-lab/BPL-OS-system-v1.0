@@ -1,4 +1,5 @@
 var { pool } = require('../db/pool');
+var { fail } = require('../utils/errors');
 
 // Everything that happens on a restaurant's till and kitchen screen, for the
 // till settings' activity report (migration 0157): who signed in, what was
@@ -28,14 +29,27 @@ async function log(db, e) {
   }
 }
 
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // The report: newest first, a page at a time (before: the last id seen),
-// for a day range, one app, one person, or words in the summary.
+// for a day range, one app, one person, or words in the summary — or for
+// one cash drawer (drawerId): everything its cashier did on the till and
+// the kitchen screen while it was open, sign-ins and sign-outs included,
+// and whatever was done to the drawer itself.
 async function list(companyId, q) {
   q = q || {};
   var args = [companyId], where = ['a.company_id = $1'];
   function arg(v) { args.push(v); return '$' + args.length; }
-  if (q.from) where.push('a.at >= ' + arg(q.from) + '::date');
-  if (q.to) where.push('a.at < ' + arg(q.to) + "::date + interval '1 day'");
+  if (q.drawerId) {
+    var d = UUID.test(String(q.drawerId)) ? (await pool.query(
+      'SELECT id, cashier_id, opened_at, closed_at FROM restaurant_drawer_sessions WHERE id = $1 AND company_id = $2', [q.drawerId, companyId])).rows[0] : null;
+    if (!d) fail('notfound', 'That drawer is not this restaurant\'s.');
+    where.push('((a.employee_id = ' + arg(d.cashier_id) + ' AND a.at >= ' + arg(d.opened_at) + (d.closed_at ? ' AND a.at <= ' + arg(d.closed_at) : '') +
+      ") OR (a.ref_type = 'drawer' AND a.ref_id = " + arg(d.id) + '))');
+  } else {
+    if (q.from) where.push('a.at >= ' + arg(q.from) + '::date');
+    if (q.to) where.push('a.at < ' + arg(q.to) + "::date + interval '1 day'");
+  }
   if (q.app && APPS.indexOf(q.app) >= 0) where.push('a.app = ' + arg(q.app));
   if (q.employeeId) where.push('a.employee_id = ' + arg(q.employeeId));
   if (q.kind) where.push('a.action LIKE ' + arg(String(q.kind).replace(/[%_]/g, '') + '%'));

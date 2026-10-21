@@ -66,6 +66,23 @@ async function login(pin, ip, app, screenToken) {
   };
 }
 
+// Someone signs out of the till or the kitchen screen — to step away, or
+// the till signed them out after going unused (reason 'idle') — for the
+// activity log. Their cash drawer is not touched: it stays open, with all
+// it holds, until they count and close it.
+async function signOut(token, reason) {
+  var session = verifyPosToken(token);
+  var emp = (await pool.query('SELECT first_name, last_name FROM employees WHERE id = $1', [session.posEmployeeId])).rows[0];
+  if (!emp) return { signedOut: true };
+  var kds = !!session.kdsScreenId, idle = reason === 'idle';
+  var where = kds ? 'kitchen screen' : 'till';
+  var drawer = kds ? null : (await pool.query("SELECT id FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
+  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: kds ? 'kds' : 'till', action: kds ? 'kds.signout' : 'till.signout',
+    summary: emp.first_name + ' ' + emp.last_name + (idle ? ' was signed out after the ' + where + ' went unused' : ' signed out of the ' + where) + (drawer ? '; their cash drawer stays open.' : '.'),
+    refType: drawer ? 'drawer' : (kds ? 'screen' : null), refId: drawer ? drawer.id : (kds ? session.kdsScreenId : null), details: { reason: idle ? 'idle' : 'manual', drawerOpen: !!drawer } });
+  return { signedOut: true, drawerOpen: !!drawer };
+}
+
 // Verifies a POS till token (not a real user login token — jwt.verify
 // alone can't tell them apart since both use config.jwt.secret, so this
 // also checks the payload actually has the POS shape) and returns the
@@ -803,7 +820,9 @@ async function getOpenDrawerSession(token) {
 
 // One cashier uses the drawer at a time: the cashier of the next shift
 // opens theirs once the last one has closed (counted) theirs, or a manager
-// has closed it for them (closeDrawerFor).
+// has closed it for them (closeDrawerFor). Managers each run their own
+// drawer beside it. Signing out leaves a drawer open: only counting and
+// closing it ends it.
 async function openDrawerSession(token, startingCash) {
   var session = await access.need(token, 'charge');
   return withTransaction(async function (client) {
@@ -813,12 +832,12 @@ async function openDrawerSession(token, startingCash) {
     // spirit as the till-session token restore already does.
     var existing = await client.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]);
     if (existing.rows[0]) return buildReport(existing.rows[0], client);
-    var other = (await client.query(
-      "SELECT s.opened_at, e.first_name, e.last_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
-      "WHERE s.company_id = $1 AND s.status = 'open' ORDER BY s.opened_at LIMIT 1", [session.posCompanyId])).rows[0];
+    // A manager opens their own drawer whenever needed — the cashier on
+    // duty stepped away, or did not come — beside the cashier's.
+    var other = session.access.role === 'manager' ? null : await access.cashierOnDuty(session.posCompanyId, session.posEmployeeId, client);
     if (other) {
-      fail('conflict', other.first_name + ' ' + other.last_name + ' is the cashier on duty: their drawer has been open since ' + new Date(other.opened_at).toISOString().slice(11, 16) +
-        '. Only one cashier uses the drawer at a time; they close theirs before you open yours.');
+      fail('conflict', other.name + ' is the cashier on duty: their drawer has been open since ' + new Date(other.since).toISOString().slice(11, 16) +
+        '. Only one cashier uses the drawer at a time; they close theirs before you open yours. A manager can open one beside it.');
     }
     var amount = Math.max(0, Number(startingCash) || 0);
     var res = await client.query(
@@ -894,20 +913,23 @@ async function closeDrawerFor(companyId, manager, drawerId, p) {
 }
 
 // Every drawer of some days (the last 30 by default), newest first, each
-// with its figures: who, when, starting cash, expected, counted, over or short.
+// with its figures: who (a manager's own drawer marked so), when, starting
+// cash, expected, counted, over or short.
 async function drawerHistory(companyId, q) {
   q = q || {};
   var today = new Date().toISOString().slice(0, 10);
   var from = /^\d{4}-\d{2}-\d{2}$/.test(q.from || '') ? q.from : new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
   var to = /^\d{4}-\d{2}-\d{2}$/.test(q.to || '') ? q.to : today;
   var rows = (await pool.query(
-    "SELECT s.*, e.first_name || ' ' || e.last_name AS cashier_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
+    "SELECT s.*, e.first_name || ' ' || e.last_name AS cashier_name, t.role AS holder_role FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
+    'LEFT JOIN restaurant_till_staff t ON t.company_id = s.company_id AND t.employee_id = s.cashier_id ' +
     "WHERE s.company_id = $1 AND (s.status = 'open' OR (s.opened_at >= $2::date AND s.opened_at < $3::date + interval '1 day')) ORDER BY (s.status = 'open') DESC, s.opened_at DESC LIMIT 120",
     [companyId, from, to])).rows;
   var out = [];
   for (var i = 0; i < rows.length; i++) {
     var r = await buildReport(rows[i]);
     r.cashierName = rows[i].cashier_name;
+    r.byManager = rows[i].holder_role === 'manager';
     r.dispute = (await pool.query("SELECT id, status FROM restaurant_disputes WHERE drawer_session_id = $1 ORDER BY created_at DESC LIMIT 1", [rows[i].id])).rows[0] || null;
     out.push(r);
   }
@@ -984,5 +1006,5 @@ module.exports = {
   guestsForSession: guestsForSession, createGuestForSession: createGuestForSession,
   listTabs: listTabs, saveTab: saveTab, removeTab: removeTab,
   shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken,
-  closeDrawerFor: closeDrawerFor, drawerHistory: drawerHistory, raiseDispute: raiseDispute
+  closeDrawerFor: closeDrawerFor, signOut: signOut, drawerHistory: drawerHistory, raiseDispute: raiseDispute
 };

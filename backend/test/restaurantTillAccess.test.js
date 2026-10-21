@@ -147,20 +147,18 @@ test('each role is held to what it may do, on the server', async function () {
   var waiterProfile = await access.profile(tok.yaw);
   assert.deepEqual([waiterProfile.role, waiterProfile.can.charge, waiterProfile.can.keepOpen], ['waiter', false, true]);
 
-  // A manager runs the back office: no orders, no money.
+  // A manager does all a cashier does, and the settings.
   var managerProfile = await access.profile(tok.kojo);
-  assert.deepEqual([managerProfile.can.charge, managerProfile.can.keepOpen, managerProfile.can.refund, managerProfile.can.approveRefunds, managerProfile.can.stock], [false, false, false, true, true]);
-  await assert.rejects(pos.saveTab(tok.kojo, { label: 'Zqs boss', items: [{ menuItemId: beer, qty: 1 }] }), /cannot send orders to the kitchen/);
-  await assert.rejects(pos.openDrawerSession(tok.kojo, 100), /cannot take payments/);
+  assert.deepEqual([managerProfile.can.charge, managerProfile.can.keepOpen, managerProfile.can.refund, managerProfile.can.approveRefunds, managerProfile.can.stock], [true, true, true, true, true]);
 
   // The cashier charges the table, only the ways of paying the till offers.
   await pos.openDrawerSession(tok.ama, 100);
   await assert.rejects(pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'other' }), /turned off in the till settings/);
   var sale = await pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'cash' });
-  // Refunds are off for cashiers here, and a manager gives no money back:
-  // turned on, the cashier refunds and the manager approves with their PIN.
+  // Refunds are off for cashiers here (a manager may): turned on, the
+  // cashier refunds and the manager approves with their PIN.
   await assert.rejects(money.salesToRefund(tok.ama), /cannot refund sales/);
-  await assert.rejects(money.salesToRefund(tok.kojo), /cannot refund sales/);
+  assert.ok(Array.isArray(await money.salesToRefund(tok.kojo)));
   await access.saveSettings(tok.kojo, { settings: { roles: { cashier: { refund: true } } } }, IP);
   var line = (await money.saleForRefund(tok.ama, sale.id)).items[0];
   await assert.rejects(money.refundSale(tok.ama, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqs warm', method: 'mobile_money', managerPin: PINS.yaw }, IP), /Yaw Zqs cannot approve refunds/);

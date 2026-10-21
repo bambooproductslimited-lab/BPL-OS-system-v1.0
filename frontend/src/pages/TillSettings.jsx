@@ -24,7 +24,7 @@ const ROLE_LABEL = {
   manager: () => tr('Manager'), cashier: () => tr('Cashier'), waiter: () => tr('Waiter'), kitchen: () => tr('Kitchen'), none: () => tr('No access')
 };
 const ROLE_HINT = {
-  manager: () => tr('Reports, the menu and stock, these settings. Takes no orders and no money.'),
+  manager: () => tr('Everything, and these settings. Opens their own drawer beside the cashier on duty\'s when needed.'),
   cashier: () => tr('Sells and runs a cash drawer.'),
   waiter: () => tr('Sends orders to the kitchen for the cashier to charge.'),
   kitchen: () => tr('The kitchen screen only.'),
@@ -78,6 +78,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
   const [tables, setTables] = useState([]); // the floor map, as edited
   const [customers, setCustomers] = useState({}); // customer id -> { iouAllowed, iouLimit }, changed here
   const [tab, setTab] = useState(initialTab && GROUP_OF[initialTab] ? initialTab : 'sales');
+  const [actDrawer, setActDrawer] = useState(null); // the activity report on one cash drawer (from Drawers)
   const group = GROUP_OF[tab];
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
@@ -250,9 +251,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                       {data.choices.permissions.map((perm) => (
                         <tr key={perm}>
                           <th scope="row"><strong>{PERMISSION[perm][0]()}</strong><small>{PERMISSION[perm][1]()}</small></th>
-                          <td data-role={ROLE_LABEL.manager()} className="is-manager">{(data.choices.managerCan || []).includes(perm)
-                            ? <span className="ts-tick is-on is-locked" title={tr('Managers always can.')}>✓</span>
-                            : <span className="ts-tick is-locked is-never" title={tr('Managers take no orders and no money: the cashier on duty does.')}>✕</span>}</td>
+                          <td data-role={ROLE_LABEL.manager()} className="is-manager"><span className="ts-tick is-on is-locked" title={tr('Managers can do everything.')}>✓</span></td>
                           {['cashier', 'waiter', 'kitchen'].map((r) => (
                             <td key={r} data-role={ROLE_LABEL[r]()} className={'is-' + r}>
                               <button type="button" role="switch" aria-checked={!!draft.roles[r][perm]} aria-label={PERMISSION[perm][0]() + ' · ' + ROLE_LABEL[r]()}
@@ -323,13 +322,13 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'map' && <FloorMapTab tables={tables} setTables={(t) => { setTables(t); setFlash(null); }} />}
             {tab === 'customers' && <CustomersTab token={token} pin={pin} changes={customers} setChange={setCustomer} onFail={fail} />}
             {tab === 'sales' && <SalesReport token={token} pin={pin} onFail={fail} />}
-            {tab === 'drawers' && <DrawersTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'drawers' && <DrawersTab token={token} pin={pin} onFail={fail} onActivity={(d) => { setActDrawer(d); setTab('activity'); }} />}
             {tab === 'disputes' && <DisputesTab token={token} pin={pin} onFail={fail} />}
             {tab === 'accounts' && <AccountsTab token={token} pin={pin} onFail={fail} />}
             {tab === 'menu' && <MenuTab token={token} pin={pin} onFail={fail} />}
             {tab === 'stock' && <StockTab token={token} pin={pin} onFail={fail} />}
             {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
-            {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} drawer={actDrawer} onClearDrawer={() => setActDrawer(null)} />}
 
             {tab === 'receipts' && (
               <section className="ts-sec ts-receipt-sec">

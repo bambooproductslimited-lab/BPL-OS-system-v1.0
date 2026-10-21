@@ -134,7 +134,7 @@ test('kitchen screens: a code to set up, a name and a station from the manager, 
   await pool.query('DELETE FROM restaurant_open_tabs WHERE company_id = $1', [company.id]);
 });
 
-test('one cashier at a time: money only on the open drawer; a drawer left open is closed by the manager; short opens a dispute', async function () {
+test('one cashier at a time, a manager\'s drawer beside it; signing out keeps a drawer open; one left open is closed by the manager; short opens a dispute', async function () {
   await pos.openDrawerSession(tok.ama, 200);
   var efua = await access.profile(tok.efua);
   assert.deepEqual([efua.cashierOnDuty.name, efua.cashierOnDuty.me], ['Ama Zqb', false]);
@@ -147,21 +147,48 @@ test('one cashier at a time: money only on the open drawer; a drawer left open i
   assert.equal((await pos.receiptForSession(tok.ama, sale.id)).orderNo, sale.orderNo);
   await assert.rejects(pos.receiptForSession(tok.efua, sale.id), /open your cash drawer first/);
   await assert.rejects(pos.receiptForSession(tok.yaw, sale.id), /cannot take payments/);
-  await assert.rejects(pos.receiptForSession(tok.kojo, sale.id), /cannot take payments/);
+  await assert.rejects(pos.receiptForSession(tok.kojo, sale.id), /open your cash drawer first/);
+
+  // Ama steps away: signing out leaves her drawer open, and the log says so.
+  assert.deepEqual(await pos.signOut(tok.ama), { signedOut: true, drawerOpen: true });
+  await pos.signOut(tok.yaw, 'idle');
+  // The manager opens their own drawer beside hers and charges on it; Ama
+  // is still the cashier on duty, and her drawer holds only her sales.
+  await pos.openDrawerSession(tok.kojo, 50);
+  assert.equal((await access.profile(tok.efua)).cashierOnDuty.name, 'Ama Zqb');
+  var bossSale = await pos.createOrder(tok.kojo, { fulfillment: 'pickup', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'cash' }] });
+  assert.equal((await pos.receiptForSession(tok.kojo, bossSale.id)).orderNo, bossSale.orderNo);
+  assert.equal((await pos.receiptForSession(tok.kojo, sale.id)).orderNo, sale.orderNo);
+  // Ama is back: her drawer is as she left it.
+  tok.ama = (await pos.login(PINS.ama, IP, 'till')).token;
+  var mine = await pos.getOpenDrawerSession(tok.ama);
+  assert.deepEqual([mine.session.status, mine.expected], ['open', 210]);
+
+  // Everything done on Ama's drawer, for the manager: not the manager's own sale.
+  var log = await access.activityReport(tok.kojo, { drawerId: mine.session.id }, IP);
+  assert.deepEqual(log.rows.map(function (r) { return r.action; }).reverse(), ['till.drawer_open', 'till.sale', 'till.signout', 'till.signin']);
+  assert.match(log.rows[1].summary, /Ama Zqb signed out of the till; their cash drawer stays open\./);
+  var yawOut = await access.activityReport(tok.kojo, { kind: 'till.signout', employeeId: people.yaw }, IP);
+  assert.match(yawOut.rows[0].summary, /Yaw Zqb was signed out after the till went unused\./);
+  await assert.rejects(access.activityReport(tok.kojo, { drawerId: 'not-a-drawer' }, IP), /not this restaurant's/);
 
   // Ama leaves her drawer open; the manager counts it and closes it (short by 5).
   var hist = await access.drawers(tok.kojo, {}, IP);
-  var open = hist.drawers.find(function (d) { return d.session.status === 'open'; });
-  assert.deepEqual([open.cashierName, open.expected], ['Ama Zqb', 210]);
+  var open = hist.drawers.find(function (d) { return d.session.status === 'open' && d.cashierName === 'Ama Zqb'; });
+  assert.deepEqual([open.expected, open.byManager], [210, false]);
+  assert.equal(hist.drawers.find(function (d) { return d.cashierName === 'Kojo Zqb'; }).byManager, true);
   await assert.rejects(access.drawers(tok.ama, { action: 'close', id: open.session.id, actualCash: 205 }, IP), /type a manager's PIN/);
   await assert.rejects(access.drawers(tok.kojo, { action: 'close', id: open.session.id }, IP), /Count the cash/);
   hist = await access.drawers(tok.kojo, { action: 'close', id: open.session.id, actualCash: 205, note: 'Zqb Ama went home' }, IP);
   assert.deepEqual([hist.closed.difference, hist.closed.session.closingNote], [-5, 'Closed by Kojo Zqb: Zqb Ama went home']);
   assert.ok(hist.closed.disputeId);
-  assert.deepEqual([hist.totals.short, hist.totals.open], [-5, 0]);
+  assert.deepEqual([hist.totals.short, hist.totals.open], [-5, 1]);
   await assert.rejects(access.drawers(tok.kojo, { action: 'close', id: open.session.id, actualCash: 1 }, IP), /already closed/);
-  // Now Efua opens hers for the next shift.
+  log = await access.activityReport(tok.kojo, { drawerId: open.session.id }, IP);
+  assert.equal(log.rows[0].action, 'till.drawer_close');
+  // Now Efua opens hers for the next shift, the manager's still open beside it.
   await pos.openDrawerSession(tok.efua, 100);
+  assert.equal((await pos.closeDrawerSession(tok.kojo, { actualCash: 60 })).difference, 0);
   var closed = await pos.closeDrawerSession(tok.efua, { actualCash: 100 });
   assert.equal(closed.difference, 0);
   assert.equal(closed.disputeId, undefined, 'a drawer that counts right opens no dispute');

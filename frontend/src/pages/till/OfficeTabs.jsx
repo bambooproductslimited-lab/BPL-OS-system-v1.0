@@ -117,12 +117,14 @@ export function KitchenScreensTab({ token, pin, onFail }) {
 }
 
 // ── drawers ──
-export function DrawersTab({ token, pin, onFail }) {
+// onActivity(drawer) opens the activity report on everything done on one drawer.
+export function DrawersTab({ token, pin, onFail, onActivity }) {
   const [range, setRange] = useState('7');
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(null);
   const [count, setCount] = useState('');
   const [note, setNote] = useState('');
+  const [closing, setClosing] = useState(null); // the drawer a manager is closing for its cashier
   const [busy, setBusy] = useState(false);
   const dates = useMemo(() => rangeDates(range), [range]);
   const load = useCallback(async (extra) => {
@@ -131,7 +133,7 @@ export function DrawersTab({ token, pin, onFail }) {
   useEffect(() => { load(); }, [load]);
   async function closeFor(d) {
     setBusy(true);
-    try { await load({ action: 'close', id: d.session.id, actualCash: count, note }); setCount(''); setNote(''); setOpen(null); } finally { setBusy(false); }
+    try { await load({ action: 'close', id: d.session.id, actualCash: count, note }); setCount(''); setNote(''); setOpen(null); setClosing(null); } finally { setBusy(false); }
   }
   const t = data && data.totals;
   return (
@@ -153,7 +155,7 @@ export function DrawersTab({ token, pin, onFail }) {
             return (
               <li key={d.session.id} className={isOpen ? 'is-open' : diff < 0 ? 'is-short' : diff > 0 ? 'is-over' : ''}>
                 <button type="button" className="ts-dr-row" aria-expanded={open === d.session.id} onClick={() => setOpen(open === d.session.id ? null : d.session.id)}>
-                  <span className="ts-dr-who"><strong>{d.cashierName}</strong><small>{when(d.session.openedAt)}{d.session.closedAt ? ' → ' + new Date(d.session.closedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) : ''}</small></span>
+                  <span className="ts-dr-who"><strong>{d.cashierName}{d.byManager && <em className="ts-dr-mgr">{tr('Manager')}</em>}</strong><small>{when(d.session.openedAt)}{d.session.closedAt ? ' → ' + new Date(d.session.closedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) : ''}</small></span>
                   <span className="ts-dr-fig"><small>{tr('Expected')}</small><b>{money(d.expected)}</b></span>
                   <span className="ts-dr-fig"><small>{tr('Counted')}</small><b>{d.actual == null ? '—' : money(d.actual)}</b></span>
                   <span className={'ts-dr-diff' + (isOpen ? ' is-open' : diff < 0 ? ' is-short' : diff > 0 ? ' is-over' : ' is-ok')}>
@@ -173,9 +175,19 @@ export function DrawersTab({ token, pin, onFail }) {
                     {d.movements.length > 0 && <ul className="ts-dr-moves">{d.movements.map((m) => <li key={m.id}>{m.direction === 'in' ? '+' : '−'}{money(m.amount)} · {m.note || '—'} · {new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}</li>)}</ul>}
                     {d.session.closingNote && <p className="ts-hint">✎ {d.session.closingNote}</p>}
                     {d.dispute && <p className="ts-hint">{d.dispute.status === 'open' ? tr('A dispute is open for this shortage (Disputes).') : tr('Its dispute is resolved.')}</p>}
-                    {isOpen && (
+                    {onActivity && (
+                      <button type="button" className="btn btn-secondary tl-btn ts-dr-log" onClick={() => onActivity({ id: d.session.id, label: d.cashierName + ' · ' + when(d.session.openedAt) + ' → ' + (d.session.closedAt ? new Date(d.session.closedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) : tr('open now')) })}>
+                        <Icon name="pulse" />{tr('Everything done on this drawer')}
+                      </button>
+                    )}
+                    {/* Signing out leaves a drawer open: its cashier counts and closes it.
+                        A manager does so for them only when they cannot. */}
+                    {isOpen && closing !== d.session.id && (
+                      <button type="button" className="pos-link ts-dr-for" onClick={() => setClosing(d.session.id)}>{tr('{name} cannot close it themselves? Close it for them…', { name: d.cashierName })}</button>
+                    )}
+                    {isOpen && closing === d.session.id && (
                       <form className="ts-dr-close" onSubmit={(e) => { e.preventDefault(); closeFor(d); }}>
-                        <p>{tr('{name} left this drawer open. Count the cash in it and close it for them, so the next cashier can open theirs.', { name: d.cashierName })}</p>
+                        <p>{tr('Only when {name} cannot count it themselves (gone home, off sick): count the cash in it and close it for them, so the next cashier can open theirs.', { name: d.cashierName })}</p>
                         <label><span>{tr('Counted')}</span><input className="input" type="number" min="0" step="0.01" inputMode="decimal" value={count} onChange={(e) => setCount(e.target.value)} required /></label>
                         <input className="input" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={tr('Note (optional)')} aria-label={tr('Note')} />
                         <button type="submit" className="btn btn-primary tl-btn" disabled={busy || count === ''}>{tr('Close the drawer')}</button>

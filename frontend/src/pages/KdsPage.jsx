@@ -144,6 +144,11 @@ export default function KdsPage() {
     setSession(null); setBoard(null); seenRef.current = null;
     hello();
   }, [hello]);
+  // A cook signing out, written in the till's activity log.
+  function logOut() {
+    if (session) posFetch('POST', '/pos/logout', session.token, { reason: 'manual' }).catch(() => {});
+    signOut();
+  }
 
   const load = useCallback(async (s) => {
     try {
@@ -395,7 +400,7 @@ export default function KdsPage() {
             ))}
           <DeviceLanguage className="kds-lang" />
           {themeButton}
-          <button type="button" className="kds-tool is-text" onClick={signOut}>{tr('Log out')}</button>
+          <button type="button" className="kds-tool is-text" onClick={logOut}>{tr('Log out')}</button>
         </div>
       </header>
 

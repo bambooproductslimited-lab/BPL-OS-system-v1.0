@@ -4,10 +4,11 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 
-// A manager signed in to the till lands here, not on the order screen:
-// managers take no orders and no money (the cashier on duty does). Each
+// A manager's back office, one tap from the till (Back office, in More and
+// on the drawer screen): reports, the menu and stock, the setup. Managers
+// also take orders and money on the till itself, on their own drawer. Each
 // tile opens the till settings at its tab (TillSettings.jsx), with a live
-// figure on it: today's sales, who has the drawer, disputes open, what is
+// figure on it: today's sales, who has a drawer, disputes open, what is
 // owed, stock running low, kitchen screens online.
 
 const SECTIONS = [
@@ -40,7 +41,12 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
   function figure(k) {
     const s = live.sales, dr = live.drawers, dp = live.disputes, ac = live.accounts, st = live.stock, sc = live.screens;
     if (k === 'sales' && s) return [money(s.net), s.sales === 1 ? tr('1 sale today') : tr('{n} sales today', { n: s.sales })];
-    if (k === 'drawers' && dr) return dr.length ? [dr[0].cashierName, tr('on duty since {time}', { time: new Date(dr[0].session.openedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })] : [tr('No drawer open'), tr('history of every shift')];
+    if (k === 'drawers' && dr) {
+      if (!dr.length) return [tr('No drawer open'), tr('history of every shift')];
+      const duty = dr.find((d) => !d.byManager) || dr[0];
+      const since = tr('on duty since {time}', { time: new Date(duty.session.openedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) });
+      return [duty.cashierName, dr.length > 1 ? since + ' · ' + tr('{n} drawers open', { n: dr.length }) : since];
+    }
     if (k === 'disputes' && dp) return dp.open ? [String(dp.open), tr('open · {amount}', { amount: money(dp.openAmount) }), 'warn'] : [tr('None open'), tr('complaints, wrong charges, drawers short')];
     if (k === 'accounts' && ac) return [money(ac.owedNow), tr('owed · {amount} VIP money held', { amount: money(ac.vipHeld) }), ac.owedNow ? 'warn' : null];
     if (k === 'stock' && st) return st.low ? [String(st.low), tr('running low'), 'warn'] : [tr('All fine'), tr('{n} dishes counted', { n: st.items })];
@@ -61,7 +67,7 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
         <span className="mh-hero-ico" aria-hidden="true"><Icon name="key" /></span>
         <div>
           <h1>{tr('Back office')}</h1>
-          <p>{tr('Reports, the menu and stock, and the till\'s setup. Orders and money are taken by the cashier on duty, not here.')}</p>
+          <p>{tr('Reports, the menu and stock, and the till\'s setup. Orders and money are on the till: open your own drawer there when the cashier on duty is away.')}</p>
         </div>
       </section>
       {SECTIONS.map(([g, title, note, tiles]) => (

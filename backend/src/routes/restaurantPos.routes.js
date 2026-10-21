@@ -23,6 +23,11 @@ function posAuth(req, res, next) {
 router.post('/login', async function (req, res, next) {
   try { res.json(await restaurantPosService.login(req.body.pin, req.ip, req.body.app, req.body.screenToken)); } catch (e) { next(e); }
 });
+// Signing out (to step away, or after the till went unused), for the
+// activity log; a cash drawer stays open.
+router.post('/logout', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.signOut(req.posToken, req.body && req.body.reason)); } catch (e) { next(e); }
+});
 // A kitchen screen says hello: its state, or a new waiting screen with a
 // code for a manager to set it up (restaurantKdsScreens.service.js).
 router.post('/kds/screen', async function (req, res, next) {

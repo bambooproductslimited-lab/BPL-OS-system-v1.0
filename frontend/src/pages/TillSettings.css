@@ -167,8 +167,16 @@
 
 /* The activity report. */
 .ts-act-filters { display: flex; flex-direction: column; gap: 8px; }
+/* The report on one cash drawer, from Drawers: what it is, and the way back. */
+.ts-act-drawer { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: rgba(37, 99, 235, .08); border: 1px solid rgba(37, 99, 235, .35); }
+.ts-act-drawer > svg { flex: none; width: 22px; height: 22px; color: #2563eb; }
+.ts-act-drawer > span { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.ts-act-drawer small { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+.ts-act-drawer strong { overflow-wrap: anywhere; }
+:root[data-theme='dark'] .ts-act-drawer > svg { color: #93c5fd; }
 .ts-act-day { width: auto; padding: 6px 10px; }
 .ts-act-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr); gap: 8px; }
+.ts-act-row > input:nth-child(3) { grid-column: 3 / -1; }
 .ts-act-sum { display: flex; flex-wrap: wrap; gap: 8px; }
 .ts-act-sum span { display: inline-flex; align-items: baseline; gap: 6px; padding: 8px 12px; font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); border-radius: 12px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
 .ts-act-sum b { font-family: var(--font-heading); font-size: 18px; color: var(--color-text); font-variant-numeric: tabular-nums; }
@@ -309,7 +317,6 @@
 .ts-groups .is-reports.is-on { background: linear-gradient(135deg, #059669, #0f766e); }
 .ts-groups .is-menu.is-on { background: linear-gradient(135deg, #f97316, #ea580c); }
 .ts-groups .is-setup.is-on { background: linear-gradient(135deg, #7c3aed, #a855f7); }
-.ts-tick.is-never { color: var(--color-text-muted); background: rgba(100, 116, 139, .12); opacity: .7; }
 .ts-back { align-self: flex-start; }
 .tl-hint-row { margin: 0; font-size: 13px; }
 
@@ -361,6 +368,11 @@
 .ts-dr-detail dl div { padding: 7px 10px; border-radius: 10px; background: var(--pos-soft); }
 .ts-dr-detail dt { font-size: 11px; font-weight: 700; color: var(--color-text-muted); }
 .ts-dr-detail dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ts-dr-log { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
+.ts-dr-log svg { width: 16px; height: 16px; }
+.ts-dr-detail .ts-dr-for { align-self: flex-start; color: var(--color-text-muted); text-decoration: underline; text-underline-offset: 3px; }
+.ts-dr-mgr { margin-left: 8px; padding: 2px 8px; font-size: 10.5px; font-style: normal; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; color: #7c3aed; border-radius: 999px; background: rgba(124, 58, 237, .12); }
+:root[data-theme='dark'] .ts-dr-mgr { color: #c4b5fd; background: rgba(124, 58, 237, .25); }
 .ts-dr-moves { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--color-text-muted); }
 .ts-dr-close { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid rgba(37, 99, 235, .4); background: rgba(37, 99, 235, .06); }
 .ts-dr-close p { grid-column: 1 / -1; margin: 0; font-size: 13px; font-weight: 600; }
@@ -484,6 +496,7 @@
   .ts-map-grid { grid-template-columns: minmax(0, 1fr); }
   .ts-cust li { grid-template-columns: minmax(0, 1fr) auto; }
   .ts-act-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ts-act-row > input:nth-child(3) { grid-column: 1 / -1; }
   .ts-act-day-group li { grid-template-columns: 40px auto minmax(0, 1fr); }
   .ts-act-amt { grid-column: 3; }
   .sr-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

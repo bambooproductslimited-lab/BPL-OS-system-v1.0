@@ -129,24 +129,26 @@ export function CustomersTab({ token, pin, changes, setChange, onFail }) {
 // ── the activity report ──
 const APP_LABEL = { till: msg('Till'), kds: msg('Kitchen screen'), settings: msg('Settings') };
 const KIND_ICON = {
-  signin: 'key', sale: 'cash', kitchen: 'send', refund: 'void', vip: 'spark', iou_paid: 'owed', removed: 'void', customer: 'people', favorite: 'star',
+  signin: 'key', signout: 'key', dispute: 'warn', menu: 'receipt', stock: 'layers', screen: 'layers', sale: 'cash', kitchen: 'send', refund: 'void', vip: 'spark', iou_paid: 'owed', removed: 'void', customer: 'people', favorite: 'star',
   drawer_open: 'drawer', drawer_close: 'drawer', paid_in: 'drawer', paid_out: 'drawer', ready: 'check', dish_done: 'check', dish_back: 'clock',
   station_done: 'check', served: 'bag', cleared: 'void', recalled: 'clock', printed: 'receipt', saved: 'key'
 };
 // What each line is, said in the reader's language (the summary under it
 // is the record as written).
 const ACTION_LABEL = {
-  'till.signin': msg('Signed in'), 'till.sale': msg('Sale'), 'till.kitchen': msg('Sent to the kitchen'), 'till.refund': msg('Refund'), 'till.vip': msg('VIP money put down'),
+  'till.signin': msg('Signed in'), 'till.signout': msg('Signed out'), 'till.dispute': msg('Problem reported'), 'till.stock': msg('Stock changed'), 'till.sale': msg('Sale'), 'till.kitchen': msg('Sent to the kitchen'), 'till.refund': msg('Refund'), 'till.vip': msg('VIP money put down'),
   'till.iou_paid': msg('IOU paid'), 'till.removed': msg('Open order removed'), 'till.customer': msg('New customer'), 'till.favorite': msg('Favourites changed'),
   'till.drawer_open': msg('Cash drawer opened'), 'till.drawer_close': msg('Cash drawer closed'), 'till.paid_in': msg('Paid in'), 'till.paid_out': msg('Paid out'),
-  'till.served': msg('Food served'), 'kds.signin': msg('Signed in'), 'kds.dish_done': msg('Dish done'), 'kds.dish_back': msg('Dish back to cooking'), 'kds.station_done': msg('Station done'),
+  'till.served': msg('Food served'), 'kds.signin': msg('Signed in'), 'kds.signout': msg('Signed out'), 'kds.dish_done': msg('Dish done'), 'kds.dish_back': msg('Dish back to cooking'), 'kds.station_done': msg('Station done'),
   'kds.ready': msg('Food ready'), 'kds.served': msg('Food served'), 'kds.cleared': msg('Cancelled'), 'kds.recalled': msg('Brought back'), 'kds.printed': msg('Ticket printed'),
-  'settings.saved': msg('Settings changed')
+  'settings.saved': msg('Settings changed'), 'settings.menu': msg('Menu changed'), 'settings.dispute': msg('Dispute updated'), 'settings.screen': msg('Kitchen screen changed')
 };
-const KINDS = [['', msg('Everything')], ['till.sale', msg('Sales')], ['till.kitchen', msg('Sent to the kitchen')], ['till.refund', msg('Refunds')], ['till.drawer', msg('Cash drawer')], ['kds.', msg('Kitchen')], ['settings.', msg('Settings changed')]];
+const KINDS = [['', msg('Everything')], ['till.sign', msg('Signing in and out')], ['till.sale', msg('Sales')], ['till.kitchen', msg('Sent to the kitchen')], ['till.refund', msg('Refunds')], ['till.drawer', msg('Cash drawer')], ['kds.', msg('Kitchen')], ['settings.', msg('Settings changed')]];
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 
-export function ActivityTab({ token, pin, onFail }) {
+// drawer ({ id, label }): only what was done on that cash drawer, its
+// cashier's doings while it was open (onClearDrawer goes back to days).
+export function ActivityTab({ token, pin, onFail, drawer, onClearDrawer }) {
   const today = dayISO(new Date());
   const [range, setRange] = useState('today');
   const [day, setDay] = useState(today);
@@ -163,7 +165,7 @@ export function ActivityTab({ token, pin, onFail }) {
     if (range === 'week') return { from: dayISO(new Date(d.getTime() - 6 * 86400000)), to: today };
     return { from: day, to: day };
   }, [range, day, today]);
-  const body = useCallback((before) => ({ managerPin: pin || undefined, from: dates.from, to: dates.to, app: app || undefined, kind: kind || undefined, employeeId: who || undefined, q: q || undefined, before }), [pin, dates, app, kind, who, q]);
+  const body = useCallback((before) => ({ managerPin: pin || undefined, ...(drawer ? { drawerId: drawer.id } : { from: dates.from, to: dates.to, employeeId: who || undefined }), app: app || undefined, kind: kind || undefined, q: q || undefined, before }), [pin, dates, drawer, app, kind, who, q]);
   useEffect(() => {
     let live = true;
     const t = setTimeout(async () => {
@@ -184,7 +186,7 @@ export function ActivityTab({ token, pin, onFail }) {
     const csv = [head].concat(rows).map((r) => r.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
-    a.download = 'till-activity-' + dates.from + (dates.to !== dates.from ? '-to-' + dates.to : '') + '.csv';
+    a.download = 'till-activity-' + (drawer ? 'drawer-' + drawer.id.slice(0, 8) : dates.from + (dates.to !== dates.from ? '-to-' + dates.to : '')) + '.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
@@ -202,12 +204,20 @@ export function ActivityTab({ token, pin, onFail }) {
   return (
     <section className="ts-sec ts-act">
       <div className="ts-act-filters">
-        <div className="ts-chips" role="radiogroup" aria-label={tr('When')}>
-          {[['today', tr('Today')], ['yesterday', tr('Yesterday')], ['week', tr('Last 7 days')], ['day', tr('A day…')]].map(([k, label]) => (
-            <button key={k} type="button" role="radio" aria-checked={range === k} className={range === k ? 'is-on' : ''} onClick={() => setRange(k)}>{label}</button>
-          ))}
-          {range === 'day' && <input className="input ts-act-day" type="date" max={today} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label={tr('Day')} />}
-        </div>
+        {drawer ? (
+          <div className="ts-act-drawer">
+            <Icon name="drawer" />
+            <span><small>{tr('One cash drawer')}</small><strong>{drawer.label}</strong></span>
+            <button type="button" className="btn btn-secondary tl-btn" onClick={onClearDrawer}>{tr('All activity')}</button>
+          </div>
+        ) : (
+          <div className="ts-chips" role="radiogroup" aria-label={tr('When')}>
+            {[['today', tr('Today')], ['yesterday', tr('Yesterday')], ['week', tr('Last 7 days')], ['day', tr('A day…')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={range === k} className={range === k ? 'is-on' : ''} onClick={() => setRange(k)}>{label}</button>
+            ))}
+            {range === 'day' && <input className="input ts-act-day" type="date" max={today} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label={tr('Day')} />}
+          </div>
+        )}
         <div className="ts-act-row">
           <select className="input" value={app} onChange={(e) => setApp(e.target.value)} aria-label={tr('Where')}>
             <option value="">{tr('Till and kitchen')}</option>
@@ -216,10 +226,12 @@ export function ActivityTab({ token, pin, onFail }) {
           <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} aria-label={tr('What')}>
             {KINDS.map(([k, label]) => <option key={k} value={k}>{tr(label)}</option>)}
           </select>
-          <select className="input" value={who} onChange={(e) => setWho(e.target.value)} aria-label={tr('Who')}>
-            <option value="">{tr('Everyone')}</option>
-            {(data ? data.staff : []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          {!drawer && (
+            <select className="input" value={who} onChange={(e) => setWho(e.target.value)} aria-label={tr('Who')}>
+              <option value="">{tr('Everyone')}</option>
+              {(data ? data.staff : []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Search: order, table, customer…')} aria-label={tr('Search')} />
         </div>
       </div>

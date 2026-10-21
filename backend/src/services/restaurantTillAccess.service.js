@@ -11,7 +11,8 @@ var activity = require('./restaurantActivity.service');
 // default role) decides what the till lets them do — checked on the server
 // for every call, the till only hides what they cannot use.
 //
-//   manager  everything, and the settings
+//   manager  everything, and the settings: takes orders and money too, on
+//            their own drawer, beside the cashier on duty's
 //   cashier  sells and runs a cash drawer (by default all but approving refunds)
 //   waiter   keeps tables open for the cashier to charge
 //   kitchen  the kitchen screen only
@@ -36,10 +37,6 @@ var EDITABLE_ROLES = ['cashier', 'waiter', 'kitchen'];
 // the stock and adds what came in.
 var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'kds'];
 function only(keys) { var o = {}; PERMISSIONS.forEach(function (p) { o[p] = keys.indexOf(p) >= 0; }); return o; }
-// A manager runs the back office — reports, the menu and stock, the
-// settings, approving refunds — and does not take orders or money: the
-// cashier on duty does (restaurantPos.openDrawerSession).
-var MANAGER_CAN = ['till', 'removeTable', 'approveRefunds', 'favorites', 'stock', 'kds'];
 var ROLE_DEFAULTS = {
   cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'kds']),
   waiter: only(['till', 'keepOpen', 'kds']),
@@ -62,14 +59,14 @@ var DEFAULTS = {
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
   till: 'Your role does not use the till. Ask a manager.',
-  charge: 'Your role on the till cannot take payments. The cashier on duty does.',
+  charge: 'Your role on the till cannot take payments. Ask a cashier or a manager.',
   keepOpen: 'Your role on the till cannot send orders to the kitchen.',
   customItem: 'Your role on the till cannot add a dish that is not on the menu. Ask a manager.',
   removeTable: 'Your role on the till cannot remove an open table. Ask a manager.',
   refund: 'Your role on the till cannot refund sales. Ask a manager.',
-  vipTopUp: 'Your role on the till cannot take VIP money. The cashier on duty does.',
+  vipTopUp: 'Your role on the till cannot take VIP money. Ask a cashier or a manager.',
   iou: 'Your role on the till cannot sell on IOU. Ask a manager.',
-  iouPaid: 'Your role on the till cannot take IOU payments. The cashier on duty does.',
+  iouPaid: 'Your role on the till cannot take IOU payments. Ask a cashier or a manager.',
   favorites: 'Your role on the till cannot change the favourites.',
   stock: 'Your role on the till cannot change the stock. Ask a manager.',
   kds: 'Your role does not use the kitchen screen. Ask a manager.'
@@ -118,7 +115,7 @@ async function settingsOf(companyId, db) {
   return merged(row && row.settings);
 }
 function permsFor(settings, role) {
-  if (role === 'manager') return only(MANAGER_CAN);
+  if (role === 'manager') return only(PERMISSIONS);
   if (role === 'none' || !settings.roles[role]) return only([]);
   return Object.assign({}, settings.roles[role]);
 }
@@ -165,12 +162,15 @@ async function profile(token) {
   };
 }
 
-// The cashier with the drawer open at this restaurant (one at a time),
-// for the till to say so to another cashier signing in; null when none.
-async function cashierOnDuty(companyId, employeeId) {
-  var r = (await pool.query(
+// The cashier with the drawer open at this restaurant (one at a time; a
+// manager's own drawer beside it does not count), for the till to say so
+// to another cashier signing in; null when none.
+var CASHIER_DRAWER = "LEFT JOIN restaurant_till_staff t ON t.company_id = s.company_id AND t.employee_id = s.cashier_id " +
+  "WHERE s.company_id = $1 AND s.status = 'open' AND t.role IS DISTINCT FROM 'manager'";
+async function cashierOnDuty(companyId, employeeId, db) {
+  var r = (await (db || pool).query(
     "SELECT s.cashier_id, s.opened_at, e.first_name, e.last_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
-    "WHERE s.company_id = $1 AND s.status = 'open' ORDER BY s.opened_at LIMIT 1", [companyId])).rows[0];
+    CASHIER_DRAWER + ' ORDER BY s.opened_at LIMIT 1', [companyId])).rows[0];
   return r ? { employeeId: r.cashier_id, name: r.first_name + ' ' + r.last_name, since: r.opened_at, me: r.cashier_id === employeeId } : null;
 }
 
@@ -249,7 +249,7 @@ var SHAPES = ['square', 'round', 'long'];
 function settingsOut(settings, staff, companyId, tables) {
   return {
     companyId: companyId, settings: settings, staff: staff, tables: tables || [],
-    choices: { roles: ROLES, editableRoles: EDITABLE_ROLES, permissions: PERMISSIONS, managerCan: MANAGER_CAN, paymentMethods: TILL_METHODS, currencies: CURRENCIES, idleMinutes: IDLE_CHOICES, fulfillments: FULFILLMENTS }
+    choices: { roles: ROLES, editableRoles: EDITABLE_ROLES, permissions: PERMISSIONS, managerCan: PERMISSIONS, paymentMethods: TILL_METHODS, currencies: CURRENCIES, idleMinutes: IDLE_CHOICES, fulfillments: FULFILLMENTS }
   };
 }
 
@@ -524,7 +524,7 @@ async function activityReport(token, p, ip) {
 }
 
 module.exports = {
-  TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, MANAGER_CAN: MANAGER_CAN, DEFAULTS: DEFAULTS, cashierOnDuty: cashierOnDuty,
+  TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, DEFAULTS: DEFAULTS, cashierOnDuty: cashierOnDuty,
   settingsOf: settingsOf, accessOf: accessOf, need: need, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
   settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, kitchenScreens: kitchenScreens,
