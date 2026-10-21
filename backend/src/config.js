@@ -79,8 +79,12 @@ module.exports = {
   // own (frontend: npm run build:pos / build:kds); those addresses may call
   // the till's API (/api/pos) and nothing else. RESTAURANT_SITE_ORIGINS
   // replaces the list.
-  restaurantSiteOrigins: (process.env.RESTAURANT_SITE_ORIGINS || 'https://pos.starbartema.com,https://kds.starbartema.com')
+  restaurantSiteOrigins: (process.env.RESTAURANT_SITE_ORIGINS || 'https://pos.starbartema.com,https://kds.starbartema.com,https://delivery.starbartema.com,https://online.starbartema.com')
     .split(',').map(function (s) { return s.trim().replace(/\/+$/, ''); }).filter(Boolean),
+  // The delivery screen (riders' links point there) and the website
+  // customers order on (restaurantDelivery / restaurantOnline services).
+  deliverySiteUrl: (process.env.DELIVERY_SITE_URL || 'https://delivery.starbartema.com').replace(/\/+$/, ''),
+  onlineSiteUrl: (process.env.ONLINE_SITE_URL || 'https://online.starbartema.com').replace(/\/+$/, ''),
   // Where the OS itself is served, for links in emails the server sends on
   // its own (a customer's invoice link in a payment reminder). APP_URL, or
   // the first https address in CORS_ORIGIN.

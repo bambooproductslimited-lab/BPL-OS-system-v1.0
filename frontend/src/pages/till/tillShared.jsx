@@ -40,6 +40,15 @@ export function liveCurrencies(settings) {
   return out;
 }
 export function round2(n) { return Math.round(Number(n) * 100) / 100; }
+// The money each way of paying takes, as the server holds it
+// (restaurantTillMoney METHOD_CURRENCIES): Alipay and WeChat Pay in RMB
+// only, Mobile Money in cedis only, cash in cedis or US dollars; VIP and IOU
+// in cedis. Of those, the ones the till takes now (live: liveCurrencies).
+export const METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'] };
+export function methodCurrencies(method, live) {
+  const ok = METHOD_CURRENCIES[method] || ['GHS'];
+  return live.filter((c) => ok.includes(c.code));
+}
 
 // Dine in, pickup or delivery.
 export const FULFILLMENT = [
@@ -75,15 +84,16 @@ export function lineKey(l) {
   return (l.custom ? 'c:' + String(l.custom.name || l.name).toLowerCase() + ':' + l.price : l.menuItemId + '::' + (l.variationId || '')) + '::' + String(l.note || '').trim().toLowerCase();
 }
 // What the server needs for a line.
+// A delivery fee line (custom.fee) stays one: charged, never cooked.
 export function lineBody(l) {
   return l.custom
-    ? { custom: { name: l.custom.name, price: l.custom.price, category: l.custom.category || '' }, qty: l.qty, note: l.note || undefined }
+    ? { custom: { name: l.custom.name, price: l.custom.price, category: l.custom.category || '', ...(l.custom.fee ? { fee: true } : {}) }, qty: l.qty, note: l.note || undefined }
     : { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined };
 }
 // A line kept on an open order (restaurantPos tabRows), back on the till.
 export function lineFromTab(l) {
   return l.custom
-    ? { menuItemId: null, variationId: null, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', custom: { name: l.name, price: l.unitPrice, category: l.category || '' } }
+    ? { menuItemId: null, variationId: null, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', custom: { name: l.name, price: l.unitPrice, category: l.category || '', ...(l.fee ? { fee: true } : {}) } }
     : { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '' };
 }
 

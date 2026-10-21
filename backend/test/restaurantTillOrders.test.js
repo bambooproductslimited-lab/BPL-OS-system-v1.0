@@ -159,6 +159,8 @@ test('split bills, foreign money at the manager\'s rate, Alipay and WeChat Pay; 
   // US dollars: off until a manager sets a rate and turns them on.
   await assert.rejects(pos.createOrder(tok.ama, { items: [{ menuItemId: rice, qty: 1 }], payments: [{ method: 'cash', currency: 'USD' }] }), /does not take US dollars/);
   await assert.rejects(settingsAs('kojo', { currencies: { USD: { on: true, rate: 0 } } }), /Set the rate for US dollars/);
+  // Alipay and WeChat Pay are charged in RMB: not until the manager sets its rate.
+  await assert.rejects(pos.createOrder(tok.ama, { items: [{ menuItemId: beer, qty: 1 }], payments: [{ method: 'alipay' }] }), /sets the RMB rate/);
   var saved = await settingsAs('kojo', { currencies: { USD: { on: true, rate: 15 }, CNY: { on: true, rate: 2 } } });
   assert.deepEqual(saved.settings.currencies, { USD: { on: true, rate: 15 }, CNY: { on: true, rate: 2 } });
   assert.equal(saved.settings.ratesSetBy, 'Kojo Zqo');
@@ -171,8 +173,17 @@ test('split bills, foreign money at the manager\'s rate, Alipay and WeChat Pay; 
   var ali = await pos.createOrder(tok.ama, { items: [{ menuItemId: beer, qty: 3 }], payments: [{ method: 'alipay', currency: 'CNY' }] });
   assert.deepEqual([ali.paymentMethod, ali.payments[0].foreignAmount, ali.payments[0].amount], ['alipay', 30, 60]);
   var wechat = await pos.createOrder(tok.ama, { items: [{ menuItemId: beer, qty: 1 }], payments: [{ method: 'wechat' }] });
-  assert.equal(wechat.paymentMethod, 'wechat');
-  await assert.rejects(pos.createOrder(tok.ama, { items: [{ menuItemId: beer, qty: 1 }], payments: [{ method: 'vip', currency: 'USD' }] }), /VIP is in cedis/);
+  assert.deepEqual([wechat.paymentMethod, wechat.payments[0].currency, wechat.payments[0].foreignAmount], ['wechat', 'CNY', 10]);
+  // Each way of paying in its own money: Alipay and WeChat in RMB only,
+  // Mobile Money in cedis only, cash in cedis or dollars, VIP in cedis.
+  var one = function (pay) { return pos.createOrder(tok.ama, { items: [{ menuItemId: beer, qty: 1 }], payments: [pay] }); };
+  await assert.rejects(one({ method: 'alipay', currency: 'GHS' }), /Alipay is paid in RMB only/);
+  await assert.rejects(one({ method: 'wechat', currency: 'USD' }), /WeChat Pay is paid in RMB only/);
+  await assert.rejects(one({ method: 'mobile_money', currency: 'USD' }), /Mobile Money is paid in cedis only/);
+  await assert.rejects(one({ method: 'mobile_money', currency: 'CNY' }), /Mobile Money is paid in cedis only/);
+  await assert.rejects(one({ method: 'cash', currency: 'CNY' }), /Cash is taken in cedis or US dollars/);
+  await assert.rejects(one({ method: 'vip', currency: 'USD' }), /VIP is in cedis/);
+  await assert.rejects(one({ method: 'other' }), /Payment method/);
   // The drawer: 120 cedis kept from the split, minus the 50 cedis change for
   // the dollars (the $40 are counted apart); Mobile Money and Alipay are not cash.
   var d = await pos.getOpenDrawerSession(tok.ama);

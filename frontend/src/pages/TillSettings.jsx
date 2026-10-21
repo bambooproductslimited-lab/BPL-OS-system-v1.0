@@ -47,14 +47,15 @@ const PERMISSION = {
 };
 const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock'];
 const METHOD = {
-  cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or a currency below.')],
-  mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number.')],
-  alipay: [() => tr('Alipay'), () => tr('Scanned with the customer\'s Alipay.')],
-  wechat: [() => tr('WeChat Pay'), () => tr('Scanned with the customer\'s WeChat.')],
+  cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or US dollars.')],
+  mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number, in cedis only.')],
+  alipay: [() => tr('Alipay'), () => tr('Scanned with the customer\'s Alipay, in RMB only.')],
+  wechat: [() => tr('WeChat Pay'), () => tr('Scanned with the customer\'s WeChat, in RMB only.')],
   vip: [() => tr('VIP'), () => tr('From money a VIP customer put down.')],
-  iou: [() => tr('IOU'), () => tr('A customer with an IOU account pays later.')],
-  other: [() => tr('Other'), () => tr('Paid some other way, outside the drawer.')]
+  iou: [() => tr('IOU'), () => tr('A customer with an IOU account pays later.')]
 };
+// What each foreign currency is taken for (tillShared METHOD_CURRENCIES).
+const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat Pay') };
 // The tabs, in three groups: what happened, what is sold, how the till works.
 const GROUPS = [
   ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
@@ -289,7 +290,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                 <div className="ts-fx">
                   <div className="ts-fx-head">
                     <strong>{tr('Foreign money at the till')}</strong>
-                    <small className="dk-muted">{tr('Customers can pay in US dollars or Chinese yuan (RMB). Set how many cedis one is worth; the till works out the price and gives change in cedis.')}</small>
+                    <small className="dk-muted">{tr('Cash can be paid in US dollars; Alipay and WeChat Pay are charged in Chinese yuan (RMB); Mobile Money is in cedis only. Set how many cedis one is worth; the till works out the price and gives change in cedis.')}</small>
                   </div>
                   {data.choices.currencies.map((c) => {
                     const cur = draft.currencies[c];
@@ -297,7 +298,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                     return (
                       <div key={c} className={'ts-fx-row' + (cur.on ? ' is-on' : '')}>
                         <span className={'ts-fx-flag is-' + c.toLowerCase()} aria-hidden="true">{c === 'CNY' ? '¥' : '$'}</span>
-                        <span className="ts-fx-name"><strong>{CURRENCY_LABEL[c]}</strong><small>{tr(CURRENCY_NAME[c])}</small></span>
+                        <span className="ts-fx-name"><strong>{CURRENCY_LABEL[c]}</strong><small>{tr(CURRENCY_NAME[c])} · {FX_FOR[c] ? FX_FOR[c]() : ''}</small></span>
                         <label className="ts-fx-rate">
                           <span>{tr('1 {currency} =', { currency: CURRENCY_LABEL[c] })}</span>
                           <input className="input" type="number" min="0" step="0.01" inputMode="decimal" value={cur.rate || ''} placeholder="0.00"

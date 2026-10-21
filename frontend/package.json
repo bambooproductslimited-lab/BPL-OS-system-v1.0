@@ -8,6 +8,8 @@
     "build": "vite build",
     "build:pos": "node tools/build-site.mjs pos",
     "build:kds": "node tools/build-site.mjs kds",
+    "build:delivery": "node tools/build-site.mjs delivery",
+    "build:online": "node tools/build-site.mjs online",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -15,6 +17,7 @@
     "face-api.js": "^0.22.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
+    "leaflet": "^1.9.4",
     "livekit-client": "^2.22.3",
     "pdfjs-dist": "6.3.289",
     "qrcode": "^1.5.4",

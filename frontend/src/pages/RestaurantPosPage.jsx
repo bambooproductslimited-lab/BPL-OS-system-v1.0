@@ -1,7 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_ORIGIN } from '../api/client';
 import { posFetch } from '../lib/posApi';
-import { KDS_URL, SITE } from '../lib/site';
+import { DELIVERY_URL, KDS_URL, SITE } from '../lib/site';
 import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
@@ -24,11 +24,15 @@ import { StockTab } from './till/MenuStock';
 import {
   FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName
 } from './till/tillShared';
+import { statusName } from './delivery/dlShared';
 import './till/till.css';
 import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
 import './RestaurantPosPage.css';
+
+// The send dialog brings the map with it: loaded when it is first opened.
+const SendDialog = lazy(() => import('./delivery/DlDialogs').then((m) => ({ default: m.SendDialog })));
 
 // Same "animate a live-data-driven number, not a CSS keyframe" hook as
 // RestaurantsPage.jsx's — small enough, and specific enough to each page's
@@ -113,7 +117,7 @@ const FALLBACK_ACCESS = {
   role: 'cashier',
   can: { till: true, charge: true, keepOpen: true, customItem: true, removeTable: true, refund: true, approveRefunds: false, vipTopUp: true, iou: true, iouPaid: true, favorites: true, kds: true },
   settings: {
-    paymentMethods: ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'other'], currencies: { USD: { on: false, rate: 0 }, CNY: { on: false, rate: 0 } },
+    paymentMethods: ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou'], currencies: { USD: { on: false, rate: 0 }, CNY: { on: false, rate: 0 } },
     receipt: { footer: 'Thank you!', extra: '', showLogo: true }, idleMinutes: 0, requireWaiter: false, defaultFulfillment: 'dine_in', kitchen: { warnAfter: 10, lateAfter: 20, printReady: false }
   }
 };
@@ -286,6 +290,9 @@ export default function RestaurantPosPage() {
   // and a note sent with the order (restaurantKitchen.service.js).
   const [kitchen, setKitchen] = useState(null); // { inUse, cooking, ready: [...] }
   const [kitchenOpen, setKitchenOpen] = useState(false);
+  const [deliveryPrompt, setDeliveryPrompt] = useState(null); // a delivery's food ready to go out
+  const [sendFor, setSendFor] = useState(null); // { target, riders, settings }: sending one out with a rider
+  const prompted = useRef(new Set()); // tickets asked about already
   const [kitchenNote, setKitchenNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);
   // Refunds, VIP money and IOUs (TillMoney.jsx)
@@ -328,6 +335,15 @@ export default function RestaurantPosPage() {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
+  // A delivery's food is ready: ask once to send it out with a rider (not
+  // over a payment being taken; the next look asks then).
+  useEffect(() => {
+    if (!kitchen || !tillAccess || !tillAccess.can.delivery || deliveryPrompt || sendFor || checkoutOpen) return;
+    const t = kitchen.ready.find((x) => x.fulfillment === 'delivery' && !x.deliveryId && !prompted.current.has(x.id));
+    if (!t) return;
+    prompted.current.add(t.id);
+    setDeliveryPrompt(t);
+  }, [kitchen]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 3500);
@@ -464,6 +480,19 @@ export default function RestaurantPosPage() {
   function sessionEnded() { localStorage.removeItem(SESSION_KEY); setSession(null); setRefundFor(null); setVipOpen(null); setIouOpen(false); }
   async function loadKitchen(token) {
     try { setKitchen(await posFetch('GET', '/pos/kitchen', token || session.token)); } catch { /* the kitchen figures just don't show */ }
+  }
+  // Sending a delivery out with a rider (delivery/DlDialogs SendDialog), with
+  // what the delivery screen knows of it: the customer's pin, what to collect.
+  async function sendOut(ref) {
+    setDeliveryPrompt(null);
+    try {
+      const b = await posFetch('GET', '/pos/delivery/board', session.token);
+      const w = b.ready.concat(b.cooking).find((x) => (ref.tabId && x.tabId === ref.tabId) || (ref.orderId && x.orderId === ref.orderId));
+      if (!w) { setToast(tr('That order has gone out already.')); loadKitchen(); loadTabs(); return; }
+      setSendFor({ target: w, riders: b.riders, settings: b.settings });
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); } else setToast(err.message);
+    }
   }
   async function serveTicket(t) {
     try {
@@ -1564,6 +1593,7 @@ export default function RestaurantPosPage() {
               isManager ? { key: 'office', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
                 : { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
               kitchen && kitchen.inUse && { key: 'kds', icon: 'bag', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
+              can('delivery') && { key: 'delivery', icon: 'send', label: tr('Deliveries'), note: tr('Website orders, riders, the map'), href: DELIVERY_URL },
               printer ? { key: 'printer', icon: 'receipt', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
                 : usbSupported() && { key: 'usb', icon: 'receipt', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
               !printer && bluetoothSupported() && { key: 'bt', icon: 'receipt', label: pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect a Bluetooth printer'), disabled: !!pairingKind, onClick: pairBluetooth },
@@ -1693,7 +1723,8 @@ export default function RestaurantPosPage() {
                   <li key={t.id} className={'dk-row tl-tab is-' + (t.fulfillment || 'dine_in')}>
                     <span className={'dk-lead-icon tl-ful-ico is-' + (t.fulfillment || 'dine_in')} title={fulfillmentName(t.fulfillment || 'dine_in')}><FulfillmentIcon kind={t.fulfillment || 'dine_in'} /></span>
                     <div className="dk-row-main">
-                      <div className="dk-row-title">{tabName(t)} <KitchenTag kitchen={t.kitchen} compact /></div>
+                      <div className="dk-row-title">{tabName(t)} <KitchenTag kitchen={t.kitchen} compact />{t.onlineRef && <span className="tl-web">{t.onlineRef}</span>}
+                        {t.delivery && <span className={'tl-out is-' + t.delivery.status}>🛵 {t.delivery.ref} · {statusName(t.delivery.status)} · {t.delivery.riderName}</span>}</div>
                       <div className="dk-muted dk-row-meta">
                         {[fulfillmentName(t.fulfillment || 'dine_in'), t.lines.reduce((n, l) => n + l.qty, 0) === 1 ? tr('1 item') : tr('{n} items', { n: t.lines.reduce((n, l) => n + l.qty, 0) }), t.waiterName, tr('open since {time}', { time: timeOf(t.createdAt) }), t.openedBy ? tr('by {name}', { name: t.openedBy }) : null].filter(Boolean).join(' · ')}
                       </div>
@@ -1705,6 +1736,7 @@ export default function RestaurantPosPage() {
                       <div className="pos-tab-actions">
                         {can('removeTable') && <button type="button" className="pos-link is-bad" onClick={() => dropTab(t)}>{tr('Remove')}</button>}
                         <button type="button" className="pos-link" onClick={() => setDisputeFor({ tabId: t.id, label: t.name, customerName: t.guestName || t.customerName || '' })}>{tr('Problem?')}</button>
+                        {t.fulfillment === 'delivery' && !t.delivery && can('delivery') && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setTabsOpen(false); sendOut({ tabId: t.id }); }}>🛵 {tr('Send')}</button>}
                         <button type="button" className="btn btn-secondary tl-btn" onClick={() => openTab(t, false)}>{tr('Open')}</button>
                         {onDuty('charge') && <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>}
                       </div>
@@ -1734,12 +1766,17 @@ export default function RestaurantPosPage() {
                     <span className="pos-ready-no">#{t.number}</span>
                     <div className="dk-row-main">
                       <div className="dk-row-title">{t.fulfillment === 'pickup' ? (t.label || t.guestName || tr('Counter')) : t.fulfillment === 'delivery' ? (t.guestName || t.label) : (t.tableName || t.label || t.guestName || tr('Counter'))}
-                        {t.fulfillment && <span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>}</div>
+                        {t.fulfillment && <span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>}
+                        {t.onlineRef && <span className="tl-web">{t.onlineRef}</span>}</div>
                       <div className="dk-muted dk-row-meta">{[t.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: t.dishes }), t.waiterName, t.waitingMinutes ? tr('ready {n} min ago', { n: t.waitingMinutes }) : tr('just ready')].filter(Boolean).join(' · ')}</div>
                       {t.fulfillment === 'delivery' && <div className="dk-muted dk-row-meta">{t.deliveryAddress} · {t.customerPhone}</div>}
                     </div>
                     <div className="dk-row-side">
-                      <button type="button" className="btn btn-primary tl-btn" onClick={() => serveTicket(t)}>{tr('Mark served')}</button>
+                      {t.fulfillment === 'delivery' && !t.deliveryId && can('delivery') && (
+                        <button type="button" className="btn btn-primary tl-btn" onClick={() => { setKitchenOpen(false); sendOut({ tabId: t.tabId, orderId: t.orderId }); }}>🛵 {tr('Send with a rider')}</button>
+                      )}
+                      {t.fulfillment === 'delivery' && t.deliveryId ? <span className="tl-out">🛵 {tr('Out with a rider')}</span>
+                        : <button type="button" className={'btn tl-btn ' + (t.fulfillment === 'delivery' && can('delivery') ? 'btn-secondary' : 'btn-primary')} onClick={() => serveTicket(t)}>{tr('Mark served')}</button>}
                     </div>
                   </li>
                 ))}
@@ -2047,6 +2084,30 @@ export default function RestaurantPosPage() {
             </div>
           </div>
         </div>
+      )}
+      {deliveryPrompt && !checkoutOpen && (
+        <div className="dialog-backdrop" onClick={() => setDeliveryPrompt(null)}>
+          <div className="dialog tl-dialog tl-deliver" role="alertdialog" aria-modal="true" aria-labelledby="tl-deliver-title" onClick={(e) => e.stopPropagation()}>
+            <span className="tl-dialog-ico is-delivery" aria-hidden="true">🛵</span>
+            <h2 id="tl-deliver-title">{tr('{name}\'s delivery is ready', { name: deliveryPrompt.guestName || deliveryPrompt.label })}</h2>
+            <p className="dk-muted">{[deliveryPrompt.onlineRef, '#' + deliveryPrompt.number, deliveryPrompt.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: deliveryPrompt.dishes })].filter(Boolean).join(' · ')}</p>
+            <ul className="tl-duty-list tl-deliver-list">
+              {deliveryPrompt.deliveryAddress && <li><Icon name="map" />{deliveryPrompt.deliveryAddress}</li>}
+              {deliveryPrompt.customerPhone && <li><Icon name="phone" />{deliveryPrompt.customerPhone}</li>}
+            </ul>
+            <p className="dk-muted">{tr('Send it out now: pick one of your riders or type someone\'s name and phone, then send them their link.')}</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setDeliveryPrompt(null)}>{tr('Later')}</button>
+              <button type="button" className="btn btn-primary" autoFocus onClick={() => sendOut({ tabId: deliveryPrompt.tabId, orderId: deliveryPrompt.orderId })}>🛵 {tr('Send with a rider')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {sendFor && (
+        <Suspense fallback={null}>
+          <SendDialog token={session.token} target={sendFor.target} riders={sendFor.riders} settings={sendFor.settings}
+            onClose={() => setSendFor(null)} onDone={(d) => { setSendFor(null); loadKitchen(); loadTabs(); setToast(tr('{ref} is out with {rider}.', { ref: d.ref, rider: d.rider.name })); }} />
+        </Suspense>
       )}
       {settingsOpen && (
         <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)}

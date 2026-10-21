@@ -153,6 +153,8 @@
 .tl-parts select.input { min-width: 128px; }
 .tl-part-no { display: grid; place-items: center; width: 26px; height: 26px; font-size: 12px; font-weight: 900; color: #fff; border-radius: 8px; background: linear-gradient(135deg, #38bdf8, #2563eb); }
 .tl-parts .tl-part-cur { min-width: 78px; }
+.tl-parts .tl-part-cur.is-fixed { display: inline-grid; place-items: center; min-width: 58px; height: 38px; padding: 0 10px; font-size: 12.5px; font-weight: 800; color: #b91c1c; border-radius: 10px; background: rgba(220, 38, 38, .1); border: 1px solid rgba(220, 38, 38, .3); }
+:root[data-theme='dark'] .tl-parts .tl-part-cur.is-fixed { color: #fca5a5; }
 .tl-parts .tl-part-amt { width: 110px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tl-parts .tl-part-given { width: 104px; }
 .tl-part-fx, .tl-part-change { font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
@@ -318,3 +320,15 @@
 .pos-skip { align-self: center; margin-top: 2px; font-size: 13px; color: var(--color-text-muted); text-decoration: underline; text-underline-offset: 3px; }
 .pos-skip:hover { color: var(--color-text); }
 .mh-tools { flex-wrap: wrap; justify-content: flex-end; }
+
+/* Deliveries on the till: a website order's number, a delivery out with its
+   rider, and the prompt when a delivery's food is ready (delivery/). */
+.tl-web { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 8px; font-size: 11px; font-weight: 800; color: #b45309; border-radius: 999px; background: rgba(245, 158, 11, .14); vertical-align: 1px; }
+.tl-out { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; font-size: 11px; font-weight: 800; color: #1d4ed8; border-radius: 999px; background: rgba(37, 99, 235, .12); vertical-align: 1px; }
+.tl-out.is-delivered { color: #047857; background: rgba(16, 185, 129, .14); }
+.tl-out.is-failed { color: #b91c1c; background: rgba(220, 38, 38, .12); }
+:root[data-theme='dark'] .tl-web { color: #fbbf24; }
+:root[data-theme='dark'] .tl-out { color: #93c5fd; }
+:root[data-theme='dark'] .tl-out.is-delivered { color: #6ee7b7; }
+.tl-deliver .tl-dialog-ico { font-size: 26px; }
+.tl-deliver-list li .dk-icon { color: #2563eb; }

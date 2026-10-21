@@ -24,10 +24,15 @@ var activity = require('./restaurantActivity.service');
 // the customer's VIP account; an IOU is for the whole bill and needs a
 // customer whose IOU account allows it.
 
-// What the till takes for a sale (Other: paid some other way, outside the
-// drawer; the till's settings choose which it offers), and how money
-// changes hands otherwise.
+// What the till takes for a sale (the till's settings choose which it
+// offers), and how money changes hands otherwise.
 var TILL_METHODS = access.TILL_METHODS;
+// The money each way of paying is taken in: Alipay and WeChat Pay in RMB
+// only, Mobile Money in cedis only, cash in cedis or US dollars; VIP and IOU
+// are accounts kept in cedis.
+var METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'] };
+var PAID_IN = { cash: 'Cash is taken in cedis or US dollars.', mobile_money: 'Mobile Money is paid in cedis only.', alipay: 'Alipay is paid in RMB only.',
+  wechat: 'WeChat Pay is paid in RMB only.', vip: 'VIP is in cedis.', iou: 'An IOU is in cedis.' };
 var MONEY = ['cash', 'mobile_money'];
 var CURRENCY_NAME = { GHS: 'GHS', USD: 'USD', CNY: 'RMB' };
 var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'other' };
@@ -45,8 +50,8 @@ var ORDER_METHODS_SQL =
   " FROM restaurant_orders o WHERE o.status = 'completed' AND NOT EXISTS (SELECT 1 FROM restaurant_order_payments p WHERE p.order_id = o.id))";
 
 // The parts a sale is paid in, checked: each a way of paying the till
-// offers, in cedis or a currency the manager has turned on (VIP and IOU in
-// cedis), adding up to the bill. One part pays the whole bill unless it
+// offers, in the money that way takes (METHOD_CURRENCIES) and, if foreign,
+// one the manager has turned on with its rate, adding up to the bill. One part pays the whole bill unless it
 // says how much. Cash can say what was handed over (in its currency): the
 // change is given in cedis. Returns { rows, method, cashTendered }.
 function planPayments(session, total, list) {
@@ -59,12 +64,15 @@ function planPayments(session, total, list) {
     var method = V.oneOf(p.method || 'cash', TILL_METHODS, 'Payment method');
     if (settings.paymentMethods.indexOf(method) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
     if (method === 'iou' && !session.access.can.iou) fail('forbidden', 'Your role on the till cannot sell on IOU. Ask a manager.');
-    var currency = p.currency || 'GHS';
+    var currency = p.currency || METHOD_CURRENCIES[method][0];
+    if (METHOD_CURRENCIES[method].indexOf(currency) < 0) fail('invalid', PAID_IN[method]);
     var rate = 1;
     if (currency !== 'GHS') {
       var cur = settings.currencies[currency];
-      if (!cur || !cur.on || !(cur.rate > 0)) fail('invalid', 'The till does not take ' + (currency === 'CNY' ? 'Chinese yuan (RMB)' : currency === 'USD' ? 'US dollars' : currency) + ' now. A manager turns it on with its rate.');
-      if (method === 'vip' || method === 'iou') fail('invalid', METHOD_NAME[method] + ' is in cedis.');
+      if (!cur || !cur.on || !(cur.rate > 0)) {
+        fail('invalid', currency === 'CNY' ? 'Alipay and WeChat Pay are charged in RMB: a manager sets the RMB rate in the till settings first.'
+          : 'The till does not take US dollars now. A manager turns them on with their rate.');
+      }
       rate = cur.rate;
     }
     var amount = list.length === 1 && (p.amount === undefined || p.amount === null || p.amount === '') ? total : round2(p.amount);
@@ -504,7 +512,7 @@ async function shiftMoney(cashierId, companyId, from) {
 }
 
 module.exports = {
-  TILL_METHODS: TILL_METHODS, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME, needDrawer: needDrawer,
+  TILL_METHODS: TILL_METHODS, METHOD_CURRENCIES: METHOD_CURRENCIES, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME, needDrawer: needDrawer,
   planPayments: planPayments, savePayments: savePayments, paymentsOf: paymentsOf, paymentText: paymentText, cashSales: cashSales,
   chargeSale: chargeSale, vipGuests: vipGuests, vipGuest: vipGuest, vipTopUp: vipTopUp,
   iouList: iouList, payIou: payIou,

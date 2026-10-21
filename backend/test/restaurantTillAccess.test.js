@@ -77,7 +77,7 @@ test('with nothing set, everyone is a cashier: sells, keeps tables, runs a drawe
   var p = await access.profile(tok.ama);
   assert.equal(p.role, 'cashier');
   assert.deepEqual([p.can.till, p.can.charge, p.can.keepOpen, p.can.refund, p.can.kds, p.can.approveRefunds], [true, true, true, true, true, false]);
-  assert.deepEqual(p.settings.paymentMethods, ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'other']);
+  assert.deepEqual(p.settings.paymentMethods, ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou']);
   assert.deepEqual(p.settings.kitchen, { warnAfter: 10, lateAfter: 20, printReady: false });
   assert.equal(p.settings.receipt.footer, 'Thank you!');
   await assert.rejects(access.openSettings(tok.ama, null, IP), /A manager opens the till settings/);
@@ -153,7 +153,7 @@ test('each role is held to what it may do, on the server', async function () {
 
   // The cashier charges the table, only the ways of paying the till offers.
   await pos.openDrawerSession(tok.ama, 100);
-  await assert.rejects(pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'other' }), /turned off in the till settings/);
+  await assert.rejects(pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'alipay' }), /turned off in the till settings/);
   var sale = await pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'cash' });
   // Refunds are off for cashiers here (a manager may): turned on, the
   // cashier refunds and the manager approves with their PIN.

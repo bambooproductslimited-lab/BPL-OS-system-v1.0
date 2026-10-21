@@ -82,7 +82,8 @@ async function fire(client, companyId, o) {
   await client.query("SELECT pg_advisory_xact_lock(hashtext('kds:' || $1))", [companyId]);
 
   var want = new Map();
-  (o.lines || []).forEach(function (l) {
+  // A delivery fee is charged, not cooked (restaurantPos priceLines).
+  (o.lines || []).filter(function (l) { return !l.fee; }).forEach(function (l) {
     var k = lineKey(l.menuItemId, l.variationId, l.name, l.note);
     var cur = want.get(k);
     if (cur) cur.qty = round2(cur.qty + Number(l.qty)); else want.set(k, { line: l, qty: round2(l.qty) });
@@ -344,14 +345,18 @@ async function printTicket(token, ticketId) {
 }
 
 // GET /api/pos/kitchen — for the till: whether the kitchen display is in
-// use here, and what is ready to take out.
+// use here, and what is ready to take out (a delivery's ticket says whether
+// it has gone out with a rider, and a website order's its number, so the
+// till can ask to send it: restaurantDelivery send).
 async function tillSummary(token) {
   var session = await access.need(token, 'till');
   var company = session.posCompanyId;
   var inUse = (await pool.query('SELECT 1 FROM restaurant_kds_stations WHERE company_id = $1 AND active LIMIT 1', [company])).rows.length > 0;
   if (!inUse) return { inUse: false, cooking: 0, ready: [] };
   var rows = (await pool.query(
-    "SELECT t.*, (SELECT coalesce(sum(qty), 0) FROM restaurant_kitchen_items i WHERE i.ticket_id = t.id AND i.status = 'done') AS dishes " +
+    "SELECT t.*, (SELECT coalesce(sum(qty), 0) FROM restaurant_kitchen_items i WHERE i.ticket_id = t.id AND i.status = 'done') AS dishes, " +
+    "(SELECT d.id FROM restaurant_deliveries d WHERE d.status <> 'cancelled' AND ((t.tab_id IS NOT NULL AND d.tab_id = t.tab_id) OR (t.order_id IS NOT NULL AND d.order_id = t.order_id)) LIMIT 1) AS delivery_id, " +
+    "(SELECT o.number FROM restaurant_online_orders o WHERE t.tab_id IS NOT NULL AND o.tab_id = t.tab_id LIMIT 1) AS online_number " +
     "FROM restaurant_kitchen_tickets t WHERE t.company_id = $1 AND t.served_at IS NULL AND t.status IN ('cooking', 'ready') AND t.created_at > now() - interval '36 hours' ORDER BY coalesce(t.ready_at, t.created_at)",
     [company])).rows;
   var now = Date.now();
@@ -361,6 +366,7 @@ async function tillSummary(token) {
     ready: rows.filter(function (r) { return r.status === 'ready'; }).map(function (r) {
       return { id: r.id, number: r.number, label: r.label, tableName: r.table_name, waiterName: r.waiter_name, guestName: r.guest_name,
         fulfillment: r.fulfillment || '', customerPhone: r.customer_phone || '', deliveryAddress: r.delivery_address || '',
+        tabId: r.tab_id, orderId: r.order_id, deliveryId: r.delivery_id || null, onlineRef: r.online_number ? 'W-' + String(r.online_number).padStart(4, '0') : null,
         dishes: Number(r.dishes), readyAt: r.ready_at, waitingMinutes: minutesSince(r.ready_at, now) };
     })
   };

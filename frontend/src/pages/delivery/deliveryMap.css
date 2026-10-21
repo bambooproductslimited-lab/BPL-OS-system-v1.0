@@ -1,0 +1,66 @@
+/* The delivery map (DeliveryMap.jsx): pins for the restaurant, the
+   customers and the orders, riders that glide and pulse while their phone
+   shares where they are, and the way dashed, solid as far as covered. */
+.dm-map { position: relative; width: 100%; height: 100%; min-height: 220px; overflow: hidden; border-radius: inherit; background: #dfe7ef; z-index: 0; }
+.dm-map.is-pickable { cursor: crosshair; }
+.dm-map .leaflet-control-attribution { font-size: 10px; background: rgba(255, 255, 255, .78); border-radius: 8px 0 0 0; }
+.dm-map .leaflet-control-zoom { border: 0; box-shadow: 0 8px 22px -12px rgba(0, 0, 0, .55); border-radius: 12px; overflow: hidden; }
+.dm-map .leaflet-control-zoom a { width: 34px; height: 34px; line-height: 34px; color: #0f172a; }
+:root[data-theme='dark'] .dm-map { background: #0b1220; }
+/* Night streets: the light map turned, not another provider. */
+:root[data-theme='dark'] .dm-map .leaflet-tile-pane { filter: invert(1) hue-rotate(185deg) brightness(.92) contrast(.88) saturate(.55); }
+:root[data-theme='dark'] .dm-map .leaflet-control-attribution { color: #cbd5e1; background: rgba(15, 23, 42, .78); }
+:root[data-theme='dark'] .dm-map .leaflet-control-attribution a { color: #93c5fd; }
+:root[data-theme='dark'] .dm-map .leaflet-control-zoom a { color: #e2e8f0; background: #1e293b; border-color: #334155; }
+
+.dm-icon { background: none; border: 0; }
+.dm-pin { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; }
+.dm-dot { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50% 50% 50% 6px; transform: rotate(-45deg); background: #fff; border: 3px solid var(--dm-c, #f97316);
+  box-shadow: 0 10px 22px -10px rgba(15, 23, 42, .7); }
+/* The emoji stays upright inside the turned pin. */
+.dm-dot > i { display: block; font-size: 19px; font-style: normal; line-height: 1; transform: rotate(45deg); }
+.dm-label { order: -1; max-width: 170px; padding: 3px 8px; font: 800 11.5px/1.25 var(--font-heading, system-ui), system-ui, sans-serif; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-radius: 999px; background: rgba(255, 255, 255, .95); box-shadow: 0 6px 16px -8px rgba(15, 23, 42, .6); }
+.dm-label small { display: block; font-size: 10px; font-weight: 700; color: #64748b; }
+:root[data-theme='dark'] .dm-label { color: #f1f5f9; background: rgba(15, 23, 42, .92); }
+:root[data-theme='dark'] .dm-label small { color: #94a3b8; }
+.dm-map.is-far .dm-label small { display: none; }
+.dm-map.is-far .dm-pin:not(.is-active):not(.is-rider):not(.is-restaurant):not(.is-pick) .dm-label { display: none; }
+
+.dm-pin.is-restaurant { --dm-c: #ef4444; z-index: 2; }
+.dm-pin.is-restaurant .dm-dot { width: 46px; height: 46px; background: linear-gradient(135deg, #fff, #fee2e2); }
+.dm-pin.is-restaurant::after { content: ''; position: absolute; bottom: -6px; left: 50%; width: 46px; height: 14px; margin-left: -23px; border-radius: 50%; background: rgba(239, 68, 68, .35); animation: dm-ring 2.4s ease-out infinite; z-index: -1; }
+.dm-pin.is-home { --dm-c: #10b981; }
+.dm-pin.is-order { --dm-c: #8b5cf6; }
+.dm-pin.tone-new { --dm-c: #f59e0b; }
+.dm-pin.tone-ready { --dm-c: #10b981; }
+.dm-pin.tone-cooking { --dm-c: #f97316; }
+.dm-pin.tone-active { --dm-c: #2563eb; }
+.dm-pin.tone-done { --dm-c: #94a3b8; }
+.dm-pin.is-active .dm-dot { transform: rotate(-45deg) scale(1.18); box-shadow: 0 0 0 6px rgba(37, 99, 235, .25), 0 12px 24px -10px rgba(15, 23, 42, .7); }
+.dm-pin.is-pick { --dm-c: #ef4444; cursor: grab; }
+.dm-pin.is-pick .dm-dot { animation: dm-bob 1.4s ease-in-out infinite; }
+
+/* A rider: a round badge, centred where they are, pulsing while live. */
+.dm-pin.is-rider { transform: translate(-50%, -50%); z-index: 3; }
+.dm-pin.is-rider .dm-dot { width: 44px; height: 44px; border-radius: 50%; transform: none; border-color: #2563eb; background: linear-gradient(135deg, #ffffff, #dbeafe); }
+.dm-pin.is-rider .dm-dot > i { font-size: 24px; transform: none; }
+.dm-pin.is-rider .dm-label { order: 2; }
+.dm-pin.is-rider::before { content: ''; position: absolute; left: 50%; top: 22px; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; background: rgba(37, 99, 235, .28); z-index: -1; }
+.dm-pin.is-rider.is-live::before { animation: dm-pulse 1.6s ease-out infinite; }
+.dm-pin.is-rider:not(.is-live) .dm-dot { border-style: dashed; }
+.dm-pin.is-rider.tone-done .dm-dot { border-color: #10b981; background: linear-gradient(135deg, #ffffff, #d1fae5); }
+
+.dm-route { stroke: #2563eb; }
+.dm-route.tone-go { stroke: #2563eb; }
+.dm-route.tone-new { stroke: #f59e0b; }
+.dm-route.tone-ready { stroke: #10b981; }
+.dm-route.is-done { stroke-width: 6px; filter: drop-shadow(0 2px 4px rgba(37, 99, 235, .45)); }
+:root[data-theme='dark'] .dm-route.tone-go, :root[data-theme='dark'] .dm-route { stroke: #60a5fa; }
+
+@keyframes dm-pulse { 0% { transform: scale(.7); opacity: .9; } 100% { transform: scale(2.3); opacity: 0; } }
+@keyframes dm-ring { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes dm-bob { 0%, 100% { transform: rotate(-45deg) translate(0, 0); } 50% { transform: rotate(-45deg) translate(3px, -3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .dm-pin.is-rider.is-live::before, .dm-pin.is-restaurant::after, .dm-pin.is-pick .dm-dot { animation: none; }
+}

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import ProtectedRoute from './auth/ProtectedRoute';
 import AppShell from './layout/AppShell';
@@ -86,6 +87,10 @@ import MkAudiencesPage from './pages/marketing/MkAudiencesPage';
 import MkBrandPage from './pages/marketing/MkBrandPage';
 import MkMarketPage from './pages/marketing/MkMarketPage';
 
+// The delivery screen and a rider's page (/delivery/r/<link>), as on
+// delivery.starbartema.com: loaded when opened, so the map stays out of the OS.
+const DeliverySite = lazy(() => import('./pages/delivery/DeliverySite'));
+
 // Every nav item gets a route so the shell is fully navigable now — screens
 // not yet built render a placeholder rather than a dead link, matching the
 // intended full nav structure (see layout/navModel.js). Built once at
@@ -125,6 +130,7 @@ export default function App() {
       <Route path="/kiosk" element={<KioskPage />} />
       <Route path="/pos" element={<RestaurantPosPage />} />
       <Route path="/kds" element={<KdsPage />} />
+      <Route path="/delivery/*" element={<Suspense fallback={null}><DeliverySite /></Suspense>} />
       <Route path="/share/:token" element={<SharePage />} />
       <Route path="/meet/:token" element={<MeetPage />} />
       <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />

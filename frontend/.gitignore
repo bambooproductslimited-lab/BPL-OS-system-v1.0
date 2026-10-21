@@ -11,6 +11,8 @@ node_modules
 dist
 dist-pos
 dist-kds
+dist-delivery
+dist-online
 dist-ssr
 *.local
 

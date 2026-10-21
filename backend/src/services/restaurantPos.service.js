@@ -51,9 +51,12 @@ async function login(pin, ip, app, screenToken) {
   // Their role decides whether they use the till or the kitchen screen.
   await access.checkSignIn(emp.company_id, emp.id, app);
   var screen = app === 'kds' ? await screens.forSignIn(screenToken, emp.company_id, emp.id) : null;
-  await activity.log(pool, { companyId: emp.company_id, employeeId: emp.id, app: app === 'kds' ? 'kds' : 'till', action: app === 'kds' ? 'kds.signin' : 'till.signin',
-    summary: emp.first_name + ' ' + emp.last_name + ' signed in to the ' + (screen ? 'kitchen screen ' + screen.name + '.' : 'till.'), refType: screen ? 'screen' : null, refId: screen ? screen.id : null });
+  var where = app === 'kds' || app === 'delivery' ? app : 'till';
+  await activity.log(pool, { companyId: emp.company_id, employeeId: emp.id, app: where, action: where + '.signin',
+    summary: emp.first_name + ' ' + emp.last_name + ' signed in to the ' + (screen ? 'kitchen screen ' + screen.name + '.' : where === 'delivery' ? 'delivery screen.' : 'till.'),
+    refType: screen ? 'screen' : null, refId: screen ? screen.id : null });
   var claims = { posEmployeeId: emp.id, posCompanyId: emp.company_id };
+  if (where === 'delivery') claims.app = 'delivery';
   if (screen) claims.kdsScreenId = screen.id;
   var token = jwt.sign(claims, config.jwt.secret, { expiresIn: POS_TOKEN_EXPIRES_IN });
   return {
@@ -74,10 +77,11 @@ async function signOut(token, reason) {
   var session = verifyPosToken(token);
   var emp = (await pool.query('SELECT first_name, last_name FROM employees WHERE id = $1', [session.posEmployeeId])).rows[0];
   if (!emp) return { signedOut: true };
-  var kds = !!session.kdsScreenId, idle = reason === 'idle';
-  var where = kds ? 'kitchen screen' : 'till';
-  var drawer = kds ? null : (await pool.query("SELECT id FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
-  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: kds ? 'kds' : 'till', action: kds ? 'kds.signout' : 'till.signout',
+  var kds = !!session.kdsScreenId, dl = session.app === 'delivery', idle = reason === 'idle';
+  var app = kds ? 'kds' : dl ? 'delivery' : 'till';
+  var where = kds ? 'kitchen screen' : dl ? 'delivery screen' : 'till';
+  var drawer = kds || dl ? null : (await pool.query("SELECT id FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
+  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: app, action: app + '.signout',
     summary: emp.first_name + ' ' + emp.last_name + (idle ? ' was signed out after the ' + where + ' went unused' : ' signed out of the ' + where) + (drawer ? '; their cash drawer stays open.' : '.'),
     refType: drawer ? 'drawer' : (kds ? 'screen' : null), refId: drawer ? drawer.id : (kds ? session.kdsScreenId : null), details: { reason: idle ? 'idle' : 'manual', drawerOpen: !!drawer } });
   return { signedOut: true, drawerOpen: !!drawer };
@@ -352,6 +356,10 @@ async function refNames(client, refs, type) {
 // A dish not on the menu (custom: { name, price, category }) is priced as
 // the till says — only for roles that may add one (allowCustom). Each line
 // may carry a note for the kitchen ("no onions").
+// A delivery fee is a line of its own on the order (custom.fee): charged
+// like a dish, never cooked (restaurantKitchen fire leaves it out), put
+// there with a website order (restaurantOnline accept) or at the till.
+var FEE_NAME = 'Delivery fee';
 async function priceLines(client, companyId, items, allowCustom) {
   if (!Array.isArray(items) || !items.length) fail('invalid', 'Add at least one item.');
   var lines = [];
@@ -360,14 +368,18 @@ async function priceLines(client, companyId, items, allowCustom) {
     var qty = Math.max(0.01, Number(items[i].qty) || 0);
     var note = cleanText(items[i].note, 140);
     if (items[i].custom) {
-      if (!allowCustom) fail('forbidden', 'Your role on the till cannot add a dish that is not on the menu. Ask a manager.');
-      var cname = cleanText(items[i].custom.name, 80);
+      var isFee = items[i].custom.fee === true;
+      if (!allowCustom && !isFee) fail('forbidden', 'Your role on the till cannot add a dish that is not on the menu. Ask a manager.');
+      var cname = isFee ? FEE_NAME : cleanText(items[i].custom.name, 80);
       var cprice = Math.round(Number(items[i].custom.price) * 100) / 100;
       if (!cname) fail('invalid', 'Give the dish that is not on the menu a name.');
-      if (!(cprice >= 0 && cprice < 1000000)) fail('invalid', 'Give ' + cname + ' a price.');
+      if (!(cprice >= 0 && cprice < (isFee ? 5000 : 1000000))) fail('invalid', isFee ? 'The delivery fee is out of range.' : 'Give ' + cname + ' a price.');
+      if (isFee) qty = 1;
       var cTotal = Math.round(qty * cprice * 100) / 100;
       subtotal += cTotal;
-      lines.push({ menuItemId: null, variationId: null, name: cname, qty: qty, unitPrice: cprice, lineTotal: cTotal, note: note, custom: true, category: cleanText(items[i].custom.category, 120) });
+      var cline = { menuItemId: null, variationId: null, name: cname, qty: qty, unitPrice: cprice, lineTotal: cTotal, note: isFee ? '' : note, custom: true, category: isFee ? '' : cleanText(items[i].custom.category, 120) };
+      if (isFee) cline.fee = true;
+      lines.push(cline);
       continue;
     }
     var menuRes = await client.query(
@@ -456,6 +468,10 @@ async function createOrder(token, p) {
     }, names));
     if (tab) {
       await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
+      // Its delivery, or the website order it came from, now goes with the sale.
+      await client.query('UPDATE restaurant_deliveries SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
+      await client.query("UPDATE restaurant_online_orders SET order_id = $1, status = 'done', updated_at = now() WHERE tab_id = $2 AND company_id = $3 AND status = 'accepted'",
+        [order.id, tab.id, session.posCompanyId]);
       await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
     }
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.sale',
@@ -507,6 +523,18 @@ async function tabRows(companyId, where, args) {
   // Where each one's food stands: cooking, ready, served (a tag on the till).
   var st = await kitchen.statusOf(pool, companyId, 'tab_id', out.map(function (t) { return t.id; }));
   out.forEach(function (t) { t.kitchen = st[t.id] || null; });
+  // A delivery gone out with a rider (restaurantDelivery send), and a website order it came from.
+  if (out.length) {
+    var ids = out.map(function (t) { return t.id; });
+    var ds = (await pool.query("SELECT tab_id, number, status, rider_name FROM restaurant_deliveries WHERE tab_id = ANY($1::uuid[]) AND status <> 'cancelled' ORDER BY created_at DESC", [ids])).rows;
+    var oo = (await pool.query('SELECT tab_id, number FROM restaurant_online_orders WHERE tab_id = ANY($1::uuid[])', [ids])).rows;
+    out.forEach(function (t) {
+      var d = ds.find(function (x) { return x.tab_id === t.id; });
+      t.delivery = d ? { ref: 'D-' + String(d.number).padStart(3, '0'), status: d.status, riderName: d.rider_name } : null;
+      var o = oo.find(function (x) { return x.tab_id === t.id; });
+      t.onlineRef = o ? 'W-' + String(o.number).padStart(4, '0') : null;
+    });
+  }
   return out;
 }
 
@@ -521,7 +549,12 @@ async function listTabs(token) {
 // at the counter under the customer's name; a delivery keeps who, the
 // phone and where.
 async function saveTab(token, p) {
-  var session = await access.need(token, 'keepOpen');
+  return saveTabFor(await access.need(token, 'keepOpen'), p);
+}
+// An open order saved and sent to the kitchen by whoever the session is: the
+// till (saveTab), or the delivery screen accepting a website order
+// (restaurantOnline accept).
+async function saveTabFor(session, p) {
   p = p || {};
   if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
@@ -529,7 +562,7 @@ async function saveTab(token, p) {
   var type = await orderType(pool, company, p, refs);
   var priced = await priceLines(pool, company, p.items, session.access.can.customItem);
   var items = priced.lines.map(function (l) {
-    return l.custom ? { custom: { name: l.name, price: l.unitPrice, category: l.category || '' }, qty: l.qty, note: l.note || '' }
+    return l.custom ? { custom: Object.assign({ name: l.name, price: l.unitPrice, category: l.category || '' }, l.fee ? { fee: true } : {}), qty: l.qty, note: l.note || '' }
       : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note || '' };
   });
   var label = (typeof p.label === 'string' ? p.label.trim() : '').slice(0, 60);
@@ -579,6 +612,11 @@ async function removeTab(token, id) {
     if (!res.rows[0]) fail('notfound', 'That open order has already been paid or removed.');
     // Nothing more to cook for it.
     await kitchen.cancelForTab(client, session.posCompanyId, id);
+    // A website order it came from is cancelled (its customer sees so), and a delivery on its way stops.
+    await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the restaurant.', updated_at = now() WHERE tab_id = $1 AND company_id = $2 AND status = 'accepted'",
+      [id, session.posCompanyId]);
+    await client.query("UPDATE restaurant_deliveries SET status = 'cancelled', ended_at = now(), note = 'The order was removed at the till.' WHERE tab_id = $1 AND company_id = $2 AND status IN ('assigned', 'picked_up', 'arrived')",
+      [id, session.posCompanyId]);
     var tname = res.rows[0].table_id ? (await client.query('SELECT name FROM restaurant_tables WHERE id = $1', [res.rows[0].table_id])).rows[0] : null;
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.removed',
       summary: 'Removed the open order ' + (res.rows[0].label || (tname && tname.name) || '') + ' (not paid).', refType: 'tab', refId: id });
@@ -1004,7 +1042,7 @@ module.exports = {
   listDrawerSessions: listDrawerSessions, getDrawerSession: getDrawerSession,
   tablesForSession: tablesForSession, waitersForSession: waitersForSession,
   guestsForSession: guestsForSession, createGuestForSession: createGuestForSession,
-  listTabs: listTabs, saveTab: saveTab, removeTab: removeTab,
+  listTabs: listTabs, saveTab: saveTab, saveTabFor: saveTabFor, removeTab: removeTab, tabRows: tabRows, priceLines: priceLines, FEE_NAME: FEE_NAME,
   shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken,
   closeDrawerFor: closeDrawerFor, signOut: signOut, drawerHistory: drawerHistory, raiseDispute: raiseDispute
 };

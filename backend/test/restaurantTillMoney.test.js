@@ -198,11 +198,14 @@ test('refunds of VIP and IOU sales go back to the balance and off what is owed',
   await assert.rejects(money.refundSale(token, voided.id, { items: [{ id: (await money.saleForRefund(token, voided.id)).items[0].id, qty: 1 }], reason: 'Zqm void', managerPin: MANAGER_PIN }, IP), /voided/);
 });
 
-test('Other: paid some other way, not into the drawer, refunded in cash or Mobile Money', async function () {
+test('Other is no longer taken; a sale paid that way before keeps its name, out of the drawer, refunded in cash or Mobile Money', async function () {
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'other' }), /Payment method/);
   var start = (await drawer()).expected;
-  var o = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'other', cashTendered: 100 });
-  assert.equal(o.paymentMethod, 'other');
-  assert.equal(o.cashTendered, null);
+  var o = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'mobile_money' });
+  // As one paid "Other" before it was taken off.
+  await pool.query("UPDATE restaurant_orders SET payment_method = 'other' WHERE id = $1", [o.id]);
+  await pool.query("UPDATE restaurant_order_payments SET method = 'other' WHERE order_id = $1", [o.id]);
+  assert.equal((await money.saleForRefund(token, o.id)).paymentMethod, 'other');
   assert.equal((await drawer()).expected, start);
   assert.deepEqual((await money.saleForRefund(token, o.id)).methods, ['cash', 'mobile_money']);
 });

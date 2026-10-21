@@ -12,7 +12,7 @@ var { fail } = require('../utils/errors');
 // "kds.served"); summary says it in plain words, for anyone reading the row
 // as it is; details keeps what the screen shows besides (dishes, method…).
 
-var APPS = ['till', 'kds', 'settings'];
+var APPS = ['till', 'kds', 'settings', 'delivery', 'online'];
 
 // log(db, { companyId, employeeId, app, action, summary, amount, refType, refId, details })
 // Never stops what it records: a failure to write the line is swallowed.

@@ -2,26 +2,31 @@ import { useEffect, useMemo, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { tr } from '../../lib/i18n.jsx';
-import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodName, round2 } from './tillShared';
+import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, methodName, round2 } from './tillShared';
 
 // Taking payment (RestaurantPosPage.jsx's Charge): one way, or the bill
-// split several ways; each in cedis or a currency the manager turned on, at
-// their rate (cash change is always given in cedis). VIP and IOU stay greyed
-// out unless the customer picked has a VIP account (money put down) or an
-// IOU account (opened by a manager). The server checks it all again
-// (restaurantTillMoney.planPayments) and answers with the sale.
+// split several ways; each in the money that way takes (tillShared
+// METHOD_CURRENCIES: Alipay and WeChat Pay in RMB, Mobile Money in cedis,
+// cash in cedis or US dollars), a foreign one at the manager's rate (cash
+// change is always given in cedis). VIP and IOU stay greyed out unless the
+// customer picked has a VIP account (money put down) or an IOU account
+// (opened by a manager); Alipay and WeChat Pay until the RMB rate is set.
+// The server checks it all again (restaurantTillMoney.planPayments) and
+// answers with the sale.
 
 const NEEDS_CUSTOMER = { vip: true, iou: true };
 
 export default function PayDialog({ token, title, total, methods, settings, customer, refreshKey, busy, error, onPickCustomer, onTopUp, onCancel, onComplete }) {
   const currencies = liveCurrencies(settings);
   const rateOf = (c) => (currencies.find((x) => x.code === c) || { rate: 1 }).rate;
+  const curFor = (m) => methodCurrencies(m, currencies);
+  const firstCur = (m) => (curFor(m)[0] || { code: 'GHS' }).code;
   const vipOk = !!(customer && customer.vip);
   const iouOk = !!(customer && customer.iouAllowed);
-  const allowed = (m) => (m === 'vip' ? vipOk : m === 'iou' ? iouOk : true);
+  const allowed = (m) => (m === 'vip' ? vipOk : m === 'iou' ? iouOk : curFor(m).length > 0);
   const firstOk = methods.find((m) => allowed(m) && m === 'cash') || methods.find(allowed) || 'cash';
   const [method, setMethod] = useState(firstOk);
-  const [currency, setCurrency] = useState('GHS');
+  const [currency, setCurrency] = useState(() => firstCur(firstOk));
   const [given, setGiven] = useState('');
   const [split, setSplit] = useState(false);
   const [parts, setParts] = useState([]);
@@ -37,6 +42,10 @@ export default function PayDialog({ token, title, total, methods, settings, cust
   }, [vipInPlay, customer, token, refreshKey]);
   // A method that is no longer allowed (another customer) goes back to the first.
   useEffect(() => { if (!allowed(method)) setMethod(firstOk); }, [customer]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Each way of paying in its own money: switching to Alipay is RMB, to Mobile Money cedis.
+  useEffect(() => {
+    if (!curFor(method).some((c) => c.code === currency)) { setCurrency(firstCur(method)); setGiven(''); }
+  }, [method]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── one way ──
   const rate = rateOf(currency);
@@ -56,10 +65,11 @@ export default function PayDialog({ token, title, total, methods, settings, cust
   function startSplit(n) {
     const each = Math.floor((total / n) * 100) / 100;
     const list = Array.from({ length: n }, (_, i) => ({ method: i === 0 ? firstOk : 'cash', currency: 'GHS', amount: String(i === n - 1 ? round2(total - each * (n - 1)) : each), tendered: '' }))
-      .map((p) => ({ ...p, method: allowed(p.method) && methods.includes(p.method) && p.method !== 'iou' ? p.method : 'cash' }));
+      .map((p) => ({ ...p, method: allowed(p.method) && methods.includes(p.method) && p.method !== 'iou' ? p.method : 'cash' }))
+      .map((p) => ({ ...p, currency: firstCur(p.method) }));
     setParts(list); setSplit(true);
   }
-  function setPart(i, patch) { setParts((list) => list.map((p, j) => (j === i ? { ...p, ...patch, ...(patch.method && (patch.method === 'vip') ? { currency: 'GHS' } : {}) } : p))); }
+  function setPart(i, patch) { setParts((list) => list.map((p, j) => (j === i ? { ...p, ...patch, ...(patch.method && !curFor(patch.method).some((c) => c.code === p.currency) ? { currency: firstCur(patch.method), tendered: '' } : {}) } : p))); }
   const vipSplit = round2(parts.filter((p) => p.method === 'vip').reduce((s, p) => s + (Number(p.amount) || 0), 0));
   const splitProblems = parts.map((p) => {
     const a = Number(p.amount);
@@ -83,6 +93,7 @@ export default function PayDialog({ token, title, total, methods, settings, cust
   }
 
   const lockedNote = methods.some((m) => NEEDS_CUSTOMER[m] && !allowed(m));
+  const rmbNote = methods.some((m) => (m === 'alipay' || m === 'wechat') && !allowed(m));
   return (
     <div className="dialog-backdrop" onClick={() => !busy && onCancel()}>
       <form className="dialog pos-pay tl-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (split ? splitOk : singleOk) complete(); }}>
@@ -105,8 +116,8 @@ export default function PayDialog({ token, title, total, methods, settings, cust
                 return (
                   <button key={k} type="button" role="radio" aria-checked={method === k} aria-disabled={!ok} data-m={k}
                     className={(method === k ? 'is-on' : '') + (ok ? '' : ' is-locked')}
-                    title={ok ? methodName(k) : k === 'vip' ? tr('Only for a customer with a VIP account (money put down).') : tr('Only for a customer with an IOU account (a manager opens it).')}
-                    onClick={() => (ok ? setMethod(k) : onPickCustomer())}>
+                    title={ok ? methodName(k) : k === 'vip' ? tr('Only for a customer with a VIP account (money put down).') : k === 'iou' ? tr('Only for a customer with an IOU account (a manager opens it).') : tr('Alipay and WeChat Pay are charged in RMB: a manager sets the RMB rate in the till settings first.')}
+                    onClick={() => (ok ? setMethod(k) : NEEDS_CUSTOMER[k] ? onPickCustomer() : undefined)}>
                     <MethodGlyph method={k} /><span>{methodName(k)}</span>
                   </button>
                 );
@@ -118,9 +129,10 @@ export default function PayDialog({ token, title, total, methods, settings, cust
                 <button type="button" className="pos-link" onClick={onPickCustomer}>{customer ? tr('Another customer') : tr('Pick the customer')}</button>
               </p>
             )}
-            {method !== 'vip' && method !== 'iou' && currencies.length > 1 && (
+            {rmbNote && <p className="tl-pay-lock"><span>{tr('Alipay and WeChat Pay are charged in RMB: a manager sets the RMB rate in the till settings first.')}</span></p>}
+            {curFor(method).length > 1 && (
               <div className="tl-pay-cur" role="radiogroup" aria-label={tr('Currency')}>
-                {currencies.map((c) => (
+                {curFor(method).map((c) => (
                   <button key={c.code} type="button" role="radio" aria-checked={currency === c.code} className={currency === c.code ? 'is-on' : ''} onClick={() => { setCurrency(c.code); setGiven(''); }}>
                     <b>{CURRENCY_LABEL[c.code]}</b>{c.code !== 'GHS' && <small>{tr('1 = {rate}', { rate: money(c.rate) })}</small>}
                   </button>
@@ -178,13 +190,13 @@ export default function PayDialog({ token, title, total, methods, settings, cust
                   <li key={i} className={splitProblems[i] ? 'is-bad' : ''}>
                     <span className="tl-part-no">{i + 1}</span>
                     <select className="input" value={p.method} onChange={(e) => setPart(i, { method: e.target.value })} aria-label={tr('Payment method')}>
-                      {methods.filter((m) => m !== 'iou').map((m) => <option key={m} value={m} disabled={!allowed(m)}>{methodName(m)}{allowed(m) ? '' : ' — ' + tr('no account')}</option>)}
+                      {methods.filter((m) => m !== 'iou').map((m) => <option key={m} value={m} disabled={!allowed(m)}>{methodName(m)}{allowed(m) ? '' : ' — ' + (NEEDS_CUSTOMER[m] ? tr('no account') : tr('no RMB rate'))}</option>)}
                     </select>
-                    {currencies.length > 1 && p.method !== 'vip' && (
+                    {curFor(p.method).length > 1 ? (
                       <select className="input tl-part-cur" value={p.currency} onChange={(e) => setPart(i, { currency: e.target.value, tendered: '' })} aria-label={tr('Currency')}>
-                        {currencies.map((c) => <option key={c.code} value={c.code}>{CURRENCY_LABEL[c.code]}</option>)}
+                        {curFor(p.method).map((c) => <option key={c.code} value={c.code}>{CURRENCY_LABEL[c.code]}</option>)}
                       </select>
-                    )}
+                    ) : p.currency !== 'GHS' && <span className="tl-part-cur is-fixed">{CURRENCY_LABEL[p.currency]}</span>}
                     <input className="input tl-part-amt" type="number" min="0" step="0.01" inputMode="decimal" value={p.amount} onChange={(e) => setPart(i, { amount: e.target.value })} aria-label={tr('Amount in cedis')} placeholder="0.00" />
                     {left > 0.004 && <button type="button" className="pos-link" onClick={() => setPart(i, { amount: String(round2(a + left)) })}>{tr('+ the rest')}</button>}
                     {p.currency !== 'GHS' && a > 0 && <small className="tl-part-fx">= {fmt(round2(a / r), p.currency)}</small>}

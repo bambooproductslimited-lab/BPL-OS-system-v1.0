@@ -24,7 +24,8 @@ var activity = require('./restaurantActivity.service');
 
 // Ways of paying (Alipay and WeChat Pay since migration 0157), and the
 // foreign money the till can take at the manager's rate (cedis for one).
-var TILL_METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'other'];
+// "Other" was taken off the till (old sales paid that way keep their name).
+var TILL_METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou'];
 // What the till offered before Alipay and WeChat: settings saved then
 // did not choose about these, so they are on.
 var OLD_METHODS = ['cash', 'mobile_money', 'vip', 'iou', 'other'];
@@ -34,11 +35,12 @@ var ROLES = ['manager', 'cashier', 'waiter', 'kitchen', 'none'];
 var EDITABLE_ROLES = ['cashier', 'waiter', 'kitchen'];
 // keepOpen is "send orders to the kitchen" (an order kept open to pay
 // later); customItem rings up a dish that is not on the menu; stock counts
-// the stock and adds what came in.
-var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'kds'];
+// the stock and adds what came in; delivery sends orders out with a rider
+// and takes the website's orders (the delivery screen, migration 0159).
+var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'kds'];
 function only(keys) { var o = {}; PERMISSIONS.forEach(function (p) { o[p] = keys.indexOf(p) >= 0; }); return o; }
 var ROLE_DEFAULTS = {
-  cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'kds']),
+  cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'delivery', 'kds']),
   waiter: only(['till', 'keepOpen', 'kds']),
   kitchen: only(['kds'])
 };
@@ -69,6 +71,7 @@ var REFUSED = {
   iouPaid: 'Your role on the till cannot take IOU payments. Ask a cashier or a manager.',
   favorites: 'Your role on the till cannot change the favourites.',
   stock: 'Your role on the till cannot change the stock. Ask a manager.',
+  delivery: 'Your role does not send deliveries. Ask a manager.',
   kds: 'Your role does not use the kitchen screen. Ask a manager.'
 };
 
@@ -139,11 +142,11 @@ async function need(token, perms) {
   return session;
 }
 
-// Whether someone may sign in to the till ('till') or the kitchen screen
-// ('kds'), for restaurantPos.login.
+// Whether someone may sign in to the till ('till'), the kitchen screen
+// ('kds') or the delivery screen ('delivery'), for restaurantPos.login.
 async function checkSignIn(companyId, employeeId, app) {
   var a = await accessOf(companyId, employeeId);
-  var perm = app === 'kds' ? 'kds' : 'till';
+  var perm = app === 'kds' ? 'kds' : app === 'delivery' ? 'delivery' : 'till';
   if (!a.can[perm]) fail('forbidden', REFUSED[perm]);
   return a;
 }
@@ -525,7 +528,7 @@ async function activityReport(token, p, ip) {
 
 module.exports = {
   TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, DEFAULTS: DEFAULTS, cashierOnDuty: cashierOnDuty,
-  settingsOf: settingsOf, accessOf: accessOf, need: need, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
+  settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
   settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, kitchenScreens: kitchenScreens,
   drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock
