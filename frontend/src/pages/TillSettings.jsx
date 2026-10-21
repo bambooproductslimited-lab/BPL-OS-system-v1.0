@@ -6,6 +6,8 @@ import { Icon } from '../components/DashKit';
 import { CURRENCY_LABEL, CURRENCY_NAME, FULFILLMENT, FulfillmentIcon, MethodGlyph } from './till/tillShared';
 import { ActivityTab, CustomersTab, FloorMapTab } from './till/SettingsTabs';
 import SalesReport from './till/SalesReport';
+import { AccountsTab, DisputesTab, DrawersTab, KitchenScreensTab } from './till/OfficeTabs';
+import { MenuTab, StockTab } from './till/MenuStock';
 import './TillSettings.css';
 
 // The till's settings, opened by a manager (backend:
@@ -13,15 +15,16 @@ import './TillSettings.css';
 // do, the ways of paying the till offers and the dollar and yuan rates, the
 // receipt's own lines, signing out after a while unused, a waiter for every
 // table, the kitchen screen's amber and red and its printed tickets, the
-// floor map, the customers' IOU accounts, the sales report
-// (till/SalesReport.jsx) and the activity report (till/SettingsTabs.jsx).
-// The server checks every rule; this only sets them.
+// floor map, the customers' IOU accounts, the kitchen screens; the reports
+// — sales (till/SalesReport.jsx), drawers, disputes, IOUs and VIP money
+// (till/OfficeTabs.jsx), activity (till/SettingsTabs.jsx); the menu and the
+// stock (till/MenuStock.jsx). The server checks every rule; this only sets them.
 
 const ROLE_LABEL = {
   manager: () => tr('Manager'), cashier: () => tr('Cashier'), waiter: () => tr('Waiter'), kitchen: () => tr('Kitchen'), none: () => tr('No access')
 };
 const ROLE_HINT = {
-  manager: () => tr('Everything, and these settings.'),
+  manager: () => tr('Reports, the menu and stock, these settings. Takes no orders and no money.'),
   cashier: () => tr('Sells and runs a cash drawer.'),
   waiter: () => tr('Sends orders to the kitchen for the cashier to charge.'),
   kitchen: () => tr('The kitchen screen only.'),
@@ -39,9 +42,10 @@ const PERMISSION = {
   iou: [() => tr('Sell on IOU'), () => tr('Let a customer with an IOU account owe a sale.')],
   iouPaid: [() => tr('Take IOU payments'), () => tr('Mark what a customer owed as paid.')],
   favorites: [() => tr('Change favourites'), () => tr('Star and unstar dishes for everyone.')],
+  stock: [() => tr('Count the stock'), () => tr('Count stock and enter what came in.')],
   kds: [() => tr('Use the kitchen screen'), () => tr('Sign in to the kitchen screen.')]
 };
-const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites'];
+const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock'];
 const METHOD = {
   cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or a currency below.')],
   mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number.')],
@@ -51,14 +55,21 @@ const METHOD = {
   iou: [() => tr('IOU'), () => tr('A customer with an IOU account pays later.')],
   other: [() => tr('Other'), () => tr('Paid some other way, outside the drawer.')]
 };
-const TABS = [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'],
-  ['customers', () => tr('Customers'), 'owed'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock'], ['sales', () => tr('Sales'), 'up'], ['activity', () => tr('Activity'), 'pulse']];
+// The tabs, in three groups: what happened, what is sold, how the till works.
+const GROUPS = [
+  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
+  ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'],
+    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
+];
+const GROUP_OF = {};
+GROUPS.forEach(([g, , tabs]) => tabs.forEach(([k]) => { GROUP_OF[k] = g; }));
 // The floor map as the settings edit it: each table keyed (new ones too).
 function tablesDraftOf(tables) { return (tables || []).map((t) => ({ ...t, key: t.id })); }
 
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
-export default function TillSettings({ token, companyName, logoUrl, onClose, onSaved, onAuth }) {
+export default function TillSettings({ token, companyName, logoUrl, onClose, onSaved, onAuth, initialTab }) {
   const [step, setStep] = useState('opening'); // opening | pin | edit
   const [pin, setPin] = useState('');
   const [data, setData] = useState(null);
@@ -66,7 +77,8 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
   const [roles, setRoles] = useState({}); // employee id -> role or null, changed here
   const [tables, setTables] = useState([]); // the floor map, as edited
   const [customers, setCustomers] = useState({}); // customer id -> { iouAllowed, iouLimit }, changed here
-  const [tab, setTab] = useState('people');
+  const [tab, setTab] = useState(initialTab && GROUP_OF[initialTab] ? initialTab : 'sales');
+  const group = GROUP_OF[tab];
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -177,8 +189,13 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                 <p className="dk-muted">{tr('{place} · opened by {name}', { place: companyName, name: data.managerName })}</p>
               </div>
             </header>
+            <div className="ts-groups" role="radiogroup" aria-label={tr('Show')}>
+              {GROUPS.map(([g, label, tabs]) => (
+                <button key={g} type="button" role="radio" aria-checked={group === g} className={'is-' + g + (group === g ? ' is-on' : '')} onClick={() => setTab(tabs[0][0])}>{label()}</button>
+              ))}
+            </div>
             <nav className="ts-tabs" role="tablist" aria-label={tr('Till settings')}>
-              {TABS.map(([k, label, icon]) => (
+              {GROUPS.find(([g]) => g === group)[2].map(([k, label, icon]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}><Icon name={icon} />{label()}</button>
               ))}
             </nav>
@@ -233,7 +250,9 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                       {data.choices.permissions.map((perm) => (
                         <tr key={perm}>
                           <th scope="row"><strong>{PERMISSION[perm][0]()}</strong><small>{PERMISSION[perm][1]()}</small></th>
-                          <td data-role={ROLE_LABEL.manager()} className="is-manager"><span className="ts-tick is-on is-locked" title={tr('Managers can do everything.')}>✓</span></td>
+                          <td data-role={ROLE_LABEL.manager()} className="is-manager">{(data.choices.managerCan || []).includes(perm)
+                            ? <span className="ts-tick is-on is-locked" title={tr('Managers always can.')}>✓</span>
+                            : <span className="ts-tick is-locked is-never" title={tr('Managers take no orders and no money: the cashier on duty does.')}>✕</span>}</td>
                           {['cashier', 'waiter', 'kitchen'].map((r) => (
                             <td key={r} data-role={ROLE_LABEL[r]()} className={'is-' + r}>
                               <button type="button" role="switch" aria-checked={!!draft.roles[r][perm]} aria-label={PERMISSION[perm][0]() + ' · ' + ROLE_LABEL[r]()}
@@ -304,6 +323,12 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'map' && <FloorMapTab tables={tables} setTables={(t) => { setTables(t); setFlash(null); }} />}
             {tab === 'customers' && <CustomersTab token={token} pin={pin} changes={customers} setChange={setCustomer} onFail={fail} />}
             {tab === 'sales' && <SalesReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'drawers' && <DrawersTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'disputes' && <DisputesTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'accounts' && <AccountsTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'menu' && <MenuTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'stock' && <StockTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
             {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} />}
 
             {tab === 'receipts' && (
@@ -392,7 +417,8 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             <div className="dialog-actions ts-actions">
               {dirty && <span className="ts-dirty">{tr('Unsaved changes')}</span>}
               <button type="button" className="btn btn-secondary" onClick={close} disabled={busy}>{tr('Close')}</button>
-              <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? tr('Saving…') : tr('Save changes')}</button>
+              {/* Reports, the menu, the stock and the kitchen screens save as they go. */}
+              {(dirty || (group === 'setup' && tab !== 'screens')) && <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? tr('Saving…') : tr('Save changes')}</button>}
             </div>
           </>
         )}

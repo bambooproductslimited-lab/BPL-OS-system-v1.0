@@ -3,6 +3,7 @@ var restaurantPosService = require('../services/restaurantPos.service');
 var kitchen = require('../services/restaurantKitchen.service');
 var money = require('../services/restaurantTillMoney.service');
 var access = require('../services/restaurantTillAccess.service');
+var screens = require('../services/restaurantKdsScreens.service');
 
 // The till's own endpoints — mounted at /api/pos in app.js, deliberately
 // public like /api/kiosk (see kiosk.routes.js's comment): no logged-in
@@ -20,7 +21,12 @@ function posAuth(req, res, next) {
 }
 
 router.post('/login', async function (req, res, next) {
-  try { res.json(await restaurantPosService.login(req.body.pin, req.ip, req.body.app)); } catch (e) { next(e); }
+  try { res.json(await restaurantPosService.login(req.body.pin, req.ip, req.body.app, req.body.screenToken)); } catch (e) { next(e); }
+});
+// A kitchen screen says hello: its state, or a new waiting screen with a
+// code for a manager to set it up (restaurantKdsScreens.service.js).
+router.post('/kds/screen', async function (req, res, next) {
+  try { res.json(await screens.hello(req.body && req.body.screenToken, req.ip, req.headers['user-agent'])); } catch (e) { next(e); }
 });
 
 // What the person signed in may do, and the till's settings; the settings
@@ -44,6 +50,31 @@ router.post('/settings/activity', posAuth, async function (req, res, next) {
 });
 router.post('/settings/sales', posAuth, async function (req, res, next) {
   try { res.json(await access.salesReport(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// The kitchen screens: listed, set up by their code, changed, taken off.
+router.post('/settings/screens', posAuth, async function (req, res, next) {
+  try { res.json(await access.kitchenScreens(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// Drawer history (and closing one left open), disputes, IOUs and VIP money.
+router.post('/settings/drawers', posAuth, async function (req, res, next) {
+  try { res.json(await access.drawers(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/settings/disputes', posAuth, async function (req, res, next) {
+  try { res.json(await access.disputes(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/settings/accounts', posAuth, async function (req, res, next) {
+  try { res.json(await access.accounts(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// The menu, by a manager; the stock, by a manager or a stock keeper.
+router.post('/settings/menu', posAuth, async function (req, res, next) {
+  try { res.json(await access.menu(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/stock', posAuth, async function (req, res, next) {
+  try { res.json(await access.stock(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// A complaint or a wrong charge raised on the till.
+router.post('/disputes', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await restaurantPosService.raiseDispute(req.posToken, req.body)); } catch (e) { next(e); }
 });
 
 router.get('/menu', posAuth, async function (req, res, next) {

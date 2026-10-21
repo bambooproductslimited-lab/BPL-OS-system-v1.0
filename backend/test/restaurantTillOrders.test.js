@@ -13,6 +13,7 @@ var money = require('../src/services/restaurantTillMoney.service');
 var kitchen = require('../src/services/restaurantKitchen.service');
 var access = require('../src/services/restaurantTillAccess.service');
 var pinAuth = require('../src/lib/pinAuth');
+var screens = require('../src/services/restaurantKdsScreens.service');
 
 var PINS = { ama: '7491', kojo: '7492', yaw: '7493', esi: '7494' };
 var IP = '10.9.8.1';
@@ -30,6 +31,8 @@ async function cleanup() {
     await pool.query('DELETE FROM restaurant_drawer_movements WHERE session_id IN (SELECT id FROM restaurant_drawer_sessions WHERE company_id = ANY($1))', [cos]);
     await pool.query('DELETE FROM restaurant_drawer_sessions WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_guests WHERE company_id = ANY($1)', [cos]);
+    await pool.query('DELETE FROM restaurant_disputes WHERE company_id = ANY($1)', [cos]);
+    await pool.query('DELETE FROM restaurant_kds_screens WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_kds_stations WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_menu_items WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_tables WHERE company_id = ANY($1)', [cos]);
@@ -74,7 +77,10 @@ test.before(async function () {
   t2 = (await pool.query("INSERT INTO restaurant_tables (company_id, name) VALUES ($1, 'Zqo T2') RETURNING id", [company.id])).rows[0].id;
   grill = (await pool.query("INSERT INTO restaurant_kds_stations (company_id, name, categories, everything_else) VALUES ($1, 'Zqo Grill', '{\"Zqo Grill\"}', true) RETURNING id", [company.id])).rows[0].id;
   bar = (await pool.query("INSERT INTO restaurant_kds_stations (company_id, name, categories) VALUES ($1, 'Zqo Bar', '{\"Zqo Bar\"}') RETURNING id", [company.id])).rows[0].id;
-  for (var k of Object.keys(PINS)) tok[k] = (await pos.login(PINS[k], IP, k === 'esi' ? 'kds' : 'till')).token;
+  // The kitchen screen Esi signs in on, set up by the manager.
+  var hello = await screens.hello(null, IP, 'Zqo tablet');
+  await screens.claim(company.id, { id: people.kojo, first_name: 'Kojo', last_name: 'Zqo' }, { code: hello.code, name: 'Zqo pass' });
+  for (var k of Object.keys(PINS)) tok[k] = (await pos.login(PINS[k], IP, k === 'esi' ? 'kds' : 'till', hello.screenToken)).token;
   await pos.openDrawerSession(tok.ama, 200);
 });
 test.after(async function () { await cleanup(); await pool.end(); });

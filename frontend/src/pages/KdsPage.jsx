@@ -14,9 +14,11 @@ import './KdsPage.css';
 
 // The kitchen display (KDS) — a full-screen page for a screen in the
 // kitchen, at /kds, outside the app's sign-in like the till and the kiosk.
-// A cook opens it with their staff PIN (the till's: restaurantPos.service.js
-// login), which scopes it to their restaurant, and picks the station it
-// stands at ("Chinese kitchen", "Bar"…) or all of them.
+// A new screen shows a code and waits until a manager sets it up in the
+// till settings (Kitchen screens: restaurantKdsScreens.service.js), giving
+// it a name and its station ("Grill", "Bar"…, or all of them). Cooks then
+// sign in on it with their own staff PIN (restaurantPos.service.js login),
+// so we know who cooked; the station is the manager's, not picked here.
 //
 // What the till sends (an open table's new round, or a sale when it is
 // charged — restaurantKitchen.service.js fire) arrives as a ticket card
@@ -41,7 +43,8 @@ import './KdsPage.css';
 // printer connected here, else through the device's print dialog.
 
 const SESSION_KEY = 'bamboo.kds.session';
-const STATION_KEY = 'bamboo.kds.station';
+const SCREEN_KEY = 'bamboo.kds.screen';
+const SETUP_POLL_MS = 4000;
 const SOUND_KEY = 'bamboo.kds.sound';
 const PIN_LENGTH = 4;
 const POLL_MS = 4000;
@@ -67,7 +70,8 @@ export default function KdsPage() {
   const [pin, setPin] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState(null);
-  const [station, setStation] = useState(() => readKey(STATION_KEY, 'all'));
+  const [screen, setScreen] = useState(null); // this screen as the server knows it: waiting (a code) or set up
+  const [screenProblem, setScreenProblem] = useState(null);
   const [board, setBoard] = useState(null);
   const [offline, setOffline] = useState(false);
   const [problem, setProblem] = useState(null);
@@ -108,14 +112,42 @@ export default function KdsPage() {
     return () => clearTimeout(t);
   }, [paper]);
 
+  // Hello to the server: is this screen set up, and as what? The first
+  // time, it gets its secret and a code to show.
+  // One hello at a time, so a new screen is never registered twice.
+  const helloRef = useRef(null);
+  const hello = useCallback(() => {
+    if (helloRef.current) return helloRef.current;
+    helloRef.current = (async () => {
+      try {
+        const h = await posFetch('POST', '/pos/kds/screen', null, { screenToken: readKey(SCREEN_KEY, '') || undefined });
+        if (h.screenToken) writeKey(SCREEN_KEY, h.screenToken);
+        setScreen(h); setScreenProblem(null);
+        return h;
+      } catch (err) {
+        setScreenProblem(err.status ? err.message : tr('Cannot reach the server. Check the internet and reload.'));
+        return null;
+      } finally { helloRef.current = null; }
+    })();
+    return helloRef.current;
+  }, []);
+  useEffect(() => { hello(); }, [hello]);
+  // Waiting for a manager: ask again every few seconds.
+  useEffect(() => {
+    if (!screen || screen.status !== 'waiting') return undefined;
+    const t = setInterval(hello, SETUP_POLL_MS);
+    return () => clearInterval(t);
+  }, [screen, hello]);
+
   const signOut = useCallback(() => {
     try { localStorage.removeItem(SESSION_KEY); } catch { /* nothing kept */ }
     setSession(null); setBoard(null); seenRef.current = null;
-  }, []);
+    hello();
+  }, [hello]);
 
-  const load = useCallback(async (s, st) => {
+  const load = useCallback(async (s) => {
     try {
-      const b = await posFetch('GET', '/pos/kds?station=' + encodeURIComponent(st), s.token);
+      const b = await posFetch('GET', '/pos/kds', s.token);
       setOffset(new Date(b.now).getTime() - Date.now());
       setOffline(false); setProblem(null);
       // A ding, and a glow, for tickets not seen before (not on first load).
@@ -133,7 +165,6 @@ export default function KdsPage() {
       return true;
     } catch (err) {
       if (err.status === 401) { signOut(); return 'signed-out'; }
-      if (err.status === 404 && st !== 'all') { setStation('all'); writeKey(STATION_KEY, 'all'); return false; }
       if (err.status) setProblem(err.message); else setOffline(true);
       return false;
     }
@@ -145,27 +176,29 @@ export default function KdsPage() {
     try { saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { saved = null; }
     if (!saved) { setChecked(true); return; }
     // Kept through a dropped connection; only a refused sign-in ends it.
-    load(saved, station).then((r) => { if (r !== 'signed-out') setSession(saved); setChecked(true); });
+    load(saved).then((r) => { if (r !== 'signed-out') setSession(saved); setChecked(true); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ask again every few seconds, and at once when the station changes.
+  // Ask again every few seconds (a manager may move the screen to another station).
   useEffect(() => {
     if (!session) return undefined;
-    load(session, station);
-    const t = setInterval(() => load(session, station), POLL_MS);
+    load(session);
+    const t = setInterval(() => load(session), POLL_MS);
     return () => clearInterval(t);
-  }, [session, station, load]);
+  }, [session, load]);
 
   async function signIn(full) {
     setLoggingIn(true); setLoginError(null);
     try {
-      const s = await posFetch('POST', '/pos/login', null, { pin: full, app: 'kds' });
+      const s = await posFetch('POST', '/pos/login', null, { pin: full, app: 'kds', screenToken: readKey(SCREEN_KEY, '') || undefined });
       writeKey(SESSION_KEY, JSON.stringify(s));
       seenRef.current = null;
       setSession(s);
     } catch (err) {
       setLoginError(err.message);
+      // Taken off or not set up after all: back to its code.
+      if (err.status === 403) hello();
     } finally {
       setPin(''); setLoggingIn(false);
     }
@@ -191,7 +224,7 @@ export default function KdsPage() {
   async function act(key, method, path, body) {
     unlockAudio();
     setBusy((b) => new Set(b).add(key));
-    try { await posFetch(method, path, session.token, body); await load(session, station); } catch (err) {
+    try { await posFetch(method, path, session.token, body); await load(session); } catch (err) {
       if (err.status === 401) signOut(); else if (err.status) setProblem(err.message); else setOffline(true);
     } finally { setBusy((b) => { const n = new Set(b); n.delete(key); return n; }); }
   }
@@ -211,7 +244,7 @@ export default function KdsPage() {
     setBusy((b) => new Set(b).add(i.id));
     try {
       const r = await posFetch('POST', '/pos/kds/items/' + i.id, session.token, { done: i.status !== 'done' });
-      await load(session, station);
+      await load(session);
       // The last dish done: the ticket is ready — print it if asked.
       if (printReady && r.status === 'ready' && i.status !== 'done') { const t = (board.cooking || []).find((x) => x.id === r.ticketId); if (t) printTicket(t); }
     } catch (err) {
@@ -222,8 +255,8 @@ export default function KdsPage() {
     unlockAudio();
     setBusy((b) => new Set(b).add(t.id));
     try {
-      const r = await posFetch('POST', '/pos/kds/tickets/' + t.id + '/done', session.token, { station });
-      await load(session, station);
+      const r = await posFetch('POST', '/pos/kds/tickets/' + t.id + '/done', session.token, { station: board ? board.station : 'all' });
+      await load(session);
       if (printReady && r.status === 'ready') printTicket(t);
     } catch (err) {
       if (err.status === 401) signOut(); else if (err.status) setProblem(err.message); else setOffline(true);
@@ -234,7 +267,6 @@ export default function KdsPage() {
     try { setPrinter(kind === 'usb' ? await requestUsbPrinter() : await requestBluetoothPrinter()); } catch (err) { setProblem(err.message); }
   }
   const recall = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/recall');
-  function pickStation(s) { setStation(s); writeKey(STATION_KEY, s); seenRef.current = null; setBoard(null); }
   function toggleSound() { const on = !sound; setSound(on); writeKey(SOUND_KEY, on ? 'on' : 'off'); if (on) { unlockAudio(); playNewTicket(); } }
   function fullScreen() {
     const el = document.documentElement;
@@ -262,6 +294,37 @@ export default function KdsPage() {
   const clock = new Date(now).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
 
   if (!checked) return null;
+  // A screen not set up yet: its code, for a manager to set it up.
+  if (!session && (!screen || screen.status !== 'active')) {
+    const code = screen && screen.code ? screen.code.slice(0, 3) + ' ' + screen.code.slice(3) : '';
+    return (
+      <div className="dk pos-shell pos-gate kds-gate">
+        <span className="pos-orb is-a" aria-hidden="true" /><span className="pos-orb is-b" aria-hidden="true" />
+        <div className="pos-gate-top"><DeviceLanguage className="pos-lang" />{themeButton}</div>
+        <div className="pos-gate-card kds-setup">
+          <div className="pos-gate-side">
+            <p className="dk-eyebrow">{tr('Kitchen screen')}</p>
+            <h1 className="pos-gate-title">{tr('This screen is new')}</h1>
+            <p className="dk-muted">{tr('A manager sets it up once: which kitchen or bar it stands in. After that, cooks sign in on it with their own PIN.')}</p>
+            <ol className="kds-setup-steps">
+              <li><b>1</b>{tr('On the till, a manager opens More → Till settings → Kitchen screens.')}</li>
+              <li><b>2</b>{tr('This screen shows there under "New screens on this network", or they type its code.')}</li>
+              <li><b>3</b>{tr('They name it and pick its station. This screen opens by itself.')}</li>
+            </ol>
+          </div>
+          <div className="pos-gate-pad kds-setup-code">
+            {screenProblem ? <p className="pos-pin-note is-bad" role="alert">{screenProblem}</p> : !screen ? <p className="dk-muted">{tr('Opening…')}</p> : (
+              <>
+                <small>{tr('Code for the manager')}</small>
+                <strong aria-label={screen.code.split('').join(' ')}>{code}</strong>
+                <span className="kds-setup-wait"><i aria-hidden="true" />{tr('Waiting for a manager…')}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!session) {
     return (
       <div className="dk pos-shell pos-gate kds-gate">
@@ -271,8 +334,9 @@ export default function KdsPage() {
           <div className="pos-gate-side">
             <p className="dk-eyebrow">{new Date(now).toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
             <div className="pos-clock">{clock}</div>
-            <h1 className="pos-gate-title">{tr('Kitchen screen')}</h1>
-            <p className="dk-muted">{tr('Enter your 4-digit PIN, the same one you clock in with. Orders from the till then show here as tickets for the whole shift.')}</p>
+            <h1 className="pos-gate-title">{screen.name}</h1>
+            <p className="kds-gate-station">{screen.stationName || tr('All stations')} · {screen.companyName}</p>
+            <p className="dk-muted">{tr('Enter your 4-digit PIN, the same one you clock in with. Orders from the till then show here as tickets, and what you mark done is in your name.')}</p>
             <div className="pos-gate-logos" aria-hidden="true">
               {['SBR', 'BGN'].map((c) => restaurantLogoUrl(c) && <img key={c} src={restaurantLogoUrl(c)} alt="" />)}
             </div>
@@ -296,7 +360,10 @@ export default function KdsPage() {
 
   const stations = board ? board.stations : [];
   const timing = board ? board.timing : { warnAfter: 10, lateAfter: 20 };
-  const stationName = station === 'all' ? tr('All stations') : (stations.find((s) => s.id === station) || {}).name || '';
+  // The station is the manager's (Till settings → Kitchen screens), not picked here.
+  const station = board ? board.station : 'all';
+  const here = (board && board.screen) || session.screen || null;
+  const stationName = here && here.stationName ? here.stationName : tr('All stations');
   function toneOf(t) {
     const m = (now - new Date(t.createdAt).getTime()) / 60000;
     return m >= timing.lateAfter ? 'late' : m >= timing.warnAfter ? 'warn' : 'ok';
@@ -308,14 +375,11 @@ export default function KdsPage() {
         <div className="kds-who">
           {restaurantLogoUrl(session.companyCode) && <span className="kds-logo"><img src={restaurantLogoUrl(session.companyCode)} alt="" /></span>}
           <div className="kds-who-text">
-            <strong>{tr('Kitchen')} · {stationName}</strong>
+            <strong>{here ? here.name : tr('Kitchen')} · {stationName}</strong>
             <small>{session.companyName} · {session.employeeName}</small>
           </div>
         </div>
-        <nav className="kds-stations" aria-label={tr('Station')}>
-          <button type="button" className={station === 'all' ? 'is-on' : ''} onClick={() => pickStation('all')}>{tr('All stations')}</button>
-          {stations.map((s) => <button key={s.id} type="button" className={station === s.id ? 'is-on' : ''} onClick={() => pickStation(s.id)}>{s.name}</button>)}
-        </nav>
+        <span className="kds-station-pill" title={tr('A manager sets this screen\'s station in Till settings → Kitchen screens.')}>{stationName}</span>
         <div className="kds-counts" aria-live="polite">
           <span className="is-cooking"><b>{board ? board.counts.cooking : '–'}</b>{tr('cooking')}</span>
           <span className="is-ready"><b>{board ? board.counts.ready : '–'}</b>{tr('ready')}</span>

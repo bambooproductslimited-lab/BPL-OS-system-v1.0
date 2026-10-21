@@ -101,6 +101,8 @@ test('restaurant POS: order creation re-prices against the live menu, order numb
   var session = await (await fetch(base + '/api/pos/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '7799' })
   })).json();
+  // Only the cashier on duty, with their drawer open, takes money.
+  await fetch(base + '/api/pos/drawer/open', { method: 'POST', headers: jsonAuthed(session.token), body: JSON.stringify({ startingCash: 0 }) });
 
   // A client-supplied price should be ignored — the server re-prices from
   // the live menu item, not whatever the till's cart happened to send.
@@ -133,6 +135,7 @@ test('restaurant POS: order creation re-prices against the live menu, order numb
   // test employee would hit that FK if their order is still on record, so
   // clean up the order first.
   await pool.query('DELETE FROM restaurant_orders WHERE id = $1', [order.id]);
+  await pool.query('DELETE FROM restaurant_drawer_sessions WHERE cashier_id = $1', [sbrEmpId]);
   await fetch(base + '/api/employees/' + sbrEmpId + '/terminate', { method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ reason: 'test cleanup' }) });
   await fetch(base + '/api/employees/purge-terminated', { method: 'POST', headers: authed(admin) });
   await pool.query('DELETE FROM restaurant_menu_items WHERE id = $1', [menuItem.id]);
@@ -159,6 +162,7 @@ test('restaurant POS: favorite toggle is shared and company-scoped, mostly-bough
   var session = await (await fetch(base + '/api/pos/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '7711' })
   })).json();
+  await fetch(base + '/api/pos/drawer/open', { method: 'POST', headers: jsonAuthed(session.token), body: JSON.stringify({ startingCash: 0 }) });
 
   // Starts unfavorited; toggling flips it, and a second toggle flips it back.
   var menuBefore = await (await fetch(base + '/api/pos/menu', { headers: authed(session.token) })).json();
@@ -205,6 +209,7 @@ test('restaurant POS: favorite toggle is shared and company-scoped, mostly-bough
 
   await pool.query('DELETE FROM restaurant_order_items WHERE menu_item_id = $1', [menuItem.id]);
   await pool.query('DELETE FROM restaurant_orders WHERE company_id = $1 AND cashier_id = $2', [sbrId, sbrEmpId]);
+  await pool.query('DELETE FROM restaurant_drawer_sessions WHERE cashier_id = $1', [sbrEmpId]);
   await fetch(base + '/api/employees/' + sbrEmpId + '/terminate', { method: 'POST', headers: jsonAuthed(admin), body: JSON.stringify({ reason: 'test cleanup' }) });
   await fetch(base + '/api/employees/purge-terminated', { method: 'POST', headers: authed(admin) });
   await pool.query('DELETE FROM restaurant_menu_items WHERE id = ANY($1)', [[menuItem.id, otherCompanyItem.id]]);

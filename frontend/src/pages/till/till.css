@@ -237,3 +237,72 @@
   .tm-table small { display: none; }
   .tl-parts select.input { min-width: 0; flex: 1 1 120px; }
 }
+
+/* Another cashier is on duty: this one takes orders (RestaurantPosPage.jsx). */
+.tl-duty { max-width: 460px; }
+.tl-dialog-ico.is-duty { background: linear-gradient(135deg, #2563eb, #1e40af); }
+.tl-duty-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.tl-duty-list li { display: flex; align-items: flex-start; gap: 10px; }
+.tl-duty-list .dk-icon { flex: none; width: 18px; height: 18px; margin-top: 1px; color: #059669; }
+.tl-duty-list li + li .dk-icon { color: #dc2626; }
+.pos-stat.is-duty { --st: #2563eb; }
+.pos-stat.is-duty .pos-stat-ico { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+
+/* The manager's home on the till (till/ManagerHome.jsx). */
+.mh { max-width: 1180px; margin: 0 auto; padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 18px; }
+.mh-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mh-who { display: flex; align-items: center; gap: 12px; }
+.mh-who > div { display: flex; flex-direction: column; }
+.mh-who strong { font-family: var(--font-heading); font-size: 18px; }
+.mh-who small { font-size: 12.5px; color: var(--color-text-muted); }
+.mh-tools { display: flex; align-items: center; gap: 8px; }
+.mh-hero { display: flex; align-items: center; gap: 16px; padding: 20px 22px; color: #fff; border-radius: 22px; background: linear-gradient(135deg, #7c3aed, #4f46e5 55%, #0ea5e9); box-shadow: 0 24px 50px -30px #4f46e5; }
+.mh-hero h1 { margin: 0; font-size: 26px; }
+.mh-hero p { margin: 4px 0 0; font-size: 14px; opacity: .92; max-width: 640px; }
+.mh-hero-ico { flex: none; display: grid; place-items: center; width: 54px; height: 54px; border-radius: 18px; background: rgba(255, 255, 255, .18); }
+.mh-hero-ico .dk-icon { width: 26px; height: 26px; }
+.mh-sec { --g: #7c3aed; display: flex; flex-direction: column; gap: 10px; }
+.mh-sec.is-reports { --g: #059669; } .mh-sec.is-menu { --g: #ea580c; }
+.mh-sec h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0; font-size: 16px; }
+.mh-sec h2 small { font-size: 12.5px; font-weight: 600; color: var(--color-text-muted); }
+.mh-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.mh-tile { display: flex; align-items: center; gap: 12px; padding: 14px; font: inherit; text-align: left; color: var(--color-text); background: var(--pos-card); border: 1px solid var(--pos-line); border-radius: 18px; box-shadow: var(--pos-shadow); cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
+.mh-tile:hover { transform: translateY(-2px); border-color: var(--g); }
+.mh-tile.is-warn { border-color: rgba(245, 158, 11, .7); background: rgba(245, 158, 11, .06); }
+.mh-tile-ico { flex: none; display: grid; place-items: center; width: 42px; height: 42px; color: #fff; border-radius: 14px; background: var(--g); }
+.mh-tile.is-warn .mh-tile-ico { background: #f59e0b; }
+.mh-tile-ico .dk-icon { width: 20px; height: 20px; }
+.mh-tile-text { display: flex; flex-direction: column; min-width: 0; }
+.mh-tile-text small { font-size: 11.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+.mh-tile-text strong { font-family: var(--font-heading); font-size: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mh-tile-text > span { font-size: 12px; color: var(--color-text-muted); }
+.mh-open { font-weight: 800; color: var(--g) !important; }
+@media (max-width: 640px) { .mh { padding: 14px 16px 30px; } .mh-hero { padding: 16px; } .mh-hero h1 { font-size: 21px; } .mh-tiles { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .mh-tile { flex-direction: column; align-items: flex-start; } }
+
+/* A dish that counts its stock: a few left, or sold out. */
+.pos-tile-stock { position: absolute; left: 8px; top: 6px; padding: 1px 7px; font-size: 10.5px; font-weight: 800; color: #92400e; border-radius: 999px; background: #fde68a; }
+.pos-tile-stock.is-out { color: #fff; background: #dc2626; }
+.pos-tile.is-out { opacity: .55; filter: grayscale(.6); }
+.tl-dialog-ico.is-dispute { background: linear-gradient(135deg, #f97316, #dc2626); }
+.tl-more-ico.is-stock { color: #0d9488; background: rgba(20, 184, 166, .14); }
+.tl-more-ico.is-dispute { color: #c2410c; background: rgba(249, 115, 22, .14); }
+:root[data-theme='dark'] .tl-more-ico.is-stock { color: #5eead4; } :root[data-theme='dark'] .tl-more-ico.is-dispute { color: #fdba74; }
+.tl-stock { max-width: 760px; }
+.tl-stock h2 { margin: 0 0 8px; }
+
+/* All items, A to Z, with a bar of letters to jump (till/AzRail.jsx). */
+/* The list and its letter bar share one box, so the bar spans exactly the list. */
+.pos-menu-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pos-menu-scroll.has-az { padding-right: 34px; }
+.az-title { display: flex; align-items: center; gap: 10px; }
+.az-title b { display: grid; place-items: center; min-width: 34px; height: 34px; padding: 0 8px; font-family: var(--font-heading); font-size: 18px; color: #fff; border-radius: 11px; background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 8px 18px -10px #ea580c; }
+.az-title span { font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
+.az-group { scroll-margin-top: 8px; }
+.az-rail { position: absolute; right: 4px; top: 6px; bottom: 12px; z-index: 3; display: flex; flex-direction: column; justify-content: space-between; width: 26px; padding: 6px 0; border-radius: 999px; background: var(--pos-card, rgba(255, 255, 255, .8)); border: 1px solid var(--pos-line, rgba(0, 0, 0, .1)); box-shadow: 0 10px 24px -16px rgba(0, 0, 0, .5); touch-action: none; user-select: none; -webkit-user-select: none; }
+.az-rail button { flex: 1; min-height: 0; padding: 0; font: inherit; font-size: 10.5px; font-weight: 800; line-height: 1; color: #ea580c; background: none; border: 0; cursor: pointer; }
+.az-rail button.is-empty { color: var(--color-text-muted); opacity: .35; }
+.az-rail button.is-on { color: #fff; background: #ea580c; border-radius: 999px; }
+:root[data-theme='dark'] .az-rail button { color: #fdba74; }
+:root[data-theme='dark'] .az-rail button.is-on { color: #fff; }
+.az-bubble { position: absolute; right: 38px; top: 50%; display: grid; place-items: center; width: 64px; height: 64px; font-family: var(--font-heading); font-size: 32px; font-weight: 900; color: #fff; border-radius: 20px; background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 18px 36px -16px #ea580c; transform: translateY(-50%); pointer-events: none; }
+@media (max-width: 760px) { .az-rail { bottom: 80px; width: 22px; } .az-rail button { font-size: 9.5px; } }

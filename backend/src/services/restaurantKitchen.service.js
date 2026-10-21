@@ -35,6 +35,7 @@ var RECALL_MINUTES = 30;
 
 var access = require('./restaurantTillAccess.service');
 var activity = require('./restaurantActivity.service');
+var screens = require('./restaurantKdsScreens.service');
 function norm(c) { return String(c == null ? '' : c).trim().toLowerCase(); }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 // A dish on a ticket: the menu item and its variation, or a dish not on
@@ -187,13 +188,15 @@ function ticketOut(t, items, stationId, now) {
   };
 }
 
-// GET /api/pos/kds?station=<id|all> — what is cooking, ready and lately
-// served, for one station or all of them.
+// GET /api/pos/kds — what is cooking, ready and lately served, for the
+// kitchen screen's station (set by a manager, restaurantKdsScreens), or —
+// asked from elsewhere — ?station=<id|all>.
 async function board(token, opts) {
   var session = await access.need(token, 'kds');
   var company = session.posCompanyId;
+  var screen = await screens.forSession(session);
   var stations = await activeStations(pool, company);
-  var stationId = opts && opts.station && opts.station !== 'all' ? String(opts.station) : null;
+  var stationId = screen ? screen.station_id : opts && opts.station && opts.station !== 'all' ? String(opts.station) : null;
   if (stationId && !stations.some(function (s) { return s.id === stationId; })) fail('notfound', 'That station is not set up any more. Pick another.');
   var now = Date.now();
   var tickets = (await pool.query(
@@ -219,6 +222,7 @@ async function board(token, opts) {
   recent.sort(function (a, b) { return new Date(b.servedAt) - new Date(a.servedAt); });
   return {
     now: new Date(now).toISOString(), station: stationId || 'all',
+    screen: screen ? { id: screen.id, name: screen.name, stationId: screen.station_id, stationName: screen.station_name || null } : null,
     stations: stations.map(function (s) { return { id: s.id, name: s.name }; }),
     timing: session.access.settings.kitchen,
     printReady: !!session.access.settings.kitchen.printReady,
@@ -258,6 +262,8 @@ async function setItemDone(token, itemId, done) {
 // done, for one station or all.
 async function finishTicket(token, ticketId, stationId) {
   var session = await access.need(token, 'kds');
+  var screen = await screens.forSession(session);
+  if (screen) stationId = screen.station_id || 'all';
   return withTransaction(async function (client) {
     var t = await ticketOfCompany(client, session.posCompanyId, ticketId);
     if (t.served_at) fail('invalid', 'That ticket has been served already.');

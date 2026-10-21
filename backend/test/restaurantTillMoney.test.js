@@ -76,10 +76,12 @@ test('VIP: money put down is spent on sales, never more than is there', async fu
   await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'vip', guestId: guest.id }), /has no VIP account/);
   await assert.rejects(money.vipTopUp(token, { guestId: guest.id, amount: 0, method: 'cash' }), /greater than zero/);
   await assert.rejects(money.vipTopUp(token, { guestId: guest.id, amount: 50, method: 'card' }), /Paid with/);
-  await assert.rejects(money.vipTopUp(token2, { guestId: guest.id, amount: 50, method: 'cash' }), /Open your cash drawer first/);
+  await assert.rejects(money.vipTopUp(token2, { guestId: guest.id, amount: 50, method: 'cash' }), /open your cash drawer first/i);
   var t1 = await money.vipTopUp(token, { guestId: guest.id, amount: 150, method: 'cash', note: 'Zqm first' });
   assert.equal(t1.balance, 150);
-  var t2 = await money.vipTopUp(token2, { guestId: guest.id, amount: 100, method: 'mobile_money' });
+  // Every way of paying needs the cashier on duty's open drawer.
+  await assert.rejects(money.vipTopUp(token2, { guestId: guest.id, amount: 100, method: 'mobile_money' }), /open your cash drawer first/i);
+  var t2 = await money.vipTopUp(token, { guestId: guest.id, amount: 100, method: 'mobile_money' });
   assert.equal(t2.balance, 250, 'Mobile Money needs no drawer');
 
   var sale = await pos.createOrder(token, { items: [{ menuItemId: fish, qty: 2 }], paymentMethod: 'vip', guestId: guest.id });
@@ -118,12 +120,13 @@ test('IOU: needs the guest, stays owed until paid, and the cash goes in the draw
   var before = (await drawer()).expected;
 
   await assert.rejects(money.payIou(token, iou.id, { method: 'iou' }), /Paid with/);
-  await assert.rejects(money.payIou(token2, iou.id, { method: 'cash' }), /Open your cash drawer first/);
+  await assert.rejects(money.payIou(token2, iou.id, { method: 'cash' }), /open your cash drawer first/i);
   var paid = await money.payIou(token, iou.id, { method: 'cash' });
   assert.equal(paid.paidAmount, 60);
   assert.equal(paid.paidBy, 'Ama Zqm');
   await assert.rejects(money.payIou(token, iou.id, { method: 'cash' }), /already been paid/);
-  await money.payIou(token2, iou2.id, { method: 'mobile_money' });
+  await assert.rejects(money.payIou(token2, iou2.id, { method: 'mobile_money' }), /open your cash drawer first/i);
+  await money.payIou(token, iou2.id, { method: 'mobile_money' });
   var after = await money.iouList(token);
   assert.equal(after.open.length, 0);
   assert.deepEqual(after.paidToday.map(function (x) { return [x.orderNo, x.paidMethod]; }).sort(), [[iou.orderNo, 'cash'], [iou2.orderNo, 'mobile_money']].sort());
@@ -147,7 +150,7 @@ test('refunds: some or all of the dishes, a reason, and a manager\'s PIN', async
   await assert.rejects(money.refundSale(token, sale.id, Object.assign({}, ask, { managerPin: PIN }), IP), /cannot approve refunds/, 'a cashier with no manager account cannot approve their own');
   await assert.rejects(money.refundSale(token, sale.id, Object.assign({}, ask, { items: [{ id: beerLine.id, qty: 5 }] }), IP), /Only 4 × Zqm lager is left/);
   await assert.rejects(money.refundSale(token, sale.id, Object.assign({}, ask, { method: 'vip' }), IP), /cannot be refunded that way/);
-  await assert.rejects(money.refundSale(token2, sale.id, ask, IP), /Open your cash drawer first/);
+  await assert.rejects(money.refundSale(token2, sale.id, ask, IP), /open your cash drawer first/i);
 
   var r1 = await money.refundSale(token, sale.id, ask, IP);
   assert.deepEqual([r1.refund.amount, r1.refund.method, r1.refund.approvedByName, r1.refund.cashierName], [20, 'cash', 'Kojo Zqm', 'Ama Zqm']);

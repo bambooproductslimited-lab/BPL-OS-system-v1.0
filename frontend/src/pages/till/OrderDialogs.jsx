@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { posFetch } from '../../lib/posApi';
 import { Icon } from '../../components/DashKit';
 import { money } from '../../lib/currency';
-import { tr } from '../../lib/i18n.jsx';
+import { msg, tr } from '../../lib/i18n.jsx';
 import { FulfillmentIcon, QUICK_NOTES, fulfillmentName, lineKey } from './tillShared';
 
 // The till's small dialogs around an order (RestaurantPosPage.jsx): a note
-// on one dish, a dish that is not on the menu, where a delivery goes, and
-// the check before an order goes to the kitchen.
+// on one dish, a dish that is not on the menu, where a delivery goes, the
+// check before an order goes to the kitchen, and a problem reported (a
+// complaint, a wrong charge) for a manager to resolve.
 
 // A note on one dish for the kitchen ("no pepper"), typed or tapped.
 export function NoteDialog({ line, onSave, onClose }) {
@@ -173,6 +175,61 @@ export function SendConfirmDialog({ cart, sent, fulfillment, where, customer, wa
           <button type="button" className="btn btn-primary" onClick={onConfirm} disabled={busy} autoFocus>{busy ? tr('Sending…') : going.length ? tr('Yes, send it') : tr('Keep it open')}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// A problem with a sale or an open order (or none): a complaint, a wrong
+// charge, something else. It goes to the manager's Disputes
+// (restaurantDisputes.service.js). target: { orderId?, tabId?, label, customerName }.
+const DISPUTE_KINDS = [['complaint', msg('Complaint')], ['wrong_charge', msg('Wrong charge')], ['other', msg('Other problem')]];
+export function DisputeDialog({ token, target, onClose, onSaved }) {
+  const t = target || {};
+  const [kind, setKind] = useState('complaint');
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [customer, setCustomer] = useState(t.customerName || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const kinds = t.orderId ? DISPUTE_KINDS : DISPUTE_KINDS.filter(([k]) => k !== 'wrong_charge');
+  async function send(e) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      await posFetch('POST', '/pos/disputes', token, { kind, description, amount: amount === '' ? undefined : Number(amount), customerName: customer, orderId: t.orderId, tabId: t.tabId });
+      onSaved();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
+      <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={send}>
+        <span className="tl-dialog-ico is-dispute" aria-hidden="true"><Icon name="warn" /></span>
+        <h2>{t.label ? tr('A problem with {order}', { order: t.label }) : tr('Report a problem')}</h2>
+        <p className="dk-muted">{tr('It goes to the manager, who sees it under Disputes and says how it was resolved.')}</p>
+        <div className="tl-chips" role="radiogroup" aria-label={tr('What kind of problem')}>
+          {kinds.map(([k, label]) => <button key={k} type="button" role="radio" aria-checked={kind === k} className={'tl-chip' + (kind === k ? ' is-on' : '')} onClick={() => setKind(k)}>{tr(label)}</button>)}
+        </div>
+        <div className="tl-form-grid">
+          <div className="field tl-span">
+            <label htmlFor="tl-dp-what">{tr('What happened')}</label>
+            <textarea id="tl-dp-what" className="input" rows={3} autoFocus required maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)}
+              placeholder={kind === 'wrong_charge' ? tr('e.g. charged twice on Mobile Money') : tr('e.g. the fish came cold')} />
+          </div>
+          <div className="field">
+            <label htmlFor="tl-dp-who">{tr('Customer (optional)')}</label>
+            <input id="tl-dp-who" className="input" maxLength={80} value={customer} onChange={(e) => setCustomer(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="tl-dp-amt">{kind === 'wrong_charge' ? tr('Amount charged wrong') : tr('Amount (optional)')}</label>
+            <input id="tl-dp-amt" className="input" type="number" min="0" step="0.01" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+          </div>
+        </div>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="dialog-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>{tr('Cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || description.trim().length < 3}>{busy ? tr('Sending…') : tr('Send to the manager')}</button>
+        </div>
+      </form>
     </div>
   );
 }

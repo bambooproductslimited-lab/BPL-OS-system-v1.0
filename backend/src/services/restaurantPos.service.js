@@ -9,6 +9,9 @@ var money = require('./restaurantTillMoney.service');
 var restaurantService = require('./restaurant.service');
 var access = require('./restaurantTillAccess.service');
 var activity = require('./restaurantActivity.service');
+var screens = require('./restaurantKdsScreens.service');
+var disputes = require('./restaurantDisputes.service');
+var tillMenu = require('./restaurantTillMenu.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -27,7 +30,9 @@ var activity = require('./restaurantActivity.service');
 // restaurant staff won't have one).
 var POS_TOKEN_EXPIRES_IN = '12h';
 
-async function login(pin, ip, app) {
+// app 'kds': on a kitchen screen a manager has set up (screenToken), at
+// the cook's own restaurant; the session carries the screen.
+async function login(pin, ip, app, screenToken) {
   pinAuth.checkRateLimit(ip);
   pinAuth.validatePinFormat(pin);
   var hash = pinAuth.hashPin(pin);
@@ -45,10 +50,14 @@ async function login(pin, ip, app) {
   pinAuth.recordSuccess(ip);
   // Their role decides whether they use the till or the kitchen screen.
   await access.checkSignIn(emp.company_id, emp.id, app);
+  var screen = app === 'kds' ? await screens.forSignIn(screenToken, emp.company_id, emp.id) : null;
   await activity.log(pool, { companyId: emp.company_id, employeeId: emp.id, app: app === 'kds' ? 'kds' : 'till', action: app === 'kds' ? 'kds.signin' : 'till.signin',
-    summary: emp.first_name + ' ' + emp.last_name + ' signed in to the ' + (app === 'kds' ? 'kitchen screen.' : 'till.') });
-  var token = jwt.sign({ posEmployeeId: emp.id, posCompanyId: emp.company_id }, config.jwt.secret, { expiresIn: POS_TOKEN_EXPIRES_IN });
+    summary: emp.first_name + ' ' + emp.last_name + ' signed in to the ' + (screen ? 'kitchen screen ' + screen.name + '.' : 'till.'), refType: screen ? 'screen' : null, refId: screen ? screen.id : null });
+  var claims = { posEmployeeId: emp.id, posCompanyId: emp.company_id };
+  if (screen) claims.kdsScreenId = screen.id;
+  var token = jwt.sign(claims, config.jwt.secret, { expiresIn: POS_TOKEN_EXPIRES_IN });
   return {
+    screen: screen ? { id: screen.id, name: screen.name, stationId: screen.station_id, stationName: screen.station_name || null } : undefined,
     token: token,
     employeeName: emp.first_name + ' ' + emp.last_name,
     companyId: emp.company_id,
@@ -101,7 +110,7 @@ async function menuForSession(token) {
     'SELECT id, name, category, price, photo_object_key, favorite FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
   );
-  return attachVariationsToTiles(res.rows.map(rowToTile));
+  return tillMenu.tileStock(session.posCompanyId, await attachVariationsToTiles(res.rows.map(rowToTile)));
 }
 
 function rowToTile(r) {
@@ -177,7 +186,7 @@ async function mostlyBought(token) {
     tile.qtySold = Number(r.qty_sold);
     return tile;
   });
-  return attachVariationsToTiles(tiles);
+  return tillMenu.tileStock(session.posCompanyId, await attachVariationsToTiles(tiles));
 }
 
 // Active tables for the till's own company — the fixed, management-set
@@ -383,6 +392,7 @@ async function createOrder(token, p) {
     : [{ method: p.paymentMethod || 'cash', tendered: p.cashTendered }];
 
   return withTransaction(async function (client) {
+    await money.needDrawer(client, session.posEmployeeId);
     var tab = null;
     if (p.tabId) {
       var tabRes = await client.query('SELECT id, label FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
@@ -394,6 +404,9 @@ async function createOrder(token, p) {
     var priced = await priceLines(client, session.posCompanyId, p.items, session.access.can.customItem);
     var lines = priced.lines;
     var subtotal = priced.subtotal;
+    // A new sale cannot take more than is left of a counted dish; an open
+    // order's food was sent already and is always paid.
+    if (!tab) await tillMenu.checkOrder(client, session.posCompanyId, lines, null, null);
     var plan = money.planPayments(session, subtotal, asked);
 
     var companyRes = await client.query('SELECT code FROM companies WHERE id = $1', [session.posCompanyId]);
@@ -414,6 +427,7 @@ async function createOrder(token, p) {
         [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal, lines[j].note || '', !!lines[j].custom, j]
       );
     }
+    await tillMenu.deductForSale(client, session.posCompanyId, order.id, session.posEmployeeId, lines);
     await money.savePayments(client, order.id, plan.rows);
     var vip = await money.chargeSale(client, session.posCompanyId, order, session.posEmployeeId, plan.rows);
     // To the kitchen: what was not sent with the open order yet, or the
@@ -508,6 +522,9 @@ async function saveTab(token, p) {
     var clash = await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND table_id = $2 AND id <> $3', [company, refs.tableId, p.id || '00000000-0000-0000-0000-000000000000']);
     if (clash.rows[0]) fail('conflict', 'That table already has an open order. Open it and add to it instead.');
   }
+  // No more of a counted dish than is left (what the order held already stays).
+  var before = p.id ? (await pool.query('SELECT items FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2', [p.id, company])).rows[0] : null;
+  await tillMenu.checkOrder(pool, company, priced.lines, p.id || null, before ? before.items : null);
   // Saved and sent to the kitchen together: the new round goes, what was
   // taken off is cancelled (restaurantKitchen.service.js fire).
   var sent = await withTransaction(async function (client) {
@@ -596,9 +613,11 @@ async function shiftSummary(token) {
   return out;
 }
 
-// One of this restaurant's orders again, for reprinting its receipt.
+// One of this restaurant's orders again, for reprinting its receipt —
+// printed by the cashier on duty only.
 async function receiptForSession(token, id) {
-  var session = await access.need(token, 'till');
+  var session = await access.need(token, 'charge');
+  await money.needDrawer(pool, session.posEmployeeId);
   var o = (await pool.query(
     "SELECT o.*, t.name AS table_name, g.name AS guest_name, we.first_name || ' ' || we.last_name AS waiter_name, ce.first_name || ' ' || ce.last_name AS cashier_name " +
     'FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id = o.table_id LEFT JOIN restaurant_guests g ON g.id = o.guest_id ' +
@@ -710,6 +729,7 @@ async function voidOrder(ctx, id) {
     // A voided sale is not cooked, and a VIP guest gets their money back.
     await kitchen.cancelForOrder(client, res.rows[0].company_id, id);
     await money.onVoid(client, res.rows[0]);
+    await tillMenu.returnForVoid(client, res.rows[0]);
     return true;
   });
 }
@@ -781,22 +801,34 @@ async function getOpenDrawerSession(token) {
   return buildReport(res.rows[0]);
 }
 
+// One cashier uses the drawer at a time: the cashier of the next shift
+// opens theirs once the last one has closed (counted) theirs, or a manager
+// has closed it for them (closeDrawerFor).
 async function openDrawerSession(token, startingCash) {
   var session = await access.need(token, 'charge');
-  // Idempotent — a reload right after opening (or two tabs on the same
-  // PIN) resumes the existing open session instead of erroring, same
-  // spirit as the till-session token restore already does.
-  var existing = await pool.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]);
-  if (existing.rows[0]) return buildReport(existing.rows[0]);
-
-  var amount = Math.max(0, Number(startingCash) || 0);
-  var res = await pool.query(
-    'INSERT INTO restaurant_drawer_sessions (company_id, cashier_id, starting_cash) VALUES ($1,$2,$3) RETURNING *',
-    [session.posCompanyId, session.posEmployeeId, amount]
-  );
-  await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.drawer_open',
-    summary: 'Opened the cash drawer with ' + amount.toFixed(2) + '.', amount: amount, refType: 'drawer', refId: res.rows[0].id });
-  return buildReport(res.rows[0]);
+  return withTransaction(async function (client) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['restaurant-drawer:' + session.posCompanyId]);
+    // Idempotent — a reload right after opening (or two tabs on the same
+    // PIN) resumes the existing open session instead of erroring, same
+    // spirit as the till-session token restore already does.
+    var existing = await client.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId]);
+    if (existing.rows[0]) return buildReport(existing.rows[0], client);
+    var other = (await client.query(
+      "SELECT s.opened_at, e.first_name, e.last_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
+      "WHERE s.company_id = $1 AND s.status = 'open' ORDER BY s.opened_at LIMIT 1", [session.posCompanyId])).rows[0];
+    if (other) {
+      fail('conflict', other.first_name + ' ' + other.last_name + ' is the cashier on duty: their drawer has been open since ' + new Date(other.opened_at).toISOString().slice(11, 16) +
+        '. Only one cashier uses the drawer at a time; they close theirs before you open yours.');
+    }
+    var amount = Math.max(0, Number(startingCash) || 0);
+    var res = await client.query(
+      'INSERT INTO restaurant_drawer_sessions (company_id, cashier_id, starting_cash) VALUES ($1,$2,$3) RETURNING *',
+      [session.posCompanyId, session.posEmployeeId, amount]
+    );
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.drawer_open',
+      summary: 'Opened the cash drawer with ' + amount.toFixed(2) + '.', amount: amount, refType: 'drawer', refId: res.rows[0].id });
+    return buildReport(res.rows[0], client);
+  });
 }
 
 async function addDrawerMovement(token, p) {
@@ -824,17 +856,77 @@ async function closeDrawerSession(token, p) {
     var openRes = await client.query("SELECT * FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open' FOR UPDATE", [session.posEmployeeId]);
     var drawer = openRes.rows[0];
     if (!drawer) fail('conflict', 'No open drawer session to close.');
-    var actualCash = Math.max(0, Number(p.actualCash) || 0);
-    var closedRes = await client.query(
-      "UPDATE restaurant_drawer_sessions SET status = 'closed', closed_at = now(), closing_actual_cash = $1, closing_note = $2 WHERE id = $3 RETURNING *",
-      [actualCash, (p.note || '').trim(), drawer.id]
-    );
-    var report = await buildReport(closedRes.rows[0], client);
-    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.drawer_close',
-      summary: 'Closed the cash drawer: ' + actualCash.toFixed(2) + ' counted, ' + report.expected.toFixed(2) + ' expected (' + (report.difference >= 0 ? '+' : '') + report.difference.toFixed(2) + ').',
-      amount: actualCash, refType: 'drawer', refId: drawer.id, details: { expected: report.expected, difference: report.difference } });
-    return report;
+    return closeDrawer(client, drawer, p, session.posEmployeeId, null);
   });
+}
+
+// A drawer counted and closed — by its cashier, or by a manager for a
+// cashier who left it open (closedBy, their name). Counted short, it opens
+// a dispute by itself (restaurantDisputes.openForDrawer).
+async function closeDrawer(client, drawer, p, byId, managerName) {
+  p = p || {};
+  var actualCash = Math.max(0, Number(p.actualCash) || 0);
+  var note = (p.note || '').trim();
+  if (managerName) note = 'Closed by ' + managerName + (note ? ': ' + note : '.');
+  var closedRes = await client.query(
+    "UPDATE restaurant_drawer_sessions SET status = 'closed', closed_at = now(), closing_actual_cash = $1, closing_note = $2 WHERE id = $3 RETURNING *",
+    [actualCash, note, drawer.id]
+  );
+  var report = await buildReport(closedRes.rows[0], client);
+  await activity.log(client, { companyId: drawer.company_id, employeeId: byId, app: managerName ? 'settings' : 'till', action: 'till.drawer_close',
+    summary: (managerName ? 'Closed the cash drawer for the cashier: ' : 'Closed the cash drawer: ') + actualCash.toFixed(2) + ' counted, ' + report.expected.toFixed(2) + ' expected (' + (report.difference >= 0 ? '+' : '') + report.difference.toFixed(2) + ').',
+    amount: actualCash, refType: 'drawer', refId: drawer.id, details: { expected: report.expected, difference: report.difference } });
+  var d = await disputes.openForDrawer(client, closedRes.rows[0], report);
+  if (d) report.disputeId = d.id;
+  return report;
+}
+
+// A manager closes a drawer its cashier left open, so the next cashier can
+// open theirs (restaurantTillAccess.drawers).
+async function closeDrawerFor(companyId, manager, drawerId, p) {
+  return withTransaction(async function (client) {
+    var drawer = (await client.query("SELECT * FROM restaurant_drawer_sessions WHERE id = $1 AND company_id = $2 FOR UPDATE", [drawerId, companyId])).rows[0];
+    if (!drawer) fail('notfound', 'That drawer is not this restaurant\'s.');
+    if (drawer.status !== 'open') fail('conflict', 'That drawer is already closed.');
+    if (p == null || p.actualCash === undefined || p.actualCash === '' || !(Number(p.actualCash) >= 0)) fail('invalid', 'Count the cash in the drawer and type it.');
+    return closeDrawer(client, drawer, p, manager.id, manager.first_name + ' ' + manager.last_name);
+  });
+}
+
+// Every drawer of some days (the last 30 by default), newest first, each
+// with its figures: who, when, starting cash, expected, counted, over or short.
+async function drawerHistory(companyId, q) {
+  q = q || {};
+  var today = new Date().toISOString().slice(0, 10);
+  var from = /^\d{4}-\d{2}-\d{2}$/.test(q.from || '') ? q.from : new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+  var to = /^\d{4}-\d{2}-\d{2}$/.test(q.to || '') ? q.to : today;
+  var rows = (await pool.query(
+    "SELECT s.*, e.first_name || ' ' || e.last_name AS cashier_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
+    "WHERE s.company_id = $1 AND (s.status = 'open' OR (s.opened_at >= $2::date AND s.opened_at < $3::date + interval '1 day')) ORDER BY (s.status = 'open') DESC, s.opened_at DESC LIMIT 120",
+    [companyId, from, to])).rows;
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = await buildReport(rows[i]);
+    r.cashierName = rows[i].cashier_name;
+    r.dispute = (await pool.query("SELECT id, status FROM restaurant_disputes WHERE drawer_session_id = $1 ORDER BY created_at DESC LIMIT 1", [rows[i].id])).rows[0] || null;
+    out.push(r);
+  }
+  var closed = out.filter(function (d) { return d.session.status === 'closed'; });
+  return {
+    from: from, to: to, drawers: out,
+    totals: {
+      drawers: out.length, open: out.length - closed.length,
+      short: Math.round(closed.reduce(function (a, d) { return a + Math.min(0, d.difference || 0); }, 0) * 100) / 100,
+      over: Math.round(closed.reduce(function (a, d) { return a + Math.max(0, d.difference || 0); }, 0) * 100) / 100,
+      cashSales: Math.round(out.reduce(function (a, d) { return a + d.cashSales; }, 0) * 100) / 100
+    }
+  };
+}
+
+// On the till: a complaint or a wrong charge about a sale or an open order.
+async function raiseDispute(token, p) {
+  var session = await access.need(token, 'till');
+  return disputes.raise(session, p);
 }
 
 // ── management view (inside the regular authenticated app) ────────────
@@ -891,5 +983,6 @@ module.exports = {
   tablesForSession: tablesForSession, waitersForSession: waitersForSession,
   guestsForSession: guestsForSession, createGuestForSession: createGuestForSession,
   listTabs: listTabs, saveTab: saveTab, removeTab: removeTab,
-  shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken
+  shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken,
+  closeDrawerFor: closeDrawerFor, drawerHistory: drawerHistory, raiseDispute: raiseDispute
 };

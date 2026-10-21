@@ -17,7 +17,10 @@ import TillSettings from './TillSettings';
 import PayDialog from './till/PayDialog';
 import MoreMenu from './till/MoreMenu';
 import { TableMapPicker } from './till/TableMap';
-import { CustomItemDialog, DeliveryDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
+import ManagerHome from './till/ManagerHome';
+import AzRail, { azGroups, sectionId } from './till/AzRail';
+import { CustomItemDialog, DeliveryDialog, DisputeDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
+import { StockTab } from './till/MenuStock';
 import {
   FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName
 } from './till/tillShared';
@@ -123,7 +126,7 @@ const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, on
   return (
     <button
       type="button"
-      className={'pos-tile' + (qty ? ' is-picked' : '') + (tapped ? ' is-tapped' : '')}
+      className={'pos-tile' + (qty ? ' is-picked' : '') + (tapped ? ' is-tapped' : '') + (m.stock && m.stock.soldOut ? ' is-out' : '')}
       style={{ '--c': tileColor(m.name) }}
       onClick={() => onTap(m)}
     >
@@ -144,6 +147,7 @@ const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, on
           aria-pressed={m.favorite}
         >★</span>
       ) : m.favorite && <span className="pos-tile-star is-on is-fixed" aria-label={tr('Favourite')}>★</span>}
+      {m.stock && (m.stock.low || m.stock.soldOut) && <span className={'pos-tile-stock' + (m.stock.soldOut ? ' is-out' : '')}>{m.stock.soldOut ? tr('Sold out') : tr('{n} left', { n: m.stock.left })}</span>}
       {!!qty && <span key={'q' + qty} className="pos-tile-qty">{qty}</span>}
       {plusN != null && <span key={'p' + plusN} className="pos-tile-plus" aria-hidden="true">+1</span>}
     </button>
@@ -245,6 +249,8 @@ export default function RestaurantPosPage() {
   const [closingDrawer, setClosingDrawer] = useState(false);
   const [closeDrawerError, setCloseDrawerError] = useState(null);
   const [closedReport, setClosedReport] = useState(null); // set once closed — shows the printable report screen
+  const [ordersOnly, setOrdersOnly] = useState(false); // a cashier taking orders while another is on duty
+  const [dutyNotice, setDutyNotice] = useState(true); // the "another cashier is on duty" popup, once per sign-in
 
   // Direct thermal-printer output (Phase 3) — set once per till device,
   // then reused for every sale's receipt for the rest of the shift (and
@@ -273,6 +279,7 @@ export default function RestaurantPosPage() {
   const [tabError, setTabError] = useState(null);
   const [category, setCategory] = useState(''); // '' = every category
   const [cartOpen, setCartOpen] = useState(false); // the order as a full-screen sheet on a phone
+  const menuScrollRef = useRef(null); // the menu's scrolling list, for the A–Z bar
   const [toast, setToast] = useState(null);
   // The kitchen display (pages/KdsPage.jsx): what is ready to take out,
   // and a note sent with the order (restaurantKitchen.service.js).
@@ -287,9 +294,14 @@ export default function RestaurantPosPage() {
   const [vipKey, setVipKey] = useState(0);
   // The person's role on the till and the till's settings (TillSettings.jsx)
   const [tillAccess, setTillAccess] = useState(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false); // true, or the tab to open at
+  const [disputeFor, setDisputeFor] = useState(null); // a problem reported: { orderId?, tabId?, label, customerName }
+  const [stockOpen, setStockOpen] = useState(false);
   const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
   const can = (k) => !!(tillAccess && tillAccess.can[k]);
+  // Money is taken, given back and receipts printed only by the cashier on
+  // duty, on their own open drawer (one cashier at a time).
+  const onDuty = (k) => can(k) && !!drawer;
   const tillSettings = (tillAccess && tillAccess.settings) || FALLBACK_ACCESS.settings;
   // Steady handlers for the memoized menu tiles (MenuTile), always calling
   // this render's tapItem and toggleFavorite.
@@ -638,6 +650,16 @@ export default function RestaurantPosPage() {
     }
   }
 
+  // Whether the till is free for this cashier: asked again when they tap
+  // "Cashier on duty" (the other cashier may have closed their drawer).
+  async function checkDuty() {
+    const a = await posFetch('GET', '/pos/access', session.token).catch(() => null);
+    if (!a) return;
+    setTillAccess(a);
+    if (a.cashierOnDuty && !a.cashierOnDuty.me) setDutyNotice(true);
+    else setOrdersOnly(false);
+  }
+
   async function submitOpenDrawer(e) {
     e.preventDefault();
     setOpeningDrawer(true);
@@ -729,6 +751,17 @@ export default function RestaurantPosPage() {
     addToCart(item, null);
   }
   function addToCart(item, variation) {
+    // A dish that counts its stock: no more than is left (what this open
+    // order already sent is its own).
+    if (item.stock) {
+      const mine = sentLines.filter((l) => l.menuItemId === item.id).reduce((a, l) => a + l.qty, 0);
+      const can2 = item.stock.left + mine;
+      if ((cartQtyById.get(item.id) || 0) + 1 > can2) {
+        setToast(can2 <= 0 ? tr('{name} is sold out.', { name: item.name }) : tr('Only {n} × {name} left.', { n: can2, name: item.name }));
+        setVariantPickerItem(null);
+        return;
+      }
+    }
     const line = {
       menuItemId: item.id, variationId: variation ? variation.id : null,
       name: variation ? item.name + ' — ' + variation.name : item.name,
@@ -1056,7 +1089,9 @@ export default function RestaurantPosPage() {
   // restaurantPos.service.js's buildReport: Cash Sales is summed from
   // this session's own opened_at onward).
   // Someone who does not take payments (a waiter) has no drawer to open.
-  if (!drawer && !closedReport && can('charge')) {
+  // Another cashier has the drawer: this one takes orders until they close it.
+  const otherOnDuty = tillAccess.cashierOnDuty && !tillAccess.cashierOnDuty.me ? tillAccess.cashierOnDuty : null;
+  if (!drawer && !closedReport && can('charge') && !ordersOnly && !otherOnDuty) {
     const last = shift && shift.lastClosed;
     const quick = [0, 100, 200, 500, 1000];
     return (
@@ -1102,6 +1137,21 @@ export default function RestaurantPosPage() {
             </button>
           </form>
         </div>
+      </div>
+    );
+  }
+
+  // A manager runs the back office from the till; the cashier on duty takes orders and money.
+  if (tillAccess.role === 'manager') {
+    return (
+      <div className="dk pos-shell pos-till" data-brand={session.companyCode}>
+        <ManagerHome token={session.token} companyName={session.companyName} employeeName={session.employeeName} logoUrl={restaurantLogoUrl(session.companyCode)}
+          tools={<><DeviceLanguage className="pos-lang" />{themeButton}<button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button></>}
+          onOpen={(t) => setSettingsOpen(t)} />
+        {settingsOpen && (
+          <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)} initialTab={typeof settingsOpen === 'string' ? settingsOpen : undefined}
+            onClose={() => setSettingsOpen(false)} onSaved={() => loadAccess()} onAuth={sessionEnded} />
+        )}
       </div>
     );
   }
@@ -1268,7 +1318,7 @@ export default function RestaurantPosPage() {
                 {printing ? tr('Printing…') : tr('Print via {name}', { name: printer.name })}
               </button>
             )}
-            {receipt.reprint && can('refund') && receipt.status !== 'voided' && receipt.refunded < receipt.total && (
+            {receipt.reprint && onDuty('refund') && receipt.status !== 'voided' && receipt.refunded < receipt.total && (
               <button type="button" className="btn btn-secondary" onClick={() => { const id = receipt.id; setReceipt(null); setRefundFor(id); }}>{tr('Refund…')}</button>
             )}
             <button type="button" className="btn btn-primary" onClick={() => setReceipt(null)} autoFocus>{receipt.reprint ? tr('Back to the till') : tr('New sale')}</button>
@@ -1281,6 +1331,8 @@ export default function RestaurantPosPage() {
   const cartCount = cart.reduce((n, l) => n + l.qty, 0);
   const categories = grouped.map(([c, items]) => [c, items.length]);
   const shownGroups = category ? grouped.filter(([c]) => c === category) : grouped;
+  // All items, A to Z (till/AzRail.jsx), within the category picked if any.
+  const azShown = viewTab === 'all' ? azGroups(shownGroups.reduce((a, g) => a.concat(g[1]), [])) : [];
   const avgOrder = shift && shift.orders ? shift.sales / shift.orders : 0;
 
   const orderPanel = (
@@ -1390,7 +1442,9 @@ export default function RestaurantPosPage() {
           {can('keepOpen') && <button type="button" className="btn btn-secondary pos-send" disabled={!cart.length || savingTab} onClick={sendToKitchen} title={tr('Send to the kitchen and keep the order open to pay later')}>
             <Icon name="send" /><span>{savingTab ? tr('Sending…') : tr('Send to kitchen')}</span>
           </button>}
-          {can('charge') && <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>}
+          {can('charge') && (drawer
+            ? <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>
+            : <button type="button" className="btn btn-primary pos-charge" disabled title={tr('Only the cashier on duty, with their drawer open, charges.')}><span>{tr('The cashier on duty charges')}</span></button>)}
         </div>
       </div>
     </section>
@@ -1425,13 +1479,23 @@ export default function RestaurantPosPage() {
             </span>
           </button>
           </>)}
+          {can('charge') && !drawer && (
+            <button type="button" className="pos-stat is-duty" onClick={checkDuty}>
+              <span className="pos-stat-ico" aria-hidden="true"><Icon name="drawer" /></span>
+              <span className="pos-stat-text">
+                <small>{tr('Cashier on duty')}</small>
+                <strong>{otherOnDuty ? otherOnDuty.name : tr('Nobody')}</strong>
+                <span>{otherOnDuty ? tr('you take orders') : tr('open your drawer')}</span>
+              </span>
+            </button>
+          )}
           {!can('charge') && (
             <span className={'pos-stat is-role is-' + tillAccess.role}>
               <span className="pos-stat-ico" aria-hidden="true"><Icon name="people" /></span>
               <span className="pos-stat-text">
                 <small>{tr('Signed in as')}</small>
                 <strong>{ROLE_NAME[tillAccess.role] ? ROLE_NAME[tillAccess.role]() : tillAccess.role}</strong>
-                <span>{tr('keeps tables open')}</span>
+                <span>{tr('takes orders')}</span>
               </span>
             </span>
           )}
@@ -1458,9 +1522,11 @@ export default function RestaurantPosPage() {
           {/* What is used now and then waits behind More (till/MoreMenu.jsx). */}
           <MoreMenu
             items={[
-              can('vipTopUp') && { key: 'vip', icon: 'spark', tone: 'vip', label: tr('VIP customers'), note: tr('Money put down, balances'), onClick: () => setVipOpen({}) },
-              can('iouPaid') && { key: 'iou', icon: 'owed', tone: 'iou', label: tr('IOUs'), note: shift && shift.iousOpen ? tr('{n} owed · {amount}', { n: shift.iousOpen, amount: money(shift.iousOwed) }) : tr('Nothing owed'), badge: shift && shift.iousOpen ? shift.iousOpen : 0, onClick: () => setIouOpen(true) },
-              can('refund') && { key: 'refund', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
+              onDuty('vipTopUp') && { key: 'vip', icon: 'spark', tone: 'vip', label: tr('VIP customers'), note: tr('Money put down, balances'), onClick: () => setVipOpen({}) },
+              onDuty('iouPaid') && { key: 'iou', icon: 'owed', tone: 'iou', label: tr('IOUs'), note: shift && shift.iousOpen ? tr('{n} owed · {amount}', { n: shift.iousOpen, amount: money(shift.iousOwed) }) : tr('Nothing owed'), badge: shift && shift.iousOpen ? shift.iousOpen : 0, onClick: () => setIouOpen(true) },
+              onDuty('refund') && { key: 'refund', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
+              can('stock') && { key: 'stock', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
+              { key: 'dispute', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
               { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
               kitchen && kitchen.inUse && { key: 'kds', icon: 'bag', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
               printer ? { key: 'printer', icon: 'receipt', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
@@ -1501,34 +1567,37 @@ export default function RestaurantPosPage() {
               ))}
             </div>
           )}
-          <div className="pos-menu-scroll">
-            {menuError && <div className="error-banner">{menuError}</div>}
-            {menuLoading ? (
-              <p className="dk-muted">{tr('Loading menu…')}</p>
-            ) : viewTab === 'all' ? (
-              !shownGroups.length ? (
-                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No items match "{search}"', { search }) : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</p></div>
-              ) : (
-                shownGroups.map(([cat, items]) => (
-                  <div key={cat} className="pos-group">
-                    <h3 className="pos-group-title" style={{ '--c': tileColor(cat) }}><i className="pos-cat-dot" />{cat} <span>{items.length}</span></h3>
-                    <div className="pos-grid">{items.map(renderTile)}</div>
-                  </div>
-                ))
-              )
-            ) : viewTab === 'favorites' ? (
-              !favoriteItems.length ? (
-                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No favorites match "{search}"', { search }) : tr('No favorites yet — tap the ★ on any item to pin it here.')}</p></div>
-              ) : <div className="pos-grid">{favoriteItems.map(renderTile)}</div>
-            ) : viewTab === 'recent' ? (
-              !recentItems.length ? (
-                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No recent items match "{search}"', { search }) : tr('Nothing added to an order yet this shift.')}</p></div>
-              ) : <div className="pos-grid">{recentItems.map(renderTile)}</div>
-            ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
-              <p className="dk-muted">{tr('Loading…')}</p>
-            ) : !mostlyBoughtItems.length ? (
-              <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No results match "{search}"', { search }) : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</p></div>
-            ) : <div className="pos-grid">{mostlyBoughtItems.map(renderTile)}</div>}
+          <div className="pos-menu-body">
+            <div className={'pos-menu-scroll' + (viewTab === 'all' && azShown.length ? ' has-az' : '')} ref={menuScrollRef}>
+              {menuError && <div className="error-banner">{menuError}</div>}
+              {menuLoading ? (
+                <p className="dk-muted">{tr('Loading menu…')}</p>
+              ) : viewTab === 'all' ? (
+                !azShown.length ? (
+                  <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No items match "{search}"', { search }) : tr('No menu items yet — add some from Restaurants → Menu in the main app.')}</p></div>
+                ) : (
+                  azShown.map(([letter, items]) => (
+                    <div key={letter} id={sectionId(letter)} className="pos-group az-group">
+                      <h3 className="pos-group-title az-title"><b>{letter}</b><span>{items.length}</span></h3>
+                      <div className="pos-grid">{items.map(renderTile)}</div>
+                    </div>
+                  ))
+                )
+              ) : viewTab === 'favorites' ? (
+                !favoriteItems.length ? (
+                  <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No favorites match "{search}"', { search }) : tr('No favorites yet — tap the ★ on any item to pin it here.')}</p></div>
+                ) : <div className="pos-grid">{favoriteItems.map(renderTile)}</div>
+              ) : viewTab === 'recent' ? (
+                !recentItems.length ? (
+                  <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No recent items match "{search}"', { search }) : tr('Nothing added to an order yet this shift.')}</p></div>
+                ) : <div className="pos-grid">{recentItems.map(renderTile)}</div>
+              ) : mostlyBoughtLoading && !mostlyBoughtItems.length ? (
+                <p className="dk-muted">{tr('Loading…')}</p>
+              ) : !mostlyBoughtItems.length ? (
+                <div className="dk-empty"><Icon name="info" /><p>{search ? tr('No results match "{search}"', { search }) : tr('Not enough sales yet to rank — check back once a few orders have gone through.')}</p></div>
+              ) : <div className="pos-grid">{mostlyBoughtItems.map(renderTile)}</div>}
+            </div>
+            {viewTab === 'all' && azShown.length > 1 && <AzRail letters={azShown.map((g) => g[0])} scrollRef={menuScrollRef} />}
           </div>
         </section>
         {orderPanel}
@@ -1600,8 +1669,9 @@ export default function RestaurantPosPage() {
                       <div className="dk-row-amount">{money(t.total)}</div>
                       <div className="pos-tab-actions">
                         {can('removeTable') && <button type="button" className="pos-link is-bad" onClick={() => dropTab(t)}>{tr('Remove')}</button>}
+                        <button type="button" className="pos-link" onClick={() => setDisputeFor({ tabId: t.id, label: t.name, customerName: t.guestName || t.customerName || '' })}>{tr('Problem?')}</button>
                         <button type="button" className="btn btn-secondary tl-btn" onClick={() => openTab(t, false)}>{tr('Open')}</button>
-                        {can('charge') && <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>}
+                        {onDuty('charge') && <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>}
                       </div>
                     </div>
                   </li>
@@ -1711,7 +1781,8 @@ export default function RestaurantPosPage() {
                         {o.refunded > 0 && <small className="pos-money-tag is-refund">{tr('{amount} refunded', { amount: money(o.refunded) })}</small>}
                         <span className="pos-row-links">
                           <button type="button" className="pos-link" onClick={() => reprint(o.id)}>{tr('Receipt')}</button>
-                          {can('refund') && <button type="button" className="pos-link" onClick={() => { setDrawerPanelOpen(false); setRefundFor(o.id); }}>{tr('Refund')}</button>}
+                          <button type="button" className="pos-link" onClick={() => setDisputeFor({ orderId: o.id, label: o.orderNo, customerName: o.customerName || '' })}>{tr('Problem?')}</button>
+                          {onDuty('refund') && <button type="button" className="pos-link" onClick={() => { setDrawerPanelOpen(false); setRefundFor(o.id); }}>{tr('Refund')}</button>}
                         </span>
                       </div>
                     </li>
@@ -1915,6 +1986,33 @@ export default function RestaurantPosPage() {
         <VipDialog token={session.token} startGuest={vipOpen.startGuest || null} onClose={() => setVipOpen(null)} onChanged={moneyChanged} onAuth={sessionEnded} />
       )}
       {iouOpen && <IouDialog token={session.token} onClose={() => setIouOpen(false)} onChanged={moneyChanged} onAuth={sessionEnded} />}
+      {disputeFor && <DisputeDialog token={session.token} target={disputeFor} onClose={() => setDisputeFor(null)} onSaved={() => { setDisputeFor(null); setToast(tr('Sent to the manager.')); }} />}
+      {stockOpen && (
+        <div className="dialog-backdrop" onClick={() => setStockOpen(false)}>
+          <div className="dialog pos-panel ts tl-stock" onClick={(e) => e.stopPropagation()}>
+            <h2>{tr('Stock')}</h2>
+            <StockTab token={session.token} pin={null} onFail={(err) => { if (err.status === 401) sessionEnded(); else setToast(err.message); }} />
+            <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={() => setStockOpen(false)}>{tr('Close')}</button></div>
+          </div>
+        </div>
+      )}
+      {otherOnDuty && can('charge') && !drawer && dutyNotice && (
+        <div className="dialog-backdrop">
+          <div className="dialog tl-dialog tl-duty" role="alertdialog" aria-modal="true" aria-labelledby="tl-duty-title">
+            <span className="tl-dialog-ico is-duty" aria-hidden="true"><Icon name="drawer" /></span>
+            <h2 id="tl-duty-title">{tr('{name} is the cashier on duty', { name: otherOnDuty.name })}</h2>
+            <p className="dk-muted">{tr('Only one cashier uses the drawer at a time. Their drawer has been open since {time}.', { time: timeOf(otherOnDuty.since) })}</p>
+            <ul className="tl-duty-list">
+              <li><Icon name="check" />{tr('You can take orders and send them to the kitchen.')}</li>
+              <li><Icon name="void" />{tr('Charging, money and receipts wait until they close their drawer and you open yours.')}</li>
+            </ul>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={logout}>{tr('Log out')}</button>
+              <button type="button" className="btn btn-primary" autoFocus onClick={() => { setDutyNotice(false); setOrdersOnly(true); }}>{tr('Take orders')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)}
           onClose={() => setSettingsOpen(false)} onSaved={() => loadAccess()} onAuth={sessionEnded} />

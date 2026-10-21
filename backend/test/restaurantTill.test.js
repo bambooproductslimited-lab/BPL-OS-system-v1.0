@@ -64,6 +64,8 @@ test('a cash sale keeps what was handed over and gives the change; too little is
   assert.equal(r.change, 40);
   assert.equal(r.items.length, 2);
   assert.equal(r.cashierName, 'Akua Zqt');
+  // Another company's cashier, drawer open and allowed to print, still can't see it.
+  await pos.openDrawerSession(otherToken, 0);
   await assert.rejects(pos.receiptForSession(otherToken, o.id), /not found/);
 });
 

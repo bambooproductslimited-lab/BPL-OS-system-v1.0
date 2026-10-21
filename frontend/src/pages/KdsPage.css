@@ -45,6 +45,20 @@
 .kds-who-text strong { font-family: var(--font-heading); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kds-who-text small { font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kds-stations { flex: 1; display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px; }
+/* The screen's station, set by a manager (not picked here). */
+.kds-station-pill { flex: none; margin-right: auto; padding: 8px 15px; font-size: 14px; font-weight: 800; color: #fff; border-radius: 999px; background: linear-gradient(135deg, rgb(var(--kd-a-rgb)), rgb(var(--kd-b-rgb))); box-shadow: 0 6px 16px -8px rgb(var(--kd-a-rgb)); }
+.kds-gate-station { margin: -4px 0 4px; font-size: 15px; font-weight: 800; color: #f97316; }
+/* A new screen: its code, for a manager to set it up. */
+.kds-setup-steps { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.kds-setup-steps li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.4; }
+.kds-setup-steps b { flex: none; display: grid; place-items: center; width: 24px; height: 24px; font-size: 12px; color: #fff; border-radius: 50%; background: linear-gradient(135deg, #f97316, #ea580c); }
+.kds-setup-code { justify-content: center; text-align: center; }
+.kds-setup-code small { font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.kds-setup-code strong { font-family: ui-monospace, Menlo, monospace; font-size: 52px; font-weight: 900; letter-spacing: .12em; padding: 14px 22px; border-radius: 20px; background: rgba(249, 115, 22, .12); border: 2px dashed rgba(249, 115, 22, .55); white-space: nowrap; }
+.kds-setup-wait { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--color-text-muted); }
+.kds-setup-wait i { width: 10px; height: 10px; border-radius: 50%; background: #f97316; animation: kds-blink 1.4s ease-in-out infinite; }
+@keyframes kds-blink { 50% { opacity: .25; } }
+@media (max-width: 640px) { .kds-setup-code strong { font-size: 38px; padding: 10px 14px; } }
 .kds-stations button { flex: none; padding: 9px 15px; font: inherit; font-size: 14px; font-weight: 700; color: var(--color-text-muted); background: var(--kd-soft); border: 1px solid var(--kd-line); border-radius: 999px; cursor: pointer; }
 .kds-stations button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, rgb(var(--kd-a-rgb)), rgb(var(--kd-b-rgb))); box-shadow: 0 6px 16px -8px rgb(var(--kd-a-rgb)); }
 .kds-counts { display: flex; gap: 8px; }

@@ -124,8 +124,11 @@ function fullName(r, prefix) { return r[prefix + '_first'] ? r[prefix + '_first'
 async function openDrawer(client, cashierId) {
   return (await client.query("SELECT id FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [cashierId])).rows[0] || null;
 }
-async function needDrawerForCash(client, cashierId, method, what) {
-  if (method === 'cash' && !(await openDrawer(client, cashierId))) fail('conflict', 'Open your cash drawer first: ' + what);
+// Money is taken (a sale, VIP money, an IOU paid) and given back (a
+// refund) only by the cashier on duty, on their own open drawer — whatever
+// the way of paying.
+async function needDrawer(client, cashierId) {
+  if (!(await openDrawer(client, cashierId))) fail('conflict', 'Only the cashier on duty takes and gives back money: open your cash drawer first.');
 }
 
 // ── VIP balances ───────────────────────────────────────────────────────
@@ -221,7 +224,7 @@ async function vipTopUp(token, p) {
   var method = V.oneOf(p.method, MONEY, 'Paid with');
   return withTransaction(async function (client) {
     var g = await guestOf(client, session.posCompanyId, p.guestId);
-    await needDrawerForCash(client, session.posEmployeeId, method, 'the cash goes into it.');
+    await needDrawer(client, session.posEmployeeId);
     await lockGuest(client, g.id);
     await client.query(
       "INSERT INTO restaurant_vip_entries (company_id, guest_id, kind, amount, method, cashier_id, note) VALUES ($1,$2,'topup',$3,$4,$5,$6)",
@@ -273,7 +276,7 @@ async function payIou(token, orderId, p) {
     if (!o || o.payment_method !== 'iou') fail('notfound', 'IOU not found.');
     if (o.status !== 'completed') fail('conflict', 'That sale was voided: nothing is owed.');
     if (o.iou_paid_at) fail('conflict', 'That IOU has already been paid.');
-    await needDrawerForCash(client, session.posEmployeeId, method, 'the cash goes into it.');
+    await needDrawer(client, session.posEmployeeId);
     var owed = round2(Number(o.total) - Number(o.refunded_total));
     await client.query('UPDATE restaurant_orders SET iou_paid_at = now(), iou_paid_method = $2, iou_paid_by = $3, iou_paid_amount = $4 WHERE id = $1',
       [o.id, method, session.posEmployeeId, owed]);
@@ -388,7 +391,7 @@ async function refundSale(token, orderId, p, ip) {
     var method = p.method || methods[0];
     if (methods.indexOf(method) < 0) fail('invalid', 'This sale cannot be refunded that way.');
     if (method === 'vip' && !o.guest_id) fail('invalid', 'This VIP sale has no guest to give the money back to.');
-    await needDrawerForCash(client, session.posEmployeeId, method, 'the cash comes out of it.');
+    await needDrawer(client, session.posEmployeeId);
 
     var items = (await client.query(
       'SELECT i.*, coalesce((SELECT sum(ri.qty) FROM restaurant_refund_items ri WHERE ri.order_item_id = i.id), 0) AS refunded_qty FROM restaurant_order_items i WHERE i.order_id = $1',
@@ -501,7 +504,7 @@ async function shiftMoney(cashierId, companyId, from) {
 }
 
 module.exports = {
-  TILL_METHODS: TILL_METHODS, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME,
+  TILL_METHODS: TILL_METHODS, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME, needDrawer: needDrawer,
   planPayments: planPayments, savePayments: savePayments, paymentsOf: paymentsOf, paymentText: paymentText, cashSales: cashSales,
   chargeSale: chargeSale, vipGuests: vipGuests, vipGuest: vipGuest, vipTopUp: vipTopUp,
   iouList: iouList, payIou: payIou,

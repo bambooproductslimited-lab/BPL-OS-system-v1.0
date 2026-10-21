@@ -12,10 +12,11 @@ var kitchen = require('../src/services/restaurantKitchen.service');
 var money = require('../src/services/restaurantTillMoney.service');
 var access = require('../src/services/restaurantTillAccess.service');
 var pinAuth = require('../src/lib/pinAuth');
+var screens = require('../src/services/restaurantKdsScreens.service');
 
 var PINS = { ama: '7481', yaw: '7482', esi: '7483', kofi: '7484', kojo: '7485', boss: '7486' };
 var IP = '10.9.6.1';
-var company, people = {}, fish, beer, table, tok = {};
+var company, people = {}, fish, beer, table, tok = {}, screenToken;
 
 async function cleanup() {
   var cos = (await pool.query("SELECT id FROM companies WHERE code = 'ZQS'")).rows.map(function (r) { return r.id; });
@@ -27,6 +28,7 @@ async function cleanup() {
     await pool.query('DELETE FROM restaurant_orders WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_drawer_movements WHERE session_id IN (SELECT id FROM restaurant_drawer_sessions WHERE company_id = ANY($1))', [cos]);
     await pool.query('DELETE FROM restaurant_drawer_sessions WHERE company_id = ANY($1)', [cos]);
+    await pool.query('DELETE FROM restaurant_kds_screens WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_kds_stations WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_menu_items WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_tables WHERE company_id = ANY($1)', [cos]);
@@ -48,7 +50,7 @@ async function person(key, code, first, dept) {
 async function dish(name, cat, price) {
   return (await pool.query('INSERT INTO restaurant_menu_items (company_id, name, category, price, active) VALUES ($1, $2, $3, $4, true) RETURNING id', [company.id, name, cat, price])).rows[0].id;
 }
-function login(key, app) { return pos.login(PINS[key], IP, app); }
+function login(key, app) { return pos.login(PINS[key], IP, app, app === 'kds' ? screenToken : undefined); }
 
 test.before(async function () {
   await cleanup();
@@ -121,6 +123,11 @@ test('each role is held to what it may do, on the server', async function () {
   await assert.rejects(login('kofi', 'kds'), /does not use the kitchen screen/);
   // The kitchen: the kitchen screen only.
   await assert.rejects(login('esi', 'till'), /does not use the till/);
+  // The kitchen screen works once a manager has set it up.
+  var hello = await screens.hello(null, IP, 'Zqs test tablet');
+  screenToken = hello.screenToken;
+  await assert.rejects(login('esi', 'kds'), /waiting for a manager to set it up/);
+  await screens.claim(company.id, { id: people.kojo, first_name: 'Kojo', last_name: 'Zqs' }, { code: hello.code, name: 'Zqs kitchen' });
   tok.esi = (await login('esi', 'kds')).token;
   await kitchen.createStation(await require('../src/services/context.service').buildContext((await pool.query("SELECT id FROM users WHERE email = 'zqs-boss@example.com'")).rows[0].id),
     { companyId: company.id, name: 'Zqs Kitchen', everythingElse: true });
@@ -140,20 +147,34 @@ test('each role is held to what it may do, on the server', async function () {
   var waiterProfile = await access.profile(tok.yaw);
   assert.deepEqual([waiterProfile.role, waiterProfile.can.charge, waiterProfile.can.keepOpen], ['waiter', false, true]);
 
+  // A manager runs the back office: no orders, no money.
+  var managerProfile = await access.profile(tok.kojo);
+  assert.deepEqual([managerProfile.can.charge, managerProfile.can.keepOpen, managerProfile.can.refund, managerProfile.can.approveRefunds, managerProfile.can.stock], [false, false, false, true, true]);
+  await assert.rejects(pos.saveTab(tok.kojo, { label: 'Zqs boss', items: [{ menuItemId: beer, qty: 1 }] }), /cannot send orders to the kitchen/);
+  await assert.rejects(pos.openDrawerSession(tok.kojo, 100), /cannot take payments/);
+
   // The cashier charges the table, only the ways of paying the till offers.
   await pos.openDrawerSession(tok.ama, 100);
   await assert.rejects(pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'other' }), /turned off in the till settings/);
   var sale = await pos.createOrder(tok.ama, { tabId: tab.id, tableId: table, waiterId: people.yaw, items: [{ menuItemId: beer, qty: 2 }], paymentMethod: 'cash' });
-  // Refunds are off for cashiers here; the manager refunds, and approves with their own PIN.
+  // Refunds are off for cashiers here, and a manager gives no money back:
+  // turned on, the cashier refunds and the manager approves with their PIN.
   await assert.rejects(money.salesToRefund(tok.ama), /cannot refund sales/);
-  var line = (await money.saleForRefund(tok.kojo, sale.id)).items[0];
-  await assert.rejects(money.refundSale(tok.kojo, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqs warm', method: 'mobile_money', managerPin: PINS.yaw }, IP), /Yaw Zqs cannot approve refunds/);
-  var r = await money.refundSale(tok.kojo, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqs warm', method: 'mobile_money', managerPin: PINS.kojo }, IP);
+  await assert.rejects(money.salesToRefund(tok.kojo), /cannot refund sales/);
+  await access.saveSettings(tok.kojo, { settings: { roles: { cashier: { refund: true } } } }, IP);
+  var line = (await money.saleForRefund(tok.ama, sale.id)).items[0];
+  await assert.rejects(money.refundSale(tok.ama, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqs warm', method: 'mobile_money', managerPin: PINS.yaw }, IP), /Yaw Zqs cannot approve refunds/);
+  var r = await money.refundSale(tok.ama, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqs warm', method: 'mobile_money', managerPin: PINS.kojo }, IP);
   assert.equal(r.refund.approvedByName, 'Kojo Zqs');
 
   // A role changed takes effect on the next call, with no signing in again.
   await access.saveSettings(tok.kojo, { staff: [{ employeeId: people.yaw, role: 'cashier' }] }, IP);
-  assert.equal((await access.profile(tok.yaw)).can.charge, true);
+  var yawProfile = await access.profile(tok.yaw);
+  assert.equal(yawProfile.can.charge, true);
+  // One cashier uses the drawer at a time: Yaw is told who is on duty.
+  assert.deepEqual([yawProfile.cashierOnDuty.name, yawProfile.cashierOnDuty.me], ['Ama Zqs', false]);
+  await assert.rejects(pos.openDrawerSession(tok.yaw, 50), /Ama Zqs is the cashier on duty/);
+  await assert.rejects(pos.createOrder(tok.yaw, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'cash' }), /open your cash drawer first/);
   // Back to the default role.
   await access.saveSettings(tok.kojo, { staff: [{ employeeId: people.yaw, role: null }] }, IP);
   assert.equal((await access.profile(tok.yaw)).role, 'cashier');

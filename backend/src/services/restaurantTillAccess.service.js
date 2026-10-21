@@ -32,9 +32,14 @@ var FULFILLMENTS = ['dine_in', 'pickup', 'delivery'];
 var ROLES = ['manager', 'cashier', 'waiter', 'kitchen', 'none'];
 var EDITABLE_ROLES = ['cashier', 'waiter', 'kitchen'];
 // keepOpen is "send orders to the kitchen" (an order kept open to pay
-// later); customItem rings up a dish that is not on the menu.
-var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'kds'];
+// later); customItem rings up a dish that is not on the menu; stock counts
+// the stock and adds what came in.
+var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'kds'];
 function only(keys) { var o = {}; PERMISSIONS.forEach(function (p) { o[p] = keys.indexOf(p) >= 0; }); return o; }
+// A manager runs the back office — reports, the menu and stock, the
+// settings, approving refunds — and does not take orders or money: the
+// cashier on duty does (restaurantPos.openDrawerSession).
+var MANAGER_CAN = ['till', 'removeTable', 'approveRefunds', 'favorites', 'stock', 'kds'];
 var ROLE_DEFAULTS = {
   cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'kds']),
   waiter: only(['till', 'keepOpen', 'kds']),
@@ -57,15 +62,16 @@ var DEFAULTS = {
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
   till: 'Your role does not use the till. Ask a manager.',
-  charge: 'Your role on the till cannot take payments. Ask a cashier or a manager.',
+  charge: 'Your role on the till cannot take payments. The cashier on duty does.',
   keepOpen: 'Your role on the till cannot send orders to the kitchen.',
   customItem: 'Your role on the till cannot add a dish that is not on the menu. Ask a manager.',
   removeTable: 'Your role on the till cannot remove an open table. Ask a manager.',
   refund: 'Your role on the till cannot refund sales. Ask a manager.',
-  vipTopUp: 'Your role on the till cannot take VIP money. Ask a cashier or a manager.',
+  vipTopUp: 'Your role on the till cannot take VIP money. The cashier on duty does.',
   iou: 'Your role on the till cannot sell on IOU. Ask a manager.',
-  iouPaid: 'Your role on the till cannot take IOU payments. Ask a cashier or a manager.',
+  iouPaid: 'Your role on the till cannot take IOU payments. The cashier on duty does.',
   favorites: 'Your role on the till cannot change the favourites.',
+  stock: 'Your role on the till cannot change the stock. Ask a manager.',
   kds: 'Your role does not use the kitchen screen. Ask a manager.'
 };
 
@@ -112,7 +118,7 @@ async function settingsOf(companyId, db) {
   return merged(row && row.settings);
 }
 function permsFor(settings, role) {
-  if (role === 'manager') return only(PERMISSIONS);
+  if (role === 'manager') return only(MANAGER_CAN);
   if (role === 'none' || !settings.roles[role]) return only([]);
   return Object.assign({}, settings.roles[role]);
 }
@@ -151,12 +157,21 @@ async function profile(token) {
   var session = posSession(token);
   var a = await accessOf(session.posCompanyId, session.posEmployeeId);
   return {
-    role: a.role, can: a.can,
+    role: a.role, can: a.can, cashierOnDuty: await cashierOnDuty(session.posCompanyId, session.posEmployeeId),
     settings: {
       paymentMethods: a.settings.paymentMethods, currencies: a.settings.currencies, ratesSetAt: a.settings.ratesSetAt, receipt: a.settings.receipt,
       idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen
     }
   };
+}
+
+// The cashier with the drawer open at this restaurant (one at a time),
+// for the till to say so to another cashier signing in; null when none.
+async function cashierOnDuty(companyId, employeeId) {
+  var r = (await pool.query(
+    "SELECT s.cashier_id, s.opened_at, e.first_name, e.last_name FROM restaurant_drawer_sessions s JOIN employees e ON e.id = s.cashier_id " +
+    "WHERE s.company_id = $1 AND s.status = 'open' ORDER BY s.opened_at LIMIT 1", [companyId])).rows[0];
+  return r ? { employeeId: r.cashier_id, name: r.first_name + ' ' + r.last_name, since: r.opened_at, me: r.cashier_id === employeeId } : null;
 }
 
 // Anyone whose OS account may manage restaurants.
@@ -234,7 +249,7 @@ var SHAPES = ['square', 'round', 'long'];
 function settingsOut(settings, staff, companyId, tables) {
   return {
     companyId: companyId, settings: settings, staff: staff, tables: tables || [],
-    choices: { roles: ROLES, editableRoles: EDITABLE_ROLES, permissions: PERMISSIONS, paymentMethods: TILL_METHODS, currencies: CURRENCIES, idleMinutes: IDLE_CHOICES, fulfillments: FULFILLMENTS }
+    choices: { roles: ROLES, editableRoles: EDITABLE_ROLES, permissions: PERMISSIONS, managerCan: MANAGER_CAN, paymentMethods: TILL_METHODS, currencies: CURRENCIES, idleMinutes: IDLE_CHOICES, fulfillments: FULFILLMENTS }
   };
 }
 
@@ -256,7 +271,7 @@ function cleanSettings(p, base) {
     var given = (p.roles && p.roles[r]) || {};
     PERMISSIONS.forEach(function (k) { if (given[k] !== undefined) out.roles[r][k] = !!given[k]; });
     // Taking payments is done at the till.
-    if (out.roles[r].charge || out.roles[r].keepOpen || out.roles[r].customItem || out.roles[r].removeTable || out.roles[r].refund || out.roles[r].vipTopUp || out.roles[r].iouPaid || out.roles[r].iou || out.roles[r].favorites) out.roles[r].till = true;
+    if (out.roles[r].charge || out.roles[r].keepOpen || out.roles[r].customItem || out.roles[r].removeTable || out.roles[r].refund || out.roles[r].vipTopUp || out.roles[r].iouPaid || out.roles[r].iou || out.roles[r].favorites || out.roles[r].stock) out.roles[r].till = true;
     if (out.roles[r].iou && !out.roles[r].charge) out.roles[r].iou = false;
   });
   if (p.paymentMethods !== undefined) {
@@ -416,6 +431,84 @@ async function settingsCustomers(token, p, ip) {
   });
 }
 
+// The kitchen screens (restaurantKdsScreens.service.js): { action: 'list'
+// | 'claim' | 'update' | 'remove', code, id, name, stationId }. Each change
+// answers with the list as it is now.
+async function kitchenScreens(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  var company = m.session.posCompanyId;
+  var screens = require('./restaurantKdsScreens.service');
+  var done = null;
+  if (p.action === 'claim') done = await screens.claim(company, m.manager, p);
+  else if (p.action === 'update') done = await screens.update(company, m.manager, p.id, p);
+  else if (p.action === 'remove') done = await screens.remove(company, m.manager, p.id);
+  if (done && p.action !== 'list') {
+    await activity.log(pool, { companyId: company, employeeId: m.manager.id, app: 'settings', action: 'settings.screen',
+      summary: { claim: 'Set up the kitchen screen ', update: 'Changed the kitchen screen ', remove: 'Took off the kitchen screen ' }[p.action] + done.name + '.', refType: 'screen', refId: done.id });
+  }
+  return Object.assign(await screens.list(company, ip), { changed: done ? done.id : null });
+}
+
+// The drawers (restaurantPos.drawerHistory): { action: 'list' | 'close',
+// id, actualCash, note, from, to } — a manager closes one its cashier left open.
+async function drawers(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  var pos = require('./restaurantPos.service');
+  var closed = null;
+  if (p.action === 'close') closed = await pos.closeDrawerFor(m.session.posCompanyId, m.manager, p.id, p);
+  return Object.assign(await pos.drawerHistory(m.session.posCompanyId, p), { closed: closed });
+}
+
+// Disputes (restaurantDisputes.service.js): { action: 'list' | 'resolve' |
+// 'reopen' | 'raise', id, resolution, note, status, kind, from, to }.
+async function disputes(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  var d = require('./restaurantDisputes.service');
+  var company = m.session.posCompanyId;
+  if (p.action === 'resolve') await d.resolve(company, m.manager, p.id, p);
+  else if (p.action === 'reopen') await d.reopen(company, m.manager, p.id);
+  else if (p.action === 'raise') await d.raise({ posCompanyId: company, posEmployeeId: m.manager.id }, p);
+  return d.list(company, p.filter || {});
+}
+
+// The menu (restaurantTillMenu.service.js), by a manager: { action: 'list'
+// | 'save' | 'remove', item, id }.
+async function menu(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  var tm = require('./restaurantTillMenu.service');
+  var company = m.session.posCompanyId;
+  var saved = null;
+  if (p.action === 'save') saved = await tm.saveItem(company, m.manager, p.item);
+  else if (p.action === 'remove') await tm.removeItem(company, m.manager, p.id);
+  return Object.assign(await tm.menu(company), { saved: saved });
+}
+
+// The stock, by a manager or anyone whose role may count it: { action:
+// 'list' | 'move' | 'history', type, id, kind, qty, note }.
+async function stock(token, p, ip) {
+  p = p || {};
+  var session = posSession(token);
+  var a = await accessOf(session.posCompanyId, session.posEmployeeId);
+  var by;
+  if (a.can.stock) by = (await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [session.posEmployeeId])).rows[0];
+  else by = (await settingsManager(token, p.managerPin, ip)).manager;
+  var tm = require('./restaurantTillMenu.service');
+  if (p.action === 'history') return tm.history(session.posCompanyId, p.type, p.id);
+  var moved = p.action === 'move' ? await tm.move(session.posCompanyId, by, p) : null;
+  return Object.assign(await tm.stock(session.posCompanyId), { moved: moved });
+}
+
+// What customers owe and paid back, and VIP money (restaurantTillAccounts.service.js).
+async function accounts(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  return require('./restaurantTillAccounts.service').report(m.session.posCompanyId, p);
+}
+
 // Every sale and refund of some days, with the day's totals (restaurantTillSales.service.js).
 async function salesReport(token, p, ip) {
   p = p || {};
@@ -431,8 +524,9 @@ async function activityReport(token, p, ip) {
 }
 
 module.exports = {
-  TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, DEFAULTS: DEFAULTS,
+  TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, MANAGER_CAN: MANAGER_CAN, DEFAULTS: DEFAULTS, cashierOnDuty: cashierOnDuty,
   settingsOf: settingsOf, accessOf: accessOf, need: need, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
-  settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport
+  settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, kitchenScreens: kitchenScreens,
+  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock
 };

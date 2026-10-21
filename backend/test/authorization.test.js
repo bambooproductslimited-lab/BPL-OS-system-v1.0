@@ -91,6 +91,7 @@ var ALLOWED = {
   'POST /api/kiosk/face-enroll/:token': 'self-enrolment link; token is the credential',
   'POST /api/kiosk/face-enroll/:token/verify-pin': 'self-enrolment link; token + PIN',
   'POST /api/pos/login': 'restaurant till; PIN-gated, shares the kiosk rate-limit counter',
+  'POST /api/pos/kds/screen': 'kitchen tablet asking for its pairing code; names nothing until a manager claims it, 20 new screens per IP per hour',
   'GET /api/marketing/whatsapp/webhook': 'Meta subscription handshake; verify_token checked',
   'POST /api/marketing/whatsapp/webhook': 'Meta delivery; HMAC-verified, fails closed without the secret',
   'GET /api/marketing/meta/webhook': 'Meta subscription handshake (Messenger/Instagram); verify_token checked',
