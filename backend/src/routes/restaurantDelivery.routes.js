@@ -23,6 +23,9 @@ function h(fn) {
 }
 var body = function (req) { return req.body || {}; };
 
+// ── the maps: which one to draw (Google's with the server's key, or OpenStreetMap's) ──
+router.get('/map', h(function () { return delivery.mapConfig(); }));
+
 // ── the delivery screen ──
 router.get('/delivery/board', h(function (req) { return delivery.board(posToken(req)); }));
 router.post('/delivery/open', h(function (req) { return delivery.setOpen(posToken(req), body(req).open); }));

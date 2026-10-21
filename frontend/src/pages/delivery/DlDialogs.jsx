@@ -134,7 +134,7 @@ export function SendDialog({ token, target, reassign, riders: given, settings, o
             {needsPin && (
               <div className="dl-pinbox">
                 <p className="dl-hint">📍 {tr('This order has no pin. Tap the map where it goes, so the rider and the map can find it (optional).')}{pin && here ? ' · ' + kmText(Math.round(Math.hypot((pin.lat - here.lat) * 111, (pin.lng - here.lng) * 111) * 13) / 10) : ''}</p>
-                <div className="dl-pinmap"><DeliveryMap markers={here ? [{ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️' }] : []} fitKey="pin" pick={pin} onPick={(lat, lng) => setPin({ lat, lng })} center={here ? [here.lat, here.lng] : undefined} /></div>
+                <div className="dl-pinmap"><DeliveryMap lite markers={here ? [{ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️' }] : []} fitKey="pin" pick={pin} onPick={(lat, lng) => setPin({ lat, lng })} center={here ? [here.lat, here.lng] : undefined} /></div>
               </div>
             )}
           </fieldset>
@@ -202,7 +202,7 @@ export function SettingsDialog({ token, canSettings, onClose, onSaved }) {
               <legend>{tr('Where the restaurant is')}</legend>
               <p className="dl-hint">{tr('Tap the map on the restaurant\'s door, or use this device\'s location while you are there. Distances and fees are counted from here.')}</p>
               <div className="dl-pinmap is-tall">
-                <DeliveryMap markers={[]} fitKey={form.location ? 'loc' : 'none'} pick={form.location} onPick={(lat, lng) => set({ location: { ...(form.location || {}), lat, lng } })}
+                <DeliveryMap lite markers={[]} fitKey={form.location ? 'loc' : 'none'} pick={form.location} onPick={(lat, lng) => set({ location: { ...(form.location || {}), lat, lng } })}
                   center={form.location ? [form.location.lat, form.location.lng] : undefined} zoom={form.location ? 16 : 12} />
               </div>
               <div className="dl-form">

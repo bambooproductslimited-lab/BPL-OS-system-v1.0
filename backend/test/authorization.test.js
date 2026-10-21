@@ -96,6 +96,7 @@ var ALLOWED = {
   'POST /api/pos/online/:code/orders': 'a customer orders on the website; held for the restaurant to accept, limited per address and per phone',
   'GET /api/pos/online/track/:token': 'a customer\'s order link; the token is the credential',
   'POST /api/pos/online/track/:token/cancel': 'a customer\'s order link; the token is the credential, and only while it waits',
+  'GET /api/pos/map': 'which map the delivery and ordering sites draw; a Google browser key is public by nature (limited to those sites in Google Cloud)',
   'GET /api/pos/rider/:token': 'a rider\'s delivery link; the token is the credential',
   'POST /api/pos/rider/:token/location': 'a rider\'s delivery link; the token is the credential',
   'POST /api/pos/rider/:token/status': 'a rider\'s delivery link; the token is the credential',

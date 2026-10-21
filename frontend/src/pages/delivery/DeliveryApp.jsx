@@ -10,7 +10,8 @@ import DeliveryMap from './DeliveryMap';
 import { ActiveCard, DoneCard, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
 import { SendDialog, SettingsDialog } from './DlDialogs';
 import RidersPanel from './DlRiders';
-import { minText, riderSpot, routePoints, statusName, vehicleEmoji } from './dlShared';
+import { money } from '../../lib/currency';
+import { chipOf, kmText, minText, payName, riderSpot, statusName, vehicleEmoji, vehicleName, wayOf } from './dlShared';
 import '../till/till.css';
 import '../../components/DashKit.css';
 import '../RestaurantPosPage.css';
@@ -155,26 +156,43 @@ function Desk({ session, onSignOut, themeButton }) {
   const s = board && board.settings;
   const here = s && s.location ? { lat: s.location.lat, lng: s.location.lng } : null;
 
-  // The map: the restaurant, each order where it goes, each rider where they are.
+  // The map: the restaurant, each order where it goes, each rider where
+  // they are and the way they went — each with its card (info) on it.
   const { markers, routes } = useMemo(() => {
     const mk = [], rt = [];
     if (!board) return { markers: mk, routes: rt };
-    if (here) mk.push({ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: board.company.name, fit: !selected });
-    const place = (key, tone, emoji, c, label, sub) => {
+    const where = (c) => c.address ? '📍 ' + c.address + (c.landmark ? ' · ' + c.landmark : '') : '';
+    if (here) mk.push({ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: board.company.name, fit: !selected,
+      info: [board.company.name, s.location.address ? '📍 ' + s.location.address : '', s.phone ? '📞 ' + s.phone : ''] });
+    const place = (key, tone, emoji, c, label, info) => {
       if (!c || c.lat == null) return;
-      mk.push({ id: key, kind: 'order', tone, lat: c.lat, lng: c.lng, emoji, label, sub, active: selected === key, fit: !selected || selected === key, onClick: () => pick(key) });
+      mk.push({ id: key, kind: 'order', tone, lat: c.lat, lng: c.lng, emoji, label, sub: c.name, info, active: selected === key, fit: !selected || selected === key, onClick: () => pick(key) });
     };
-    if (tab === 'new' || (selected && selected.startsWith('p:'))) board.pending.forEach((o) => place('p:' + o.id, 'new', '🛎️', o.customer, o.ref, o.customer.name));
-    board.cooking.concat(board.ready).forEach((w) => place('w:' + w.key, w.stage === 'ready' ? 'ready' : 'cooking', w.stage === 'ready' ? '📦' : '🍳', w.customer, w.onlineRef || w.label, w.customer.name));
+    if (tab === 'new' || (selected && selected.startsWith('p:'))) board.pending.forEach((o) => place('p:' + o.id, 'new', '🛎️', o.customer, o.ref, [
+      o.ref + ' · ' + o.customer.name, where(o.customer),
+      tr('{n} dishes', { n: o.items.reduce((n, l) => n + Number(l.qty || 0), 0) }) + ' · ' + money(o.total) + ' · ' + payName(o.payMethod),
+      (o.distanceKm != null ? kmText(o.distanceKm) + ' · ' : '') + tr('waiting {n} min', { n: o.waitingMinutes })
+    ]));
+    board.cooking.concat(board.ready).forEach((w) => place('w:' + w.key, w.stage === 'ready' ? 'ready' : 'cooking', w.stage === 'ready' ? '📦' : '🍳', w.customer, w.onlineRef || w.label, [
+      (w.onlineRef || w.label) + ' · ' + w.customer.name, where(w.customer),
+      w.items.slice(0, 3).join(', ') + (w.items.length > 3 ? '…' : ''),
+      money(w.total) + (w.payMethod ? ' · ' + payName(w.payMethod) : '') + ' · ' + (w.stage === 'ready' ? tr('Ready') : tr('Cooking'))
+    ]));
     board.active.forEach((d) => {
       const key = 'd:' + d.id;
       const on = !selected || selected === key;
-      if (d.customer.lat != null) mk.push({ id: key + ':home', kind: 'home', tone: 'active', lat: d.customer.lat, lng: d.customer.lng, emoji: '🏠', label: d.customer.name, sub: d.ref, active: selected === key, fit: on, onClick: () => pick(key) });
       const spot = riderSpot(d, here, now, fetchedAt);
+      const chip = chipOf(d, spot, now);
+      if (d.customer.lat != null) mk.push({ id: key + ':home', kind: 'home', tone: 'active', lat: d.customer.lat, lng: d.customer.lng, emoji: '🏠', label: d.customer.name, sub: d.ref, active: selected === key, fit: on, onClick: () => pick(key),
+        info: [d.ref + ' · ' + d.customer.name, where(d.customer), d.items.slice(0, 3).join(', ') + (d.items.length > 3 ? '…' : ''),
+          d.toCollect ? money(d.toCollect) + ' ' + tr('to collect · {method}', { method: payName(d.collectMethod || 'cash') }) : tr('Paid at the till'), chip] });
       if (spot) {
         mk.push({ id: key + ':rider', kind: 'rider', lat: spot.lat, lng: spot.lng, emoji: vehicleEmoji(d.rider.vehicle), live: spot.live, label: d.rider.name,
-          sub: (spot.live ? tr('live') : tr('estimated')) + ' · ' + statusName(d.status), fit: on, onClick: () => pick(key) });
-        if (here && d.customer.lat != null) rt.push({ id: key, points: routePoints(here, d.customer), tone: 'go', done: spot.progress });
+          sub: (spot.live ? tr('live') : tr('estimated')) + ' · ' + statusName(d.status), fit: on, onClick: () => pick(key),
+          info: [d.rider.name + ' · ' + d.ref, vehicleName(d.rider.vehicle) + (d.rider.plate ? ' · ' + d.rider.plate : ''), statusName(d.status) + (chip ? ' · ' + chip : ''),
+            spot.live ? tr('Live from their phone') : tr('Estimated from the time on the way'), d.rider.phone ? '📞 ' + d.rider.phone : ''] });
+        const way = wayOf(d, here, spot, now);
+        if (way) rt.push({ ...way, id: key, tone: 'go' });
       }
     });
     return { markers: mk, routes: rt };

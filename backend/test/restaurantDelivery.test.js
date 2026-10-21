@@ -173,6 +173,15 @@ test('accepted, it is an open order on the till and in the kitchen; turned down,
   await delivery.riderLocation(link, { lat: 5.61, lng: -0.18 });
   var t = await online.track(a.token);
   assert.deepEqual([t.stage, t.delivery.rider.name, t.delivery.riderAt.lat], ['on_the_way', 'Zqd Kofi', 5.61]);
+  // The way they went: a point each time they have moved on, not while they stand still.
+  var again = async function (lat, lng) {
+    await pool.query("UPDATE restaurant_deliveries SET rider_seen_at = now() - interval '10 seconds' WHERE id = $1", [sent.id]);
+    await delivery.riderLocation(link, { lat: lat, lng: lng });
+  };
+  await again(5.61005, -0.18); // about 6 m: the phone wavering
+  await again(5.6110, -0.1795);
+  assert.deepEqual((await online.track(a.token)).delivery.trail, [[5.61, -0.18], [5.611, -0.1795]]);
+  assert.equal((await delivery.board(tok.desk)).active.find(function (x) { return x.id === sent.id; }).trail.length, 2);
   await assert.rejects(delivery.riderStatus(link, { status: 'failed' }), /Say why it could not be delivered/);
   await delivery.riderStatus(link, { status: 'arrived' });
   var done = await delivery.riderStatus(link, { status: 'delivered' });
@@ -213,10 +222,11 @@ test('the restaurant\'s riders; a till sale sent out paid; handed to another rid
   assert.deepEqual([d.toCollect, d.collectMethod, d.rider.vehicle, d.customer.lat], [0, null, 'bicycle', NEAR.lat]);
   assert.deepEqual((await delivery.riders(tok.desk, {})).riders.find(function (x) { return x.id === abena.id; }).busy, [{ number: d.number, status: 'assigned' }]);
 
-  // Handed to another rider: the first link stops working.
+  // Handed to another rider: the first link stops working, and the way the first one went is not theirs.
   var oldLink = d.riderLink.split('/r/')[1];
+  await delivery.riderLocation(oldLink, { lat: 5.62, lng: -0.17 });
   var moved = (await delivery.reassign(tok.desk, d.id, { riderId: yawR.id })).delivery;
-  assert.equal(moved.rider.name, 'Zqd Yaw');
+  assert.deepEqual([moved.rider.name, moved.trail, moved.riderAt], ['Zqd Yaw', [], null]);
   assert.ok(moved.etaMinutes < d.etaMinutes, 'a motorbike is quicker than a bicycle');
   await assert.rejects(delivery.riderView(oldLink), /link is not working/);
   await assert.rejects(delivery.setStatus(tok.desk, d.id, { status: 'failed' }), /Say why/);
@@ -240,4 +250,20 @@ test('the restaurant\'s riders; a till sale sent out paid; handed to another rid
   // Each step is in the activity log.
   var log = (await pool.query("SELECT action FROM restaurant_activity WHERE company_id = $1 AND action LIKE 'delivery.%'", [company.id])).rows.map(function (x) { return x.action; });
   ['delivery.sent', 'delivery.picked_up', 'delivery.delivered', 'delivery.failed', 'delivery.cancelled', 'delivery.rider', 'delivery.open'].forEach(function (k) { assert.ok(log.indexOf(k) >= 0, k); });
+});
+
+test('the maps: Google\'s with the server\'s key, else OpenStreetMap; a long way thinned, not cut', function () {
+  var config = require('../src/config');
+  var was = config.googleMapsKey;
+  try {
+    config.googleMapsKey = '';
+    assert.deepEqual(delivery.mapConfig(), { google: null, region: 'GH' });
+    config.googleMapsKey = 'zq-browser-key';
+    assert.deepEqual(delivery.mapConfig(), { google: { key: 'zq-browser-key' }, region: 'GH' });
+  } finally { config.googleMapsKey = was; }
+  var trail = [];
+  for (var i = 0; i < 700; i++) trail = delivery.trailWith(trail, { lat: 5.6 + i * 0.0003, lng: -0.18 });
+  assert.ok(trail.length <= 600 && trail.length > 400, 'kept to 600 points: ' + trail.length);
+  assert.deepEqual([trail[0], trail[trail.length - 1]], [[5.6, -0.18], [Math.round((5.6 + 699 * 0.0003) * 1e6) / 1e6, -0.18]]);
+  assert.equal(delivery.trailWith(trail, { lat: trail[trail.length - 1][0], lng: -0.18 }).length, trail.length);
 });

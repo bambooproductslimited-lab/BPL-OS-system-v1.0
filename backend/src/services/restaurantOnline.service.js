@@ -180,7 +180,7 @@ async function trackOut(o) {
     restaurant: { code: r.code, name: r.name, phone: r.phone, location: r.location },
     delivery: d ? {
       ref: d.ref, status: d.status, rider: { name: d.rider.name, phone: d.rider.phone, vehicle: d.rider.vehicle, plate: d.rider.plate },
-      riderAt: d.riderAt, etaMinutes: d.etaMinutes, distanceKm: d.distanceKm, createdAt: d.createdAt, pickedUpAt: d.pickedUpAt, arrivedAt: d.arrivedAt, endedAt: d.endedAt,
+      riderAt: d.riderAt, trail: d.trail, etaMinutes: d.etaMinutes, distanceKm: d.distanceKm, createdAt: d.createdAt, pickedUpAt: d.pickedUpAt, arrivedAt: d.arrivedAt, endedAt: d.endedAt,
       toCollect: d.toCollect, collectMethod: d.collectMethod, note: d.status === 'failed' ? d.note : ''
     } : null
   };

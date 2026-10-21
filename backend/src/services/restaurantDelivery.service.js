@@ -205,6 +205,7 @@ function deliveryOut(d, opts) {
     items: d.items || [], toCollect: round2(d.to_collect), collectMethod: d.collect_method,
     rider: { id: d.rider_id, name: d.rider_name, phone: d.rider_phone, vehicle: d.rider_vehicle, plate: d.rider_plate },
     riderAt: d.rider_lat != null ? { lat: d.rider_lat, lng: d.rider_lng, at: d.rider_seen_at, ageSeconds: Math.max(0, Math.round((Date.now() - new Date(d.rider_seen_at).getTime()) / 1000)) } : null,
+    trail: ACTIVE.indexOf(d.status) >= 0 && Array.isArray(d.rider_trail) ? d.rider_trail : [],
     distanceKm: d.distance_km == null ? null : Number(d.distance_km), etaMinutes: d.eta_minutes,
     note: d.note, sentBy: d.sent_by_name || null,
     createdAt: d.created_at, pickedUpAt: d.picked_up_at, arrivedAt: d.arrived_at, endedAt: d.ended_at, minutes: minutesSince(d.created_at)
@@ -419,7 +420,7 @@ async function reassign(token, id, p) {
     var d = await deliveryOfCompany(client, session.posCompanyId, id);
     if (ENDED.indexOf(d.status) >= 0) fail('conflict', 'That delivery has ended.');
     await client.query('UPDATE restaurant_deliveries SET rider_id = $2, rider_name = $3, rider_phone = $4, rider_vehicle = $5, rider_plate = $6, rider_token_hash = $7, rider_token_sealed = $8, ' +
-      'rider_lat = NULL, rider_lng = NULL, rider_seen_at = NULL, eta_minutes = $9 WHERE id = $1',
+      'rider_lat = NULL, rider_lng = NULL, rider_seen_at = NULL, rider_trail = DEFAULT, eta_minutes = $9 WHERE id = $1',
       [d.id, rider.id, rider.name, rider.phone, rider.vehicle, rider.plate, hash(token_), secretBox.seal('rider-link', token_), travelMinutes(d.distance_km == null ? null : Number(d.distance_km), rider.vehicle)]);
     await activity.log(client, { companyId: d.company_id, employeeId: session.posEmployeeId, app: 'delivery', action: 'delivery.rider',
       summary: 'D-' + String(d.number).padStart(3, '0') + ' handed from ' + d.rider_name + ' to ' + rider.name + '.', refType: 'delivery', refId: d.id });
@@ -448,6 +449,26 @@ async function riderView(raw) {
   return out;
 }
 // POST /api/pos/rider/:token/location { lat, lng } — where the rider is, every few seconds while their page is open.
+// The way the rider went: a point once they have moved on 15 m or more
+// (standing still, or the phone wavering, adds nothing); past TRAIL_MAX
+// points, every other one of the older half goes, so the shape stays.
+var TRAIL_STEP_KM = 0.015, TRAIL_MAX = 600;
+function trailWith(trail, point) {
+  trail = Array.isArray(trail) ? trail.slice() : [];
+  var last = trail[trail.length - 1];
+  if (last && km({ lat: last[0], lng: last[1] }, point) < TRAIL_STEP_KM) return trail;
+  trail.push([Math.round(point.lat * 1e6) / 1e6, Math.round(point.lng * 1e6) / 1e6]);
+  if (trail.length > TRAIL_MAX) {
+    var half = Math.floor(trail.length / 2);
+    trail = trail.slice(0, half).filter(function (x, i) { return i % 2 === 0; }).concat(trail.slice(half));
+  }
+  return trail;
+}
+// GET /api/pos/map — which map the sites draw: Google's, with the browser
+// key set on the server (config.googleMapsKey), or OpenStreetMap's.
+function mapConfig() {
+  return { google: config.googleMapsKey ? { key: config.googleMapsKey } : null, region: 'GH' };
+}
 async function riderLocation(raw, p) {
   p = p || {};
   var point = pointOf(p.lat, p.lng);
@@ -455,7 +476,8 @@ async function riderLocation(raw, p) {
   var d = await byRiderToken(pool, raw);
   if (ACTIVE.indexOf(d.status) < 0) return { status: d.status };
   if (d.rider_seen_at && Date.now() - new Date(d.rider_seen_at).getTime() < 2500) return { status: d.status };
-  await pool.query('UPDATE restaurant_deliveries SET rider_lat = $2, rider_lng = $3, rider_seen_at = now() WHERE id = $1', [d.id, point.lat, point.lng]);
+  await pool.query('UPDATE restaurant_deliveries SET rider_lat = $2, rider_lng = $3, rider_seen_at = now(), rider_trail = $4 WHERE id = $1',
+    [d.id, point.lat, point.lng, JSON.stringify(trailWith(d.rider_trail, point))]);
   return { status: d.status };
 }
 // POST /api/pos/rider/:token/status { status, note } — picked up, arrived, delivered, or could not deliver.
@@ -478,5 +500,5 @@ async function forOnline(onlineId) {
 module.exports = {
   VEHICLES: VEHICLES, settingsOf: settingsOf, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
   settings: settings, setOpen: setOpen, riders: riders, board: board, send: send, setStatus: setStatus, reassign: reassign,
-  riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
+  mapConfig: mapConfig, trailWith: trailWith, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
 };

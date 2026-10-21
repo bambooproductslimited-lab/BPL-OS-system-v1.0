@@ -296,7 +296,7 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
             <legend>{tr('Where to bring it')}</legend>
             <p className="on-hint">{pin ? tr('Drag the pin to your door if it is not quite right.') : tr('Tap the map where you are, or use your location.')}</p>
             <div className="on-map">
-              <DeliveryMap markers={markers} fitKey={fitKey} pick={pin} onPick={(lat, lng) => setPin({ lat, lng })} center={here ? [here.lat, here.lng] : undefined} zoom={13} />
+              <DeliveryMap lite markers={markers} fitKey={fitKey} pick={pin} onPick={(lat, lng) => setPin({ lat, lng })} center={here ? [here.lat, here.lng] : undefined} zoom={13} />
               <button type="button" className="on-locate" onClick={locate} disabled={locating}>📍 {locating ? tr('Finding you…') : tr('Use my location')}</button>
             </div>
             {pin && km != null && <p className={'on-dist' + (tooFar ? ' is-bad' : '')}>{tooFar ? tr('{km} away: we deliver up to {max} km. Pick it up instead?', { km: kmText(km), max: r.maxKm }) : tr('{km} away by road · delivery {fee}', { km: kmText(km), fee: money(fee) })}</p>}

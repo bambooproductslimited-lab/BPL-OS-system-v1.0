@@ -85,6 +85,10 @@ module.exports = {
   // customers order on (restaurantDelivery / restaurantOnline services).
   deliverySiteUrl: (process.env.DELIVERY_SITE_URL || 'https://delivery.starbartema.com').replace(/\/+$/, ''),
   onlineSiteUrl: (process.env.ONLINE_SITE_URL || 'https://online.starbartema.com').replace(/\/+$/, ''),
+  // The maps on those sites: Google's own map (its Map Tiles API: streets,
+  // places, satellite, traffic) with this key — a browser key, limited in
+  // Google Cloud to those addresses and to that API. Without it, OpenStreetMap.
+  googleMapsKey: (process.env.GOOGLE_MAPS_KEY || '').trim(),
   // Where the OS itself is served, for links in emails the server sends on
   // its own (a customer's invoice link in a payment reminder). APP_URL, or
   // the first https address in CORS_ORIGIN.

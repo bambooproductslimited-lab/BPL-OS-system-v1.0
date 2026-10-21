@@ -28,7 +28,8 @@ const SITES = {
     name: 'Star Bar POS', shortName: 'POS Till',
     description: 'Restaurant till for Star Bar Restaurant and Bamboo Garden: the menu, tables, payments and the kitchen.',
     files: ICONS.concat(['pos-sw.js']),
-    env: { VITE_KDS_URL: process.env.KDS_URL || 'https://kds.starbartema.com', VITE_DELIVERY_URL: process.env.DELIVERY_URL || 'https://delivery.starbartema.com' }
+    env: { VITE_KDS_URL: process.env.KDS_URL || 'https://kds.starbartema.com', VITE_DELIVERY_URL: process.env.DELIVERY_URL || 'https://delivery.starbartema.com' },
+    map: true // sending a delivery out may need its pin dropped
   },
   kds: {
     name: 'Star Bar Kitchen', shortName: 'Kitchen',
@@ -49,10 +50,12 @@ const SITES = {
     env: { VITE_ONLINE_COMPANY: process.env.ONLINE_COMPANY || 'SBR' }, map: true, where: true, public: true
   }
 };
-// The map's streets: OpenStreetMap's, unless MAP_TILES names others (its host is let through).
+// The map's streets: OpenStreetMap's, unless MAP_TILES names others (its host is let through);
+// and Google's (its Map Tiles API, with its logo) when the server has a key for it (GOOGLE_MAPS_KEY).
 const TILES = process.env.MAP_TILES || '';
 if (TILES) process.env.VITE_MAP_TILES = TILES;
-const TILE_HOSTS = TILES ? new URL(TILES.replace(/\{[a-z]\}/g, 'a')).origin : 'https://tile.openstreetmap.org';
+const TILE_HOSTS = (TILES ? new URL(TILES.replace(/\{[a-z]\}/g, 'a')).origin : 'https://tile.openstreetmap.org') + ' https://tile.googleapis.com https://developers.google.com';
+const MAP_CALLS = 'https://tile.googleapis.com';
 
 const site = process.argv[2];
 const conf = SITES[site];
@@ -125,7 +128,7 @@ ${conf.public ? '' : '  Header always set X-Robots-Tag "noindex, nofollow"\n'}  
   Header always set Cross-Origin-Opener-Policy "same-origin"
   Header always set Cross-Origin-Resource-Policy "same-origin"
   # The page's own scripts, Google Fonts, and the API (calls and menu photos)${conf.map ? ', and the map\'s streets' : ''}.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: ${api}${conf.map ? ' ' + TILE_HOSTS : ''}; connect-src 'self' ${api}; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: ${api}${conf.map ? ' ' + TILE_HOSTS : ''}; connect-src 'self' ${api}${conf.map ? ' ' + MAP_CALLS : ''}; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>
 `);
 

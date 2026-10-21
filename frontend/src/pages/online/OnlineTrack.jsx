@@ -6,7 +6,7 @@ import { tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
-import { minText, minutesLeft, payName, riderSpot, routePoints, telLink, timeOf, vehicleEmoji, vehicleName, waLink } from '../delivery/dlShared';
+import { chipOf, minText, minutesLeft, payName, riderSpot, routePoints, telLink, timeOf, vehicleEmoji, vehicleName, waLink, wayOf } from '../delivery/dlShared';
 import './online.css';
 
 // A website order followed by its customer (online.starbartema.com/t/<its
@@ -80,10 +80,15 @@ export default function OnlineTrack({ token, onMenu }) {
   if (o.stage === 'on_the_way') sub = left != null ? tr('Arriving in about {m}.', { m: minText(left) }) : tr('Coming to you now.');
 
   const markers = [];
-  if (here) markers.push({ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: r.name, fit: true });
-  if (home) markers.push({ id: 'home', kind: 'home', tone: 'active', lat: home.lat, lng: home.lng, emoji: '🏠', label: tr('You'), fit: true });
-  if (spot && d && !['delivered'].includes(d.status)) markers.push({ id: 'rider', kind: 'rider', lat: spot.lat, lng: spot.lng, emoji: vehicleEmoji(d.rider.vehicle), live: spot.live, label: d.rider.name, sub: spot.live ? tr('live') : tr('estimated'), fit: true });
-  const routes = here && home && o.fulfillment === 'delivery' ? [{ id: 'way', points: routePoints(here, home), done: spot ? spot.progress : 0 }] : [];
+  if (here) markers.push({ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: r.name, fit: true,
+    info: [r.name, r.location.address ? '📍 ' + r.location.address : '', r.phone ? '📞 ' + r.phone : ''] });
+  if (home) markers.push({ id: 'home', kind: 'home', tone: 'active', lat: home.lat, lng: home.lng, emoji: '🏠', label: tr('You'), fit: true,
+    info: [tr('Your door'), o.customer.address ? '📍 ' + o.customer.address : '', o.customer.landmark] });
+  if (spot && d && !['delivered'].includes(d.status)) markers.push({ id: 'rider', kind: 'rider', lat: spot.lat, lng: spot.lng, emoji: vehicleEmoji(d.rider.vehicle), live: spot.live, label: d.rider.name, sub: spot.live ? tr('live') : tr('estimated'), fit: true,
+    info: [d.rider.name, vehicleName(d.rider.vehicle) + (d.rider.plate ? ' · ' + d.rider.plate : ''), chipOf({ ...d, customer: o.customer }, spot, now), spot.live ? tr('Live from their phone') : tr('Estimated from the time on the way')] });
+  // The way: where the rider has really gone and the rest to the door, with the time left on it.
+  const way = d && o.fulfillment === 'delivery' && ['picked_up', 'arrived'].includes(d.status) ? wayOf({ ...d, customer: o.customer }, here, spot, now) : null;
+  const routes = way ? [way] : here && home && o.fulfillment === 'delivery' ? [{ id: 'way', points: routePoints(here, home), done: spot ? spot.progress : 0 }] : [];
 
   return (
     <div className="on-shell on-track">

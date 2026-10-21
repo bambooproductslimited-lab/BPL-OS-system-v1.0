@@ -105,6 +105,38 @@ export function riderSpot(d, restaurant, now, fetchedAt) {
   if (!route.length) return null;
   return Object.assign(along(route, progress), { live: false, progress });
 }
+// By road, roughly, as the server counts it (straight line × 1.3), in km.
+export function roadKm(a, b) {
+  if (!a || !b || a.lat == null || b.lat == null) return null;
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * 6371 * Math.asin(Math.sqrt(x)) * 1.3 * 10) / 10;
+}
+// What is left of a delivery, for the chip on its way: the minutes and the
+// km to the door on the way; picking up. At the door, nothing is left.
+export function chipOf(d, spot, now) {
+  if (d.status === 'assigned') return tr('Picking up');
+  if (d.status !== 'picked_up') return null;
+  const t0 = new Date(d.pickedUpAt || d.createdAt).getTime();
+  const left = Math.max(1, Math.round((d.etaMinutes || 20) - (now - t0) / 60000));
+  const home = d.customer && d.customer.lat != null ? d.customer : null;
+  const km = spot && spot.live ? roadKm(spot, home) : d.distanceKm != null ? Math.round(d.distanceKm * (1 - (spot ? spot.progress : 0)) * 10) / 10 : null;
+  return minText(left) + (km != null ? ' · ' + kmText(km) : '');
+}
+// A delivery's way on the map (DeliveryMap routes): where the rider really
+// went while their phone shares it, then the rest of the way from them,
+// dashed; else the whole way from the restaurant, solid as far as they
+// should have come by now. Null without both ends.
+export function wayOf(d, here, spot, now) {
+  const home = d.customer && d.customer.lat != null ? { lat: d.customer.lat, lng: d.customer.lng } : null;
+  if (!here || !home) return null;
+  const chip = chipOf(d, spot, now);
+  const live = spot && spot.live;
+  const trail = live && Array.isArray(d.trail) && d.trail.length ? d.trail.concat([[spot.lat, spot.lng]]) : null;
+  if (live && d.status !== 'assigned') return { id: d.id, trail, points: routePoints(spot, home, 24), done: 0, chip };
+  return { id: d.id, trail, points: routePoints(here, home), done: spot ? spot.progress : 0, chip };
+}
 // Minutes left until the food is at the door, roughly (for the customer):
 // waiting for the kitchen, then the ride.
 export function minutesLeft(order, now) {

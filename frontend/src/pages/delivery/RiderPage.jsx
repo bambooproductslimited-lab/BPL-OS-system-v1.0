@@ -6,7 +6,7 @@ import { tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from './DeliveryMap';
-import { kmText, minText, navLink, payName, riderSpot, routePoints, statusName, stepOf, telLink, vehicleEmoji, waLink } from './dlShared';
+import { kmText, minText, navLink, payName, riderSpot, routePoints, statusName, stepOf, telLink, vehicleEmoji, waLink, wayOf } from './dlShared';
 import './delivery.css';
 
 // A rider's page (delivery.starbartema.com/r/<their link>): no sign-in, the
@@ -80,10 +80,16 @@ export default function RiderPage({ token }) {
   const home = d.customer.lat != null ? { lat: d.customer.lat, lng: d.customer.lng } : null;
   const spot = me && active ? { ...me, live: true, progress: 0 } : riderSpot(d, here, now, fetchedAt);
   const markers = [];
-  if (here) markers.push({ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: r.name, fit: d.status === 'assigned' || !home });
-  if (home) markers.push({ id: 'home', kind: 'home', tone: 'active', lat: home.lat, lng: home.lng, emoji: '🏠', label: d.customer.name, fit: true });
+  if (here) markers.push({ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: r.name, fit: d.status === 'assigned' || !home,
+    info: [r.name, r.location && r.location.address ? '📍 ' + r.location.address : '', r.phone ? '📞 ' + r.phone : ''] });
+  if (home) markers.push({ id: 'home', kind: 'home', tone: 'active', lat: home.lat, lng: home.lng, emoji: '🏠', label: d.customer.name, fit: true,
+    info: [d.customer.name, d.customer.address ? '📍 ' + d.customer.address : '', d.customer.landmark, d.toCollect > 0 ? tr('Collect') + ' ' + money(d.toCollect) + ' · ' + payName(d.collectMethod) : ''] });
   if (spot) markers.push({ id: 'me', kind: 'rider', lat: spot.lat, lng: spot.lng, emoji: vehicleEmoji(d.rider.vehicle), live: spot.live, label: tr('You'), fit: true, tone: d.status === 'delivered' ? 'done' : undefined });
-  const routes = here && home ? [{ id: 'way', points: routePoints(here, home), done: spot ? spot.progress : 0 }] : [];
+  // The way: to the restaurant first, while they go for the food; then the
+  // way they have really gone and the rest to the door.
+  let routes = [];
+  if (here && home && spot && spot.live && d.status === 'assigned') routes = [{ id: 'way', points: routePoints(spot, here, 24), done: 0, trail: d.trail && d.trail.length ? d.trail.concat([[spot.lat, spot.lng]]) : null, chip: tr('Picking up') }];
+  else if (here && home) routes = [wayOf(d, here, spot, now)].filter(Boolean);
   const next = { assigned: ['picked_up', '🥡 ' + tr('I have picked up the food')], picked_up: ['arrived', '📍 ' + tr('I have arrived')], arrived: ['delivered', '✅ ' + tr('Delivered')] }[d.status];
   const at = stepOf(d.status);
   const logo = restaurantLogoUrl(r.code);
@@ -97,7 +103,7 @@ export default function RiderPage({ token }) {
         <DeviceLanguage className="pos-lang" />
       </header>
       <div className="dl-rp-map">
-        <DeliveryMap markers={markers} routes={routes} fitKey={fitKey + ':' + (spot ? 1 : 0)} center={here ? [here.lat, here.lng] : undefined} />
+        <DeliveryMap markers={markers} routes={routes} fitKey={fitKey + ':' + (spot ? (spot.live ? 'live' : 1) : 0)} center={here ? [here.lat, here.lng] : undefined} />
         {active && (
           <div className={'dl-rp-share is-' + sharing}>
             {sharing === 'on' ? <><i className="dl-live-dot" />{tr('Sharing where you are')}</>

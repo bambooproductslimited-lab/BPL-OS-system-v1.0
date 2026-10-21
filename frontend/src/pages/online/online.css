@@ -175,7 +175,7 @@
 .on-steps li.is-now { color: var(--on-ink); }
 .on-steps li.is-now i { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--on-a), var(--on-b)); box-shadow: 0 0 0 6px rgba(239, 68, 68, .18); animation: on-pulse 1.6s ease-in-out infinite; }
 .on-track-map { position: relative; isolation: isolate; height: 320px; border-radius: 22px; overflow: hidden; border: 1px solid var(--on-line); box-shadow: 0 16px 34px -28px rgba(0, 0, 0, .7); }
-.on-map-tag { position: absolute; left: 10px; top: 10px; z-index: 500; max-width: calc(100% - 20px); padding: 5px 10px; font-size: 11.5px; font-weight: 700; color: #0f172a; border-radius: 999px; background: rgba(255, 255, 255, .92); }
+.on-map-tag { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 500; max-width: calc(100% - 20px); text-align: center; padding: 5px 10px; font-size: 11.5px; font-weight: 700; color: #0f172a; border-radius: 999px; background: rgba(255, 255, 255, .92); }
 .on-card { padding: 14px 16px; border-radius: 22px; border: 1px solid var(--on-line); background: var(--on-card); box-shadow: 0 14px 30px -28px rgba(0, 0, 0, .7); }
 .on-card h2 { margin: 0 0 10px; font-family: var(--font-heading); font-size: 17px; }
 .on-rider { display: flex; align-items: center; gap: 12px; }
