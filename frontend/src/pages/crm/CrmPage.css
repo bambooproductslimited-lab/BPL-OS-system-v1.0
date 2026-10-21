@@ -73,9 +73,11 @@
 .crm-col .crm-card-open { padding: 10px 12px; }
 
 /* dialogs */
-.crm-dialog { max-width: 680px; }
+/* .dialog.… so these win over the shared .tl-dialog width (ToolRoomPage.css), whichever loads last. */
+.dialog.crm-dialog { max-width: 680px; }
 .dialog-backdrop.crm-over { z-index: 30; }
-.crm-lead { max-width: 1040px; gap: 12px; }
+/* A lead is read at a glance: wide, its contact and follow-up beside its history. */
+.dialog.crm-lead { max-width: min(1180px, calc(100vw - 48px)); gap: 12px; }
 .crm-lead-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .crm-lead-head h2 { margin: 2px 0 0; overflow-wrap: anywhere; }
 .crm-lead-want { margin: 4px 0 0; font-size: 14px; }

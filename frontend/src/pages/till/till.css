@@ -31,10 +31,11 @@
 @keyframes tl-glow { 50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, .18), 0 6px 16px -8px #10b981; } }
 
 /* ── dialogs ── */
-.tl-dialog { display: flex; flex-direction: column; gap: 12px; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; }
-.tl-dialog > * { flex-shrink: 0; }
-.tl-dialog h2 { margin: 0; }
-.tl-dialog .dk-muted { margin: 0; }
+/* The till's dialogs only (.pos-shell): the OS has its own .tl-dialog (ToolRoomPage.css), used by many pages. */
+.pos-shell .tl-dialog { display: flex; flex-direction: column; gap: 12px; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; }
+.pos-shell .tl-dialog > * { flex-shrink: 0; }
+.pos-shell .tl-dialog h2 { margin: 0; }
+.pos-shell .tl-dialog .dk-muted { margin: 0; }
 .tl-dialog-ico { display: grid; place-items: center; width: 50px; height: 50px; border-radius: 16px; color: #fff; background: linear-gradient(135deg, #8b5cf6, #6d28d9); box-shadow: 0 14px 28px -16px #6d28d9; }
 .tl-dialog-ico .dk-icon { width: 24px; height: 24px; }
 .tl-dialog-ico.is-delivery { background: linear-gradient(135deg, #a78bfa, #7c3aed); }

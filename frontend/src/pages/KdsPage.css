@@ -189,11 +189,13 @@
 .kds-ready-ful { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 12px; }
 .kds-ready-ful .tl-ful { margin: 0; }
 .kds-printer { color: #059669; }
-/* The runner's ticket: only it prints. */
+/* The runner's ticket: only it prints — and only while the kitchen screen
+   prints it (body.kds-printing, KdsPage.jsx), so the OS, where this page is
+   bundled too, still prints its own documents. */
 .kds-print { display: none; }
 @media print {
-  body * { visibility: hidden !important; }
-  .kds-print, .kds-print * { visibility: visible !important; }
+  body.kds-printing * { visibility: hidden !important; }
+  body.kds-printing .kds-print, body.kds-printing .kds-print * { visibility: visible !important; }
   .kds-print { display: block !important; position: absolute; left: 0; top: 0; width: 72mm; padding: 2mm; color: #000; background: #fff; font: 13px/1.35 ui-monospace, monospace; }
   .kds-print p { margin: 0 0 4px; }
   .kds-print-co { text-align: center; }

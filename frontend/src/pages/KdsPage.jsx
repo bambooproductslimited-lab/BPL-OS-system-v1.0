@@ -105,10 +105,17 @@ export default function KdsPage() {
       if (bt) setPrinter(bt);
     })();
   }, []);
-  // The ticket in the print dialog: printed once it is on the page.
+  // The ticket in the print dialog: printed once it is on the page, with
+  // everything else hidden only for this print (KdsPage.css).
   useEffect(() => {
     if (!paper) return undefined;
-    const t = setTimeout(() => { window.print(); setPaper(null); }, 60);
+    const t = setTimeout(() => {
+      const done = () => { document.body.classList.remove('kds-printing'); window.removeEventListener('afterprint', done); };
+      window.addEventListener('afterprint', done);
+      document.body.classList.add('kds-printing');
+      window.print();
+      setPaper(null);
+    }, 60);
     return () => clearTimeout(t);
   }, [paper]);
 
