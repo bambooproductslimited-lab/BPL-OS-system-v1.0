@@ -1,4 +1,10 @@
-// Light/dark mode, applied at the document root.
+// Light, dark or glass mode, applied at the document root.
+//
+// Glass (styles/glass.css) is the light theme made of frosted glass, the
+// way Apple's is: see-through panels over a soft colourful backdrop, and a
+// blurred glass behind every pop-up. It only adds to the light theme —
+// nothing written for 'dark' applies to it — so a screen that never heard
+// of it still looks right in it, just less glassy.
 //
 // It used to be applied to <main class="shell-main-dark">, which re-themed
 // everything *inside* that element and nothing outside it. The page canvas
@@ -18,11 +24,12 @@
 // /share and /enroll-face render outside AppShell and have their own visual
 // identity. They never see the attribute, so they are unaffected.
 export const THEME_KEY = 'bamboo-os-theme';
+export const THEMES = ['light', 'dark', 'glass'];
 
 export function getInitialTheme() {
   try {
     const stored = localStorage.getItem(THEME_KEY);
-    if (stored === 'light' || stored === 'dark') return stored;
+    if (THEMES.includes(stored)) return stored;
   } catch { /* private mode / storage blocked — fall through to default */ }
   return 'dark';
 }
@@ -33,4 +40,10 @@ export function applyTheme(theme) {
 
 export function clearTheme() {
   try { document.documentElement.removeAttribute('data-theme'); } catch { /* no DOM (tests) */ }
+}
+
+// Keeps the choice on this device, for every screen of the OS and the
+// restaurant sites on it.
+export function saveTheme(theme) {
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
 }

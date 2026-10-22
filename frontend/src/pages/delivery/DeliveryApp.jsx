@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
 import { tr } from '../../lib/i18n.jsx';
-import { applyTheme, getInitialTheme, THEME_KEY } from '../../lib/theme';
+import { applyTheme, getInitialTheme, saveTheme } from '../../lib/theme';
+import ThemeSwitch from '../../components/ThemeSwitch';
 import { playNewTicket, unlockAudio } from '../../kiosk/kioskSounds';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { Icon } from '../../components/DashKit';
@@ -40,14 +41,14 @@ function readSession() { try { return JSON.parse(localStorage.getItem(SESSION_KE
 export default function DeliveryApp() {
   const [session, setSession] = useState(readSession);
   const [theme, setTheme] = useState(getInitialTheme);
-  useEffect(() => { applyTheme(theme); try { localStorage.setItem(THEME_KEY, theme); } catch { /* not kept */ } }, [theme]);
+  useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
   const signOut = useCallback((reason) => {
     if (session && reason !== 'ended') posFetch('POST', '/pos/logout', session.token, { reason: 'manual' }).catch(() => {});
     try { localStorage.removeItem(SESSION_KEY); } catch { /* nothing kept */ }
     setSession(null);
   }, [session]);
   const themeButton = (
-    <button type="button" className="dl-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>
+    <ThemeSwitch theme={theme} onChange={setTheme} className="dl-icon-btn" />
   );
   if (!session) return <Gate onIn={(s) => { try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch { /* not kept */ } setSession(s); }} themeButton={themeButton} />;
   return <Desk session={session} onSignOut={signOut} themeButton={themeButton} />;

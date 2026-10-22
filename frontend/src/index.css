@@ -1,1 +1,3 @@
 @import './styles/theme.css';
+/* Glass mode (the third look beside light and dark): see styles/glass.css. */
+@import './styles/glass.css';

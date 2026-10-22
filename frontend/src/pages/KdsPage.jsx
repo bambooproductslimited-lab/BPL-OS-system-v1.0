@@ -4,7 +4,8 @@ import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import DeviceLanguage from '../components/DeviceLanguage';
 import { unlockAudio, playNewTicket } from '../kiosk/kioskSounds';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
-import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
+import ThemeSwitch from '../components/ThemeSwitch';
 import { buildRunnerTicketBytes, bluetoothSupported, reconnectBluetoothPrinter, reconnectUsbPrinter, requestBluetoothPrinter, requestUsbPrinter, usbSupported } from '../lib/thermalPrinter';
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import './till/till.css';
@@ -93,7 +94,7 @@ export default function KdsPage() {
 
   useEffect(() => {
     applyTheme(theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
+    saveTheme(theme);
   }, [theme]);
   useEffect(() => () => clearTheme(), []);
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
@@ -298,11 +299,7 @@ export default function KdsPage() {
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [board]);
 
-  const themeButton = (
-    <button type="button" className="kds-tool" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')} title={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
-      {theme === 'dark' ? '☀' : '☾'}
-    </button>
-  );
+  const themeButton = <ThemeSwitch theme={theme} onChange={setTheme} className="kds-tool" />;
   const clock = new Date(now).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
 
   if (!checked) return null;

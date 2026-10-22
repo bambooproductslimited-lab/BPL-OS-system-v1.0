@@ -3,7 +3,8 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
 import { tr } from '../../lib/i18n.jsx';
-import { applyTheme, getInitialTheme, THEME_KEY } from '../../lib/theme';
+import { applyTheme, getInitialTheme, saveTheme } from '../../lib/theme';
+import ThemeSwitch from '../../components/ThemeSwitch';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { timeOf } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
@@ -48,7 +49,7 @@ export default function TableShop({ code }) {
   const [calling, setCalling] = useState(null);
   const [toast, setToast] = useState(null);
   const sections = useRef({});
-  useEffect(() => { applyTheme(theme); try { localStorage.setItem(THEME_KEY, theme); } catch { /* not kept */ } }, [theme]);
+  useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
 
   const load = useCallback(() => posFetch('GET', '/pos/table/' + encodeURIComponent(code)).then((d) => {
     setData(d); setError(null); document.title = d.table.name + ' · ' + d.restaurant.name;
@@ -112,7 +113,7 @@ export default function TableShop({ code }) {
     <div className="on-shell on-table" data-brand={r.code}>
       <header className="on-hero is-table">
         <div className="on-hero-bg" aria-hidden="true"><span>🍗</span><span>🥤</span><span>🍚</span><span>🌶️</span><span>🍔</span><span>🥗</span></div>
-        <div className="on-hero-tools"><DeviceLanguage className="on-lang" /><button type="button" className="on-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button></div>
+        <div className="on-hero-tools"><DeviceLanguage className="on-lang" /><ThemeSwitch theme={theme} onChange={setTheme} className="on-icon-btn" /></div>
         <div className="on-hero-main">
           {logo ? <img className="on-logo" src={logo} alt="" /> : <span className="on-logo is-mark">🍽️</span>}
           <div>

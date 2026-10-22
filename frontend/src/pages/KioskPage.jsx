@@ -5,7 +5,8 @@ import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/k
 import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
 import { tr, trIn, msg, activeIntlLocale, activeLocale, localeMeta, translate } from '../lib/i18n.jsx';
-import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
+import ThemeSwitch from '../components/ThemeSwitch';
 import '../components/DashKit.css';
 import './KioskPage.css';
 
@@ -169,7 +170,7 @@ export default function KioskPage() {
   const [theme, setTheme] = useState(getInitialTheme);
   useEffect(() => {
     applyTheme(theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
+    saveTheme(theme);
   }, [theme]);
   useEffect(() => () => clearTheme(), []);
 
@@ -417,9 +418,7 @@ export default function KioskPage() {
               {pendingCount === 1 ? tr('1 tap syncing…') : tr('{n} taps syncing…', { n: pendingCount })}
             </span>
           )}
-          <button type="button" className="kiosk-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
-            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
-          </button>
+          <ThemeSwitch theme={theme} onChange={setTheme} className="kiosk-theme" />
         </div>
       </div>
 

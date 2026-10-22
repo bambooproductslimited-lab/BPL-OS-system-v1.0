@@ -4,8 +4,8 @@ import { tr } from '../../lib/i18n.jsx';
 
 // The till's top bar keeps what is used all the time (the shift, the drawer,
 // the kitchen, open orders, log out); the rest waits behind "More": VIP,
-// IOUs, refunds, the settings, the kitchen screen, the printer, light or
-// dark, the language. items: [{ key, icon (DashKit name or a node), label,
+// IOUs, refunds, the settings, the kitchen screen, the printer, light,
+// dark or glass, the language. items: [{ key, icon (DashKit name or a node), label,
 // note, badge, tone, onClick, href }]; extra: anything else at the foot.
 export default function MoreMenu({ items, extra }) {
   const [open, setOpen] = useState(false);

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { LOCALES, msg, tr } from '../lib/i18n.jsx';
 import { useI18n } from '../lib/i18nContext.js';
-import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import ThemeSwitch from './ThemeSwitch';
+import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import '../pages/LoginPage.css';
 
 // The frame every sign-in screen shares (LoginPage, ForcedPasswordChangePage):
 // the brand side saying what Bamboo OS is, and the form side. Like the till
-// and the kiosk, it follows the light/dark choice on this device, with a
-// switch in the corner.
+// and the kiosk, it follows the light, dark or glass choice on this device,
+// with a switch in the corner.
 
 const AREAS = [
   ['people', msg('People, attendance and leave')],
@@ -47,7 +48,7 @@ export default function AuthLayout({ children, heading, sub }) {
   const [theme, setTheme] = useState(getInitialTheme);
   useEffect(() => {
     applyTheme(theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
+    saveTheme(theme);
   }, [theme]);
   useEffect(() => () => clearTheme(), []);
 
@@ -73,9 +74,7 @@ export default function AuthLayout({ children, heading, sub }) {
             {LOCALES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
           </select>
         </label>
-        <button type="button" className="auth-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')} title={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
-          <AuthIcon name={theme === 'dark' ? 'sun' : 'moon'} />
-        </button>
+        <ThemeSwitch theme={theme} onChange={setTheme} className="auth-theme" />
         </div>
         <div className="auth-card">{children}</div>
       </main>

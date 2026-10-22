@@ -1,0 +1,97 @@
+/* The light / dark / glass switch (ThemeSwitch.jsx). Its own colours, not
+   any one app's, since every app has it; one set per mode. */
+.thm-glyph { display: block; width: 1.2em; height: 1.2em; flex: none; }
+
+.thm-layer { position: fixed; inset: 0; z-index: 1000; }
+.thm-card {
+  position: fixed; top: -999px; left: -999px; width: 292px; max-width: calc(100vw - 16px);
+  display: flex; flex-direction: column; gap: 12px; padding: 14px;
+  font-family: var(--font-body, system-ui, sans-serif); color: #1c1c1e; text-align: left;
+  background: #fff; border: 1px solid rgba(0, 0, 0, .08); border-radius: 20px;
+  box-shadow: 0 28px 70px -24px rgba(15, 23, 42, .5), 0 2px 8px rgba(15, 23, 42, .08);
+  animation: thm-pop .2s cubic-bezier(.2, .8, .2, 1) both;
+}
+@keyframes thm-pop { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.thm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 2px; }
+.thm-head strong { font-size: 14.5px; font-weight: 800; }
+.thm-head small { font-size: 11.5px; opacity: .55; }
+
+.thm-choice { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.thm-opt {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; padding: 0;
+  font: inherit; font-size: 12.5px; font-weight: 700; color: inherit;
+  background: none; border: 0; cursor: pointer;
+}
+.thm-opt:focus-visible { outline: none; }
+.thm-opt:focus-visible .thm-prev, .thm-choice.is-compact .thm-opt:focus-visible { outline: 2px solid #0a84ff; outline-offset: 2px; }
+.thm-name { display: flex; align-items: center; gap: 5px; }
+.thm-opt.is-on .thm-name::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #0a84ff; }
+
+/* A little window in each mode. */
+.thm-prev {
+  position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden;
+  border-radius: 12px; border: 2px solid transparent; box-shadow: 0 0 0 1px rgba(0, 0, 0, .1);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.thm-opt:hover .thm-prev { transform: translateY(-2px); }
+.thm-opt.is-on .thm-prev { border-color: #0a84ff; box-shadow: 0 0 0 3px rgba(10, 132, 255, .22); }
+.thm-prev-blob { position: absolute; width: 70%; aspect-ratio: 1; border-radius: 50%; filter: blur(8px); }
+.thm-prev-blob.is-a { left: -20%; top: -25%; }
+.thm-prev-blob.is-b { right: -25%; bottom: -30%; }
+.thm-prev-win {
+  position: absolute; left: 14%; top: 20%; right: 14%; bottom: 0;
+  display: flex; flex-direction: column; gap: 5px; padding: 9px 8px;
+  border-radius: 8px 8px 0 0;
+}
+.thm-prev-win b { display: block; height: 5px; border-radius: 3px; }
+.thm-prev-win b:first-child { width: 55%; }
+.thm-prev-win b:nth-child(2) { width: 80%; }
+.thm-prev-win b:nth-child(3) { width: 40%; }
+
+.thm-prev.is-light { background: #f2f2f0; }
+.thm-prev.is-light .thm-prev-blob { display: none; }
+.thm-prev.is-light .thm-prev-win { background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .1); }
+.thm-prev.is-light .thm-prev-win b { background: #dcdcd8; }
+.thm-prev.is-light .thm-prev-win b:first-child { background: #3f7d3b; }
+
+.thm-prev.is-dark { background: #0b1120; }
+.thm-prev.is-dark .thm-prev-blob { display: none; }
+.thm-prev.is-dark .thm-prev-win { background: #1b2437; }
+.thm-prev.is-dark .thm-prev-win b { background: #33415e; }
+.thm-prev.is-dark .thm-prev-win b:first-child { background: #34d399; }
+
+.thm-prev.is-glass { background: linear-gradient(135deg, #e9e4ff, #dff3ff 55%, #ffe6f0); }
+.thm-prev.is-glass .thm-prev-blob.is-a { background: #ff9fc4; }
+.thm-prev.is-glass .thm-prev-blob.is-b { background: #7cc4ff; }
+.thm-prev.is-glass .thm-prev-win {
+  background: rgba(255, 255, 255, .42); border: 1px solid rgba(255, 255, 255, .8); border-bottom: 0;
+  -webkit-backdrop-filter: blur(6px) saturate(160%); backdrop-filter: blur(6px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+.thm-prev.is-glass .thm-prev-win b { background: rgba(28, 28, 30, .18); }
+.thm-prev.is-glass .thm-prev-win b:first-child { background: rgba(10, 132, 255, .75); }
+
+/* As pills, in a menu (the till's More). */
+.thm-choice.is-compact { gap: 4px; padding: 3px; border-radius: 13px; background: rgba(120, 120, 128, .14); }
+.thm-choice.is-compact .thm-opt { flex-direction: row; justify-content: center; gap: 6px; height: 34px; padding: 0 8px; border-radius: 10px; font-size: 12.5px; transition: background .15s ease, box-shadow .15s ease; }
+.thm-choice.is-compact .thm-opt.is-on { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
+.thm-choice.is-compact .thm-opt.is-on .thm-name::before { display: none; }
+.thm-choice.is-compact .thm-glyph { width: 16px; height: 16px; }
+
+:root[data-theme='dark'] .thm-card { color: #f2f5fb; background: #151d2f; border-color: rgba(255, 255, 255, .1); box-shadow: 0 30px 70px -24px rgba(0, 0, 0, .9); }
+:root[data-theme='dark'] .thm-prev { box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+:root[data-theme='dark'] .thm-choice.is-compact { background: rgba(255, 255, 255, .08); }
+:root[data-theme='dark'] .thm-choice.is-compact .thm-opt.is-on { background: rgba(255, 255, 255, .16); box-shadow: none; }
+
+:root[data-theme='glass'] .thm-card {
+  background: rgba(255, 255, 255, .82); border-color: rgba(255, 255, 255, .85);
+  -webkit-backdrop-filter: blur(28px) saturate(190%); backdrop-filter: blur(28px) saturate(190%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 28px 70px -24px rgba(31, 38, 80, .45);
+}
+:root[data-theme='glass'] .thm-choice.is-compact { background: rgba(255, 255, 255, .35); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .6); }
+:root[data-theme='glass'] .thm-choice.is-compact .thm-opt.is-on { background: rgba(255, 255, 255, .85); }
+
+@media (prefers-reduced-motion: reduce) {
+  .thm-card { animation: none; }
+  .thm-prev, .thm-choice.is-compact .thm-opt { transition: none; }
+}

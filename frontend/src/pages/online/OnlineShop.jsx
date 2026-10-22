@@ -3,7 +3,8 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
 import { tr } from '../../lib/i18n.jsx';
-import { applyTheme, getInitialTheme, THEME_KEY } from '../../lib/theme';
+import { applyTheme, getInitialTheme, saveTheme } from '../../lib/theme';
+import ThemeSwitch from '../../components/ThemeSwitch';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
 import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShared';
@@ -51,7 +52,7 @@ export default function OnlineShop({ code, onTrack }) {
   const [checkout, setCheckout] = useState(false);
   const [mine] = useState(() => load(ORDERS_KEY, []));
   const sections = useRef({});
-  useEffect(() => { applyTheme(theme); try { localStorage.setItem(THEME_KEY, theme); } catch { /* not kept */ } }, [theme]);
+  useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
   useEffect(() => {
     posFetch('GET', '/pos/online/' + encodeURIComponent(code) + '/menu').then((d) => { setData(d); document.title = d.restaurant.name + ' · ' + tr('Order online'); }).catch((e) => setError(e.message));
   }, [code]);
@@ -91,7 +92,7 @@ export default function OnlineShop({ code, onTrack }) {
     <div className="on-shell" data-brand={r.code}>
       <header className="on-hero">
         <div className="on-hero-bg" aria-hidden="true"><span>🍗</span><span>🥤</span><span>🍚</span><span>🌶️</span><span>🍔</span><span>🥗</span></div>
-        <div className="on-hero-tools"><DeviceLanguage className="on-lang" /><button type="button" className="on-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button></div>
+        <div className="on-hero-tools"><DeviceLanguage className="on-lang" /><ThemeSwitch theme={theme} onChange={setTheme} className="on-icon-btn" /></div>
         <div className="on-hero-main">
           {logo ? <img className="on-logo" src={logo} alt="" /> : <span className="on-logo is-mark">🍽️</span>}
           <div>

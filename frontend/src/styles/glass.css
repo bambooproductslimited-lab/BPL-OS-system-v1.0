@@ -1,0 +1,374 @@
+/* Glass mode (lib/theme.js: <html data-theme="glass">), the third look
+   beside light and dark, after Apple's frosted glass: every screen sits on
+   a soft wash of colour, and what is on it is made of glass — see-through
+   white panels with a bright edge and a shine across the top, and, where
+   something lies over the page (a header, a menu, a pop-up), the page
+   blurred behind it. When a pop-up opens, the whole page behind it turns
+   to frosted glass and goes slightly out of focus.
+
+   It is the light theme with glass laid over it: nothing written for
+   'dark' applies here, and every rule below starts with
+   :root[data-theme='glass'], so the light and dark looks are untouched.
+
+   Only what lies over something is blurred (headers, menus, sheets, pop-ups
+   and their backdrops): a blur costs the screen work, a till or a kitchen
+   screen is often an old tablet, and a panel over the smooth wash of colour
+   looks the same with it or without. No color-mix() either, for the same
+   old browsers; tints are rgba(). */
+
+:root[data-theme='glass'] {
+  color-scheme: light;
+  /* the glass itself */
+  --gl-fill: rgba(255, 255, 255, .5);
+  --gl-fill-strong: rgba(255, 255, 255, .64);
+  --gl-fill-soft: rgba(255, 255, 255, .32);
+  --gl-edge: rgba(255, 255, 255, .72);
+  --gl-sheen: linear-gradient(140deg, rgba(255, 255, 255, .5), rgba(255, 255, 255, .08) 38%, rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, .16));
+  --gl-blur: blur(24px) saturate(180%);
+  --gl-blur-strong: blur(34px) saturate(200%);
+  --gl-shine: inset 0 1px 0 rgba(255, 255, 255, .85), inset 0 0 0 1px rgba(255, 255, 255, .22);
+  --gl-shadow: 0 1px 2px rgba(31, 38, 80, .06), 0 14px 36px -16px rgba(31, 38, 80, .3);
+  --gl-shadow-up: 0 2px 6px rgba(31, 38, 80, .08), 0 24px 48px -18px rgba(31, 38, 80, .42);
+  --gl-sep: rgba(60, 60, 67, .13);
+  /* the wash behind everything: four soft colours in the corners */
+  --gl-w1: 74, 222, 158;   /* mint, the company green made light */
+  --gl-w2: 96, 170, 255;   /* sky */
+  --gl-w3: 170, 140, 255;  /* lavender */
+  --gl-w4: 255, 140, 190;  /* blush */
+  --gl-w5: 255, 214, 130;  /* sunlight, in the middle */
+  --gl-base: linear-gradient(160deg, #eaf0ff 0%, #e9f6f0 50%, #fcedf4 100%);
+
+  /* the OS's own tokens, made of glass */
+  --color-bg: rgba(255, 255, 255, .58);
+  --color-bg-subtle: rgba(255, 255, 255, .34);
+  --color-divider: rgba(60, 60, 67, .12);
+  --color-border: rgba(60, 60, 67, .16);
+  --color-text-muted: rgba(32, 30, 29, .64);
+  --color-text-faint: rgba(32, 30, 29, .44);
+  --radius: 14px;
+  --divider-width: 1px;
+}
+
+/* ── the wash of colour ── */
+:root[data-theme='glass'] { background: #eef1f8; }
+:root[data-theme='glass'] body { background: transparent; }
+:root[data-theme='glass'] body::before {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+}
+:root[data-theme='glass'] body::before,
+:root[data-theme='glass'] .auth,
+:root[data-theme='glass'] .pos-shell,
+:root[data-theme='glass'] .kds,
+:root[data-theme='glass'] .kiosk,
+:root[data-theme='glass'] .dl-shell,
+:root[data-theme='glass'] .dl-rider-page,
+:root[data-theme='glass'] .on-shell {
+  background:
+    radial-gradient(42% 48% at 6% 8%, rgba(var(--gl-w1), .78), rgba(var(--gl-w1), 0) 72%),
+    radial-gradient(40% 46% at 96% 6%, rgba(var(--gl-w2), .72), rgba(var(--gl-w2), 0) 72%),
+    radial-gradient(44% 50% at 94% 96%, rgba(var(--gl-w3), .7), rgba(var(--gl-w3), 0) 72%),
+    radial-gradient(42% 48% at 4% 94%, rgba(var(--gl-w4), .66), rgba(var(--gl-w4), 0) 72%),
+    radial-gradient(34% 38% at 55% 52%, rgba(var(--gl-w5), .42), rgba(var(--gl-w5), 0) 72%),
+    var(--gl-base);
+}
+/* Each restaurant's screens in its own colours: Star Bar warm, Bamboo Garden green. */
+:root[data-theme='glass'] .pos-shell[data-brand='SBR'],
+:root[data-theme='glass'] .kds[data-brand='SBR'],
+:root[data-theme='glass'] .dl-shell,
+:root[data-theme='glass'] .dl-rider-page,
+:root[data-theme='glass'] .on-shell {
+  --gl-w1: 255, 128, 118; --gl-w2: 255, 178, 102; --gl-w3: 126, 170, 255; --gl-w4: 255, 138, 190; --gl-w5: 255, 214, 120;
+  --gl-base: linear-gradient(160deg, #fff1ec 0%, #fdeef2 50%, #eef2ff 100%);
+}
+:root[data-theme='glass'] .pos-shell[data-brand='BGN'],
+:root[data-theme='glass'] .kds[data-brand='BGN'],
+:root[data-theme='glass'] .on-shell[data-brand='BGN'],
+:root[data-theme='glass'] .on-shell[data-brand='BG1'],
+:root[data-theme='glass'] .on-shell[data-brand='BG'] {
+  --gl-w1: 96, 224, 140; --gl-w2: 176, 232, 80; --gl-w3: 100, 196, 250; --gl-w4: 250, 210, 110; --gl-w5: 160, 240, 200;
+  --gl-base: linear-gradient(160deg, #edf9ef 0%, #f3f9e4 50%, #eaf5ff 100%);
+}
+
+/* ── shared pieces of the OS ── */
+:root[data-theme='glass'] option { color: #1c1c1e; background: #fff; }
+:root[data-theme='glass'] .card,
+:root[data-theme='glass'] .dk-card,
+:root[data-theme='glass'] .dk-hero-stat {
+  background: var(--gl-sheen), var(--gl-fill);
+  border: 1px solid var(--gl-edge);
+  border-radius: var(--radius);
+  box-shadow: var(--gl-shine), var(--gl-shadow);
+}
+:root[data-theme='glass'] .dk-hero-stat.is-alert { background: var(--gl-sheen), rgba(253, 236, 200, .62); }
+:root[data-theme='glass'] .dk-hero-stat.is-bad { background: var(--gl-sheen), rgba(252, 220, 218, .62); }
+:root[data-theme='glass'] .input,
+:root[data-theme='glass'] .btn { border-radius: 11px; }
+:root[data-theme='glass'] .input { background: rgba(255, 255, 255, .62); border-color: rgba(60, 60, 67, .14); box-shadow: inset 0 1px 2px rgba(31, 38, 80, .05); }
+:root[data-theme='glass'] .input:focus { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(63, 125, 59, .18); }
+:root[data-theme='glass'] .btn-secondary { background: rgba(255, 255, 255, .5); border-color: var(--gl-edge); box-shadow: var(--gl-shine), 0 1px 2px rgba(31, 38, 80, .06); }
+:root[data-theme='glass'] .btn-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, .75); border-color: #fff; }
+:root[data-theme='glass'] .btn-primary { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 8px 18px -10px rgba(47, 95, 44, .7); }
+:root[data-theme='glass'] .tag { border-radius: 999px; padding: 3px 10px; }
+:root[data-theme='glass'] .tag-neutral { background: rgba(255, 255, 255, .55); border-color: var(--gl-edge); }
+:root[data-theme='glass'] .seg { border-radius: 12px; overflow: hidden; background: rgba(255, 255, 255, .4); border-color: var(--gl-edge); }
+:root[data-theme='glass'] .dk-segment { background: rgba(120, 120, 128, .12); border-color: transparent; border-radius: 12px; }
+:root[data-theme='glass'] .dk-segment button { border-radius: 9px; }
+:root[data-theme='glass'] .dk-segment button.is-on { color: var(--color-text); background: rgba(255, 255, 255, .92); box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 3px 8px -4px rgba(0, 0, 0, .12); }
+/* Text in the background colour, on a dark chip: white, not see-through. */
+:root[data-theme='glass'] .seg-opt:has(input:checked),
+:root[data-theme='glass'] .st-segment button.is-on,
+:root[data-theme='glass'] .md-segment button.is-on,
+:root[data-theme='glass'] .sb-stage.is-on,
+:root[data-theme='glass'] .rc-seg-opt.is-on,
+:root[data-theme='glass'] .tss-step.is-done .tss-step-n,
+:root[data-theme='glass'] .notif-bell-badge { color: #fff; }
+:root[data-theme='glass'] .notif-bell-badge { border-color: #fff; }
+:root[data-theme='glass'] .table-clickable tbody tr:hover { background: rgba(255, 255, 255, .45); }
+:root[data-theme='glass'] .error-banner { border-radius: 12px; border-left-width: 4px; background: rgba(251, 234, 233, .7); }
+:root[data-theme='glass'] .toast {
+  color: #fff; background: rgba(28, 28, 30, .72); border-radius: 16px;
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 18px 40px -16px rgba(0, 0, 0, .5);
+}
+
+/* ── pop-ups: the page behind turns to frosted glass, slightly blurred ── */
+:root[data-theme='glass'] .dialog-backdrop,
+:root[data-theme='glass'] .on-sheet-back,
+:root[data-theme='glass'] .sb-sheet-backdrop {
+  background: rgba(240, 243, 252, .3);
+  -webkit-backdrop-filter: blur(6px) saturate(150%);
+  backdrop-filter: blur(6px) saturate(150%);
+}
+:root[data-theme='glass'] .dialog,
+:root[data-theme='glass'] .on-sheet,
+:root[data-theme='glass'] .sb-sheet {
+  color: var(--color-text);
+  background: var(--gl-sheen), var(--gl-fill-strong);
+  -webkit-backdrop-filter: var(--gl-blur-strong); backdrop-filter: var(--gl-blur-strong);
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 24px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), 0 1px 3px rgba(31, 38, 80, .08), 0 36px 90px -28px rgba(31, 38, 80, .5);
+}
+:root[data-theme='glass'] .on-sheet { color: var(--on-ink); border-radius: 28px 28px 0 0; }
+:root[data-theme='glass'] .sb-sheet { border-radius: 24px 0 0 24px; }
+/* Bars that stay put while a pop-up's content scrolls under them. */
+:root[data-theme='glass'] .pos-money .dialog-actions,
+:root[data-theme='glass'] .ts-actions,
+:root[data-theme='glass'] .ts-matrix thead th,
+:root[data-theme='glass'] .ts-act-day-group h4,
+:root[data-theme='glass'] .on-times-label {
+  background: rgba(255, 255, 255, .55);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+}
+/* Menus that drop down over the page: frosted, and white enough to read
+   even where the browser cannot blur what is under them (a panel that is
+   itself frosted, for one). */
+:root[data-theme='glass'] .notif-panel,
+:root[data-theme='glass'] .row-menu,
+:root[data-theme='glass'] .custpick-panel,
+:root[data-theme='glass'] .drp-panel,
+:root[data-theme='glass'] .tl-more-menu {
+  background: var(--gl-sheen), rgba(255, 255, 255, .84);
+  -webkit-backdrop-filter: var(--gl-blur-strong); backdrop-filter: var(--gl-blur-strong);
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 28px 60px -22px rgba(31, 38, 80, .45);
+}
+:root[data-theme='glass'] .tl-more-item:hover:not(:disabled),
+:root[data-theme='glass'] .row-menu-item:hover { background: rgba(255, 255, 255, .6); }
+
+/* ── the OS: a sidebar of tinted glass, a frosted header ── */
+:root[data-theme='glass'] .shell { background: transparent; }
+:root[data-theme='glass'] .shell-sidebar {
+  background: linear-gradient(180deg, rgba(34, 78, 44, .72), rgba(22, 52, 40, .64));
+  -webkit-backdrop-filter: var(--gl-blur-strong); backdrop-filter: var(--gl-blur-strong);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, .22), 8px 0 30px -18px rgba(20, 40, 30, .5);
+}
+:root[data-theme='glass'] .shell-brand { background: linear-gradient(135deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, .04)); border-bottom: 1px solid rgba(255, 255, 255, .16); }
+:root[data-theme='glass'] .shell-nav-item { border-radius: 10px; border-left: 0; }
+:root[data-theme='glass'] .shell-nav-item.is-active {
+  background: rgba(255, 255, 255, .2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 6px 16px -10px rgba(0, 0, 0, .5);
+}
+:root[data-theme='glass'] .shell-signout { border-radius: 11px; background: rgba(255, 255, 255, .1); }
+/* A header's frost is on a layer behind it, not on the header itself: a
+   blurred element blurs nothing for what is inside it, so a menu dropping
+   from the header (the bell, More on the till) would show the page through
+   it unblurred. */
+:root[data-theme='glass'] .shell-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, .7);
+  box-shadow: 0 1px 0 rgba(60, 60, 67, .06), 0 10px 30px -24px rgba(31, 38, 80, .4);
+}
+:root[data-theme='glass'] .shell-header::before,
+:root[data-theme='glass'] .pos-top::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+}
+:root[data-theme='glass'] .shell-header-icon {
+  border-radius: 12px; color: #2f6a2c;
+  background: linear-gradient(140deg, rgba(255, 255, 255, .9), rgba(255, 255, 255, .45));
+  box-shadow: inset 0 1px 0 #fff, 0 6px 16px -8px rgba(31, 38, 80, .35);
+}
+
+/* ── the sign-in screens ── */
+:root[data-theme='glass'] .auth-brand {
+  background: linear-gradient(160deg, rgba(63, 125, 59, .86), rgba(35, 77, 33, .8));
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, .25);
+}
+:root[data-theme='glass'] .auth-card {
+  background: var(--gl-sheen), rgba(255, 255, 255, .55);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  border: 1px solid rgba(255, 255, 255, .8); border-radius: 26px;
+  box-shadow: var(--gl-shine), var(--gl-shadow-up);
+}
+:root[data-theme='glass'] .auth-theme,
+:root[data-theme='glass'] .auth-lang select { border-radius: 12px; background: rgba(255, 255, 255, .55); border-color: var(--gl-edge); }
+
+/* ── the till ── */
+:root[data-theme='glass'] .pos-shell {
+  --pos-card: rgba(255, 255, 255, .58);
+  --pos-soft: rgba(255, 255, 255, .36);
+  --pos-line: rgba(60, 60, 67, .12);
+  --pos-shadow: inset 0 1px 0 rgba(255, 255, 255, .8), 0 1px 2px rgba(31, 38, 80, .05), 0 10px 26px -16px rgba(31, 38, 80, .32);
+  --pos-shadow-up: inset 0 1px 0 rgba(255, 255, 255, .9), 0 2px 6px rgba(31, 38, 80, .08), 0 20px 40px -18px rgba(31, 38, 80, .45);
+}
+:root[data-theme='glass'] .pos-orb { opacity: .45; }
+:root[data-theme='glass'] .pos-top {
+  background: transparent;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-bottom: 1px solid rgba(255, 255, 255, .7);
+}
+:root[data-theme='glass'] .pos-gate-card {
+  background: var(--gl-sheen), rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: var(--gl-blur-strong); backdrop-filter: var(--gl-blur-strong);
+  border: 1px solid rgba(255, 255, 255, .8);
+  box-shadow: var(--gl-shine), 0 40px 90px -40px rgba(31, 38, 80, .55);
+}
+:root[data-theme='glass'] .pos-tile,
+:root[data-theme='glass'] .pos-stat,
+:root[data-theme='glass'] .pos-icon-btn,
+:root[data-theme='glass'] .pos-lang select,
+:root[data-theme='glass'] .pos-keypad button,
+:root[data-theme='glass'] .pos-cats button,
+:root[data-theme='glass'] .pos-methods button,
+:root[data-theme='glass'] .pos-picker-tile { border-color: rgba(255, 255, 255, .72); }
+:root[data-theme='glass'] .pos-tile { background: var(--gl-sheen), rgba(255, 255, 255, .55); }
+:root[data-theme='glass'] .pos-tile.is-picked { background: var(--gl-sheen), rgba(220, 252, 231, .7); border-color: rgba(34, 197, 94, .6); }
+:root[data-theme='glass'] .pos-order {
+  background: var(--gl-sheen), rgba(255, 255, 255, .34);
+  border: 1px solid rgba(255, 255, 255, .78);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+}
+:root[data-theme='glass'] .pos-shell .dialog { background: var(--gl-sheen), var(--gl-fill-strong); border-color: rgba(255, 255, 255, .8); }
+:root[data-theme='glass'] .pos-offline { -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur); }
+
+/* ── the kitchen screen ── */
+:root[data-theme='glass'] .kds {
+  --kd-card: rgba(255, 255, 255, .6);
+  --kd-soft: rgba(255, 255, 255, .4);
+  --kd-line: rgba(60, 60, 67, .12);
+  --kd-shadow: inset 0 1px 0 rgba(255, 255, 255, .85), 0 1px 2px rgba(31, 38, 80, .05), 0 14px 30px -18px rgba(31, 38, 80, .36);
+}
+:root[data-theme='glass'] .kds-top {
+  background: rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  border-bottom-color: rgba(255, 255, 255, .7);
+}
+:root[data-theme='glass'] .kds-ticket { border-color: rgba(255, 255, 255, .78); background: var(--gl-sheen), var(--kd-card); }
+:root[data-theme='glass'] .kds-ticket.is-late { border-color: rgba(220, 38, 38, .55); }
+:root[data-theme='glass'] .kds-tool,
+:root[data-theme='glass'] .kds-counts span,
+:root[data-theme='glass'] .kds-stations button { border-color: rgba(255, 255, 255, .72); }
+
+/* ── the clock-in kiosk ── */
+:root[data-theme='glass'] .kiosk {
+  --kx-card: rgba(255, 255, 255, .5);
+  --kx-soft: rgba(255, 255, 255, .38);
+  --kx-line: rgba(255, 255, 255, .72);
+  --kx-shadow: inset 0 1px 0 rgba(255, 255, 255, .85), 0 1px 2px rgba(31, 38, 80, .05), 0 16px 34px -18px rgba(31, 38, 80, .38);
+}
+:root[data-theme='glass'] .kiosk-orb { opacity: .7; }
+:root[data-theme='glass'] .kiosk-card {
+  background: var(--gl-sheen), rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: var(--gl-blur-strong); backdrop-filter: var(--gl-blur-strong);
+}
+
+/* ── the delivery screen and the rider's page ── */
+:root[data-theme='glass'] .dl-shell,
+:root[data-theme='glass'] .dl-rider-page,
+:root[data-theme='glass'] .dl-send {
+  --dl-card: rgba(255, 255, 255, .6);
+  --dl-soft: rgba(255, 255, 255, .4);
+  --dl-line: rgba(60, 60, 67, .12);
+}
+:root[data-theme='glass'] .dl-top,
+:root[data-theme='glass'] .dl-rp-top {
+  background: rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  border-bottom-color: rgba(255, 255, 255, .7);
+}
+:root[data-theme='glass'] .dl-side { background: rgba(255, 255, 255, .3); border-right-color: rgba(255, 255, 255, .7); }
+:root[data-theme='glass'] .dl-card { background: var(--gl-sheen), var(--dl-card); border-color: rgba(255, 255, 255, .78); box-shadow: var(--gl-shine), var(--gl-shadow); }
+:root[data-theme='glass'] .dl-tab,
+:root[data-theme='glass'] .dl-stat,
+:root[data-theme='glass'] .dl-open,
+:root[data-theme='glass'] .dl-icon-btn { border-color: rgba(255, 255, 255, .72); }
+:root[data-theme='glass'] .dl-legend,
+:root[data-theme='glass'] .dl-rp-share {
+  background: rgba(255, 255, 255, .6);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  border: 1px solid rgba(255, 255, 255, .8);
+}
+:root[data-theme='glass'] .dl-rp-sheet {
+  background: var(--gl-sheen), rgba(255, 255, 255, .66);
+  -webkit-backdrop-filter: var(--gl-blur-strong); backdrop-filter: var(--gl-blur-strong);
+  border-top: 1px solid rgba(255, 255, 255, .85);
+}
+
+/* ── the restaurant's website and the table page ── */
+:root[data-theme='glass'] .on-shell {
+  --on-bg: transparent;
+  --on-card: rgba(255, 255, 255, .6);
+  --on-soft: rgba(255, 255, 255, .42);
+  --on-line: rgba(60, 60, 67, .12);
+}
+:root[data-theme='glass'] .on-hero { box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .35), 0 18px 40px -26px var(--on-a); }
+:root[data-theme='glass'] .on-hero::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, 0) 42%);
+}
+:root[data-theme='glass'] .on-cats {
+  background: rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  border-bottom: 1px solid rgba(255, 255, 255, .7);
+}
+:root[data-theme='glass'] .on-dish,
+:root[data-theme='glass'] .on-card,
+:root[data-theme='glass'] .on-mine,
+:root[data-theme='glass'] .on-basket-box,
+:root[data-theme='glass'] .on-basket-empty {
+  background: var(--gl-sheen), var(--on-card);
+  border-color: rgba(255, 255, 255, .8);
+  box-shadow: var(--gl-shine), var(--gl-shadow);
+}
+:root[data-theme='glass'] .on-search,
+:root[data-theme='glass'] .on-cat-row button { border-color: rgba(255, 255, 255, .78); }
+:root[data-theme='glass'] .on-bar { -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur); }
+
+/* The blur is the costly part; a browser that cannot do it gets the panels
+   a little less see-through instead, so text stays easy to read. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-theme='glass'] .dialog,
+  :root[data-theme='glass'] .on-sheet,
+  :root[data-theme='glass'] .tl-more-menu,
+  :root[data-theme='glass'] .row-menu,
+  :root[data-theme='glass'] .notif-panel { background: rgba(255, 255, 255, .94); }
+  :root[data-theme='glass'] .dialog-backdrop,
+  :root[data-theme='glass'] .on-sheet-back { background: rgba(60, 64, 90, .32); }
+}
+@media print {
+  :root[data-theme='glass'] body::before { display: none; }
+}

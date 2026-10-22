@@ -35,7 +35,8 @@ import {
 } from './till/tillShared';
 import { statusName } from './delivery/dlShared';
 import './till/till.css';
-import { applyTheme, clearTheme, getInitialTheme, THEME_KEY } from '../lib/theme';
+import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
+import ThemeSwitch, { ThemeChoice } from '../components/ThemeSwitch';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
 import './RestaurantPosPage.css';
@@ -339,7 +340,7 @@ export default function RestaurantPosPage() {
 
   useEffect(() => {
     applyTheme(theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* remembered for this visit only */ }
+    saveTheme(theme);
   }, [theme]);
   useEffect(() => () => clearTheme(), []);
   useEffect(() => {
@@ -1275,11 +1276,7 @@ export default function RestaurantPosPage() {
   function renderTile(m) {
     return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} canFavorite={can('favorites')} onTap={onTileTap} onFavorite={onTileFavorite} />;
   }
-  const themeButton = (
-    <button type="button" className="pos-icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? tr('Light mode') : tr('Dark mode')} title={theme === 'dark' ? tr('Light mode') : tr('Dark mode')}>
-      {theme === 'dark' ? '☀' : '☾'}
-    </button>
-  );
+  const themeButton = <ThemeSwitch theme={theme} onChange={setTheme} className="pos-icon-btn" />;
   const firstName = session ? String(session.employeeName || '').split(' ').slice(0, -1).join(' ') || session.employeeName : '';
   const hour = now.getHours();
   const greeting = hour < 12 ? tr('Good morning, {name}', { name: firstName }) : hour < 17 ? tr('Good afternoon, {name}', { name: firstName }) : tr('Good evening, {name}', { name: firstName });
@@ -1818,9 +1815,8 @@ export default function RestaurantPosPage() {
               printer ? { key: 'printer', icon: 'receipt', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
                 : usbSupported() && { key: 'usb', icon: 'receipt', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
               !printer && bluetoothSupported() && { key: 'bt', icon: 'receipt', label: pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect a Bluetooth printer'), disabled: !!pairingKind, onClick: pairBluetooth },
-              { key: 'theme', icon: <span className="tl-more-glyph">{theme === 'dark' ? '☀' : '☾'}</span>, label: theme === 'dark' ? tr('Light mode') : tr('Dark mode'), onClick: () => setTheme(theme === 'dark' ? 'light' : 'dark') }
             ]}
-            extra={<DeviceLanguage className="pos-lang tl-more-lang" />}
+            extra={<div className="tl-more-look"><ThemeChoice theme={theme} onChange={setTheme} compact /><DeviceLanguage className="pos-lang tl-more-lang" /></div>}
           />
           <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
         </div>

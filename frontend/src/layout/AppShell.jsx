@@ -9,7 +9,8 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { FollowUpsAtSignIn } from '../pages/crm/FollowUps';
 import { FileViewerHost } from '../components/FileViewer';
 import { CallsProvider } from '../components/calls/CallsContext';
-import { THEME_KEY, getInitialTheme, applyTheme, clearTheme } from '../lib/theme';
+import { getInitialTheme, applyTheme, clearTheme, saveTheme } from '../lib/theme';
+import ThemeSwitch from '../components/ThemeSwitch';
 import { installUnlock } from '../lib/notificationSound';
 import { tr } from '../lib/i18n.jsx';
 import './AppShell.css';
@@ -33,7 +34,8 @@ function avatarColor(name) { return AVATAR_COLORS[hashStr(name || '') % AVATAR_C
 
 // The dark, glowing-stat-tile redesign — piloted on Dashboard + Attendance
 // first (see shell-main-dark in AppShell.css), then rolled out app-wide,
-// and now user-toggleable via the header button below. It works app-wide
+// and now user-chosen via the header switch below (light, dark or glass —
+// glass is styles/glass.css). It works app-wide
 // with no per-page rewrite because it re-themes the *existing* design
 // tokens locally: every shared class already built on top of them — .btn,
 // .table, .dialog, .tag, .card, .input, .seg — re-themes for free. Pages
@@ -63,10 +65,9 @@ export default function AppShell() {
   useEffect(installUnlock, []);
 
 
-  function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark';
+  function pickTheme(next) {
     setTheme(next);
-    try { localStorage.setItem(THEME_KEY, next); } catch { /* storage blocked — theme just won't persist */ }
+    saveTheme(next);
   }
 
   const currentKey = location.pathname.split('/')[1] || 'dashboard';
@@ -142,15 +143,7 @@ export default function AppShell() {
             </div>
           </div>
           <div className="shell-header-actions">
-            <button
-              type="button"
-              className="btn btn-secondary theme-toggle-btn"
-              onClick={toggleTheme}
-              aria-label={isDarkPage ? tr('Switch to light mode') : tr('Switch to dark mode')}
-              title={isDarkPage ? tr('Switch to light mode') : tr('Switch to dark mode')}
-            >
-              <span className="theme-toggle-icon"><Icon name={isDarkPage ? 'sun' : 'moon'} /></span>
-            </button>
+            <ThemeSwitch theme={theme} onChange={pickTheme} className="btn btn-secondary theme-toggle-btn" />
             <LanguagePicker />
             <NotificationsBell />
           </div>
