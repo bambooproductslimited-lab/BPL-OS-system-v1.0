@@ -90,7 +90,10 @@ test('dine in needs its table, pickup is at the counter, delivery needs who, a p
   var dine = await pos.saveTab(tok.ama, { fulfillment: 'dine_in', tableId: t1, items: [{ menuItemId: fish, qty: 1 }] });
   assert.deepEqual([dine.fulfillment, dine.tableName], ['dine_in', 'Zqo T1']);
   // Pickup: no table, waits under the customer's name at the counter.
-  var pick = await pos.saveTab(tok.ama, { fulfillment: 'pickup', tableId: t2, customerName: 'Zqo Kofi', items: [{ menuItemId: rice, qty: 2 }] });
+  // A pickup says who it is for and a number to call when it is ready.
+  await assert.rejects(pos.saveTab(tok.ama, { fulfillment: 'pickup', items: [{ menuItemId: rice, qty: 2 }] }), /A pickup needs the customer's name/);
+  await assert.rejects(pos.saveTab(tok.ama, { fulfillment: 'pickup', customerName: 'Zqo Kofi', items: [{ menuItemId: rice, qty: 2 }] }), /A pickup needs a phone number/);
+  var pick = await pos.saveTab(tok.ama, { fulfillment: 'pickup', tableId: t2, customerName: 'Zqo Kofi', customerPhone: '0200000992', items: [{ menuItemId: rice, qty: 2 }] });
   assert.deepEqual([pick.fulfillment, pick.tableId, pick.label], ['pickup', null, 'Zqo Kofi']);
   var board = await kitchen.board(tok.esi, { station: 'all' });
   var pt = board.cooking.find(function (t) { return t.id && t.label === 'Zqo Kofi'; });
@@ -292,7 +295,7 @@ test('the activity report: everything on the till and the kitchen screen, for a 
 
 test('the sales report: every sale and refund, the day\'s totals, by way of paying, order type, cashier and hour', async function () {
   // A refund today: one lager of a two-lager sale, in cash.
-  var sale = await pos.createOrder(tok.ama, { fulfillment: 'pickup', items: [{ menuItemId: beer, qty: 2 }], payments: [{ method: 'cash' }] });
+  var sale = await pos.createOrder(tok.ama, { fulfillment: 'pickup', customerName: 'Zqo Walk-in', customerPhone: '0200000992', items: [{ menuItemId: beer, qty: 2 }], payments: [{ method: 'cash' }] });
   var line = (await pool.query('SELECT id FROM restaurant_order_items WHERE order_id = $1', [sale.id])).rows[0];
   await money.refundSale(tok.ama, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqo warm lager', method: 'cash', managerPin: PINS.kojo }, IP);
 

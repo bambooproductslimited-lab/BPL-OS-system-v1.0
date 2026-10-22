@@ -89,19 +89,21 @@ export function CustomItemDialog({ categories, onAdd, onClose }) {
   );
 }
 
-// Who a delivery is for, how to reach them and where it goes. The customer
-// picked fills in the name and phone.
-export function DeliveryDialog({ value, customer, onSave, onClose, onPickCustomer }) {
+// Who a delivery is for, a number to reach them and where to take it; or,
+// for a pickup (pickup), who it is for and a number to call when it is ready.
+// The customer picked fills in the name and phone.
+export function DeliveryDialog({ value, customer, pickup, onSave, onClose, onPickCustomer }) {
   const [f, setF] = useState(() => ({
     name: value.name || (customer ? customer.name : ''), phone: value.phone || (customer ? customer.phone || '' : ''), address: value.address || ''
   }));
-  const ok = f.name.trim() && f.phone.trim() && f.address.trim();
+  const ok = f.name.trim() && f.phone.trim() && (pickup || f.address.trim());
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (ok) onSave({ name: f.name.trim(), phone: f.phone.trim(), address: f.address.trim() }); }}>
-        <span className="tl-dialog-ico is-delivery" aria-hidden="true"><Icon name="send" /></span>
-        <h2>{tr('Delivery')}</h2>
-        <p className="dk-muted">{tr('Who it is for, a number to reach them, and where to take it. All three are needed.')}</p>
+      <form className={'dialog tl-dialog' + (pickup ? ' tl-pickup' : '')} onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); if (ok) onSave({ name: f.name.trim(), phone: f.phone.trim(), address: pickup ? value.address || '' : f.address.trim() }); }}>
+        <span className={'tl-dialog-ico ' + (pickup ? 'is-pickup' : 'is-delivery')} aria-hidden="true"><Icon name={pickup ? 'bag' : 'send'} /></span>
+        <h2>{pickup ? tr('Pickup') : tr('Delivery')}</h2>
+        <p className="dk-muted">{pickup ? tr('Who it is for, and a number to call them on when it is ready. Both are needed.') : tr('Who it is for, a number to reach them, and where to take it. All three are needed.')}</p>
         <div className="tl-form-grid">
           <div className="field">
             <label htmlFor="tl-d-name">{tr('Customer name')}</label>
@@ -109,18 +111,20 @@ export function DeliveryDialog({ value, customer, onSave, onClose, onPickCustome
           </div>
           <div className="field">
             <label htmlFor="tl-d-phone">{tr('Phone or contact')}</label>
-            <input id="tl-d-phone" className="input" type="tel" maxLength={40} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="024 000 0000" />
+            <input id="tl-d-phone" className="input" type="tel" autoFocus={pickup && !!f.name} maxLength={40} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="024 000 0000" />
           </div>
-          <div className="field tl-span">
-            <label htmlFor="tl-d-addr">{tr('Location')}</label>
-            <textarea id="tl-d-addr" className="input" rows={3} autoFocus={!!f.name} maxLength={300} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })}
-              placeholder={tr('Area, street, a landmark, the house — what the rider needs')} />
-          </div>
+          {!pickup && (
+            <div className="field tl-span">
+              <label htmlFor="tl-d-addr">{tr('Location')}</label>
+              <textarea id="tl-d-addr" className="input" rows={3} autoFocus={!!f.name} maxLength={300} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })}
+                placeholder={tr('Area, street, a landmark, the house — what the rider needs')} />
+            </div>
+          )}
         </div>
         <div className="dialog-actions">
           <button type="button" className="btn btn-secondary" onClick={onPickCustomer}>{customer ? tr('Another customer') : tr('Pick a customer')}</button>
           <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
-          <button type="submit" className="btn btn-primary" disabled={!ok}>{tr('Save delivery')}</button>
+          <button type="submit" className="btn btn-primary" disabled={!ok}>{pickup ? tr('Save pickup') : tr('Save delivery')}</button>
         </div>
       </form>
     </div>

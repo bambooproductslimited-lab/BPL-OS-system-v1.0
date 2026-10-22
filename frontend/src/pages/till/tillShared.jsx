@@ -26,6 +26,15 @@ export const METHOD_LABEL = {
 export function methodName(m) { return METHOD_LABEL[m] ? tr(METHOD_LABEL[m]) : m; }
 
 // Cedis, and the foreign money a manager can turn on (CNY is shown as RMB).
+// A drawer's money in or out for a customer's account (backend
+// restaurantTillMoney accountMoves), in words: VIP money put down or given
+// back, an IOU paid back, cash lent on an IOU account.
+export function moveLabel(m) {
+  const who = m.customer || tr('a customer');
+  if (m.account === 'vip') return m.direction === 'in' ? tr('VIP money from {name}', { name: who }) : tr('VIP money given back to {name}', { name: who });
+  if (m.account === 'iou') return (m.direction === 'in' ? tr('IOU paid back by {name}', { name: who }) : tr('Cash lent to {name}', { name: who })) + (m.ref ? ' (' + m.ref + ')' : '');
+  return m.direction === 'in' ? tr('Paid in') : tr('Paid out');
+}
 export const CURRENCY_LABEL = { GHS: 'GHS', USD: 'USD', CNY: 'RMB' };
 export const CURRENCY_NAME = { GHS: msg('Ghana cedis'), USD: msg('US dollars'), CNY: msg('Chinese yuan (RMB)') };
 export function fmt(n, currency) {

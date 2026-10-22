@@ -250,7 +250,8 @@ function rowToGuestTile(r) {
 var GUEST_SELECT =
   'SELECT g.id, g.name, g.phone, g.iou_allowed, g.iou_limit, v.balance AS vip_balance, (v.guest_id IS NOT NULL) AS vip, i.owed ' +
   'FROM restaurant_guests g LEFT JOIN (SELECT guest_id, sum(amount) AS balance FROM restaurant_vip_entries GROUP BY guest_id) v ON v.guest_id = g.id ' +
-  "LEFT JOIN (SELECT guest_id, sum(total - refunded_total) AS owed FROM restaurant_orders WHERE payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL GROUP BY guest_id) i ON i.guest_id = g.id ";
+  "LEFT JOIN (SELECT guest_id, sum(owed) AS owed FROM (SELECT guest_id, total - refunded_total AS owed FROM restaurant_orders WHERE payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL " +
+  '  UNION ALL SELECT guest_id, amount FROM restaurant_iou_advances WHERE paid_at IS NULL) x GROUP BY guest_id) i ON i.guest_id = g.id ';
 
 async function guestsForSession(token, q) {
   var session = await access.need(token, 'till');
@@ -292,6 +293,11 @@ async function orderType(client, companyId, p, refs) {
     if (hasTables) fail('invalid', 'Pick the table for this dine-in order.');
   }
   if (f === 'pickup' || f === 'delivery') refs.tableId = null;
+  // A pickup: who it is for, and a number to call when it is ready.
+  if (f === 'pickup') {
+    if (!out.customerName) fail('invalid', 'A pickup needs the customer\'s name.');
+    if (!out.customerPhone) fail('invalid', 'A pickup needs a phone number, to call the customer when it is ready.');
+  }
   if (f === 'delivery') {
     out.deliveryAddress = cleanText(p.deliveryAddress, 300);
     if (!out.customerName) fail('invalid', 'A delivery needs the customer\'s name.');
@@ -425,9 +431,11 @@ async function createOrder(token, p) {
     await money.needDrawer(client, session.posEmployeeId);
     var tab = null;
     if (p.tabId) {
-      var tabRes = await client.query('SELECT id, label FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
+      var tabRes = await client.query('SELECT id, label, customer_name, customer_phone FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
       if (!tabRes.rows[0]) fail('conflict', 'That open order has already been paid or removed.');
       tab = tabRes.rows[0];
+      // Who it is for, as the open order says, unless the till says otherwise.
+      p = Object.assign({}, p, { customerName: p.customerName || tab.customer_name || '', customerPhone: p.customerPhone || tab.customer_phone || '' });
     }
     var refs = await resolveRefs(client, session.posCompanyId, p);
     var type = await orderType(client, session.posCompanyId, p, refs);
@@ -838,20 +846,23 @@ async function buildReport(session, client) {
   var startingCash = Number(session.starting_cash);
   var cashSales = sales.cash;
   // Besides cash sales: refunds paid out in cash, IOUs paid and VIP
-  // top-ups taken in cash, by this cashier on this drawer.
+  // top-ups taken in cash, VIP money given back and cash lent on IOU
+  // accounts, by this cashier on this drawer.
   var other = await money.drawerCash(db, session.cashier_id, session.company_id, session.opened_at, endTime);
   var cashRefunds = other.refunds;
   var netPaidInOut = paidIn - paidOut;
-  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps - cashRefunds + netPaidInOut) * 100) / 100;
+  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps - cashRefunds - other.vipCashOuts - other.iouLent + netPaidInOut) * 100) / 100;
   var actual = session.closing_actual_cash == null ? null : Number(session.closing_actual_cash);
   return {
     session: rowToSession(session),
     startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds, iouPaidCash: other.iouPaid, vipTopUpsCash: other.vipTopUps, foreignCash: sales.foreign,
+    vipCashOutsCash: other.vipCashOuts, iouLentCash: other.iouLent,
     paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut,
     expected: expected, actual: actual, difference: actual == null ? null : Math.round((actual - expected) * 100) / 100,
     movements: movementsListRes.rows.map(function (m) {
-      return { id: m.id, direction: m.direction, amount: Number(m.amount), note: m.note, createdAt: m.created_at };
-    })
+      return { id: m.id, direction: m.direction, account: null, amount: Number(m.amount), note: m.note, createdAt: m.created_at };
+    }).concat(await money.accountMoves(db, session.cashier_id, session.company_id, session.opened_at, endTime))
+      .sort(function (a, b) { return new Date(a.createdAt) - new Date(b.createdAt); })
   };
 }
 

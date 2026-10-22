@@ -122,6 +122,18 @@ router.get('/vip/:guestId', posAuth, async function (req, res, next) {
 router.post('/vip/topups', posAuth, async function (req, res, next) {
   try { res.status(201).json(await money.vipTopUp(req.posToken, req.body)); } catch (e) { next(e); }
 });
+// Pay out, for a VIP account: money on the balance given back in cash (a manager's PIN).
+router.post('/vip/cashouts', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await money.vipCashOut(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// Pay in, for an IOU account: some of a customer's IOUs paid back together.
+router.post('/ious/pay', posAuth, async function (req, res, next) {
+  try { res.json(await money.payIous(req.posToken, req.body)); } catch (e) { next(e); }
+});
+// Pay out, for an IOU account: cash lent, owed until it is paid back.
+router.post('/ious/advances', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await money.iouAdvance(req.posToken, req.body)); } catch (e) { next(e); }
+});
 router.get('/ious', posAuth, async function (req, res, next) {
   try { res.json(await money.iouList(req.posToken, req.query.q)); } catch (e) { next(e); }
 });

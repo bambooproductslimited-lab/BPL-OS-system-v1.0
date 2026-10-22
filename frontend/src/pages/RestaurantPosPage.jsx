@@ -22,8 +22,9 @@ import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
 import { CustomItemDialog, DeliveryDialog, DisputeDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
 import { StockTab } from './till/MenuStock';
+import PayInOutDialog from './till/PayInOutDialog';
 import {
-  FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName
+  FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName, moveLabel
 } from './till/tillShared';
 import { statusName } from './delivery/dlShared';
 import './till/till.css';
@@ -242,11 +243,7 @@ export default function RestaurantPosPage() {
   const [openDrawerError, setOpenDrawerError] = useState(null);
 
   const [drawerPanelOpen, setDrawerPanelOpen] = useState(false);
-  const [movementDirection, setMovementDirection] = useState(null); // 'in' | 'out' | null
-  const [movementAmount, setMovementAmount] = useState('');
-  const [movementNote, setMovementNote] = useState('');
-  const [addingMovement, setAddingMovement] = useState(false);
-  const [movementError, setMovementError] = useState(null);
+  const [movementDirection, setMovementDirection] = useState(null); // Pay in / Pay out: 'in' | 'out' | null
 
   const [closeDrawerOpen, setCloseDrawerOpen] = useState(false);
   const [closeActualCash, setCloseActualCash] = useState('');
@@ -731,30 +728,7 @@ export default function RestaurantPosPage() {
     }
   }
 
-  function openMovement(direction) {
-    setMovementError(null);
-    setMovementAmount('');
-    setMovementNote('');
-    setMovementDirection(direction);
-  }
-
-  async function submitMovement(e) {
-    e.preventDefault();
-    setAddingMovement(true);
-    setMovementError(null);
-    try {
-      setDrawer(await posFetch('POST', '/pos/drawer/movements', session.token, {
-        direction: movementDirection, amount: movementAmount, note: movementNote
-      }));
-      setMovementDirection(null);
-      setToast(movementDirection === 'in' ? tr('Cash paid in recorded.') : tr('Cash paid out recorded.'));
-    } catch (err) {
-      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
-      else setMovementError(err.message);
-    } finally {
-      setAddingMovement(false);
-    }
-  }
+  function openMovement(direction) { setMovementDirection(direction); }
 
   function openCloseDrawer() {
     setCloseDrawerError(null);
@@ -893,6 +867,11 @@ export default function RestaurantPosPage() {
       setDeliveryOpen(true);
       return false;
     }
+    if (fulfillment === 'pickup' && !(pickupWho().name && pickupWho().phone)) {
+      setToast(tr('A pickup needs the customer\'s name and a phone, to call them when it is ready.'));
+      setDeliveryOpen(true);
+      return false;
+    }
     return true;
   }
   // Who and where, as the server wants them with an order.
@@ -904,8 +883,13 @@ export default function RestaurantPosPage() {
       guestId: selectedGuest ? selectedGuest.id : undefined
     };
     if (fulfillment === 'delivery') Object.assign(body, { customerName: delivery.name, customerPhone: delivery.phone, deliveryAddress: delivery.address });
+    else if (fulfillment === 'pickup') Object.assign(body, { customerName: pickupWho().name, customerPhone: pickupWho().phone });
     else if (selectedGuest) Object.assign(body, { customerName: selectedGuest.name, customerPhone: selectedGuest.phone || '' });
     return body;
+  }
+  // Who a pickup is for: as typed (Pickup details), else the customer picked.
+  function pickupWho() {
+    return { name: delivery.name || (selectedGuest ? selectedGuest.name : ''), phone: delivery.phone || (selectedGuest ? selectedGuest.phone || '' : '') };
   }
   function whereText() {
     if (fulfillment === 'dine_in') return selectedTable ? selectedTable.name : currentTab ? currentTab.name : tr('No table');
@@ -975,7 +959,7 @@ export default function RestaurantPosPage() {
   function pickupLabel() {
     if (currentTab && currentTab.label) return currentTab.label;
     if (fulfillment === 'delivery') return delivery.name;
-    if (fulfillment === 'pickup') return selectedGuest ? selectedGuest.name : tr('Counter') + ' ' + now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
+    if (fulfillment === 'pickup') return pickupWho().name || tr('Counter') + ' ' + now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
     return '';
   }
   async function saveTab(label, table) {
@@ -1251,6 +1235,8 @@ export default function RestaurantPosPage() {
             {r.iouPaidCash > 0 && <div className="pos-receipt-line"><span>{tr('IOUs paid in cash')}</span><span>{money(r.iouPaidCash)}</span></div>}
             {r.vipTopUpsCash > 0 && <div className="pos-receipt-line"><span>{tr('VIP money in cash')}</span><span>{money(r.vipTopUpsCash)}</span></div>}
             <div className="pos-receipt-line"><span>{tr('Cash Refunds')}</span><span>{money(r.cashRefunds)}</span></div>
+            {r.vipCashOutsCash > 0 && <div className="pos-receipt-line"><span>{tr('VIP money given back')}</span><span>-{money(r.vipCashOutsCash)}</span></div>}
+            {r.iouLentCash > 0 && <div className="pos-receipt-line"><span>{tr('Cash lent on IOU accounts')}</span><span>-{money(r.iouLentCash)}</span></div>}
             <div className="pos-receipt-line"><span>{tr('Paid In/Out')}</span><span>{r.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(r.netPaidInOut))}</span></div>
             <div className="pos-receipt-line"><span>{tr('Expected in Drawer')}</span><span>{money(r.expected)}</span></div>
             <div className="pos-receipt-line"><span>{tr('Actual in Drawer')}</span><span>{money(r.actual)}</span></div>
@@ -1265,8 +1251,8 @@ export default function RestaurantPosPage() {
               <div className="pos-receipt-footer" style={{ fontWeight: 700, marginBottom: 6 }}>{tr('PAID IN/OUT')}</div>
               <div className="pos-receipt-lines">
                 {r.movements.map((m) => (
-                  <div key={m.id} className="pos-receipt-line">
-                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
+                  <div key={(m.account || '') + m.id} className="pos-receipt-line">
+                    <span>{m.account ? moveLabel(m) + ' · ' + timeOf(m.createdAt) : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -1427,7 +1413,11 @@ export default function RestaurantPosPage() {
       <div className="tl-ful-switch" role="radiogroup" aria-label={tr('Dine in, pickup or delivery')}>
         {FULFILLMENT.map((f) => (
           <button key={f.key} type="button" role="radio" aria-checked={fulfillment === f.key} className={'is-' + f.key + (fulfillment === f.key ? ' is-on' : '')}
-            onClick={() => { setFulfillment(f.key); if (f.key === 'delivery' && !(delivery.name && delivery.phone && delivery.address)) setDeliveryOpen(true); }}>
+            onClick={() => {
+              setFulfillment(f.key);
+              if (f.key === 'delivery' && !(delivery.name && delivery.phone && delivery.address)) setDeliveryOpen(true);
+              if (f.key === 'pickup' && !(delivery.name || (selectedGuest && selectedGuest.name)) ) setDeliveryOpen(true);
+            }}>
             <FulfillmentIcon kind={f.key} /><span>{tr(f.label)}</span>
           </button>
         ))}
@@ -1442,7 +1432,9 @@ export default function RestaurantPosPage() {
           </button>
         </>)}
         {fulfillment === 'pickup' && (
-          <span className="pos-who-fixed"><Icon name="bag" /><small>{tr('Where')}</small><span>{tr('Counter')}</span></span>
+          <button type="button" className={'pos-who-wide' + (pickupWho().name && pickupWho().phone ? ' is-set' : ' is-needed')} onClick={() => setDeliveryOpen(true)}>
+            <Icon name="bag" /><small>{tr('Pickup for')}</small><span>{pickupWho().name ? pickupWho().name + (pickupWho().phone ? ' · ' + pickupWho().phone : '') : tr('Name and phone')}</span>
+          </button>
         )}
         {fulfillment === 'delivery' && (
           <button type="button" className={'pos-who-wide' + (delivery.address ? ' is-set' : ' is-needed')} onClick={() => setDeliveryOpen(true)}>
@@ -1836,14 +1828,17 @@ export default function RestaurantPosPage() {
               {drawer.iouPaidCash > 0 && <div className="pos-drawer-line"><span>{tr('IOUs paid in cash')}</span><span>{money(drawer.iouPaidCash)}</span></div>}
               {drawer.vipTopUpsCash > 0 && <div className="pos-drawer-line"><span>{tr('VIP money in cash')}</span><span>{money(drawer.vipTopUpsCash)}</span></div>}
               {drawer.cashRefunds > 0 && <div className="pos-drawer-line"><span>{tr('Cash Refunds')}</span><span>−{money(drawer.cashRefunds)}</span></div>}
+              {drawer.vipCashOutsCash > 0 && <div className="pos-drawer-line"><span>{tr('VIP money given back')}</span><span>−{money(drawer.vipCashOutsCash)}</span></div>}
+              {drawer.iouLentCash > 0 && <div className="pos-drawer-line"><span>{tr('Cash lent on IOU accounts')}</span><span>−{money(drawer.iouLentCash)}</span></div>}
               <div className="pos-drawer-line"><span>{tr('Paid In/Out')}</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
               <div className="pos-drawer-line is-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
             </div>
             {!!drawer.movements.length && (
               <div className="pos-drawer-moves">
                 {drawer.movements.slice().reverse().map((m) => (
-                  <div key={m.id} className="pos-drawer-line">
-                    <span>{m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
+                  <div key={(m.account || '') + m.id} className={'pos-drawer-line' + (m.account ? ' is-acct is-' + m.account : '')}>
+                    <span>{m.account ? <><em className={'pos-acct-tag is-' + m.account}>{m.account === 'vip' ? tr('VIP') : tr('IOU')}</em>{moveLabel(m)} · {timeOf(m.createdAt)}</>
+                      : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -1886,30 +1881,9 @@ export default function RestaurantPosPage() {
       )}
 
       {movementDirection && (
-        <div className="dialog-backdrop" onClick={() => !addingMovement && setMovementDirection(null)}>
-          <form className="dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitMovement}>
-            <h2>{movementDirection === 'in' ? tr('Paid in') : tr('Paid out')}</h2>
-            {movementError && <div className="error-banner">{movementError}</div>}
-            <div className="field">
-              <label htmlFor="movement-amount">{tr('Amount')}</label>
-              <input
-                id="movement-amount" className="input" type="number" min="0.01" step="0.01" autoFocus required
-                value={movementAmount} onChange={(e) => setMovementAmount(e.target.value)} placeholder="0.00"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="movement-note">{tr('Note')}</label>
-              <input
-                id="movement-note" className="input" value={movementNote} onChange={(e) => setMovementNote(e.target.value)}
-                placeholder={movementDirection === 'in' ? tr('e.g. Change fund top-up') : tr('e.g. Delivery')}
-              />
-            </div>
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setMovementDirection(null)} disabled={addingMovement}>{tr('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={addingMovement}>{addingMovement ? tr('Saving…') : tr('Save')}</button>
-            </div>
-          </form>
-        </div>
+        <PayInOutDialog token={session.token} direction={movementDirection} can={{ vip: onDuty('vipTopUp'), iouIn: onDuty('iouPaid'), iouOut: onDuty('iou') }}
+          onClose={() => setMovementDirection(null)} onUnauthorized={() => { localStorage.removeItem(SESSION_KEY); setSession(null); }}
+          onDone={(d, text) => { setDrawer(d); setMovementDirection(null); setToast(text); }} />
       )}
 
       {closeDrawerOpen && (
@@ -2020,7 +1994,7 @@ export default function RestaurantPosPage() {
                   className={'pos-picker-row' + (selectedGuest && selectedGuest.id === g.id ? ' pos-picker-row-selected' : '')}
                   onClick={() => {
                     setSelectedGuest(g); setGuestPickerOpen(false);
-                    if (fulfillment === 'delivery') setDelivery((d) => ({ ...d, name: d.name || g.name, phone: d.phone || g.phone || '' }));
+                    if (fulfillment === 'delivery' || fulfillment === 'pickup') setDelivery((d) => ({ ...d, name: d.name || g.name, phone: d.phone || g.phone || '' }));
                   }}
                 >
                   <span>{g.name}{g.phone ? ' · ' + g.phone : ''}</span>
@@ -2052,14 +2026,14 @@ export default function RestaurantPosPage() {
       {noteFor && <NoteDialog line={noteFor} onClose={() => setNoteFor(null)} onSave={(n) => setLineNote(lineKey(noteFor), n)} />}
       {customOpen && <CustomItemDialog categories={menuCategories} onClose={() => setCustomOpen(false)} onAdd={addCustom} />}
       {deliveryOpen && (
-        <DeliveryDialog value={delivery} customer={selectedGuest} onClose={() => setDeliveryOpen(false)}
+        <DeliveryDialog value={delivery} customer={selectedGuest} pickup={fulfillment === 'pickup'} onClose={() => setDeliveryOpen(false)}
           onPickCustomer={() => { setDeliveryOpen(false); openGuestPicker(); }}
-          onSave={(d) => { setDelivery(d); setFulfillment('delivery'); setDeliveryOpen(false); }} />
+          onSave={(d) => { setDelivery(d); if (fulfillment !== 'pickup') setFulfillment('delivery'); setDeliveryOpen(false); }} />
       )}
       {sendConfirm && (
         <SendConfirmDialog cart={cart} sent={sentLines} fulfillment={fulfillment}
           where={fulfillment === 'dine_in' ? (selectedTable ? selectedTable.name : (keepDialog && keepDialog.label) || (currentTab && currentTab.name) || (selectedGuest && selectedGuest.name) || '') : whereText()}
-          customer={selectedGuest ? selectedGuest.name : fulfillment === 'delivery' ? delivery.name : null}
+          customer={fulfillment === 'pickup' ? [pickupWho().name, pickupWho().phone].filter(Boolean).join(' · ') : selectedGuest ? selectedGuest.name : fulfillment === 'delivery' ? delivery.name : null}
           waiter={fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : null} delivery={delivery} kitchenNote={kitchenNote.trim()}
           busy={savingTab} error={tabError}
           onClose={() => { setSendConfirm(false); setTabError(null); }}

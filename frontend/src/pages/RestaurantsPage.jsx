@@ -16,6 +16,7 @@ import RestaurantReport from './RestaurantReport';
 import RestaurantKitchen from './RestaurantKitchen';
 import Bars from './RestaurantBars';
 import { DishArt, Donut, Glyph, HeatGrid, Jar, Leaderboard, MoreRanks, Podium, RsfBanner, ViewTabs, tableShape, weekdayText } from './RestaurantFun';
+import { moveLabel } from './till/tillShared';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -1423,6 +1424,8 @@ export default function RestaurantsPage() {
                     {d.iouPaidCash > 0 && <li><span>+</span><span>{tr('IOUs paid in cash')}</span><strong>{money(d.iouPaidCash)}</strong></li>}
                     {d.vipTopUpsCash > 0 && <li><span>+</span><span>{tr('VIP money in cash')}</span><strong>{money(d.vipTopUpsCash)}</strong></li>}
                     <li><span>−</span><span>{tr('Cash Refunds')}</span><strong>{money(d.cashRefunds)}</strong></li>
+                    {d.vipCashOutsCash > 0 && <li><span>−</span><span>{tr('VIP money given back')}</span><strong>{money(d.vipCashOutsCash)}</strong></li>}
+                    {d.iouLentCash > 0 && <li><span>−</span><span>{tr('Cash lent on IOU accounts')}</span><strong>{money(d.iouLentCash)}</strong></li>}
                     <li><span>±</span><span>{tr('Paid In/Out')}</span><strong>{d.netPaidInOut < 0 ? '−' : ''}{money(Math.abs(d.netPaidInOut))}</strong></li>
                     <li className="rs-total"><span>=</span><span>{tr('Expected in Drawer')}</span><strong>{money(d.expected)}</strong></li>
                     <li><span /><span>{tr('Counted')}</span><strong>{d.actual === null ? '—' : money(d.actual)}</strong></li>
@@ -1433,7 +1436,7 @@ export default function RestaurantsPage() {
                       <h3 className="tl-h3">{tr('Paid In/Out')}</h3>
                       <ul className="rs-lines">
                         {d.movements.map((m) => (
-                          <li key={m.id}><span>{m.direction === 'in' ? '+' : '−'}</span><span>{new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}{m.note ? ' — ' + m.note : ''}</span><strong>{money(m.amount)}</strong></li>
+                          <li key={(m.account || '') + m.id}><span>{m.direction === 'in' ? '+' : '−'}</span><span>{new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}{m.account ? ' — ' + moveLabel(m) : ''}{m.note ? ' — ' + m.note : ''}</span><strong>{money(m.amount)}</strong></li>
                         ))}
                       </ul>
                     </>

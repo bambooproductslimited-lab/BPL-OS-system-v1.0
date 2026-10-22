@@ -3,7 +3,7 @@ import { Icon } from '../../components/DashKit';
 import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
-import { methodName } from './tillShared';
+import { methodName, moveLabel } from './tillShared';
 
 // The till settings' back-office tabs (TillSettings.jsx): the kitchen
 // screens a manager sets up, the drawers of every shift (and one left open
@@ -170,9 +170,11 @@ export function DrawersTab({ token, pin, onFail, onActivity }) {
                       {d.iouPaidCash > 0 && <div><dt>{tr('IOUs paid in cash')}</dt><dd>{money(d.iouPaidCash)}</dd></div>}
                       {d.vipTopUpsCash > 0 && <div><dt>{tr('VIP money in cash')}</dt><dd>{money(d.vipTopUpsCash)}</dd></div>}
                       {d.cashRefunds > 0 && <div><dt>{tr('Cash Refunds')}</dt><dd>−{money(d.cashRefunds)}</dd></div>}
+                      {d.vipCashOutsCash > 0 && <div><dt>{tr('VIP money given back')}</dt><dd>−{money(d.vipCashOutsCash)}</dd></div>}
+                      {d.iouLentCash > 0 && <div><dt>{tr('Cash lent on IOU accounts')}</dt><dd>−{money(d.iouLentCash)}</dd></div>}
                       <div><dt>{tr('Paid In/Out')}</dt><dd>{money(d.netPaidInOut)}</dd></div>
                     </dl>
-                    {d.movements.length > 0 && <ul className="ts-dr-moves">{d.movements.map((m) => <li key={m.id}>{m.direction === 'in' ? '+' : '−'}{money(m.amount)} · {m.note || '—'} · {new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}</li>)}</ul>}
+                    {d.movements.length > 0 && <ul className="ts-dr-moves">{d.movements.map((m) => <li key={(m.account || '') + m.id}>{m.direction === 'in' ? '+' : '−'}{money(m.amount)} · {[m.account ? moveLabel(m) : '', m.note].filter(Boolean).join(' — ') || '—'} · {new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}</li>)}</ul>}
                     {d.session.closingNote && <p className="ts-hint">✎ {d.session.closingNote}</p>}
                     {d.dispute && <p className="ts-hint">{d.dispute.status === 'open' ? tr('A dispute is open for this shortage (Disputes).') : tr('Its dispute is resolved.')}</p>}
                     {onActivity && (
@@ -281,7 +283,7 @@ export function DisputesTab({ token, pin, onFail }) {
 }
 
 // ── IOUs and VIP money ──
-const VIP_KIND = { topup: msg('Put down'), sale: msg('Spent'), refund: msg('Given back') };
+const VIP_KIND = { topup: msg('Put down'), sale: msg('Spent'), refund: msg('Given back'), cashout: msg('Cashed out') };
 export function AccountsTab({ token, pin, onFail }) {
   const [range, setRange] = useState('30');
   const [view, setView] = useState('iou');
@@ -307,6 +309,7 @@ export function AccountsTab({ token, pin, onFail }) {
           <span className={t.owedNow ? 'is-refunds' : ''}><b>{money(t.owedNow)}</b>{tr('owed now by {n} customers', { n: t.owingCustomers })}</span>
           <span className="is-sales"><b>{money(t.iouPaid)}</b>{tr('paid back on these days')}</span>
           <span><b>{money(t.iouSold)}</b>{tr('sold on IOU ({n})', { n: t.iouSoldCount })}</span>
+          {t.iouLent > 0 && <span><b>{money(t.iouLent)}</b>{tr('cash lent ({n})', { n: t.iouLentCount })}</span>}
         </div>
       )}
       {t && view === 'vip' && (
@@ -314,6 +317,7 @@ export function AccountsTab({ token, pin, onFail }) {
           <span className="is-sales"><b>{money(t.vipToppedUp)}</b>{tr('put down')}</span>
           <span><b>{money(t.vipSpent)}</b>{tr('spent')}</span>
           {t.vipBack > 0 && <span><b>{money(t.vipBack)}</b>{tr('given back')}</span>}
+          {t.vipCashedOut > 0 && <span><b>{money(t.vipCashedOut)}</b>{tr('cashed out')}</span>}
           <span className="is-kitchen"><b>{money(t.vipHeld)}</b>{tr('held now for {n} customers', { n: t.vipCustomers })}</span>
         </div>
       )}
@@ -322,7 +326,8 @@ export function AccountsTab({ token, pin, onFail }) {
           <ul className="ts-ac-list">
             {data.ious.map((i) => (
               <li key={i.id} className={i.paid ? 'is-paid' : i.days >= 7 ? 'is-late' : 'is-owed'}>
-                <span className="ts-ac-main"><strong>{i.customer || '—'}</strong><small>{[i.orderNo, when(i.at), i.phone, i.cashier].filter(Boolean).join(' · ')}</small></span>
+                <span className="ts-ac-main"><strong>{i.customer || '—'}{i.kind === 'advance' && <em className="ts-ac-lent">💵 {tr('Cash lent')}</em>}</strong>
+                  <small>{[i.orderNo, when(i.at), i.phone, i.cashier, i.note].filter(Boolean).join(' · ')}</small></span>
                 <span className={'ts-ac-tag' + (i.paid ? ' is-paid' : i.days >= 7 ? ' is-late' : '')}>
                   {i.paid ? tr('Paid {when} · {method}', { when: when(i.paidAt), method: methodName(i.paidMethod) }) : i.days === 0 ? tr('Owed since today') : tr('Owed {n} days', { n: i.days })}
                 </span>

@@ -15,6 +15,11 @@ var activity = require('./restaurantActivity.service');
 //           manager's PIN: cash from the drawer, Mobile Money, back to the
 //           VIP balance, or off an unpaid IOU.
 //
+// Paying in and out of the drawer for a customer's account (migration
+// 0165, the till's Pay in / Pay out): in, VIP money put down or IOUs paid
+// back; out, VIP money given back in cash (a manager's PIN) or cash lent on
+// the IOU account (an advance, owed like an unpaid sale, within the limit).
+//
 // Cash that comes in or goes out this way belongs to the drawer of the
 // cashier who handled it (drawerCash, for restaurantPos.buildReport).
 //
@@ -153,6 +158,16 @@ async function guestOf(db, companyId, guestId) {
   return g;
 }
 
+// What a customer owes on their IOU account: sales not paid yet (but the
+// one being charged) and cash lent not paid back.
+async function owedBy(db, guestId, exceptOrderId) {
+  var r = (await db.query(
+    "SELECT (SELECT coalesce(sum(total - refunded_total), 0) FROM restaurant_orders WHERE guest_id = $1 AND payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL AND id <> $2) + " +
+    '(SELECT coalesce(sum(amount), 0) FROM restaurant_iou_advances WHERE guest_id = $1 AND paid_at IS NULL) AS o',
+    [guestId, exceptOrderId || '00000000-0000-0000-0000-000000000000'])).rows[0];
+  return round2(r.o);
+}
+
 // Called by restaurantPos.createOrder inside its transaction, once the
 // sale is saved: the VIP part is paid from the customer's VIP account
 // (which must cover it); an IOU needs a customer whose IOU account allows
@@ -172,9 +187,7 @@ async function chargeSale(client, companyId, order, cashierId, rows) {
   if (iou) {
     if (!g.iou_allowed) fail('invalid', g.name + ' has no IOU account. A manager opens one in the till settings (Customers).');
     if (g.iou_limit != null) {
-      var owed = round2((await client.query(
-        "SELECT coalesce(sum(total - refunded_total), 0) AS o FROM restaurant_orders WHERE guest_id = $1 AND payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL AND id <> $2",
-        [g.id, order.id])).rows[0].o);
+      var owed = await owedBy(client, g.id, order.id);
       if (owed + round2(order.total) > Number(g.iou_limit) + 0.009) {
         fail('invalid', g.name + ' already owes ' + owed.toFixed(2) + '; their IOU limit is ' + Number(g.iou_limit).toFixed(2) + '.');
       }
@@ -243,6 +256,31 @@ async function vipTopUp(token, p) {
   });
 }
 
+// Pay out, for a VIP account: money on the balance given back in cash from
+// the drawer — no more than the balance, with a manager's PIN, as a refund.
+async function vipCashOut(token, p, ip) {
+  var session = await access.need(token, 'vipTopUp');
+  p = p || {};
+  var amount = round2(p.amount);
+  if (!(amount > 0)) fail('invalid', 'Enter an amount greater than zero.');
+  var manager = await access.refundApprover(session.posCompanyId, p.managerPin, ip);
+  return withTransaction(async function (client) {
+    var g = await guestOf(client, session.posCompanyId, p.guestId);
+    await needDrawer(client, session.posEmployeeId);
+    await lockGuest(client, g.id);
+    var balance = await balanceOf(client, g.id);
+    if (amount > balance + 0.004) fail('invalid', g.name + ' has ' + balance.toFixed(2) + ' on their VIP balance: no more can be given back.');
+    var note = String(p.note || '').trim().slice(0, 200);
+    await client.query(
+      "INSERT INTO restaurant_vip_entries (company_id, guest_id, kind, amount, method, cashier_id, approved_by, note) VALUES ($1,$2,'cashout',$3,'cash',$4,$5,$6)",
+      [session.posCompanyId, g.id, -amount, session.posEmployeeId, manager.id, note]);
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.vip_cashout',
+      summary: 'VIP money given back to ' + g.name + ' in cash: ' + amount.toFixed(2) + ' (approved by ' + manager.first_name + ' ' + manager.last_name + ')' + (note ? ': ' + note : '') + '.',
+      amount: amount, refType: 'guest', refId: g.id, details: { customer: g.name, approvedBy: manager.id } });
+    return { guest: { id: g.id, name: g.name, phone: g.phone }, amount: amount, balance: await balanceOf(client, g.id), approvedBy: manager.first_name + ' ' + manager.last_name };
+  });
+}
+
 // ── IOUs ───────────────────────────────────────────────────────────────
 
 var IOU_SELECT =
@@ -254,43 +292,118 @@ var IOU_SELECT =
 
 function iouOut(r) {
   return {
-    id: r.id, orderNo: r.order_no, total: round2(r.total), refunded: round2(r.refunded_total), owed: round2(Number(r.total) - Number(r.refunded_total)),
+    id: r.id, kind: 'sale', orderNo: r.order_no, total: round2(r.total), refunded: round2(r.refunded_total), owed: round2(Number(r.total) - Number(r.refunded_total)), guestId: r.guest_id || null,
     guestName: r.guest_name || null, guestPhone: r.guest_phone || null, tableName: r.table_name || null, dishes: r.dishes || '',
     cashierName: fullName(r, 'cashier'), createdAt: r.created_at,
     paidAt: r.iou_paid_at || null, paidMethod: r.iou_paid_method || null, paidAmount: r.iou_paid_amount == null ? null : round2(r.iou_paid_amount), paidBy: fullName(r, 'paid')
   };
 }
 
-// What is still owed at this restaurant, oldest first, and what was paid
-// today.
+// Cash lent on an IOU account (an advance): A-0001, A-0002… per restaurant.
+var ADVANCE_SELECT =
+  'SELECT a.*, g.name AS guest_name, g.phone AS guest_phone, ce.first_name AS cashier_first, ce.last_name AS cashier_last, pe.first_name AS paid_first, pe.last_name AS paid_last ' +
+  'FROM restaurant_iou_advances a JOIN restaurant_guests g ON g.id = a.guest_id LEFT JOIN employees ce ON ce.id = a.cashier_id LEFT JOIN employees pe ON pe.id = a.paid_by ';
+function advanceRef(n) { return 'A-' + String(n).padStart(4, '0'); }
+function advanceOut(r) {
+  return {
+    id: r.id, kind: 'advance', orderNo: advanceRef(r.number), total: round2(r.amount), refunded: 0, owed: round2(r.amount),
+    guestId: r.guest_id, guestName: r.guest_name || null, guestPhone: r.guest_phone || null, tableName: null, dishes: '', note: r.note || '',
+    cashierName: fullName(r, 'cashier'), createdAt: r.created_at,
+    paidAt: r.paid_at || null, paidMethod: r.paid_method || null, paidAmount: r.paid_amount == null ? null : round2(r.paid_amount), paidBy: fullName(r, 'paid')
+  };
+}
+
+// What is still owed at this restaurant, oldest first — sales on IOU and
+// cash lent — and what was paid today.
 async function iouList(token, q) {
   var session = await access.need(token, 'iouPaid');
   var args = [session.posCompanyId];
-  var search = '';
-  if (q && String(q).trim()) { args.push('%' + String(q).trim() + '%'); search = ' AND (g.name ILIKE $2 OR g.phone ILIKE $2 OR o.order_no ILIKE $2)'; }
+  var search = '', searchA = '';
+  if (q && String(q).trim()) {
+    args.push('%' + String(q).trim() + '%');
+    search = ' AND (g.name ILIKE $2 OR g.phone ILIKE $2 OR o.order_no ILIKE $2)';
+    searchA = " AND (g.name ILIKE $2 OR g.phone ILIKE $2 OR 'A-' || lpad(a.number::text, 4, '0') ILIKE $2)";
+  }
   var open = (await pool.query(IOU_SELECT +
-    "WHERE o.company_id = $1 AND o.payment_method = 'iou' AND o.status = 'completed' AND o.iou_paid_at IS NULL" + search + ' ORDER BY o.created_at LIMIT 200', args)).rows;
+    "WHERE o.company_id = $1 AND o.payment_method = 'iou' AND o.status = 'completed' AND o.iou_paid_at IS NULL" + search + ' ORDER BY o.created_at LIMIT 200', args)).rows.map(iouOut)
+    .concat((await pool.query(ADVANCE_SELECT + 'WHERE a.company_id = $1 AND a.paid_at IS NULL' + searchA + ' ORDER BY a.created_at LIMIT 200', args)).rows.map(advanceOut));
   var paid = (await pool.query(IOU_SELECT +
-    "WHERE o.company_id = $1 AND o.payment_method = 'iou' AND o.iou_paid_at >= date_trunc('day', now())" + search + ' ORDER BY o.iou_paid_at DESC LIMIT 30', args)).rows;
-  var list = open.map(iouOut);
-  return { open: list, owed: round2(list.reduce(function (s, x) { return s + x.owed; }, 0)), paidToday: paid.map(iouOut) };
+    "WHERE o.company_id = $1 AND o.payment_method = 'iou' AND o.iou_paid_at >= date_trunc('day', now())" + search + ' ORDER BY o.iou_paid_at DESC LIMIT 30', args)).rows.map(iouOut)
+    .concat((await pool.query(ADVANCE_SELECT + "WHERE a.company_id = $1 AND a.paid_at >= date_trunc('day', now())" + searchA + ' ORDER BY a.paid_at DESC LIMIT 30', args)).rows.map(advanceOut));
+  open.sort(function (a, b) { return new Date(a.createdAt) - new Date(b.createdAt); });
+  paid.sort(function (a, b) { return new Date(b.paidAt) - new Date(a.paidAt); });
+  return { open: open, owed: round2(open.reduce(function (s, x) { return s + x.owed; }, 0)), paidToday: paid };
 }
 
-async function payIou(token, orderId, p) {
+// One IOU paid in full — a sale on IOU or cash lent — inside a transaction.
+async function payOne(client, session, id, method) {
+  var o = (await client.query('SELECT * FROM restaurant_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [id, session.posCompanyId])).rows[0];
+  if (!o) {
+    var a = (await client.query('SELECT * FROM restaurant_iou_advances WHERE id = $1 AND company_id = $2 FOR UPDATE', [id, session.posCompanyId])).rows[0];
+    if (!a) fail('notfound', 'IOU not found.');
+    if (a.paid_at) fail('conflict', 'That IOU has already been paid.');
+    await client.query('UPDATE restaurant_iou_advances SET paid_at = now(), paid_method = $2, paid_by = $3, paid_amount = amount WHERE id = $1', [a.id, method, session.posEmployeeId]);
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.iou_paid',
+      summary: 'IOU ' + advanceRef(a.number) + ' (cash lent) paid back: ' + round2(a.amount).toFixed(2) + ' (' + METHOD_NAME[method] + ').', amount: round2(a.amount), refType: 'guest', refId: a.guest_id, details: { method: method, advance: a.id } });
+    return advanceOut((await client.query(ADVANCE_SELECT + 'WHERE a.id = $1', [a.id])).rows[0]);
+  }
+  if (o.payment_method !== 'iou') fail('notfound', 'IOU not found.');
+  if (o.status !== 'completed') fail('conflict', 'That sale was voided: nothing is owed.');
+  if (o.iou_paid_at) fail('conflict', 'That IOU has already been paid.');
+  var owed = round2(Number(o.total) - Number(o.refunded_total));
+  await client.query('UPDATE restaurant_orders SET iou_paid_at = now(), iou_paid_method = $2, iou_paid_by = $3, iou_paid_amount = $4 WHERE id = $1',
+    [o.id, method, session.posEmployeeId, owed]);
+  await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.iou_paid',
+    summary: 'IOU ' + o.order_no + ' paid: ' + owed.toFixed(2) + ' (' + METHOD_NAME[method] + ').', amount: owed, refType: 'order', refId: o.id, details: { method: method } });
+  return iouOut((await client.query(IOU_SELECT + 'WHERE o.id = $1', [o.id])).rows[0]);
+}
+async function payIou(token, id, p) {
   var session = await access.need(token, 'iouPaid');
   var method = V.oneOf(p && p.method, MONEY, 'Paid with');
   return withTransaction(async function (client) {
-    var o = (await client.query('SELECT * FROM restaurant_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [orderId, session.posCompanyId])).rows[0];
-    if (!o || o.payment_method !== 'iou') fail('notfound', 'IOU not found.');
-    if (o.status !== 'completed') fail('conflict', 'That sale was voided: nothing is owed.');
-    if (o.iou_paid_at) fail('conflict', 'That IOU has already been paid.');
     await needDrawer(client, session.posEmployeeId);
-    var owed = round2(Number(o.total) - Number(o.refunded_total));
-    await client.query('UPDATE restaurant_orders SET iou_paid_at = now(), iou_paid_method = $2, iou_paid_by = $3, iou_paid_amount = $4 WHERE id = $1',
-      [o.id, method, session.posEmployeeId, owed]);
-    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.iou_paid',
-      summary: 'IOU ' + o.order_no + ' paid: ' + owed.toFixed(2) + ' (' + METHOD_NAME[method] + ').', amount: owed, refType: 'order', refId: o.id, details: { method: method } });
-    return iouOut((await client.query(IOU_SELECT + 'WHERE o.id = $1', [o.id])).rows[0]);
+    return payOne(client, session, id, method);
+  });
+}
+// POST /api/pos/ious/pay { ids, method } — Pay in, for an IOU account:
+// several of a customer's IOUs paid back together, all or none.
+async function payIous(token, p) {
+  var session = await access.need(token, 'iouPaid');
+  p = p || {};
+  var method = V.oneOf(p.method || 'cash', MONEY, 'Paid with');
+  var ids = Array.isArray(p.ids) ? p.ids.filter(function (x, i, a) { return x && a.indexOf(x) === i; }).slice(0, 50) : [];
+  if (!ids.length) fail('invalid', 'Pick what is being paid back.');
+  return withTransaction(async function (client) {
+    await needDrawer(client, session.posEmployeeId);
+    var paid = [];
+    for (var i = 0; i < ids.length; i++) paid.push(await payOne(client, session, String(ids[i]), method));
+    return { paid: paid, total: round2(paid.reduce(function (s, x) { return s + x.owed; }, 0)) };
+  });
+}
+// POST /api/pos/ious/advances { guestId, amount, note } — Pay out, for an
+// IOU account: cash lent from the drawer, owed until it is paid back, within
+// the account's limit.
+async function iouAdvance(token, p) {
+  var session = await access.need(token, 'iou');
+  p = p || {};
+  var amount = round2(p.amount);
+  if (!(amount > 0)) fail('invalid', 'Enter an amount greater than zero.');
+  var note = String(p.note || '').trim().slice(0, 200);
+  return withTransaction(async function (client) {
+    var g = (await client.query('SELECT id, name, phone, iou_allowed, iou_limit FROM restaurant_guests WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.guestId, session.posCompanyId])).rows[0];
+    if (!g) fail('notfound', 'That customer is no longer available.');
+    if (!g.iou_allowed) fail('invalid', g.name + ' has no IOU account. A manager opens one in the till settings (Customers).');
+    await needDrawer(client, session.posEmployeeId);
+    var owed = await owedBy(client, g.id);
+    if (g.iou_limit != null && owed + amount > Number(g.iou_limit) + 0.009) fail('invalid', g.name + ' already owes ' + owed.toFixed(2) + '; their IOU limit is ' + Number(g.iou_limit).toFixed(2) + '.');
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('iou-advance:' || $1))", [session.posCompanyId]);
+    var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_iou_advances WHERE company_id = $1', [session.posCompanyId])).rows[0].n;
+    var a = (await client.query('INSERT INTO restaurant_iou_advances (company_id, number, guest_id, amount, note, cashier_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [session.posCompanyId, number, g.id, amount, note, session.posEmployeeId])).rows[0];
+    await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.iou_advance',
+      summary: 'Cash lent to ' + g.name + ' on their IOU account: ' + amount.toFixed(2) + ' (' + advanceRef(number) + ')' + (note ? ': ' + note : '') + '.',
+      amount: amount, refType: 'guest', refId: g.id, details: { customer: g.name, advance: a.id } });
+    return { advance: advanceOut((await client.query(ADVANCE_SELECT + 'WHERE a.id = $1', [a.id])).rows[0]), owed: round2(owed + amount), limit: g.iou_limit == null ? null : round2(g.iou_limit) };
   });
 }
 
@@ -463,14 +576,34 @@ async function onVoid(client, o) {
 // ── for the drawer and the shift ───────────────────────────────────────
 
 // Cash this cashier took in or paid out between two times besides cash
-// sales: refunds paid in cash, IOUs paid in cash, VIP top-ups in cash.
+// sales: refunds paid in cash, IOUs paid in cash (sales and cash lent),
+// VIP top-ups in cash; VIP money given back and cash lent on IOU accounts.
 async function drawerCash(db, cashierId, companyId, from, to) {
   var r = (await db.query(
     "SELECT (SELECT coalesce(sum(amount), 0) FROM restaurant_refunds WHERE cashier_id = $1 AND company_id = $2 AND method = 'cash' AND created_at >= $3 AND created_at <= $4) AS refunds, " +
-    "(SELECT coalesce(sum(iou_paid_amount), 0) FROM restaurant_orders WHERE iou_paid_by = $1 AND company_id = $2 AND iou_paid_method = 'cash' AND iou_paid_at >= $3 AND iou_paid_at <= $4) AS iou_paid, " +
-    "(SELECT coalesce(sum(amount), 0) FROM restaurant_vip_entries WHERE cashier_id = $1 AND company_id = $2 AND kind = 'topup' AND method = 'cash' AND created_at >= $3 AND created_at <= $4) AS vip_topups",
+    "(SELECT coalesce(sum(iou_paid_amount), 0) FROM restaurant_orders WHERE iou_paid_by = $1 AND company_id = $2 AND iou_paid_method = 'cash' AND iou_paid_at >= $3 AND iou_paid_at <= $4) + " +
+    "(SELECT coalesce(sum(paid_amount), 0) FROM restaurant_iou_advances WHERE paid_by = $1 AND company_id = $2 AND paid_method = 'cash' AND paid_at >= $3 AND paid_at <= $4) AS iou_paid, " +
+    "(SELECT coalesce(sum(amount), 0) FROM restaurant_vip_entries WHERE cashier_id = $1 AND company_id = $2 AND kind = 'topup' AND method = 'cash' AND created_at >= $3 AND created_at <= $4) AS vip_topups, " +
+    "(SELECT coalesce(-sum(amount), 0) FROM restaurant_vip_entries WHERE cashier_id = $1 AND company_id = $2 AND kind = 'cashout' AND created_at >= $3 AND created_at <= $4) AS vip_cashouts, " +
+    '(SELECT coalesce(sum(amount), 0) FROM restaurant_iou_advances WHERE cashier_id = $1 AND company_id = $2 AND created_at >= $3 AND created_at <= $4) AS iou_lent',
     [cashierId, companyId, from, to])).rows[0];
-  return { refunds: round2(r.refunds), iouPaid: round2(r.iou_paid), vipTopUps: round2(r.vip_topups) };
+  return { refunds: round2(r.refunds), iouPaid: round2(r.iou_paid), vipTopUps: round2(r.vip_topups), vipCashOuts: round2(r.vip_cashouts), iouLent: round2(r.iou_lent) };
+}
+// The same, one by one, for the drawer's list of money in and out: each
+// with its customer — in: vip (put down), iou (paid back); out: vip (given
+// back), iou (lent).
+async function accountMoves(db, cashierId, companyId, from, to) {
+  var args = [cashierId, companyId, from, to];
+  var rows = (await db.query(
+    "SELECT v.id, CASE WHEN v.kind = 'topup' THEN 'in' ELSE 'out' END AS direction, 'vip' AS account, abs(v.amount) AS amount, g.name AS customer, v.note, NULL::text AS ref, v.created_at AS at " +
+    "FROM restaurant_vip_entries v JOIN restaurant_guests g ON g.id = v.guest_id WHERE v.cashier_id = $1 AND v.company_id = $2 AND v.method = 'cash' AND v.kind IN ('topup', 'cashout') AND v.created_at >= $3 AND v.created_at <= $4 " +
+    "UNION ALL SELECT o.id, 'in', 'iou', o.iou_paid_amount, g.name, '', o.order_no, o.iou_paid_at FROM restaurant_orders o LEFT JOIN restaurant_guests g ON g.id = o.guest_id " +
+    "WHERE o.iou_paid_by = $1 AND o.company_id = $2 AND o.iou_paid_method = 'cash' AND o.iou_paid_at >= $3 AND o.iou_paid_at <= $4 " +
+    "UNION ALL SELECT a.id, 'in', 'iou', a.paid_amount, g.name, a.note, 'A-' || lpad(a.number::text, 4, '0'), a.paid_at FROM restaurant_iou_advances a JOIN restaurant_guests g ON g.id = a.guest_id " +
+    "WHERE a.paid_by = $1 AND a.company_id = $2 AND a.paid_method = 'cash' AND a.paid_at >= $3 AND a.paid_at <= $4 " +
+    "UNION ALL SELECT a.id, 'out', 'iou', a.amount, g.name, a.note, 'A-' || lpad(a.number::text, 4, '0'), a.created_at FROM restaurant_iou_advances a JOIN restaurant_guests g ON g.id = a.guest_id " +
+    'WHERE a.cashier_id = $1 AND a.company_id = $2 AND a.created_at >= $3 AND a.created_at <= $4 ORDER BY 8', args)).rows;
+  return rows.map(function (r) { return { id: r.id, direction: r.direction, account: r.account, amount: round2(r.amount), customer: r.customer || null, note: r.note || '', ref: r.ref || null, createdAt: r.at }; });
 }
 
 // Cash sales this cashier took between two times, from the parts of each
@@ -514,8 +647,8 @@ async function shiftMoney(cashierId, companyId, from) {
 module.exports = {
   TILL_METHODS: TILL_METHODS, METHOD_CURRENCIES: METHOD_CURRENCIES, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME, needDrawer: needDrawer,
   planPayments: planPayments, savePayments: savePayments, paymentsOf: paymentsOf, paymentText: paymentText, cashSales: cashSales,
-  chargeSale: chargeSale, vipGuests: vipGuests, vipGuest: vipGuest, vipTopUp: vipTopUp,
-  iouList: iouList, payIou: payIou,
+  chargeSale: chargeSale, vipGuests: vipGuests, vipGuest: vipGuest, vipTopUp: vipTopUp, vipCashOut: vipCashOut,
+  iouList: iouList, payIou: payIou, payIous: payIous, iouAdvance: iouAdvance, owedBy: owedBy, accountMoves: accountMoves,
   salesToRefund: salesToRefund, saleForRefund: saleForRefundSession, refundSale: refundSale, refundsOf: refundsOf, onVoid: onVoid,
   drawerCash: drawerCash, shiftMoney: shiftMoney
 };

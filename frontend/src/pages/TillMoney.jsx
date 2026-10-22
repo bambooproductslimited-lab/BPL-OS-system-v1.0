@@ -195,7 +195,8 @@ const TOPUPS = [50, 100, 200, 500, 1000];
 const ENTRY = {
   topup: (e) => e.method === 'cash' ? tr('Put down in cash') : tr('Put down by Mobile Money'),
   sale: (e) => e.orderNo ? tr('Sale {no}', { no: e.orderNo }) : tr('Sale'),
-  refund: (e) => e.note === 'Sale voided' ? tr('Sale {no} voided', { no: e.orderNo || '' }) : tr('Refund on {no}', { no: e.orderNo || '' })
+  refund: (e) => e.note === 'Sale voided' ? tr('Sale {no} voided', { no: e.orderNo || '' }) : tr('Refund on {no}', { no: e.orderNo || '' }),
+  cashout: () => tr('Given back in cash')
 };
 
 export function VipDialog({ token, startGuest, onClose, onChanged, onAuth }) {
@@ -372,7 +373,7 @@ export function IouDialog({ token, onClose, onChanged, onAuth }) {
                 <div className="dk-row-main">
                   <div className="dk-row-title">{x.guestName || tr('No name')}{x.guestPhone ? <span className="dk-muted"> · {x.guestPhone}</span> : null}</div>
                   <div className="dk-muted dk-row-meta">{[x.orderNo, whenOf(x.createdAt), days(x.createdAt) >= 1 ? (days(x.createdAt) === 1 ? tr('1 day ago') : tr('{n} days ago', { n: days(x.createdAt) })) : null, x.tableName].filter(Boolean).join(' · ')}</div>
-                  <div className="dk-muted dk-row-meta">{x.dishes}</div>
+                  <div className="dk-muted dk-row-meta">{x.kind === 'advance' ? '💵 ' + tr('Cash lent') + (x.note ? ' · ' + x.note : '') : x.dishes}</div>
                   {paying && paying.iou.id === x.id && (
                     <div className="pos-iou-pay">
                       <div className="pos-ways" role="radiogroup" aria-label={tr('Paid with')}>

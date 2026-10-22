@@ -18,6 +18,7 @@ async function cleanup() {
   var cos = (await pool.query("SELECT id FROM companies WHERE code = 'ZQM'")).rows.map(function (r) { return r.id; });
   if (cos.length) {
     await pool.query('DELETE FROM restaurant_vip_entries WHERE company_id = ANY($1)', [cos]);
+    await pool.query('DELETE FROM restaurant_iou_advances WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_refunds WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_kitchen_tickets WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM restaurant_order_items WHERE order_id IN (SELECT id FROM restaurant_orders WHERE company_id = ANY($1))', [cos]);
@@ -215,4 +216,63 @@ test('sales figures are net of refunds', async function () {
   var gross = list.orders.filter(function (o) { return o.status === 'completed'; }).reduce(function (s, o) { return s + o.total - o.refunded; }, 0);
   assert.equal(list.revenueTotal, Math.round(gross * 100) / 100);
   assert.ok(list.orders.some(function (o) { return o.refunded > 0; }));
+});
+
+test('pay in and out for an account: VIP money put down or given back (a manager\'s PIN); cash lent on an IOU account; IOUs paid back together', async function () {
+  var d0 = await drawer();
+  var start = d0.expected, seen = new Set(d0.movements.map(function (m) { return m.account + m.id; }));
+  // In, for a VIP account: money put down in cash.
+  var b0 = (await money.vipGuest(token, guest2.id)).balance;
+  await money.vipTopUp(token, { guestId: guest2.id, amount: 80, method: 'cash' });
+  // Out, for a VIP account: given back in cash, with a manager's PIN, never more than is there.
+  await assert.rejects(money.vipCashOut(token, { guestId: guest2.id, amount: 30 }, IP), /PIN/);
+  await assert.rejects(money.vipCashOut(token, { guestId: guest2.id, amount: 30, managerPin: OTHER_PIN }, IP), /cannot approve refunds/);
+  await assert.rejects(money.vipCashOut(token, { guestId: guest2.id, amount: b0 + 81, managerPin: MANAGER_PIN }, IP), /on their VIP balance: no more can be given back/);
+  await assert.rejects(money.vipCashOut(token2, { guestId: guest2.id, amount: 30, managerPin: MANAGER_PIN }, IP), /open your cash drawer first/i);
+  var out = await money.vipCashOut(token, { guestId: guest2.id, amount: 30, managerPin: MANAGER_PIN, note: 'Zqm moving away' }, IP);
+  assert.deepEqual([out.balance, out.approvedBy], [b0 + 50, 'Kojo Zqm']);
+  var last = (await money.vipGuest(token, guest2.id)).entries[0];
+  assert.deepEqual([last.kind, last.amount, last.method, last.note], ['cashout', -30, 'cash', 'Zqm moving away']);
+
+  // Out, for an IOU account: cash lent, owed like a sale, within the account's limit.
+  await assert.rejects(money.iouAdvance(token, { guestId: guest.id, amount: 0 }), /greater than zero/);
+  await pool.query('UPDATE restaurant_guests SET iou_allowed = false WHERE id = $1', [guest.id]);
+  await assert.rejects(money.iouAdvance(token, { guestId: guest.id, amount: 20 }), /has no IOU account/);
+  var owed0 = await money.owedBy(pool, guest.id);
+  await pool.query('UPDATE restaurant_guests SET iou_allowed = true, iou_limit = $2 WHERE id = $1', [guest.id, owed0 + 100]);
+  await assert.rejects(money.iouAdvance(token2, { guestId: guest.id, amount: 20 }), /open your cash drawer first/i);
+  var lent = await money.iouAdvance(token, { guestId: guest.id, amount: 40, note: 'Zqm taxi home' });
+  assert.match(lent.advance.orderNo, /^A-\d{4}$/);
+  assert.deepEqual([lent.advance.kind, lent.advance.owed, lent.advance.note, lent.owed], ['advance', 40, 'Zqm taxi home', owed0 + 40]);
+  await assert.rejects(money.iouAdvance(token, { guestId: guest.id, amount: 61 }), /their IOU limit is/);
+  // What was lent counts against the limit for sales on IOU too.
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: fish, qty: 1 }], paymentMethod: 'iou', guestId: guest.id }), /their IOU limit is/);
+  var sale = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'iou', guestId: guest.id });
+  var open = (await money.iouList(token, 'Zqm Abena')).open;
+  assert.ok(open.some(function (x) { return x.id === lent.advance.id && x.kind === 'advance'; }) && open.some(function (x) { return x.id === sale.id && x.kind === 'sale'; }));
+  assert.equal((await pos.guestsForSession(token, 'Zqm Abena'))[0].iouOwed, owed0 + 60);
+
+  // In, for an IOU account: what they owe paid back together, all or none.
+  await assert.rejects(money.payIous(token, { ids: [] }), /Pick what is being paid back/);
+  await assert.rejects(money.payIous(token, { ids: [lent.advance.id, '00000000-0000-0000-0000-000000000001'] }), /IOU not found/);
+  assert.ok((await money.iouList(token, 'Zqm Abena')).open.some(function (x) { return x.id === lent.advance.id; }), 'none paid');
+  var paid = await money.payIous(token, { ids: [lent.advance.id, sale.id], method: 'cash' });
+  assert.equal(paid.total, 60);
+  await assert.rejects(money.payIou(token, lent.advance.id, { method: 'cash' }), /already been paid/);
+  assert.ok((await money.iouList(token)).paidToday.some(function (x) { return x.id === lent.advance.id && x.paidMethod === 'cash'; }));
+
+  // The drawer: + VIP put down + IOUs paid back, − VIP given back − cash lent; each with its customer.
+  var d = await drawer();
+  assert.equal(d.expected, Math.round((start + 80 - 30 - 40 + 60) * 100) / 100);
+  assert.deepEqual([d.vipCashOutsCash, d.iouLentCash], [30, 40]);
+  var moves = d.movements.filter(function (m) { return m.account && !seen.has(m.account + m.id); })
+    .map(function (m) { return [m.direction, m.account, m.amount, m.customer]; }).sort();
+  assert.deepEqual(moves, [['in', 'iou', 20, 'Zqm Abena'], ['in', 'iou', 40, 'Zqm Abena'], ['in', 'vip', 80, 'Zqm Kwesi'], ['out', 'iou', 40, 'Zqm Abena'], ['out', 'vip', 30, 'Zqm Kwesi']]);
+  // The till settings' IOUs and VIP report.
+  var r = await require('../src/services/restaurantTillAccounts.service').report(company.id, {});
+  assert.ok(r.ious.some(function (x) { return x.kind === 'advance' && x.paid && x.orderNo === lent.advance.orderNo; }));
+  assert.deepEqual([r.totals.vipCashedOut, r.totals.iouLent, r.totals.iouLentCount], [30, 40, 1]);
+  assert.ok(r.vip.some(function (x) { return x.kind === 'cashout' && x.amount === -30; }));
+  var log = (await pool.query("SELECT action FROM restaurant_activity WHERE company_id = $1 AND action IN ('till.vip_cashout', 'till.iou_advance') ORDER BY at", [company.id])).rows.map(function (x) { return x.action; });
+  assert.deepEqual(log, ['till.vip_cashout', 'till.iou_advance']);
 });

@@ -141,9 +141,9 @@ test('one cashier at a time, a manager\'s drawer beside it; signing out keeps a 
   assert.equal((await access.profile(tok.ama)).cashierOnDuty.me, true);
   await assert.rejects(pos.openDrawerSession(tok.efua, 100), /Ama Zqb is the cashier on duty: their drawer has been open since \d\d:\d\d/);
   // Efua takes orders while Ama is on duty, but takes no money and prints no receipts.
-  var tab = await pos.saveTab(tok.efua, { label: 'Zqb Akosua', fulfillment: 'pickup', items: [{ menuItemId: soda, qty: 1 }] });
-  await assert.rejects(pos.createOrder(tok.efua, { tabId: tab.id, fulfillment: 'pickup', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'mobile_money' }] }), /open your cash drawer first/);
-  var sale = await pos.createOrder(tok.ama, { tabId: tab.id, fulfillment: 'pickup', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'cash' }] });
+  var tab = await pos.saveTab(tok.efua, { label: 'Zqb Akosua', fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: soda, qty: 1 }] });
+  await assert.rejects(pos.createOrder(tok.efua, { tabId: tab.id, fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'mobile_money' }] }), /open your cash drawer first/);
+  var sale = await pos.createOrder(tok.ama, { tabId: tab.id, fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'cash' }] });
   assert.equal((await pos.receiptForSession(tok.ama, sale.id)).orderNo, sale.orderNo);
   await assert.rejects(pos.receiptForSession(tok.efua, sale.id), /open your cash drawer first/);
   await assert.rejects(pos.receiptForSession(tok.yaw, sale.id), /cannot take payments/);
@@ -156,7 +156,7 @@ test('one cashier at a time, a manager\'s drawer beside it; signing out keeps a 
   // is still the cashier on duty, and her drawer holds only her sales.
   await pos.openDrawerSession(tok.kojo, 50);
   assert.equal((await access.profile(tok.efua)).cashierOnDuty.name, 'Ama Zqb');
-  var bossSale = await pos.createOrder(tok.kojo, { fulfillment: 'pickup', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'cash' }] });
+  var bossSale = await pos.createOrder(tok.kojo, { fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: soda, qty: 1 }], payments: [{ method: 'cash' }] });
   assert.equal((await pos.receiptForSession(tok.kojo, bossSale.id)).orderNo, bossSale.orderNo);
   assert.equal((await pos.receiptForSession(tok.kojo, sale.id)).orderNo, sale.orderNo);
   // Ama is back: her drawer is as she left it.
@@ -201,7 +201,7 @@ test('one cashier at a time, a manager\'s drawer beside it; signing out keeps a 
 
 test('disputes: complaints and wrong charges raised on the till, resolved and opened again by the manager', async function () {
   await pos.openDrawerSession(tok.ama, 50);
-  var sale = await pos.createOrder(tok.ama, { fulfillment: 'pickup', items: [{ menuItemId: fish, qty: 1 }], payments: [{ method: 'mobile_money' }] });
+  var sale = await pos.createOrder(tok.ama, { fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: fish, qty: 1 }], payments: [{ method: 'mobile_money' }] });
   await assert.rejects(pos.raiseDispute(tok.yaw, { kind: 'complaint', description: '' }), /Say what happened/);
   await assert.rejects(pos.raiseDispute(tok.yaw, { kind: 'wrong_charge', description: 'Zqb charged twice' }), /Pick the sale/);
   await assert.rejects(pos.raiseDispute(tok.yaw, { kind: 'drawer_short', description: 'Zqb' }), /Pick what kind/);
@@ -243,17 +243,17 @@ test('the menu kept from the till; stock counted on a dish, taken off by sales, 
   var tiles = await pos.menuForSession(tok.yaw);
   assert.deepEqual(tiles.find(function (t) { return t.id === malt.id; }).stock, { left: 5, low: false, soldOut: false });
   assert.equal(tiles.find(function (t) { return t.id === fish; }).stock, undefined, 'a dish not counted shows nothing');
-  var tab = await pos.saveTab(tok.yaw, { label: 'Zqb Kofi', fulfillment: 'pickup', items: [{ menuItemId: malt.id, variationId: bottle, qty: 3 }] });
+  var tab = await pos.saveTab(tok.yaw, { label: 'Zqb Kofi', fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: malt.id, variationId: bottle, qty: 3 }] });
   tiles = await pos.menuForSession(tok.yaw);
   assert.deepEqual(tiles.find(function (t) { return t.id === malt.id; }).stock, { left: 2, low: true, soldOut: false });
-  await assert.rejects(pos.createOrder(tok.ama, { fulfillment: 'pickup', items: [{ menuItemId: malt.id, variationId: bottle, qty: 3 }], payments: [{ method: 'cash' }] }), /Only 2 × Zqb malt left in stock/);
-  await assert.rejects(pos.saveTab(tok.yaw, { id: tab.id, label: 'Zqb Kofi', fulfillment: 'pickup', items: [{ menuItemId: malt.id, variationId: bottle, qty: 6 }] }), /Only 5 × Zqb malt left/);
+  await assert.rejects(pos.createOrder(tok.ama, { fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: malt.id, variationId: bottle, qty: 3 }], payments: [{ method: 'cash' }] }), /Only 2 × Zqb malt left in stock/);
+  await assert.rejects(pos.saveTab(tok.yaw, { id: tab.id, label: 'Zqb Kofi', fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: malt.id, variationId: bottle, qty: 6 }] }), /Only 5 × Zqb malt left/);
   // Paying the open order takes its 3 off; a direct sale takes 2 more.
-  await pos.createOrder(tok.ama, { tabId: tab.id, fulfillment: 'pickup', items: [{ menuItemId: malt.id, variationId: bottle, qty: 3 }], payments: [{ method: 'cash' }] });
-  var sale = await pos.createOrder(tok.ama, { fulfillment: 'pickup', items: [{ menuItemId: malt.id, variationId: bottle, qty: 2 }], payments: [{ method: 'cash' }] });
+  await pos.createOrder(tok.ama, { tabId: tab.id, fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: malt.id, variationId: bottle, qty: 3 }], payments: [{ method: 'cash' }] });
+  var sale = await pos.createOrder(tok.ama, { fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: malt.id, variationId: bottle, qty: 2 }], payments: [{ method: 'cash' }] });
   tiles = await pos.menuForSession(tok.yaw);
   assert.deepEqual(tiles.find(function (t) { return t.id === malt.id; }).stock, { left: 0, low: true, soldOut: true });
-  await assert.rejects(pos.saveTab(tok.yaw, { label: 'Zqb Esi', fulfillment: 'pickup', items: [{ menuItemId: malt.id, variationId: bottle, qty: 1 }] }), /Zqb malt is sold out/);
+  await assert.rejects(pos.saveTab(tok.yaw, { label: 'Zqb Esi', fulfillment: 'pickup', customerName: 'Zqb Walk-in', customerPhone: '0200000991', items: [{ menuItemId: malt.id, variationId: bottle, qty: 1 }] }), /Zqb malt is sold out/);
 
   // A void puts the 2 back (in the OS).
   var admin = { can: function () { return true; }, user: { id: null }, employee: null };
