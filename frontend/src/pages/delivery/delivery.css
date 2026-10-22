@@ -257,6 +257,41 @@
 .dl-rp-collect span { font-weight: 800; }
 .dl-rp-collect strong { font-family: var(--font-heading); font-size: 24px; text-align: right; }
 .dl-rp-collect small { grid-column: 1 / -1; font-size: 12px; font-weight: 700; color: var(--dl-muted); }
+.dl-rp-collect.is-held { background: linear-gradient(135deg, rgba(234, 179, 8, .2), rgba(245, 158, 11, .16)); border-color: rgba(234, 179, 8, .55); animation: dl-glow 2.4s ease-in-out infinite; }
+.dl-rp-collect.is-in { background: linear-gradient(135deg, rgba(16, 185, 129, .16), rgba(5, 150, 105, .1)); border-color: rgba(16, 185, 129, .45); }
+.dl-rp-collect.is-short { background: rgba(220, 38, 38, .1); border-color: rgba(220, 38, 38, .4); }
+
+/* What was collected at the door (CollectForm). */
+.dl-take { display: flex; flex-direction: column; gap: 9px; padding: 12px; border-radius: 16px; background: rgba(16, 185, 129, .08); border: 1px solid rgba(16, 185, 129, .3); cursor: default; }
+.dl-take.is-big { padding: 14px; }
+.dl-take-title { font-family: var(--font-heading); font-size: 17px; }
+.dl-take.is-big .dl-take-title { font-size: 21px; }
+.dl-pay-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dl-pay-pick button { padding: 11px 8px; font: inherit; font-weight: 800; color: var(--color-text); border-radius: 12px; border: 1px solid var(--dl-line); background: var(--dl-card); cursor: pointer; }
+.dl-pay-pick button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 8px 18px -10px #059669; }
+.dl-take-amount { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 800; }
+.dl-take-amount .input { font-size: 20px; font-weight: 800; }
+.dl-take-short { margin: 0; font-size: 13px; font-weight: 800; color: #b91c1c; }
+:root[data-theme='dark'] .dl-take-short { color: #fca5a5; }
+
+/* Where a delivery's money stands (MoneyLine), and the money still with riders. */
+.dl-money-line { margin: 0; padding: 6px 10px; font-size: 12.5px; font-weight: 700; border-radius: 10px; }
+.dl-money-line em { font-style: normal; font-weight: 600; }
+.dl-money-line.is-held { color: #854d0e; background: rgba(234, 179, 8, .16); }
+.dl-money-line.is-in { color: #065f46; background: rgba(16, 185, 129, .12); }
+.dl-money-line.is-short { color: #991b1b; background: rgba(220, 38, 38, .1); }
+:root[data-theme='dark'] .dl-money-line.is-held { color: #fde68a; }
+:root[data-theme='dark'] .dl-money-line.is-in { color: #6ee7b7; }
+:root[data-theme='dark'] .dl-money-line.is-short { color: #fca5a5; }
+.dl-handin { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(234, 179, 8, .45); background: linear-gradient(135deg, rgba(234, 179, 8, .12), rgba(245, 158, 11, .06)); }
+.dl-handin > strong { font-family: var(--font-heading); font-size: 16px; }
+.dl-handin > small { font-size: 12px; color: var(--dl-muted); }
+.dl-handin ul { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 0; }
+.dl-handin li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12.5px; }
+.dl-stat.has-some.is-held { border-color: rgba(234, 179, 8, .6); background: rgba(234, 179, 8, .12); }
+.dl-stat.has-some.is-held b { color: #a16207; font-size: 15px; }
+:root[data-theme='dark'] .dl-stat.has-some.is-held b { color: #fde047; }
+@keyframes dl-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); } 50% { box-shadow: 0 0 0 5px rgba(234, 179, 8, .18); } }
 .dl-rp-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 16px; border: 1px solid var(--dl-line); background: var(--dl-soft); }
 .dl-rp-card > div { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dl-rp-card p { margin: 0; font-size: 13px; display: flex; flex-direction: column; }
@@ -272,6 +307,7 @@
 @keyframes dl-ride { 0% { transform: translateX(0); } 50% { transform: translateX(calc(min(300px, 70vw) - 110px)); } 100% { transform: translateX(0); } }
 @keyframes dl-pop { 0% { transform: scale(.5); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
+  .dl-rp-collect.is-held { animation: none; }
   .dl-open.is-on .dl-open-dot, .dl-card.is-new.is-late, .dl-tab.is-ringing b, .dl-empty > span, .dl-live::before, .dl-sent-art span, .dl-gate-art span, .dl-live-dot { animation: none; }
 }
 

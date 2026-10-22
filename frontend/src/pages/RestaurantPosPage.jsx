@@ -15,6 +15,7 @@ import DeviceLanguage from '../components/DeviceLanguage';
 import { IouDialog, RefundDialog, VipDialog } from './TillMoney';
 import TillSettings from './TillSettings';
 import PayDialog from './till/PayDialog';
+import HandInDialog from './till/HandInDialog';
 import MoreMenu from './till/MoreMenu';
 import { TableMapPicker } from './till/TableMap';
 import ManagerHome from './till/ManagerHome';
@@ -293,6 +294,8 @@ export default function RestaurantPosPage() {
   const [deliveryPrompt, setDeliveryPrompt] = useState(null); // a delivery's food ready to go out
   const [sendFor, setSendFor] = useState(null); // { target, riders, settings }: sending one out with a rider
   const prompted = useRef(new Set()); // tickets asked about already
+  const [handIn, setHandIn] = useState(null); // an open delivery order: the money its rider brought back
+  const askedMoney = useRef(new Set()); // deliveries whose money was asked about already
   const [kitchenNote, setKitchenNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);
   // Refunds, VIP money and IOUs (TillMoney.jsx)
@@ -344,6 +347,15 @@ export default function RestaurantPosPage() {
     prompted.current.add(t.id);
     setDeliveryPrompt(t);
   }, [kitchen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A rider says they collected the money: ask the cashier on duty, once,
+  // to count it in (not over a payment being taken).
+  useEffect(() => {
+    if (!tabs || !onDuty('charge') || handIn || deliveryPrompt || sendFor || checkoutOpen) return;
+    const t = tabs.find((x) => x.delivery && x.delivery.collected && !askedMoney.current.has(x.delivery.id));
+    if (!t) return;
+    askedMoney.current.add(t.delivery.id);
+    setHandIn(t);
+  }, [tabs, deliveryPrompt, sendFor, checkoutOpen, handIn]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 3500);
@@ -1724,7 +1736,8 @@ export default function RestaurantPosPage() {
                     <span className={'dk-lead-icon tl-ful-ico is-' + (t.fulfillment || 'dine_in')} title={fulfillmentName(t.fulfillment || 'dine_in')}><FulfillmentIcon kind={t.fulfillment || 'dine_in'} /></span>
                     <div className="dk-row-main">
                       <div className="dk-row-title">{tabName(t)} <KitchenTag kitchen={t.kitchen} compact />{t.onlineRef && <span className="tl-web">{t.onlineRef}</span>}
-                        {t.delivery && <span className={'tl-out is-' + t.delivery.status}>🛵 {t.delivery.ref} · {statusName(t.delivery.status)} · {t.delivery.riderName}</span>}</div>
+                        {t.delivery && <span className={'tl-out is-' + t.delivery.status}>🛵 {t.delivery.ref} · {statusName(t.delivery.status)} · {t.delivery.riderName}</span>}
+                        {t.delivery && t.delivery.collected && <span className="tl-cash">💵 {tr('{amount} with {name}', { amount: money(t.delivery.collected.amount), name: t.delivery.riderName })}</span>}</div>
                       <div className="dk-muted dk-row-meta">
                         {[fulfillmentName(t.fulfillment || 'dine_in'), t.lines.reduce((n, l) => n + l.qty, 0) === 1 ? tr('1 item') : tr('{n} items', { n: t.lines.reduce((n, l) => n + l.qty, 0) }), t.waiterName, tr('open since {time}', { time: timeOf(t.createdAt) }), t.openedBy ? tr('by {name}', { name: t.openedBy }) : null].filter(Boolean).join(' · ')}
                       </div>
@@ -1738,7 +1751,9 @@ export default function RestaurantPosPage() {
                         <button type="button" className="pos-link" onClick={() => setDisputeFor({ tabId: t.id, label: t.name, customerName: t.guestName || t.customerName || '' })}>{tr('Problem?')}</button>
                         {t.fulfillment === 'delivery' && !t.delivery && can('delivery') && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setTabsOpen(false); sendOut({ tabId: t.id }); }}>🛵 {tr('Send')}</button>}
                         <button type="button" className="btn btn-secondary tl-btn" onClick={() => openTab(t, false)}>{tr('Open')}</button>
-                        {onDuty('charge') && <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>}
+                        {onDuty('charge') && (t.delivery && t.delivery.toCollect > 0 && t.delivery.status !== 'failed'
+                          ? <button type="button" className="btn btn-primary tl-btn" onClick={() => { setTabsOpen(false); setHandIn(t); }}>💵 {tr('Money in')}</button>
+                          : <button type="button" className="btn btn-primary tl-btn" onClick={() => openTab(t, true)}>{tr('Pay')}</button>)}
                       </div>
                     </div>
                   </li>
@@ -2102,6 +2117,10 @@ export default function RestaurantPosPage() {
             </div>
           </div>
         </div>
+      )}
+      {handIn && !checkoutOpen && (
+        <HandInDialog token={session.token} tab={handIn} onClose={() => setHandIn(null)}
+          onDone={(r) => { setHandIn(null); loadTabs(); loadShift(); refreshDrawer(); setToast(tr('{ref}: {amount} in the drawer.', { ref: r.delivery.ref, amount: money(r.delivery.money.handed.amount) }) + (r.delivery.money.short > 0 ? ' ' + tr('Short by {amount}: a manager will see it.', { amount: money(r.delivery.money.short) }) : '')); }} />
       )}
       {sendFor && (
         <Suspense fallback={null}>

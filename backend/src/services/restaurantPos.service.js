@@ -11,6 +11,7 @@ var access = require('./restaurantTillAccess.service');
 var activity = require('./restaurantActivity.service');
 var screens = require('./restaurantKdsScreens.service');
 var disputes = require('./restaurantDisputes.service');
+function deliveries() { return require('./restaurantDelivery.service'); }
 var tillMenu = require('./restaurantTillMenu.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
@@ -470,6 +471,14 @@ async function createOrder(token, p) {
       await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
       // Its delivery, or the website order it came from, now goes with the sale.
       await client.query('UPDATE restaurant_deliveries SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
+      // The money its rider brought back is in: handed in (restaurantDelivery
+      // handIn, with what was counted), or the order simply paid here.
+      var outs = (await client.query("SELECT * FROM restaurant_deliveries WHERE tab_id = $1 AND company_id = $2 AND status NOT IN ('cancelled', 'failed') AND handed_at IS NULL AND to_collect > 0",
+        [tab.id, session.posCompanyId])).rows;
+      for (var k = 0; k < outs.length; k++) {
+        var h = p.handIn && p.handIn.deliveryId === outs[k].id ? p.handIn : { amount: subtotal, method: plan.method, note: '', short: 0 };
+        await deliveries().recordHandIn(client, session, outs[k], h, order.id);
+      }
       await client.query("UPDATE restaurant_online_orders SET order_id = $1, status = 'done', updated_at = now() WHERE tab_id = $2 AND company_id = $3 AND status = 'accepted'",
         [order.id, tab.id, session.posCompanyId]);
       await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
@@ -526,11 +535,13 @@ async function tabRows(companyId, where, args) {
   // A delivery gone out with a rider (restaurantDelivery send), and a website order it came from.
   if (out.length) {
     var ids = out.map(function (t) { return t.id; });
-    var ds = (await pool.query("SELECT tab_id, number, status, rider_name FROM restaurant_deliveries WHERE tab_id = ANY($1::uuid[]) AND status <> 'cancelled' ORDER BY created_at DESC", [ids])).rows;
+    var ds = (await pool.query("SELECT id, tab_id, number, status, rider_name, to_collect, collect_method, collected_amount, collected_method, collected_at, collected_note FROM restaurant_deliveries " +
+      "WHERE tab_id = ANY($1::uuid[]) AND status <> 'cancelled' ORDER BY created_at DESC", [ids])).rows;
     var oo = (await pool.query('SELECT tab_id, number FROM restaurant_online_orders WHERE tab_id = ANY($1::uuid[])', [ids])).rows;
     out.forEach(function (t) {
       var d = ds.find(function (x) { return x.tab_id === t.id; });
-      t.delivery = d ? { ref: 'D-' + String(d.number).padStart(3, '0'), status: d.status, riderName: d.rider_name } : null;
+      t.delivery = d ? { id: d.id, ref: 'D-' + String(d.number).padStart(3, '0'), status: d.status, riderName: d.rider_name, toCollect: Number(d.to_collect), collectMethod: d.collect_method,
+        collected: d.collected_at ? { amount: Number(d.collected_amount), method: d.collected_method, at: d.collected_at, note: d.collected_note || '' } : null } : null;
       var o = oo.find(function (x) { return x.tab_id === t.id; });
       t.onlineRef = o ? 'W-' + String(o.number).padStart(4, '0') : null;
     });

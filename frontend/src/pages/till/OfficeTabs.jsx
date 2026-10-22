@@ -205,7 +205,7 @@ export function DrawersTab({ token, pin, onFail, onActivity }) {
 }
 
 // ── disputes ──
-const KIND_LABEL = { complaint: msg('Complaint'), wrong_charge: msg('Wrong charge'), drawer_short: msg('Drawer short'), other: msg('Other problem') };
+const KIND_LABEL = { complaint: msg('Complaint'), wrong_charge: msg('Wrong charge'), drawer_short: msg('Drawer short'), rider_short: msg('Rider short'), other: msg('Other problem') };
 const RESOLUTION_LABEL = { refunded: msg('Refunded'), remade: msg('Made again'), discounted: msg('Discounted'), written_off: msg('Written off'), no_action: msg('Nothing to do'), other: msg('Other') };
 export function kindLabel(k) { return KIND_LABEL[k] ? tr(KIND_LABEL[k]) : k; }
 

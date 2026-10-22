@@ -118,6 +118,7 @@ function Steps({ d, progress }) {
 
 export function ActiveCard({ d, now, fetchedAt, here, selected, onSelect, onStatus, onReassign, onCopied }) {
   const [ending, setEnding] = useState(null); // 'failed' | 'cancelled'
+  const [taking, setTaking] = useState(false); // delivered: what was collected
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const spot = riderSpot(d, here, now, fetchedAt);
@@ -151,9 +152,11 @@ export function ActiveCard({ d, now, fetchedAt, here, selected, onSelect, onStat
         <strong>{d.toCollect > 0 ? money(d.toCollect) : '✓'}</strong>
         <small>{d.toCollect > 0 ? tr('to collect · {method}', { method: payName(d.collectMethod) }) : tr('paid')}</small>
       </div>
-      {!ending ? (
+      {taking ? (
+        <CollectForm d={d} busy={busy} onBack={() => setTaking(false)} onDone={(c) => run(async () => { await onStatus('delivered', '', c); setTaking(false); })} />
+      ) : !ending ? (
         <div className="dl-actions" onClick={(e) => e.stopPropagation()}>
-          {next && <button type="button" className="btn dl-go" disabled={busy} onClick={() => run(() => onStatus(next[0]))}>{next[1]}</button>}
+          {next && <button type="button" className="btn dl-go" disabled={busy} onClick={() => (next[0] === 'delivered' && d.toCollect > 0 ? setTaking(true) : run(() => onStatus(next[0])))}>{next[1]}</button>}
           {d.riderLink && <a className="btn btn-secondary dl-share" href={waLink(d.rider.phone, share)} target="_blank" rel="noopener noreferrer">💬 {tr('Send the rider their link')}</a>}
           <div className="dl-more">
             {d.riderLink && <button type="button" className="pos-link" onClick={copy}>{tr('Copy link')}</button>}
@@ -176,6 +179,63 @@ export function ActiveCard({ d, now, fetchedAt, here, selected, onSelect, onStat
   );
 }
 
+// What the rider collected at the door, said when it is delivered (on the
+// rider's page, or the delivery screen for them): how the customer paid and
+// how much — less than the order needs the reason (backend restaurantDelivery
+// collectedFrom).
+export function CollectForm({ d, busy, onDone, onBack, big }) {
+  const owed = d.money ? d.money.owed : d.toCollect;
+  const [method, setMethod] = useState(d.collectMethod || 'cash');
+  const [amount, setAmount] = useState(String(owed));
+  const [why, setWhy] = useState('');
+  const n = Number(amount);
+  const valid = amount !== '' && Number.isFinite(n) && n >= 0;
+  const short = valid && n < owed - 0.004 ? Math.round((owed - n) * 100) / 100 : 0;
+  return (
+    <div className={'dl-take' + (big ? ' is-big' : '')} onClick={(e) => e.stopPropagation()}>
+      <strong className="dl-take-title">💵 {tr('Collect {amount}', { amount: money(owed) })}</strong>
+      <span className="dl-answer-label">{tr('How did the customer pay?')}</span>
+      <div className="dl-pay-pick" role="radiogroup" aria-label={tr('How did the customer pay?')}>
+        {['cash', 'mobile_money'].map((m) => (
+          <button key={m} type="button" role="radio" aria-checked={method === m} className={method === m ? 'is-on' : ''} onClick={() => setMethod(m)}>{m === 'cash' ? '💵' : '📱'} {payName(m)}</button>
+        ))}
+      </div>
+      {method === 'mobile_money' && <p className="dl-hint">{tr('Check the customer\'s Mobile Money message shows the payment to the restaurant\'s number.')}</p>}
+      <label className="dl-take-amount"><span>{tr('Amount collected')}</span>
+        <input className="input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))} /></label>
+      {short > 0 && (
+        <>
+          <p className="dl-take-short">⚠️ {tr('{amount} less than the order.', { amount: money(short) })}</p>
+          <input className="input" value={why} maxLength={200} onChange={(e) => setWhy(e.target.value)} placeholder={tr('Why less? e.g. the customer had only part of it')} />
+        </>
+      )}
+      <div className="dl-answer-go">
+        <button type="button" className="btn dl-go" disabled={busy || !valid || (short > 0 && !why.trim())} onClick={() => onDone({ amount: n, method, note: why.trim() })}>
+          ✅ {tr('Collected {amount} · Delivered', { amount: money(valid ? n : 0) })}
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={onBack}>{tr('Back')}</button>
+      </div>
+    </div>
+  );
+}
+
+// Where a delivery's money stands: with the rider to hand in, handed in (in
+// full, or short), in a line.
+export function MoneyLine({ d }) {
+  const m = d.money;
+  if (!m || m.state === 'none' || m.state === 'to_collect') return null;
+  if (m.state === 'with_rider') {
+    return (
+      <p className="dl-money-line is-held">💵 {tr('{name} has {amount} ({method}) to hand in', { name: d.rider.name, amount: money(m.collected.amount), method: payName(m.collected.method) })}
+        {m.short > 0 && <em> · {tr('{amount} less than the order: {why}', { amount: money(m.short), why: m.collected.note })}</em>}</p>
+    );
+  }
+  return (
+    <p className={'dl-money-line ' + (m.short > 0 ? 'is-short' : 'is-in')}>{m.short > 0 ? '⚠️' : '✅'} {tr('{amount} handed in to {name} at {time}', { amount: money(m.handed.amount), name: m.handed.by || '—', time: timeOf(m.handed.at) })}
+      {m.short > 0 && <em> · {tr('short by {amount}', { amount: money(m.short) })}</em>}</p>
+  );
+}
+
 export function DoneCard({ d, selected, onSelect }) {
   const took = d.endedAt ? Math.max(1, Math.round((new Date(d.endedAt) - new Date(d.createdAt)) / 60000)) : null;
   const ok = d.status === 'delivered';
@@ -186,7 +246,8 @@ export function DoneCard({ d, selected, onSelect }) {
         <span className="dl-kind">{statusName(d.status)}{took ? ' · ' + tr('in {m}', { m: minText(took) }) : ''}</span>
         <span className="dl-wait">{timeOf(d.endedAt)}</span>
       </header>
-      <p className="dl-done-line"><strong>{d.customer.name}</strong> · {vehicleEmoji(d.rider.vehicle)} {d.rider.name}{d.toCollect > 0 ? ' · ' + tr('{amount} collected', { amount: money(d.toCollect) }) : ''}</p>
+      <p className="dl-done-line"><strong>{d.customer.name}</strong> · {vehicleEmoji(d.rider.vehicle)} {d.rider.name}</p>
+      <MoneyLine d={d} />
       {d.note && <p className="dl-note">✎ {d.note}</p>}
     </article>
   );

@@ -3,17 +3,18 @@ var { fail } = require('../utils/errors');
 var activity = require('./restaurantActivity.service');
 
 // Disputes (migration 0158): a customer's complaint about an order, a
-// wrong charge, or a drawer counted short. Staff raise complaints and wrong
+// wrong charge, a drawer counted short, or a rider handing in less than a
+// delivery came to (0162, restaurantDelivery handIn). Staff raise complaints and wrong
 // charges on the till against an order (raise); a drawer closed short
 // opens one by itself (openForDrawer, from restaurantPos.closeDrawer). A
 // manager sees them in the till settings and resolves each — refunded,
 // made again, discounted, written off, nothing to do — with a note, or
 // opens it again (restaurantTillAccess.disputes).
 
-var KINDS = ['complaint', 'wrong_charge', 'drawer_short', 'other'];
+var KINDS = ['complaint', 'wrong_charge', 'drawer_short', 'rider_short', 'other'];
 var RAISED_ON_TILL = ['complaint', 'wrong_charge', 'other'];
 var RESOLUTIONS = ['refunded', 'remade', 'discounted', 'written_off', 'no_action', 'other'];
-var KIND_NAME = { complaint: 'Complaint', wrong_charge: 'Wrong charge', drawer_short: 'Drawer short', other: 'Problem' };
+var KIND_NAME = { complaint: 'Complaint', wrong_charge: 'Wrong charge', drawer_short: 'Drawer short', rider_short: 'Rider short', other: 'Problem' };
 
 function text(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }

@@ -19,6 +19,12 @@ var roads = require('./restaurantRoutes.service');
 // settings (settingsOf); the website's orders are restaurantOnline.service.js.
 //
 //   assigned → picked_up → arrived → delivered      (or failed / cancelled)
+//
+// Its money (migration 0162): what there is to collect at the door; what the
+// rider says they collected when it is delivered (collected_*); what the
+// cashier took from them on the till, the open order charged into their
+// drawer (handIn, or the order simply paid there: restaurantPos createOrder)
+// — handed_*. Handed in short is a dispute for a manager.
 
 var VEHICLES = ['motorbike', 'bicycle', 'car', 'on_foot'];
 var ACTIVE = ['assigned', 'picked_up', 'arrived'];
@@ -208,6 +214,16 @@ function addressOf(tabAddress, online) {
   var tail = online && online.landmark ? ' · ' + online.landmark : '';
   return tail && a.slice(-tail.length) === tail ? a.slice(0, -tail.length) : a;
 }
+// Where the money stands: nothing to collect; to collect; with the rider
+// (collected, not handed in); handed in — in full, or short.
+function moneyOut(d) {
+  var owed = round2(d.to_collect || 0);
+  var collected = d.collected_at ? { amount: round2(d.collected_amount), method: d.collected_method, at: d.collected_at, note: d.collected_note || '' } : null;
+  var handed = d.handed_at ? { amount: round2(d.handed_amount), method: d.handed_method, at: d.handed_at, by: d.handed_by_name || null, note: d.handed_note || '' } : null;
+  var state = !(owed > 0) ? 'none' : handed ? 'handed' : collected ? 'with_rider' : 'to_collect';
+  var short = handed ? Math.max(0, round2(owed - handed.amount)) : collected ? Math.max(0, round2(owed - collected.amount)) : 0;
+  return { state: state, owed: owed, collected: collected, handed: handed, short: short };
+}
 function minutesSince(ts) { return ts ? Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 60000)) : null; }
 function deliveryOut(d, opts) {
   opts = opts || {};
@@ -220,6 +236,7 @@ function deliveryOut(d, opts) {
     riderAt: d.rider_lat != null ? { lat: d.rider_lat, lng: d.rider_lng, at: d.rider_seen_at, ageSeconds: Math.max(0, Math.round((Date.now() - new Date(d.rider_seen_at).getTime()) / 1000)) } : null,
     trail: ACTIVE.indexOf(d.status) >= 0 && Array.isArray(d.rider_trail) ? d.rider_trail : [],
     route: ACTIVE.indexOf(d.status) >= 0 && d.route ? d.route : null,
+    money: moneyOut(d),
     distanceKm: d.distance_km == null ? null : Number(d.distance_km), etaMinutes: d.eta_minutes,
     note: d.note, sentBy: d.sent_by_name || null,
     createdAt: d.created_at, pickedUpAt: d.picked_up_at, arrivedAt: d.arrived_at, endedAt: d.ended_at, minutes: minutesSince(d.created_at)
@@ -230,8 +247,8 @@ function deliveryOut(d, opts) {
   }
   return out;
 }
-var DELIVERY_SELECT = "SELECT d.*, e.first_name || ' ' || e.last_name AS sent_by_name, oo.number AS online_number FROM restaurant_deliveries d " +
-  'LEFT JOIN employees e ON e.id = d.sent_by LEFT JOIN restaurant_online_orders oo ON oo.id = d.online_order_id ';
+var DELIVERY_SELECT = "SELECT d.*, e.first_name || ' ' || e.last_name AS sent_by_name, he.first_name || ' ' || he.last_name AS handed_by_name, oo.number AS online_number FROM restaurant_deliveries d " +
+  'LEFT JOIN employees e ON e.id = d.sent_by LEFT JOIN employees he ON he.id = d.handed_by LEFT JOIN restaurant_online_orders oo ON oo.id = d.online_order_id ';
 
 // What is waiting to go out: open delivery orders (and website pickups),
 // and delivery sales paid at the till, with no delivery yet — each with
@@ -296,13 +313,18 @@ async function board(token) {
   var waiting = await waitingToGo(company);
   var co = (await pool.query('SELECT code, name FROM companies WHERE id = $1', [company])).rows[0];
   var delivered = done.filter(function (d) { return d.status === 'delivered'; });
+  // Money the riders still hold, from today or before.
+  var toHandIn = (await pool.query(DELIVERY_SELECT + 'WHERE d.company_id = $1 AND d.collected_at IS NOT NULL AND d.handed_at IS NULL ORDER BY d.collected_at', [company])).rows
+    .map(function (d) { return deliveryOut(d); });
   var avg = delivered.length ? Math.round(delivered.reduce(function (a, d) { return a + Math.max(0, (new Date(d.endedAt) - new Date(d.createdAt)) / 60000); }, 0) / delivered.length) : null;
   return {
     company: { code: co.code, name: co.name }, settings: settings, siteUrl: shopUrl(co.code),
     pending: pending, cooking: waiting.filter(function (w) { return w.stage === 'cooking'; }), ready: waiting.filter(function (w) { return w.stage === 'ready'; }),
     active: active, done: done, turnedDown: turnedDown, riders: await riderList(company),
     totals: { delivered: delivered.length, failed: done.filter(function (d) { return d.status === 'failed'; }).length, averageMinutes: avg,
-      collected: round2(delivered.reduce(function (a, d) { return a + d.toCollect; }, 0)) },
+      collected: round2(delivered.reduce(function (a, d) { return a + d.toCollect; }, 0)),
+      withRiders: round2(toHandIn.reduce(function (a, d) { return a + d.money.collected.amount; }, 0)), toHandIn: toHandIn.length },
+    toHandIn: toHandIn,
     can: { settings: session.access.role === 'manager' }
   };
 }
@@ -393,7 +415,22 @@ async function deliveryOfCompany(client, company, id) {
   return d;
 }
 // The next step: forward only, and an ended delivery stays ended.
-async function moveTo(client, d, status, note, by) {
+// What the rider collected at the door, said when it is delivered (by the
+// rider, or the delivery screen for them): the amount and how it was paid;
+// less than the order needs the reason.
+function collectedFrom(d, c) {
+  var owed = round2(d.to_collect || 0);
+  if (!(owed > 0)) return null;
+  if (!c || typeof c !== 'object') fail('invalid', 'Say what was collected from the customer: ' + owed.toFixed(2) + ' to collect.');
+  var amount = c.amount === undefined || c.amount === null || c.amount === '' ? owed : round2(c.amount);
+  if (!(amount >= 0 && amount < 1000000)) fail('invalid', 'How much was collected is not right.');
+  var method = V.oneOf(c.method || d.collect_method || 'cash', ['cash', 'mobile_money'], 'How the customer paid');
+  var note = cleanText(c.note, 300);
+  if (amount < owed - 0.004 && !note) fail('invalid', 'Less than ' + owed.toFixed(2) + ' was collected: say why.');
+  return { amount: amount, method: method, note: note };
+}
+function moneyText(amount, method) { return Number(amount).toFixed(2) + (method === 'mobile_money' ? ' by Mobile Money' : ' in cash'); }
+async function moveTo(client, d, status, note, by, collected) {
   if (ENDED.indexOf(d.status) >= 0) fail('conflict', 'D-' + String(d.number).padStart(3, '0') + ' is ' + STATUS_NAME[d.status].toLowerCase() + ' already.');
   if (STEP[status] <= STEP[d.status] && status !== 'failed' && status !== 'cancelled') return d;
   if ((status === 'failed' || status === 'cancelled') && !cleanText(note, 300)) fail('invalid', status === 'failed' ? 'Say why it could not be delivered.' : 'Say why it is cancelled.');
@@ -401,11 +438,18 @@ async function moveTo(client, d, status, note, by) {
   if (status === 'picked_up' || (STEP[status] >= 1 && !d.picked_up_at && status !== 'cancelled' && status !== 'failed')) sets.push('picked_up_at = coalesce(picked_up_at, now())');
   if (status === 'arrived' || (status === 'delivered' && !d.arrived_at)) sets.push('arrived_at = coalesce(arrived_at, now())');
   if (ENDED.indexOf(status) >= 0) sets.push('ended_at = now()');
-  if (note) sets.push('note = $3');
-  var row = (await client.query('UPDATE restaurant_deliveries SET ' + sets.join(', ') + ' WHERE id = $1 RETURNING *', note ? [d.id, status, cleanText(note, 300)] : [d.id, status])).rows[0];
+  var args = [d.id, status];
+  if (note) { args.push(cleanText(note, 300)); sets.push('note = $' + args.length); }
+  var got = status === 'delivered' && !d.collected_at ? collectedFrom(d, collected) : null;
+  if (got) {
+    args.push(got.amount, got.method, got.note);
+    sets.push('collected_amount = $' + (args.length - 2), 'collected_method = $' + (args.length - 1), 'collected_note = $' + args.length, 'collected_at = now()');
+  }
+  var row = (await client.query('UPDATE restaurant_deliveries SET ' + sets.join(', ') + ' WHERE id = $1 RETURNING *', args)).rows[0];
   await activity.log(client, { companyId: d.company_id, employeeId: by.employeeId || null, app: by.app, action: 'delivery.' + status,
-    summary: 'D-' + String(d.number).padStart(3, '0') + ' (' + (d.label || d.customer_name) + '): ' + STATUS_NAME[status].toLowerCase() + (by.rider ? ', said ' + d.rider_name : '') + (note ? ': ' + cleanText(note, 120) : '') + '.',
-    refType: 'delivery', refId: d.id });
+    summary: 'D-' + String(d.number).padStart(3, '0') + ' (' + (d.label || d.customer_name) + '): ' + STATUS_NAME[status].toLowerCase() + (by.rider ? ', said ' + d.rider_name : '') + (note ? ': ' + cleanText(note, 120) : '') +
+      (got ? '; ' + d.rider_name + ' collected ' + moneyText(got.amount, got.method) + (got.note ? ' (' + got.note + ')' : '') : '') + '.',
+    amount: got ? got.amount : null, refType: 'delivery', refId: d.id });
   return row;
 }
 // POST /api/pos/delivery/:id/status { status, note } — from the delivery screen.
@@ -415,7 +459,7 @@ async function setStatus(token, id, p) {
   var status = V.oneOf(p.status, ['picked_up', 'arrived', 'delivered', 'failed', 'cancelled'], 'Status');
   await withTransaction(async function (client) {
     var d = await deliveryOfCompany(client, session.posCompanyId, id);
-    await moveTo(client, d, status, p.note, { employeeId: session.posEmployeeId, app: 'delivery' });
+    await moveTo(client, d, status, p.note, { employeeId: session.posEmployeeId, app: 'delivery' }, p.collected);
   });
   if (status === 'picked_up') later(refreshRoute(id, 'restaurant'));
   return { delivery: deliveryOut((await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1', [id])).rows[0], { link: true }) };
@@ -443,6 +487,70 @@ async function reassign(token, id, p) {
   });
   later(refreshRoute(id, 'restaurant')); // their vehicle may ride other roads
   return { delivery: deliveryOut((await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1', [id])).rows[0], { link: true }) };
+}
+
+// POST /api/pos/delivery/:id/hand-in { amount, method, note } — the cashier
+// takes the money from the rider (or sees a Mobile Money payment arrive):
+// the open order is charged into their drawer, as on the till, and the
+// delivery says who took how much and when (restaurantPos createOrder,
+// p.handIn). Less than the order came to needs the reason, and opens a
+// dispute for a manager. An order paid already is only marked handed in.
+async function handIn(token, id, p) {
+  var session = await access.need(token, 'charge');
+  p = p || {};
+  var company = session.posCompanyId;
+  var d = (await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1 AND d.company_id = $2', [id, company])).rows[0];
+  if (!d) fail('notfound', 'That delivery is not this restaurant\'s.');
+  var refName = 'D-' + String(d.number).padStart(3, '0');
+  if (d.handed_at) fail('conflict', 'The money for ' + refName + ' was handed in already.');
+  var owed = round2(d.to_collect || 0);
+  if (!(owed > 0)) fail('invalid', 'There is no money to hand in for ' + refName + ': it was paid before it went out.');
+  if (d.status === 'failed' || d.status === 'cancelled') fail('invalid', refName + ' was not delivered, so there is no money from it.');
+  var amount = p.amount === undefined || p.amount === null || p.amount === '' ? (d.collected_at ? round2(d.collected_amount) : owed) : round2(p.amount);
+  if (!(amount >= 0 && amount < 1000000)) fail('invalid', 'How much was handed in is not right.');
+  var method = V.oneOf(p.method || d.collected_method || d.collect_method || 'cash', ['cash', 'mobile_money'], 'How it was paid');
+  var note = cleanText(p.note, 300);
+  var short = amount < owed - 0.004 ? round2(owed - amount) : 0;
+  if (short && !note) fail('invalid', 'Short by ' + short.toFixed(2) + ': say why.');
+  var handIn = { deliveryId: d.id, amount: amount, method: method, note: note, short: short, ref: refName, riderName: d.rider_name };
+  // Money back means the food got there: a delivery still on its way is
+  // delivered, with what came back as what was collected.
+  if (ACTIVE.indexOf(d.status) >= 0) {
+    await withTransaction(async function (client) {
+      await moveTo(client, await deliveryOfCompany(client, company, d.id), 'delivered', null, { employeeId: session.posEmployeeId, app: 'till' }, { amount: amount, method: method, note: note || (short ? 'short' : '') });
+    });
+    d = (await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1', [d.id])).rows[0];
+  }
+  var tab = d.tab_id ? (await pool.query('SELECT * FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2', [d.tab_id, company])).rows[0] : null;
+  var sale = null;
+  if (tab) {
+    // The open order paid as the till would, in the way the customer paid.
+    sale = await pos().createOrder(token, {
+      tabId: tab.id, items: tab.items, fulfillment: tab.fulfillment || 'delivery', customerName: tab.customer_name, customerPhone: tab.customer_phone, deliveryAddress: tab.delivery_address,
+      guestId: tab.guest_id || undefined, waiterId: tab.waiter_id || undefined,
+      payments: [method === 'cash' && amount > owed ? { method: 'cash', tendered: amount } : { method: method }],
+      handIn: handIn
+    });
+  } else {
+    await withTransaction(async function (client) { await recordHandIn(client, session, d, handIn, d.order_id); });
+  }
+  return { delivery: deliveryOut((await pool.query(DELIVERY_SELECT + 'WHERE d.id = $1', [d.id])).rows[0]), sale: sale };
+}
+// The money in: on the delivery, in the activity log, and short — a dispute.
+async function recordHandIn(client, session, d, h, orderId) {
+  var up = await client.query('UPDATE restaurant_deliveries SET handed_amount = $2, handed_method = $3, handed_note = $4, handed_by = $5, handed_at = now() WHERE id = $1 AND handed_at IS NULL RETURNING id',
+    [d.id, h.amount, h.method, h.note || '', session.posEmployeeId]);
+  if (!up.rows[0]) return;
+  var refName = 'D-' + String(d.number).padStart(3, '0');
+  await activity.log(client, { companyId: d.company_id, employeeId: session.posEmployeeId, app: 'till', action: 'delivery.handed',
+    summary: refName + ': ' + moneyText(h.amount, h.method) + ' handed in by ' + d.rider_name + (h.short ? ', short by ' + h.short.toFixed(2) : '') + (h.note ? ' (' + h.note + ')' : '') + '.',
+    amount: h.amount, refType: 'delivery', refId: d.id });
+  if (h.short) {
+    await require('./restaurantDisputes.service').insert(client, {
+      companyId: d.company_id, kind: 'rider_short', orderId: orderId || null, amount: h.short, openedBy: session.posEmployeeId, customerName: d.customer_name || '',
+      description: d.rider_name + ' handed in ' + h.amount.toFixed(2) + ' of ' + round2(d.to_collect).toFixed(2) + ' for ' + refName + (d.collected_at && Math.abs(round2(d.collected_amount) - h.amount) > 0.004 ? ' (said ' + round2(d.collected_amount).toFixed(2) + ' was collected)' : '') + ': ' + h.note
+    });
+  }
 }
 
 // ── the rider's link (no sign-in: the link is the key) ──
@@ -582,7 +690,7 @@ async function riderStatus(raw, p) {
   var status = V.oneOf(p.status, ['picked_up', 'arrived', 'delivered', 'failed'], 'Status');
   await withTransaction(async function (client) {
     var d = await byRiderToken(client, raw, true);
-    await moveTo(client, d, status, p.note, { app: 'delivery', rider: true });
+    await moveTo(client, d, status, p.note, { app: 'delivery', rider: true }, p.collected);
   });
   if (status === 'picked_up') later(refreshRoute((await byRiderToken(pool, raw)).id, 'restaurant'));
   return riderView(raw);
@@ -597,5 +705,5 @@ async function forOnline(onlineId) {
 module.exports = {
   VEHICLES: VEHICLES, settingsOf: settingsOf, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
   settings: settings, setOpen: setOpen, riders: riders, board: board, send: send, setStatus: setStatus, reassign: reassign,
-  shopUrl: shopUrl, mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
+  handIn: handIn, recordHandIn: recordHandIn, shopUrl: shopUrl, mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
 };

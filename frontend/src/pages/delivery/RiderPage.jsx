@@ -6,7 +6,8 @@ import { tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from './DeliveryMap';
-import { kmText, minText, navLink, payName, rideLeft, riderSpot, routePoints, statusName, stepOf, telLink, trafficMinutes, vehicleEmoji, waLink, wayOf } from './dlShared';
+import { kmText, minText, navLink, payName, rideLeft, riderSpot, routePoints, statusName, stepOf, telLink, timeOf, trafficMinutes, vehicleEmoji, waLink, wayOf } from './dlShared';
+import { CollectForm } from './DlCards';
 import './delivery.css';
 
 // A rider's page (delivery.starbartema.com/r/<their link>): no sign-in, the
@@ -28,6 +29,7 @@ export default function RiderPage({ token }) {
   const [sharing, setSharing] = useState(() => (navigator.geolocation ? 'off' : 'unsupported'));
   const [busy, setBusy] = useState(false);
   const [failing, setFailing] = useState(false);
+  const [taking, setTaking] = useState(false); // delivered: saying what was collected
   const [note, setNote] = useState('');
   const [fitKey, setFitKey] = useState('start');
   const lastSent = useRef(0);
@@ -62,9 +64,9 @@ export default function RiderPage({ token }) {
   useEffect(() => { if (!active && watch.current != null) { navigator.geolocation.clearWatch(watch.current); watch.current = null; } }, [active]);
   useEffect(() => () => { if (watch.current != null) navigator.geolocation.clearWatch(watch.current); }, []);
 
-  async function step(status, why) {
+  async function step(status, why, collected) {
     setBusy(true);
-    try { setD(await posFetch('POST', '/pos/rider/' + encodeURIComponent(token) + '/status', null, { status, note: why })); setFetchedAt(Date.now()); setFailing(false); setFitKey(status); }
+    try { setD(await posFetch('POST', '/pos/rider/' + encodeURIComponent(token) + '/status', null, { status, note: why, collected })); setFetchedAt(Date.now()); setFailing(false); setTaking(false); setFitKey(status); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -123,11 +125,22 @@ export default function RiderPage({ token }) {
         </div>
         <ol className="dl-rp-steps">{[tr('Pick up'), tr('On the way'), tr('At the door'), tr('Delivered')].map((l, i) => <li key={i} className={i < at ? 'is-done' : i === at && active ? 'is-now' : ''}>{l}</li>)}</ol>
 
-        {active && next && !failing && <button type="button" className="btn dl-go dl-rp-next" disabled={busy} onClick={() => step(next[0])}>{busy ? tr('Saving…') : next[1]}</button>}
+        {taking && <CollectForm big d={d} busy={busy} onBack={() => setTaking(false)} onDone={(c) => step('delivered', '', c)} />}
+        {active && next && !failing && !taking && (
+          <button type="button" className="btn dl-go dl-rp-next" disabled={busy} onClick={() => (next[0] === 'delivered' && d.toCollect > 0 ? setTaking(true) : step(next[0]))}>{busy ? tr('Saving…') : next[1]}</button>
+        )}
         {target && active && <a className="btn btn-secondary dl-rp-nav" href={navLink(target.lat, target.lng)} target="_blank" rel="noopener noreferrer">🧭 {d.status === 'assigned' ? tr('Directions to the restaurant') : tr('Directions to the customer')}</a>}
 
-        {d.toCollect > 0 && (
+        {d.toCollect > 0 && d.money.state === 'to_collect' && !taking && (
           <div className="dl-rp-collect"><span>{tr('Collect')}</span><strong>{money(d.toCollect)}</strong><small>{payName(d.collectMethod)}</small></div>
+        )}
+        {d.money.state === 'with_rider' && (
+          <div className="dl-rp-collect is-held"><span>{tr('Hand to the cashier')}</span><strong>{money(d.money.collected.amount)}</strong>
+            <small>{tr('You collected it: {method}, {time}.', { method: payName(d.money.collected.method), time: timeOf(d.money.collected.at) })}</small></div>
+        )}
+        {d.money.state === 'handed' && (
+          <div className={'dl-rp-collect ' + (d.money.short > 0 ? 'is-short' : 'is-in')}><span>{d.money.short > 0 ? tr('Handed in, short') : tr('Handed in ✓')}</span><strong>{money(d.money.handed.amount)}</strong>
+            <small>{tr('{amount} handed in to {name} at {time}', { amount: money(d.money.handed.amount), name: d.money.handed.by || '—', time: timeOf(d.money.handed.at) })}</small></div>
         )}
         <div className="dl-rp-card">
           <span className="dl-rp-card-ico" aria-hidden="true">🏠</span>

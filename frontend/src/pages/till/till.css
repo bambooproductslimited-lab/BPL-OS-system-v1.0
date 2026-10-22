@@ -39,6 +39,7 @@
 .tl-dialog-ico { display: grid; place-items: center; width: 50px; height: 50px; border-radius: 16px; color: #fff; background: linear-gradient(135deg, #8b5cf6, #6d28d9); box-shadow: 0 14px 28px -16px #6d28d9; }
 .tl-dialog-ico .dk-icon { width: 24px; height: 24px; }
 .tl-dialog-ico.is-delivery { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+.tl-dialog-ico.is-money { font-size: 24px; background: linear-gradient(135deg, #34d399, #059669); box-shadow: 0 14px 28px -16px #059669; }
 .tl-dialog-ico.is-send { background: linear-gradient(135deg, #38bdf8, #2563eb); box-shadow: 0 14px 28px -16px #2563eb; }
 .tl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tl-chip { padding: 7px 12px; font: inherit; font-size: 12.5px; font-weight: 700; color: var(--color-text); background: var(--pos-soft); border: 1px solid var(--pos-line); border-radius: 999px; cursor: pointer; }
@@ -327,6 +328,23 @@
 .tl-out { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; font-size: 11px; font-weight: 800; color: #1d4ed8; border-radius: 999px; background: rgba(37, 99, 235, .12); vertical-align: 1px; }
 .tl-out.is-delivered { color: #047857; background: rgba(16, 185, 129, .14); }
 .tl-out.is-failed { color: #b91c1c; background: rgba(220, 38, 38, .12); }
+.tl-cash { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 8px; font-size: 11px; font-weight: 800; color: #854d0e; border-radius: 999px; background: rgba(234, 179, 8, .2); vertical-align: 1px; }
+:root[data-theme='dark'] .tl-cash { color: #fde68a; }
+
+/* The money a rider brought back (HandInDialog). */
+.pos-shell .tl-handin-says { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; font-size: 13.5px; font-weight: 700; border-radius: 14px; background: rgba(234, 179, 8, .14); border: 1px solid rgba(234, 179, 8, .4); }
+.pos-shell .tl-handin-says.is-none { font-weight: 600; background: var(--pos-soft, rgba(100, 116, 139, .1)); border-color: transparent; }
+.pos-shell .tl-handin-says small { display: block; margin-top: 2px; font-weight: 600; color: var(--color-text-muted); }
+.pos-shell .tl-handin-label { font-size: 11.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+.pos-shell .tl-handin-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pos-shell .tl-handin-pick button { padding: 12px 8px; font: inherit; font-weight: 800; color: var(--color-text); border-radius: 14px; border: 1px solid var(--pos-line, rgba(100, 116, 139, .25)); background: var(--pos-card, transparent); cursor: pointer; }
+.pos-shell .tl-handin-pick button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 10px 20px -12px #059669; }
+.pos-shell .tl-handin-amount { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 800; }
+.pos-shell .tl-handin-amount .input { font-size: 26px; font-weight: 800; height: 56px; }
+.pos-shell .tl-handin-short { margin: 0; font-size: 13.5px; font-weight: 800; color: #b91c1c; }
+.pos-shell .tl-handin-change { margin: 0; font-size: 14px; font-weight: 800; color: #047857; }
+:root[data-theme='dark'] .pos-shell .tl-handin-short { color: #fca5a5; }
+:root[data-theme='dark'] .pos-shell .tl-handin-change { color: #6ee7b7; }
 :root[data-theme='dark'] .tl-web { color: #fbbf24; }
 :root[data-theme='dark'] .tl-out { color: #93c5fd; }
 :root[data-theme='dark'] .tl-out.is-delivered { color: #6ee7b7; }

@@ -25,7 +25,7 @@ var company, people = {}, rice, juice, tok = {};
 async function cleanup() {
   var cos = (await pool.query("SELECT id FROM companies WHERE code = 'ZQD'")).rows.map(function (r) { return r.id; });
   if (cos.length) {
-    for (var q of ['DELETE FROM restaurant_deliveries WHERE company_id = ANY($1)', 'DELETE FROM restaurant_online_orders WHERE company_id = ANY($1)',
+    for (var q of ['DELETE FROM restaurant_disputes WHERE company_id = ANY($1)', 'DELETE FROM restaurant_deliveries WHERE company_id = ANY($1)', 'DELETE FROM restaurant_online_orders WHERE company_id = ANY($1)',
       'DELETE FROM restaurant_riders WHERE company_id = ANY($1)', 'DELETE FROM restaurant_delivery_settings WHERE company_id = ANY($1)',
       'DELETE FROM restaurant_kitchen_tickets WHERE company_id = ANY($1)', 'DELETE FROM restaurant_open_tabs WHERE company_id = ANY($1)',
       'DELETE FROM restaurant_order_payments WHERE order_id IN (SELECT id FROM restaurant_orders WHERE company_id = ANY($1))',
@@ -197,8 +197,14 @@ test('accepted, it is an open order on the till and in the kitchen; turned down,
   assert.equal((await delivery.board(tok.desk)).active.find(function (x) { return x.id === sent.id; }).trail.length, 2);
   await assert.rejects(delivery.riderStatus(link, { status: 'failed' }), /Say why it could not be delivered/);
   await delivery.riderStatus(link, { status: 'arrived' });
-  var done = await delivery.riderStatus(link, { status: 'delivered' });
+  // Delivered: the rider says what they collected — the money is with them until handed in.
+  await assert.rejects(delivery.riderStatus(link, { status: 'delivered' }), /Say what was collected/);
+  await assert.rejects(delivery.riderStatus(link, { status: 'delivered', collected: { amount: 10, method: 'cash' } }), /was collected: say why/);
+  var done = await delivery.riderStatus(link, { status: 'delivered', collected: { method: 'cash' } });
   assert.ok(done.endedAt && done.arrivedAt && done.pickedUpAt);
+  assert.deepEqual([done.money.state, done.money.collected.amount, done.money.collected.method], ['with_rider', a.order.total, 'cash']);
+  var held = await delivery.board(tok.desk);
+  assert.deepEqual([held.totals.withRiders, held.totals.toHandIn, held.toHandIn[0].id], [a.order.total, 1, sent.id]);
   assert.equal((await online.track(a.token)).stage, 'delivered');
   await assert.rejects(delivery.riderStatus(link, { status: 'arrived' }), /delivered already/);
 
@@ -210,6 +216,10 @@ test('accepted, it is an open order on the till and in the kitchen; turned down,
   var oo = (await pool.query('SELECT status, order_id FROM restaurant_online_orders WHERE id = $1', [aId])).rows[0];
   assert.deepEqual([oo.status, oo.order_id], ['done', paid.id]);
   assert.equal((await pool.query('SELECT order_id FROM restaurant_deliveries WHERE id = $1', [sent.id])).rows[0].order_id, paid.id);
+  // Paid on the till: the money is in, taken by the cashier who charged it.
+  var paidIn = (await delivery.riderView(link)).money;
+  assert.deepEqual([paidIn.state, paidIn.handed.amount, paidIn.handed.method, paidIn.handed.by, paidIn.short], ['handed', a.order.total, 'cash', 'Ama Zqd', 0]);
+  assert.equal((await delivery.board(tok.desk)).totals.withRiders, 0);
   board = await delivery.board(tok.desk);
   assert.ok(!board.ready.some(function (w) { return w.orderId === paid.id; }), 'delivered, so not waiting to go');
   assert.ok(board.done.some(function (x) { return x.id === sent.id && x.status === 'delivered'; }));
@@ -372,4 +382,40 @@ test('the road with its traffic: asked when sent and when picked up, again when 
     config.googleRoutesKey = was;
     roadsSvc.setFetchForTests(null);
   }
+});
+
+test('the money back from a rider: the cashier counts it in on the till; short, a dispute; paid already, nothing to hand in', async function () {
+  var rider = { name: 'Zqd Kobina', phone: '0200000760', vehicle: 'motorbike' };
+  var sendTab = async function (name) {
+    var tab = await pos.saveTab(tok.ama, { fulfillment: 'delivery', customerName: name, customerPhone: '0200000761', deliveryAddress: 'Zqd Lane 11', items: [{ menuItemId: rice, qty: 2 }] });
+    return (await delivery.send(tok.desk, { tabId: tab.id, rider: rider, collectMethod: 'cash' })).delivery;
+  };
+  // Collected in full, counted in full: the order is charged into the cashier's drawer.
+  var d1 = await sendTab('Zqd Esi');
+  var link1 = d1.riderLink.split('/r/')[1];
+  await delivery.riderStatus(link1, { status: 'picked_up' });
+  await delivery.riderStatus(link1, { status: 'delivered', collected: { amount: 100, method: 'mobile_money' } });
+  await assert.rejects(delivery.handIn(tok.yaw, d1.id, {}), /cannot|not allowed|charge/i);
+  var r1 = await delivery.handIn(tok.ama, d1.id, {});
+  assert.deepEqual([r1.delivery.money.state, r1.delivery.money.handed.amount, r1.delivery.money.handed.method, r1.sale.total, r1.sale.paymentMethod], ['handed', 100, 'mobile_money', 100, 'mobile_money']);
+  assert.equal((await pool.query('SELECT 1 FROM restaurant_open_tabs WHERE id = $1', [d1.tabId])).rows.length, 0);
+  await assert.rejects(delivery.handIn(tok.ama, d1.id, {}), /handed in already/);
+
+  // Handed in short: the reason, and a dispute for a manager. Still on its
+  // way when the money came back: delivered by it.
+  var d2 = await sendTab('Zqd Araba');
+  await assert.rejects(delivery.handIn(tok.ama, d2.id, { amount: 80, method: 'cash' }), /Short by 20\.00: say why/);
+  var r2 = await delivery.handIn(tok.ama, d2.id, { amount: 80, method: 'cash', note: 'Zqd customer was short' });
+  assert.deepEqual([r2.delivery.status, r2.delivery.money.state, r2.delivery.money.short, r2.sale.total], ['delivered', 'handed', 20, 100]);
+  var dispute = (await pool.query("SELECT kind, amount, description, order_id FROM restaurant_disputes WHERE company_id = $1 AND kind = 'rider_short'", [company.id])).rows[0];
+  assert.deepEqual([dispute.kind, Number(dispute.amount), dispute.order_id], ['rider_short', 20, r2.sale.id]);
+  assert.match(dispute.description, /Zqd Kobina handed in 80\.00 of 100\.00 for D-\d{3}: Zqd customer was short/);
+
+  // Paid before it went out: nothing to collect, nothing to hand in.
+  var sale = await pos.createOrder(tok.ama, { fulfillment: 'delivery', customerName: 'Zqd Paid', customerPhone: '0200000762', deliveryAddress: 'Zqd Lane 12', items: [{ menuItemId: juice, qty: 1 }], payments: [{ method: 'cash' }] });
+  var d3 = (await delivery.send(tok.desk, { orderId: sale.id, rider: rider })).delivery;
+  assert.equal(d3.money.state, 'none');
+  await assert.rejects(delivery.handIn(tok.ama, d3.id, {}), /no money to hand in/);
+  var link3 = d3.riderLink.split('/r/')[1];
+  assert.equal((await delivery.riderStatus(link3, { status: 'delivered' })).money.state, 'none');
 });

@@ -36,6 +36,8 @@ router.post('/delivery/online/:id/accept', h(function (req) { return online.acce
 router.post('/delivery/online/:id/reject', h(function (req) { return online.reject(posToken(req), req.params.id, body(req)); }));
 router.post('/delivery/:id/status', h(function (req) { return delivery.setStatus(posToken(req), req.params.id, body(req)); }));
 router.post('/delivery/:id/rider', h(function (req) { return delivery.reassign(posToken(req), req.params.id, body(req)); }));
+// The cashier takes the money a rider brought back: the order charged into their drawer.
+router.post('/delivery/:id/hand-in', h(function (req) { return delivery.handIn(posToken(req), req.params.id, body(req)); }));
 
 // ── a rider's link ──
 router.get('/rider/:token', h(function (req) { return delivery.riderView(req.params.token); }));

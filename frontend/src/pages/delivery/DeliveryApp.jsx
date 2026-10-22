@@ -7,11 +7,11 @@ import { playNewTicket, unlockAudio } from '../../kiosk/kioskSounds';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { Icon } from '../../components/DashKit';
 import DeliveryMap from './DeliveryMap';
-import { ActiveCard, DoneCard, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
+import { ActiveCard, DoneCard, MoneyLine, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
 import { SendDialog, SettingsDialog } from './DlDialogs';
 import RidersPanel from './DlRiders';
 import { money } from '../../lib/currency';
-import { chipOf, kmText, minText, payName, riderSpot, statusName, trafficMinutes, vehicleEmoji, vehicleName, wayOf } from './dlShared';
+import { chipOf, kmText, minText, payName, riderSpot, sinceText, statusName, trafficMinutes, vehicleEmoji, vehicleName, wayOf } from './dlShared';
 import '../till/till.css';
 import '../../components/DashKit.css';
 import '../RestaurantPosPage.css';
@@ -227,6 +227,7 @@ function Desk({ session, onSignOut, themeButton }) {
           <Stat tone="cooking" n={counts.cooking} label={tr('cooking')} onClick={() => setTab('cooking')} />
           <Stat tone="ready" n={counts.ready} label={tr('ready to go')} onClick={() => setTab('ready')} />
           <Stat tone="road" n={counts.road} label={tr('on the way')} onClick={() => setTab('road')} />
+          {board.totals.withRiders > 0 && <Stat tone="held" n={money(board.totals.withRiders)} label={tr('with riders, to hand in')} onClick={() => setTab('done')} />}
           <Stat tone="done" n={board.totals.delivered} label={board.totals.averageMinutes != null ? tr('delivered · {m} on average', { m: minText(board.totals.averageMinutes) }) : tr('delivered today')} onClick={() => setTab('done')} />
         </div>
         <div className="dl-tools">
@@ -263,9 +264,18 @@ function Desk({ session, onSignOut, themeButton }) {
             )) : <Empty icon="📦" title={tr('Nothing waiting to go out')} text={tr('When the kitchen marks a delivery ready, it comes here to send with a rider.')} />)}
             {tab === 'road' && (board.active.length ? board.active.map((d) => (
               <ActiveCard key={d.id} d={d} now={now} fetchedAt={fetchedAt} here={here} selected={selected === 'd:' + d.id} onSelect={() => pick('d:' + d.id)}
-                onStatus={(status, note) => act('/pos/delivery/' + d.id + '/status', { status, note }, () => setToast(d.ref + ': ' + statusName(status)))}
+                onStatus={(status, note, collected) => act('/pos/delivery/' + d.id + '/status', { status, note, collected }, () => setToast(d.ref + ': ' + statusName(status)))}
                 onReassign={() => setSending({ reassign: d })} onCopied={() => setToast(tr('Link copied.'))} />
             )) : <Empty icon="🛵" title={tr('No riders out')} text={tr('Deliveries on their way show here, with where the rider is.')} />)}
+            {tab === 'done' && board.toHandIn.length > 0 && (
+              <div className="dl-handin">
+                <strong>💵 {tr('Money with riders: {amount}', { amount: money(board.totals.withRiders) })}</strong>
+                <small>{tr('The cashier counts it in on the till when the rider hands it over.')}</small>
+                <ul className="is-plain">
+                  {board.toHandIn.map((d) => <li key={d.id}><b>{d.ref}</b><MoneyLine d={d} /><span className="dl-wait">{sinceText(d.money.collected.at, now)}</span></li>)}
+                </ul>
+              </div>
+            )}
             {tab === 'done' && (board.done.length || board.turnedDown.length ? <>
               {board.done.map((d) => <DoneCard key={d.id} d={d} selected={selected === 'd:' + d.id} onSelect={() => setSelected('d:' + d.id)} />)}
               {board.turnedDown.map((o) => <TurnedDownCard key={o.id} o={o} />)}
