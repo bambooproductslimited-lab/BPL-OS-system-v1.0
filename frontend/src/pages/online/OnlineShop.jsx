@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
-import { API_ORIGIN } from '../../api/client';
 import { money } from '../../lib/currency';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
 import { tr } from '../../lib/i18n.jsx';
@@ -8,6 +7,8 @@ import { applyTheme, getInitialTheme, THEME_KEY } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
 import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShared';
+import ItemSheet from './ItemSheet';
+import { lineKey, photo, tint } from './onlineShared';
 import './online.css';
 
 // The restaurant's website (online.starbartema.com): its menu with photos,
@@ -23,16 +24,12 @@ const ME_KEY = 'bamboo.online.me';
 const ORDERS_KEY = 'bamboo.online.orders';
 function load(key, dflt) { try { return JSON.parse(localStorage.getItem(key) || 'null') || dflt; } catch { return dflt; } }
 function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* not kept */ } }
-function photo(u) { return u ? API_ORIGIN + u : null; }
 function roadKm(a, b) {
   if (!a || !b) return null;
   const R = 6371, rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
   return Math.round(2 * R * Math.asin(Math.sqrt(x)) * 1.3 * 10) / 10;
 }
-const PALETTE = ['#f97316', '#ef4444', '#10b981', '#2563eb', '#8b5cf6', '#ec4899', '#eab308', '#14b8a6'];
-function tint(name) { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; }
-function lineKey(l) { return l.id + ':' + (l.variationId || '') + ':' + (l.note || ''); }
 // The times on offer one day, from its first to its last, step minutes apart.
 function slotsOf(from, to, step) {
   const m = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -197,44 +194,6 @@ function Basket({ basket, subtotal, setQty, onCheckout, open, later }) {
       </ul>
       <div className="on-sum"><span>{tr('Food')}</span><strong>{money(subtotal)}</strong></div>
       <button type="button" className="on-go" disabled={!open && !later} onClick={onCheckout}>{open ? tr('Checkout') : later ? '🗓️ ' + tr('Order for later') : tr('Not taking orders right now')}</button>
-    </div>
-  );
-}
-
-// A dish: its photo, its size, how many, a note for the kitchen.
-function ItemSheet({ item, onClose, onAdd }) {
-  const [variation, setVariation] = useState(item.variations[0] || null);
-  const [qty, setQty] = useState(1);
-  const [note, setNote] = useState('');
-  const price = variation ? variation.price : item.price;
-  return (
-    <div className="on-sheet-back" onClick={onClose}>
-      <div className="on-sheet" role="dialog" aria-modal="true" aria-label={item.name} onClick={(e) => e.stopPropagation()}>
-        <div className="on-sheet-pic" style={{ '--c': tint(item.name) }}>
-          {item.photoFull ? <img src={photo(item.photoFull)} alt="" /> : <b>{item.name.replace(/^zq\s+/i, '').charAt(0)}</b>}
-          <button type="button" className="on-x" onClick={onClose} aria-label={tr('Close')}>✕</button>
-        </div>
-        <div className="on-sheet-body">
-          <h2>{item.name}</h2>
-          <p className="on-price">{money(price)}</p>
-          {item.variations.length > 0 && (
-            <div className="on-vars" role="radiogroup" aria-label={tr('Choose one')}>
-              {item.variations.map((v) => (
-                <button key={v.id} type="button" role="radio" aria-checked={variation && variation.id === v.id} className={variation && variation.id === v.id ? 'is-on' : ''} onClick={() => setVariation(v)}>
-                  <span>{v.name}</span><b>{money(v.price)}</b>
-                </button>
-              ))}
-            </div>
-          )}
-          <label className="on-field"><span>{tr('A note for the kitchen')}</span><input className="input" value={note} maxLength={140} onChange={(e) => setNote(e.target.value)} placeholder={tr('e.g. no pepper, extra sauce')} /></label>
-          <div className="on-sheet-go">
-            <span className="on-qty is-big"><button type="button" onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr('One less')}>−</button><b>{qty}</b><button type="button" onClick={() => setQty(Math.min(50, qty + 1))} aria-label={tr('One more')}>+</button></span>
-            <button type="button" className="on-go" onClick={() => onAdd({ id: item.id, variationId: variation ? variation.id : null, name: item.name + (variation ? ' — ' + variation.name : ''), price, qty, note: note.trim() })}>
-              {tr('Add · {amount}', { amount: money(price * qty) })}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

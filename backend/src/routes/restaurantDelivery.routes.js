@@ -1,6 +1,7 @@
 var express = require('express');
 var delivery = require('../services/restaurantDelivery.service');
 var online = require('../services/restaurantOnline.service');
+var tables = require('../services/restaurantTableOrders.service');
 
 // Deliveries and the website's orders (migration 0159) — mounted at
 // /api/pos in app.js beside the till's own routes, so the delivery screen
@@ -8,7 +9,9 @@ var online = require('../services/restaurantOnline.service');
 // (config.restaurantSiteOrigins). Three kinds of caller:
 //   the delivery screen and the till — a till-session token (PIN sign-in);
 //   a rider — the link they were sent, /rider/:token;
-//   a customer — no sign-in to order; their order's link, /online/track/:token.
+//   a customer — no sign-in to order; their order's link, /online/track/:token;
+//   at a table, its QR code (/table/:code) and their order's key.
+// Orders from the table (migration 0166) are answered on the till.
 
 var router = express.Router();
 
@@ -53,5 +56,18 @@ router.get('/online/:code/menu', h(function (req) { return online.menu(req.param
 router.post('/online/:code/orders', h(function (req) { return online.place(req.params.code, body(req), req.ip); }));
 router.get('/online/track/:token', h(function (req) { return online.track(req.params.token); }));
 router.post('/online/track/:token/cancel', h(function (req) { return online.cancel(req.params.token); }));
+
+// ── ordering from the table (its QR code) ──
+router.get('/table/orders/:token', h(function (req) { return tables.track(req.params.token); }));
+router.post('/table/orders/:token/cancel', h(function (req) { return tables.cancel(req.params.token); }));
+router.get('/table/:code', h(function (req) { return tables.page(req.params.code); }));
+router.post('/table/:code/orders', h(function (req) { return tables.place(req.params.code, body(req), req.ip); }));
+router.post('/table/:code/call', h(function (req) { return tables.call(req.params.code, body(req), req.ip); }));
+// On the till: what the tables ask for, answered.
+router.get('/table-orders', h(function (req) { return tables.inbox(posToken(req)); }));
+router.post('/table-orders/:id/accept', h(function (req) { return tables.accept(posToken(req), req.params.id, body(req)); }));
+router.post('/table-orders/:id/reject', h(function (req) { return tables.reject(posToken(req), req.params.id, body(req)); }));
+router.post('/table-calls/:id/answer', h(function (req) { return tables.answer(posToken(req), req.params.id); }));
+router.post('/settings/table-qr', h(function (req) { return tables.qrCodes(posToken(req), body(req), req.ip); }));
 
 module.exports = router;

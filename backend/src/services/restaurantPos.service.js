@@ -104,6 +104,36 @@ function verifyPosToken(token) {
   return payload;
 }
 
+// ── taken while the till was offline (migration 0167) ──
+// A sale or an order for the kitchen made while the till could not reach
+// the server is kept on the till and sent when it can, with a reference of
+// its own (clientRef): sent again, it is the one already made, not another.
+var CLIENT_REF = /^[A-Za-z0-9_-]{8,64}$/;
+function clientRefOf(p) {
+  if (!p.clientRef) return null;
+  var r = String(p.clientRef);
+  if (!CLIENT_REF.test(r)) fail('invalid', 'That order\'s reference from the till is not right.');
+  return r;
+}
+// When an offline sale was taken: the till's time, if it is in the last
+// three days and not ahead of now.
+function takenAtOf(v) {
+  var d = v ? new Date(v) : null;
+  if (!d || isNaN(d.getTime())) return null;
+  var now = Date.now();
+  if (d.getTime() > now + 5 * 60000 || d.getTime() < now - 3 * 86400000) return null;
+  return new Date(Math.min(d.getTime(), now));
+}
+// The sale a reference made already, as createOrder returns it; or null.
+async function saleByRef(companyId, clientRef) {
+  var o = (await pool.query('SELECT * FROM restaurant_orders WHERE company_id = $1 AND client_ref = $2', [companyId, clientRef])).rows[0];
+  if (!o) return null;
+  var items = (await pool.query('SELECT menu_item_id, name, qty, unit_price, line_total, note, custom FROM restaurant_order_items WHERE order_id = $1 ORDER BY sort_order', [o.id])).rows
+    .map(function (r) { return { menuItemId: r.menu_item_id, name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total), note: r.note, custom: r.custom }; });
+  var paid = (await money.paymentsOf(pool, [o.id])).get(o.id) || [];
+  return Object.assign(rowToOrder(o, items, paid), { kitchenTicket: null, vipBalance: null, replayed: true });
+}
+
 // payments: the parts it was paid in (restaurantTillMoney.paymentsOf), or
 // none for a sale from before they were kept.
 function rowToOrder(order, items, payments) {
@@ -113,7 +143,7 @@ function rowToOrder(order, items, payments) {
   return {
     id: order.id, companyId: order.company_id, orderNo: order.order_no, cashierId: order.cashier_id,
     subtotal: Number(order.subtotal), total: Number(order.total), paymentMethod: order.payment_method,
-    status: order.status, createdAt: order.created_at,
+    status: order.status, createdAt: order.created_at, offlineAt: order.offline_at || null,
     tableId: order.table_id, waiterId: order.waiter_id, guestId: order.guest_id,
     fulfillment: order.fulfillment || '', customerName: order.customer_name || '', customerPhone: order.customer_phone || '', deliveryAddress: order.delivery_address || '',
     cashTendered: cashGiven,
@@ -422,7 +452,22 @@ async function priceLines(client, companyId, items, allowCustom) {
 async function createOrder(token, p) {
   var session = await access.need(token, 'charge');
   p = p || {};
+  var clientRef = clientRefOf(p);
+  if (clientRef) {
+    var made = await saleByRef(session.posCompanyId, clientRef);
+    if (made) return made;
+  }
+  try {
+    return await chargeOrder(session, p, clientRef);
+  } catch (e) {
+    // Sent twice at once: the other one made it.
+    if (clientRef && e.code === '23505') { var again = await saleByRef(session.posCompanyId, clientRef); if (again) return again; }
+    throw e;
+  }
+}
+async function chargeOrder(session, p, clientRef) {
   var tillSettings = session.access.settings;
+  var takenAt = clientRef ? takenAtOf(p.takenAt) : null;
   if (tillSettings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
   var asked = Array.isArray(p.payments) && p.payments.length ? p.payments
     : [{ method: p.paymentMethod || 'cash', tendered: p.cashTendered }];
@@ -443,8 +488,15 @@ async function createOrder(token, p) {
     var lines = priced.lines;
     var subtotal = priced.subtotal;
     // A new sale cannot take more than is left of a counted dish; an open
-    // order's food was sent already and is always paid.
-    if (!tab) await tillMenu.checkOrder(client, session.posCompanyId, lines, null, null);
+    // order's food was sent already and is always paid, and so is a sale
+    // taken while the till was offline.
+    if (!tab && !takenAt) await tillMenu.checkOrder(client, session.posCompanyId, lines, null, null);
+    // Taken offline: on the books when it was taken (not before the drawer opened).
+    var at = null;
+    if (takenAt) {
+      var opened = (await client.query("SELECT opened_at FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
+      at = opened && new Date(opened.opened_at) > takenAt ? new Date(opened.opened_at) : takenAt;
+    }
     var plan = money.planPayments(session, subtotal, asked);
 
     var companyRes = await client.query('SELECT code FROM companies WHERE id = $1', [session.posCompanyId]);
@@ -453,10 +505,10 @@ async function createOrder(token, p) {
 
     var orderRes = await client.query(
       'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id, cash_tendered, ' +
-      '  fulfillment, customer_name, customer_phone, delivery_address) ' +
-      'VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',
+      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at) ' +
+      'VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,coalesce($16, now())) RETURNING *',
       [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, plan.method, refs.tableId, refs.waiterId, refs.guestId, plan.cashTendered,
-        type.fulfillment, type.customerName, type.customerPhone, type.deliveryAddress]
+        type.fulfillment, type.customerName, type.customerPhone, type.deliveryAddress, clientRef, takenAt, at]
     );
     var order = orderRes.rows[0];
     for (var j = 0; j < lines.length; j++) {
@@ -492,7 +544,7 @@ async function createOrder(token, p) {
       await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
     }
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.sale',
-      summary: 'Sale ' + orderNo + ': ' + subtotal.toFixed(2) + ' by ' + money.paymentText(plan.rows) +
+      summary: 'Sale ' + orderNo + (takenAt ? ' (taken offline at ' + takenAt.toISOString().slice(11, 16) + ')' : '') + ': ' + subtotal.toFixed(2) + ' by ' + money.paymentText(plan.rows) +
         (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + (names.tableName && type.fulfillment !== 'pickup' && type.fulfillment !== 'delivery' ? ' · ' + names.tableName : '') +
         (names.guestName ? ' · ' + names.guestName : '') + '.',
       amount: subtotal, refType: 'order', refId: order.id,
@@ -575,6 +627,19 @@ async function saveTab(token, p) {
 // (restaurantOnline accept).
 async function saveTabFor(session, p) {
   p = p || {};
+  // Sent from the till while it was offline, and made already: that one.
+  var clientRef = p.id ? null : clientRefOf(p);
+  var made = clientRef ? (await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND client_ref = $2', [session.posCompanyId, clientRef])).rows[0] : null;
+  if (made) return Object.assign((await tabRows(session.posCompanyId, ' AND t.id = $2', [made.id]))[0], { kitchenTicket: null, replayed: true });
+  try {
+    return await keepTab(session, p, clientRef);
+  } catch (e) {
+    var again = clientRef && e.code === '23505' ? (await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND client_ref = $2', [session.posCompanyId, clientRef])).rows[0] : null;
+    if (again) return Object.assign((await tabRows(session.posCompanyId, ' AND t.id = $2', [again.id]))[0], { kitchenTicket: null, replayed: true });
+    throw e;
+  }
+}
+async function keepTab(session, p, clientRef) {
   if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
   var refs = await resolveRefs(pool, company, p);
@@ -607,9 +672,9 @@ async function saveTabFor(session, p) {
       id = up.rows[0].id;
     } else {
       id = (await client.query(
-        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by, fulfillment, customer_name, customer_phone, delivery_address) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id',
-        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId, type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress])).rows[0].id;
+        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by, fulfillment, customer_name, customer_phone, delivery_address, client_ref) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id',
+        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId, type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress, clientRef])).rows[0].id;
     }
     var names = await refNames(client, refs, type);
     var ticket = await kitchen.fire(client, company, Object.assign({

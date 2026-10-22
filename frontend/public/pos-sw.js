@@ -4,13 +4,16 @@
 // mirrors exactly for the same reason: a till device installed via "Add
 // to Home Screen" needs its own app shell cached so the PIN pad and menu
 // grid still load with zero connectivity, not just when the API is
-// unreachable).
+// unreachable). With the page open, the till sells on without the internet:
+// what it makes is kept on the device and sent when the server answers
+// (pages/till/tillOffline.js) — that is the page's doing, never this
+// worker's.
 //
 // Bump CACHE_NAME on any change here so old caches get cleared on
 // activate (harmless if forgotten — just means a stale cache lingers as
 // dead weight until the next bump, never served, since cache lookups are
 // exact-URL).
-var CACHE_NAME = 'bamboo-pos-v2';
+var CACHE_NAME = 'bamboo-pos-v3';
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -31,9 +34,10 @@ self.addEventListener('activate', function (event) {
 self.addEventListener('fetch', function (event) {
   var req = event.request;
   // Only ever cache GET requests for the app shell itself. API calls
-  // (menu load, order create, PIN login) must always hit the real network
-  // untouched — a till showing a stale cached menu or silently "succeeding"
-  // a sale offline would be a real problem, not a convenience.
+  // (menu load, order create, PIN login) always hit the real network
+  // untouched: the page knows when they fail and keeps what it made itself,
+  // openly (the menu it last loaded, the sales waiting to be sent), rather
+  // than a cached answer passing for the server's.
   if (req.method !== 'GET' || req.url.indexOf('/api/') !== -1) return;
   // Nor anything from another site (Google Fonts): fetched from in here it
   // would answer to this worker's Content-Security-Policy, whose

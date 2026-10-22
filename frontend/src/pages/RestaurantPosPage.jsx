@@ -23,8 +23,15 @@ import AzRail, { azGroups, sectionId } from './till/AzRail';
 import { CustomItemDialog, DeliveryDialog, DisputeDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
 import { StockTab } from './till/MenuStock';
 import PayInOutDialog from './till/PayInOutDialog';
+import TableInbox from './till/TableInbox';
+import OfflineQueue from './till/OfflineQueue';
 import {
-  FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName, moveLabel
+  OFFLINE_METHODS, cacheLoad, cacheSave, draftClear, draftLoad, draftSave, enqueue, fetchOrGiveUp, flush, isLocal, isNetworkError, newRef, onQueue, queueList,
+  resolveIds, serverAnswers
+} from './till/tillOffline';
+import { playNewTicket } from '../kiosk/kioskSounds';
+import {
+  FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName, moveLabel, round2
 } from './till/tillShared';
 import { statusName } from './delivery/dlShared';
 import './till/till.css';
@@ -289,6 +296,16 @@ export default function RestaurantPosPage() {
   const [kitchen, setKitchen] = useState(null); // { inUse, cooking, ready: [...] }
   const [kitchenOpen, setKitchenOpen] = useState(false);
   const [deliveryPrompt, setDeliveryPrompt] = useState(null); // a delivery's food ready to go out
+  const [tableBox, setTableBox] = useState(null); // what the tables ask for from their QR codes
+  const [tableBoxOpen, setTableBoxOpen] = useState(false);
+  const tableSeen = useRef(null);
+  // Without the internet (till/tillOffline.js): the till keeps selling;
+  // what it makes waits on this device (queued) until the server answers.
+  const [offline, setOffline] = useState(false);
+  const offlineRef = useRef(false);
+  const [queued, setQueued] = useState(queueList);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const coRef = useRef(null); // the restaurant signed in to, for what is kept on this device
   const [sendFor, setSendFor] = useState(null); // { target, riders, settings }: sending one out with a rider
   const prompted = useRef(new Set()); // tickets asked about already
   const [handIn, setHandIn] = useState(null); // an open delivery order: the money its rider brought back
@@ -332,6 +349,43 @@ export default function RestaurantPosPage() {
   useEffect(() => {
     if (!session || !session.token) return undefined;
     const t = setInterval(() => { loadKitchen(session.token); loadTabs(session.token); }, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+  // ── without the internet ──
+  useEffect(() => onQueue(setQueued), []);
+  useEffect(() => { offlineRef.current = offline; }, [offline]);
+  useEffect(() => {
+    const down = () => setOffline(true);
+    const up = () => { serverAnswers().then((ok) => { if (ok) backOnline(); }); };
+    window.addEventListener('offline', down);
+    window.addEventListener('online', up);
+    return () => { window.removeEventListener('offline', down); window.removeEventListener('online', up); };
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Offline: is the server back? Every few seconds. Online: what waits is sent.
+  useEffect(() => {
+    if (!session) return undefined;
+    const t = setInterval(() => {
+      if (offlineRef.current) serverAnswers().then((ok) => { if (ok) backOnline(); });
+      else if (queueList().some((x) => !x.failed)) sendKept();
+    }, offline ? 8000 : 30000);
+    if (!offline && queueList().some((x) => !x.failed)) sendKept();
+    return () => clearInterval(t);
+  }, [session, offline]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The order being taken, kept on this device as it changes.
+  useEffect(() => {
+    if (!session || !coRef.current) return;
+    if (!cart.length && !currentTab) { draftClear(coRef.current); return; }
+    draftSave(coRef.current, { cart, fulfillment, selectedTable, selectedWaiter, selectedGuest, delivery, kitchenNote, currentTab, sentLines, at: Date.now() });
+  }, [session, cart, fulfillment, selectedTable, selectedWaiter, selectedGuest, delivery, kitchenNote, currentTab, sentLines]);
+
+  // The tables' QR orders and calls, asked for every few seconds; something
+  // new rings and says so.
+  useEffect(() => {
+    if (!session || !session.token) return undefined;
+    tableSeen.current = null;
+    loadTableBox(session.token);
+    const t = setInterval(() => loadTableBox(session.token), 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -423,12 +477,16 @@ export default function RestaurantPosPage() {
     setMenuLoading(true);
     setMenuError(null);
     try {
-      const items = await posFetch('GET', '/pos/menu', token);
+      const items = await fetchOrGiveUp('GET', '/pos/menu', token);
       setMenu(items);
+      cacheSave(coRef.current, 'menu', items);
       return true;
     } catch (err) {
-      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
-      else setMenuError(err.message);
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); return false; }
+      // No internet: the menu this till last loaded.
+      const kept = isNetworkError(err) ? cacheLoad(coRef.current, 'menu') : null;
+      if (kept) { setMenu(kept); goneOffline(); return true; }
+      setMenuError(err.message);
       return false;
     } finally {
       setMenuLoading(false);
@@ -442,7 +500,9 @@ export default function RestaurantPosPage() {
   async function loadMostlyBought(token) {
     setMostlyBoughtLoading(true);
     try {
-      const list = await posFetch('GET', '/pos/menu/mostly-bought', token);
+      let list;
+      try { list = await posFetch('GET', '/pos/menu/mostly-bought', token); cacheSave(coRef.current, 'mostly', list); }
+      catch (e) { list = (isNetworkError(e) && cacheLoad(coRef.current, 'mostly')) || []; }
       setMostlyBought(list);
       // Nothing sold yet to rank: every dish instead.
       if (!list.length) setViewTab((v) => (v === 'mostly' ? 'all' : v));
@@ -464,8 +524,12 @@ export default function RestaurantPosPage() {
       ]);
       setTables(t);
       setWaiters(w);
+      cacheSave(coRef.current, 'tables', t);
+      cacheSave(coRef.current, 'waiters', w);
     } catch {
-      // Non-critical — the pickers just show an empty list if this fails.
+      // Non-critical — the pickers show what this till last loaded, or nothing.
+      setTables(cacheLoad(coRef.current, 'tables') || []);
+      setWaiters(cacheLoad(coRef.current, 'waiters') || []);
     }
   }
 
@@ -510,18 +574,86 @@ export default function RestaurantPosPage() {
       loadKitchen();
     } catch (err) { setToast(err.message); }
   }
+  function goneOffline() { if (!offlineRef.current) { offlineRef.current = true; setOffline(true); } }
+  function backOnline() {
+    offlineRef.current = false;
+    setOffline(false);
+    if (session) { loadMenu(session.token); loadTabs(); loadKitchen(); refreshDrawer(); loadShift(); }
+  }
+  // What this till kept while offline, sent now.
+  async function sendKept() {
+    if (!session) return;
+    const r = await flush(session.token);
+    if (r.offline) goneOffline();
+    if (r.signIn) setToast(tr('Sign in again to send what this till kept.'));
+    if (r.sent) {
+      setToast(r.sent === 1 ? tr('1 order kept on this till is now on the server.') : tr('{n} orders kept on this till are now on the server.', { n: r.sent }));
+      loadTabs(); loadKitchen(); refreshDrawer(); loadShift();
+    }
+  }
+  // The order that was being taken when the till stopped (the power, a reload), back.
+  function restoreDraft() {
+    const d = draftLoad(coRef.current);
+    if (!d || !d.cart || !d.cart.length || Date.now() - d.at > 12 * 3600000) return;
+    setCart(d.cart); setFulfillment(d.fulfillment || 'dine_in'); setSelectedTable(d.selectedTable || null); setSelectedWaiter(d.selectedWaiter || null);
+    setSelectedGuest(d.selectedGuest || null); setDelivery(d.delivery || { name: '', phone: '', address: '' }); setKitchenNote(d.kitchenNote || '');
+    setCurrentTab(d.currentTab || null); setSentLines(d.sentLines || []);
+    setToast(tr('The order you were taking is back on the till.'));
+  }
+  async function loadTableBox(token) {
+    let b;
+    try { b = await posFetch('GET', '/pos/table-orders', token || session.token); } catch { return; }
+    const ids = b.orders.map((o) => o.id).concat(b.calls.map((c) => c.id));
+    if (tableSeen.current) {
+      const fresh = b.orders.filter((o) => !tableSeen.current.has(o.id));
+      const calls = b.calls.filter((c) => !tableSeen.current.has(c.id));
+      if (fresh.length || calls.length) {
+        playNewTicket();
+        setToast(fresh.length ? tr('{table} ordered from the table.', { table: fresh[0].tableName })
+          : calls[0].kind === 'bill' ? tr('{table} asks for the bill.', { table: calls[0].tableName }) : tr('{table} calls the waiter.', { table: calls[0].tableName }));
+      }
+    }
+    tableSeen.current = new Set(ids);
+    setTableBox(b);
+  }
+  // A table asked for its bill: its open order, on the till to charge.
+  async function openBill(c) {
+    setTableBoxOpen(false);
+    let list = tabs;
+    try { list = await posFetch('GET', '/pos/tabs', session.token); setTabs(list); } catch { /* the list as it was */ }
+    const t = list.find((x) => x.tableId === c.tableId);
+    if (t) openTab(t, true); else setToast(tr('{table} has no open order on the till.', { table: c.tableName }));
+  }
   async function loadTabs(token) {
-    try { setTabs(await posFetch('GET', '/pos/tabs', token || session.token)); } catch { /* the open tables list just stays as it was */ }
+    try {
+      const list = await posFetch('GET', '/pos/tabs', token || session.token);
+      cacheSave(coRef.current, 'tabs', list);
+      setTabs(withKept(list));
+    } catch { setTabs((t) => (t.length ? withKept(t) : withKept(cacheLoad(coRef.current, 'tabs') || []))); }
+  }
+  // The open orders with what this till keeps to send: an order made or
+  // changed offline as it is now here, and one paid offline gone.
+  function withKept(list) {
+    const kept = queueList();
+    const paid = new Set(kept.filter((x) => x.kind === 'sale' && x.body.tabId).map((x) => x.body.tabId));
+    let out = list.filter((t) => !paid.has(t.id) && !(t.offline && !kept.some((x) => x.localId === t.id)));
+    kept.filter((x) => x.kind === 'tab' && x.snapshot).forEach((x) => {
+      const id = x.localId || x.body.id;
+      if (paid.has(id)) return;
+      out = out.some((t) => t.id === id) ? out.map((t) => (t.id === id ? { ...x.snapshot, id } : t)) : out.concat([{ ...x.snapshot, id }]);
+    });
+    return out;
   }
 
   // The drawer's running figures (cash sales so far), after each sale.
   async function refreshDrawer() {
-    try { const d = await posFetch('GET', '/pos/drawer', session.token); if (d) setDrawer(d); } catch { /* keeps the last figures */ }
+    try { const d = await posFetch('GET', '/pos/drawer', session.token); if (d) { setDrawer(d); cacheSave(coRef.current, 'drawer', d); } } catch { /* keeps the last figures */ }
   }
 
   async function loadAccess(token) {
     try {
       const a = await posFetch('GET', '/pos/access', token || session.token);
+      cacheSave(coRef.current, 'access', a);
       // Their role was changed to one that does not use the till.
       if (!a.can.till) { localStorage.removeItem(SESSION_KEY); setSession(null); setTillAccess(null); setLoginError(tr('Your role does not use the till. Ask a manager.')); return; }
       setTillAccess((prev) => {
@@ -532,7 +664,7 @@ export default function RestaurantPosPage() {
     }
     catch (err) {
       if (err.status === 401 || err.status === 403) { localStorage.removeItem(SESSION_KEY); setSession(null); setLoginError(err.status === 403 ? err.message : null); }
-      else setTillAccess((a) => a || FALLBACK_ACCESS);
+      else setTillAccess((a) => a || cacheLoad(coRef.current, 'access') || FALLBACK_ACCESS);
     }
   }
 
@@ -542,10 +674,13 @@ export default function RestaurantPosPage() {
     loadTabs(token);
     loadKitchen(token);
     try {
-      setDrawer(await posFetch('GET', '/pos/drawer', token));
-    } catch {
-      // Non-critical to the till loading — the open-drawer prompt below
-      // just won't have anything to show and the cashier can retry via it.
+      const d = await posFetch('GET', '/pos/drawer', token);
+      setDrawer(d);
+      cacheSave(coRef.current, 'drawer', d);
+    } catch (err) {
+      // No internet: the drawer as this till last saw it. Otherwise the
+      // open-drawer prompt below shows and the cashier can retry with it.
+      if (isNetworkError(err)) setDrawer(cacheLoad(coRef.current, 'drawer') || null);
     } finally {
       setDrawerChecked(true);
     }
@@ -566,7 +701,8 @@ export default function RestaurantPosPage() {
     const bump = () => { last = Date.now(); };
     const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
     events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
-    const t = setInterval(() => { if (Date.now() - last > idleMinutes * 60000) { logout('idle'); setIdleNote(idleMinutes); } }, 15000);
+    // Not while offline: nobody could sign in again until the internet is back.
+    const t = setInterval(() => { if (!offlineRef.current && Date.now() - last > idleMinutes * 60000) { logout('idle'); setIdleNote(idleMinutes); } }, 15000);
     return () => { events.forEach((e) => window.removeEventListener(e, bump)); clearInterval(t); };
   }, [session, idleMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -575,8 +711,9 @@ export default function RestaurantPosPage() {
     if (!saved) { setSessionChecked(true); return; }
     let parsed;
     try { parsed = JSON.parse(saved); } catch { localStorage.removeItem(SESSION_KEY); setSessionChecked(true); return; }
+    coRef.current = parsed.companyId || null;
     loadMenu(parsed.token).then((ok) => {
-      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); loadDrawer(parsed.token); loadTablesAndWaiters(parsed.token); }
+      if (ok) { setSession(parsed); loadMostlyBought(parsed.token); loadDrawer(parsed.token); loadTablesAndWaiters(parsed.token); restoreDraft(); }
       setSessionChecked(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -607,6 +744,7 @@ export default function RestaurantPosPage() {
     setLoginError(null);
     try {
       const s = await posFetch('POST', '/pos/login', null, { pin: fullPin, app: 'till' });
+      coRef.current = s.companyId || null;
       setIdleNote(null);
       setDrawerLeftOpen(false);
       localStorage.setItem(SESSION_KEY, JSON.stringify(s));
@@ -616,8 +754,9 @@ export default function RestaurantPosPage() {
       loadMostlyBought(s.token);
       loadDrawer(s.token);
       loadTablesAndWaiters(s.token);
+      restoreDraft();
     } catch (err) {
-      setLoginError(err.message);
+      setLoginError(isNetworkError(err) ? tr('No internet: the till cannot check a PIN now. Whoever was signed in stays signed in; sign in again when the internet is back.') : err.message);
       setPin('');
     } finally {
       setLoggingIn(false);
@@ -628,6 +767,7 @@ export default function RestaurantPosPage() {
   // cash drawer open: signing in again carries on with it, and only
   // counting and closing it ends it. The activity log notes the sign-out.
   function logout(reason) {
+    if (offlineRef.current && reason !== 'idle' && !window.confirm(tr('No internet: nobody can sign in to this till until it is back. Sign out anyway?'))) return;
     if (session) posFetch('POST', '/pos/logout', session.token, { reason: reason === 'idle' ? 'idle' : 'manual' }).catch(() => {});
     setDrawerLeftOpen(!!drawer);
     setOrdersOnly(false);
@@ -731,6 +871,11 @@ export default function RestaurantPosPage() {
   function openMovement(direction) { setMovementDirection(direction); }
 
   function openCloseDrawer() {
+    if (queued.length) {
+      setToast(tr('First send what this till kept while offline ({n}): the drawer counts it.', { n: queued.length }));
+      setQueueOpen(true);
+      return;
+    }
     setCloseDrawerError(null);
     setCloseActualCash('');
     setCloseNote('');
@@ -907,13 +1052,17 @@ export default function RestaurantPosPage() {
   async function submitCheckout(payments) {
     setCheckingOut(true);
     setCheckoutError(null);
+    // Its own reference: sent again (a slow answer, the internet back), it is still one sale.
+    const body = Object.assign({
+      items: cart.map(lineBody),
+      payments: payments,
+      tabId: currentTab ? currentTab.id : undefined,
+      kitchenNote: kitchenNote.trim() || undefined,
+      clientRef: newRef()
+    }, orderWho());
+    if (offline || (body.tabId && isLocal(body.tabId))) { keepSale(body, payments); setCheckingOut(false); return; }
     try {
-      const order = await posFetch('POST', '/pos/orders', session.token, Object.assign({
-        items: cart.map(lineBody),
-        payments: payments,
-        tabId: currentTab ? currentTab.id : undefined,
-        kitchenNote: kitchenNote.trim() || undefined
-      }, orderWho()));
+      const order = await fetchOrGiveUp('POST', '/pos/orders', session.token, resolveIds(body));
       // The order response only carries ids (see restaurantPos.service.js's
       // rowToOrder) — names come from what's already selected here, so the
       // receipt can show them without a second round trip.
@@ -929,10 +1078,38 @@ export default function RestaurantPosPage() {
       refreshDrawer();
     } catch (err) {
       if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); setCheckoutOpen(false); }
+      else if (isNetworkError(err)) { goneOffline(); keepSale(body, payments); }
       else setCheckoutError(err.message);
     } finally {
       setCheckingOut(false);
     }
+  }
+  // A sale with no server to take it: kept on this till with when it was
+  // taken, a receipt now, and sent when the internet is back. VIP and IOU
+  // need the customer's account on the server.
+  function keepSale(body, payments) {
+    if (payments.some((pm) => !OFFLINE_METHODS.includes(pm.method))) {
+      setCheckoutError(tr('No internet: VIP and IOU need the server. Take cash, Mobile Money, Alipay or WeChat Pay, or wait for the internet.'));
+      return;
+    }
+    const total = round2(cart.reduce((a, l) => a + l.price * l.qty, 0));
+    const label = currentTab ? currentTab.name : pickupLabel() || whereText();
+    enqueue({ kind: 'sale', ref: body.clientRef, body: { ...body, takenAt: new Date().toISOString() }, label, total, method: payments.length > 1 ? 'split' : payments[0].method });
+    const one = payments.length === 1 ? payments[0] : null;
+    const change = one && one.method === 'cash' && one.currency === 'GHS' && one.tendered != null ? round2(one.tendered - total) : null;
+    setReceipt({
+      id: body.clientRef, offline: true, orderNo: tr('Offline') + ' ' + body.clientRef.slice(-6).toUpperCase(), createdAt: new Date().toISOString(),
+      items: cart.map((l) => ({ name: l.name, qty: l.qty, unitPrice: l.price, lineTotal: round2(l.price * l.qty), note: l.note || '' })),
+      subtotal: total, total, paymentMethod: payments.length > 1 ? 'split' : payments[0].method,
+      payments: payments.map((pm) => ({ method: pm.method, currency: pm.currency || 'GHS', amount: pm.amount != null ? Number(pm.amount) : total, tendered: pm.tendered })),
+      cashTendered: one && one.method === 'cash' && one.tendered != null ? one.tendered : null, change: change != null && change > 0 ? change : null,
+      fulfillment, customerName: body.customerName || '', customerPhone: body.customerPhone || '', deliveryAddress: body.deliveryAddress || '',
+      tableName: fulfillment === 'dine_in' && selectedTable ? selectedTable.name : null, waiterName: fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : null,
+      guestName: selectedGuest ? selectedGuest.name : (body.customerName || null)
+    });
+    if (currentTab) setTabs((list) => list.filter((t) => t.id !== currentTab.id));
+    clearOrder();
+    setCheckoutOpen(false);
   }
 
   // ── open orders ──
@@ -969,11 +1146,16 @@ export default function RestaurantPosPage() {
     try {
       const who = orderWho();
       if (table) who.tableId = table.id;
-      const saved = await posFetch('POST', '/pos/tabs', session.token, Object.assign({
+      const body = Object.assign({
         id: currentTab ? currentTab.id : undefined, label: label || pickupLabel() || '',
         items: cart.map(lineBody),
-        kitchenNote: kitchenNote.trim() || undefined
-      }, who, { tableId: fulfillment === 'dine_in' && tbl ? tbl.id : undefined }));
+        kitchenNote: kitchenNote.trim() || undefined,
+        clientRef: currentTab ? undefined : newRef()
+      }, who, { tableId: fulfillment === 'dine_in' && tbl ? tbl.id : undefined });
+      if (offline || (body.id && isLocal(body.id))) { keepTab(body, tbl); return; }
+      let saved;
+      try { saved = await fetchOrGiveUp('POST', '/pos/tabs', session.token, resolveIds(body)); }
+      catch (e) { if (isNetworkError(e)) { goneOffline(); keepTab(body, tbl); return; } throw e; }
       setToast(saved.kitchenTicket
         ? tr('{name} sent to the kitchen as #{n}.', { name: tabName(saved), n: saved.kitchenTicket.number })
         : tr('{name} kept open. Pay it from Open orders.', { name: tabName(saved) }));
@@ -991,6 +1173,29 @@ export default function RestaurantPosPage() {
     } finally {
       setSavingTab(false);
     }
+  }
+  // An order for the kitchen with no server to take it: kept on this till,
+  // in Open orders as it is now, and sent when the internet is back — the
+  // kitchen is told by word of mouth meanwhile.
+  function keepTab(body, tbl) {
+    const ref = body.clientRef || newRef();
+    const id = body.id || 'local:' + ref;
+    const lines = cart.map((l) => ({ ...l, unitPrice: l.price, lineTotal: round2(l.price * l.qty), category: l.custom ? l.custom.category : undefined, fee: l.custom ? l.custom.fee : undefined }));
+    const total = round2(cart.reduce((a, l) => a + l.price * l.qty, 0));
+    const snapshot = {
+      id, offline: true, label: body.label || '', tableId: body.tableId || null, tableName: tbl ? tbl.name : null, waiterId: body.waiterId || null, waiterName: selectedWaiter ? selectedWaiter.name : null,
+      guestId: body.guestId || null, guestName: selectedGuest ? selectedGuest.name : null, guestPhone: selectedGuest ? selectedGuest.phone || '' : null,
+      fulfillment: body.fulfillment || fulfillment, customerName: body.customerName || '', customerPhone: body.customerPhone || '', deliveryAddress: body.deliveryAddress || '',
+      createdAt: currentTab && currentTab.createdAt ? currentTab.createdAt : new Date().toISOString(), lines, total, unavailable: 0, kitchen: null
+    };
+    enqueue({ kind: 'tab', ref, body: { ...body, clientRef: body.id ? undefined : ref }, localId: body.id ? null : id, label: tabName(snapshot), total, snapshot });
+    setTabs((list) => (list.some((t) => t.id === id) ? list.map((t) => (t.id === id ? snapshot : t)) : list.concat([snapshot])));
+    setToast(tr('No internet: {name} is kept on this till. Tell the kitchen now; it reaches the kitchen screen when the internet is back.', { name: tabName(snapshot) }));
+    setKeepDialog(null);
+    setSendConfirm(false);
+    setCartOpen(false);
+    clearOrder();
+    setSavingTab(false);
   }
   function tabName(t) {
     if (t.fulfillment === 'pickup' || t.fulfillment === 'delivery') return t.label || t.customerName || t.guestName || fulfillmentName(t.fulfillment);
@@ -1368,6 +1573,7 @@ export default function RestaurantPosPage() {
           )}
           {!receipt.reprint && receipt.vipBalance != null && <p className="dk-muted">{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</p>}
           {!receipt.reprint && receipt.kitchenTicket && <p className="pos-sent"><Icon name="send" />{tr('Sent to the kitchen as #{n}.', { n: receipt.kitchenTicket.number })}</p>}
+          {receipt.offline && <p className="pos-offline-note">📡 {tr('Taken without the internet: kept on this till and sent to the server when it is back. Its number comes then.')}</p>}
           <p className="dk-muted">{receipt.reprint ? tr('A copy of an order from this shift.') : tr('Print the receipt if the guest wants one, then start the next sale.')}</p>
           {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
           <div className="pos-done-actions">
@@ -1576,6 +1782,17 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
+          {tableBox && (tableBox.settings.on || tableBox.orders.length > 0 || tableBox.calls.length > 0) && (
+            <button type="button" className={'pos-stat is-qr' + (tableBox.orders.length || tableBox.calls.length ? ' is-asking' : '')} onClick={() => { loadTableBox(); setTableBoxOpen(true); }}>
+              <span className="pos-stat-ico" aria-hidden="true">📱</span>
+              <span className="pos-stat-text">
+                <small>{tr('From the tables')}</small>
+                <strong>{tableBox.orders.length + tableBox.calls.length}</strong>
+                <span>{tableBox.orders.length ? (tableBox.orders.length === 1 ? tr('1 order to accept') : tr('{n} orders to accept', { n: tableBox.orders.length }))
+                  : tableBox.calls.length ? (tableBox.calls.length === 1 ? tr('1 call') : tr('{n} calls', { n: tableBox.calls.length })) : tr('QR orders')}</span>
+              </span>
+            </button>
+          )}
           <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="clock" /></span>
             <span className="pos-stat-text">
@@ -1608,6 +1825,16 @@ export default function RestaurantPosPage() {
           <button type="button" className="btn btn-secondary tl-btn" onClick={logout}>{tr('Log out')}</button>
         </div>
       </header>
+      {(offline || queued.length > 0) && (
+        <button type="button" className={'pos-offline' + (offline ? ' is-off' : '') + (queued.some((x) => x.failed) ? ' is-stuck' : '')} onClick={() => setQueueOpen(true)}>
+          <span className="pos-offline-dot" aria-hidden="true" />
+          <span className="pos-offline-text">
+            <strong>{offline ? tr('No internet: the till keeps working') : queued.some((x) => x.failed) ? tr('Some orders kept on this till need a look') : tr('Back online: sending what was kept')}</strong>
+            <small>{offline ? tr('Sales and orders for the kitchen are kept on this till and sent when it is back. Tell the kitchen what you send meanwhile. VIP and IOU wait for the internet.') : tr('Tap to see them.')}</small>
+          </span>
+          {queued.length > 0 && <b className="pos-offline-n">{queued.length}</b>}
+        </button>
+      )}
       {printerError && <div className="error-banner pos-printer-error">{printerError}</div>}
 
       <div className="pos-body">
@@ -1880,6 +2107,12 @@ export default function RestaurantPosPage() {
         </div>
       )}
 
+      {queueOpen && <OfflineQueue items={queued} offline={offline} onSend={sendKept} onClose={() => setQueueOpen(false)} />}
+      {tableBoxOpen && tableBox && (
+        <TableInbox token={session.token} box={tableBox} waiters={waiters} canSend={can('keepOpen')} onClose={() => setTableBoxOpen(false)}
+          onChanged={() => { loadTableBox(); loadTabs(); loadKitchen(); }} onToast={setToast} onOpenBill={openBill}
+          onUnauthorized={() => { localStorage.removeItem(SESSION_KEY); setSession(null); }} />
+      )}
       {movementDirection && (
         <PayInOutDialog token={session.token} direction={movementDirection} can={{ vip: onDuty('vipTopUp'), iouIn: onDuty('iouPaid'), iouOut: onDuty('iou') }}
           onClose={() => setMovementDirection(null)} onUnauthorized={() => { localStorage.removeItem(SESSION_KEY); setSession(null); }}

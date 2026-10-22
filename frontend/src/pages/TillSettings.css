@@ -518,3 +518,24 @@
   .ts-mn-stock { grid-column: 2; justify-self: start; }
   .ts-st-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+
+/* ── Table QR codes (till/TableQr.jsx): the switches, and the cards to print ── */
+.tq-set { display: flex; flex-direction: column; gap: 14px; }
+.ts-toggles { display: flex; flex-direction: column; gap: 8px; }
+.ts-toggle-row:disabled { opacity: .55; cursor: not-allowed; }
+.tq-set-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 16px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
+.tq-set-bar > div { flex: 1 1 260px; display: flex; flex-direction: column; }
+.tq-sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.tq-qr { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 14px 12px; text-align: center; color: #111827; border-radius: 22px; background: #fff;
+  border: 2px solid transparent; background-image: linear-gradient(#fff, #fff), linear-gradient(135deg, var(--pos-go-a, #f97316), var(--pos-go-b, #ef4444)); background-origin: border-box; background-clip: padding-box, border-box;
+  box-shadow: 0 16px 34px -26px rgba(15, 23, 42, .8); break-inside: avoid; page-break-inside: avoid; }
+.tq-qr header { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tq-qr header img { width: 30px; height: 30px; object-fit: contain; }
+.tq-qr-say { margin: 2px 0 0; font: 800 18px var(--font-heading, inherit); letter-spacing: .02em; }
+.tq-qr-code { width: 100%; max-width: 190px; aspect-ratio: 1; border-radius: 12px; image-rendering: pixelated; }
+.tq-qr-code.is-wait { display: block; background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 8px, #e2e8f0 8px, #e2e8f0 16px); }
+.tq-qr-table { font: 800 26px var(--font-heading, inherit); line-height: 1.1; }
+.tq-qr-area { font-size: 12px; color: #64748b; margin-top: -4px; }
+.tq-qr-how { margin: 0; font-size: 11.5px; color: #475569; max-width: 190px; }
+.tq-qr-tools { display: flex; gap: 14px; margin-top: 4px; font-size: 12.5px; font-weight: 700; }
+.tq-qr-tools a { color: #0284c7; }

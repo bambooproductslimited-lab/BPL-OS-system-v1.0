@@ -146,13 +146,13 @@ async function categoriesOff(companyId) {
   return new Set((await pool.query('SELECT category FROM restaurant_online_categories_off WHERE company_id = $1', [companyId])).rows.map(function (r) { return r.category; }));
 }
 
-// GET /api/pos/online/:code/menu — the restaurant and what it sells now:
-// each dish with its photo, sizes, and whether it is sold out — not the
-// dishes or the sections taken off the website.
-async function menu(code) {
-  var co = await shopOf(code);
-  var off = await categoriesOff(co.id);
-  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true AND online = true ORDER BY category, name', [co.id])).rows
+// What a restaurant sells now, for a customer's phone: each dish with its
+// photo, sizes, and whether it is sold out; the website's (online) not the
+// dishes or the sections taken off it — the table's QR menu
+// (restaurantTableOrders) has everything on the till's menu.
+async function menuItems(companyId, online) {
+  var off = online ? await categoriesOff(companyId) : new Set();
+  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true' + (online ? ' AND online = true' : '') + ' ORDER BY category, name', [companyId])).rows
     .filter(function (r) { return !off.has(r.category || ''); });
   var vars = rows.length ? (await pool.query('SELECT id, menu_item_id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order, created_at',
     [rows.map(function (r) { return r.id; })])).rows : [];
@@ -163,11 +163,19 @@ async function menu(code) {
       variations: vars.filter(function (v) { return v.menu_item_id === r.id; }).map(function (v) { return { id: v.id, name: v.name, price: Number(v.price) }; })
     };
   });
-  await tillMenu.tileStock(co.id, items);
+  await tillMenu.tileStock(companyId, items);
   items.forEach(function (i) { i.soldOut = !!(i.stock && i.stock.soldOut); delete i.stock; });
   var categories = [];
   items.forEach(function (i) { if (categories.indexOf(i.category) < 0) categories.push(i.category); });
-  return { restaurant: shopOut(co), categories: categories, items: items };
+  return { categories: categories, items: items };
+}
+
+// GET /api/pos/online/:code/menu — the restaurant and what it sells now on
+// the website.
+async function menu(code) {
+  var co = await shopOf(code);
+  var m = await menuItems(co.id, true);
+  return { restaurant: shopOut(co), categories: m.categories, items: m.items };
 }
 
 function throttle(ip) {
@@ -447,6 +455,6 @@ async function reject(token, id, p) {
 }
 
 module.exports = {
-  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, start: start,
+  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, cancel: cancel, accept: accept, reject: reject, start: start,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP
 };

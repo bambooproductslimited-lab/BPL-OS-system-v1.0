@@ -8,6 +8,7 @@ import { ActivityTab, CustomersTab, FloorMapTab } from './till/SettingsTabs';
 import SalesReport from './till/SalesReport';
 import { AccountsTab, DisputesTab, DrawersTab, KitchenScreensTab } from './till/OfficeTabs';
 import { MenuTab, StockTab } from './till/MenuStock';
+import { TableQrTab } from './till/TableQr';
 import './TillSettings.css';
 
 // The till's settings, opened by a manager (backend:
@@ -15,7 +16,8 @@ import './TillSettings.css';
 // do, the ways of paying the till offers and the dollar and yuan rates, the
 // receipt's own lines, signing out after a while unused, a waiter for every
 // table, the kitchen screen's amber and red and its printed tickets, the
-// floor map, the customers' IOU accounts, the kitchen screens; the reports
+// floor map, the tables' QR codes (till/TableQr.jsx), the customers' IOU
+// accounts, the kitchen screens; the reports
 // — sales (till/SalesReport.jsx), drawers, disputes, IOUs and VIP money
 // (till/OfficeTabs.jsx), activity (till/SettingsTabs.jsx); the menu and the
 // stock (till/MenuStock.jsx). The server checks every rule; this only sets them.
@@ -60,7 +62,7 @@ const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat
 const GROUPS = [
   ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
-  ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'],
+  ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
     ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
 const GROUP_OF = {};
@@ -320,6 +322,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
               </section>
             )}
 
+            {tab === 'qr' && <TableQrTab token={token} pin={pin} draft={draft} set={set} onFail={fail} />}
             {tab === 'map' && <FloorMapTab tables={tables} setTables={(t) => { setTables(t); setFlash(null); }} />}
             {tab === 'customers' && <CustomersTab token={token} pin={pin} changes={customers} setChange={setCustomer} onFail={fail} />}
             {tab === 'sales' && <SalesReport token={token} pin={pin} onFail={fail} />}

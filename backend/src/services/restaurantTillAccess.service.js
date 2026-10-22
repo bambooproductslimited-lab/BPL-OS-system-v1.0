@@ -56,7 +56,10 @@ var DEFAULTS = {
   idleMinutes: 0,
   requireWaiter: false,
   defaultFulfillment: 'dine_in',
-  kitchen: { warnAfter: 10, lateAfter: 20, printReady: false }
+  kitchen: { warnAfter: 10, lateAfter: 20, printReady: false },
+  // Orders from the table's QR code (restaurantTableOrders): taken at all,
+  // and whether they go to the kitchen without the till accepting them.
+  qrOrders: { on: true, straightToKitchen: false }
 };
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
@@ -111,6 +114,7 @@ function merged(stored) {
     out.kitchen.warnAfter = s.kitchen.warnAfter; out.kitchen.lateAfter = s.kitchen.lateAfter;
   }
   if (s.kitchen && typeof s.kitchen.printReady === 'boolean') out.kitchen.printReady = s.kitchen.printReady;
+  if (s.qrOrders) ['on', 'straightToKitchen'].forEach(function (k) { if (typeof s.qrOrders[k] === 'boolean') out.qrOrders[k] = s.qrOrders[k]; });
   return out;
 }
 async function settingsOf(companyId, db) {
@@ -311,6 +315,7 @@ function cleanSettings(p, base) {
     if (!(late > warn && late <= 240)) fail('invalid', 'Red after: more minutes than amber, at most 240.');
     out.kitchen = { warnAfter: warn, lateAfter: late, printReady: p.kitchen.printReady === undefined ? out.kitchen.printReady : !!p.kitchen.printReady };
   }
+  if (p.qrOrders) ['on', 'straightToKitchen'].forEach(function (k) { if (p.qrOrders[k] !== undefined) out.qrOrders[k] = !!p.qrOrders[k]; });
   return out;
 }
 
