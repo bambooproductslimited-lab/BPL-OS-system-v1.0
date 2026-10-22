@@ -92,6 +92,14 @@ test('a manager sets the delivery settings; who may use the delivery screen', as
   await assert.rejects(pos.login(PINS.esi, IP, 'delivery'), /does not send deliveries/);
 });
 
+test('the website finds its restaurant by any of its codes (Star Bar is SB live, SBR in the demo)', function () {
+  assert.deepEqual(online.aliasesOf('sbr').codes, ['SBR', 'SB']);
+  assert.deepEqual(online.aliasesOf('SB').codes, ['SB', 'SBR']);
+  assert.match('Star Bar Restaurant', new RegExp(online.aliasesOf('SBR').name, 'i'));
+  assert.deepEqual(online.aliasesOf('BGN').codes, ['BGN', 'BG1', 'BG']);
+  assert.deepEqual(online.aliasesOf('ZQD'), { codes: ['ZQD'], name: null });
+});
+
 test('the website: the menu, closed or open; an order priced from the menu, the fee by distance; what is refused', async function () {
   var m = await online.menu('zqd');
   assert.deepEqual([m.restaurant.name, m.restaurant.open, m.items.length, m.categories], ['Zqd Kitchen', false, 2, ['Zqd Drinks', 'Zqd Mains']]);

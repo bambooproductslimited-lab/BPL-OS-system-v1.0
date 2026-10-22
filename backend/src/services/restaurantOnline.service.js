@@ -10,6 +10,7 @@ var kitchen = require('./restaurantKitchen.service');
 var tillMenu = require('./restaurantTillMenu.service');
 var restaurantService = require('./restaurant.service');
 var delivery = require('./restaurantDelivery.service');
+var marketing = require('./marketingChannels');
 
 // Ordering on the restaurant's website (online.starbartema.com, migration
 // 0159). Anyone sees the menu and places an order — delivered to a pin on
@@ -37,12 +38,27 @@ function pos() { return require('./restaurantPos.service'); }
 function ref(n) { return 'W-' + String(n).padStart(4, '0'); }
 function fullPhotoUrl(id, key) { var u = restaurantService.menuThumbUrl(id, key); return u ? u.replace('?size=thumb&', '?') : null; }
 
+// The codes a restaurant may go by. Company codes are set by hand (Star Bar
+// Restaurant is 'SB' on the live system, 'SBR' in the demo data), so the
+// website's code stands for all of the restaurant's — the same aliases the
+// marketing tracker knows (marketingChannels TRACKED) — and its name.
+function aliasesOf(code) {
+  var want = String(code || '').trim().toUpperCase().slice(0, 12);
+  var t = marketing.TRACKED.find(function (x) { return x.codes.indexOf(want) >= 0; });
+  return { codes: [want].concat(t ? t.codes.filter(function (c) { return c !== want; }) : []), name: t && t.name ? t.name.source : null };
+}
 // The restaurant by its code, if it takes orders on the website at all
-// (it has delivery settings).
+// (it has delivery settings): of the companies it may be, the one that does,
+// the code asked for first.
 async function shopOf(code) {
-  var co = (await pool.query('SELECT id, code, name FROM companies WHERE code = $1', [String(code || '').trim().toUpperCase().slice(0, 12)])).rows[0];
-  var row = co && (await pool.query('SELECT 1 FROM restaurant_delivery_settings WHERE company_id = $1', [co.id])).rows[0];
-  if (!row) fail('notfound', 'This restaurant does not take orders online.');
+  var a = aliasesOf(code);
+  var rows = (await pool.query(
+    'SELECT c.id, c.code, c.name, (s.company_id IS NOT NULL) AS takes FROM companies c LEFT JOIN restaurant_delivery_settings s ON s.company_id = c.id ' +
+    'WHERE c.code = ANY($1::text[])' + (a.name ? ' OR c.name ~* $2' : ''), a.name ? [a.codes, a.name] : [a.codes])).rows;
+  var rank = function (r) { var i = a.codes.indexOf(r.code); return i < 0 ? a.codes.length : i; };
+  var co = rows.filter(function (r) { return r.takes; }).sort(function (x, y) { return rank(x) - rank(y); })[0];
+  if (!co) fail('notfound', 'This restaurant does not take orders online.');
+  co = { id: co.id, code: co.code, name: co.name };
   co.settings = await delivery.settingsOf(co.id);
   return co;
 }
@@ -258,4 +274,4 @@ async function reject(token, id, p) {
   return { order: staffOut(o) };
 }
 
-module.exports = { menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, staffOut: staffOut, ref: ref };
+module.exports = { aliasesOf: aliasesOf, menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, staffOut: staffOut, ref: ref };
