@@ -45,13 +45,24 @@ var DEFAULTS = {
   open: false, delivery: true, pickup: true, phone: '', note: '',
   location: null, // { lat, lng, address }
   fee: { base: 10, perKm: 3, freeOver: 0 },
-  maxKm: 12, minOrder: 0, readyMinutes: 25
+  maxKm: 12, minOrder: 0, readyMinutes: 25,
+  // Orders for later (restaurantOnline): whether customers may choose a
+  // time, how many days ahead (0: today only), the first and last time
+  // they may choose (Ghana keeps GMT all year: UTC), and whether they may
+  // while the restaurant is not taking orders now.
+  later: { on: true, days: 2, from: '11:00', to: '22:00', whenClosed: true }
 };
 var SITE = { delivery: function () { return config.deliverySiteUrl; } };
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function round1(n) { return Math.round(Number(n) * 10) / 10; }
 function cleanText(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
+// 'HH:MM' from 'H:MM' or 'HH:MM', or null.
+function hhmm(v) {
+  var m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(v == null ? '' : v).trim());
+  return m ? m[1].padStart(2, '0') + ':' + m[2] : null;
+}
+function minutesOf(t) { return Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)); }
 function num(v, min, max, dflt) { var n = Number(v); return v === '' || v == null || !isFinite(n) ? dflt : Math.min(max, Math.max(min, n)); }
 function hash(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
 function newToken() { return crypto.randomBytes(24).toString('base64url'); }
@@ -100,6 +111,11 @@ function merged(s) {
   out.maxKm = num(s.maxKm, 0, 200, out.maxKm);
   out.minOrder = num(s.minOrder, 0, 100000, out.minOrder);
   out.readyMinutes = Math.round(num(s.readyMinutes, 5, 240, out.readyMinutes));
+  var l = s.later || {};
+  ['on', 'whenClosed'].forEach(function (k) { if (typeof l[k] === 'boolean') out.later[k] = l[k]; });
+  out.later.days = Math.round(num(l.days, 0, 7, out.later.days));
+  var from = hhmm(l.from), to = hhmm(l.to);
+  if (from && to && minutesOf(to) > minutesOf(from)) { out.later.from = from; out.later.to = to; }
   return out;
 }
 async function settingsRow(companyId, db) {
@@ -131,7 +147,14 @@ async function settings(token, p, ip) {
   if (p.settings) {
     var s = p.settings;
     if (s.location) pointOf(s.location.lat, s.location.lng);
-    var next = merged(Object.assign({}, (await settingsRow(company) || {}).settings || {}, s));
+    var old = (await settingsRow(company) || {}).settings || {};
+    var later = s.later ? Object.assign({}, merged(old).later, s.later) : null;
+    if (later && (s.later.from !== undefined || s.later.to !== undefined)) {
+      var lf = hhmm(later.from), lt = hhmm(later.to);
+      if (!lf || !lt) fail('invalid', 'Write the times for orders for later as 11:00.');
+      if (minutesOf(lt) <= minutesOf(lf)) fail('invalid', 'The last time for orders for later must be after the first.');
+    }
+    var next = merged(Object.assign({}, old, s, later ? { later: later } : {}));
     if (next.open && !next.delivery && !next.pickup) fail('invalid', 'Offer delivery, pickup or both to take orders online.');
     await pool.query(
       'INSERT INTO restaurant_delivery_settings (company_id, settings, updated_by, updated_at) VALUES ($1,$2,$3,now()) ' +
@@ -267,7 +290,8 @@ async function waitingToGo(companyId) {
         landmark: o ? o.landmark : '', lat: o ? o.lat : null, lng: o ? o.lng : null },
       items: t.lines.filter(function (l) { return !l.fee; }).map(function (l) { return l.qty + '× ' + l.name; }),
       total: t.total, payMethod: o ? o.pay_method : null, onlineRef: o ? 'W-' + String(o.number).padStart(4, '0') : null, onlineId: o ? o.id : null,
-      kitchen: t.kitchen ? t.kitchen.state : null, since: t.createdAt, readyMinutes: o ? o.ready_minutes : null, decidedAt: o ? o.decided_at : null
+      kitchen: t.kitchen ? t.kitchen.state : null, since: t.createdAt, readyMinutes: o ? o.ready_minutes : null, decidedAt: o ? o.decided_at : null,
+      scheduledFor: o ? o.scheduled_for : null
     };
   });
   var paid = (await pool.query(
@@ -286,7 +310,7 @@ async function waitingToGo(companyId) {
         key: 'order:' + o.id, tabId: null, orderId: o.id, paid: true, fulfillment: 'delivery', label: o.customer_name || o.order_no,
         customer: { name: o.customer_name || '', phone: o.customer_phone || '', address: o.delivery_address || '', landmark: '', lat: null, lng: null },
         items: lines.filter(function (l) { return l.order_id === o.id; }).map(function (l) { return Number(l.qty) + '× ' + l.name; }),
-        total: round2(o.total), payMethod: null, onlineRef: null, onlineId: null, kitchen: k ? k.state : null, since: o.created_at, readyMinutes: null, decidedAt: null
+        total: round2(o.total), payMethod: null, onlineRef: null, onlineId: null, kitchen: k ? k.state : null, since: o.created_at, readyMinutes: null, decidedAt: null, scheduledFor: null
       });
     });
   }
@@ -296,14 +320,20 @@ async function waitingToGo(companyId) {
 }
 
 // GET /api/pos/delivery/board — the delivery screen: website orders waiting
-// for an answer, orders being made and ready to go, deliveries on their
-// way, today's done, the riders, the settings the map needs.
+// for an answer, those confirmed for later, orders being made and ready to
+// go, deliveries on their way, today's done, the riders, the settings the
+// map needs.
 async function board(token) {
   var session = await access.need(token, 'delivery');
   var company = session.posCompanyId;
   var settings = await settingsOf(company);
   var online = require('./restaurantOnline.service');
-  var pending = (await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'pending' ORDER BY created_at", [company])).rows.map(online.staffOut);
+  // Orders for later whose time to cook has come go to the kitchen now, if
+  // the job (jobs/onlineScheduled.js) has not got to them yet.
+  await online.releaseDue(company);
+  var pending = (await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'pending' ORDER BY coalesce(scheduled_for, created_at), created_at", [company])).rows.map(online.staffOut);
+  // Confirmed for later, not started in the kitchen yet.
+  var later = (await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'accepted' AND tab_id IS NULL ORDER BY start_at, scheduled_for", [company])).rows.map(online.staffOut);
   var active = (await pool.query(DELIVERY_SELECT + "WHERE d.company_id = $1 AND d.status IN ('assigned', 'picked_up', 'arrived') ORDER BY d.created_at", [company])).rows
     .map(function (d) { return deliveryOut(d, { link: true }); });
   var done = (await pool.query(DELIVERY_SELECT + "WHERE d.company_id = $1 AND d.status IN ('delivered', 'failed', 'cancelled') AND d.ended_at >= date_trunc('day', now()) ORDER BY d.ended_at DESC LIMIT 60", [company])).rows
@@ -319,11 +349,11 @@ async function board(token) {
   var avg = delivered.length ? Math.round(delivered.reduce(function (a, d) { return a + Math.max(0, (new Date(d.endedAt) - new Date(d.createdAt)) / 60000); }, 0) / delivered.length) : null;
   return {
     company: { code: co.code, name: co.name }, settings: settings, siteUrl: shopUrl(co.code),
-    pending: pending, cooking: waiting.filter(function (w) { return w.stage === 'cooking'; }), ready: waiting.filter(function (w) { return w.stage === 'ready'; }),
+    pending: pending, later: later, cooking: waiting.filter(function (w) { return w.stage === 'cooking'; }), ready: waiting.filter(function (w) { return w.stage === 'ready'; }),
     active: active, done: done, turnedDown: turnedDown, riders: await riderList(company),
     totals: { delivered: delivered.length, failed: done.filter(function (d) { return d.status === 'failed'; }).length, averageMinutes: avg,
       collected: round2(delivered.reduce(function (a, d) { return a + d.toCollect; }, 0)),
-      withRiders: round2(toHandIn.reduce(function (a, d) { return a + d.money.collected.amount; }, 0)), toHandIn: toHandIn.length },
+      withRiders: round2(toHandIn.reduce(function (a, d) { return a + d.money.collected.amount; }, 0)), toHandIn: toHandIn.length, later: later.length },
     toHandIn: toHandIn,
     can: { settings: session.access.role === 'manager' }
   };

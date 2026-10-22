@@ -36,6 +36,7 @@
 .dm-pin.is-home { --dm-c: #10b981; }
 .dm-pin.is-order { --dm-c: #8b5cf6; }
 .dm-pin.tone-new { --dm-c: #f59e0b; }
+.dm-pin.tone-later { --dm-c: #6366f1; }
 .dm-pin.tone-ready { --dm-c: #10b981; }
 .dm-pin.tone-cooking { --dm-c: #f97316; }
 .dm-pin.tone-active { --dm-c: #2563eb; }

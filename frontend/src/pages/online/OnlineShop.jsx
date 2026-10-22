@@ -7,15 +7,16 @@ import { tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme, THEME_KEY } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
-import { kmText, minText, payName } from '../delivery/dlShared';
+import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShared';
 import './online.css';
 
 // The restaurant's website (online.starbartema.com): its menu with photos,
 // a basket, and checkout — delivered to a pin dropped on the map (or this
 // phone's location), or picked up — paid on delivery or at pickup, in cash
-// or by Mobile Money. The order waits for the restaurant to accept it
-// (backend restaurantOnline place); the customer then follows it
-// (OnlineTrack.jsx). The fee is worked out here as the server does it, by
+// or by Mobile Money — as soon as it can be, or for a day and a time the
+// restaurant offers (even while it is not taking orders now). The order
+// waits for the restaurant to accept it (backend restaurantOnline place);
+// the customer then follows it (OnlineTrack.jsx). The fee is worked out here as the server does it, by
 // road from the restaurant (restaurantDelivery quote), and checked there.
 
 const ME_KEY = 'bamboo.online.me';
@@ -32,6 +33,15 @@ function roadKm(a, b) {
 const PALETTE = ['#f97316', '#ef4444', '#10b981', '#2563eb', '#8b5cf6', '#ec4899', '#eab308', '#14b8a6'];
 function tint(name) { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; }
 function lineKey(l) { return l.id + ':' + (l.variationId || '') + ':' + (l.note || ''); }
+// The times on offer one day, from its first to its last, step minutes apart.
+function slotsOf(from, to, step) {
+  const m = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const out = [];
+  for (let x = m(from); x <= m(to); x += step) out.push(String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'));
+  return out;
+}
+function partOf(t) { const h = Number(t.slice(0, 2)); return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'; }
+const PARTS = [['morning', '🌅', () => tr('Morning')], ['afternoon', '☀️', () => tr('Afternoon')], ['evening', '🌙', () => tr('Evening')]];
 
 export default function OnlineShop({ code, onTrack }) {
   const [data, setData] = useState(null);
@@ -78,6 +88,8 @@ export default function OnlineShop({ code, onTrack }) {
   const logo = restaurantLogoUrl(r.code);
   const last = mine[0];
   const rideMin = 10;
+  const later = r.later && r.later.on ? r.later : null;
+  const firstLater = later ? later.days[0] : null;
   return (
     <div className="on-shell" data-brand={r.code}>
       <header className="on-hero">
@@ -87,12 +99,13 @@ export default function OnlineShop({ code, onTrack }) {
           {logo ? <img className="on-logo" src={logo} alt="" /> : <span className="on-logo is-mark">🍽️</span>}
           <div>
             <h1>{r.name}</h1>
-            <p className={'on-open' + (r.open ? ' is-on' : '')}><i />{r.open ? tr('Open for orders') : tr('Not taking orders right now')}</p>
+            <p className={'on-open' + (r.open ? ' is-on' : later ? ' is-later' : '')}><i />{r.open ? tr('Open for orders') : later ? tr('Closed now · order for later') : tr('Not taking orders right now')}</p>
           </div>
         </div>
         <div className="on-facts">
           {r.delivery && <span>🛵 <b>{tr('Delivery')}</b> {tr('about {m}', { m: minText(r.readyMinutes + rideMin) })} · {tr('from {fee}', { fee: money(r.fee.base) })}</span>}
           {r.pickup && <span>🥡 <b>{tr('Pickup')}</b> {tr('about {m}', { m: minText(r.readyMinutes) })}</span>}
+          {later && <span className="is-later">🗓️ <b>{tr('Order for later')}</b> {r.open ? tr('choose a day and a time') : tr('from {when}', { when: laterText(firstLater.date + 'T' + (firstLater.from.delivery || firstLater.from.pickup) + ':00Z') })}</span>}
           <span>💵 {tr('Pay on delivery: cash or Mobile Money')}</span>
           {r.location && r.location.address && <span>📍 {r.location.address}</span>}
         </div>
@@ -148,7 +161,7 @@ export default function OnlineShop({ code, onTrack }) {
           </footer>
         </main>
         <aside className="on-basket" aria-label={tr('Your basket')}>
-          <Basket basket={basket} subtotal={subtotal} setQty={setQty} onCheckout={() => setCheckout(true)} open={r.open} />
+          <Basket basket={basket} subtotal={subtotal} setQty={setQty} onCheckout={() => setCheckout(true)} open={r.open} later={!!later} />
         </aside>
       </div>
 
@@ -166,7 +179,7 @@ export default function OnlineShop({ code, onTrack }) {
   );
 }
 
-function Basket({ basket, subtotal, setQty, onCheckout, open }) {
+function Basket({ basket, subtotal, setQty, onCheckout, open, later }) {
   if (!basket.length) return <div className="on-basket-empty"><span aria-hidden="true">🧺</span><strong>{tr('Your basket is empty')}</strong><p>{tr('Tap a dish to add it.')}</p></div>;
   return (
     <div className="on-basket-box">
@@ -183,7 +196,7 @@ function Basket({ basket, subtotal, setQty, onCheckout, open }) {
         ))}
       </ul>
       <div className="on-sum"><span>{tr('Food')}</span><strong>{money(subtotal)}</strong></div>
-      <button type="button" className="on-go" disabled={!open} onClick={onCheckout}>{open ? tr('Checkout') : tr('Not taking orders right now')}</button>
+      <button type="button" className="on-go" disabled={!open && !later} onClick={onCheckout}>{open ? tr('Checkout') : later ? '🗓️ ' + tr('Order for later') : tr('Not taking orders right now')}</button>
     </div>
   );
 }
@@ -226,7 +239,7 @@ function ItemSheet({ item, onClose, onAdd }) {
   );
 }
 
-// Checkout: delivered or picked up; where; who; how they pay.
+// Checkout: delivered or picked up; when; where; who; how they pay.
 function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
   const remembered = load(ME_KEY, {});
   const [how, setHow] = useState(r.delivery ? 'delivery' : 'pickup');
@@ -241,13 +254,23 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
   const [error, setError] = useState(null);
   const [locating, setLocating] = useState(false);
   const [fitKey, setFitKey] = useState('start');
+  const later = r.later && r.later.on ? r.later : null;
+  const [when, setWhen] = useState(r.open ? 'now' : 'later');
+  const [day, setDay] = useState(null);
+  const [time, setTime] = useState(null);
   const website = useRef(null);
   const here = r.location ? { lat: r.location.lat, lng: r.location.lng } : null;
   const km = how === 'delivery' ? roadKm(here, pin) : null;
   const fee = how === 'delivery' ? (r.fee.freeOver > 0 && subtotal >= r.fee.freeOver ? 0 : Math.round(r.fee.base + (km != null ? r.fee.perKm * km : 0))) : 0;
   const tooFar = how === 'delivery' && km != null && r.maxKm > 0 && km > r.maxKm;
   const short = r.minOrder > 0 && subtotal < r.minOrder;
-  const ready = name.trim() && phone.replace(/\D/g, '').length >= 9 && (how === 'pickup' || (pin && address.trim())) && !tooFar && !short && basket.length;
+  // For later: the days with a time left for delivery (or pickup), the one chosen, its times.
+  const days = later ? later.days.filter((d) => d.from[how]) : [];
+  const dayRow = days.find((d) => d.date === day) || days[0] || null;
+  const slots = dayRow ? slotsOf(dayRow.from[how], dayRow.to, later.step) : [];
+  const chosen = when === 'later' && slots.includes(time) ? time : null;
+  const scheduledFor = chosen ? dayRow.date + 'T' + chosen + ':00.000Z' : null;
+  const ready = name.trim() && phone.replace(/\D/g, '').length >= 9 && (how === 'pickup' || (pin && address.trim())) && !tooFar && !short && basket.length && (when === 'now' ? r.open : !!chosen);
 
   function locate() {
     if (!navigator.geolocation) { setError(tr('This phone cannot tell where it is: tap the map instead.')); return; }
@@ -262,7 +285,7 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
       save(ME_KEY, { name: name.trim(), phone: phone.trim(), address: address.trim(), landmark: landmark.trim(), lat: pin ? pin.lat : null, lng: pin ? pin.lng : null });
       const res = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/orders', null, {
         name, phone, fulfillment: how, address, landmark, lat: how === 'delivery' && pin ? pin.lat : null, lng: how === 'delivery' && pin ? pin.lng : null,
-        payMethod: pay, note, website: website.current ? website.current.value : '',
+        payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined,
         items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined }))
       });
       onPlaced(res);
@@ -291,6 +314,46 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
             <button type="button" role="radio" aria-checked={how === 'delivery'} className={how === 'delivery' ? 'is-on' : ''} onClick={() => setHow('delivery')}><span aria-hidden="true">🛵</span><strong>{tr('Delivery')}</strong><small>{tr('to your door')}</small></button>
             <button type="button" role="radio" aria-checked={how === 'pickup'} className={how === 'pickup' ? 'is-on' : ''} onClick={() => setHow('pickup')}><span aria-hidden="true">🥡</span><strong>{tr('Pickup')}</strong><small>{tr('at the counter')}</small></button>
           </div>
+        )}
+
+        {later && (
+          <fieldset className="on-fs on-when">
+            <legend>{tr('When')}</legend>
+            <div className="on-how" role="radiogroup" aria-label={tr('When')}>
+              <button type="button" role="radio" aria-checked={when === 'now'} className={when === 'now' ? 'is-on' : ''} disabled={!r.open} onClick={() => setWhen('now')}>
+                <span aria-hidden="true">⚡</span><strong>{tr('As soon as possible')}</strong><small>{r.open ? tr('about {m}', { m: minText(r.readyMinutes + (how === 'delivery' ? 10 : 0)) }) : tr('Closed now')}</small>
+              </button>
+              <button type="button" role="radio" aria-checked={when === 'later'} className={when === 'later' ? 'is-on' : ''} onClick={() => setWhen('later')}>
+                <span aria-hidden="true">🗓️</span><strong>{tr('Later')}</strong><small>{chosen ? dayName(dayRow.date) + ' · ' + chosen : tr('choose a day and a time')}</small>
+              </button>
+            </div>
+            {when === 'later' && (days.length ? (
+              <>
+                <div className="on-days" role="radiogroup" aria-label={tr('Day')}>
+                  {days.map((d) => (
+                    <button key={d.date} type="button" role="radio" aria-checked={dayRow.date === d.date} className={dayRow.date === d.date ? 'is-on' : ''} onClick={() => setDay(d.date)}>
+                      <strong>{dayName(d.date)}</strong><small>{tr('from {time}', { time: d.from[how] })}</small>
+                    </button>
+                  ))}
+                </div>
+                <div className="on-times">
+                  {PARTS.map(([k, icon, label]) => {
+                    const list = slots.filter((t) => partOf(t) === k);
+                    if (!list.length) return null;
+                    return (
+                      <div key={k} className="on-times-part" role="radiogroup" aria-label={label()}>
+                        <span className="on-times-label"><span aria-hidden="true">{icon}</span> {label()}</span>
+                        <div className="on-times-row">
+                          {list.map((t) => <button key={t} type="button" role="radio" aria-checked={chosen === t} className={chosen === t ? 'is-on' : ''} onClick={() => setTime(t)}>{t}</button>)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="on-hint">{how === 'pickup' ? tr('Ready at the counter at the time you choose.') : tr('At your door around the time you choose.')}</p>
+              </>
+            ) : <p className="on-dist is-bad">{how === 'delivery' ? tr('No delivery times left on offer: try pickup.') : tr('No pickup times left on offer: try delivery.')}</p>)}
+          </fieldset>
         )}
 
         {how === 'delivery' && (
@@ -330,11 +393,13 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
           <div><span>{tr('Food')}</span><b>{money(subtotal)}</b></div>
           {how === 'delivery' && <div><span>{tr('Delivery')}{km != null ? ' · ' + kmText(km) : ''}</span><b>{fee ? money(fee) : tr('Free')}</b></div>}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(subtotal + fee)}</strong></div>
+          {scheduledFor && <p className="on-when-sum">🗓️ {how === 'pickup' ? tr('Pickup {when}', { when: laterText(scheduledFor) }) : tr('Delivery {when}', { when: laterText(scheduledFor) })}</p>}
           {short && <p className="on-dist is-bad">{tr('The smallest order is {amount}.', { amount: money(r.minOrder) })}</p>}
         </div>
+        {!r.open && !later && <p className="on-dist is-bad">{tr('Not taking orders right now')}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
         <button type="submit" className="on-go is-big" disabled={busy || !ready}>{busy ? tr('Sending your order…') : tr('Place order · {amount}', { amount: money(subtotal + fee) })}</button>
-        <p className="on-hint is-center">{tr('The restaurant accepts your order first; you can watch it here all the way to your door.')}</p>
+        <p className="on-hint is-center">{scheduledFor ? tr('The restaurant confirms your order first, and starts cooking it in time. You can cancel until then.') : tr('The restaurant accepts your order first; you can watch it here all the way to your door.')}</p>
       </form>
     </div>
   );

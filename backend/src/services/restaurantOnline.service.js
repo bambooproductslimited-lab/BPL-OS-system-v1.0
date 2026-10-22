@@ -21,6 +21,13 @@ var marketing = require('./marketingChannels');
 // on a link of their own (track): accepted, cooking, ready, the rider on
 // the map, delivered. No sign-in: the order's link is its key.
 //
+// Or for later (migration 0164): the customer picks a day and a time from
+// those on offer (delivery settings 'later'), even while the restaurant is
+// not taking orders now. Confirmed, it waits — the customer may still
+// cancel it — until the time to start cooking for it (start_at), and only
+// then becomes the open order on the till (release: jobs/onlineScheduled.js,
+// the delivery screen, or Start now).
+//
 //   pending → accepted → done (paid at the till)      or rejected / cancelled
 
 var MAX_LINES = 40;
@@ -30,6 +37,12 @@ var MAX_PENDING_PER_PHONE = 3;
 // someone filling the screen with fake orders).
 var PER_IP_HOUR = 8;
 var placedBy = new Map();
+// Orders for later: the times on offer are this many minutes apart; one is
+// on offer if there is time to cook it (readyMinutes), ride it over
+// (RIDE_MINUTES, the distance not known yet) and LEAD_SPARE to spare. The
+// kitchen starts on it its cooking time and the ride (by its distance)
+// before, and START_SPARE more.
+var STEP = 15, RIDE_MINUTES = 20, LEAD_SPARE = 15, START_SPARE = 5;
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function cleanText(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
@@ -37,6 +50,63 @@ function hash(token) { return crypto.createHash('sha256').update(String(token)).
 function pos() { return require('./restaurantPos.service'); }
 function ref(n) { return 'W-' + String(n).padStart(4, '0'); }
 function fullPhotoUrl(id, key) { var u = restaurantService.menuThumbUrl(id, key); return u ? u.replace('?size=thumb&', '?') : null; }
+
+// ── times (Ghana keeps GMT all year: the restaurant's clock is UTC) ──
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function minutesOf(t) { return Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)); }
+function clock(m) { return pad2(Math.floor(m / 60)) + ':' + pad2(m % 60); }
+function dayOf(d) { return d.toISOString().slice(0, 10); }
+function hhmmOf(d) { return new Date(d).toISOString().slice(11, 16); }
+// 'Sat 24 Oct, 18:30'
+function whenText(d) {
+  d = new Date(d);
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) + ', ' + hhmmOf(d);
+}
+// The first time on a day (YYYY-MM-DD) on offer, lead minutes from now at
+// the soonest, or null.
+function firstSlot(l, date, now, lead) {
+  var dayStart = Date.parse(date + 'T00:00:00Z'), earliest = now.getTime() + lead * 60000;
+  var last = Math.floor(minutesOf(l.to) / STEP) * STEP;
+  for (var m = Math.ceil(minutesOf(l.from) / STEP) * STEP; m <= last; m += STEP) {
+    if (dayStart + m * 60000 >= earliest) return clock(m);
+  }
+  return null;
+}
+// The times a customer may order for: { on, step, days: [{ date, to,
+// from: { delivery, pickup } }] } — each day's first time for delivery and
+// for pickup (null if not offered), and its last; days with none left are
+// not there.
+function laterOut(s, now) {
+  var l = s.later;
+  if (!l.on || !(s.open || l.whenClosed)) return { on: false, step: STEP, days: [] };
+  var days = [];
+  for (var i = 0; i <= l.days; i++) {
+    var date = dayOf(new Date(now.getTime() + i * 86400000)), from = {};
+    ['delivery', 'pickup'].forEach(function (f) { from[f] = s[f] ? firstSlot(l, date, now, s.readyMinutes + (f === 'delivery' ? RIDE_MINUTES : 0) + LEAD_SPARE) : null; });
+    if (from.delivery || from.pickup) days.push({ date: date, from: from, to: clock(Math.floor(minutesOf(l.to) / STEP) * STEP) });
+  }
+  return { on: days.length > 0, step: STEP, days: days };
+}
+// The time a customer chose (an ISO time), if it is one on offer: a Date.
+function whenOf(co, value, fulfillment, now) {
+  var d = new Date(String(value));
+  if (isNaN(d.getTime())) fail('invalid', 'Choose a day and a time for your order.');
+  var l = laterOut(co.settings, now);
+  if (!l.on) fail('conflict', co.name + ' is not taking orders for later right now.');
+  var day = l.days.find(function (x) { return x.date === dayOf(d); });
+  var first = day && day.from[fulfillment];
+  var m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  if (first && m < minutesOf(first) && d.getTime() > now.getTime()) fail('invalid', 'That time is too soon now: the earliest is ' + first + '.');
+  if (!first || d.getUTCSeconds() || d.getUTCMilliseconds() || m % STEP || m > minutesOf(day.to) || m < minutesOf(first)) fail('invalid', 'That time is not on offer: choose another one.');
+  return d;
+}
+// When the kitchen starts on an order for later: its cooking time and, for
+// a delivery, the ride before the time chosen, and a few minutes to spare.
+function startOf(o, readyMinutes) {
+  var ride = o.fulfillment === 'delivery' ? (delivery.travelMinutes(o.distance_km == null ? null : Number(o.distance_km), 'motorbike') || RIDE_MINUTES) : 0;
+  return new Date(new Date(o.scheduled_for).getTime() - (readyMinutes + ride + START_SPARE) * 60000);
+}
 
 // The codes a restaurant may go by. Company codes are set by hand (Star Bar
 // Restaurant is 'SB' on the live system, 'SBR' in the demo data), so the
@@ -66,7 +136,8 @@ function shopOut(co) {
   var s = co.settings;
   return {
     code: co.code, name: co.name, open: s.open, delivery: s.delivery, pickup: s.pickup, phone: s.phone, note: s.note,
-    location: s.location, fee: s.fee, maxKm: s.maxKm, minOrder: s.minOrder, readyMinutes: s.readyMinutes, payMethods: ['cash', 'mobile_money']
+    location: s.location, fee: s.fee, maxKm: s.maxKm, minOrder: s.minOrder, readyMinutes: s.readyMinutes, payMethods: ['cash', 'mobile_money'],
+    later: laterOut(s, new Date())
   };
 }
 
@@ -110,7 +181,8 @@ function throttle(ip) {
 
 // POST /api/pos/online/:code/orders — an order placed: { name, phone,
 // fulfillment: delivery|pickup, address, landmark, lat, lng, note,
-// payMethod: cash|mobile_money, items: [{ menuItemId, variationId, qty,
+// payMethod: cash|mobile_money, scheduledFor (for later: an ISO time on
+// offer; none, as soon as it can be), items: [{ menuItemId, variationId, qty,
 // note }] }. Priced from the menu as it is now, the delivery fee from the
 // distance by road (restaurantDelivery quote). Returns its number and the
 // link to follow it.
@@ -120,9 +192,13 @@ async function place(code, p, ip) {
   if (p.website) fail('invalid', 'Something went wrong. Please try again.');
   var co = await shopOf(code);
   var s = co.settings;
-  if (!s.open) fail('conflict', co.name + ' is not taking orders online right now.' + (s.phone ? ' Call ' + s.phone + '.' : ''));
+  var later = p.scheduledFor != null && p.scheduledFor !== '';
+  if (!s.open && !later) {
+    fail('conflict', co.name + ' is not taking orders online right now.' + (laterOut(s, new Date()).on ? ' Order for later instead.' : s.phone ? ' Call ' + s.phone + '.' : ''));
+  }
   var fulfillment = V.oneOf(p.fulfillment || 'delivery', ['delivery', 'pickup'], 'Delivery or pickup');
   if (!s[fulfillment]) fail('invalid', fulfillment === 'delivery' ? co.name + ' is not delivering right now: pick it up instead.' : co.name + ' only delivers.');
+  var scheduledFor = later ? whenOf(co, p.scheduledFor, fulfillment, new Date()) : null;
   var name = V.text(cleanText(p.name, 80), 'Your name', 80);
   var phone = cleanText(p.phone, 30);
   if (!internationalNumber(phone)) fail('invalid', 'Give a phone number we can call you on.');
@@ -159,12 +235,12 @@ async function place(code, p, ip) {
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_online_orders WHERE company_id = $1', [co.id])).rows[0].n;
     var lines = priced.lines.map(function (l, i) { return { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '' }; });
     var row = (await client.query(
-      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *',
+      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *',
       [co.id, number, hash(token), fulfillment, name, phone, address, landmark, point ? point.lat : null, point ? point.lng : null, cleanText(p.note, 300), payMethod, JSON.stringify(lines),
-        priced.subtotal, q.fee, round2(priced.subtotal + q.fee), q.distanceKm, String(ip || '').slice(0, 60)])).rows[0];
+        priced.subtotal, q.fee, round2(priced.subtotal + q.fee), q.distanceKm, String(ip || '').slice(0, 60), scheduledFor])).rows[0];
     await activity.log(client, { companyId: co.id, employeeId: null, app: 'online', action: 'online.placed',
-      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + ', ' + round2(priced.subtotal + q.fee).toFixed(2) + '.',
+      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + round2(priced.subtotal + q.fee).toFixed(2) + '.',
       amount: round2(priced.subtotal + q.fee), refType: 'online', refId: row.id });
     return row;
   });
@@ -179,10 +255,12 @@ async function byToken(raw, lock, client) {
   return o;
 }
 // Where an order stands, for its customer: one of waiting, rejected,
-// cancelled, preparing, ready (pickup: ready_pickup), rider (on the way to
-// the restaurant), on_the_way, arrived, delivered, collected, failed.
+// cancelled, scheduled (confirmed for later, not started), preparing, ready
+// (pickup: ready_pickup), rider (on the way to the restaurant), on_the_way,
+// arrived, delivered, collected, failed.
 async function stageOf(o, d) {
   if (o.status === 'pending' || o.status === 'rejected' || o.status === 'cancelled') return o.status === 'pending' ? 'waiting' : o.status;
+  if (o.status === 'accepted' && !o.tab_id && o.scheduled_for) return 'scheduled';
   if (d) {
     if (d.status === 'assigned') return 'rider';
     if (d.status === 'picked_up') return 'on_the_way';
@@ -204,7 +282,7 @@ async function trackOut(o) {
     customer: { name: o.customer_name, phone: o.customer_phone, address: o.address, landmark: o.landmark, lat: o.lat, lng: o.lng },
     items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total),
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), readyMinutes: o.ready_minutes, rejectReason: o.reject_reason,
-    placedAt: o.created_at, decidedAt: o.decided_at,
+    placedAt: o.created_at, decidedAt: o.decided_at, scheduledFor: o.scheduled_for, canCancel: canCancel(o),
     restaurant: { code: r.code, name: r.name, phone: r.phone, location: r.location },
     delivery: d ? {
       ref: d.ref, status: d.status, rider: { name: d.rider.name, phone: d.rider.phone, vehicle: d.rider.vehicle, plate: d.rider.plate },
@@ -215,13 +293,17 @@ async function trackOut(o) {
 }
 // GET /api/pos/online/track/:token
 async function track(raw) { return trackOut(await byToken(raw)); }
-// POST /api/pos/online/track/:token/cancel — while it still waits for the restaurant.
+// Whether the customer may still cancel: while it waits for the restaurant,
+// or, for later, until the kitchen starts on it.
+function canCancel(o) { return o.status === 'pending' || (o.status === 'accepted' && !o.tab_id && !!o.scheduled_for); }
+// POST /api/pos/online/track/:token/cancel
 async function cancel(raw) {
   var o = await withTransaction(async function (client) {
     var row = await byToken(raw, true, client);
-    if (row.status !== 'pending') fail('conflict', row.status === 'accepted' ? 'The restaurant has started on your order already: call them to change it.' : 'This order is not waiting any more.');
+    if (!canCancel(row)) fail('conflict', row.status === 'accepted' ? 'The restaurant has started on your order already: call them to change it.' : 'This order is not waiting any more.');
     var up = (await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the customer.', updated_at = now() WHERE id = $1 RETURNING *", [row.id])).rows[0];
-    await activity.log(client, { companyId: row.company_id, app: 'online', action: 'online.cancelled', summary: row.customer_name + ' cancelled ' + ref(row.number) + ' before it was accepted.', refType: 'online', refId: row.id });
+    await activity.log(client, { companyId: row.company_id, app: 'online', action: 'online.cancelled',
+      summary: row.customer_name + ' cancelled ' + ref(row.number) + (row.status === 'pending' ? ' before it was accepted.' : ' (for ' + whenText(row.scheduled_for) + ') before the kitchen started on it.'), refType: 'online', refId: row.id });
     return up;
   });
   return trackOut(o);
@@ -235,12 +317,27 @@ function staffOut(o) {
     customer: { name: o.customer_name, phone: o.customer_phone, address: o.address, landmark: o.landmark, lat: o.lat, lng: o.lng },
     items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total),
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), rejectReason: o.reject_reason, readyMinutes: o.ready_minutes,
+    scheduledFor: o.scheduled_for, startAt: o.start_at, startError: o.release_error,
     placedAt: o.created_at, decidedAt: o.decided_at, waitingMinutes: Math.max(0, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000))
   };
 }
+// The open order on the till for a website order, sent to the kitchen: its
+// dishes at today's prices, the delivery fee a line of its own.
+function openTab(session, o) {
+  var items = o.items.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '' }; });
+  if (Number(o.delivery_fee) > 0) items.push({ custom: { name: pos().FEE_NAME, price: Number(o.delivery_fee), fee: true }, qty: 1 });
+  return pos().saveTabFor(session, {
+    label: ref(o.number) + ' ' + o.customer_name, fulfillment: o.fulfillment, customerName: o.customer_name, customerPhone: o.customer_phone,
+    deliveryAddress: o.fulfillment === 'delivery' ? (o.address + (o.landmark ? ' · ' + o.landmark : '')) : '',
+    items: items, kitchenNote: [ref(o.number) + ' (website)', o.scheduled_for ? 'for ' + hhmmOf(o.scheduled_for) : '', o.note].filter(Boolean).join(' · ')
+  });
+}
+function tabOut(tab) { return tab ? { id: tab.id, total: tab.total, kitchenTicket: tab.kitchenTicket || null } : null; }
+
 // POST /api/pos/delivery/online/:id/accept { readyMinutes } — it becomes an
-// open order on the till (its dishes at today's prices, the delivery fee a
-// line of its own), sent to the kitchen.
+// open order on the till, sent to the kitchen. One for later is confirmed
+// for its time and waits until its time to cook (start_at), unless that has
+// come already.
 async function accept(token, id, p) {
   var session = await access.need(token, 'delivery');
   var company = session.posCompanyId;
@@ -255,24 +352,87 @@ async function accept(token, id, p) {
     if (!now) fail('notfound', 'That order is not this restaurant\'s.');
     fail('conflict', now.status === 'cancelled' ? 'The customer cancelled that order.' : 'Someone has answered that order already.');
   }
+  var startAt = o.scheduled_for ? startOf(o, readyMinutes) : null;
+  if (startAt && startAt.getTime() > Date.now()) {
+    var later = (await pool.query("UPDATE restaurant_online_orders SET status = 'accepted', ready_minutes = $2, start_at = $3, release_error = NULL, updated_at = now() WHERE id = $1 RETURNING *",
+      [o.id, readyMinutes, startAt])).rows[0];
+    await activity.log(pool, { companyId: company, employeeId: session.posEmployeeId, app: 'delivery', action: 'online.accepted',
+      summary: 'Confirmed ' + ref(o.number) + ' from ' + o.customer_name + ' for ' + whenText(o.scheduled_for) + ' (to the kitchen at ' + hhmmOf(startAt) + ').',
+      amount: round2(o.total), refType: 'online', refId: o.id });
+    return { order: staffOut(later), tab: null };
+  }
   var tab;
   try {
-    var items = o.items.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '' }; });
-    if (Number(o.delivery_fee) > 0) items.push({ custom: { name: pos().FEE_NAME, price: Number(o.delivery_fee), fee: true }, qty: 1 });
-    tab = await pos().saveTabFor(session, {
-      label: ref(o.number) + ' ' + o.customer_name, fulfillment: o.fulfillment, customerName: o.customer_name, customerPhone: o.customer_phone,
-      deliveryAddress: o.fulfillment === 'delivery' ? (o.address + (o.landmark ? ' · ' + o.landmark : '')) : '',
-      items: items, kitchenNote: [ref(o.number) + ' (website)', o.note].filter(Boolean).join(' · ')
-    });
+    tab = await openTab(session, o);
   } catch (err) {
     await pool.query('UPDATE restaurant_online_orders SET decided_by = NULL, decided_at = NULL WHERE id = $1', [o.id]);
     throw err;
   }
-  var row = (await pool.query("UPDATE restaurant_online_orders SET status = 'accepted', tab_id = $2, ready_minutes = $3, updated_at = now() WHERE id = $1 RETURNING *", [o.id, tab.id, readyMinutes])).rows[0];
+  var row = (await pool.query("UPDATE restaurant_online_orders SET status = 'accepted', tab_id = $2, ready_minutes = $3, start_at = CASE WHEN scheduled_for IS NULL THEN NULL ELSE now() END, updated_at = now() WHERE id = $1 RETURNING *",
+    [o.id, tab.id, readyMinutes])).rows[0];
   await activity.log(pool, { companyId: company, employeeId: session.posEmployeeId, app: 'delivery', action: 'online.accepted',
-    summary: 'Accepted ' + ref(o.number) + ' from ' + o.customer_name + ' (ready in about ' + readyMinutes + ' min)' + (tab.kitchenTicket ? '; kitchen ticket #' + tab.kitchenTicket.number : '') + '.',
+    summary: 'Accepted ' + ref(o.number) + ' from ' + o.customer_name + (o.scheduled_for ? ' for ' + whenText(o.scheduled_for) : ' (ready in about ' + readyMinutes + ' min)') + (tab.kitchenTicket ? '; kitchen ticket #' + tab.kitchenTicket.number : '') + '.',
     amount: round2(o.total), refType: 'online', refId: o.id });
-  return { order: staffOut(row), tab: { id: tab.id, total: tab.total, kitchenTicket: tab.kitchenTicket || null } };
+  return { order: staffOut(row), tab: tabOut(tab) };
+}
+
+// An order for later goes to the kitchen: the open order on the till, in
+// the name of the person given (who confirmed it, or pressed Start now).
+// If it cannot (a dish sold out since), why is kept for the delivery screen
+// and it waits for Start now. { order, tab } or { order, error }; null if it
+// is not waiting (gone to the kitchen already, cancelled, or being sent).
+async function release(id, session, early) {
+  return withTransaction(async function (client) {
+    var o = (await client.query("SELECT * FROM restaurant_online_orders WHERE id = $1 AND company_id = $2 AND status = 'accepted' AND tab_id IS NULL FOR UPDATE SKIP LOCKED",
+      [id, session.posCompanyId])).rows[0];
+    if (!o) return null;
+    var tab;
+    try {
+      tab = await openTab(session, o);
+    } catch (err) {
+      var stuck = (await client.query('UPDATE restaurant_online_orders SET release_error = $2, updated_at = now() WHERE id = $1 RETURNING *', [o.id, String(err.message || err).slice(0, 300)])).rows[0];
+      return { order: stuck, error: err };
+    }
+    var row = (await client.query('UPDATE restaurant_online_orders SET tab_id = $2, start_at = least(start_at, now()), release_error = NULL, updated_at = now() WHERE id = $1 RETURNING *', [o.id, tab.id])).rows[0];
+    await activity.log(client, { companyId: o.company_id, employeeId: early ? session.posEmployeeId : null, app: 'delivery', action: 'online.started',
+      summary: (early ? 'Started ' : 'Time to cook: ') + ref(o.number) + ' from ' + o.customer_name + ' for ' + hhmmOf(o.scheduled_for) + ' went to the kitchen' + (tab.kitchenTicket ? ' as #' + tab.kitchenTicket.number : '') + '.',
+      amount: round2(o.total), refType: 'online', refId: o.id });
+    return { order: row, tab: tab };
+  });
+}
+// POST /api/pos/delivery/online/:id/start — an order for later to the kitchen now.
+async function start(token, id) {
+  var session = await access.need(token, 'delivery');
+  var r = await release(id, session, true);
+  if (!r) {
+    var now = (await pool.query('SELECT status, tab_id FROM restaurant_online_orders WHERE id = $1 AND company_id = $2', [id, session.posCompanyId])).rows[0];
+    if (!now) fail('notfound', 'That order is not this restaurant\'s.');
+    fail('conflict', now.status === 'cancelled' ? 'The customer cancelled that order.' : now.tab_id ? 'That order has gone to the kitchen already.' : 'That order is not confirmed for later.');
+  }
+  if (r.error) throw r.error;
+  return { order: staffOut(r.order), tab: tabOut(r.tab) };
+}
+// Every order for later whose time to cook has come — of one restaurant,
+// or all of them (the job). Those that could not be sent before wait for
+// Start now. How many went.
+async function releaseDue(companyId) {
+  var rows = (await pool.query("SELECT id, company_id, decided_by FROM restaurant_online_orders WHERE status = 'accepted' AND tab_id IS NULL AND start_at <= now() AND release_error IS NULL" +
+    (companyId ? ' AND company_id = $1' : '') + ' ORDER BY start_at LIMIT 40', companyId ? [companyId] : [])).rows;
+  var went = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var o = rows[i];
+    try {
+      if (!o.decided_by) {
+        await pool.query('UPDATE restaurant_online_orders SET release_error = $2, updated_at = now() WHERE id = $1', [o.id, 'Whoever confirmed it is not on the staff any more: press Start now.']);
+        continue;
+      }
+      var r = await release(o.id, { posCompanyId: o.company_id, posEmployeeId: o.decided_by, access: await access.accessOf(o.company_id, o.decided_by) }, false);
+      if (r && r.tab) went++;
+    } catch (e) {
+      console.error('Website order for later not sent to the kitchen:', e.message);
+    }
+  }
+  return went;
 }
 // POST /api/pos/delivery/online/:id/reject { reason } — turned down; the customer sees why.
 async function reject(token, id, p) {
@@ -286,4 +446,7 @@ async function reject(token, id, p) {
   return { order: staffOut(o) };
 }
 
-module.exports = { categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, staffOut: staffOut, ref: ref };
+module.exports = {
+  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, start: start,
+  releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP
+};

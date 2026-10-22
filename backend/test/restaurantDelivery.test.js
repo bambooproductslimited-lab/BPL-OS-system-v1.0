@@ -441,3 +441,106 @@ test('the website menu: a dish or a whole section switched off is not shown or s
   var log = (await pool.query("SELECT summary FROM restaurant_activity WHERE company_id = $1 AND action = 'delivery.menu' ORDER BY at, id", [company.id])).rows.map(function (r) { return r.summary; });
   assert.deepEqual(log, ['Website: Zqd sobolo taken off the website.', 'Website: The Zqd Mains section taken off the website.', 'Website: The whole menu back on the website.']);
 });
+
+test('orders for later: the times on offer, even while closed; confirmed, they wait, then go to the kitchen at their time; the customer may cancel until then', async function () {
+  var LIP = '10.9.7.80';
+  await assert.rejects(delivery.settings(tok.kojo, { settings: { later: { from: '12:00', to: '11:00' } } }, IP), /must be after the first/);
+  await assert.rejects(delivery.settings(tok.kojo, { settings: { later: { from: 'noon', to: '22:00' } } }, IP), /as 11:00/);
+  var s = (await delivery.settings(tok.kojo, { settings: { later: { days: 1, from: '00:00', to: '23:59' } } }, IP)).settings;
+  assert.deepEqual(s.later, { on: true, days: 1, from: '00:00', to: '23:59', whenClosed: true }, 'what was not sent is kept');
+  await delivery.setOpen(tok.desk, false);
+  var later = (await online.menu('ZQD')).restaurant.later;
+  assert.equal(later.on, true);
+  assert.ok(later.days.length >= 1 && later.days.length <= 2);
+  var day = later.days[0];
+  // Soonest: cooking (20 min), the ride (20) and 15 to spare; pickup without the ride.
+  var at = function (d, t) { return d.date + 'T' + t + ':00.000Z'; };
+  assert.ok(Date.parse(at(day, day.from.delivery)) >= Date.now() + 55 * 60000 - 1000);
+  assert.ok(Date.parse(at(day, day.from.pickup)) <= Date.parse(at(day, day.from.delivery)));
+  assert.equal(day.to, '23:45');
+
+  // Closed now: as soon as possible is refused, for later is taken.
+  await assert.rejects(online.place('ZQD', order({ phone: '0200000781' }), LIP), /not taking orders online right now. Order for later instead/);
+  await assert.rejects(online.place('ZQD', order({ phone: '0200000781', scheduledFor: at(day, day.from.delivery).replace(/:00\.000Z$/, ':07.000Z') }), LIP), /not on offer/);
+  await assert.rejects(online.place('ZQD', order({ phone: '0200000781', scheduledFor: '2099-01-01T12:00:00Z' }), LIP), /not on offer/);
+  await assert.rejects(online.place('ZQD', order({ phone: '0200000781', scheduledFor: 'tomorrow' }), LIP), /Choose a day and a time/);
+  var when = at(day, day.from.delivery);
+  var a = await online.place('ZQD', order({ phone: '0200000781', scheduledFor: when }), LIP);
+  assert.deepEqual([a.order.stage, new Date(a.order.scheduledFor).toISOString(), a.order.canCancel], ['waiting', when, true]);
+  var b = await online.place('ZQD', order({ name: 'Zqd Efua', phone: '0200000782', fulfillment: 'pickup', lat: null, lng: null, address: '', scheduledFor: at(day, day.from.pickup) }), LIP);
+  var c = await online.place('ZQD', order({ name: 'Zqd Yaa', phone: '0200000783', scheduledFor: when }), LIP);
+  // Not while closed, if the restaurant says so.
+  await delivery.settings(tok.kojo, { settings: { later: { whenClosed: false } } }, IP);
+  assert.equal((await online.menu('ZQD')).restaurant.later.on, false);
+  await assert.rejects(online.place('ZQD', order({ phone: '0200000784', scheduledFor: when }), LIP), /not taking orders for later right now/);
+  await delivery.settings(tok.kojo, { settings: { later: { whenClosed: true } } }, IP);
+  await delivery.setOpen(tok.desk, true);
+
+  // Waiting for an answer: the soonest first, with when it is for.
+  var board = await delivery.board(tok.desk);
+  var idOf = function (r) { return board.pending.find(function (o) { return o.ref === r; }).id; };
+  var aId = idOf(a.ref), bId = idOf(b.ref), cId = idOf(c.ref);
+  assert.equal(new Date(board.pending.find(function (o) { return o.id === aId; }).scheduledFor).toISOString(), when);
+  // Confirmed: no open order and nothing in the kitchen yet; the kitchen starts cooking 20 + the ride + 5 before.
+  var acc = await online.accept(tok.desk, aId, { readyMinutes: 20 });
+  assert.equal(acc.tab, null);
+  var ride = delivery.travelMinutes(delivery.roadKm(HERE, NEAR), 'motorbike');
+  assert.equal(new Date(acc.order.startAt).getTime(), Date.parse(when) - (20 + ride + 5) * 60000);
+  assert.ok(!(await pos.listTabs(tok.ama)).some(function (t) { return t.label.indexOf(a.ref) === 0; }));
+  var ta = await online.track(a.token);
+  assert.deepEqual([ta.stage, ta.canCancel], ['scheduled', true]);
+  await online.accept(tok.desk, bId, {});
+  await online.accept(tok.desk, cId, {});
+  board = await delivery.board(tok.desk);
+  assert.deepEqual(board.later.map(function (o) { return o.ref; }).sort(), [a.ref, b.ref, c.ref].sort());
+  assert.equal(board.totals.later, 3);
+
+  // The customer changes their mind before the kitchen starts.
+  assert.equal((await online.cancel(c.token)).stage, 'cancelled');
+  board = await delivery.board(tok.desk);
+  assert.ok(!board.later.some(function (o) { return o.id === cId; }) && board.turnedDown.some(function (o) { return o.id === cId; }));
+
+  // Its time to cook comes: an open order on the till, sent to the kitchen, saying when it is for.
+  await pool.query("UPDATE restaurant_online_orders SET start_at = now() - interval '1 minute' WHERE id = $1", [aId]);
+  assert.equal(await online.releaseDue(company.id), 1);
+  assert.equal(await online.releaseDue(company.id), 0, 'once');
+  var oa = (await pool.query('SELECT tab_id, release_error FROM restaurant_online_orders WHERE id = $1', [aId])).rows[0];
+  assert.ok(oa.tab_id && !oa.release_error);
+  var note = (await pool.query('SELECT note FROM restaurant_kitchen_tickets WHERE tab_id = $1', [oa.tab_id])).rows[0].note;
+  assert.ok(note.indexOf(a.ref + ' (website) · for ' + when.slice(11, 16)) === 0, note);
+  ta = await online.track(a.token);
+  assert.deepEqual([ta.stage, ta.canCancel], ['preparing', false]);
+  await assert.rejects(online.cancel(a.token), /started on your order already/);
+  board = await delivery.board(tok.desk);
+  assert.ok(board.cooking.some(function (w) { return w.tabId === oa.tab_id; }) && !board.later.some(function (o) { return o.id === aId; }));
+
+  // Could not go (a dish gone from the menu since): why is shown, and it waits for Start now.
+  await pool.query('UPDATE restaurant_menu_items SET active = false WHERE id = $1', [juice]);
+  await pool.query("UPDATE restaurant_online_orders SET start_at = now() - interval '1 minute' WHERE id = $1", [bId]);
+  assert.equal(await online.releaseDue(company.id), 0);
+  board = await delivery.board(tok.desk);
+  var stuck = board.later.find(function (o) { return o.id === bId; });
+  assert.ok(stuck && stuck.startError, 'kept with why');
+  await assert.rejects(online.start(tok.desk, bId), new RegExp(stuck.startError.slice(0, 12)));
+  await pool.query('UPDATE restaurant_menu_items SET active = true WHERE id = $1', [juice]);
+  assert.equal(await online.releaseDue(company.id), 0, 'not tried again by itself');
+  var started = await online.start(tok.desk, bId);
+  assert.ok(started.tab.id && !started.order.startError);
+  await assert.rejects(online.start(tok.desk, bId), /gone to the kitchen already/);
+  await assert.rejects(online.start(tok.desk, cId), /customer cancelled/);
+  assert.equal((await online.track(b.token)).stage, 'preparing');
+
+  // Its time to cook already come when it is confirmed: straight to the kitchen.
+  var d = await online.place('ZQD', order({ name: 'Zqd Kwesi', phone: '0200000785', scheduledFor: when }), LIP);
+  board = await delivery.board(tok.desk);
+  var dId = board.pending.find(function (o) { return o.ref === d.ref; }).id;
+  await pool.query("UPDATE restaurant_online_orders SET scheduled_for = now() + interval '30 minutes' WHERE id = $1", [dId]);
+  var now = await online.accept(tok.desk, dId, { readyMinutes: 25 });
+  assert.ok(now.tab && now.tab.id);
+  var log = (await pool.query("SELECT action, summary FROM restaurant_activity WHERE company_id = $1 AND action IN ('online.accepted', 'online.started', 'online.cancelled') AND ref_id = ANY($2::uuid[]) ORDER BY at, id",
+    [company.id, [aId, bId, cId]])).rows;
+  assert.ok(log.some(function (r) { return r.action === 'online.accepted' && /^Confirmed W-\d{4} from Zqd Akosua for \w{3} \d{1,2} \w{3}, \d\d:\d\d \(to the kitchen at \d\d:\d\d\)\.$/.test(r.summary); }));
+  assert.ok(log.some(function (r) { return r.action === 'online.started' && /^Time to cook: /.test(r.summary); }));
+  assert.ok(log.some(function (r) { return r.action === 'online.started' && /^Started W-/.test(r.summary); }));
+  assert.ok(log.some(function (r) { return r.action === 'online.cancelled' && /before the kitchen started on it\.$/.test(r.summary); }));
+});

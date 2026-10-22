@@ -7,12 +7,12 @@ import { playNewTicket, unlockAudio } from '../../kiosk/kioskSounds';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { Icon } from '../../components/DashKit';
 import DeliveryMap from './DeliveryMap';
-import { ActiveCard, DoneCard, MoneyLine, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
+import { ActiveCard, DoneCard, LaterCard, MoneyLine, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
 import { SendDialog, SettingsDialog } from './DlDialogs';
 import RidersPanel from './DlRiders';
 import OnlineMenuDialog from './DlMenu';
 import { money } from '../../lib/currency';
-import { chipOf, kmText, minText, payName, riderSpot, sinceText, statusName, trafficMinutes, vehicleEmoji, vehicleName, wayOf } from './dlShared';
+import { chipOf, clockOf, kmText, laterText, minText, payName, riderSpot, sinceText, statusName, trafficMinutes, vehicleEmoji, vehicleName, wayOf } from './dlShared';
 import '../till/till.css';
 import '../../components/DashKit.css';
 import '../RestaurantPosPage.css';
@@ -20,9 +20,10 @@ import './delivery.css';
 
 // The delivery screen (delivery.starbartema.com; tools/build-site.mjs),
 // signed in with a staff PIN (the delivery permission). What it is for,
-// left to right: the website's new orders to accept or turn down, food
-// cooking, food ready to go out with a rider, deliveries on their way, and
-// today's done — with the riders, and a map of it all where riders glide
+// left to right: the website's new orders to accept or turn down, those
+// confirmed for later (they go to the kitchen by themselves when it is time
+// to cook), food cooking, food ready to go out with a rider, deliveries on
+// their way, and today's done — with the riders, and a map of it all where riders glide
 // to the door (live from their phone, or estimated: dlShared riderSpot).
 // The board is asked for every few seconds (backend restaurantDelivery
 // board); a new website order rings.
@@ -30,7 +31,7 @@ import './delivery.css';
 const SESSION_KEY = 'bamboo.delivery.session';
 const POLL_MS = 5000;
 const TABS = [
-  ['new', 'spark', () => tr('New')], ['cooking', 'clock', () => tr('Kitchen')], ['ready', 'bag', () => tr('Ready')],
+  ['new', 'spark', () => tr('New')], ['later', 'calendar', () => tr('Later')], ['cooking', 'clock', () => tr('Kitchen')], ['ready', 'bag', () => tr('Ready')],
   ['road', 'send', () => tr('On the way')], ['done', 'check', () => tr('Done')], ['riders', 'people', () => tr('Riders')]
 ];
 
@@ -170,10 +171,16 @@ function Desk({ session, onSignOut, themeButton }) {
       if (!c || c.lat == null) return;
       mk.push({ id: key, kind: 'order', tone, lat: c.lat, lng: c.lng, emoji, label, sub: c.name, info, active: selected === key, fit: !selected || selected === key, onClick: () => pick(key) });
     };
-    if (tab === 'new' || (selected && selected.startsWith('p:'))) board.pending.forEach((o) => place('p:' + o.id, 'new', '🛎️', o.customer, o.ref, [
+    if (tab === 'new' || (selected && selected.startsWith('p:'))) board.pending.forEach((o) => place('p:' + o.id, 'new', o.scheduledFor ? '🗓️' : '🛎️', o.customer, o.ref, [
       o.ref + ' · ' + o.customer.name, where(o.customer),
       tr('{n} dishes', { n: o.items.reduce((n, l) => n + Number(l.qty || 0), 0) }) + ' · ' + money(o.total) + ' · ' + payName(o.payMethod),
-      (o.distanceKm != null ? kmText(o.distanceKm) + ' · ' : '') + tr('waiting {n} min', { n: o.waitingMinutes })
+      (o.distanceKm != null ? kmText(o.distanceKm) + ' · ' : '') + tr('waiting {n} min', { n: o.waitingMinutes }),
+      o.scheduledFor ? '🗓️ ' + tr('For {when}', { when: laterText(o.scheduledFor) }) : ''
+    ]));
+    if (tab === 'later' || (selected && selected.startsWith('l:'))) board.later.forEach((o) => place('l:' + o.id, 'later', '🗓️', o.customer, o.ref + ' · ' + clockOf(o.scheduledFor), [
+      o.ref + ' · ' + o.customer.name, where(o.customer),
+      '🗓️ ' + tr('For {when}', { when: laterText(o.scheduledFor) }),
+      money(o.total) + ' · ' + payName(o.payMethod)
     ]));
     board.cooking.concat(board.ready).forEach((w) => place('w:' + w.key, w.stage === 'ready' ? 'ready' : 'cooking', w.stage === 'ready' ? '📦' : '🍳', w.customer, w.onlineRef || w.label, [
       (w.onlineRef || w.label) + ' · ' + w.customer.name, where(w.customer),
@@ -208,7 +215,7 @@ function Desk({ session, onSignOut, themeButton }) {
       </div>
     );
   }
-  const counts = { new: board.pending.length, cooking: board.cooking.length, ready: board.ready.length, road: board.active.length, done: board.done.length + board.turnedDown.length, riders: board.riders.filter((r) => r.active).length };
+  const counts = { new: board.pending.length, later: board.later.length, cooking: board.cooking.length, ready: board.ready.length, road: board.active.length, done: board.done.length + board.turnedDown.length, riders: board.riders.filter((r) => r.active).length };
   const free = board.riders.filter((r) => r.active && !r.busy).length;
   const logo = restaurantLogoUrl(board.company.code);
 
@@ -221,7 +228,8 @@ function Desk({ session, onSignOut, themeButton }) {
         </div>
         <button type="button" role="switch" aria-checked={s.open} className={'dl-open' + (s.open ? ' is-on' : '')} onClick={() => act('/pos/delivery/open', { open: !s.open }, (r) => setToast(r.open ? tr('The website takes orders now.') : tr('The website stopped taking orders.')))}>
           <span className="dl-open-dot" aria-hidden="true" />
-          <span><strong>{s.open ? tr('Taking orders online') : tr('Online orders paused')}</strong><small>{board.siteUrl.replace(/^https?:\/\//, '')}</small></span>
+          <span><strong>{s.open ? tr('Taking orders online') : tr('Online orders paused')}</strong>
+            <small>{!s.open && s.later.on && s.later.whenClosed ? '🗓️ ' + tr('Orders for later still come in') : board.siteUrl.replace(/^https?:\/\//, '')}</small></span>
           <span className={'ts-switch' + (s.open ? ' is-on' : '')} aria-hidden="true"><i /></span>
         </button>
         <button type="button" className="dl-open dl-menu-btn" onClick={() => setMenuOpen(true)} title={tr('Switch dishes and sections on and off on the website')}>
@@ -230,6 +238,7 @@ function Desk({ session, onSignOut, themeButton }) {
         </button>
         <div className="dl-stats">
           <Stat tone="new" n={counts.new} label={tr('new online')} onClick={() => setTab('new')} />
+          {counts.later > 0 && <Stat tone="later" n={counts.later} label={tr('for later')} onClick={() => setTab('later')} />}
           <Stat tone="cooking" n={counts.cooking} label={tr('cooking')} onClick={() => setTab('cooking')} />
           <Stat tone="ready" n={counts.ready} label={tr('ready to go')} onClick={() => setTab('ready')} />
           <Stat tone="road" n={counts.road} label={tr('on the way')} onClick={() => setTab('road')} />
@@ -259,9 +268,16 @@ function Desk({ session, onSignOut, themeButton }) {
           <div className="dl-list">
             {tab === 'new' && (board.pending.length ? board.pending.map((o) => (
               <NewOrderCard key={o.id} o={o} settings={s} selected={selected === 'p:' + o.id} onSelect={() => pick('p:' + o.id)}
-                onAccept={(m) => act('/pos/delivery/online/' + o.id + '/accept', { readyMinutes: m }, (r) => { setToast(tr('{ref} accepted: on the till and in the kitchen.', { ref: o.ref }) + (r.tab.kitchenTicket ? ' #' + r.tab.kitchenTicket.number : '')); })}
+                onAccept={(m) => act('/pos/delivery/online/' + o.id + '/accept', { readyMinutes: m }, (r) => {
+                  if (!r.tab) { setToast(tr('{ref} confirmed for {when}. It goes to the kitchen by itself at {time}.', { ref: o.ref, when: laterText(o.scheduledFor), time: clockOf(r.order.startAt) })); return; }
+                  setToast(tr('{ref} accepted: on the till and in the kitchen.', { ref: o.ref }) + (r.tab.kitchenTicket ? ' #' + r.tab.kitchenTicket.number : ''));
+                })}
                 onReject={(reason) => act('/pos/delivery/online/' + o.id + '/reject', { reason }, () => setToast(tr('{ref} turned down. The customer sees why.', { ref: o.ref })))} />
             )) : <Empty icon="🛎️" title={tr('No new website orders')} text={s.open ? tr('They ring here the moment a customer orders.') : tr('The website is not taking orders. Turn it on at the top when the kitchen is ready.')} />)}
+            {tab === 'later' && (board.later.length ? board.later.map((o) => (
+              <LaterCard key={o.id} o={o} now={now} selected={selected === 'l:' + o.id} onSelect={() => pick('l:' + o.id)}
+                onStart={() => act('/pos/delivery/online/' + o.id + '/start', {}, (r) => setToast(tr('{ref} is on the till and in the kitchen.', { ref: o.ref }) + (r.tab && r.tab.kitchenTicket ? ' #' + r.tab.kitchenTicket.number : '')))} />
+            )) : <Empty icon="🗓️" title={tr('No orders for later')} text={s.later.on ? tr('Customers can choose a day and a time on the website. Confirmed, the order waits here and goes to the kitchen by itself when it is time to cook.') : tr('Orders for later are off. A manager turns them on in Delivery settings.')} />)}
             {tab === 'cooking' && (board.cooking.length ? board.cooking.map((w) => (
               <WaitingCard key={w.key} w={w} now={now} selected={selected === 'w:' + w.key} onSelect={() => pick('w:' + w.key)} onSend={() => setSending(w)} />
             )) : <Empty icon="🍳" title={tr('Nothing cooking for delivery')} text={tr('Delivery orders from the till and accepted website orders show here while the kitchen works on them.')} />)}
@@ -292,7 +308,7 @@ function Desk({ session, onSignOut, themeButton }) {
         <section className="dl-mapbox" aria-label={tr('Map')}>
           <DeliveryMap markers={markers} routes={routes} fitKey={fitKey} center={here ? [here.lat, here.lng] : undefined} />
           <div className="dl-legend" aria-hidden="true">
-            <span><i className="is-new" />{tr('New')}</span><span><i className="is-cooking" />{tr('Cooking')}</span><span><i className="is-ready" />{tr('Ready')}</span>
+            <span><i className="is-new" />{tr('New')}</span>{counts.later > 0 && <span><i className="is-later" />{tr('Later')}</span>}<span><i className="is-cooking" />{tr('Cooking')}</span><span><i className="is-ready" />{tr('Ready')}</span>
             <span><i className="is-road" />{tr('On the way')}</span><span><b>●</b> {tr('live')} · <b>◌</b> {tr('estimated')}</span>
           </div>
         </section>

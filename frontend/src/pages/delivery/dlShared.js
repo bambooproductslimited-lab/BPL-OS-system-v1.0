@@ -40,6 +40,27 @@ export function navLink(lat, lng) { return 'https://www.google.com/maps/dir/?api
 export function kmText(km) { return km == null ? '' : tr('{n} km', { n: Number(km).toLocaleString(activeIntlLocale(), { maximumFractionDigits: 1 }) }); }
 export function minText(m) { return m == null ? '' : m < 60 ? tr('{n} min', { n: m }) : tr('{h} h {m} min', { h: Math.floor(m / 60), m: m % 60 }); }
 export function timeOf(iso) { return iso ? new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) : ''; }
+// Orders for later, on the restaurant's clock (Ghana keeps GMT all year):
+// the day — Today, Tomorrow, Sat 24 Oct — and the time.
+const DAY_MS = 86400000;
+export function dayName(date, now) {
+  const at = Date.parse(String(date).slice(0, 10) + 'T00:00:00Z');
+  const today = Date.parse(new Date(now || Date.now()).toISOString().slice(0, 10) + 'T00:00:00Z');
+  const n = Math.round((at - today) / DAY_MS);
+  if (n === 0) return tr('Today');
+  if (n === 1) return tr('Tomorrow');
+  return new Date(at).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+export function clockOf(iso) { return iso ? new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : ''; }
+// In a sentence: today at 18:30, tomorrow at 11:00, Sat 24 Oct at 18:30.
+export function laterText(iso, now) {
+  if (!iso) return '';
+  const n = Math.round((Date.parse(new Date(iso).toISOString().slice(0, 10)) - Date.parse(new Date(now || Date.now()).toISOString().slice(0, 10))) / DAY_MS);
+  const time = clockOf(iso);
+  if (n === 0) return tr('today at {time}', { time });
+  if (n === 1) return tr('tomorrow at {time}', { time });
+  return tr('{day} at {time}', { day: dayName(new Date(iso).toISOString(), now), time });
+}
 export function sinceText(iso, now) {
   const m = Math.max(0, Math.floor(((now || Date.now()) - new Date(iso).getTime()) / 60000));
   return m < 1 ? tr('just now') : m < 60 ? tr('{n} min ago', { n: m }) : tr('{h} h {m} min ago', { h: Math.floor(m / 60), m: m % 60 });
@@ -232,6 +253,8 @@ export function minutesLeft(order, now) {
   if (d && d.status === 'picked_up') return rideLeft(d, now);
   const ride = d ? d.etaMinutes || 15 : order.distanceKm != null ? Math.round(order.distanceKm / 24 * 60) + 4 : 15;
   if (d && d.status === 'assigned') return Math.max(3, ride + 5);
+  // For later: at the time chosen.
+  if (order.scheduledFor) return Math.max(order.fulfillment === 'pickup' ? 0 : ride, Math.round((new Date(order.scheduledFor).getTime() - now) / 60000));
   if (order.decidedAt && order.readyMinutes) {
     const ready = new Date(order.decidedAt).getTime() + order.readyMinutes * 60000;
     return Math.max(ride, Math.round((ready - now) / 60000) + (order.fulfillment === 'pickup' ? 0 : ride));

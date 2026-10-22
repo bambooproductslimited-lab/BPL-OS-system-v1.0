@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { money } from '../../lib/currency';
-import { tr } from '../../lib/i18n.jsx';
-import { kmText, minText, navLink, payName, rideLeft, riderSpot, sinceText, statusName, stepOf, telLink, timeOf, trafficMinutes, vehicleEmoji, vehicleName, waLink } from './dlShared';
+import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
+import { clockOf, dayName, kmText, laterText, minText, navLink, payName, rideLeft, riderSpot, sinceText, statusName, stepOf, telLink, timeOf, trafficMinutes, vehicleEmoji, vehicleName, waLink } from './dlShared';
 
 // The cards of the delivery screen (DeliveryApp.jsx): a website order to
-// accept or turn down; an order cooking or ready to go out; a delivery on
-// its way with its steps, rider and customer; one done or turned down.
+// accept or turn down — now, or confirmed for later; one confirmed for
+// later, waiting for its time to cook; an order cooking or ready to go out;
+// a delivery on its way with its steps, rider and customer; one done or
+// turned down.
 // Pressing a card shows it on the map.
 
 // Call, WhatsApp and (with a pin) directions.
@@ -28,14 +30,16 @@ export function NewOrderCard({ o, settings, selected, onSelect, onAccept, onReje
   const [busy, setBusy] = useState(false);
   const late = o.waitingMinutes >= 5;
   const pickup = o.fulfillment === 'pickup';
+  const later = !!o.scheduledFor;
   async function run(fn) { setBusy(true); try { await fn(); } finally { setBusy(false); } }
   return (
-    <article className={'dl-card is-new' + (selected ? ' is-sel' : '') + (late ? ' is-late' : '')} onClick={onSelect}>
+    <article className={'dl-card is-new' + (later ? ' is-for-later' : '') + (selected ? ' is-sel' : '') + (late ? ' is-late' : '')} onClick={onSelect}>
       <header className="dl-card-head">
         <span className="dl-badge is-new">{pickup ? '🥡' : '🛵'} {o.ref}</span>
         <span className="dl-kind">{pickup ? tr('Pickup') : tr('Delivery')}{!pickup && o.distanceKm != null ? ' · ' + kmText(o.distanceKm) : ''}</span>
         <span className={'dl-wait' + (late ? ' is-late' : '')}>{o.waitingMinutes < 1 ? tr('just now') : tr('waiting {n} min', { n: o.waitingMinutes })}</span>
       </header>
+      {later && <When o={o} />}
       <div className="dl-who"><strong>{o.customer.name}</strong><ContactLinks phone={o.customer.phone} text={tr('Hello {name}, this is about your order {ref}.', { name: o.customer.name, ref: o.ref })} /></div>
       {!pickup && <p className="dl-where"><span aria-hidden="true">📍</span><span>{o.customer.address}{o.customer.landmark && <small>{o.customer.landmark}</small>}</span></p>}
       <ul className="dl-items">
@@ -49,12 +53,14 @@ export function NewOrderCard({ o, settings, selected, onSelect, onAccept, onReje
       </div>
       {!rejecting ? (
         <div className="dl-answer" onClick={(e) => e.stopPropagation()}>
-          <span className="dl-answer-label">{tr('Ready in')}</span>
-          <div className="dl-chips" role="radiogroup" aria-label={tr('Ready in')}>
+          <span className="dl-answer-label">{later ? tr('Cooking takes') : tr('Ready in')}</span>
+          <div className="dl-chips" role="radiogroup" aria-label={later ? tr('Cooking takes') : tr('Ready in')}>
             {[15, 20, 30, 45, 60].map((m) => <button key={m} type="button" role="radio" aria-checked={mins === m} className={mins === m ? 'is-on' : ''} onClick={() => setMins(m)}>{minText(m)}</button>)}
           </div>
           <div className="dl-answer-go">
-            <button type="button" className="btn dl-go" disabled={busy} onClick={() => run(() => onAccept(mins))}>{busy ? tr('Accepting…') : '✓ ' + tr('Accept and cook')}</button>
+            <button type="button" className="btn dl-go" disabled={busy} onClick={() => run(() => onAccept(mins))}>
+              {busy ? tr('Accepting…') : later ? '🗓️ ' + tr('Confirm for {time}', { time: clockOf(o.scheduledFor) }) : '✓ ' + tr('Accept and cook')}
+            </button>
             <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setRejecting(true)}>{tr('Turn down')}</button>
           </div>
         </div>
@@ -73,6 +79,64 @@ export function NewOrderCard({ o, settings, selected, onSelect, onAccept, onReje
   );
 }
 
+// When an order for later is for: a calendar leaf, the day and the time.
+function When({ o, now }) {
+  const at = new Date(o.scheduledFor);
+  const toKitchen = o.startAt && !o.startError ? Math.max(0, Math.round((new Date(o.startAt).getTime() - (now || Date.now())) / 60000)) : null;
+  return (
+    <div className="dl-when">
+      <span className="dl-cal" aria-hidden="true">
+        <small>{at.toLocaleDateString(activeIntlLocale(), { month: 'short', timeZone: 'UTC' })}</small><b>{at.getUTCDate()}</b>
+      </span>
+      <span className="dl-when-text">
+        <strong>{tr('For {when}', { when: laterText(o.scheduledFor, now) })}</strong>
+        <small>{o.fulfillment === 'pickup' ? tr('Ready at the counter then') : tr('At the door then')}
+          {toKitchen != null && ' · ' + (toKitchen < 1 ? tr('to the kitchen now') : tr('to the kitchen at {time}, in {m}', { time: clockOf(o.startAt), m: minText(toKitchen) }))}</small>
+      </span>
+      <span className="dl-when-day">{dayName(o.scheduledFor, now)}</span>
+    </div>
+  );
+}
+
+// Confirmed for later: waits for its time to cook (it goes to the kitchen
+// by itself then), or Start now. If it could not go, why.
+export function LaterCard({ o, now, selected, onSelect, onStart }) {
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const pickup = o.fulfillment === 'pickup';
+  async function start() { setBusy(true); try { await onStart(); } finally { setBusy(false); setSure(false); } }
+  return (
+    <article className={'dl-card is-later' + (o.startError ? ' is-stuck' : '') + (selected ? ' is-sel' : '')} onClick={onSelect}>
+      <header className="dl-card-head">
+        <span className="dl-badge is-later">🗓️ {o.ref}</span>
+        <span className="dl-kind">{tr('Website')} · {pickup ? tr('Pickup') : tr('Delivery')}{!pickup && o.distanceKm != null ? ' · ' + kmText(o.distanceKm) : ''}</span>
+        <span className="dl-wait">{tr('confirmed {time}', { time: timeOf(o.decidedAt) })}</span>
+      </header>
+      <When o={o} now={now} />
+      <div className="dl-who"><strong>{o.customer.name}</strong><ContactLinks phone={o.customer.phone} text={tr('Hello {name}, this is about your order {ref}.', { name: o.customer.name, ref: o.ref })} /></div>
+      {!pickup && <p className="dl-where"><span aria-hidden="true">📍</span><span>{o.customer.address}{o.customer.landmark && <small>{o.customer.landmark}</small>}</span></p>}
+      <ul className="dl-items is-short">{o.items.map((l, i) => <li key={i}><span>{l.qty}× {l.name}{l.note && <em>{l.note}</em>}</span></li>)}</ul>
+      {o.note && <p className="dl-note">✎ {o.note}</p>}
+      <div className="dl-money">
+        <span>{payName(o.payMethod)} · {pickup ? tr('paid at pickup') : tr('paid on delivery')}</span>
+        <strong>{money(o.total)}</strong>
+      </div>
+      {o.startError && <p className="dl-stuck">⚠️ {tr('It could not go to the kitchen: {why}', { why: o.startError })}</p>}
+      <div className="dl-actions" onClick={(e) => e.stopPropagation()}>
+        {!sure ? (
+          <button type="button" className={'btn ' + (o.startError ? 'dl-go' : 'btn-secondary')} disabled={busy} onClick={() => setSure(true)}>🍳 {o.startError ? tr('Try again: start now') : tr('Start now')}</button>
+        ) : (
+          <div className="dl-answer-go">
+            <button type="button" className="btn dl-go" disabled={busy} onClick={start}>{busy ? tr('Sending…') : '🍳 ' + tr('Send to the kitchen now')}</button>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setSure(false)}>{tr('Back')}</button>
+          </div>
+        )}
+        {!o.startError && <p className="dl-hint">{tr('It goes to the till and the kitchen by itself when it is time to cook.')}</p>}
+      </div>
+    </article>
+  );
+}
+
 export function WaitingCard({ w, now, selected, onSelect, onSend }) {
   const pickup = w.fulfillment === 'pickup';
   const cooking = w.stage === 'cooking';
@@ -81,7 +145,7 @@ export function WaitingCard({ w, now, selected, onSelect, onSend }) {
       <header className="dl-card-head">
         <span className={'dl-badge is-' + (cooking ? 'cooking' : 'ready')}>{cooking ? '🍳' : '📦'} {w.onlineRef || w.label}</span>
         <span className="dl-kind">{w.onlineRef ? tr('Website') : tr('Till')} · {pickup ? tr('Pickup') : tr('Delivery')}</span>
-        <span className="dl-wait">{sinceText(w.since, now)}</span>
+        {w.scheduledFor ? <span className="dl-wait is-for">🗓️ {clockOf(w.scheduledFor)}</span> : <span className="dl-wait">{sinceText(w.since, now)}</span>}
       </header>
       <div className="dl-who"><strong>{w.customer.name || w.label}</strong><ContactLinks phone={w.customer.phone} /></div>
       {!pickup && (
@@ -97,7 +161,7 @@ export function WaitingCard({ w, now, selected, onSelect, onSend }) {
       <div className="dl-actions" onClick={(e) => e.stopPropagation()}>
         {pickup ? <p className="dl-hint">🥡 {tr('The customer collects it at the counter: charge it on the till then.')}</p>
           : <button type="button" className={'btn ' + (cooking ? 'btn-secondary' : 'dl-go')} onClick={onSend}>🛵 {cooking ? tr('Send a rider now') : tr('Send with a rider')}</button>}
-        {cooking && !pickup && <p className="dl-hint">{w.readyMinutes ? tr('The kitchen said about {m}.', { m: minText(w.readyMinutes) }) : tr('A rider can wait at the counter.')}</p>}
+        {cooking && !pickup && <p className="dl-hint">{w.scheduledFor ? tr('Wanted at the door at {time}.', { time: clockOf(w.scheduledFor) }) : w.readyMinutes ? tr('The kitchen said about {m}.', { m: minText(w.readyMinutes) }) : tr('A rider can wait at the counter.')}</p>}
       </div>
     </article>
   );

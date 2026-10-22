@@ -6,19 +6,24 @@ import { tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
-import { chipOf, minText, minutesLeft, payName, riderSpot, routePoints, telLink, timeOf, trafficMinutes, vehicleEmoji, vehicleName, waLink, wayOf } from '../delivery/dlShared';
+import { activeIntlLocale } from '../../lib/i18n.jsx';
+import { chipOf, clockOf, dayName, laterText, minText, minutesLeft, payName, riderSpot, routePoints, telLink, timeOf, trafficMinutes, vehicleEmoji, vehicleName, waLink, wayOf } from '../delivery/dlShared';
 import './online.css';
 
 // A website order followed by its customer (online.starbartema.com/t/<its
 // link>; backend restaurantOnline track): waiting for the restaurant, then
 // cooking, ready, the rider coming on the map — where their phone says, or
 // an estimate along the way — and at the door. Asked again every few
-// seconds until it is over. While it waits it can be cancelled.
+// seconds until it is over. While it waits it can be cancelled; one for
+// later, until the kitchen starts on it (and it is asked for less often
+// while it waits for its time).
 
 const POLL_MS = 5000;
+const SLOW_EVERY = 6; // confirmed for later: every 30 s
 const OVER = ['rejected', 'cancelled', 'delivered', 'collected', 'failed'];
 const STAGE = {
   waiting: ['⏳', () => tr('Waiting for the restaurant'), () => tr('They will accept it in a moment. You can still cancel.')],
+  scheduled: ['🗓️', null, () => tr('The kitchen starts on it in good time. You can still cancel until then.')],
   rejected: ['😔', () => tr('The restaurant could not take this order'), null],
   cancelled: ['✕', () => tr('This order was cancelled'), null],
   preparing: ['👩‍🍳', () => tr('Being prepared'), null],
@@ -33,7 +38,9 @@ const STAGE = {
 };
 const STEPS_DELIVERY = [['waiting', () => tr('Placed')], ['preparing', () => tr('Cooking')], ['ready', () => tr('Ready')], ['on_the_way', () => tr('On the way')], ['delivered', () => tr('At your door')]];
 const STEPS_PICKUP = [['waiting', () => tr('Placed')], ['preparing', () => tr('Cooking')], ['ready_pickup', () => tr('Ready')], ['collected', () => tr('Collected')]];
-const ORDER = { waiting: 0, preparing: 1, ready: 2, ready_pickup: 2, rider: 2, on_the_way: 3, arrived: 3, delivered: 4, collected: 3 };
+const STEP_LATER = ['scheduled', () => tr('Confirmed')];
+// The step each stage is at.
+const STEP_OF = { waiting: 'waiting', scheduled: 'scheduled', preparing: 'preparing', ready: 'ready', ready_pickup: 'ready_pickup', rider: 'ready', on_the_way: 'on_the_way', arrived: 'on_the_way', delivered: 'delivered', collected: 'collected' };
 
 export default function OnlineTrack({ token, onMenu: toMenu }) {
   const [o, setO] = useState(null);
@@ -42,6 +49,7 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const stage = useRef(null); // asked again until it is over
+  const ticks = useRef(0);
   useEffect(() => { applyTheme(getInitialTheme()); }, []);
   const load = useCallback(async () => {
     try { const r = await posFetch('GET', '/pos/online/track/' + encodeURIComponent(token)); stage.current = r.stage; setO(r); setFetchedAt(Date.now()); setError(null); document.title = r.ref + ' · ' + r.restaurant.name; return r; }
@@ -49,7 +57,11 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
   }, [token]);
   useEffect(() => {
     load();
-    const t = setInterval(() => { if (!OVER.includes(stage.current)) load(); }, POLL_MS);
+    const t = setInterval(() => {
+      ticks.current += 1;
+      if (OVER.includes(stage.current) || (stage.current === 'scheduled' && ticks.current % SLOW_EVERY)) return;
+      load();
+    }, POLL_MS);
     return () => clearInterval(t);
   }, [load]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
@@ -69,14 +81,19 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
   const home = o.customer.lat != null ? { lat: o.customer.lat, lng: o.customer.lng } : null;
   const d = o.delivery;
   const spot = d && here ? riderSpot({ ...d, customer: o.customer }, here, now, fetchedAt) : null;
-  const left = !OVER.includes(o.stage) ? minutesLeft(o, now) : null;
-  const steps = o.fulfillment === 'pickup' ? STEPS_PICKUP : STEPS_DELIVERY;
-  const at = ORDER[o.stage] != null ? ORDER[o.stage] : -1;
+  const left = !OVER.includes(o.stage) && o.stage !== 'waiting' && o.stage !== 'scheduled' ? minutesLeft(o, now) : null;
+  const base = o.fulfillment === 'pickup' ? STEPS_PICKUP : STEPS_DELIVERY;
+  const steps = o.scheduledFor ? [base[0], STEP_LATER].concat(base.slice(1)) : base;
+  const at = steps.findIndex(([k]) => k === STEP_OF[o.stage]);
   const bad = o.stage === 'rejected' || o.stage === 'cancelled' || o.stage === 'failed';
+  const forLater = o.scheduledFor ? laterText(o.scheduledFor, now) : '';
+  const title = o.stage === 'scheduled' ? tr('Confirmed for {when}', { when: forLater }) : st[1]();
   let sub = st[2] ? st[2]() : '';
+  if (o.stage === 'waiting' && o.scheduledFor) sub = tr('For {when}. They will confirm it soon. You can still cancel.', { when: forLater });
   if (o.stage === 'rejected') sub = o.rejectReason || '';
   if (o.stage === 'failed') sub = (d && d.note) || tr('Call the restaurant to sort it out.');
-  if (o.stage === 'preparing') sub = left != null ? (o.fulfillment === 'pickup' ? tr('Ready in about {m}.', { m: minText(left) }) : tr('At your door in about {m}.', { m: minText(left) })) : tr('The kitchen is on it.');
+  if (o.stage === 'preparing' && o.scheduledFor) sub = o.fulfillment === 'pickup' ? tr('Ready to pick up at {time}.', { time: clockOf(o.scheduledFor) }) : tr('At your door around {time}.', { time: clockOf(o.scheduledFor) });
+  else if (o.stage === 'preparing') sub = left != null ? (o.fulfillment === 'pickup' ? tr('Ready in about {m}.', { m: minText(left) }) : tr('At your door in about {m}.', { m: minText(left) })) : tr('The kitchen is on it.');
   if (o.stage === 'rider' && d) sub = tr('{name} is picking it up.', { name: d.rider.name });
   if (o.stage === 'on_the_way') sub = left != null ? tr('Arriving in about {m}.', { m: minText(left) }) : tr('Coming to you now.');
   if (o.stage === 'on_the_way' && trafficMinutes(d)) sub += ' 🚦 ' + tr('Traffic adds about {m}.', { m: minText(trafficMinutes(d)) });
@@ -105,11 +122,25 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
       <section className={'on-status is-' + o.stage + (bad ? ' is-bad' : '')} aria-live="polite">
         <span className="on-status-art" aria-hidden="true">{st[0]}</span>
         <div>
-          <h1>{st[1]()}</h1>
+          <h1>{title}</h1>
           {sub && <p>{sub}</p>}
           {left != null && !bad && <span className="on-eta">⏱ {tr('about {m}', { m: minText(left) })}</span>}
         </div>
       </section>
+
+      {o.scheduledFor && !bad && ['waiting', 'scheduled'].includes(o.stage) && (
+        <div className="on-card on-when-card">
+          <span className="on-cal" aria-hidden="true">
+            <small>{new Date(o.scheduledFor).toLocaleDateString(activeIntlLocale(), { month: 'short', timeZone: 'UTC' })}</small>
+            <b>{new Date(o.scheduledFor).getUTCDate()}</b>
+          </span>
+          <div>
+            <strong>{dayName(o.scheduledFor, now)} · {clockOf(o.scheduledFor)}</strong>
+            <small>{o.fulfillment === 'pickup' ? tr('Ready at the counter') : tr('Brought to your door')}</small>
+          </div>
+          <span className="on-cal-count">{countdown(o.scheduledFor, now)}</span>
+        </div>
+      )}
 
       {!bad && (
         <ol className="on-steps" style={{ '--n': steps.length }}>
@@ -153,10 +184,17 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
 
       <div className="on-track-go">
         {r.phone && <a className="on-go is-ghost" href={telLink(r.phone)}>📞 {tr('Call the restaurant')}</a>}
-        {o.stage === 'waiting' && <button type="button" className="on-go is-stop" disabled={busy} onClick={cancel}>{tr('Cancel the order')}</button>}
+        {o.canCancel && <button type="button" className="on-go is-stop" disabled={busy} onClick={cancel}>{tr('Cancel the order')}</button>}
         {OVER.includes(o.stage) && <button type="button" className="on-go" onClick={onMenu}>{tr('Order again')}</button>}
       </div>
       {error && <div className="error-banner" role="alert">{error}</div>}
     </div>
   );
+}
+
+// How long until an order for later: in 2 h 15 min, in 1 day.
+function countdown(iso, now) {
+  const m = Math.max(0, Math.round((new Date(iso).getTime() - now) / 60000));
+  if (m >= 1440) { const d = Math.floor(m / 1440); return d === 1 ? tr('in 1 day') : tr('in {n} days', { n: d }); }
+  return tr('in {m}', { m: minText(m) });
 }

@@ -37,6 +37,7 @@ router.post('/delivery/menu', h(function (req) { return delivery.onlineMenu(posT
 router.post('/delivery/send', h(function (req) { return delivery.send(posToken(req), body(req)); }));
 router.post('/delivery/online/:id/accept', h(function (req) { return online.accept(posToken(req), req.params.id, body(req)); }));
 router.post('/delivery/online/:id/reject', h(function (req) { return online.reject(posToken(req), req.params.id, body(req)); }));
+router.post('/delivery/online/:id/start', h(function (req) { return online.start(posToken(req), req.params.id); }));
 router.post('/delivery/:id/status', h(function (req) { return delivery.setStatus(posToken(req), req.params.id, body(req)); }));
 router.post('/delivery/:id/rider', h(function (req) { return delivery.reassign(posToken(req), req.params.id, body(req)); }));
 // The cashier takes the money a rider brought back: the order charged into their drawer.

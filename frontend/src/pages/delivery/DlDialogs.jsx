@@ -3,7 +3,7 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { tr } from '../../lib/i18n.jsx';
 import DeliveryMap from './DeliveryMap';
-import { VEHICLES, kmText, payName, vehicleEmoji, vehicleName, waLink } from './dlShared';
+import { VEHICLES, kmText, minText, payName, vehicleEmoji, vehicleName, waLink } from './dlShared';
 import './delivery.css';
 
 // Sending an order out (the delivery screen's "Send with a rider", and the
@@ -235,6 +235,29 @@ export function SettingsDialog({ token, canSettings, onClose, onSaved }) {
               </div>
               <label className="dl-form-wide"><span>{tr('A line for customers (hours, an offer)')}</span><input className="input" value={form.note} maxLength={200} onChange={(e) => set({ note: e.target.value })} placeholder={tr('e.g. Open every day 11:00 to 22:00')} /></label>
               {data && <p className="dl-hint">🌐 <a href={data.siteUrl} target="_blank" rel="noopener noreferrer">{data.siteUrl.replace(/^https?:\/\//, '')}</a> · {tr('Customers order there; turn it on and off at the top of this screen.')}</p>}
+            </fieldset>
+            <fieldset className="dl-fs">
+              <legend>🗓️ {tr('Orders for later')}</legend>
+              <div className="dl-toggles">
+                {[['on', tr('Customers choose a day and a time'), tr('Confirmed, the order goes to the kitchen by itself in time to cook it.')],
+                  ['whenClosed', tr('Also while not taking orders'), tr('Closed now, customers can still order for when you are open.')]].map(([k, label, note]) => (
+                  <button key={k} type="button" role="switch" aria-checked={form.later[k]} disabled={k === 'whenClosed' && !form.later.on} className={'dl-toggle' + (form.later[k] ? ' is-on' : '')}
+                    onClick={() => set({ later: { ...form.later, [k]: !form.later[k] } })}>
+                    <span><strong>{label}</strong><small>{note}</small></span><span className={'ts-switch' + (form.later[k] ? ' is-on' : '')} aria-hidden="true"><i /></span>
+                  </button>
+                ))}
+              </div>
+              {form.later.on && (
+                <div className="dl-form is-3">
+                  <label><span>{tr('First time on offer')}</span><input className="input" type="time" step="900" value={form.later.from} onChange={(e) => set({ later: { ...form.later, from: e.target.value } })} /></label>
+                  <label><span>{tr('Last time on offer')}</span><input className="input" type="time" step="900" value={form.later.to} onChange={(e) => set({ later: { ...form.later, to: e.target.value } })} /></label>
+                  <label><span>{tr('Days ahead')}</span>
+                    <select className="input" value={form.later.days} onChange={(e) => set({ later: { ...form.later, days: Number(e.target.value) } })}>
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{n === 0 ? tr('Today only') : n === 1 ? tr('Today and tomorrow') : tr('{n} days ahead', { n })}</option>)}
+                    </select></label>
+                </div>
+              )}
+              {form.later.on && <p className="dl-hint">{tr('Every 15 minutes from {from} to {to}, at least {m} from when they order, for cooking and the ride.', { from: form.later.from, to: form.later.to, m: minText(form.readyMinutes + 35) })}</p>}
             </fieldset>
             {error && <div className="error-banner" role="alert">{error}</div>}
             <div className="dialog-actions">
