@@ -7,6 +7,8 @@
   --on-bg: #fff7f2; --on-card: #ffffff; --on-ink: #1f2937; --on-muted: #6b7280; --on-line: rgba(31, 41, 55, .1); --on-soft: rgba(239, 68, 68, .06);
   min-height: 100vh; min-height: 100dvh; color: var(--on-ink); background: var(--on-bg); font-family: var(--font-body, 'Archivo', system-ui, sans-serif); padding-bottom: 96px;
 }
+/* Bamboo Garden in its own greens (any of its codes); Star Bar keeps the red and orange. */
+.on-shell[data-brand='BGN'], .on-shell[data-brand='BG1'], .on-shell[data-brand='BG'] { --on-a: #15803d; --on-b: #65a30d; --on-bg: #f4f9f1; --on-soft: rgba(21, 128, 61, .07); }
 :root[data-theme='dark'] .on-shell { --on-bg: #0d1220; --on-card: #151d31; --on-ink: #f1f5f9; --on-muted: #94a3b8; --on-line: rgba(148, 163, 184, .16); --on-soft: rgba(249, 115, 22, .1); }
 .on-shell.is-empty { display: grid; place-items: center; padding: 24px; }
 .on-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 30px; }

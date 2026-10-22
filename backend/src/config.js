@@ -85,6 +85,9 @@ module.exports = {
   // customers order on (restaurantDelivery / restaurantOnline services).
   deliverySiteUrl: (process.env.DELIVERY_SITE_URL || 'https://delivery.starbartema.com').replace(/\/+$/, ''),
   onlineSiteUrl: (process.env.ONLINE_SITE_URL || 'https://online.starbartema.com').replace(/\/+$/, ''),
+  // The restaurant the ordering website opens on (frontend ONLINE_COMPANY);
+  // any other restaurant's menu is that address with ?r=<its code>.
+  onlineSiteCompany: (process.env.ONLINE_SITE_COMPANY || 'SBR').trim().toUpperCase(),
   // The maps on those sites: Google's own map (its Map Tiles API: streets,
   // places, satellite, traffic) with this key — a browser key, limited in
   // Google Cloud to those addresses and to that API. Without it, OpenStreetMap.

@@ -5,6 +5,7 @@
 var LOGO_BY_COMPANY_CODE = {
   SB: '/restaurant-logos/star-bar.png',
   SBR: '/restaurant-logos/star-bar.png',
+  BG: '/restaurant-logos/bamboo-garden.png',
   BG1: '/restaurant-logos/bamboo-garden.png',
   BGN: '/restaurant-logos/bamboo-garden.png'
 };

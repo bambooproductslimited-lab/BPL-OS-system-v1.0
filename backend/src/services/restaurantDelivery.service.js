@@ -50,6 +50,13 @@ function num(v, min, max, dflt) { var n = Number(v); return v === '' || v == nul
 function hash(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
 function newToken() { return crypto.randomBytes(24).toString('base64url'); }
 function pos() { return require('./restaurantPos.service'); }
+function online() { return require('./restaurantOnline.service'); }
+// Where a restaurant's customers order: the ordering website, which opens
+// on one restaurant (config.onlineSiteCompany, by any of its codes); any
+// other restaurant (Bamboo Garden) is the same address with ?r=<its code>.
+function shopUrl(code) {
+  return online().aliasesOf(config.onlineSiteCompany).codes.indexOf(code) >= 0 ? config.onlineSiteUrl : config.onlineSiteUrl + '/?r=' + encodeURIComponent(code);
+}
 
 // A point on the map, or null: { lat, lng } in range.
 function pointOf(lat, lng) {
@@ -129,7 +136,7 @@ async function settings(token, p, ip) {
   }
   var co = (await pool.query('SELECT code, name FROM companies WHERE id = $1', [company])).rows[0];
   return { settings: await settingsOf(company), managerName: m.manager.first_name + ' ' + m.manager.last_name, company: { code: co.code, name: co.name },
-    siteUrl: config.onlineSiteUrl };
+    siteUrl: shopUrl(co.code) };
 }
 // Anyone on the delivery screen turns taking orders online on or off.
 async function setOpen(token, open) {
@@ -291,7 +298,7 @@ async function board(token) {
   var delivered = done.filter(function (d) { return d.status === 'delivered'; });
   var avg = delivered.length ? Math.round(delivered.reduce(function (a, d) { return a + Math.max(0, (new Date(d.endedAt) - new Date(d.createdAt)) / 60000); }, 0) / delivered.length) : null;
   return {
-    company: { code: co.code, name: co.name }, settings: settings, siteUrl: config.onlineSiteUrl,
+    company: { code: co.code, name: co.name }, settings: settings, siteUrl: shopUrl(co.code),
     pending: pending, cooking: waiting.filter(function (w) { return w.stage === 'cooking'; }), ready: waiting.filter(function (w) { return w.stage === 'ready'; }),
     active: active, done: done, turnedDown: turnedDown, riders: await riderList(company),
     totals: { delivered: delivered.length, failed: done.filter(function (d) { return d.status === 'failed'; }).length, averageMinutes: avg,
@@ -590,5 +597,5 @@ async function forOnline(onlineId) {
 module.exports = {
   VEHICLES: VEHICLES, settingsOf: settingsOf, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
   settings: settings, setOpen: setOpen, riders: riders, board: board, send: send, setStatus: setStatus, reassign: reassign,
-  mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
+  shopUrl: shopUrl, mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
 };

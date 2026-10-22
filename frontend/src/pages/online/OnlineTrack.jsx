@@ -35,7 +35,7 @@ const STEPS_DELIVERY = [['waiting', () => tr('Placed')], ['preparing', () => tr(
 const STEPS_PICKUP = [['waiting', () => tr('Placed')], ['preparing', () => tr('Cooking')], ['ready_pickup', () => tr('Ready')], ['collected', () => tr('Collected')]];
 const ORDER = { waiting: 0, preparing: 1, ready: 2, ready_pickup: 2, rider: 2, on_the_way: 3, arrived: 3, delivered: 4, collected: 3 };
 
-export default function OnlineTrack({ token, onMenu }) {
+export default function OnlineTrack({ token, onMenu: toMenu }) {
   const [o, setO] = useState(null);
   const [error, setError] = useState(null);
   const [fetchedAt, setFetchedAt] = useState(0);
@@ -62,6 +62,7 @@ export default function OnlineTrack({ token, onMenu }) {
 
   if (!o) return <div className="on-shell is-empty"><div className="on-empty"><span className="on-spin" aria-hidden="true">🛵</span><strong>{error ? tr('We cannot find that order') : tr('Finding your order…')}</strong>{error && <p>{error}</p>}</div></div>;
   const r = o.restaurant;
+  const onMenu = () => toMenu(r.code); // this restaurant's menu, not the site's first one
   const logo = restaurantLogoUrl(r.code);
   const st = STAGE[o.stage] || STAGE.preparing;
   const here = r.location ? { lat: r.location.lat, lng: r.location.lng } : null;
@@ -93,7 +94,7 @@ export default function OnlineTrack({ token, onMenu }) {
   const routes = way ? [way] : here && home && o.fulfillment === 'delivery' ? [{ id: 'way', points: routePoints(here, home), done: spot ? spot.progress : 0 }] : [];
 
   return (
-    <div className="on-shell on-track">
+    <div className="on-shell on-track" data-brand={r.code}>
       <header className="on-track-top">
         <button type="button" className="on-x is-plain" onClick={onMenu} aria-label={tr('The menu')}>←</button>
         {logo ? <img src={logo} alt="" /> : <span aria-hidden="true">🍽️</span>}

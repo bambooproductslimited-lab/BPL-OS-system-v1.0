@@ -85,6 +85,8 @@ test('a manager sets the delivery settings; who may use the delivery screen', as
   await assert.rejects(delivery.settings(tok.kojo, { settings: { location: { lat: 95, lng: 0 } } }, IP), /place on the map is not right/);
   var s = await delivery.settings(tok.kojo, { settings: { location: { lat: HERE.lat, lng: HERE.lng, address: 'Zqd Road' }, phone: '0200000700', fee: { base: 10, perKm: 3 }, maxKm: 12, readyMinutes: 20 } }, IP);
   assert.deepEqual([s.settings.open, s.settings.location.lat, s.settings.fee.perKm, s.settings.maxKm], [false, HERE.lat, 3, 12]);
+  // Not the restaurant the website opens on: its own menu, by its code.
+  assert.equal(s.siteUrl, 'https://online.starbartema.com/?r=ZQD');
   // The cashier may use the delivery screen; a waiter, a cook may not.
   assert.ok((await delivery.board(tok.desk)).riders);
   await assert.rejects(delivery.board(tok.yaw), /does not send deliveries/);
@@ -98,6 +100,9 @@ test('the website finds its restaurant by any of its codes (Star Bar is SB live,
   assert.match('Star Bar Restaurant', new RegExp(online.aliasesOf('SBR').name, 'i'));
   assert.deepEqual(online.aliasesOf('BGN').codes, ['BGN', 'BG1', 'BG']);
   assert.deepEqual(online.aliasesOf('ZQD'), { codes: ['ZQD'], name: null });
+  // The website opens on Star Bar, by either code; Bamboo Garden's menu is asked for by its own.
+  assert.deepEqual([delivery.shopUrl('SB'), delivery.shopUrl('SBR'), delivery.shopUrl('BG1')],
+    ['https://online.starbartema.com', 'https://online.starbartema.com', 'https://online.starbartema.com/?r=BG1']);
 });
 
 test('the website: the menu, closed or open; an order priced from the menu, the fee by distance; what is refused', async function () {
