@@ -31,6 +31,9 @@ router.get('/delivery/board', h(function (req) { return delivery.board(posToken(
 router.post('/delivery/open', h(function (req) { return delivery.setOpen(posToken(req), body(req).open); }));
 router.post('/delivery/settings', h(function (req) { return delivery.settings(posToken(req), body(req), req.ip); }));
 router.post('/delivery/riders', h(function (req) { return delivery.riders(posToken(req), body(req)); }));
+// What the ordering website sells: dishes and sections switched on or off.
+router.get('/delivery/menu', h(function (req) { return delivery.onlineMenu(posToken(req), {}); }));
+router.post('/delivery/menu', h(function (req) { return delivery.onlineMenu(posToken(req), body(req)); }));
 router.post('/delivery/send', h(function (req) { return delivery.send(posToken(req), body(req)); }));
 router.post('/delivery/online/:id/accept', h(function (req) { return online.accept(posToken(req), req.params.id, body(req)); }));
 router.post('/delivery/online/:id/reject', h(function (req) { return online.reject(posToken(req), req.params.id, body(req)); }));

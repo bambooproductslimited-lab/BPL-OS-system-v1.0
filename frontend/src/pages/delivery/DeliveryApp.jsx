@@ -10,6 +10,7 @@ import DeliveryMap from './DeliveryMap';
 import { ActiveCard, DoneCard, MoneyLine, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
 import { SendDialog, SettingsDialog } from './DlDialogs';
 import RidersPanel from './DlRiders';
+import OnlineMenuDialog from './DlMenu';
 import { money } from '../../lib/currency';
 import { chipOf, kmText, minText, payName, riderSpot, sinceText, statusName, trafficMinutes, vehicleEmoji, vehicleName, wayOf } from './dlShared';
 import '../till/till.css';
@@ -106,6 +107,7 @@ function Desk({ session, onSignOut, themeButton }) {
   const [fitKey, setFitKey] = useState('start');
   const [sending, setSending] = useState(null); // a waiting order to send, or { reassign: delivery }
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false); // what the website sells
   const [toast, setToast] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const seenPending = useRef(null);
@@ -222,6 +224,10 @@ function Desk({ session, onSignOut, themeButton }) {
           <span><strong>{s.open ? tr('Taking orders online') : tr('Online orders paused')}</strong><small>{board.siteUrl.replace(/^https?:\/\//, '')}</small></span>
           <span className={'ts-switch' + (s.open ? ' is-on' : '')} aria-hidden="true"><i /></span>
         </button>
+        <button type="button" className="dl-open dl-menu-btn" onClick={() => setMenuOpen(true)} title={tr('Switch dishes and sections on and off on the website')}>
+          <span aria-hidden="true">🍽️</span>
+          <span><strong>{tr('Website menu')}</strong></span>
+        </button>
         <div className="dl-stats">
           <Stat tone="new" n={counts.new} label={tr('new online')} onClick={() => setTab('new')} />
           <Stat tone="cooking" n={counts.cooking} label={tr('cooking')} onClick={() => setTab('cooking')} />
@@ -297,6 +303,7 @@ function Desk({ session, onSignOut, themeButton }) {
           onClose={() => setSending(null)} onDone={(d, msgText) => { setSending(null); load(); setTab('road'); pick('d:' + d.id); if (msgText) setToast(msgText); }} />
       )}
       {settingsOpen && <SettingsDialog token={token} canSettings={board.can.settings} onClose={() => setSettingsOpen(false)} onSaved={() => { load(); setFitKey('settings' + Date.now()); }} />}
+      {menuOpen && <OnlineMenuDialog token={token} onClose={() => setMenuOpen(false)} onError={setToast} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

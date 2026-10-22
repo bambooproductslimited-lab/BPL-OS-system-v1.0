@@ -114,7 +114,9 @@ export default function OnlineShop({ code, onTrack }) {
 
       <div className="on-body">
         <main className="on-menu">
-          {!shown.length && <div className="on-empty"><span aria-hidden="true">🔎</span><strong>{tr('Nothing called that')}</strong></div>}
+          {!shown.length && (data.items.length
+            ? <div className="on-empty"><span aria-hidden="true">🔎</span><strong>{tr('Nothing called that')}</strong></div>
+            : <div className="on-empty"><span aria-hidden="true">🍽️</span><strong>{tr('Nothing on the menu online right now')}</strong>{r.phone && <p>{tr('Questions? Call {phone}.', { phone: r.phone })}</p>}</div>)}
           {shown.map(([c, list]) => (
             <section key={c} ref={(el) => { sections.current[c] = el; }} className="on-sec">
               <h2>{c || tr('Other')}<small>{list.length}</small></h2>

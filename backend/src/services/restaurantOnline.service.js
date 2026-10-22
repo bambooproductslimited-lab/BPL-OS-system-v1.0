@@ -70,11 +70,19 @@ function shopOut(co) {
   };
 }
 
+// The sections of the menu taken off the website (restaurantDelivery onlineMenu).
+async function categoriesOff(companyId) {
+  return new Set((await pool.query('SELECT category FROM restaurant_online_categories_off WHERE company_id = $1', [companyId])).rows.map(function (r) { return r.category; }));
+}
+
 // GET /api/pos/online/:code/menu — the restaurant and what it sells now:
-// each dish with its photo, sizes, and whether it is sold out.
+// each dish with its photo, sizes, and whether it is sold out — not the
+// dishes or the sections taken off the website.
 async function menu(code) {
   var co = await shopOf(code);
-  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name', [co.id])).rows;
+  var off = await categoriesOff(co.id);
+  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true AND online = true ORDER BY category, name', [co.id])).rows
+    .filter(function (r) { return !off.has(r.category || ''); });
   var vars = rows.length ? (await pool.query('SELECT id, menu_item_id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order, created_at',
     [rows.map(function (r) { return r.id; })])).rows : [];
   var items = rows.map(function (r) {
@@ -134,6 +142,10 @@ async function place(code, p, ip) {
   });
   var priced = await pos().priceLines(pool, co.id, items, false);
   await tillMenu.checkOrder(pool, co.id, priced.lines, null, null);
+  // Not a dish taken off the website since the menu was loaded.
+  var off = await categoriesOff(co.id);
+  var shown = (await pool.query('SELECT id, name, category, online FROM restaurant_menu_items WHERE id = ANY($1::uuid[])', [priced.lines.map(function (l) { return l.menuItemId; })])).rows;
+  shown.forEach(function (m) { if (!m.online || off.has(m.category || '')) fail('invalid', m.name + ' is not on the website right now. Take it out of your basket.'); });
   if (s.minOrder > 0 && priced.subtotal < s.minOrder) fail('invalid', 'The smallest order is ' + s.minOrder.toFixed(2) + ' before delivery.');
   var q = delivery.quote(s, priced.subtotal, point, fulfillment);
   if (!q.deliverable) fail('invalid', 'That is ' + q.distanceKm + ' km away by road: ' + co.name + ' delivers up to ' + s.maxKm + ' km. Pick it up instead?');
@@ -274,4 +286,4 @@ async function reject(token, id, p) {
   return { order: staffOut(o) };
 }
 
-module.exports = { aliasesOf: aliasesOf, menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, staffOut: staffOut, ref: ref };
+module.exports = { categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, place: place, track: track, cancel: cancel, accept: accept, reject: reject, staffOut: staffOut, ref: ref };

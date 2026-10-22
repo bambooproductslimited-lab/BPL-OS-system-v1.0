@@ -27,6 +27,7 @@
 .dl-open small { font-size: 11px; color: var(--dl-muted); }
 .dl-open-dot { width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; }
 .dl-open.is-on { border-color: rgba(16, 185, 129, .5); background: rgba(16, 185, 129, .1); }
+.dl-menu-btn > span:first-child { font-size: 20px; }
 .dl-open.is-on .dl-open-dot { background: #10b981; box-shadow: 0 0 0 0 rgba(16, 185, 129, .6); animation: dl-beat 1.8s ease-out infinite; }
 
 .dl-stats { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; justify-content: center; }
@@ -333,3 +334,34 @@
   .dl-riders-pick { grid-template-columns: minmax(0, 1fr); }
   .dl-legend { display: none; }
 }
+
+/* What the website sells (DlMenu.jsx): sections and dishes, switched on and off. */
+.dialog.dl-menu { width: min(760px, calc(100vw - 32px)); }
+.dl-send-ico.is-menu { background: linear-gradient(135deg, #fb923c, #ef4444); }
+.dl-menu-tools { display: flex; gap: 8px; }
+.dl-menu-tools .input { flex: 1; min-width: 0; }
+.dl-menu-list { display: flex; flex-direction: column; gap: 10px; max-height: min(60vh, 620px); overflow-y: auto; padding-right: 2px; }
+.dl-menu-sec { flex: none; border-radius: 16px; border: 1px solid var(--dl-line); background: var(--dl-card); overflow: hidden; }
+.dl-menu-sec > header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--dl-soft); }
+.dl-menu-sec > header > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dl-menu-sec > header strong { font-family: var(--font-heading); font-size: 15px; }
+.dl-menu-sec > header small { font-size: 12px; color: var(--dl-muted); }
+.dl-menu-sec.is-off > header { background: rgba(220, 38, 38, .07); }
+.dl-menu-sec ul { margin: 0; }
+.dl-menu-sec li { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--dl-line); }
+.dl-menu-sec li img, .dl-menu-ph { width: 38px; height: 38px; border-radius: 10px; object-fit: cover; }
+.dl-menu-ph { display: grid; place-items: center; font-weight: 800; color: #fff; background: linear-gradient(135deg, #fb923c, #f43f5e); }
+.dl-menu-name { display: flex; flex-direction: column; min-width: 0; }
+.dl-menu-name b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-menu-name small { font-size: 12px; color: var(--dl-muted); }
+.dl-menu-sec li.is-off img, .dl-menu-sec li.is-off .dl-menu-ph, .dl-menu-sec li.is-off .dl-menu-name { opacity: .45; filter: grayscale(.8); }
+.dl-sw { display: inline-flex; align-items: center; gap: 6px; padding: 0; font: inherit; color: var(--dl-muted); border: 0; background: none; cursor: pointer; }
+.dl-sw em { min-width: 24px; font-style: normal; font-size: 12px; font-weight: 800; }
+.dl-sw.is-on em { color: #059669; }
+.dl-sw:disabled { opacity: .5; cursor: wait; }
+:root[data-theme='dark'] .dl-sw.is-on em { color: #34d399; }
+/* The switch pill (as TillSettings.css draws it, which this site does not load). */
+.dl-shell .ts-switch, .dl-send .ts-switch { flex: none; position: relative; display: inline-block; width: 44px; height: 26px; border-radius: 999px; background: rgba(100, 116, 139, .35); transition: background .15s ease; }
+.dl-shell .ts-switch i, .dl-send .ts-switch i { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .3); transition: transform .15s ease; }
+.dl-shell .ts-switch.is-on, .dl-send .ts-switch.is-on { background: linear-gradient(135deg, #10b981, #059669); }
+.dl-shell .ts-switch.is-on i, .dl-send .ts-switch.is-on i { transform: translateX(18px); }

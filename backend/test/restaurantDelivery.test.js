@@ -25,7 +25,7 @@ var company, people = {}, rice, juice, tok = {};
 async function cleanup() {
   var cos = (await pool.query("SELECT id FROM companies WHERE code = 'ZQD'")).rows.map(function (r) { return r.id; });
   if (cos.length) {
-    for (var q of ['DELETE FROM restaurant_disputes WHERE company_id = ANY($1)', 'DELETE FROM restaurant_deliveries WHERE company_id = ANY($1)', 'DELETE FROM restaurant_online_orders WHERE company_id = ANY($1)',
+    for (var q of ['DELETE FROM restaurant_online_categories_off WHERE company_id = ANY($1)', 'DELETE FROM restaurant_disputes WHERE company_id = ANY($1)', 'DELETE FROM restaurant_deliveries WHERE company_id = ANY($1)', 'DELETE FROM restaurant_online_orders WHERE company_id = ANY($1)',
       'DELETE FROM restaurant_riders WHERE company_id = ANY($1)', 'DELETE FROM restaurant_delivery_settings WHERE company_id = ANY($1)',
       'DELETE FROM restaurant_kitchen_tickets WHERE company_id = ANY($1)', 'DELETE FROM restaurant_open_tabs WHERE company_id = ANY($1)',
       'DELETE FROM restaurant_order_payments WHERE order_id IN (SELECT id FROM restaurant_orders WHERE company_id = ANY($1))',
@@ -418,4 +418,26 @@ test('the money back from a rider: the cashier counts it in on the till; short, 
   await assert.rejects(delivery.handIn(tok.ama, d3.id, {}), /no money to hand in/);
   var link3 = d3.riderLink.split('/r/')[1];
   assert.equal((await delivery.riderStatus(link3, { status: 'delivered' })).money.state, 'none');
+});
+
+test('the website menu: a dish or a whole section switched off is not shown or sold online; the till still sells it', async function () {
+  var names = function (m) { return m.items.map(function (i) { return i.name; }).sort(); };
+  assert.deepEqual(names(await online.menu('ZQD')), ['Zqd jollof', 'Zqd sobolo']);
+  await assert.rejects(delivery.onlineMenu(tok.yaw, {}), /does not send deliveries/);
+  // A dish off.
+  var m = await delivery.onlineMenu(tok.desk, { itemId: juice, on: false });
+  assert.deepEqual([m.totals.dishes, m.totals.onWebsite], [2, 1]);
+  assert.equal(m.categories.find(function (c) { return c.name === 'Zqd Drinks'; }).items[0].on, false);
+  assert.deepEqual(names(await online.menu('ZQD')), ['Zqd jollof']);
+  await assert.rejects(online.place('ZQD', order({ phone: '0200000770', items: [{ menuItemId: juice, qty: 1 }] }), '10.9.7.70'), /Zqd sobolo is not on the website right now/);
+  // A whole section off, then everything back on.
+  m = await delivery.onlineMenu(tok.desk, { category: 'Zqd Mains', on: false });
+  assert.deepEqual([m.categories.find(function (c) { return c.name === 'Zqd Mains'; }).on, m.totals.onWebsite], [false, 0]);
+  assert.deepEqual(names(await online.menu('ZQD')), []);
+  await assert.rejects(delivery.onlineMenu(tok.desk, { category: 'Zqd Nothing', on: false }), /no section called Zqd Nothing/);
+  m = await delivery.onlineMenu(tok.desk, { allOn: true });
+  assert.equal(m.totals.onWebsite, 2);
+  assert.deepEqual(names(await online.menu('ZQD')), ['Zqd jollof', 'Zqd sobolo']);
+  var log = (await pool.query("SELECT summary FROM restaurant_activity WHERE company_id = $1 AND action = 'delivery.menu' ORDER BY at, id", [company.id])).rows.map(function (r) { return r.summary; });
+  assert.deepEqual(log, ['Website: Zqd sobolo taken off the website.', 'Website: The Zqd Mains section taken off the website.', 'Website: The whole menu back on the website.']);
 });

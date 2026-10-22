@@ -553,6 +553,54 @@ async function recordHandIn(client, session, d, h, orderId) {
   }
 }
 
+// GET/POST /api/pos/delivery/menu — what the ordering website sells: each
+// section of the menu and its dishes, switched on or off. Off, the website
+// does not show it (restaurantOnline menu, and refuses it in an order);
+// the till still sells it. { itemId, on } switches a dish, { category, on }
+// a whole section, { allOn: true } everything back on.
+async function onlineMenu(token, p) {
+  var session = await access.need(token, 'delivery');
+  var company = session.posCompanyId;
+  p = p || {};
+  var said = null;
+  if (p.itemId) {
+    var it = (await pool.query('UPDATE restaurant_menu_items SET online = $3, updated_at = now() WHERE id = $1 AND company_id = $2 AND active = true RETURNING name', [p.itemId, company, p.on !== false])).rows[0];
+    if (!it) fail('notfound', 'That dish is not on this restaurant\'s menu.');
+    said = it.name + (p.on !== false ? ' back on the website.' : ' taken off the website.');
+  } else if (typeof p.category === 'string') {
+    var cat = p.category.slice(0, 120);
+    if (p.on !== false) await pool.query('DELETE FROM restaurant_online_categories_off WHERE company_id = $1 AND category = $2', [company, cat]);
+    else {
+      var known = (await pool.query('SELECT 1 FROM restaurant_menu_items WHERE company_id = $1 AND active = true AND coalesce(category, \'\') = $2 LIMIT 1', [company, cat])).rows[0];
+      if (!known) fail('notfound', 'There is no section called ' + (cat || 'Other') + ' on the menu.');
+      await pool.query('INSERT INTO restaurant_online_categories_off (company_id, category, updated_by) VALUES ($1, $2, $3) ON CONFLICT (company_id, category) DO UPDATE SET updated_by = EXCLUDED.updated_by, updated_at = now()',
+        [company, cat, session.posEmployeeId]);
+    }
+    said = 'The ' + (cat || 'Other') + ' section' + (p.on !== false ? ' back on the website.' : ' taken off the website.');
+  } else if (p.allOn === true) {
+    await pool.query('UPDATE restaurant_menu_items SET online = true, updated_at = now() WHERE company_id = $1 AND online = false', [company]);
+    await pool.query('DELETE FROM restaurant_online_categories_off WHERE company_id = $1', [company]);
+    said = 'The whole menu back on the website.';
+  }
+  if (said) await activity.log(pool, { companyId: company, employeeId: session.posEmployeeId, app: 'delivery', action: 'delivery.menu', summary: 'Website: ' + said });
+
+  var off = await online().categoriesOff(company);
+  var rows = (await pool.query('SELECT id, name, category, price, online, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name', [company])).rows;
+  var items = rows.map(function (r) {
+    return { id: r.id, name: r.name, category: r.category || '', price: Number(r.price), on: r.online, photoUrl: require('./restaurant.service').menuThumbUrl(r.id, r.photo_object_key) };
+  });
+  await require('./restaurantTillMenu.service').tileStock(company, items);
+  items.forEach(function (i) { i.soldOut = !!(i.stock && i.stock.soldOut); delete i.stock; });
+  var categories = [];
+  items.forEach(function (i) {
+    var c = categories.find(function (x) { return x.name === i.category; });
+    if (!c) categories.push(c = { name: i.category, on: !off.has(i.category), items: [] });
+    c.items.push(i);
+  });
+  var shown = items.filter(function (i) { return i.on && !off.has(i.category); }).length;
+  return { categories: categories, totals: { dishes: items.length, onWebsite: shown } };
+}
+
 // ── the rider's link (no sign-in: the link is the key) ──
 
 async function byRiderToken(client, raw, lock) {
@@ -705,5 +753,5 @@ async function forOnline(onlineId) {
 module.exports = {
   VEHICLES: VEHICLES, settingsOf: settingsOf, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
   settings: settings, setOpen: setOpen, riders: riders, board: board, send: send, setStatus: setStatus, reassign: reassign,
-  handIn: handIn, recordHandIn: recordHandIn, shopUrl: shopUrl, mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
+  onlineMenu: onlineMenu, handIn: handIn, recordHandIn: recordHandIn, shopUrl: shopUrl, mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
 };
